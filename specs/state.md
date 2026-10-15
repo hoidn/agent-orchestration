@@ -400,10 +400,10 @@ or a non-next ordinal; `committed` and `failed` require the matching pending
 commit of either class with that identity and attempt; an invalidation
 anchor must be an active commit and its suffix must contain no coordinator
 commit; an `agent_turn` `started` requires an active allocation (`agent`)
-commit; an `agent_turn` proof's predecessor must be the same agent's latest
+commit and no pending earlier attempt of that turn; an `agent_turn` proof's predecessor must be the same agent's latest
 active committed turn; an invalidation anchor at or before a pending agent
 turn attempt, or one closed `failed` with `agent_bootstrap_restarted`,
-`agent_turn_result_invalid` or a first-turn `provider_result_invalid`, is
+`agent_turn_result_invalid` or `provider_result_invalid`, is
 `memo_inconsistent` (these journal-only agent guards live in
 `memo_reducer_agents.py`; receipt-based guards are applied by the
 `invalidate` write preflight and by resume, never by the reducer); a terminal must leave no pending attempt or unsettled coordinator,

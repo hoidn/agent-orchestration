@@ -103,11 +103,24 @@ def test_predecessor_must_be_the_same_agents_latest_turn(tmp_path: Path) -> None
         read_memo(path, sites)
 
 
-def test_turn_start_requires_an_active_allocation(tmp_path: Path) -> None:
+@pytest.mark.parametrize("rows", [
+    [_started(TURN)],
+    [_started(ALLOC), _alloc_commit(), _started(TURN), _started(TURN, 2)],
+], ids=["no-allocation", "pending-earlier-attempt"])
+def test_turn_start_requires_an_active_allocation_and_no_pending_attempt(tmp_path: Path, rows) -> None:
     path = tmp_path / "memo.jsonl"
-    _write(path, _started(TURN))
+    _write(path, *rows)
     with pytest.raises(MemoError, match="memo_inconsistent"):
         read_memo(path, SITES)
+
+
+def test_bootstrap_restart_closes_the_attempt_before_the_next_ordinal(tmp_path: Path) -> None:
+    path = tmp_path / "memo.jsonl"
+    _write(path, _started(ALLOC), _alloc_commit(), _started(TURN),
+           {"record": "failed", "identity": TURN, "attempt": 1, "code": "agent_bootstrap_restarted",
+            "exit_info": {"abandoned_attempt": 1, "locator": "x"}},
+           _started(TURN, 2))
+    assert read_memo(path, SITES).pending_starts[TURN].data["attempt"] == 2
 
 
 @pytest.mark.parametrize("closing", [
@@ -144,7 +157,7 @@ def test_invalidation_cut_over_an_undispatched_agent_failure_is_admitted(tmp_pat
     path = tmp_path / "memo.jsonl"
     cmd_commit = _committed(CMD, value="x", effect_class="command")
     raw = _write(path, _started(ALLOC), _alloc_commit(), _started(CMD), cmd_commit, _started(TURN),
-                 {"record": "failed", "identity": TURN, "attempt": 1, "code": "provider_timeout", "exit_info": {}})
+                 {"record": "failed", "identity": TURN, "attempt": 1, "code": "effect_attempt_path_exists", "exit_info": {"errno": 17}})
     with path.open("ab") as stream:
         stream.write(_line({"record": "invalidated", "from_commit": raw.index(_line(cmd_commit)), "time": 1.0}))
     assert set(read_memo(path, sites).active_commits) == {ALLOC}

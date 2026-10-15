@@ -16,9 +16,11 @@ _PROOF_FIELDS = {"adapter", "locator", "position", "predecessor", "agent", "conf
 
 
 def check_started(reducer, identity: str, kind: str) -> None:
-    """An `agent_turn` start requires an active allocation commit of class `agent`."""
+    """An `agent_turn` start requires an active allocation commit and no pending earlier attempt of the turn."""
     if kind != "agent_turn":
         return
+    if identity in reducer.pending:
+        raise reducer.inconsistent(f"agent turn {identity} starts a new attempt while an earlier attempt is still pending")
     if not any(commit.data["effect_class"] == "agent" for commit in reducer.active.values()):
         raise reducer.inconsistent(f"agent turn {identity} started without an active allocation commit")
 
