@@ -11,7 +11,8 @@ criterion frozen before scoring.
 | `repos.py`, `scan.py`, `pool.py` | candidate builds and patches; the contamination scan; the blind pool and its check |
 | `shim/claude`, `shim/codex` | first on `PATH` during a run and a judge's scoring; run the real CLI under bubblewrap (private `/tmp`, `/dev/shm` and process list) with the bookkeeping variables stripped; record `calls/<n>/` |
 | `control/direct_task.orc` | the control: the library `direct_task` plus `:timeout-sec 14400`; module `control/direct_task` |
-| `control/direct_task.providers.json`, `providers/design_review_execute.json` | bindings for the control and the E-B treatment |
+| `control/review_once.orc` | one review of a given patch (difficulty calibration): `reviewed_change`'s `review-prompt`, `Review` and `ReviewReport`, copied, and its reviewer's binding; module `control/review_once` |
+| `control/direct_task.providers.json`, `control/review_once.providers.json`, `providers/design_review_execute.json` | bindings for the control, the review-only arm and the E-B treatment |
 | `score.orc`, `score.providers.json`, `providers/score_codex.json` | blind side-by-side ratings; a Claude and an OpenAI judge binding |
 | `summarize.py` | `results.json` and `results.md`: runs, measures, verdict, agreement, anchors, scan verdicts |
 | `criterion.template.json` | the fields to freeze, and hash, before scoring |
@@ -93,6 +94,8 @@ PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
      --set planner_model=claude-fable-5-1 --set reviewer_model=gpt-6.1-sol
    $PY $H/prepare.py run --task $T --arm direct_task --root $W --runtime $RT \
      --set model=gpt-6-sol --set effort=high
+   $PY $H/prepare.py run --task $T --arm review_once --root $W --runtime $RT \
+     --apply $W/records/direct_task/run-<k>/collected/final.diff
    ```
 
    | arm | inputs | working directory of the command |
@@ -101,6 +104,12 @@ PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
    | `reviewed_change` | `task`, `intent`, `repo` (the tree's absolute `cand-1`) | the tree's `cand-1` |
    | `design_review_execute` | `task`, `planner_model`, `reviewer_model` | the tree's `cand-1` |
    | `direct_task` | `task`, `model`, `effort` | the tree's `cand-1` |
+   | `review_once` | `repo` (the tree's absolute `cand-1`), `intent`, `account` (fixed: "No account was provided."), `replies` (fixed: "none") | the tree's `cand-1` |
+
+   `review_once` takes `--apply` (no other arm does): a collected `final.diff` of the same task
+   package, applied unstripped with `git apply` onto the seeded candidate and left uncommitted, so
+   the reviewer sees it as the uncommitted changes. A patch that does not apply is refused and
+   leaves no run behind. `record.json` names the patch and its SHA-256 under `applied`.
 
    The command runs `python -P`, so a candidate's own `orchestrator/` cannot shadow `PYTHONPATH=$RT`.
    It puts `$H/shim` first on `PATH` and sets `COMPARE_ROOT=R`, `COMPARE_TREE` (the tree),
@@ -130,7 +139,10 @@ PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
 3. **Collect** pairs the memo's provider starts with `R/calls/<n>/` one to one. It copies the
    patches the comparator needs into `R/collected/`: every candidate for `best_of_n`, first and
    final for `reviewed_change`, final otherwise. A failed run is recorded with its reason and no
-   patch.
+   patch. For `review_once` it also records the review (`variant`, `findings`, the whole `review`),
+   its `blockers` (see Measures) and `candidate_changed`: whether the final patch differs, byte for
+   byte, from the applied one. The reviewer may change only ignored files (its report under
+   `artifacts/`, its result under `.orchestrate/`), so `true` means it edited the candidate.
 
    ```bash
    $PY $H/prepare.py collect --run $R
@@ -232,3 +244,7 @@ value is its selected candidate (`best_of_n`) or its final patch. Measures per a
 
 A criterion entry is `{"measure", "op", "value"}`, with `op` one of `>=`, `<=`, `>` or `<`.
 Failed and excluded runs are listed and carry no value.
+
+`review_once` is not pooled or scored. `collect` records its `blockers`, the review blockers of
+one patch: `REQUEST_CHANGES` counts its findings as the reviewer returned them, `WRONG_APPROACH`
+counts 1, and `APPROVE` and `NEEDS_HUMAN` count 0 (`NEEDS_HUMAN` shows in `variant`).

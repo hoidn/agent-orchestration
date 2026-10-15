@@ -45,6 +45,7 @@ def test_seed_files_are_committed_and_the_seeded_commit_is_compare_base(world):
     ("reviewed_change", {"task", "intent", "repo"}),
     ("design_review_execute", {"task", "planner_model", "reviewer_model"}),
     ("direct_task", {"task", "model", "effort"}),
+    ("review_once", {"repo", "intent", "account", "replies"}),
 ])
 def test_inputs_hold_the_arms_typed_fields(world, arm, fields):
     records, _ = start(world, arm)

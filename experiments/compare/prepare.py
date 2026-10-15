@@ -1,6 +1,6 @@
 """Comparison harness: candidates, run commands, collection, adjudicated contamination scan, scoring pool.
 
-  prepare.py run --task T --arm A --root W --runtime RT [--candidates N] [--set NAME=VALUE ...]
+  prepare.py run --task T --arm A --root W --runtime RT [--candidates N] [--set NAME=VALUE ...] [--apply PATCH]
   prepare.py collect --run R
   prepare.py scan --run R --hash SOLUTION_COMMIT
   prepare.py scan --run R --verdict contaminated|cleared --reason TEXT
@@ -13,11 +13,13 @@ command.sh, resume.sh, calls/<n>/ from the shims, collected/<label>.diff) and th
 W/agents/<16 hex>/ (cand-<k>/ and tmp/). The orchestrator keeps the run's state in its default root
 <cwd>/.orchestrate/runs (cwd: cand-1), so the result path each provider prompt names lies inside the
 agent's workspace (R34; ignored by the task bases' .gitignore). best_of_n's cwd is the tree, its state
-is <tree>/.orchestrate/best-of-n-runs, linked from every candidate's .orchestrate/ (R37).
+is <tree>/.orchestrate/best-of-n-runs, linked from every candidate's .orchestrate/ (R37). review_once
+reviews a given patch (--apply, a collected R/collected/final.diff), applied uncommitted to its candidate.
 Neither W nor the runtime may lie under the main checkout's path prefix, and `run` and `pool` refuse a
 runtime with uncommitted changes to tracked files; record.json and mapping.json name its runtime_commit.
-`collect` adds the outcome, call count, wall clock and patches to record.json; `scan` adds the hits and
-the controller's verdict. `pool` creates P/clones/<id>/ (what judges read; P/clones is not listable),
+`collect` adds the outcome, call count, wall clock and patches to record.json (for review_once also the
+review's blocker count and whether the reviewer changed the candidate); `scan` adds the hits and the
+controller's verdict. `pool` creates P/clones/<id>/ (what judges read; P/clones is not listable),
 P/judges/<16 hex>/ (one working and state directory per judge) and P/records/ (mapping.json,
 patches/<id>.diff, score-inputs-<judge>.json, score-<judge>.sh, resume-<judge>.sh, judges/<judge>/
 with the judge's calls and scan.json, later results.json and results.md).
@@ -61,7 +63,14 @@ ARMS = {
     "direct_task": ("experiments/compare/control/direct_task.orc", "control/direct_task::direct-task",
                     "experiments/compare", "experiments/compare/control/direct_task.providers.json",
                     ("task", "model", "effort")),
+    "review_once": ("experiments/compare/control/review_once.orc", "control/review_once::review-once",
+                    "experiments/compare", "experiments/compare/control/review_once.providers.json",
+                    ("repo", "intent", "account", "replies")),
 }
+
+# review_once's fixed inputs, frozen in the calibration criterion
+REVIEW_ONCE_ACCOUNT = "No account was provided."
+REVIEW_ONCE_REPLIES = "none"
 
 # best_of_n's state directory, also linked from every candidate's .orchestrate/ so the workspace-relative
 # result path resolves from the tree and from cand-k alike; an agent's own runs in cand-k stay in its runs/.
@@ -82,7 +91,8 @@ def arm_inputs(task, arm, candidates, sets):
     fields = ARMS[arm][4]
     extra = dict(item.split("=", 1) for item in sets)
     values = {"task": (task / "task.txt").read_text(), "intent": (task / "intent.txt").read_text(),
-              "repos": [str(c) for c in candidates], "repo": str(candidates[0]), **extra}
+              "repos": [str(c) for c in candidates], "repo": str(candidates[0]),
+              "account": REVIEW_ONCE_ACCOUNT, "replies": REVIEW_ONCE_REPLIES, **extra}
     missing, unknown = [f for f in fields if f not in values], sorted(set(extra) - set(fields))
     if missing or unknown:
         raise SystemExit(f"{arm} takes {', '.join(fields)}: missing {missing}, not taken {unknown}")
@@ -106,11 +116,33 @@ def link_best_of_n_state(tree, cands):
     return tree / ".orchestrate" / BEST_OF_N_STATE
 
 
-def run_arm(task, arm, root, runtime, candidates=None, sets=()):
+def patch_to_review(arm, apply):
+    """review_once's --apply patch as an absolute path; refuse one for any other arm, and none for review_once."""
+    if (arm == "review_once") != (apply is not None):
+        raise SystemExit("review_once takes --apply <patch>, and no other arm does")
+    return apply and Path(apply).resolve()
+
+
+def apply_patch(records, tree, cand, patch):
+    """Apply review_once's patch, unstripped and uncommitted, to its seeded candidate; return record.json's
+    `applied` entry (the patch's path and hash), or nothing without a patch. A patch that does not apply
+    leaves no run behind."""
+    if not patch:
+        return {}
+    done = subprocess.run(["git", "-C", str(cand), "apply", "--binary", str(patch)], capture_output=True, text=True)
+    if done.returncode:
+        shutil.rmtree(tree)
+        records.rmdir()
+        raise SystemExit(f"{patch} does not apply to the seeded candidate: {done.stderr.strip()}")
+    return {"applied": {"path": str(patch), "sha256": sha256_file(patch)}}
+
+
+def run_arm(task, arm, root, runtime, candidates=None, sets=(), apply=None):
     """Build the run's agents' tree and records directory, print the command; return the records directory."""
     count = candidates or (4 if arm == "best_of_n" else 1)
     if arm != "best_of_n" and count != 1:
         raise SystemExit(f"{arm} works in a single candidate, not {count}")
+    patch = patch_to_review(arm, apply)
     task, runtime, root = task.resolve(), runtime.resolve(), root.resolve()
     main = main_checkout(runtime)
     guard(main, root, runtime)
@@ -127,6 +159,7 @@ def run_arm(task, arm, root, runtime, candidates=None, sets=()):
         raise SystemExit(f"candidates disagree on the seeded commit: {sorted(seeded)}")
     compare_base = seeded.pop()
     require_ignored_state(cands)
+    applied = apply_patch(records, tree, cands[0], patch)
     (tree / "tmp").mkdir()
     dump(records / "inputs.json", arm_inputs(task, arm, cands, sets))
     cwd, state = (tree, link_best_of_n_state(tree, cands)) if arm == "best_of_n" else (cands[0], None)
@@ -144,6 +177,7 @@ def run_arm(task, arm, root, runtime, candidates=None, sets=()):
         "base": base, "compare_base": compare_base, "records": str(records), "tree": str(tree),
         "candidates": [str(c) for c in cands], "cwd": str(cwd),
         "state_root": str(state or cwd / ".orchestrate" / "runs"), "command": command, "created_at": time.time(),
+        **applied,
     })
     print(f"{command}\n# resume after a stop: bash {records / 'resume.sh'} <run_id>")
     return records
@@ -175,14 +209,25 @@ def comparator_patches(arm, committed, names):
     return {"final": (committed[-1], names[0])}
 
 
+def blockers(review):
+    """Review blockers of one review_once call (calibration criterion): REQUEST_CHANGES counts its findings as
+    returned, WRONG_APPROACH 1, APPROVE and NEEDS_HUMAN 0 (NEEDS_HUMAN shows in the recorded variant)."""
+    if review["variant"] == "REQUEST_CHANGES":
+        return len(review["findings"])
+    return int(review["variant"] == "WRONG_APPROACH")
+
+
 def outcome_of(record, terminal, names):
-    """outcome, failure, best_of_n's selected candidate and reviewed_change's variant from the terminal row."""
+    """outcome, failure, best_of_n's selected candidate, the variant of reviewed_change and review_once, and
+    review_once's blockers, findings and whole review, from the terminal row."""
     out = {"outcome": terminal["outcome"], "failure": None, "selected": None, "variant": None}
     if terminal["outcome"] != "completed":
         return out | {"failure": {"code": terminal.get("code"), "message": terminal.get("message")}}
     value = terminal["value"]
-    if record["arm"] == "reviewed_change":
+    if record["arm"] in ("reviewed_change", "review_once"):
         out["variant"] = value["variant"]
+    if record["arm"] == "review_once":
+        out |= {"blockers": blockers(value), "findings": value.get("findings", []), "review": value}
     if record["arm"] == "best_of_n":
         out["selected"] = next((n for n, c in zip(names, record["candidates"]) if value["winner"] in (c, n)), None)
         if out["selected"] is None:
@@ -225,6 +270,9 @@ def collect(records):
                   wall_clock_sec=memo.stat().st_mtime - first_start)  # until the memo's last write
     if record["outcome"] == "completed":
         record["patches"] = copy_patches(records, comparator_patches(record["arm"], committed, names))
+    if record["arm"] == "review_once" and record["patches"]:  # the reviewer may change only ignored files
+        # ponytail: byte comparison; a hand-written --apply patch (no `index` lines) reads as changed
+        record["candidate_changed"] = sha256_file(records / record["patches"]["final"]) != record["applied"]["sha256"]
     dump(records / "record.json", record)
     return record
 
@@ -275,6 +323,7 @@ def parser():
     run.add_argument("--arm", choices=ARMS, required=True)
     run.add_argument("--candidates", type=int)
     run.add_argument("--set", action="append", default=[], metavar="NAME=VALUE", help="other typed input")
+    run.add_argument("--apply", type=Path, help="review_once: the patch to review (a collected final.diff)")
     sub.add_parser("collect").add_argument("--run", type=Path, required=True, help="records directory")
     scan_cmd = sub.add_parser("scan", help="a run (--run R) or a pool's judge (--pool P --judge MODEL)")
     scan_cmd.add_argument("--run", type=Path, help="records directory")
@@ -296,7 +345,7 @@ def parser():
 def main(argv=None):
     a = parser().parse_args(argv)
     if a.command == "run":
-        run_arm(a.task, a.arm, a.root, a.runtime, a.candidates, a.set)
+        run_arm(a.task, a.arm, a.root, a.runtime, a.candidates, a.set, a.apply)
     elif a.command == "collect":
         print(json.dumps(collect(a.run), indent=2))
     elif a.command == "scan":

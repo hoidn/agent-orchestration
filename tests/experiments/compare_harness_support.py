@@ -117,10 +117,11 @@ def world(tmp_path):
     shutil.rmtree(outside)
 
 
-def start(world, arm, candidates=None, sets=(), task=None, root=None):
+def start(world, arm, candidates=None, sets=(), task=None, root=None, apply=None):
     sets = sets or {"design_review_execute": ("planner_model=p", "reviewer_model=r"),
                     "direct_task": ("model=m", "effort=high")}.get(arm, ())
-    records = prepare.run_arm(task or world.task, arm, root or world.root, world.runtime, candidates, sets)
+    apply = apply or (world.task / "anchors" / "upstream.diff" if arm == "review_once" else None)
+    records = prepare.run_arm(task or world.task, arm, root or world.root, world.runtime, candidates, sets, apply)
     return records, json.loads((records / "record.json").read_text())
 
 
@@ -148,9 +149,9 @@ def write_memo(record, prompts, value, outcome="completed", run_id="r1"):
     memo.write_text("".join(json.dumps(row) + "\n" for row in [*rows, terminal]))
 
 
-def drive(world, arm, scripts, value, candidates=None, task=None, outcome="completed", verdict=None):
+def drive(world, arm, scripts, value, candidates=None, task=None, outcome="completed", verdict=None, apply=None):
     """Start a run, make each call through the shim, write its memo, collect and scan it."""
-    records, record = start(world, arm, candidates, task=task)
+    records, record = start(world, arm, candidates, task=task, apply=apply)
     for script in scripts:
         assert call(world, record, script).returncode == 0
     write_memo(record, scripts, value(record) if callable(value) else value, outcome)
