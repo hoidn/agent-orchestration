@@ -173,7 +173,7 @@ def test_a_fifo_stdout_is_refused_promptly_without_hanging_the_broker(launch):
         signal.signal(signal.SIGALRM, previous)
 
     assert (outcome.holder_death, time.monotonic() - started < 2, populated(holder.scope)) == (
-        HolderDeath(ESCAPE, "result read refused: /result/fifo/stdout is not a regular file"), True, False)
+        HolderDeath(ESCAPE, "result_read_refused"), True, False)
 
 
 def test_a_pre_created_later_result_entry_never_reaches_its_leaf(launch):

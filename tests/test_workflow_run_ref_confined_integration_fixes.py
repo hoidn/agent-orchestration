@@ -412,7 +412,7 @@ def test_snapshot_directory_existence_does_not_invent_descendants_or_cross_files
         files.exists('regular/forged')
 
 
-def test_checkpoint_refreeze_failure_preserves_the_original_code_and_repair_detail(world, monkeypatch):
+def test_checkpoint_refreeze_failure_preserves_original_code_and_closed_repair_category(world, monkeypatch):
     session, admission, _ = _session(world, monkeypatch)
     session.holder = SimpleNamespace(stop=lambda: None)
     monkeypatch.setattr(session, '_helper', lambda *_: ('run_ref_environment_escape_rejected', 'copy refused'))
@@ -425,7 +425,8 @@ def test_checkpoint_refreeze_failure_preserves_the_original_code_and_repair_deta
         with pytest.raises(Exception) as caught:
             session._checkpoint('effect-attempt-1')
         assert caught.value.code == 'run_ref_environment_escape_rejected'
-        assert 'repair unavailable' in str(caught.value)
+        assert 'checkpoint_refreeze_failed' in str(caught.value)
+        assert 'repair unavailable' not in str(caught.value)
     finally:
         session.stop()
         admission.close()

@@ -539,3 +539,29 @@ def test_nonzero_exit_carries_truncation_flags_in_exit_info(owners, image) -> No
     assert excinfo.value.exit_info == {"exit_code": 3, "error": None,
                                        "stdout_truncated": False, "stderr_truncated": True}
     assert _streams(owners)["stderr_truncated"] is True
+
+
+@pytest.mark.parametrize('source', ['binding','argv','image','snapshot'])
+def test_confined_dispatch_diagnostics_do_not_interpolate_guest_data(tmp_path,image,source):
+    from orchestrator.workflow.evaluated import confined_dispatch as m
+    from orchestrator.workflow.workspace_files import WorkspaceFiles
+    needle='fictional-capability-copied-into-guest-name'
+    clone=tmp_path/'clone';clone.mkdir()
+    (clone/needle).write_bytes(b'guest bytes')
+    files=WorkspaceFiles(clone)
+    try:
+        with pytest.raises(m.ConfinedDispatchRefusal) as caught:
+            if source=='binding':
+                m.bind_clone_inputs([('argument-1',needle)],files,max_bytes=0)
+            elif source=='argv':
+                m.require_confinable({'class':'command','command':['./'+needle]}, {})
+            elif source=='image':
+                m._image_row(image,'/usr/bin/'+needle)
+            else:
+                m.verify_attempt_snapshot(files,{'clone-file:argument-1:'+needle:'sha256:'+'a'*64})
+        if needle in caught.value.detail or needle in str(caught.value):
+            pytest.fail('guest_data_in_runtime_diagnostic',pytrace=False)
+        assert caught.value.code in {m.BUDGET_EXHAUSTED,m.EFFECT_UNSUPPORTED,m.EVIDENCE_INVALID}
+        assert (clone/needle).read_bytes()==b'guest bytes'
+    finally:
+        files.close()

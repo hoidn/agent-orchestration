@@ -61,7 +61,7 @@ def test_guest_caused_result_entries_are_escape_rejected_not_host_errors(launch,
     holder = launch()
     outcome = holder.run_leaf(leaf("p", GUEST_ENTRIES[entry]))
 
-    assert (outcome.holder_death.code, outcome.holder_death.detail.startswith("result read refused"),
+    assert (outcome.holder_death.code, outcome.holder_death.detail == "result_read_refused",
             populated(holder.scope)) == (ESCAPE, True, False), outcome
 
 
@@ -99,7 +99,7 @@ def test_a_launch_refused_before_release_is_unavailable_and_leaves_no_scope(seal
     assert (refused.value.code, holder.scope is not None and populated(holder.scope)) == (UNAVAILABLE, False)
 
 
-def test_a_holder_that_never_becomes_ready_is_unavailable_and_leaves_no_scope(sealed_image, tmp_path):
+def test_a_holder_exiting_after_release_before_ready_is_lost_and_leaves_no_scope(sealed_image, tmp_path):
     control = tmp_path / "control"
     control.mkdir(mode=0o700)
     left, right = socket.socketpair()  # bwrap cannot bind a socket at /workspace/.git, after release
@@ -113,7 +113,8 @@ def test_a_holder_that_never_becomes_ready_is_unavailable_and_leaves_no_scope(se
 
     left_behind = holder.scope is not None and populated(holder.scope)
 
-    assert (refused.value.code, "ready" in refused.value.detail, left_behind) == (UNAVAILABLE, True, False)
+    assert holder.sandbox._released and holder.sandbox.gate.release_consumed
+    assert (refused.value.code, "ready" in refused.value.detail, left_behind) == (LOST, True, False)
 
 
 def test_host_helper_failures_are_coded_holder_deaths(launch):

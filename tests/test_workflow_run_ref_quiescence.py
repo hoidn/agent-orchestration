@@ -54,12 +54,14 @@ def test_checkpoint_does_not_refreeze_and_session_cannot_succeed_after_stop_fail
         with pytest.raises(Exception) as checkpoint:
             session._checkpoint('effect-attempt-1')
         assert checkpoint.value.code == 'run_ref_environment_escape_rejected'
-        assert 'copy refused' in str(checkpoint.value) and 'scope did not empty' in str(checkpoint.value)
+        assert 'copy refused' in str(checkpoint.value) and 'holder_stop_failed' in str(checkpoint.value)
+        assert 'scope did not empty' not in str(checkpoint.value)
         for _ in range(2):
             with pytest.raises(RunRefRuntimeError) as final_stop:
                 session.stop()
             assert final_stop.value.code == 'run_ref_environment_escape_rejected'
-            assert 'scope did not empty' in final_stop.value.detail
+            assert 'holder_stop_failed' in final_stop.value.detail
+            assert 'scope did not empty' not in final_stop.value.detail
         assert events == ['stop-failed-not-empty']
         assert session._stop_record is None
         assert (session.layout.child_root / 'budget.json').read_bytes() == prior_budget
@@ -93,7 +95,8 @@ def test_unproved_stop_aborts_lifecycle_before_witness_delta_or_parent_settlemen
 
     assert status == 1
     assert memo.terminal.data['code'] == 'run_ref_environment_escape_rejected'
-    assert 'scope did not empty' in memo.terminal.data['message']
+    assert 'holder_stop_failed' in memo.terminal.data['message']
+    assert 'scope did not empty' not in memo.terminal.data['message']
     assert not memo.active_commits and not memo.settlements
     assert events == ['stop-failed-not-empty']
     assert not list(world['refs'].rglob('workspace-delta.json'))

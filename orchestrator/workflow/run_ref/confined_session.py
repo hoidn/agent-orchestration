@@ -80,7 +80,7 @@ try:
                                                  ordinal=int(sys.argv[7]), max_bytes=int(sys.argv[8]))
         print(json.dumps({"digest": header.manifest_digest}))
 except checkpoint.RunRefCheckpointError as exc:
-    print(json.dumps({"code": exc.code, "detail": exc.detail}))
+    print(json.dumps({"code": exc.code}))
     sys.exit(3)
 '''
 
@@ -111,6 +111,7 @@ class ConfinedChildSession:
         self.image = admission.image
         self.evidence_ledger, self.evidence_visit = evidence_ledger, evidence_visit
         self.provider_allowance = provider_allowance
+        self.network = admission.config.policy.network
         self.limits = dict(admission.config.policy.limits)
         self.budget = float(self.limits["wall-seconds"])
         self.layout = provisioned.layout
@@ -167,7 +168,7 @@ class ConfinedChildSession:
         try:
             self.holder.stop()
         except Exception as exc:
-            detail = exc.detail if isinstance(exc, RunRefRuntimeError) else f"{type(exc).__name__}: {exc}"
+            detail = "holder_stop_failed"
             if self.failure is not None:
                 code, cause = self.failure
                 self.failure = (code, f"{cause}; holder stop failed: {detail}")
@@ -191,13 +192,18 @@ class ConfinedChildSession:
         )
 
         self._require_wall_budget()
-        cwd = guest_cwd(self.layout.workspace, launch_cwd).removeprefix(GUEST_WORKSPACE).lstrip("/") or "."
-        allowance = EVIDENCE_ALLOWANCE_BYTES - self.check_evidence()
-        document_rows = document_clone_rows(node, operands, self.clone_files)
-        rows = [*command_clone_rows(node, cwd), *document_rows]
-        binding = bind_clone_inputs(rows, self.clone_files, max_bytes=allowance, directory_rows=document_rows)
-        store_attempt_snapshot(self.snapshots, binding.blobs, allowance_bytes=allowance)
-        return binding.parts
+        try:
+            cwd = guest_cwd(self.layout.workspace, launch_cwd).removeprefix(GUEST_WORKSPACE).lstrip("/") or "."
+            allowance = EVIDENCE_ALLOWANCE_BYTES - self.check_evidence()
+            document_rows = document_clone_rows(node, operands, self.clone_files)
+            rows = [*command_clone_rows(node, cwd), *document_rows]
+            binding = bind_clone_inputs(rows, self.clone_files, max_bytes=allowance, directory_rows=document_rows)
+            store_attempt_snapshot(self.snapshots, binding.blobs, allowance_bytes=allowance)
+            return binding.parts
+        except OSError as exc:
+            # Preserve the OS failure family/errno; no authority failure is
+            # recategorized as an ordinary LOST/FAILED attempt by redaction.
+            raise OSError(exc.errno, 'clone_input_binding_failed') from None
 
     def check_evidence(self, *, extra_bytes=0):
         from .confined_evidence import evidence_usage, IMAGE_INVENTORY
@@ -245,14 +251,15 @@ class ConfinedChildSession:
         try:
             preflight_checkpoint(self.header_path, self._clone_fd)
         except RunRefCheckpointError as exc:
-            self.prerelease_error = RunRefRuntimeError(exc.code, f"clone_checkpoint_refused:{exc.detail}")
+            self.prerelease_error = RunRefRuntimeError(exc.code, "clone_checkpoint_refused")
             raise self.prerelease_error from exc
         self._require_wall_budget()
         control = self.layout.child_root / HOLDER_DIRNAME
         control.mkdir(mode=0o700, exist_ok=True)
         git_fd = os.open(self.layout.workspace / ".git", _DIRECTORY)
         try:
-            holder = self._holder_factory(self.image, self.limits, control_dir=control, git_dir_fd=git_fd)
+            network = {} if self.network == 'none' else {'network': self.network}
+            holder = self._holder_factory(self.image, self.limits, control_dir=control, git_dir_fd=git_fd, **network)
             holder.launch()
         except RunRefRuntimeError as exc:
             if exc.code == UNAVAILABLE:
@@ -280,13 +287,20 @@ class ConfinedChildSession:
         except RunRefRuntimeError as exc:
             if self.remaining <= 0:
                 return BUDGET_EXHAUSTED, f"the {operation} ran out of the wall budget"
-            return exc.code, exc.detail
+            return exc.code, f"{operation}_helper_refused"
         if completed.returncode == 0:
             return None
         if completed.returncode == 3:
-            refused = json.loads(completed.stdout)
-            return refused["code"], f"{operation} refused: {refused['detail']}"
-        return LOST, f"{operation} helper exited {completed.returncode}: {completed.stderr[-500:]!r}"
+            try:
+                refused = json.loads(completed.stdout)
+                # Copier names/syscall text are guest-controlled. Only its
+                # existing closed code crosses into runtime diagnostics.
+                code = refused["code"]
+                if code in {"run_ref_environment_escape_rejected", "run_ref_environment_changed"}:
+                    return code, f"{operation}_refused"
+            except (ValueError, TypeError, KeyError):
+                pass
+        return LOST, f"{operation}_helper_failed"
 
     def run_leaf(self, request: LeafRequest) -> LeafOutcome:
         if self.failure is not None:
@@ -295,6 +309,28 @@ class ConfinedChildSession:
             raise _performer_error(*self._fail(BUDGET_EXHAUSTED, "child wall budget is exhausted before dispatch"))
         started = self._clock()
         outcome = self.holder.run_leaf(replace(request, timeout_sec=min(request.timeout_sec, self.remaining)))
+        return self._after_leaf(request, outcome, started)
+
+    def run_provider_leaf(self, request: LeafRequest, *, policy, identity, attempt, installation,
+                          cancelled, prepare_guest) -> LeafOutcome:
+        """Private caller seam only; provider admission/dispatch remains closed."""
+        from .confined_budget import remaining_ns
+        if self.failure is not None:
+            raise _performer_error(*self.failure)
+        if self.network != 'model-only' or self.provider_allowance is None:
+            raise _performer_error('run_ref_provider_transport_unavailable', 'private_provider_not_admitted')
+        self._ensure_started()
+        self._require_wall_budget()
+        started, now = self._clock(), boottime_ns()
+        balance = (remaining_ns(self.budget_context.state, now=now) if self.budget_context is not None
+                   else int(self.remaining * 1e9))
+        deadline_ns = now + min(int(request.timeout_sec * 1e9), balance)
+        outcome = self.holder.run_provider_leaf(request, allowance=self.provider_allowance,
+            policy=policy, identity=identity, attempt=attempt, installation=installation,
+            deadline_ns=deadline_ns, cancelled=cancelled, prepare_guest=prepare_guest)
+        return self._after_leaf(request, outcome, started)
+
+    def _after_leaf(self, request, outcome, started):
         spent = self._clock() - started
         guest = min(spent, outcome.duration_ms / 1000)
         self.guest_seconds += guest
@@ -320,7 +356,7 @@ class ConfinedChildSession:
         try:  # P5: retain the copier's refusal while publishing the repaired checkpoint
             preflight_checkpoint(self.header_path, self._clone_fd)
         except (RunRefCheckpointError, OSError) as exc:
-            self.failure = (failed[0], f"{failed[1]}; re-freeze failed: {exc}")
+            self.failure = (failed[0], f"{failed[1]}; checkpoint_refreeze_failed")
         raise _performer_error(*self.failure)
 
     def record_failure(self, authority, exc):

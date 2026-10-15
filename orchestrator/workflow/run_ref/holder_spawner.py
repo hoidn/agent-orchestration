@@ -98,7 +98,8 @@ def key_syscall_filter_program() -> bytes:
     return b"".join(bytes(instruction) for instruction in instructions)
 
 
-def holder_argv(*, workspace_mib: int, runref_dir: str, git: bool) -> list[str]:
+def holder_argv(*, workspace_mib: int, runref_dir: str, git: bool,
+                gateway_dir: str | None = None) -> list[str]:
     """The holder `bwrap` argv; descriptors are the `FD_*` numbers the launcher sets up."""
     def tmpfs(mib: int, target: str) -> list[str]:
         return ["--size", str(mib << 20), "--tmpfs", target]
@@ -116,7 +117,10 @@ def holder_argv(*, workspace_mib: int, runref_dir: str, git: bool) -> list[str]:
             *(("--ro-bind-fd", str(FD_GIT), "/workspace/.git") if git else ()),
             *tmpfs(PROFILE_MIB["scratch"], "/tmp"),
             *tmpfs(PROFILE_MIB["result"], "/result"),
-            "--tmpfs", "/run", "--ro-bind", runref_dir, "/run/runref", "--remount-ro", "/run",
+            "--tmpfs", "/run", "--ro-bind", runref_dir, "/run/runref",
+            *(("--ro-bind", gateway_dir, "/run/runref-gateway", "--symlink", "runref-gateway/gateway.sock",
+               "/run/gateway.sock") if gateway_dir is not None else ()),
+            "--remount-ro", "/run",
             "--info-fd", str(FD_INFO), "--", GUEST_SH, "-c", SPAWNER]
 
 
@@ -183,7 +187,7 @@ def validate_leaf_request(request: LeafRequest) -> None:
     _validate_bounds(request)
     for name, data in request.input_files.items():
         if not _NAME.match(name) or name in RESERVED_RESULT_NAMES or not isinstance(data, bytes):
-            raise ValueError(f"input file {name!r} is invalid")
+            raise ValueError("input file name or content is invalid")
     if request.network not in ("none", "model-only"):
         raise ValueError("network must be none or model-only")
 
@@ -195,7 +199,7 @@ def _validate_command(argv: tuple[str, ...], env: Mapping[str, str], cwd: str) -
         raise ValueError("argv[0] must be an absolute guest path without '='")
     for name, value in env.items():
         if not _ENV_NAME.match(name) or not isinstance(value, str) or "\0" in value:
-            raise ValueError(f"environment entry {name!r} is invalid")
+            raise ValueError("environment entry is invalid")
     if posixpath.normpath(cwd) != cwd or not (cwd == "/workspace" or cwd.startswith("/workspace/")):
         raise ValueError("cwd must be a normalized path under /workspace")
 

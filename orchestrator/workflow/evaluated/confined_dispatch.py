@@ -65,10 +65,12 @@ _NOFOLLOW_DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXE
 class ConfinedDispatchRefusal(RuntimeError):
     """A coded refusal of a confined effect; before `started` it leaves no attempt record."""
 
-    def __init__(self, code: str, detail: str) -> None:
-        super().__init__(f"{code}: {detail}")
+    def __init__(self, code: str) -> None:
+        # Guest-controlled names/argv can reproduce an old capability. Codes
+        # retain refusal semantics; never interpolate those bytes in metadata.
+        self.detail = "confined_dispatch_refused"
+        super().__init__(f"{code}: {self.detail}")
         self.code = code
-        self.detail = detail
 
 
 @dataclass(frozen=True)
@@ -102,7 +104,7 @@ def guest_cwd(clone_root: Path, launch_cwd: Path | None) -> str:
         return GUEST_WORKSPACE
     relative = _clone_relative(".", os.path.relpath(launch_cwd, clone_root))
     if relative is None:
-        raise ConfinedDispatchRefusal(EFFECT_UNSUPPORTED, f"launch cwd {launch_cwd} is outside the clone")
+        raise ConfinedDispatchRefusal(EFFECT_UNSUPPORTED)
     return GUEST_WORKSPACE if relative == "." else f"{GUEST_WORKSPACE}/{relative}"
 
 
@@ -112,19 +114,17 @@ def require_confinable(node: Mapping[str, Any], pins: Mapping[str, Any]) -> None
     """Refuse an effect the confined profile cannot run, before `started` (Q1)."""
     kind = node.get("class")
     if kind == "provider":
-        raise ConfinedDispatchRefusal(TRANSPORT_UNAVAILABLE, "confined provider transport is not qualified")
+        raise ConfinedDispatchRefusal(TRANSPORT_UNAVAILABLE)
     if kind != "command":
-        raise ConfinedDispatchRefusal(EFFECT_UNSUPPORTED, f"{kind} effects cannot run in a confined child")
+        raise ConfinedDispatchRefusal(EFFECT_UNSUPPORTED)
     executable = node["command"][0]
     if not image_resolvable(executable):
-        raise ConfinedDispatchRefusal(EFFECT_UNSUPPORTED,
-            f"command executable {executable!r} resolves into the clone or guest scratch")
+        raise ConfinedDispatchRefusal(EFFECT_UNSUPPORTED)
     if not is_image_pin(pins.get(executable)):
-        raise ConfinedDispatchRefusal(EFFECT_UNSUPPORTED, f"command executable {executable!r} has no image pin")
+        raise ConfinedDispatchRefusal(EFFECT_UNSUPPORTED)
     for row in node.get("closure") or ():
         if row.get("base") != "absolute" or not image_resolvable(row.get("path", "")):
-            raise ConfinedDispatchRefusal(EFFECT_UNSUPPORTED,
-                f"command closure {row.get('base')}:{row.get('path')} is not image pinned")
+            raise ConfinedDispatchRefusal(EFFECT_UNSUPPORTED)
 
 
 def image_implementation_files(node: Mapping[str, Any], pins: Mapping[str, Any],
@@ -146,7 +146,7 @@ def _image_row(image: SealedImage, path: str) -> dict[str, Any]:
     try:
         resolved = resolve_image_path(image.root_fd, path)
         if not image_resolvable(resolved):
-            raise ConfinedDispatchRefusal(EFFECT_UNSUPPORTED, f"{path} resolves into guest scratch: {resolved}")
+            raise ConfinedDispatchRefusal(EFFECT_UNSUPPORTED)
         info = os.stat(resolved.lstrip("/") or ".", dir_fd=image.root_fd, follow_symlinks=False)
         if stat.S_ISDIR(info.st_mode):
             fd = os.open(resolved.lstrip("/") or ".", _NOFOLLOW_DIRECTORY, dir_fd=image.root_fd)
@@ -157,7 +157,7 @@ def _image_row(image: SealedImage, path: str) -> dict[str, Any]:
         else:
             row = {"kind": "file", "digest": image_file_digest(image.root_fd, resolved)}
     except (OSError, SafeTreeError) as exc:
-        raise ConfinedDispatchRefusal(EFFECT_UNSUPPORTED, f"{path} is not readable in the image: {exc}") from exc
+        raise ConfinedDispatchRefusal(EFFECT_UNSUPPORTED) from exc
     return {**row, "target": resolved} if resolved != path else row
 
 
@@ -301,7 +301,7 @@ class _Bind:
             name = f"{kind}{label}:{path}"
             name.encode("utf-8")
         except UnicodeEncodeError as exc:
-            raise ConfinedDispatchRefusal(ESCAPE_REJECTED, "clone path is not valid UTF-8") from exc
+            raise ConfinedDispatchRefusal(ESCAPE_REJECTED) from exc
         digest = "sha256:" + hashlib.sha256(content).hexdigest()
         self.binding.parts[name] = digest
         self.binding.blobs[digest] = content
@@ -325,9 +325,9 @@ class _Bind:
                 os.close(fd)
                 fd = child
                 if os.fstat(fd).st_dev != self.device:
-                    raise ConfinedDispatchRefusal(ESCAPE_REJECTED, "clone directory crosses a device")
+                    raise ConfinedDispatchRefusal(ESCAPE_REJECTED)
             if os.fstat(fd).st_dev != self.device:
-                raise ConfinedDispatchRefusal(ESCAPE_REJECTED, "clone directory crosses a device")
+                raise ConfinedDispatchRefusal(ESCAPE_REJECTED)
             if directory:
                 self.count_entry()
                 self.add(CLONE_DIRECTORY, label, relative, _DIRECTORY_MARKER)
@@ -337,9 +337,9 @@ class _Bind:
 
     def tree(self, fd: int, label: str, prefix: str, *, depth: int) -> None:
         if depth > MAX_TREE_DEPTH:
-            raise ConfinedDispatchRefusal(ESCAPE_REJECTED, f"clone tree {prefix} is too deep to bind")
+            raise ConfinedDispatchRefusal(ESCAPE_REJECTED)
         if os.fstat(fd).st_dev != self.device:
-            raise ConfinedDispatchRefusal(ESCAPE_REJECTED, "clone directory crosses a device")
+            raise ConfinedDispatchRefusal(ESCAPE_REJECTED)
         names = []
         with os.scandir(fd) as entries:
             for entry in entries:
@@ -362,7 +362,7 @@ class _Bind:
     def count_entry(self) -> None:
         self.entries += 1
         if self.entries > MAX_CHECKPOINT_ENTRIES:
-            raise ConfinedDispatchRefusal(ESCAPE_REJECTED, "too many clone entries to bind")
+            raise ConfinedDispatchRefusal(ESCAPE_REJECTED)
 
     def entry(self, fd: int, name: str, info: os.stat_result, label: str, path: str, *, counted=False) -> None:
         if not counted:
@@ -371,15 +371,15 @@ class _Bind:
             try:
                 link = canonical_json_bytes({"symlink": os.readlink(name, dir_fd=fd)})
             except UnicodeEncodeError as exc:
-                raise ConfinedDispatchRefusal(ESCAPE_REJECTED, f"clone link {path} target is not UTF-8") from exc
+                raise ConfinedDispatchRefusal(ESCAPE_REJECTED) from exc
             self.add(CLONE_LINK, label, path, link)
         elif stat.S_ISREG(info.st_mode):
             if info.st_size > self.remaining:
-                raise ConfinedDispatchRefusal(BUDGET_EXHAUSTED, f"clone inputs exceed {self.remaining} bytes at {path}")
+                raise ConfinedDispatchRefusal(BUDGET_EXHAUSTED)
             try:
                 content = read_regular_file(fd, name, max_bytes=self.remaining, device=self.device)
             except SafeTreeError as exc:
-                raise ConfinedDispatchRefusal(ESCAPE_REJECTED, f"clone input {path} changed while bound: {exc}") from exc
+                raise ConfinedDispatchRefusal(ESCAPE_REJECTED) from exc
             self.remaining -= len(content)
             self.add(CLONE_FILE, label, path, content)
 
@@ -396,11 +396,10 @@ def store_attempt_snapshot(store: WorkspaceFiles, blobs: Mapping[str, bytes], *,
         if not store.exists(name):
             new[name] = content
         elif store.sha256(name) != digest:
-            raise ConfinedDispatchRefusal(EVIDENCE_INVALID, f"attempt snapshot blob {name} was tampered")
+            raise ConfinedDispatchRefusal(EVIDENCE_INVALID)
     added = sum(len(content) for content in new.values())
     if added > allowance_bytes:
-        raise ConfinedDispatchRefusal(BUDGET_EXHAUSTED,
-            f"attempt snapshot needs {added} bytes; the evidence allowance has {allowance_bytes}")
+        raise ConfinedDispatchRefusal(BUDGET_EXHAUSTED)
     for name, content in new.items():
         store.write_atomic(name, content)
     return added
@@ -415,13 +414,13 @@ def verify_attempt_snapshot(store: WorkspaceFiles, parts: Mapping[str, str]) -> 
     bound = {name: digest for name, digest in parts.items() if name.startswith((CLONE_FILE, CLONE_LINK, CLONE_DIRECTORY))}
     for name, digest in bound.items():
         if name.startswith(CLONE_DIRECTORY) and digest != _DIRECTORY_MARKER_DIGEST:
-            raise ConfinedDispatchRefusal(EVIDENCE_INVALID, f"directory snapshot marker of {name} is invalid")
+            raise ConfinedDispatchRefusal(EVIDENCE_INVALID)
         try:
             actual = store.sha256(digest.removeprefix("sha256:"))
         except (OSError, ValueError):
             actual = None
         if actual != digest:
-            raise ConfinedDispatchRefusal(EVIDENCE_INVALID, f"attempt snapshot of {name} is missing or tampered")
+            raise ConfinedDispatchRefusal(EVIDENCE_INVALID)
     return bound
 
 

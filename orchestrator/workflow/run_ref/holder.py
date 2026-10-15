@@ -16,9 +16,9 @@ ledgers or memos. Dependencies: those of `HolderScope`.
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import time
+from dataclasses import replace
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -43,9 +43,9 @@ class Holder:
     """One holder incarnation of a child attempt; implements `LeafRunner`."""
 
     def __init__(self, image: SealedImage, limits: Mapping[str, int], *, control_dir: Path,
-                 git_dir_fd: int | None = None) -> None:
+                 git_dir_fd: int | None = None, network: str = 'none') -> None:
         """`limits` are the policy's six limits; `control_dir` is private (0700) controller state."""
-        self.sandbox = HolderScope(image, limits, control_dir=control_dir, git_dir_fd=git_dir_fd)
+        self.sandbox = HolderScope(image, limits, control_dir=control_dir, git_dir_fd=git_dir_fd, network=network)
         self._leaves = 0
         self._death: HolderDeath | None = None
 
@@ -109,9 +109,50 @@ class Holder:
         progress = {"timed_out": False}
         try:
             return self._run(request, progress)
-        except (HolderDeathError, *CONTAINMENT_ERRORS) as exc:
+        except (HolderDeathError, *CONTAINMENT_ERRORS, OSError) as exc:
             death = self._die(exc)
             return _death_outcome(death, int((wall_seconds() - started) * 1000), progress["timed_out"])
+
+    def run_provider_leaf(self, request: LeafRequest, *, allowance, policy, identity, attempt,
+                          installation, deadline_ns, cancelled, prepare_guest) -> LeafOutcome:
+        """Private admitted-caller seam; public run_leaf still refuses model-only.
+
+        prepare_guest is trusted host code. It may supply the fixed invocation
+        and ephemeral environment only after the durable binding ACK.
+        """
+        from .confined_budget import boottime_ns
+        from .provider_control import ProviderControlRefused
+        from .provider_transport import LeafProviderTransport
+        profile.validate_leaf_request(request)
+        if (request.network != 'model-only' or type(identity) is not str or not identity
+                or type(attempt) is not int or attempt <= 0 or type(deadline_ns) is not int
+                or deadline_ns > boottime_ns() + int(request.timeout_sec * 1e9)):
+            raise RunRefRuntimeError(ESCAPE, 'private_provider_request_invalid')
+        if self._death is not None:
+            return _death_outcome(self._death, 0, False)
+        started, progress = wall_seconds(), {'timed_out': False}
+        transport = LeafProviderTransport(self.sandbox, authority=allowance, policy=policy,
+            identity=identity, attempt=attempt, installation=installation,
+            deadline_ns=deadline_ns, cancelled=cancelled)
+        self.sandbox.begin_transport()
+        try:
+            result = self._run(request, progress, transport=transport, prepare_guest=prepare_guest)
+            self.sandbox.end_transport()
+            return result
+        except (HolderDeathError, *CONTAINMENT_ERRORS, ProviderControlRefused, OSError) as error:
+            progress['timed_out'] = boottime_ns() >= deadline_ns
+            if not isinstance(error, (HolderDeathError, *CONTAINMENT_ERRORS)):
+                error = HolderDeathError(LOST, 'private_provider_transport_refused')
+            death = self._die(error)
+            return _death_outcome(death, int((wall_seconds()-started)*1000), progress['timed_out'])
+        except RunRefRuntimeError:
+            # A first exhausted allowance never launched a worker; cleanup has
+            # already emptied the host window and must not rename its failure.
+            self.sandbox.end_transport()
+            raise
+        except Exception:
+            death = self._die(HolderDeathError(LOST, 'private_provider_transport_refused'))
+            return _death_outcome(death, int((wall_seconds()-started)*1000), progress['timed_out'])
 
     def _die(self, exc: BaseException) -> HolderDeath:
         if isinstance(exc, HolderDeathError):
@@ -119,14 +160,17 @@ class Holder:
         else:  # the scope vanished under a slot: systemd removes it once bwrap is gone
             process = self.sandbox.process
             exited = process is not None and process.poll() is not None
-            death = HolderDeath(LOST, "bwrap exited" if exited else f"{type(exc).__name__}: {exc}")
+            death = HolderDeath(LOST, "bwrap exited" if exited else "holder_operation_failed")
         self._death = death
         self.sandbox.kill()
         return death
 
-    def _run(self, request: LeafRequest, progress: dict) -> LeafOutcome:
+    def _run(self, request: LeafRequest, progress: dict, *, transport=None, prepare_guest=None) -> LeafOutcome:
         sandbox, leaf = self.sandbox, request.leaf_id
         sandbox.require_quiescent()
+        sandbox.check_scripts()
+        if os.listdir(sandbox.runref):
+            raise HolderDeathError(ESCAPE, 'holder_scripts_not_empty_before_leaf')
         for mount in SCRATCH:
             if os.listdir(sandbox.roots[mount]):
                 raise HolderDeathError(ESCAPE, f"/{mount} is not empty before leaf {leaf}")
@@ -137,16 +181,52 @@ class Holder:
         write_inputs(sandbox.roots["result"], leaf, request.input_files)
         leaf_dir = sandbox.runref / leaf
         leaf_dir.mkdir(mode=0o700)
+        leaf_info = leaf_dir.lstat()
+        script_identity = leaf_info.st_dev, leaf_info.st_ino
         self._leaves += 1
         assert sandbox.root is not None
         slot = sandbox.root.create_slot(f"leaf:{self._leaves}:{leaf}")
         try:
-            (leaf_dir / "leaf.sh").write_text(profile.leaf_script(request))
-            status, timed_out, lingered, duration_ms = self._execute(leaf, slot, request.timeout_sec, progress)
+            if transport is not None:
+                capability = transport.start()
+                prepared = prepare_guest(capability)
+                del capability
+                transport.check()
+                profile.validate_leaf_request(prepared)
+                if replace(request, argv=prepared.argv, env=prepared.env) != prepared:
+                    raise HolderDeathError(ESCAPE, 'prepared_provider_request_changed')
+                request = prepared
+            sandbox.write_leaf_script(leaf,script_identity,profile.leaf_script(request))
+            if transport is not None:
+                transport.check()
+            status, timed_out, lingered, duration_ms = self._execute(
+                leaf, slot, request.timeout_sec, progress, transport=transport)
+            sandbox.retire_leaf_script(leaf,script_identity)
             reads = self._import(request)
         finally:
-            shutil.rmtree(leaf_dir, ignore_errors=True)
-            _remove_slot(slot)
+            try:
+                if transport is not None:
+                    try:
+                        if not progress.get('leaf_quiesced'):
+                            try:
+                                slot.kill()
+                                slot.wait_empty(timeout_seconds=STATUS_GRACE)
+                                progress['leaf_quiesced'] = True
+                            except CONTAINMENT_ERRORS as error:
+                                transport.observer.revoke()
+                                if not (transport.observer.finished.wait(2.25)
+                                        and transport.observer.quiesced.is_set()
+                                        and sandbox._transport_scope_empty()):
+                                    raise HolderDeathError(LOST, 'provider_leaf_close_unconfirmed') from error
+                                progress['leaf_quiesced'] = True
+                    finally:
+                        transport.close()
+                    sandbox.end_transport()
+            finally:
+                try:
+                    _remove_slot(slot)
+                finally:
+                    sandbox.retire_leaf_script(leaf,script_identity)
         exited = not timed_out and not lingered
         return LeafOutcome(exit_code=None if timed_out else status, timed_out=timed_out, stdout=reads.stdout,
                            stderr=reads.stderr, stdout_truncated=reads.stdout_truncated,
@@ -155,26 +235,38 @@ class Holder:
                            lingered=lingered)
 
     def _execute(self, leaf: str, slot: CgroupV2ContainmentSlot, timeout_sec: float,
-                 progress: dict) -> tuple[int, bool, bool, int]:
+                 progress: dict, *, transport=None) -> tuple[int, bool, bool, int]:
         """Request, move, release and await one leaf; quiesce and check the spawner afterwards."""
         sandbox = self.sandbox
+        if transport is not None:
+            transport.check()
         pid = self._request(leaf)
+        if transport is not None:
+            transport.check()
         slot.add_pid(pid)
         if slot.members() != (pid,) or set(sandbox.slots["holder"].members()) != sandbox.recorded:
             raise HolderDeathError(ESCAPE, f"leaf {leaf} did not stay in its slot")
         started = wall_seconds()
         assert sandbox.gate_socket is not None
+        if transport is not None:
+            transport.check()
         sandbox.gate_socket.sendall(b"go\n")
-        status, timed_out, lingered = self._await_status(slot, started + timeout_sec, progress)
+        deadline = started + timeout_sec if transport is None else transport.observer.deadline_ns / 1e9
+        status, timed_out, lingered = self._await_status(slot, deadline, progress, transport=transport)
         duration_ms = int((wall_seconds() - started) * 1000)
         slot.kill()
         try:
             slot.wait_empty(timeout_seconds=STATUS_GRACE)
         except ProviderIsolationStateError as exc:
             raise HolderDeathError(LOST, f"leaf slot of {leaf} did not quiesce") from exc
+        progress['leaf_quiesced'] = True
         slot.remove()
+        if transport is not None:
+            transport.close()  # before whole-slot quiescence, result import or checkpoint
         sandbox.require_quiescent()
         sandbox.check_spawner()
+        if transport is not None:
+            sandbox.end_transport()
         return status, timed_out, lingered, duration_ms
 
     def _import(self, request: LeafRequest) -> LeafReads:
@@ -185,7 +277,9 @@ class Holder:
                                       stderr_limit=request.stderr_limit,
                                       max_bytes=profile.PROFILE_MIB["result"] << 20)
         except GuestRefusal as exc:
-            raise HolderDeathError(ESCAPE, f"result read refused: {exc}") from exc
+            raise HolderDeathError(ESCAPE, "result_read_refused") from exc
+        except OSError as exc:
+            raise HolderDeathError(LOST, "result_read_failed") from exc
         for mount in SCRATCH:
             if not wipe_mount(roots[mount]):
                 raise HolderDeathError(ESCAPE, f"/{mount} could not be emptied after leaf {request.leaf_id}")
@@ -220,10 +314,12 @@ class Holder:
             time.sleep(0.005)
 
     def _await_status(self, slot: CgroupV2ContainmentSlot, wall_deadline: float,
-                      progress: dict) -> tuple[int, bool, bool]:
+                      progress: dict, *, transport=None) -> tuple[int, bool, bool]:
         """(status, timed out, lingered): the status line within its deadline, or a holder death."""
         grace: float | None = None
         while True:
+            if transport is not None:
+                transport.poll()
             now = wall_seconds()
             if grace is None and not slot.populated:
                 grace = now + STATUS_GRACE

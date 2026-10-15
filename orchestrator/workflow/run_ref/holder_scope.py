@@ -10,9 +10,9 @@ identity, move the launcher into the `holder` slot, verify the scope root is
 empty and only then send the exact release token; then wait for the spawner,
 record the holder-slot members, open the tmpfs root descriptors and record the
 F3b-1 spawner attributes. Every launch failure is a `RunRefRuntimeError`:
-`run_ref_environment_unavailable` before release and until the spawner
-reports ready (no guest code has run), `run_ref_environment_lost` or
-`run_ref_environment_escape_rejected` after; the original error wins over a
+`run_ref_environment_unavailable` before release, `run_ref_environment_lost`
+or `run_ref_environment_escape_rejected` after release (including failure
+before the spawner reports ready); the original error wins over a
 teardown failure, which is attached as a note.
 
 `require_quiescent()` and `check_spawner()` raise `HolderDeathError`;
@@ -33,11 +33,11 @@ import platform
 import re
 import secrets
 import select
-import shutil
 import socket
 import stat
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -80,6 +80,24 @@ if ctypes.CDLL(None).prctl(1, signal.SIGKILL, 0, 0, 0) != 0 or os.getppid() != p
 os.write(procs, b"0\n")
 os.close(procs)
 os.execv(sys.argv[3], sys.argv[3:])
+'''
+
+# Unlike a synchronous helper, this child may still be placing itself while an
+# independent observer cancels. EOF is terminal even if placement returns late.
+HOST_WORKER_TRAMPOLINE = r'''
+import ctypes, os, signal, socket, sys
+procs, parent, release = map(int, sys.argv[1:4])
+if ctypes.CDLL(None).prctl(1, signal.SIGKILL, 0, 0, 0) != 0 or os.getppid() != parent:
+    os._exit(125)
+os.write(procs, b"0\n")
+os.close(procs)
+gate = socket.socket(fileno=release)
+if gate.recv(1) != b"\x01":
+    os._exit(125)
+gate.close()
+if os.getppid() != parent:
+    os._exit(125)
+os.execv(sys.argv[4], sys.argv[4:])
 '''
 
 
@@ -141,7 +159,7 @@ def recover_holder_scopes(control_dir: Path, *, readonly: bool = False) -> bool:
     if (not stat.S_ISDIR(directory.st_mode) or directory.st_uid != os.geteuid()
             or stat.S_IMODE(directory.st_mode) & 0o077):
         raise RunRefRuntimeError("run_ref_evidence_invalid", "holder_control_root_invalid")
-    records = []
+    records, script_names = [], []
     current_boot = boot_id()
     try:
         for path in sorted(control_dir.glob("scope-*.json")):
@@ -174,6 +192,7 @@ def recover_holder_scopes(control_dir: Path, *, readonly: bool = False) -> bool:
                 released = gate.release_consumed
             else:
                 released = False  # inventory is durable before gate creation; launcher is still blocked
+            script_names.append(f'runref-{digest[:16]}')
             # A reboot destroys the old scope; its name grants no authority over the new boot.
             if row["boot_id"] != current_boot:
                 continue
@@ -207,6 +226,8 @@ def recover_holder_scopes(control_dir: Path, *, readonly: bool = False) -> bool:
                 raise RunRefRuntimeError('run_ref_evidence_invalid', 'holder_scope_still_live')
         elif not kill_cgroup(scope):
             raise RunRefRuntimeError(LOST, "recovery_scope_not_empty")
+    from .holder_scripts import recover_scripts
+    recover_scripts(control_dir, script_names, readonly=readonly)
     return any(released for _scope, released, _root in records)
 
 
@@ -237,12 +258,111 @@ def drain(fd: int, deadline: float) -> bytes:
         os.close(fd)
 
 
+class GatewayDirectory:
+    """One private, socket-only directory; only its owned inode may be retired."""
+
+    def __init__(self, path: Path):
+        self.path = path
+        path.mkdir(mode=0o700)
+        self.fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        info = os.fstat(self.fd)
+        self._identity = info.st_dev, info.st_ino
+        self._socket_identity = None
+        self._failure = None
+
+    def _validate(self):
+        if self._failure is not None:
+            raise self._failure
+        if self.fd is None:
+            raise HolderDeathError(ESCAPE, 'gateway directory is closed')
+        try:
+            info = self.path.lstat()
+            if (not stat.S_ISDIR(info.st_mode) or (info.st_dev, info.st_ino) != self._identity
+                    or stat.S_IMODE(info.st_mode) != 0o700 or info.st_uid != os.geteuid()):
+                raise OSError('identity mismatch')
+            if (os.fstat(self.fd).st_dev, os.fstat(self.fd).st_ino) != self._identity:
+                raise OSError('descriptor mismatch')
+        except OSError:
+            self._failure = HolderDeathError(ESCAPE, 'gateway directory identity changed')
+            raise self._failure from None
+
+    def require_empty(self):
+        self._validate()
+        if os.listdir(self.fd):
+            raise HolderDeathError(ESCAPE, 'gateway directory is not empty')
+
+    def socket_identity(self):
+        self._validate()
+        if os.listdir(self.fd) != ['gateway.sock']:
+            raise HolderDeathError(ESCAPE, 'gateway directory contains foreign entries')
+        info = os.stat('gateway.sock', dir_fd=self.fd, follow_symlinks=False)
+        if not stat.S_ISSOCK(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600:
+            raise HolderDeathError(ESCAPE, 'gateway pathname is not the private socket')
+        return info.st_dev, info.st_ino
+
+    def bind_socket(self, borrowed):
+        """Bind/capture only; socket creation and listen belong to the host worker."""
+        self.require_empty()
+        borrowed.bind(f'/proc/self/fd/{self.fd}/gateway.sock')
+        # Capture remains necessary if cancellation happened during bind. The
+        # caller records ownership for cleanup before any revocation check/ACK.
+        os.chmod('gateway.sock', 0o600, dir_fd=self.fd, follow_symlinks=False)
+        self._socket_identity = self.socket_identity()
+        return self._socket_identity
+
+    def remove_socket(self, expected):
+        try:
+            self._validate()
+            if not os.listdir(self.fd):
+                return
+            if expected is None or self.socket_identity() != expected:
+                raise HolderDeathError(ESCAPE, 'gateway socket ownership changed')
+            os.unlink('gateway.sock', dir_fd=self.fd)
+            self.require_empty()
+        except Exception as error:
+            self._failure = (error if isinstance(error, HolderDeathError)
+                             else HolderDeathError(ESCAPE, 'gateway socket retirement failed'))
+            raise self._failure from None
+
+    def close(self):
+        if self._failure is not None:
+            if self.fd is not None:
+                os.close(self.fd)
+                self.fd = None
+            raise self._failure
+        if self.fd is None:
+            return
+        try:
+            # Only the scope-empty teardown calls close. Retain local bind
+            # ownership even when transport.close failed before retirement.
+            self.remove_socket(self._socket_identity)
+            self.require_empty()
+            self.path.rmdir()
+        except Exception as error:
+            self._failure = (error if isinstance(error, HolderDeathError)
+                             else HolderDeathError(ESCAPE, 'gateway directory retirement failed'))
+            raise self._failure from None
+        finally:
+            os.close(self.fd)
+            self.fd = None
+
+
 class HolderScope:
     """The delegated scope, its slots, the launcher process and the spawner channels of one holder."""
 
     def __init__(self, image: SealedImage, limits: Mapping[str, int], *, control_dir: Path,
-                 git_dir_fd: int | None = None) -> None:
+                 git_dir_fd: int | None = None, network: str = 'none') -> None:
+        if network not in {'none', 'model-only'}:
+            raise ValueError('invalid holder network')
         self.image, self.limits, self.control_dir, self.git_dir_fd = image, dict(limits), control_dir, git_dir_fd
+        self.network = network
+        self.gateway: GatewayDirectory | None = None
+        self._host_operation = threading.Lock()
+        self._transport_active = False
+        self._transport_thread = None
+        self._transport_error = None
+        self._script_error = None
+        self._script_identities = None
         self._token = secrets.token_hex(32)
         self.token_digest = hashlib.sha256(self._token.encode()).hexdigest()
         self.unit = profile.unit_name(self.token_digest)
@@ -291,6 +411,14 @@ class HolderScope:
         except ImageStoreError as exc:
             raise RunRefRuntimeError(UNAVAILABLE, f"image_rehash_refused:{exc.detail}") from exc
         self.runref.mkdir(mode=0o700)
+        from .holder_scripts import identities
+        try:
+            self._script_identities = identities(self.runref)
+        except RunRefRuntimeError as exc:
+            # Establishing the private root precedes the launch/release gate.
+            raise RunRefRuntimeError(UNAVAILABLE, 'holder_script_root_unavailable') from exc
+        if self.network == 'model-only':
+            self.gateway = GatewayDirectory(self.control_dir / f'gateway-{self.token_digest[:16]}')
         launch_host, launch_guest = socket.socketpair()
         self.ctrl, ctrl_guest = socket.socketpair()
         self.gate_socket, gate_guest = socket.socketpair()
@@ -299,7 +427,8 @@ class HolderScope:
         kept = [ctrl_guest.fileno(), gate_guest.fileno(), info_write, self.image.root_fd, *owned,
                 *(() if self.git_dir_fd is None else (self.git_dir_fd,))]
         bwrap = profile.holder_argv(workspace_mib=self.limits["workspace-mib"], runref_dir=str(self.runref),
-                                    git=self.git_dir_fd is not None)
+                                    git=self.git_dir_fd is not None,
+                                    gateway_dir=None if self.gateway is None else str(self.gateway.path))
         argv = ["systemd-run", "--user", "--scope", "--quiet", "--unit", self.unit,
                 *(arg for prop in profile.scope_properties(self.limits) for arg in ("-p", prop)), "--",
                 sys.executable, "-I", "-S", "-c", profile.launcher_source(), str(launch_guest.fileno()),
@@ -471,8 +600,159 @@ class HolderScope:
             raise HolderDeathError(LOST, f"spawner attribute changed since ready: {drifted}")
 
     # -- host helper (N4) ---------------------------------------------------------------------------
+    def check_scripts(self):
+        from .holder_scripts import identities
+        if self._script_error is not None:
+            raise self._script_error
+        if identities(self.runref) != self._script_identities:
+            self._script_error = HolderDeathError(ESCAPE, 'holder_script_identity_changed')
+            raise self._script_error
+
+    def write_leaf_script(self, leaf, identity, text):
+        from .holder_scripts import write_script
+        self.check_scripts()
+        parent, root = self._script_identities
+        write_script(self.runref,leaf,text,parent_identity=parent,root_identity=root,leaf_identity=identity)
+
+    def retire_leaf_script(self, leaf, identity):
+        from .holder_scripts import retire_leaf
+        if self._script_error is not None:
+            raise self._script_error
+        try:
+            parent, root = self._script_identities
+            retire_leaf(self.runref,leaf,parent_identity=parent,root_identity=root,leaf_identity=identity)
+        except Exception as error:
+            self._script_error = HolderDeathError(ESCAPE, 'holder_script_retirement_refused')
+            raise self._script_error from error
+
+    def begin_transport(self):
+        if self._transport_error is not None:
+            raise self._transport_error
+        if not self._host_operation.acquire(blocking=False):
+            raise RunRefRuntimeError(UNAVAILABLE, 'host_slot_busy')
+        try:
+            self.require_quiescent()
+            if self.gateway is None:
+                raise RunRefRuntimeError(UNAVAILABLE, 'model_only_gateway_unavailable')
+            self.gateway.require_empty()
+            self._transport_active = True
+            self._transport_thread = threading.get_ident()
+        except BaseException:
+            self._host_operation.release()
+            raise
+
+    def end_transport(self):
+        if self._transport_error is not None:
+            raise self._transport_error
+        if not self._transport_active:
+            return
+        try:
+            self.gateway.require_empty()
+            if not self._transport_scope_empty():
+                self.require_quiescent()
+        except Exception as error:
+            self._transport_error = error
+            raise
+        self._transport_active = False
+        self._transport_thread = None
+        self._host_operation.release()
+
+    def _transport_scope_empty(self):
+        """Original scope authority only; not permission to import or serve a leaf."""
+        if self.path is None:
+            return False
+        try:
+            self.path.lstat()
+        except FileNotFoundError:
+            return True
+        if self.root is None:
+            raise HolderDeathError(LOST, 'transport_scope_not_validated')
+        self.root.revalidate()
+        # No populated() ENODEV shortcut: identity/permission/read errors fail.
+        return 'populated 1' not in (self.path/'cgroup.events').read_text()
+
+    def abort_transport(self):
+        """Observer-only whole-scope stop, independent of lifecycle/helper locks."""
+        if self.root is None or self.path is None:
+            raise HolderDeathError(LOST, 'transport_scope_not_validated')
+        self.root.revalidate()
+        if not kill_cgroup(self.path, timeout=SLOT_EMPTY_SECONDS):
+            raise HolderDeathError(LOST, 'transport_scope_not_empty')
+
+    def start_host_worker(self, argv: Sequence[str], *, pass_fds: Sequence[int],
+                          env: Mapping[str, str], cwd: Path, observer) -> tuple[subprocess.Popen, int]:
+        """Place a gated worker before exec; return its inherited native-placement FD number.
+
+        The observer owns the release channel before Popen can block. A child
+        returned after revocation is still our child and must be reaped, even
+        when it never entered the scope. No writer/send lock protects Popen.
+        """
+        if not self._transport_active or self._transport_thread != threading.get_ident():
+            raise RunRefRuntimeError(UNAVAILABLE, 'host_transport_not_owned')
+        if not argv or not os.path.isabs(argv[0]):
+            raise ValueError('host worker argv[0] must be an absolute path')
+        observer.check()
+        host = self.slots['host']
+        host.revalidate()
+        procs_fd = os.open(host.path / 'cgroup.procs', os.O_WRONLY | os.O_CLOEXEC)
+        native_fd = os.dup(procs_fd)
+        release, child_release = socket.socketpair()
+        process = None
+        try:
+            observer.register(release)
+            observer.check()
+            process = subprocess.Popen(
+                [sys.executable, '-I', '-S', '-c', HOST_WORKER_TRAMPOLINE,
+                 str(procs_fd), str(os.getpid()), str(child_release.fileno()), *argv],
+                pass_fds=(procs_fd, native_fd, child_release.fileno(), *pass_fds),
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                env=dict(env), cwd=cwd)
+            child_release.close()
+            observer.check()
+            while True:
+                members = set(host.members())
+                observer.check()
+                if members == {process.pid}:
+                    break
+                if members or process.poll() is not None:
+                    raise HolderDeathError(LOST, 'host_worker_placement_failed')
+                time.sleep(.005)
+            observer.check()
+            if release.send(b'\x01', socket.MSG_DONTWAIT) != 1:
+                raise HolderDeathError(LOST, 'host_worker_release_failed')
+            observer.check()
+            return process, native_fd
+        except BaseException:
+            # EOF prevents a late placement from execing. Scope emptiness alone
+            # says nothing about a trampoline still outside the scope.
+            release.close()
+            if process is not None:
+                if process.poll() is None:
+                    process.kill()
+                try:
+                    process.wait(timeout=SLOT_EMPTY_SECONDS)
+                except subprocess.TimeoutExpired as error:
+                    failure = HolderDeathError(LOST, 'host_worker_not_reaped')
+                    self._transport_error = failure
+                    raise failure from error
+            raise
+        finally:
+            release.close()
+            child_release.close()
+            os.close(native_fd)
+            os.close(procs_fd)
+
     def run_host_helper(self, argv: Sequence[str], *, pass_fds: Sequence[int],
                         timeout_sec: float) -> subprocess.CompletedProcess:
+        if not self._host_operation.acquire(blocking=False):
+            raise RunRefRuntimeError(UNAVAILABLE, 'host_slot_busy')
+        try:
+            return self._run_host_helper(argv, pass_fds=pass_fds, timeout_sec=timeout_sec)
+        finally:
+            self._host_operation.release()
+
+    def _run_host_helper(self, argv: Sequence[str], *, pass_fds: Sequence[int],
+                         timeout_sec: float) -> subprocess.CompletedProcess:
         if not argv or not argv[0].startswith("/"):
             raise ValueError("host helper argv[0] must be an absolute path")
         self.require_quiescent()
@@ -540,8 +820,15 @@ class HolderScope:
                 sock.close()
         if not emptied:
             raise RunRefRuntimeError(LOST, f"holder scope {self.unit} did not empty")
+        if self.gateway is not None:
+            self.gateway.close()
         try:  # a unit stopped by systemd stays listed as failed; non-zero when already gone
             subprocess.run(["systemctl", "--user", "reset-failed", self.unit], capture_output=True, timeout=15)
         except subprocess.TimeoutExpired:
             pass  # cosmetic unit listing only; the scope itself was proven empty above
-        shutil.rmtree(self.runref, ignore_errors=True)
+        if self._script_error is not None:
+            raise self._script_error
+        if self._script_identities is not None:
+            from .holder_scripts import retire_root
+            parent, root = self._script_identities
+            retire_root(self.runref,parent_identity=parent,root_identity=root)

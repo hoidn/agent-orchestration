@@ -61,7 +61,7 @@ def execute_pure_run(
     if not isinstance(authority, RunAuthority):
         raise TypeError("authority must be a checked RunAuthority")
     if authority.confined and confined is None and site_classes(authority.program):
-        return _resume_refusal(ConfinedDispatchRefusal(EFFECT_UNSUPPORTED, "confined child has no session"))
+        return _resume_refusal(ConfinedDispatchRefusal(EFFECT_UNSUPPORTED))
     workspace = Path(workspace).resolve(strict=True)
     checked_site_classes = site_classes(authority.program)
     run_files = authority.run_files or WorkspaceFiles(authority.run_root)
@@ -167,7 +167,7 @@ def execute_pure_resume(
     if not isinstance(authority, RunAuthority):
         raise TypeError("authority must be a checked RunAuthority")
     if authority.confined and confined is None and site_classes(authority.program):
-        return _resume_refusal(ConfinedDispatchRefusal(EFFECT_UNSUPPORTED, "confined child has no session"))
+        return _resume_refusal(ConfinedDispatchRefusal(EFFECT_UNSUPPORTED))
     workspace = Path(workspace).resolve(strict=True)
     checked_site_classes = site_classes(authority.program)
     try:
