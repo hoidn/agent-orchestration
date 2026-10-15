@@ -168,6 +168,7 @@ class HolderScope:
         self._buffer = b""
         self._released = False
         self._stopped = False
+        self._stop_error: Exception | None = None
 
     # -- launch -------------------------------------------------------------------------------
     def launch(self) -> None:
@@ -400,9 +401,18 @@ class HolderScope:
 
     def stop(self) -> None:
         """Kill and empty the scope, reap the launcher, close every descriptor (idempotent)."""
+        if self._stop_error is not None:
+            raise self._stop_error
         if self._stopped:
             return
+        try:
+            self._stop()
+        except Exception as exc:
+            self._stop_error = exc  # an incomplete teardown never becomes an idempotent success
+            raise
         self._stopped = True
+
+    def _stop(self) -> None:
         for fd in self.roots.values():
             os.close(fd)
         self.roots = {}
@@ -418,10 +428,10 @@ class HolderScope:
         for sock in (self.ctrl, self.gate_socket):
             if sock is not None:
                 sock.close()
+        if not emptied:
+            raise RunRefRuntimeError(LOST, f"holder scope {self.unit} did not empty")
         try:  # a unit stopped by systemd stays listed as failed; non-zero when already gone
             subprocess.run(["systemctl", "--user", "reset-failed", self.unit], capture_output=True, timeout=15)
         except subprocess.TimeoutExpired:
             pass  # cosmetic unit listing only; the scope itself was proven empty above
         shutil.rmtree(self.runref, ignore_errors=True)
-        if not emptied:
-            raise RunRefRuntimeError(LOST, f"holder scope {self.unit} did not empty")

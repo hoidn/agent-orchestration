@@ -121,6 +121,7 @@ class ConfinedChildSession:
         self._wall_started = self._clock() if started_at is None else started_at
         self._finished_at: float | None = None
         self._stop_record: dict[str, Any] | None = None
+        self._stop_error: RunRefRuntimeError | None = None
         self.failure: tuple[str, str] | None = None
         self.prerelease_error: RunRefRuntimeError | None = None
         self._clone_fd: int | None = None
@@ -145,15 +146,28 @@ class ConfinedChildSession:
             self._fail(code, detail)
         raise _performer_error(code, detail)
 
+    def _stop_holder(self) -> None:
+        if self._stop_error is not None:
+            raise self._stop_error
+        if self.holder is None:
+            return
+        try:
+            self.holder.stop()
+        except Exception as exc:
+            detail = exc.detail if isinstance(exc, RunRefRuntimeError) else f"{type(exc).__name__}: {exc}"
+            if self.failure is not None:
+                code, cause = self.failure
+                self.failure = (code, f"{cause}; holder stop failed: {detail}")
+                self._stop_error = RunRefRuntimeError(*self.failure)
+            else:
+                self._stop_error = RunRefRuntimeError(getattr(exc, "code", LOST), detail)
+            raise self._stop_error from exc
+
     def _fail(self, code: str, detail: str) -> tuple[str, str]:
-        """End the session like a holder death: no later leaf, the holder stopped now."""
+        """End the session; a failed scope stop aborts before any clone repair or settlement."""
         if self.failure is None:
             self.failure = (code, detail)
-            if self.holder is not None:
-                try:
-                    self.holder.stop()
-                except RunRefRuntimeError as exc:  # the failure stays the reported cause
-                    self.failure = (code, f"{detail}; holder stop failed: {exc.detail}")
+        self._stop_holder()
         return self.failure
 
     # -- evaluated child runtime interface ---------------------------------------------------------
@@ -283,8 +297,7 @@ class ConfinedChildSession:
         if self._stop_record is not None:
             return self._stop_record
         try:
-            if self.holder is not None:
-                self.holder.stop()
+            self._stop_holder()
         finally:
             if self._clone_fd is not None:
                 os.close(self._clone_fd)
