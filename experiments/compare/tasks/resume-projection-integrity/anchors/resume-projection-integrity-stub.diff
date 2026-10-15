@@ -1,0 +1,120 @@
+diff --git a/orchestrator/state.py b/orchestrator/state.py
+index b3c9079..5415551 100644
+--- a/orchestrator/state.py
++++ b/orchestrator/state.py
+@@ -454,6 +454,14 @@ class StateManager:
+             self._write_json_atomic(path, payload)
+             return payload
+ 
++    def record_workflow_checksum_mismatch(self, *, workflow_file: Any, persisted_checksum: Any, current_checksum: Any, reason: str) -> None:
++        """First cut: checksum mismatch envelopes are not recorded."""
++        raise NotImplementedError("record_workflow_checksum_mismatch")
++
++    def record_resume_projection_integrity_failure(self, error: Any) -> None:
++        """First cut: projection failure envelopes are not recorded."""
++        raise NotImplementedError("record_resume_projection_integrity_failure")
++
+     def fail_run(
+         self,
+         error: Dict[str, Any],
+diff --git a/orchestrator/workflow/resume_projection_integrity.py b/orchestrator/workflow/resume_projection_integrity.py
+new file mode 100644
+index 0000000..07bc750
+--- /dev/null
++++ b/orchestrator/workflow/resume_projection_integrity.py
+@@ -0,0 +1,56 @@
++"""Resume projection integrity audit (first cut: entry points only, no checks)."""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Any, Iterable, Mapping
++
++
++@dataclass(frozen=True)
++class ResumeScopePath:
++    """Path from the root run to one audited scope."""
++
++    root_workflow_file: str
++    call_frame_ids: tuple[str, ...] = ()
++
++    @classmethod
++    def root(cls, workflow_file: str) -> "ResumeScopePath":
++        return cls(root_workflow_file=workflow_file)
++
++    def child(self, frame_id: str) -> "ResumeScopePath":
++        return ResumeScopePath(self.root_workflow_file, (*self.call_frame_ids, frame_id))
++
++
++class ResumeProjectionIntegrityError(ValueError):
++    """Audit failure carrying its diagnostic (first cut: never raised)."""
++
++    def __init__(self, error: Mapping[str, Any]) -> None:
++        super().__init__(str(error.get("message", "")))
++        self.error = dict(error)
++
++
++class CallFrameRetryLineageError(ValueError):
++    """Malformed or ambiguous call-frame lineage (first cut: never raised)."""
++
++    def __init__(self, reason: str) -> None:
++        super().__init__(reason)
++        self.reason = reason
++
++
++@dataclass(frozen=True)
++class RetryFrameMember:
++    frame_id: str
++    ordinal: int
++
++
++def audit_scope(bundle: Any, state: Mapping[str, Any], scope_path: ResumeScopePath) -> None:
++    """First cut: accept every scope."""
++    return None
++
++
++def index_retry_lineage(boundary_step_id: str, frame_items: Iterable[tuple[str, Any]], *, frontend_kind: str | None) -> Any:
++    raise NotImplementedError("index_retry_lineage")
++
++
++def next_unused_retry_frame_id(lineage: Any) -> str:
++    raise NotImplementedError("next_unused_retry_frame_id")
+diff --git a/orchestrator/workflow/state_projection.py b/orchestrator/workflow/state_projection.py
+index a80ff37..c2e1429 100644
+--- a/orchestrator/workflow/state_projection.py
++++ b/orchestrator/workflow/state_projection.py
+@@ -103,6 +103,15 @@ class StructuredSelectionProjection:
+     step_presentation_keys: tuple[str, ...] = ()
+ 
+ 
++class ResumeProjectionValidationError(ValueError):
++    """Projection failure with a stable reason (first cut: never raised)."""
++
++    def __init__(self, reason: str, message: str) -> None:
++        super().__init__(message)
++        self.reason = reason
++        self.message = message
++
++
+ @dataclass(frozen=True)
+ class WorkflowStateProjection:
+     """Projection between executable node ids and persisted/reporting compatibility surfaces."""
+@@ -124,6 +133,18 @@ class WorkflowStateProjection:
+         default_factory=empty_frozen_mapping
+     )
+ 
++    def enumerate_resume_slots(self, state: Any) -> Any:
++        """First cut: resume slot enumeration is not implemented."""
++        raise NotImplementedError("enumerate_resume_slots")
++
++    def resolve_resume_step_id(self, slot_index: Any, step_id: Any, presentation_key: Any = None) -> Any:
++        """First cut: exact step-id resolution is not implemented."""
++        raise NotImplementedError("resolve_resume_step_id")
++
++    def resolve_call_boundary(self, slot_index: Any, call_step_id: Any) -> Any:
++        """First cut: exact call-boundary resolution is not implemented."""
++        raise NotImplementedError("resolve_call_boundary")
++
+     def ordered_execution_node_ids(self) -> tuple[str, ...]:
+         """Return top-level executable node ids in deterministic execution order."""
+         body_node_ids = tuple(

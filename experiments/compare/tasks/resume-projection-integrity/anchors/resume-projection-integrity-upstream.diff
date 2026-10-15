@@ -1,0 +1,3244 @@
+diff --git a/orchestrator/cli/commands/resume.py b/orchestrator/cli/commands/resume.py
+index 333b8e2b..92aac045 100644
+--- a/orchestrator/cli/commands/resume.py
++++ b/orchestrator/cli/commands/resume.py
+@@ -20,6 +20,11 @@ from orchestrator.workflow.loaded_bundle import (
+     workflow_runtime_context_inputs,
+ )
+ from orchestrator.workflow.signatures import bind_workflow_inputs
++from orchestrator.workflow.resume_projection_integrity import (
++    ResumeProjectionIntegrityError,
++    ResumeScopePath,
++    audit_scope,
++)
+ from orchestrator.exceptions import WorkflowValidationError
+ from orchestrator.monitor.process import (
+     process_start_time_token,
+@@ -365,45 +370,30 @@ def resume_workflow(
+         )
+         print("Use --force-restart to start a new run on the current schema.", file=sys.stderr)
+         return 1
+-    if (
+-        not force_restart
+-        and isinstance(state.error, dict)
+-        and state.error.get("type") == PROVIDER_SESSION_QUARANTINE_ERROR
+-    ):
+-        print(f"Error: {state.error.get('message')}", file=sys.stderr)
+-        context = state.error.get("context", {})
+-        if isinstance(context, dict):
+-            metadata_path = context.get("metadata_path")
+-            transport_spool_path = context.get("transport_spool_path")
+-            if metadata_path:
+-                print(f"Metadata: {metadata_path}", file=sys.stderr)
+-            if transport_spool_path:
+-                print(f"Transport spool: {transport_spool_path}", file=sys.stderr)
+-        print("Use --force-restart to start a new run.", file=sys.stderr)
+-        return 1
+-
+     workflow_file = state.workflow_file
+     if not workflow_file:
+         print("Error: No workflow file recorded in state", file=sys.stderr)
+         return 1
+ 
+-    observability = _merge_observability_overrides(
+-        state.observability,
+-        summary_mode=summary_mode,
+-        summary_provider=summary_provider,
+-        summary_timeout_sec=summary_timeout_sec,
+-        summary_max_input_chars=summary_max_input_chars,
+-        summary_profile=summary_profile,
+-        live_agent_notes=live_agent_notes,
+-        live_agent_note_provider=live_agent_note_provider,
+-        live_agent_note_interval_sec=live_agent_note_interval_sec,
+-        live_agent_note_timeout_sec=live_agent_note_timeout_sec,
+-        live_agent_note_max_tail_chars=live_agent_note_max_tail_chars,
+-    )
+-    if observability is not None:
+-        # Persist runtime override so future resumes are deterministic.
+-        state.observability = observability
+-        state_manager._write_state()
++    observability: Optional[Dict[str, Any]] = None
++    if force_restart:
++        observability = _merge_observability_overrides(
++            state.observability,
++            summary_mode=summary_mode,
++            summary_provider=summary_provider,
++            summary_timeout_sec=summary_timeout_sec,
++            summary_max_input_chars=summary_max_input_chars,
++            summary_profile=summary_profile,
++            live_agent_notes=live_agent_notes,
++            live_agent_note_provider=live_agent_note_provider,
++            live_agent_note_interval_sec=live_agent_note_interval_sec,
++            live_agent_note_timeout_sec=live_agent_note_timeout_sec,
++            live_agent_note_max_tail_chars=live_agent_note_max_tail_chars,
++        )
++        if observability is not None:
++            # Preserve the existing force-restart override lifecycle.
++            state.observability = observability
++            state_manager._write_state()
+ 
+     workflow_path = Path(workflow_file)
+     if not workflow_path.exists():
+@@ -468,6 +458,50 @@ def resume_workflow(
+             print("The workflow checksum does not match the recorded checksum.", file=sys.stderr)
+             print("Use --force-restart to ignore this and start a new run.", file=sys.stderr)
+             return 1
++        try:
++            audit_scope(
++                workflow_bundle,
++                state.to_dict(),
++                ResumeScopePath.root(str(workflow_path)),
++            )
++        except ResumeProjectionIntegrityError as exc:
++            state_manager.record_resume_projection_integrity_failure(exc.error)
++            print(f"Error: {exc}", file=sys.stderr)
++            return 1
++
++        if (
++            isinstance(state.error, dict)
++            and state.error.get("type") == PROVIDER_SESSION_QUARANTINE_ERROR
++        ):
++            print(f"Error: {state.error.get('message')}", file=sys.stderr)
++            context = state.error.get("context", {})
++            if isinstance(context, dict):
++                metadata_path = context.get("metadata_path")
++                transport_spool_path = context.get("transport_spool_path")
++                if metadata_path:
++                    print(f"Metadata: {metadata_path}", file=sys.stderr)
++                if transport_spool_path:
++                    print(f"Transport spool: {transport_spool_path}", file=sys.stderr)
++            print("Use --force-restart to start a new run.", file=sys.stderr)
++            return 1
++
++        observability = _merge_observability_overrides(
++            state.observability,
++            summary_mode=summary_mode,
++            summary_provider=summary_provider,
++            summary_timeout_sec=summary_timeout_sec,
++            summary_max_input_chars=summary_max_input_chars,
++            summary_profile=summary_profile,
++            live_agent_notes=live_agent_notes,
++            live_agent_note_provider=live_agent_note_provider,
++            live_agent_note_interval_sec=live_agent_note_interval_sec,
++            live_agent_note_timeout_sec=live_agent_note_timeout_sec,
++            live_agent_note_max_tail_chars=live_agent_note_max_tail_chars,
++        )
++        if observability is not None:
++            # Persist runtime override so future resumes are deterministic.
++            state.observability = observability
++            state_manager._write_state()
+ 
+     if force_restart:
+         try:
+diff --git a/orchestrator/loader.py b/orchestrator/loader.py
+index c5ca5c03..d3e77f4b 100644
+--- a/orchestrator/loader.py
++++ b/orchestrator/loader.py
+@@ -6,7 +6,7 @@ import re
+ from copy import deepcopy
+ from enum import Enum
+ from pathlib import Path
+-from typing import Any, Dict, List, Mapping, Optional, Set
++from typing import Any, Dict, List, Mapping, NamedTuple, Optional, Set
+ import yaml
+ 
+ from orchestrator.contracts.output_contract import OutputContractError, validate_contract_value
+@@ -55,7 +55,35 @@ from orchestrator.workflow.statements import (
+ 
+ class PreservingLoader(yaml.SafeLoader):
+     """Custom YAML loader that preserves string keys like 'on' instead of converting to bool."""
+-    pass
++
++    def get_single_data(self):
++        """Validate the composed workflow document before constructing its mapping."""
++        document = self.get_single_node()
++        if document is not None:
++            duplicate_scan = _scan_duplicate_import_aliases(self, document)
++            if duplicate_scan is not None and duplicate_scan.entries:
++                message = "; ".join(
++                    f"imports.{entry.alias}: duplicate import alias"
++                    for entry in duplicate_scan.entries
++                )
++                raise yaml.constructor.ConstructorError(
++                    "while constructing workflow imports",
++                    duplicate_scan.entries[0].first_mark,
++                    message,
++                    duplicate_scan.entries[0].mark,
++                )
++            if (
++                duplicate_scan is not None
++                and duplicate_scan.duplicate_imports_mark is not None
++            ):
++                raise yaml.constructor.ConstructorError(
++                    "while constructing workflow",
++                    duplicate_scan.imports_key_mark,
++                    "imports: duplicate top-level mapping",
++                    duplicate_scan.duplicate_imports_mark,
++                )
++            return self.construct_document(document)
++        return None
+ 
+ 
+ class WorkflowBoundaryValidationPolicy(str, Enum):
+@@ -81,6 +109,86 @@ if 'O' in PreservingLoader.yaml_implicit_resolvers:
+     ]
+ 
+ 
++class _DuplicateImportAliasEntry(NamedTuple):
++    alias: str
++    first_mark: yaml.Mark
++    mark: yaml.Mark
++
++
++class _DuplicateImportAliasScan(NamedTuple):
++    imports_key_mark: yaml.Mark
++    entries: tuple[_DuplicateImportAliasEntry, ...]
++    duplicate_imports_mark: Optional[yaml.Mark]
++
++
++def _scan_duplicate_import_aliases(
++    loader: PreservingLoader,
++    document: yaml.Node,
++) -> Optional[_DuplicateImportAliasScan]:
++    """Return marked duplicate effective top-level imports and aliases."""
++    if not isinstance(document, yaml.MappingNode):
++        return None
++
++    effective_document = deepcopy(document)
++    loader.flatten_mapping(effective_document)
++
++    imports_entries: list[tuple[yaml.ScalarNode, yaml.Node]] = []
++    for key_node, value_node in effective_document.value:
++        if isinstance(key_node, yaml.ScalarNode) and key_node.value == "imports":
++            imports_entries.append((key_node, value_node))
++
++    if not imports_entries:
++        return None
++
++    seen: dict[str, yaml.Mark] = {}
++    duplicates: list[_DuplicateImportAliasEntry] = []
++    first_imports_key = imports_entries[0][0]
++    for _, imports_node in imports_entries:
++        if not isinstance(imports_node, yaml.MappingNode):
++            continue
++        effective_imports = deepcopy(imports_node)
++        loader.flatten_mapping(effective_imports)
++
++        for key_node, _ in effective_imports.value:
++            alias = loader.construct_object(key_node, deep=True)
++            if not isinstance(alias, str):
++                continue
++            if alias in seen:
++                if not any(entry.alias == alias for entry in duplicates):
++                    duplicates.append(
++                        _DuplicateImportAliasEntry(
++                            alias,
++                            seen[alias],
++                            key_node.start_mark,
++                        )
++                    )
++                continue
++            seen[alias] = key_node.start_mark
++    return _DuplicateImportAliasScan(
++        imports_key_mark=first_imports_key.start_mark,
++        entries=tuple(duplicates),
++        duplicate_imports_mark=(
++            imports_entries[1][0].start_mark
++            if len(imports_entries) > 1
++            else None
++        ),
++    )
++
++
++def _duplicate_import_aliases(
++    loader: PreservingLoader,
++    document: yaml.Node,
++) -> tuple[str, ...]:
++    """Return duplicate effective aliases from the top-level imports mapping."""
++    duplicate_scan = _scan_duplicate_import_aliases(loader, document)
++    if duplicate_scan is None:
++        return ()
++    return tuple(
++        entry.alias
++        for entry in duplicate_scan.entries
++    )
++
++
+ class WorkflowLoader:
+     """Loads and validates workflow YAML with strict DSL enforcement."""
+ 
+diff --git a/orchestrator/observability/report.py b/orchestrator/observability/report.py
+index 6f31cbbe..f0ede1f4 100644
+--- a/orchestrator/observability/report.py
++++ b/orchestrator/observability/report.py
+@@ -13,6 +13,12 @@ from orchestrator.workflow.loaded_bundle import workflow_bundle
+ 
+ _PREVIEW_LIMIT = 200
+ _STALE_RUNNING_TIMEOUT_SEC = 300
++_FORENSIC_CURRENT_STEP_ERROR_TYPES = frozenset(
++    {
++        "resume_projection_integrity_error",
++        "workflow_checksum_mismatch",
++    }
++)
+ 
+ 
+ def _resolved_current_step_name(workflow: Any, current_step: Optional[Dict[str, Any]]) -> Optional[str]:
+@@ -210,6 +216,16 @@ def _coerce_step_status(step_result: Any) -> Optional[str]:
+     return None
+ 
+ 
++def _retained_current_step_is_forensic(state: Mapping[str, Any]) -> bool:
++    if state.get("status") != "failed":
++        return False
++    error = state.get("error")
++    return (
++        isinstance(error, Mapping)
++        and error.get("type") in _FORENSIC_CURRENT_STEP_ERROR_TYPES
++    )
++
++
+ def derive_status_projection(
+     state: Mapping[str, Any],
+     step_entries: list[Mapping[str, Any]],
+@@ -294,9 +310,12 @@ def build_status_snapshot(
+     bundle = workflow_bundle(workflow)
+     if bundle is None:
+         raise TypeError("build_status_snapshot requires a LoadedWorkflowBundle")
++    forensic_resume_envelope = _retained_current_step_is_forensic(state)
+     steps_state = state.get("steps") if isinstance(state.get("steps"), dict) else {}
+     step_visits = state.get("step_visits") if isinstance(state.get("step_visits"), dict) else {}
+     current_step = state.get("current_step") if isinstance(state.get("current_step"), dict) else None
++    if forensic_resume_envelope:
++        current_step = None
+     current_step_name = _resolved_current_step_name(workflow, current_step)
+ 
+     step_entries = []
+@@ -313,7 +332,7 @@ def build_status_snapshot(
+         status = _coerce_step_status(result) or "pending"
+         if is_current_step:
+             status = "running"
+-        if status == "pending" and prompt_text:
++        if status == "pending" and prompt_text and not forensic_resume_envelope:
+             status = "running"
+ 
+         entry = {
+diff --git a/orchestrator/state.py b/orchestrator/state.py
+index b3c90798..2553ab78 100644
+--- a/orchestrator/state.py
++++ b/orchestrator/state.py
+@@ -9,7 +9,7 @@ import shutil
+ import threading
+ from datetime import datetime, timezone
+ from pathlib import Path
+-from typing import Dict, Any, Optional, List, Literal
++from typing import Dict, Any, Optional, List, Literal, Mapping
+ from dataclasses import dataclass, asdict, field
+ import random
+ import string
+@@ -488,6 +488,52 @@ class StateManager:
+ 
+             self._write_state()
+ 
++    def _record_atomic_root_failure(self, error: Mapping[str, Any]) -> None:
++        """Replace only the root failure envelope while preserving raw state."""
++        with self._lock:
++            if not self.state:
++                raise RuntimeError("State not initialized")
++
++            with open(self.state_file, 'r', encoding='utf-8') as f:
++                payload = json.load(f)
++            if not isinstance(payload, dict):
++                raise ValueError("State file must decode to an object")
++
++            payload["status"] = "failed"
++            payload["error"] = dict(error)
++            payload["updated_at"] = datetime.now(timezone.utc).isoformat()
++            self._write_json_atomic(self.state_file, payload)
++            self.state = RunState.from_dict(payload)
++
++    def record_resume_projection_integrity_failure(
++        self,
++        error: Mapping[str, Any],
++    ) -> None:
++        """Atomically change only status, error, and updated_at."""
++        self._record_atomic_root_failure(error)
++
++    def record_workflow_checksum_mismatch(
++        self,
++        *,
++        workflow_file: str | None,
++        persisted_checksum: str | None,
++        current_checksum: str | None,
++        reason: str,
++    ) -> None:
++        """Atomically record the structured root checksum-mismatch envelope."""
++        self._record_atomic_root_failure(
++            {
++                "type": "workflow_checksum_mismatch",
++                "message": "Workflow has been modified since the run started",
++                "context": {
++                    "workflow_file": workflow_file,
++                    "persisted_checksum": persisted_checksum,
++                    "current_checksum": current_checksum,
++                    "reason": reason,
++                },
++            }
++        )
++
+     def backup_state(self, step_name: str):
+         """Create a backup of current state before step execution.
+ 
+diff --git a/orchestrator/workflow/call_frame_state.py b/orchestrator/workflow/call_frame_state.py
+index 56b124be..59e0d0a6 100644
+--- a/orchestrator/workflow/call_frame_state.py
++++ b/orchestrator/workflow/call_frame_state.py
+@@ -19,6 +19,7 @@ from .loaded_bundle import (
+     workflow_output_contracts,
+     workflow_provenance,
+ )
++from .resume_projection_integrity import ResumeScopePath
+ 
+ 
+ def _path_safe_frame_scope_token(frame_id: str) -> str:
+@@ -96,6 +97,7 @@ class _CallFrameStateManager:
+         bound_inputs: Dict[str, Any],
+         existing_frame: Optional[Dict[str, Any]] = None,
+         observability: Optional[Dict[str, Any]] = None,
++        resume_scope_path: Optional[ResumeScopePath] = None,
+     ) -> None:
+         self.parent_manager = parent_manager
+         self.workspace = parent_manager.workspace
+@@ -104,6 +106,7 @@ class _CallFrameStateManager:
+         self.call_step_name = call_step_name
+         self.call_step_id = call_step_id
+         self.import_alias = import_alias
++        self.resume_scope_path = resume_scope_path
+         self.run_id = parent_manager.run_id
+         frame_root_name = _path_safe_frame_scope_token(frame_id)
+         self.run_root = parent_manager.run_root / "call_frames" / frame_root_name
+diff --git a/orchestrator/workflow/calls.py b/orchestrator/workflow/calls.py
+index 2c4cfc2e..151d45ff 100644
+--- a/orchestrator/workflow/calls.py
++++ b/orchestrator/workflow/calls.py
+@@ -28,6 +28,19 @@ from .loaded_bundle import (
+ )
+ from .predicates import PredicateEvaluationError
+ from .references import ReferenceResolutionError
++from .resume_projection_integrity import (
++    CallFrameRetryLineage,
++    CallFrameRetryLineageError,
++    ResumeProjectionIntegrityError,
++    ResumeScopePath,
++    TerminalResultClass,
++    audit_scope,
++    classify_terminal_result,
++    index_retry_lineage,
++    next_unused_retry_frame_id,
++    projection_integrity_failed_result,
++)
++from .state_projection import ResumeProjectionValidationError
+ from . import step_results
+ 
+ 
+@@ -39,41 +52,114 @@ class CallExecutor:
+ 
+     @staticmethod
+     def _is_workflow_lisp_target(workflow: Any) -> bool:
+-        provenance = workflow_provenance(workflow)
+-        workflow_path = getattr(provenance, "workflow_path", None)
+-        if isinstance(workflow_path, Path) and workflow_path.suffix == ".orc":
+-            return True
+-        return False
++        bundle = workflow_bundle(workflow)
++        return (
++            bundle is not None
++            and bundle.provenance.frontend_kind == "workflow_lisp"
++        )
+ 
+-    @staticmethod
+-    def _retry_frame_id(frame_id: str, call_frames: Mapping[str, Any]) -> str:
+-        retry_index = 1
+-        while True:
+-            candidate = f"{frame_id}::retry::{retry_index}"
+-            if candidate not in call_frames:
+-                return candidate
+-            retry_index += 1
++    def _retry_lineage_for_step(
++        self,
++        *,
++        step_id: str,
++        call_frames: Mapping[str, Any],
++        imported_workflow: Any | None,
++    ) -> CallFrameRetryLineage:
++        frame_items = (
++            (frame_id, frame)
++            for frame_id, frame in call_frames.items()
++            if isinstance(frame, Mapping) and frame.get("call_step_id") == step_id
++        )
++        provenance = workflow_provenance(imported_workflow)
++        frontend_kind = provenance.frontend_kind if provenance is not None else None
++        return index_retry_lineage(
++            step_id,
++            frame_items,
++            frontend_kind=frontend_kind,
++        )
+ 
+-    @staticmethod
+-    def _retry_family_base(frame_id: str) -> str:
+-        marker = "::retry::"
+-        if marker not in frame_id:
+-            return frame_id
+-        return frame_id.split(marker, 1)[0]
+-
+-    @classmethod
+-    def _is_failed_retry_family_frame(
+-        cls,
++    def _resume_scope_path(self) -> ResumeScopePath:
++        scope_path = getattr(self.executor, "resume_scope_path", None)
++        if isinstance(scope_path, ResumeScopePath):
++            return scope_path
++        provenance = workflow_provenance(self.executor.loaded_bundle)
++        workflow_path = provenance.workflow_path if provenance is not None else None
++        return ResumeScopePath.root(str(workflow_path))
++
++    def _current_call_boundary(
++        self,
+         *,
+-        frame_id: str,
+-        prior_frame_id: str,
+-        prior_frame: Mapping[str, Any],
+-    ) -> bool:
+-        if prior_frame.get("status") != "failed":
+-            return False
+-        if "::retry::" not in frame_id:
+-            return False
+-        return cls._retry_family_base(frame_id) == cls._retry_family_base(prior_frame_id)
++        step_id: str,
++        state: Mapping[str, Any],
++    ) -> Any:
++        """Resolve the exact current call boundary without parsing its identity."""
++        try:
++            slot_index = self.executor.projection.enumerate_resume_slots(state)
++        except ResumeProjectionValidationError:
++            audit_scope(
++                self.executor.loaded_bundle,
++                state,
++                self._resume_scope_path(),
++            )
++            raise AssertionError("projection validation passed after slot failure")
++        resolution = self.executor.projection.resolve_call_boundary(
++            slot_index,
++            step_id,
++        )
++        if resolution.candidate_count == 1:
++            assert resolution.boundary is not None
++            return resolution.boundary
++
++        synthetic_state = {
++            key: value
++            for key, value in state.items()
++            if key in {
++                "workflow_checksum",
++                "steps",
++                "for_each",
++                "repeat_until",
++            }
++        }
++        synthetic_state["call_frames"] = {
++            "__reached_call__": {
++                "status": "running",
++                "call_step_id": step_id,
++                "import_alias": "",
++            }
++        }
++        audit_scope(
++            self.executor.loaded_bundle,
++            synthetic_state,
++            self._resume_scope_path(),
++        )
++        raise AssertionError("unreachable call-boundary resolution")
++
++    def _allocate_retry_frame_id(
++        self,
++        lineage: CallFrameRetryLineage,
++        provisional_frame_id: str,
++        *,
++        step_id: str,
++        call_frames: Mapping[str, Any],
++        imported_workflow: Any,
++    ) -> str:
++        """Rederive and authorize one fresh retry only after history validation."""
++        reindexed = self._retry_lineage_for_step(
++            step_id=step_id,
++            call_frames=call_frames,
++            imported_workflow=imported_workflow,
++        )
++        allocated_frame_id = next_unused_retry_frame_id(reindexed)
++        if (
++            reindexed != lineage
++            or allocated_frame_id != provisional_frame_id
++        ):
++            raise CallFrameRetryLineageError(
++                "ambiguous_resumable_call_frame",
++                frame_id=allocated_frame_id,
++                offending_value=allocated_frame_id,
++            )
++        return allocated_frame_id
+ 
+     @staticmethod
+     def _source_ref_for_address(bundle: Any, address: Any) -> Optional[str]:
+@@ -129,7 +215,7 @@ class CallExecutor:
+         """Derive a durable call-frame id from the authored call step and visit count."""
+         return self.frame_id_with_overrides(step, state)
+ 
+-    def frame_id_with_overrides(
++    def _fresh_frame_id(
+         self,
+         step: RuntimeStepInput,
+         state: Dict[str, Any],
+@@ -137,23 +223,17 @@ class CallExecutor:
+         step_name: Optional[str] = None,
+         step_id: Optional[str] = None,
+     ) -> str:
+-        """Derive a durable call-frame id from an optional runtime-local step identity."""
+-        if getattr(self.executor, "resume_mode", False):
+-            call_frames = state.get("call_frames", {})
+-            effective_step_id = step_id or self.executor._step_id(step)
+-            if isinstance(call_frames, dict):
+-                for frame_id, frame in call_frames.items():
+-                    if not isinstance(frame, dict):
+-                        continue
+-                    if frame.get("call_step_id") != effective_step_id:
+-                        continue
+-                    if frame.get("status") == "completed":
+-                        continue
+-                    return frame_id
+-
+-        effective_step_name = step_name or step.get("name", f"step_{self.executor.current_step}")
++        """Derive the current visit's fresh frame ID without resume selection."""
++        effective_step_name = step_name or step.get(
++            "name",
++            f"step_{self.executor.current_step}",
++        )
+         step_visits = state.get("step_visits", {})
+-        visit_count = step_visits.get(effective_step_name, 1) if isinstance(step_visits, dict) else 1
++        visit_count = (
++            step_visits.get(effective_step_name, 1)
++            if isinstance(step_visits, dict)
++            else 1
++        )
+         effective_step_id = step_id or self.executor._step_id(step)
+         frame_id = f"{effective_step_id}::visit::{visit_count}"
+         state_manager = self.executor.state_manager
+@@ -166,6 +246,48 @@ class CallExecutor:
+             return f"{parent_frame_id}.{frame_id}"
+         return frame_id
+ 
++    def frame_id_with_overrides(
++        self,
++        step: RuntimeStepInput,
++        state: Dict[str, Any],
++        *,
++        step_name: Optional[str] = None,
++        step_id: Optional[str] = None,
++        imported_workflow: Any | None = None,
++    ) -> str:
++        """Derive a durable call-frame id from an optional runtime-local step identity."""
++        fresh_frame_id = self._fresh_frame_id(
++            step,
++            state,
++            step_name=step_name,
++            step_id=step_id,
++        )
++        if getattr(self.executor, "resume_mode", False):
++            call_frames = state.get("call_frames", {})
++            effective_step_id = step_id or self.executor._step_id(step)
++            if isinstance(call_frames, dict):
++                occupied_fresh_frame = call_frames.get(fresh_frame_id)
++                if (
++                    isinstance(occupied_fresh_frame, Mapping)
++                    and occupied_fresh_frame.get("status") == "completed"
++                ):
++                    raise CallFrameRetryLineageError(
++                        "completed_call_frame_id_collision",
++                        frame_id=fresh_frame_id,
++                        offending_value=occupied_fresh_frame,
++                    )
++                lineage = self._retry_lineage_for_step(
++                    step_id=effective_step_id,
++                    call_frames=call_frames,
++                    imported_workflow=imported_workflow,
++                )
++                if lineage.running_member is not None:
++                    return lineage.running_member.frame_id
++                if lineage.failed_predecessors:
++                    return lineage.base_frame_id
++
++        return fresh_frame_id
++
+     def resolve_bound_inputs(
+         self,
+         step: RuntimeStepInput,
+@@ -378,6 +500,7 @@ class CallExecutor:
+         imported_workflow: Any,
+         state: Dict[str, Any],
+         bound_inputs: Dict[str, Any],
++        retry_predecessor_frame_ids: frozenset[str] = frozenset(),
+     ) -> Optional[Dict[str, Any]]:
+         """Reject repeated or aliased managed write roots across call frames."""
+         managed_inputs = workflow_managed_write_root_inputs(imported_workflow)
+@@ -415,11 +538,7 @@ class CallExecutor:
+                 continue
+             if (
+                 prior_frame.get("call_step_id") == step_id
+-                and self._is_failed_retry_family_frame(
+-                    frame_id=frame_id,
+-                    prior_frame_id=prior_frame_id,
+-                    prior_frame=prior_frame,
+-                )
++                and prior_frame_id in retry_predecessor_frame_ids
+             ):
+                 continue
+ 
+@@ -794,20 +913,56 @@ class CallExecutor:
+         from .call_frame_state import _CallFrameStateManager
+         from .executor import WorkflowExecutor
+ 
+-        call_alias = step.get("call")
+-        imported_bundle = workflow_import_bundle(self.executor.loaded_bundle, call_alias)
+-        imported_target = imported_bundle
+         step_name = step_name_override or step.get("name", f"step_{self.executor.current_step}")
+         step_id = runtime_step_id or self.executor._step_id(step)
+-        if imported_target is None:
++        authored_call_alias = step.get("call")
++        try:
++            boundary = self._current_call_boundary(
++                step_id=step_id,
++                state=state,
++            )
++        except ResumeProjectionIntegrityError as exc:
++            return projection_integrity_failed_result(exc.error)
++        call_alias = boundary.import_alias
++        imported_bundle = workflow_import_bundle(
++            self.executor.loaded_bundle,
++            call_alias,
++        )
++        imported_target = imported_bundle
++        if (
++            authored_call_alias != call_alias
++            and workflow_import_bundle(
++                self.executor.loaded_bundle,
++                authored_call_alias,
++            ) is None
++        ):
+             return step_results.contract_violation_result(
+                 "Call execution failed",
+                 {
+                     "step": step_name,
+                     "reason": "unknown_import_alias",
+-                    "call": call_alias,
++                    "call": authored_call_alias,
+                 },
+             )
++        if imported_target is None:
++            try:
++                audit_scope(
++                    self.executor.loaded_bundle,
++                    {
++                        **state,
++                        "call_frames": {
++                            "__reached_call__": {
++                                "status": "running",
++                                "call_step_id": step_id,
++                                "import_alias": call_alias,
++                            }
++                        },
++                    },
++                    self._resume_scope_path(),
++                )
++            except ResumeProjectionIntegrityError as exc:
++                return projection_integrity_failed_result(exc.error)
++            raise AssertionError("missing imported bundle passed projection audit")
+ 
+         bound_inputs, binding_error = self.resolve_bound_inputs(
+             step,
+@@ -820,50 +975,98 @@ class CallExecutor:
+             return binding_error
+         assert bound_inputs is not None
+ 
+-        frame_id = self.frame_id_with_overrides(
++        call_frames = state.get("call_frames", {})
++        fresh_frame_id = self._fresh_frame_id(
+             step,
+             state,
+             step_name=step_name,
+             step_id=step_id,
+         )
+-        call_frames = state.get("call_frames", {})
+-        if self.executor.resume_mode and not isinstance(call_frames, dict):
++        occupied_fresh_frame = (
++            call_frames.get(fresh_frame_id)
++            if isinstance(call_frames, Mapping)
++            else None
++        )
++        if (
++            self.executor.resume_mode
++            and isinstance(occupied_fresh_frame, Mapping)
++            and occupied_fresh_frame.get("status") == "completed"
++        ):
+             return self.resume_state_invalid_result(
+                 step_name=step_name,
+                 call_alias=call_alias,
+-                frame_id=frame_id,
+-                detail="call_frames_not_mapping",
++                frame_id=fresh_frame_id,
++                detail="completed_call_frame_id_collision",
+             )
++        if self.executor.resume_mode:
++            try:
++                audit_scope(
++                    self.executor.loaded_bundle,
++                    state,
++                    self._resume_scope_path(),
++                )
++            except ResumeProjectionIntegrityError as exc:
++                return projection_integrity_failed_result(exc.error)
+         if not isinstance(call_frames, dict):
+             call_frames = {}
+             state["call_frames"] = call_frames
+-        frame_exists = frame_id in call_frames
+-        existing_frame = call_frames.get(frame_id)
+-        if (
+-            self.executor.resume_mode
+-            and frame_exists
+-            and not isinstance(existing_frame, dict)
+-        ):
++
++        try:
++            retry_lineage = (
++                self._retry_lineage_for_step(
++                    step_id=step_id,
++                    call_frames=call_frames,
++                    imported_workflow=imported_target,
++                )
++                if self.executor.resume_mode
++                else None
++            )
++        except CallFrameRetryLineageError as exc:
+             return self.resume_state_invalid_result(
+                 step_name=step_name,
+                 call_alias=call_alias,
+-                frame_id=frame_id,
+-                detail="call_frame_not_mapping",
++                frame_id=fresh_frame_id,
++                detail=exc.reason,
+             )
+ 
+-        child_existing_frame = existing_frame if isinstance(existing_frame, dict) else None
+-        child_resume = self.executor.resume_mode and child_existing_frame is not None
++        workflow_lisp_target = self._is_workflow_lisp_target(imported_target)
++        running_member = (
++            retry_lineage.running_member
++            if retry_lineage is not None
++            else None
++        )
+         force_fresh_workflow_lisp_retry = (
+-            child_resume
++            retry_lineage is not None
++            and workflow_lisp_target
++            and running_member is None
++            and bool(retry_lineage.failed_predecessors)
++        )
++        provisional_retry_frame_id = (
++            next_unused_retry_frame_id(retry_lineage)
++            if force_fresh_workflow_lisp_retry
++            else None
++        )
++        if isinstance(provisional_retry_frame_id, str):
++            frame_id = provisional_retry_frame_id
++        elif running_member is not None:
++            frame_id = running_member.frame_id
++        else:
++            frame_id = fresh_frame_id
++
++        existing_frame = (
++            call_frames.get(frame_id)
++            if not force_fresh_workflow_lisp_retry
++            else None
++        )
++        child_existing_frame = (
++            existing_frame
++            if isinstance(existing_frame, dict)
++            else None
++        )
++        child_resume = (
++            self.executor.resume_mode
+             and child_existing_frame is not None
+-            and child_existing_frame.get("status") == "failed"
+-            and self._is_workflow_lisp_target(imported_target)
+         )
+-        if force_fresh_workflow_lisp_retry:
+-            frame_id = self._retry_frame_id(frame_id, call_frames)
+-            existing_frame = None
+-            child_existing_frame = None
+-            child_resume = False
+ 
+         bound_inputs, finalization_error = self.finalize_bound_inputs(
+             step=step,
+@@ -883,30 +1086,120 @@ class CallExecutor:
+             imported_workflow=imported_target,
+             state=state,
+             bound_inputs=bound_inputs,
++            retry_predecessor_frame_ids=frozenset(
++                member.frame_id
++                for member in (
++                    retry_lineage.failed_predecessors
++                    if retry_lineage is not None
++                    else ()
++                )
++            ),
+         )
+         if write_root_error is not None:
+             return write_root_error
+ 
+-        checksum_error = self.validate_resume_checksum(
+-            step_name=step_name,
+-            call_alias=call_alias,
+-            frame_id=frame_id,
+-            imported_workflow=imported_target,
+-            existing_frame=existing_frame if isinstance(existing_frame, dict) else None,
+-        )
+-        if checksum_error is not None:
+-            return checksum_error
++        resume_validation: Mapping[str, Any] = {
++            "status": "fresh",
++            "diagnostics": (),
++        }
++        if (
++            self.executor.resume_mode
++            and workflow_lisp_target
++            and running_member is not None
++        ):
++            checksum_error = self.validate_resume_checksum(
++                step_name=step_name,
++                call_alias=call_alias,
++                frame_id=running_member.frame_id,
++                imported_workflow=imported_target,
++                existing_frame=dict(running_member.frame),
++            )
++            if checksum_error is not None:
++                return checksum_error
++            resume_bound_input_error, resume_validation = self.validate_resume_bound_inputs(
++                step_name=step_name,
++                call_alias=call_alias,
++                frame_id=running_member.frame_id,
++                imported_workflow=imported_target,
++                existing_frame=dict(running_member.frame),
++                expected_bound_inputs=bound_inputs,
++            )
++            if resume_bound_input_error is not None:
++                return resume_bound_input_error
+ 
+-        resume_bound_input_error, resume_validation = self.validate_resume_bound_inputs(
+-            step_name=step_name,
+-            call_alias=call_alias,
+-            frame_id=frame_id,
+-            imported_workflow=imported_target,
+-            existing_frame=existing_frame if isinstance(existing_frame, dict) else None,
+-            expected_bound_inputs=bound_inputs,
+-        )
+-        if resume_bound_input_error is not None:
+-            return resume_bound_input_error
++        if retry_lineage is not None and workflow_lisp_target:
++            for predecessor in retry_lineage.failed_predecessors:
++                checksum_error = self.validate_resume_checksum(
++                    step_name=step_name,
++                    call_alias=call_alias,
++                    frame_id=predecessor.frame_id,
++                    imported_workflow=imported_target,
++                    existing_frame=dict(predecessor.frame),
++                )
++                if checksum_error is not None:
++                    return checksum_error
++                try:
++                    audit_scope(
++                        imported_target,
++                        predecessor.frame.get("state"),
++                        self._resume_scope_path().child(predecessor.frame_id),
++                    )
++                except ResumeProjectionIntegrityError as exc:
++                    return projection_integrity_failed_result(exc.error)
++
++        if (
++            self.executor.resume_mode
++            and not workflow_lisp_target
++            and running_member is not None
++        ):
++            checksum_error = self.validate_resume_checksum(
++                step_name=step_name,
++                call_alias=call_alias,
++                frame_id=running_member.frame_id,
++                imported_workflow=imported_target,
++                existing_frame=dict(running_member.frame),
++            )
++            if checksum_error is not None:
++                return checksum_error
++            resume_bound_input_error, resume_validation = self.validate_resume_bound_inputs(
++                step_name=step_name,
++                call_alias=call_alias,
++                frame_id=running_member.frame_id,
++                imported_workflow=imported_target,
++                existing_frame=dict(running_member.frame),
++                expected_bound_inputs=bound_inputs,
++            )
++            if resume_bound_input_error is not None:
++                return resume_bound_input_error
++
++        if self.executor.resume_mode and running_member is not None:
++            try:
++                audit_scope(
++                    imported_target,
++                    running_member.frame.get("state"),
++                    self._resume_scope_path().child(running_member.frame_id),
++                )
++            except ResumeProjectionIntegrityError as exc:
++                return projection_integrity_failed_result(exc.error)
++
++        if force_fresh_workflow_lisp_retry:
++            assert retry_lineage is not None
++            assert provisional_retry_frame_id is not None
++            try:
++                frame_id = self._allocate_retry_frame_id(
++                    retry_lineage,
++                    provisional_retry_frame_id,
++                    step_id=step_id,
++                    call_frames=call_frames,
++                    imported_workflow=imported_target,
++                )
++            except CallFrameRetryLineageError as exc:
++                return self.resume_state_invalid_result(
++                    step_name=step_name,
++                    call_alias=call_alias,
++                    frame_id=provisional_retry_frame_id,
++                    detail=exc.reason,
++                )
+ 
+         child_state_manager = _CallFrameStateManager(
+             parent_manager=self.executor.state_manager,
+@@ -918,6 +1211,7 @@ class CallExecutor:
+             bound_inputs=bound_inputs,
+             existing_frame=child_existing_frame,
+             observability=self.executor.observability,
++            resume_scope_path=self._resume_scope_path().child(frame_id),
+         )
+         child_state_manager.update_bound_input_resume_validation(
+             status=str(resume_validation.get("status", "fresh")),
+@@ -928,7 +1222,7 @@ class CallExecutor:
+             ],
+         )
+         child_executor = WorkflowExecutor(
+-            workflow=imported_bundle or imported_workflow,
++            workflow=imported_target,
+             workspace=self.executor.workspace,
+             state_manager=child_state_manager,
+             debug=self.executor.debug,
+@@ -941,6 +1235,12 @@ class CallExecutor:
+         child_state = child_executor.execute(resume=child_resume)
+         call_frames[frame_id] = child_state_manager._snapshot()
+ 
++        if (
++            classify_terminal_result(child_state)
++            is TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
++        ):
++            return projection_integrity_failed_result(child_state["error"])
++
+         debug_payload = self.build_debug_payload(
+             frame_id=frame_id,
+             step=step,
+diff --git a/orchestrator/workflow/executor.py b/orchestrator/workflow/executor.py
+index 5a3e2d89..1fe33e4d 100644
+--- a/orchestrator/workflow/executor.py
++++ b/orchestrator/workflow/executor.py
+@@ -68,7 +68,7 @@ from .executable_ir import (
+     RepeatUntilFrameNode,
+     WorkflowInputAddress,
+ )
+-from .executor_runtime import RuntimeStepInput
++from .executor_runtime import CallFrameStateManager, RuntimeStepInput
+ from .finalization import FinalizationController
+ from .frontend_origins import CompiledFrontendIndex
+ from .identity import runtime_step_id
+@@ -83,6 +83,13 @@ from .loaded_bundle import (
+     workflow_runtime_context_inputs,
+     workflow_runtime_input_contracts,
+ )
++from .resume_projection_integrity import (
++    ResumeProjectionIntegrityError,
++    ResumeScopePath,
++    TerminalResultClass,
++    audit_scope,
++    classify_terminal_result,
++)
+ from .state_layout import (
+     GeneratedPathSemanticRole,
+     bounded_managed_write_root_filename,
+@@ -128,6 +135,15 @@ RESTORE_REPORT_SCHEMA_VERSION = "workflow_lisp_lexical_restore_report.v1"
+ _RESTORE_REF_MISSING = object()
+ 
+ 
++def _is_structurally_root_state_manager(state_manager: Any) -> bool:
++    """Return whether resume must apply the root checksum/projection guard."""
++    return (
++        isinstance(state_manager, StateManager)
++        and not isinstance(state_manager, CallFrameStateManager)
++        and not isinstance(getattr(state_manager, "frame_id", None), str)
++    )
++
++
+ class _ExecuteStepLoopResult(NamedTuple):
+     terminal_status: str
+     early_result: Optional[Dict[str, Any]] = None
+@@ -379,6 +395,20 @@ class WorkflowExecutor:
+             )
+         )
+ 
++    @property
++    def resume_scope_path(self) -> ResumeScopePath:
++        """Return the identity-only projection scope owned by this executor."""
++        manager_scope_path = getattr(
++            self.state_manager,
++            "resume_scope_path",
++            None,
++        )
++        if isinstance(manager_scope_path, ResumeScopePath):
++            return manager_scope_path
++        provenance = workflow_provenance(self.loaded_bundle)
++        workflow_path = provenance.workflow_path if provenance is not None else None
++        return ResumeScopePath.root(str(workflow_path))
++
+     def _legacy_frontend_index(self) -> CompiledFrontendIndex:
+         index = getattr(self, "_frontend_index", None)
+         if not isinstance(index, CompiledFrontendIndex):
+@@ -2590,6 +2620,10 @@ class WorkflowExecutor:
+             self.retry_delay_ms = retry_delay_ms
+ 
+         run_state = self.state_manager.load()
++        if resume and _is_structurally_root_state_manager(self.state_manager):
++            root_guard_result = self._revalidate_root_resume(run_state)
++            if root_guard_result is not None:
++                return root_guard_result
+         state = run_state.to_dict()
+         early_result = self._execute_prologue(state, resume=resume)
+         if early_result is not None:
+@@ -2605,6 +2639,62 @@ class WorkflowExecutor:
+             return loop_result.early_result
+         return self._execute_epilogue(state, loop_result.terminal_status)
+ 
++    def _revalidate_root_resume(self, run_state: Any) -> Optional[Dict[str, Any]]:
++        """Recheck authoritative root source and projection before prologue."""
++        provenance = workflow_provenance(self.loaded_bundle)
++        workflow_path = provenance.workflow_path if provenance is not None else None
++        workflow_file = (
++            str(workflow_path)
++            if isinstance(workflow_path, (str, Path)) and str(workflow_path)
++            else None
++        )
++        persisted_value = getattr(run_state, "workflow_checksum", None)
++        persisted_checksum = (
++            persisted_value
++            if isinstance(persisted_value, str)
++            and persisted_value.startswith("sha256:")
++            else None
++        )
++
++        current_checksum: Optional[str] = None
++        checksum_reason: Optional[str] = None
++        if workflow_file is None:
++            checksum_reason = "missing_workflow_path"
++        else:
++            try:
++                current_checksum = self.state_manager.calculate_checksum(
++                    Path(workflow_file),
++                )
++            except OSError:
++                checksum_reason = "workflow_unavailable"
++        if checksum_reason is None and persisted_checksum is None:
++            checksum_reason = "missing_recorded_checksum"
++        if (
++            checksum_reason is None
++            and current_checksum != persisted_checksum
++        ):
++            checksum_reason = "workflow_modified"
++
++        if checksum_reason is not None:
++            self.state_manager.record_workflow_checksum_mismatch(
++                workflow_file=workflow_file,
++                persisted_checksum=persisted_checksum,
++                current_checksum=current_checksum,
++                reason=checksum_reason,
++            )
++            return self.state_manager.load().to_dict()
++
++        try:
++            audit_scope(
++                self.loaded_bundle,
++                run_state.to_dict(),
++                ResumeScopePath.root(workflow_file),
++            )
++        except ResumeProjectionIntegrityError as exc:
++            self.state_manager.record_resume_projection_integrity_failure(exc.error)
++            return self.state_manager.load().to_dict()
++        return None
++
+     def _execute_step_loop(
+         self,
+         state: Dict[str, Any],
+@@ -3136,6 +3226,11 @@ class WorkflowExecutor:
+         state: Dict[str, Any],
+         terminal_status: str,
+     ) -> Dict[str, Any]:
++        if (
++            classify_terminal_result(state)
++            is TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
++        ):
++            terminal_status = "failed"
+         finalization = self._ensure_finalization_state(state)
+ 
+         if terminal_status == 'completed':
+@@ -3979,6 +4074,11 @@ class WorkflowExecutor:
+ 
+         # Handle for-each loops (which return a list of results)
+         if isinstance(step_result, list):
++            if (
++                classify_terminal_result(state)
++                is TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
++            ):
++                return '_stop'
+             # For for-each loops, control flow doesn't apply to individual iterations
+             # The loop as a whole is considered successful if it completes
+             return None  # Continue to next step
+@@ -3987,6 +4087,20 @@ class WorkflowExecutor:
+         if not isinstance(step_result, dict):
+             return None  # No result yet, continue
+ 
++        if (
++            classify_terminal_result(step_result)
++            is TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
++        ):
++            error = step_result.get("error")
++            existing_sticky_error = (
++                classify_terminal_result(state)
++                is TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
++            )
++            if isinstance(error, dict) and not existing_sticky_error:
++                state["error"] = error
++                self.state_manager.update_run_error(error)
++            return '_stop'
++
+         exit_code = step_result.get('exit_code', 0)
+         error = step_result.get('error')
+         error_type = error.get('type') if isinstance(error, dict) else None
+diff --git a/orchestrator/workflow/executor_runtime.py b/orchestrator/workflow/executor_runtime.py
+index 6700bee3..7a892ade 100644
+--- a/orchestrator/workflow/executor_runtime.py
++++ b/orchestrator/workflow/executor_runtime.py
+@@ -97,7 +97,7 @@ class ParentCallStateManager(CallStateManager, Protocol):
+ 
+ @runtime_checkable
+ class CallFrameStateManager(ParentCallStateManager, Protocol):
+-    """Call state manager carrying an optional parent frame identity."""
++    """Runtime-checkable child manager carrying its structural frame identity."""
+ 
+     @property
+     def frame_id(self) -> str: ...
+diff --git a/orchestrator/workflow/finalization.py b/orchestrator/workflow/finalization.py
+index c180ab50..53945c32 100644
+--- a/orchestrator/workflow/finalization.py
++++ b/orchestrator/workflow/finalization.py
+@@ -4,6 +4,10 @@ from __future__ import annotations
+ 
+ from typing import Any, Callable, Dict, List, Optional
+ 
++from .resume_projection_integrity import (
++    TerminalResultClass,
++    classify_terminal_result,
++)
+ from .runtime_types import RoutingDecision
+ from .state_projection import WorkflowStateProjection
+ 
+@@ -194,7 +198,21 @@ class FinalizationController:
+         )
+         finalization = self.ensure_state(state)
+         if failed:
+-            if body_status == "completed" and isinstance(result, dict):
++            sticky_failure = (
++                isinstance(result, dict)
++                and classify_terminal_result(result)
++                is TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
++            )
++            existing_sticky_error = (
++                classify_terminal_result(state)
++                is TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
++            )
++            if sticky_failure:
++                if not existing_sticky_error:
++                    error = result.get("error")
++                    if isinstance(error, dict):
++                        state["error"] = error
++            elif body_status == "completed" and isinstance(result, dict):
+                 state["error"] = self.finalization_failure_error(result, step_name)
+             if isinstance(finalization, dict):
+                 finalization["workflow_outputs_status"] = "suppressed"
+diff --git a/orchestrator/workflow/loops.py b/orchestrator/workflow/loops.py
+index ae476a0c..4f424232 100644
+--- a/orchestrator/workflow/loops.py
++++ b/orchestrator/workflow/loops.py
+@@ -11,6 +11,10 @@ from .executor_runtime import LoopRuntime, RuntimeStepInput
+ from .pointers import PointerResolver
+ from .runtime_context import RuntimeContext
+ from .identity import iteration_step_id
++from .resume_projection_integrity import (
++    TerminalResultClass,
++    classify_terminal_result,
++)
+ from .state_projection import IterationStepKeyProjection
+ from . import step_results
+ 
+@@ -27,6 +31,23 @@ class LoopExecutor:
+     def __init__(self, executor: LoopRuntime) -> None:
+         self.executor = executor
+ 
++    def _promote_sticky_result(
++        self,
++        state: Dict[str, Any],
++        result: Mapping[str, Any],
++    ) -> bool:
++        """Promote one sticky nested result to the current workflow scope."""
++        if (
++            classify_terminal_result(result)
++            is not TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
++        ):
++            return False
++        error = result.get("error")
++        if isinstance(error, dict):
++            state["error"] = error
++            self.executor.state_manager.update_run_error(error)
++        return True
++
+     def collect_persisted_iteration_state(
+         self,
+         state: Dict[str, Any],
+@@ -321,6 +342,9 @@ class LoopExecutor:
+                     iteration_index=iteration_index,
+                 )
+ 
++            if self._promote_sticky_result(state, result):
++                return nested_name, result
++
+             if stop_on_failure and result.get("exit_code", 0) != 0 and not result.get("skipped", False):
+                 return nested_name, result
+ 
+@@ -1142,6 +1166,27 @@ class LoopExecutor:
+                         "condition_evaluated_for_iteration": condition_evaluated_for_iteration,
+                         "last_condition_result": last_condition_result,
+                     }
++                    if self._promote_sticky_result(state, failure_result):
++                        failure = self.executor._attach_outcome(
++                            step,
++                            self.build_repeat_until_frame_result(
++                                step,
++                                status="failed",
++                                exit_code=failure_result.get("exit_code", 2),
++                                artifacts=frame_artifacts,
++                                progress=failure_progress,
++                                error=failure_result.get("error"),
++                            ),
++                        )
++                        self.persist_repeat_until_progress(
++                            state,
++                            step,
++                            frame_key,
++                            failure_progress,
++                            failure,
++                            emit_checkpoint_shadow=emit_checkpoint_shadow,
++                        )
++                        return state
+                     nested_outcome = (
+                         failure_result.get("outcome")
+                         if isinstance(failure_result.get("outcome"), dict)
+@@ -1571,7 +1616,7 @@ class LoopExecutor:
+                 _loop_node_id, body_node_ids, loop_projection = typed_body_context
+                 if start_node_id is None:
+                     start_node_id = body_node_ids[0] if body_node_ids else None
+-                self._execute_typed_loop_body(
++                sticky_failure = self._execute_typed_loop_body(
+                     state=state,
+                     loop_step=step,
+                     loop_name=step_name,
+@@ -1585,6 +1630,21 @@ class LoopExecutor:
+                     parent_scope_node_results=parent_scope_node_results,
+                     stop_on_failure=False,
+                 )
++                if sticky_failure is not None:
++                    self.store_loop_iteration_result(
++                        loop_results,
++                        index,
++                        iteration_state,
++                    )
++                    self.persist_for_each_progress(
++                        state,
++                        step_name,
++                        items,
++                        completed_indices,
++                        index,
++                        loop_results,
++                    )
++                    return state
+             else:
+                 for nested_index in range(start_nested_index, len(loop_steps)):
+                     nested_step = loop_steps[nested_index]
+@@ -1742,6 +1802,22 @@ class LoopExecutor:
+                             ),
+                         )
+ 
++                    if self._promote_sticky_result(state, result):
++                        self.store_loop_iteration_result(
++                            loop_results,
++                            index,
++                            iteration_state,
++                        )
++                        self.persist_for_each_progress(
++                            state,
++                            step_name,
++                            items,
++                            completed_indices,
++                            index,
++                            loop_results,
++                        )
++                        return state
++
+             self.store_loop_iteration_result(loop_results, index, iteration_state)
+             completed_indices.append(index)
+             next_index = index + 1 if index + 1 < len(items) else None
+diff --git a/orchestrator/workflow/lowering.py b/orchestrator/workflow/lowering.py
+index c2468f51..b43acc70 100644
+--- a/orchestrator/workflow/lowering.py
++++ b/orchestrator/workflow/lowering.py
+@@ -137,6 +137,7 @@ class _ProjectionBuilder:
+         node_id: str,
+         frame_key: str,
+         nested_presentation_keys: Mapping[str, str],
++        max_iterations: Optional[int],
+     ) -> None:
+         nested_step_id_suffixes = {
+             nested_node_id: _iteration_step_id_suffix(node_id, nested_node_id)
+@@ -147,6 +148,7 @@ class _ProjectionBuilder:
+             frame_key=frame_key,
+             nested_presentation_keys=MappingProxyType(dict(nested_presentation_keys)),
+             nested_step_id_suffixes=MappingProxyType(dict(nested_step_id_suffixes)),
++            max_iterations=max_iterations,
+         )
+ 
+     def register_for_each(
+@@ -171,6 +173,7 @@ class _ProjectionBuilder:
+         node_id: str,
+         presentation_key: str,
+         step_id: str,
++        import_alias: str,
+         *,
+         iteration_owner_node_id: Optional[str] = None,
+     ) -> None:
+@@ -181,6 +184,7 @@ class _ProjectionBuilder:
+             node_id=node_id,
+             presentation_key=presentation_key,
+             step_id=step_id,
++            import_alias=import_alias,
+             iteration_owner_node_id=iteration_owner_node_id,
+             iteration_step_id_suffix=iteration_step_id_suffix,
+         )
+@@ -439,6 +443,7 @@ class _IRBuilder:
+                     node.node_id,
+                     node.presentation_name,
+                     node.step_id,
++                    node.call_alias,
+                     iteration_owner_node_id=context.iteration_owner_node_id,
+                 )
+             ordered.append(node.node_id)
+@@ -557,7 +562,12 @@ class _IRBuilder:
+         )
+         self._patch_linear_fallthrough(body_node_ids, final_target=step.step_id)
+         nested_keys = {node_id: self.nodes[node_id].presentation_name for node_id in body_node_ids}
+-        self.projection.register_repeat_until(step.step_id, presentation_name, nested_keys)
++        self.projection.register_repeat_until(
++            step.step_id,
++            presentation_name,
++            nested_keys,
++            step.repeat_until.max_iterations,
++        )
+         return RepeatUntilFrameNode(
+             node_id=step.step_id,
+             step_id=step.step_id,
+diff --git a/orchestrator/workflow/outcomes.py b/orchestrator/workflow/outcomes.py
+index 0dcf292d..7626c1ff 100644
+--- a/orchestrator/workflow/outcomes.py
++++ b/orchestrator/workflow/outcomes.py
+@@ -7,6 +7,10 @@ from typing import Any, Callable, Dict, Optional
+ from ..state import StateManager, StepResult
+ from . import step_results
+ from .executor_runtime import RuntimeStepInput
++from .resume_projection_integrity import (
++    TerminalResultClass,
++    classify_terminal_result,
++)
+ from .runtime_types import NormalizedStepOutcome
+ 
+ 
+@@ -54,6 +58,18 @@ class OutcomeRecorder:
+         state["steps"][step_name] = finalized
+ 
+         self.state_manager.update_step(step_name, self.to_step_result(finalized, finalized.get("name", step_name)))
++        if (
++            classify_terminal_result(finalized)
++            is TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
++        ):
++            error = finalized.get("error")
++            existing_sticky_error = (
++                classify_terminal_result(state)
++                is TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
++            )
++            if isinstance(error, dict) and not existing_sticky_error:
++                state["error"] = error
++                self.state_manager.update_run_error(error)
+         if self.post_persist_hook is not None:
+             self.post_persist_hook(state, step_name, step, finalized)
+         self.summary_emitter(step_name, step, finalized)
+diff --git a/orchestrator/workflow/resume_projection_integrity.py b/orchestrator/workflow/resume_projection_integrity.py
+new file mode 100644
+index 00000000..ee0e06d4
+--- /dev/null
++++ b/orchestrator/workflow/resume_projection_integrity.py
+@@ -0,0 +1,877 @@
++"""Pure resume projection-integrity classification helpers."""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from enum import Enum
++import re
++from typing import Any, Iterable, Iterator, Mapping
++
++from .loaded_bundle import LoadedWorkflowBundle
++from .state_projection import (
++    ResumeProjectionSlotIndex,
++    ResumeProjectionValidationError,
++)
++
++
++_RETRY_MARKER = "::retry::"
++_POSITIVE_ORDINAL = re.compile(r"[1-9][0-9]*\Z")
++_ALLOWED_FRAME_STATUSES = frozenset({"completed", "running", "failed"})
++_DIAGNOSTIC_SCHEMA = "resume_projection_integrity_error.v1"
++_ERROR_TYPE = "resume_projection_integrity_error"
++_MAX_DIAGNOSTIC_STRING_LENGTH = 512
++
++
++@dataclass(frozen=True)
++class ResumeScopePath:
++    """Immutable identity-only path from the root run to one audited scope."""
++
++    root_workflow_file: str
++    call_frame_ids: tuple[str, ...] = ()
++
++    def __post_init__(self) -> None:
++        if not isinstance(self.root_workflow_file, str) or not self.root_workflow_file:
++            raise ValueError("root_workflow_file must be a non-empty string")
++        if not isinstance(self.call_frame_ids, (list, tuple)):
++            raise ValueError("call_frame_ids must be a list or tuple")
++        object.__setattr__(self, "call_frame_ids", tuple(self.call_frame_ids))
++        if any(
++            not isinstance(frame_id, str) or not frame_id
++            for frame_id in self.call_frame_ids
++        ):
++            raise ValueError("call_frame_ids must contain non-empty strings")
++
++    @classmethod
++    def root(cls, workflow_file: str) -> "ResumeScopePath":
++        """Construct the root scope path for one resumed run."""
++        return cls(root_workflow_file=workflow_file)
++
++    def child(self, frame_id: str) -> "ResumeScopePath":
++        """Return an immutable child scope path for one reached call frame."""
++        if not isinstance(frame_id, str) or not frame_id:
++            raise ValueError("frame_id must be a non-empty string")
++        return ResumeScopePath(
++            root_workflow_file=self.root_workflow_file,
++            call_frame_ids=(*self.call_frame_ids, frame_id),
++        )
++
++    @property
++    def projection_scope(self) -> str:
++        """Return the stable current projection kind for diagnostics."""
++        return "call_frame" if self.call_frame_ids else "root"
++
++    def as_context(self) -> list[dict[str, str]]:
++        """Serialize only root and call-frame identities."""
++        return [
++            {
++                "kind": "root",
++                "workflow_file": self.root_workflow_file,
++            },
++            *(
++                {
++                    "kind": "call_frame",
++                    "frame_id": frame_id,
++                }
++                for frame_id in self.call_frame_ids
++            ),
++        ]
++
++
++class ResumeProjectionIntegrityError(ValueError):
++    """Stable diagnostic wrapper for one pure scoped audit failure."""
++
++    def __init__(self, error: Mapping[str, Any]) -> None:
++        self.error = error
++        message = error.get("message")
++        super().__init__(
++            message
++            if isinstance(message, str)
++            else "Resume projection integrity audit failed"
++        )
++
++
++class TerminalResultClass(Enum):
++    """Runtime terminal-result classes with distinct propagation semantics."""
++
++    ORDINARY = "ordinary"
++    STICKY_PROJECTION_INTEGRITY_FAILURE = (
++        "sticky_projection_integrity_failure"
++    )
++
++
++def projection_integrity_failed_result(
++    error: Mapping[str, Any],
++) -> dict[str, Any]:
++    """Return the ordinary failed step channel for one exact projection error."""
++    return {
++        "status": "failed",
++        "exit_code": 2,
++        "duration_ms": 0,
++        "error": error,
++    }
++
++
++def classify_terminal_result(
++    result: Mapping[str, Any],
++) -> TerminalResultClass:
++    """Classify sticky failures without coupling callers to diagnostic shape."""
++    error = result.get("error") if isinstance(result, Mapping) else None
++    if isinstance(error, Mapping) and error.get("type") == _ERROR_TYPE:
++        return TerminalResultClass.STICKY_PROJECTION_INTEGRITY_FAILURE
++    return TerminalResultClass.ORDINARY
++
++
++class _ResumeStepResultShapeError(ValueError):
++    """Internal shape failure translated into the public bounded diagnostic."""
++
++    def __init__(self, field: str) -> None:
++        self.field = field
++        super().__init__(field)
++
++
++def audit_scope(
++    bundle: LoadedWorkflowBundle,
++    state: Mapping[str, Any],
++    scope_path: ResumeScopePath,
++) -> None:
++    """Validate one persisted workflow scope against its exact current projection."""
++    if not isinstance(bundle, LoadedWorkflowBundle):
++        raise TypeError("LoadedWorkflowBundle required")
++    if not isinstance(state, Mapping):
++        _raise_integrity_error(
++            bundle,
++            {},
++            scope_path,
++            reason="unsupported_shape",
++            field="state",
++            offending_value=None,
++        )
++    if not isinstance(scope_path, ResumeScopePath):
++        raise TypeError("ResumeScopePath required")
++
++    try:
++        slot_index = bundle.projection.enumerate_resume_slots(state)
++    except ResumeProjectionValidationError as exc:
++        _raise_integrity_error(
++            bundle,
++            state,
++            scope_path,
++            reason=exc.reason,
++            field=_projection_failure_field(exc.message),
++            offending_value=None,
++        )
++
++    _audit_explicit_step_results(bundle, state, scope_path, slot_index)
++    _audit_current_step(bundle, state, scope_path, slot_index)
++    _audit_call_frames(bundle, state, scope_path, slot_index)
++
++
++def _audit_explicit_step_results(
++    bundle: LoadedWorkflowBundle,
++    state: Mapping[str, Any],
++    scope_path: ResumeScopePath,
++    slot_index: ResumeProjectionSlotIndex,
++) -> None:
++    steps = state.get("steps", {})
++    assert isinstance(steps, Mapping)
++    supported_presentations = {
++        slot.presentation_key
++        for candidates in slot_index.candidates_by_step_id.values()
++        for slot in candidates
++    }
++
++    try:
++        explicit_rows = _explicit_step_result_rows(steps)
++        for presentation_key, step_id in explicit_rows:
++            field = f"steps.{presentation_key}.step_id"
++            if not isinstance(step_id, str) or not step_id:
++                _raise_integrity_error(
++                    bundle,
++                    state,
++                    scope_path,
++                    reason="unsupported_shape",
++                    field=field,
++                    offending_value=step_id,
++                    candidate_count=0,
++                )
++
++            resolution = bundle.projection.resolve_resume_step_id(
++                slot_index,
++                step_id,
++                presentation_key=presentation_key,
++            )
++            exact_count = resolution.exact_identity_candidate_count
++            if exact_count == 0:
++                reason = (
++                    "unknown_explicit_step_id"
++                    if presentation_key in supported_presentations
++                    else "unclaimed_explicit_step_row"
++                )
++                _raise_integrity_error(
++                    bundle,
++                    state,
++                    scope_path,
++                    reason=reason,
++                    field=field,
++                    offending_value=step_id,
++                    candidate_count=0,
++                )
++            if resolution.candidate_count == 0:
++                _raise_integrity_error(
++                    bundle,
++                    state,
++                    scope_path,
++                    reason="presentation_slot_mismatch",
++                    field=field,
++                    offending_value=step_id,
++                    candidate_count=exact_count,
++                )
++            if exact_count == 1 and resolution.candidate_count == 1:
++                continue
++            _raise_integrity_error(
++                bundle,
++                state,
++                scope_path,
++                reason="out_of_scope_step_id",
++                field=field,
++                offending_value=step_id,
++                candidate_count=resolution.candidate_count,
++            )
++    except _ResumeStepResultShapeError as exc:
++        _raise_integrity_error(
++            bundle,
++            state,
++            scope_path,
++            reason="unsupported_shape",
++            field=exc.field,
++            offending_value=None,
++        )
++
++
++def _audit_current_step(
++    bundle: LoadedWorkflowBundle,
++    state: Mapping[str, Any],
++    scope_path: ResumeScopePath,
++    slot_index: ResumeProjectionSlotIndex,
++) -> None:
++    if "current_step" not in state or state.get("current_step") is None:
++        return
++    current_step = state.get("current_step")
++    if not isinstance(current_step, Mapping):
++        _raise_integrity_error(
++            bundle,
++            state,
++            scope_path,
++            reason="unsupported_shape",
++            field="current_step",
++            offending_value=None,
++        )
++
++    step_id = current_step.get("step_id")
++    if step_id is None or step_id == "":
++        _raise_integrity_error(
++            bundle,
++            state,
++            scope_path,
++            reason="missing_required_identity",
++            field="current_step.step_id",
++            offending_value=None,
++        )
++    if not isinstance(step_id, str):
++        _raise_integrity_error(
++            bundle,
++            state,
++            scope_path,
++            reason="unsupported_shape",
++            field="current_step.step_id",
++            offending_value=step_id,
++            candidate_count=0,
++        )
++
++    resolution = bundle.projection.resolve_resume_step_id(slot_index, step_id)
++    if resolution.exact_identity_candidate_count != 1:
++        _raise_integrity_error(
++            bundle,
++            state,
++            scope_path,
++            reason="out_of_scope_step_id",
++            field="current_step.step_id",
++            offending_value=step_id,
++            candidate_count=resolution.exact_identity_candidate_count,
++        )
++
++    presentation_key = current_step.get("name")
++    if isinstance(presentation_key, str) and presentation_key:
++        presentation_resolution = bundle.projection.resolve_resume_step_id(
++            slot_index,
++            step_id,
++            presentation_key=presentation_key,
++        )
++        if presentation_resolution.candidate_count != 1:
++            _raise_integrity_error(
++                bundle,
++                state,
++                scope_path,
++                reason="presentation_slot_mismatch",
++                field="current_step.step_id",
++                offending_value=step_id,
++                candidate_count=resolution.exact_identity_candidate_count,
++            )
++
++
++def _audit_call_frames(
++    bundle: LoadedWorkflowBundle,
++    state: Mapping[str, Any],
++    scope_path: ResumeScopePath,
++    slot_index: ResumeProjectionSlotIndex,
++) -> None:
++    if "call_frames" not in state:
++        return
++    call_frames = state.get("call_frames")
++    if not isinstance(call_frames, Mapping):
++        _raise_integrity_error(
++            bundle,
++            state,
++            scope_path,
++            reason="unsupported_shape",
++            field="call_frames",
++            offending_value=None,
++        )
++
++    grouped_frames: dict[
++        str,
++        tuple[Any, list[tuple[str, Mapping[str, Any]]]],
++    ] = {}
++    for frame_id, frame in call_frames.items():
++        field_prefix = (
++            f"call_frames.{frame_id}"
++            if isinstance(frame_id, str) and frame_id
++            else "call_frames"
++        )
++        if not isinstance(frame_id, str) or not frame_id:
++            _raise_integrity_error(
++                bundle,
++                state,
++                scope_path,
++                reason="unsupported_shape",
++                field="call_frames",
++                offending_value=frame_id,
++            )
++        if not isinstance(frame, Mapping):
++            _raise_integrity_error(
++                bundle,
++                state,
++                scope_path,
++                reason="unsupported_shape",
++                field=field_prefix,
++                offending_value=None,
++            )
++
++        call_step_id = frame.get("call_step_id")
++        if call_step_id is None or call_step_id == "":
++            _raise_integrity_error(
++                bundle,
++                state,
++                scope_path,
++                reason="missing_required_identity",
++                field=f"{field_prefix}.call_step_id",
++                offending_value=None,
++            )
++        if not isinstance(call_step_id, str):
++            _raise_integrity_error(
++                bundle,
++                state,
++                scope_path,
++                reason="unsupported_shape",
++                field=f"{field_prefix}.call_step_id",
++                offending_value=call_step_id,
++                candidate_count=0,
++            )
++
++        step_resolution = bundle.projection.resolve_resume_step_id(
++            slot_index,
++            call_step_id,
++        )
++        if step_resolution.exact_identity_candidate_count == 0:
++            _raise_integrity_error(
++                bundle,
++                state,
++                scope_path,
++                reason="out_of_scope_step_id",
++                field=f"{field_prefix}.call_step_id",
++                offending_value=call_step_id,
++                candidate_count=0,
++                call_boundary_step_id=call_step_id,
++            )
++
++        boundary_resolution = bundle.projection.resolve_call_boundary(
++            slot_index,
++            call_step_id,
++        )
++        if boundary_resolution.candidate_count == 0:
++            _raise_integrity_error(
++                bundle,
++                state,
++                scope_path,
++                reason="missing_call_boundary",
++                field=f"{field_prefix}.call_step_id",
++                offending_value=call_step_id,
++                candidate_count=0,
++                call_boundary_step_id=call_step_id,
++            )
++        if boundary_resolution.candidate_count != 1:
++            _raise_integrity_error(
++                bundle,
++                state,
++                scope_path,
++                reason="ambiguous_call_boundary",
++                field=f"{field_prefix}.call_step_id",
++                offending_value=call_step_id,
++                candidate_count=boundary_resolution.candidate_count,
++                call_boundary_step_id=call_step_id,
++            )
++        assert boundary_resolution.boundary is not None
++        current_alias = boundary_resolution.boundary.import_alias
++
++        persisted_alias = frame.get("import_alias")
++        if not isinstance(persisted_alias, str) or not persisted_alias:
++            _raise_integrity_error(
++                bundle,
++                state,
++                scope_path,
++                reason="unsupported_shape",
++                field=f"{field_prefix}.import_alias",
++                offending_value=persisted_alias,
++                candidate_count=1,
++                call_boundary_step_id=call_step_id,
++            )
++        if persisted_alias != current_alias:
++            _raise_integrity_error(
++                bundle,
++                state,
++                scope_path,
++                reason="persisted_import_alias_mismatch",
++                field=f"{field_prefix}.import_alias",
++                offending_value=persisted_alias,
++                candidate_count=1,
++                call_boundary_step_id=call_step_id,
++            )
++
++        imported_bundle = bundle.imports.get(current_alias)
++        if not isinstance(imported_bundle, LoadedWorkflowBundle):
++            _raise_integrity_error(
++                bundle,
++                state,
++                scope_path,
++                reason="missing_imported_bundle",
++                field=f"imports.{current_alias}",
++                offending_value=current_alias,
++                candidate_count=1,
++                call_boundary_step_id=call_step_id,
++            )
++        existing_group = grouped_frames.get(call_step_id)
++        if existing_group is None:
++            grouped_frames[call_step_id] = (
++                imported_bundle,
++                [(frame_id, frame)],
++            )
++        else:
++            existing_group[1].append((frame_id, frame))
++
++    for call_step_id, (imported_bundle, frame_items) in grouped_frames.items():
++        try:
++            index_retry_lineage(
++                call_step_id,
++                frame_items,
++                frontend_kind=imported_bundle.provenance.frontend_kind,
++            )
++        except CallFrameRetryLineageError as exc:
++            _raise_integrity_error(
++                bundle,
++                state,
++                scope_path,
++                reason=exc.reason,
++                field="call_frames",
++                offending_value=exc.offending_value,
++                candidate_count=(
++                    len(frame_items)
++                    if exc.reason == "ambiguous_resumable_call_frame"
++                    else None
++                ),
++                call_boundary_step_id=call_step_id,
++            )
++
++
++def _explicit_step_result_rows(
++    steps: Mapping[str, Any],
++) -> Iterator[tuple[str, Any]]:
++    """Yield explicit step-result identities without inspecting result payloads."""
++    for presentation_key, value in steps.items():
++        if not isinstance(presentation_key, str):
++            raise _ResumeStepResultShapeError("steps")
++        if isinstance(value, Mapping):
++            if "step_id" in value:
++                yield presentation_key, value.get("step_id")
++            continue
++        if not isinstance(value, list):
++            raise _ResumeStepResultShapeError(
++                f"steps.{presentation_key}",
++            )
++        for iteration_index, iteration_rows in enumerate(value):
++            if not isinstance(iteration_rows, Mapping):
++                raise _ResumeStepResultShapeError(
++                    f"steps.{presentation_key}[{iteration_index}]",
++                )
++            for nested_key, nested_value in iteration_rows.items():
++                if not isinstance(nested_key, str):
++                    raise _ResumeStepResultShapeError(
++                        f"steps.{presentation_key}[{iteration_index}]",
++                    )
++                if not isinstance(nested_value, Mapping):
++                    raise _ResumeStepResultShapeError(
++                        (
++                            f"steps.{presentation_key}[{iteration_index}]"
++                            f".{nested_key}"
++                        ),
++                    )
++                if "step_id" in nested_value:
++                    yield (
++                        f"{presentation_key}[{iteration_index}].{nested_key}",
++                        nested_value.get("step_id"),
++                    )
++
++
++def _projection_failure_field(message: str) -> str | None:
++    """Extract the stable state-field prefix from a typed projection failure."""
++    if not isinstance(message, str) or not message:
++        return None
++    field = message.split(" ", 1)[0]
++    return field if field else None
++
++
++def _identity_only_value(value: Any) -> Any:
++    """Return bounded identity metadata, never whole state or private payloads."""
++    if value is None or isinstance(value, (bool, int, float)):
++        return value
++    if isinstance(value, str):
++        return value[:_MAX_DIAGNOSTIC_STRING_LENGTH]
++    return None
++
++
++def _raise_integrity_error(
++    bundle: LoadedWorkflowBundle,
++    state: Mapping[str, Any],
++    scope_path: ResumeScopePath,
++    *,
++    reason: str,
++    field: str | None,
++    offending_value: Any,
++    candidate_count: int | None = None,
++    call_boundary_step_id: str | None = None,
++) -> None:
++    workflow_file = str(bundle.provenance.workflow_path)
++    workflow_checksum = state.get("workflow_checksum")
++    error = {
++        "type": _ERROR_TYPE,
++        "message": f"Resume projection integrity audit failed: {reason}",
++        "context": {
++            "diagnostic_schema": _DIAGNOSTIC_SCHEMA,
++            "reason": reason,
++            "scope_path": scope_path.as_context(),
++            "field": field,
++            "offending_value": _identity_only_value(offending_value),
++            "expected_owner": {
++                "workflow_file": workflow_file,
++                "workflow_checksum": (
++                    workflow_checksum if isinstance(workflow_checksum, str) else None
++                ),
++                "projection_scope": scope_path.projection_scope,
++            },
++            "candidate_count": (
++                candidate_count
++                if isinstance(candidate_count, int)
++                and not isinstance(candidate_count, bool)
++                else None
++            ),
++            "call_boundary_step_id": (
++                call_boundary_step_id
++                if isinstance(call_boundary_step_id, str)
++                else None
++            ),
++        },
++    }
++    raise ResumeProjectionIntegrityError(error)
++
++
++@dataclass(frozen=True)
++class CallFrameMember:
++    """One validated persisted call-frame member."""
++
++    frame_id: str
++    frame: Mapping[str, Any]
++    status: str
++    call_step_id: str
++    import_alias: str
++
++
++@dataclass(frozen=True)
++class RetryFrameMember(CallFrameMember):
++    """One validated member of a Workflow Lisp retry lineage."""
++
++    ordinal: int
++
++
++@dataclass(frozen=True)
++class CallFrameRetryLineage:
++    """Deterministic resumable-frame classification for one call boundary."""
++
++    base_frame_id: str
++    completed_members: tuple[CallFrameMember, ...]
++    failed_predecessors: tuple[RetryFrameMember, ...]
++    running_member: CallFrameMember | None
++
++
++class CallFrameRetryLineageError(ValueError):
++    """Reject malformed or ambiguous persisted call-frame lineage."""
++
++    def __init__(
++        self,
++        reason: str,
++        *,
++        frame_id: str | None = None,
++        offending_value: Any = None,
++    ) -> None:
++        self.reason = reason
++        self.frame_id = frame_id
++        self.offending_value = offending_value
++        super().__init__(reason)
++
++
++def _retry_identity(frame_id: str) -> tuple[str, int]:
++    """Return the current frame's base ID and ordinal without parsing ancestors."""
++    marker_index = frame_id.rfind(_RETRY_MARKER)
++    visit_index = frame_id.rfind("::visit::")
++    if marker_index < 0 or marker_index < visit_index:
++        return frame_id, 0
++
++    base_frame_id = frame_id[:marker_index]
++    ordinal_text = frame_id[marker_index + len(_RETRY_MARKER) :]
++    if not base_frame_id or _POSITIVE_ORDINAL.fullmatch(ordinal_text) is None:
++        raise CallFrameRetryLineageError(
++            "unsupported_shape",
++            frame_id=frame_id,
++            offending_value=frame_id,
++        )
++
++    prior_marker_index = base_frame_id.rfind(_RETRY_MARKER)
++    base_visit_index = base_frame_id.rfind("::visit::")
++    if prior_marker_index >= 0 and prior_marker_index > base_visit_index:
++        raise CallFrameRetryLineageError(
++            "unsupported_shape",
++            frame_id=frame_id,
++            offending_value=frame_id,
++        )
++    return base_frame_id, int(ordinal_text)
++
++
++def _validated_member(
++    boundary_step_id: str,
++    frame_id: Any,
++    frame: Any,
++) -> CallFrameMember:
++    if not isinstance(frame_id, str) or not frame_id or not isinstance(frame, Mapping):
++        raise CallFrameRetryLineageError(
++            "unsupported_shape",
++            frame_id=frame_id if isinstance(frame_id, str) else None,
++            offending_value=frame,
++        )
++
++    call_step_id = frame.get("call_step_id")
++    if not isinstance(call_step_id, str) or not call_step_id:
++        raise CallFrameRetryLineageError(
++            "missing_required_identity",
++            frame_id=frame_id,
++            offending_value=call_step_id,
++        )
++    if call_step_id != boundary_step_id:
++        raise CallFrameRetryLineageError(
++            "missing_call_boundary",
++            frame_id=frame_id,
++            offending_value=call_step_id,
++        )
++
++    import_alias = frame.get("import_alias")
++    if not isinstance(import_alias, str) or not import_alias:
++        raise CallFrameRetryLineageError(
++            "unsupported_shape",
++            frame_id=frame_id,
++            offending_value=import_alias,
++        )
++
++    status = frame.get("status")
++    if not isinstance(status, str) or status not in _ALLOWED_FRAME_STATUSES:
++        raise CallFrameRetryLineageError(
++            "unsupported_shape",
++            frame_id=frame_id,
++            offending_value=status,
++        )
++
++    return CallFrameMember(
++        frame_id=frame_id,
++        frame=frame,
++        status=status,
++        call_step_id=call_step_id,
++        import_alias=import_alias,
++    )
++
++
++def index_retry_lineage(
++    boundary_step_id: str,
++    frame_items: Iterable[tuple[str, Any]],
++    *,
++    frontend_kind: str | None,
++) -> CallFrameRetryLineage:
++    """Validate and deterministically classify one call boundary's frames."""
++    if not isinstance(boundary_step_id, str) or not boundary_step_id:
++        raise CallFrameRetryLineageError(
++            "missing_required_identity",
++            offending_value=boundary_step_id,
++        )
++
++    completed_members: list[CallFrameMember] = []
++    noncompleted_members: list[CallFrameMember] = []
++    seen_frame_ids: set[str] = set()
++    import_alias: str | None = None
++
++    for raw_frame_id, raw_frame in frame_items:
++        member = _validated_member(boundary_step_id, raw_frame_id, raw_frame)
++        if member.frame_id in seen_frame_ids:
++            raise CallFrameRetryLineageError(
++                "ambiguous_resumable_call_frame",
++                frame_id=member.frame_id,
++                offending_value=member.frame_id,
++            )
++        seen_frame_ids.add(member.frame_id)
++
++        if import_alias is None:
++            import_alias = member.import_alias
++        elif member.import_alias != import_alias:
++            raise CallFrameRetryLineageError(
++                "persisted_import_alias_mismatch",
++                frame_id=member.frame_id,
++                offending_value=member.import_alias,
++            )
++
++        if member.status == "completed":
++            completed_members.append(member)
++        else:
++            noncompleted_members.append(member)
++
++    completed = tuple(sorted(completed_members, key=lambda member: member.frame_id))
++    if frontend_kind != "workflow_lisp":
++        if len(noncompleted_members) > 1:
++            raise CallFrameRetryLineageError(
++                "ambiguous_resumable_call_frame",
++                offending_value=len(noncompleted_members),
++            )
++        resumable_member = noncompleted_members[0] if noncompleted_members else None
++        return CallFrameRetryLineage(
++            base_frame_id=resumable_member.frame_id if resumable_member is not None else "",
++            completed_members=completed,
++            failed_predecessors=(),
++            running_member=resumable_member,
++        )
++
++    retry_members: list[RetryFrameMember] = []
++    lineage_bases: set[str] = set()
++    ordinals: set[int] = set()
++    for member in noncompleted_members:
++        base_frame_id, ordinal = _retry_identity(member.frame_id)
++        lineage_bases.add(base_frame_id)
++        if ordinal in ordinals:
++            raise CallFrameRetryLineageError(
++                "ambiguous_resumable_call_frame",
++                frame_id=member.frame_id,
++                offending_value=ordinal,
++            )
++        ordinals.add(ordinal)
++        retry_members.append(
++            RetryFrameMember(
++                frame_id=member.frame_id,
++                frame=member.frame,
++                status=member.status,
++                call_step_id=member.call_step_id,
++                import_alias=member.import_alias,
++                ordinal=ordinal,
++            )
++        )
++
++    if len(lineage_bases) > 1:
++        raise CallFrameRetryLineageError(
++            "ambiguous_resumable_call_frame",
++            offending_value=tuple(sorted(lineage_bases)),
++        )
++    if not retry_members:
++        return CallFrameRetryLineage(
++            base_frame_id="",
++            completed_members=completed,
++            failed_predecessors=(),
++            running_member=None,
++        )
++
++    ordered_members = sorted(retry_members, key=lambda member: member.ordinal)
++    if [member.ordinal for member in ordered_members] != list(range(len(ordered_members))):
++        raise CallFrameRetryLineageError(
++            "unsupported_shape",
++            offending_value=tuple(member.ordinal for member in ordered_members),
++        )
++
++    running_members = [
++        member for member in ordered_members if member.status == "running"
++    ]
++    if len(running_members) > 1:
++        raise CallFrameRetryLineageError(
++            "ambiguous_resumable_call_frame",
++            offending_value=len(running_members),
++        )
++    if running_members and running_members[0] is not ordered_members[-1]:
++        raise CallFrameRetryLineageError(
++            "unsupported_shape",
++            frame_id=running_members[0].frame_id,
++            offending_value=running_members[0].ordinal,
++        )
++
++    return CallFrameRetryLineage(
++        base_frame_id=next(iter(lineage_bases)),
++        completed_members=completed,
++        failed_predecessors=tuple(
++            member for member in ordered_members if member.status == "failed"
++        ),
++        running_member=running_members[0] if running_members else None,
++    )
++
++
++def next_unused_retry_frame_id(lineage: CallFrameRetryLineage) -> str:
++    """Allocate the lowest unused positive retry ordinal deterministically."""
++    if not isinstance(lineage.base_frame_id, str) or not lineage.base_frame_id:
++        raise CallFrameRetryLineageError(
++            "unsupported_shape",
++            offending_value=lineage.base_frame_id,
++        )
++
++    used_frame_ids = {
++        member.frame_id
++        for member in (
++            *lineage.completed_members,
++            *lineage.failed_predecessors,
++        )
++    }
++    if lineage.running_member is not None:
++        used_frame_ids.add(lineage.running_member.frame_id)
++
++    ordinal = 1
++    while True:
++        candidate = f"{lineage.base_frame_id}{_RETRY_MARKER}{ordinal}"
++        if candidate not in used_frame_ids:
++            return candidate
++        ordinal += 1
+diff --git a/orchestrator/workflow/state_projection.py b/orchestrator/workflow/state_projection.py
+index a80ff373..85afce77 100644
+--- a/orchestrator/workflow/state_projection.py
++++ b/orchestrator/workflow/state_projection.py
+@@ -2,7 +2,9 @@
+ 
+ from __future__ import annotations
+ 
++from copy import deepcopy
+ from dataclasses import dataclass, field
++from types import MappingProxyType
+ from typing import Any, Mapping, Optional
+ 
+ from .executable_ir import WorkflowRegion
+@@ -13,6 +15,15 @@ def _runtime_step_id(loop_node_id: str, iteration_index: int, nested_suffix: str
+     return f"{loop_node_id}#{iteration_index}.{nested_suffix}"
+ 
+ 
++class ResumeProjectionValidationError(ValueError):
++    """Typed projection failure with a stable reason separate from its message."""
++
++    def __init__(self, reason: str, message: str) -> None:
++        self.reason = reason
++        self.message = message
++        super().__init__(message)
++
++
+ @dataclass(frozen=True)
+ class CompatibilityStepDefinition:
+     """Explicit per-node compatibility metadata for reporting and resume guards."""
+@@ -52,6 +63,7 @@ class IterationStepKeyProjection:
+     frame_key: str
+     nested_presentation_keys: Mapping[str, str] = field(default_factory=empty_frozen_mapping)
+     nested_step_id_suffixes: Mapping[str, str] = field(default_factory=empty_frozen_mapping)
++    max_iterations: Optional[int] = None
+ 
+     def step_key(self, iteration_index: int, nested_node_id: str) -> str:
+         """Return the persisted/reporting step key for one loop iteration node."""
+@@ -75,6 +87,7 @@ class CallBoundaryProjection:
+     node_id: str
+     presentation_key: str
+     step_id: str
++    import_alias: str
+     iteration_owner_node_id: Optional[str] = None
+     iteration_step_id_suffix: Optional[str] = None
+ 
+@@ -82,7 +95,7 @@ class CallBoundaryProjection:
+         """Return the runtime-qualified step id used for call-frame checkpoint storage."""
+         if self.iteration_owner_node_id is None:
+             return self.step_id
+-        if not isinstance(iteration_index, int):
++        if not isinstance(iteration_index, int) or isinstance(iteration_index, bool):
+             raise ValueError(
+                 f"Call boundary '{self.node_id}' requires an iteration index to build a runtime step id"
+             )
+@@ -94,6 +107,64 @@ class CallBoundaryProjection:
+         )
+ 
+ 
++@dataclass(frozen=True)
++class ResumeProjectionSlot:
++    """One exact current-projection owner for a persisted resume identity."""
++
++    node_id: str
++    step_id: str
++    presentation_key: str
++    region: WorkflowRegion
++    slot_kind: str
++    iteration_owner_node_id: Optional[str] = None
++    iteration_index: Optional[int] = None
++    call_boundary: Optional[CallBoundaryProjection] = None
++
++
++@dataclass(frozen=True)
++class ResumeProjectionSlotIndex:
++    """Immutable exact-candidate index for one persisted workflow scope."""
++
++    candidates_by_step_id: Mapping[str, tuple[ResumeProjectionSlot, ...]]
++    call_boundaries_by_step_id: Mapping[str, tuple[ResumeProjectionSlot, ...]]
++    unclaimed_explicit_rows: tuple[tuple[str, Any], ...]
++
++
++@dataclass(frozen=True)
++class ResumeIdentityResolution:
++    """Exact resolution result for one persisted step-result identity."""
++
++    step_id: Any
++    presentation_key: Optional[str]
++    candidates: tuple[ResumeProjectionSlot, ...]
++    matching_candidates: tuple[ResumeProjectionSlot, ...]
++    slot: Optional[ResumeProjectionSlot]
++
++    @property
++    def candidate_count(self) -> int:
++        """Return the number of candidates matching all supplied selectors."""
++        return len(self.matching_candidates)
++
++    @property
++    def exact_identity_candidate_count(self) -> int:
++        """Return the number of scoped candidates owning the exact identity."""
++        return len(self.candidates)
++
++
++@dataclass(frozen=True)
++class ResumeCallBoundaryResolution:
++    """Exact resolution result for one persisted call-boundary identity."""
++
++    call_step_id: Any
++    candidates: tuple[ResumeProjectionSlot, ...]
++    boundary: Optional[CallBoundaryProjection]
++
++    @property
++    def candidate_count(self) -> int:
++        """Return the number of current boundaries owning the exact identity."""
++        return len(self.candidates)
++
++
+ @dataclass(frozen=True)
+ class StructuredSelectionProjection:
+     """Compatibility metadata for one structured branch or case path."""
+@@ -234,3 +305,563 @@ class WorkflowStateProjection:
+         if projection is None:
+             raise KeyError(f"Unknown call boundary node id '{node_id}'")
+         return projection.runtime_step_id(iteration_index)
++
++    def enumerate_resume_slots(self, state: Mapping[str, Any]) -> ResumeProjectionSlotIndex:
++        """Enumerate exact resume identities admitted by current persisted loop progress."""
++        if not isinstance(state, Mapping):
++            _raise_resume_projection_state_error(
++                "unsupported_shape",
++                "workflow state must be a mapping",
++            )
++
++        candidates: dict[str, list[ResumeProjectionSlot]] = {}
++        call_boundaries: dict[str, list[ResumeProjectionSlot]] = {}
++        repeat_nested_node_ids = {
++            nested_node_id
++            for loop_projection in self.repeat_until_nodes.values()
++            for nested_node_id in loop_projection.nested_presentation_keys
++        }
++        for_each_nested_node_ids = {
++            nested_node_id
++            for loop_projection in self.for_each_nodes.values()
++            for nested_node_id in loop_projection.nested_presentation_keys
++        }
++        nested_node_ids = repeat_nested_node_ids | for_each_nested_node_ids
++
++        for entry in self.entries_by_node_id.values():
++            if entry.node_id in nested_node_ids:
++                continue
++            _append_resume_slot(
++                candidates,
++                ResumeProjectionSlot(
++                    node_id=entry.node_id,
++                    step_id=entry.step_id,
++                    presentation_key=entry.presentation_key,
++                    region=entry.region,
++                    slot_kind="step_result",
++                ),
++            )
++
++        for boundary in self.call_boundaries.values():
++            if boundary.iteration_owner_node_id is not None:
++                continue
++            entry = self.entries_by_node_id.get(boundary.node_id)
++            if entry is None:
++                continue
++            _append_resume_slot(
++                call_boundaries,
++                ResumeProjectionSlot(
++                    node_id=boundary.node_id,
++                    step_id=boundary.step_id,
++                    presentation_key=boundary.presentation_key,
++                    region=entry.region,
++                    slot_kind="call_boundary",
++                    call_boundary=boundary,
++                ),
++            )
++
++        for_each_state = _optional_loop_container(state, "for_each")
++        for loop_node_id, loop_projection in self.for_each_nodes.items():
++            if loop_projection.frame_key not in for_each_state:
++                continue
++            iteration_indices = _validated_for_each_iterations(
++                loop_projection.frame_key,
++                for_each_state[loop_projection.frame_key],
++            )
++            self._append_iteration_resume_slots(
++                candidates,
++                call_boundaries,
++                loop_node_id=loop_node_id,
++                loop_projection=loop_projection,
++                iteration_indices=iteration_indices,
++                loop_kind="for_each",
++            )
++
++        repeat_until_state = _optional_loop_container(state, "repeat_until")
++        steps_state = state.get("steps", {})
++        if not isinstance(steps_state, Mapping):
++            _raise_resume_projection_state_error(
++                "unsupported_shape",
++                "steps must be a mapping",
++            )
++        for loop_node_id, loop_projection in self.repeat_until_nodes.items():
++            if loop_projection.frame_key not in repeat_until_state:
++                continue
++            iteration_indices = _validated_repeat_until_iterations(
++                loop_projection,
++                repeat_until_state[loop_projection.frame_key],
++                steps_state.get(loop_projection.frame_key),
++            )
++            self._append_iteration_resume_slots(
++                candidates,
++                call_boundaries,
++                loop_node_id=loop_node_id,
++                loop_projection=loop_projection,
++                iteration_indices=iteration_indices,
++                loop_kind="repeat_until",
++            )
++
++        frozen_candidates = _freeze_resume_slot_map(candidates)
++        frozen_boundaries = _freeze_resume_slot_map(call_boundaries)
++        unclaimed_rows = tuple(
++            (
++                presentation_key,
++                _snapshot_resume_identity(step_id),
++            )
++            for presentation_key, step_id in _explicit_step_result_rows(steps_state)
++            if len(
++                tuple(
++                    slot
++                    for slot in _resume_slot_candidates(
++                        frozen_candidates,
++                        step_id,
++                    )
++                    if slot.presentation_key == presentation_key
++                )
++            )
++            == 0
++        )
++        return ResumeProjectionSlotIndex(
++            candidates_by_step_id=frozen_candidates,
++            call_boundaries_by_step_id=frozen_boundaries,
++            unclaimed_explicit_rows=unclaimed_rows,
++        )
++
++    def _append_iteration_resume_slots(
++        self,
++        candidates: dict[str, list[ResumeProjectionSlot]],
++        call_boundaries: dict[str, list[ResumeProjectionSlot]],
++        *,
++        loop_node_id: str,
++        loop_projection: IterationStepKeyProjection,
++        iteration_indices: tuple[int, ...],
++        loop_kind: str,
++    ) -> None:
++        for iteration_index in iteration_indices:
++            for nested_node_id in loop_projection.nested_presentation_keys:
++                entry = self.entries_by_node_id.get(nested_node_id)
++                if entry is None:
++                    continue
++                if loop_kind == "repeat_until":
++                    step_id = self.repeat_until_runtime_step_id(
++                        loop_node_id,
++                        iteration_index,
++                        nested_node_id,
++                    )
++                    presentation_key = self.repeat_until_step_key(
++                        loop_node_id,
++                        iteration_index,
++                        nested_node_id,
++                    )
++                else:
++                    step_id = self.for_each_runtime_step_id(
++                        loop_node_id,
++                        iteration_index,
++                        nested_node_id,
++                    )
++                    presentation_key = self.for_each_step_key(
++                        loop_node_id,
++                        iteration_index,
++                        nested_node_id,
++                    )
++                _append_resume_slot(
++                    candidates,
++                    ResumeProjectionSlot(
++                        node_id=nested_node_id,
++                        step_id=step_id,
++                        presentation_key=presentation_key,
++                        region=entry.region,
++                        slot_kind="step_result",
++                        iteration_owner_node_id=loop_node_id,
++                        iteration_index=iteration_index,
++                    ),
++                )
++
++            for boundary in self.call_boundaries.values():
++                if boundary.iteration_owner_node_id != loop_node_id:
++                    continue
++                entry = self.entries_by_node_id.get(boundary.node_id)
++                if entry is None:
++                    continue
++                step_id = self.call_boundary_runtime_step_id(
++                    boundary.node_id,
++                    iteration_index=iteration_index,
++                )
++                presentation_key = loop_projection.step_key(
++                    iteration_index,
++                    boundary.node_id,
++                )
++                _append_resume_slot(
++                    call_boundaries,
++                    ResumeProjectionSlot(
++                        node_id=boundary.node_id,
++                        step_id=step_id,
++                        presentation_key=presentation_key,
++                        region=entry.region,
++                        slot_kind="call_boundary",
++                        iteration_owner_node_id=loop_node_id,
++                        iteration_index=iteration_index,
++                        call_boundary=boundary,
++                    ),
++                )
++
++    def resolve_resume_step_id(
++        self,
++        slot_index: ResumeProjectionSlotIndex,
++        step_id: Any,
++        presentation_key: Optional[str] = None,
++    ) -> ResumeIdentityResolution:
++        """Resolve one exact step identity without parsing qualified ids."""
++        candidates = _resume_slot_candidates(
++            slot_index.candidates_by_step_id,
++            step_id,
++        )
++        matching_candidates = (
++            candidates
++            if presentation_key is None
++            else tuple(
++                slot
++                for slot in candidates
++                if slot.presentation_key == presentation_key
++            )
++        )
++        return ResumeIdentityResolution(
++            step_id=_snapshot_resume_identity(step_id),
++            presentation_key=presentation_key,
++            candidates=candidates,
++            matching_candidates=matching_candidates,
++            slot=matching_candidates[0] if len(matching_candidates) == 1 else None,
++        )
++
++    def resolve_call_boundary(
++        self,
++        slot_index: ResumeProjectionSlotIndex,
++        call_step_id: Any,
++    ) -> ResumeCallBoundaryResolution:
++        """Resolve one exact call-boundary identity without parsing qualified ids."""
++        candidates = _resume_slot_candidates(
++            slot_index.call_boundaries_by_step_id,
++            call_step_id,
++        )
++        boundary = (
++            candidates[0].call_boundary
++            if len(candidates) == 1
++            else None
++        )
++        return ResumeCallBoundaryResolution(
++            call_step_id=_snapshot_resume_identity(call_step_id),
++            candidates=candidates,
++            boundary=boundary,
++        )
++
++
++def _append_resume_slot(
++    target: dict[str, list[ResumeProjectionSlot]],
++    slot: ResumeProjectionSlot,
++) -> None:
++    target.setdefault(slot.step_id, []).append(slot)
++
++
++def _freeze_resume_slot_map(
++    slots: Mapping[str, list[ResumeProjectionSlot]],
++) -> Mapping[str, tuple[ResumeProjectionSlot, ...]]:
++    return MappingProxyType(
++        {
++            step_id: tuple(candidates)
++            for step_id, candidates in slots.items()
++        }
++    )
++
++
++def _resume_slot_candidates(
++    slots: Mapping[str, tuple[ResumeProjectionSlot, ...]],
++    identity: Any,
++) -> tuple[ResumeProjectionSlot, ...]:
++    if not isinstance(identity, str):
++        return ()
++    return slots.get(identity, ())
++
++
++def _snapshot_resume_identity(identity: Any) -> Any:
++    return deepcopy(identity)
++
++
++def _optional_loop_container(
++    state: Mapping[str, Any],
++    field_name: str,
++) -> Mapping[str, Any]:
++    if field_name not in state:
++        return {}
++    container = state[field_name]
++    if not isinstance(container, Mapping):
++        _raise_resume_projection_state_error(
++            "unsupported_shape",
++            f"{field_name} must be a mapping",
++        )
++    return container
++
++
++def _validated_for_each_iterations(
++    frame_key: str,
++    progress: Any,
++) -> tuple[int, ...]:
++    if not isinstance(progress, Mapping):
++        _raise_resume_projection_state_error(
++            "unsupported_shape",
++            f"for_each.{frame_key} must be a mapping",
++        )
++    items = progress.get("items")
++    completed_indices = progress.get("completed_indices")
++    current_index = progress.get("current_index")
++    if not isinstance(items, list):
++        _raise_resume_projection_state_error(
++            "unsupported_shape",
++            f"for_each.{frame_key}.items must be a list",
++        )
++    completed = _validated_index_list(
++        completed_indices,
++        field=f"for_each.{frame_key}.completed_indices",
++    )
++    current = _validated_optional_index(
++        current_index,
++        field=f"for_each.{frame_key}.current_index",
++    )
++    item_count = len(items)
++    if any(index >= item_count for index in completed):
++        _raise_resume_projection_state_error(
++            "invalid_loop_progress",
++            f"for_each.{frame_key}.completed_indices contains an out-of-range index",
++        )
++    if current is not None and current >= item_count:
++        _raise_resume_projection_state_error(
++            "invalid_loop_progress",
++            f"for_each.{frame_key}.current_index is out of range",
++        )
++    if current is not None and current in completed:
++        _raise_resume_projection_state_error(
++            "invalid_loop_progress",
++            f"for_each.{frame_key}.current_index is already completed",
++        )
++    return tuple((*completed, *((current,) if current is not None else ())))
++
++
++def _validated_repeat_until_iterations(
++    projection: IterationStepKeyProjection,
++    progress: Any,
++    frame_result: Any,
++) -> tuple[int, ...]:
++    frame_key = projection.frame_key
++    if not isinstance(progress, Mapping):
++        _raise_resume_projection_state_error(
++            "unsupported_shape",
++            f"repeat_until.{frame_key} must be a mapping",
++        )
++    required_fields = {
++        "current_iteration",
++        "completed_iterations",
++        "condition_evaluated_for_iteration",
++        "last_condition_result",
++    }
++    if not required_fields.issubset(progress):
++        _raise_resume_projection_state_error(
++            "unsupported_shape",
++            f"repeat_until.{frame_key} is missing required progress fields",
++        )
++    max_iterations = projection.max_iterations
++    if (
++        not isinstance(max_iterations, int)
++        or isinstance(max_iterations, bool)
++        or max_iterations <= 0
++    ):
++        _raise_resume_projection_state_error(
++            "unsupported_shape",
++            f"repeat_until.{frame_key} has no positive finite projection bound",
++        )
++
++    completed = _validated_index_list(
++        progress.get("completed_iterations"),
++        field=f"repeat_until.{frame_key}.completed_iterations",
++    )
++    current = _validated_optional_index(
++        progress.get("current_iteration"),
++        field=f"repeat_until.{frame_key}.current_iteration",
++    )
++    condition_iteration = _validated_optional_index(
++        progress.get("condition_evaluated_for_iteration"),
++        field=f"repeat_until.{frame_key}.condition_evaluated_for_iteration",
++    )
++    last_condition_result = progress.get("last_condition_result")
++    if last_condition_result is not None and not isinstance(last_condition_result, bool):
++        _raise_resume_projection_state_error(
++            "unsupported_shape",
++            f"repeat_until.{frame_key}.last_condition_result must be null or boolean",
++        )
++    exhausted = progress.get("exhausted", False)
++    if not isinstance(exhausted, bool):
++        _raise_resume_projection_state_error(
++            "unsupported_shape",
++            f"repeat_until.{frame_key}.exhausted must be boolean when present",
++        )
++    if any(index >= max_iterations for index in completed):
++        _raise_resume_projection_state_error(
++            "invalid_loop_progress",
++            f"repeat_until.{frame_key}.completed_iterations contains an out-of-range index",
++        )
++    if current is not None and current >= max_iterations:
++        _raise_resume_projection_state_error(
++            "invalid_loop_progress",
++            f"repeat_until.{frame_key}.current_iteration is out of range",
++        )
++    if condition_iteration is not None and condition_iteration >= max_iterations:
++        _raise_resume_projection_state_error(
++            "invalid_loop_progress",
++            f"repeat_until.{frame_key}.condition_evaluated_for_iteration is out of range",
++        )
++
++    if current is not None:
++        if set(completed) != set(range(current)):
++            _raise_resume_projection_state_error(
++                "invalid_loop_progress",
++                f"repeat_until.{frame_key}.completed_iterations is not valid prior history",
++            )
++        if condition_iteration not in (None, current):
++            _raise_resume_projection_state_error(
++                "invalid_loop_progress",
++                f"repeat_until.{frame_key}.condition evaluation conflicts with current iteration",
++            )
++        if (condition_iteration is None) != (last_condition_result is None):
++            _raise_resume_projection_state_error(
++                "invalid_loop_progress",
++                f"repeat_until.{frame_key}.condition result conflicts with evaluation state",
++            )
++        if exhausted:
++            _raise_resume_projection_state_error(
++                "invalid_loop_progress",
++                f"repeat_until.{frame_key}.active progress cannot be exhausted",
++            )
++        return tuple((*completed, current))
++
++    if not completed or condition_iteration is None:
++        _raise_resume_projection_state_error(
++            "invalid_loop_progress",
++            f"repeat_until.{frame_key}.terminal progress requires completed evaluated history",
++        )
++    terminal_iteration = max(completed)
++    if (
++        condition_iteration != terminal_iteration
++        or set(completed) != set(range(terminal_iteration + 1))
++    ):
++        _raise_resume_projection_state_error(
++            "invalid_loop_progress",
++            f"repeat_until.{frame_key}.terminal history is inconsistent",
++        )
++    if last_condition_result is True and not exhausted:
++        return tuple(completed)
++    if last_condition_result is not False:
++        _raise_resume_projection_state_error(
++            "invalid_loop_progress",
++            f"repeat_until.{frame_key}.terminal condition result is invalid",
++        )
++    if set(completed) != set(range(max_iterations)):
++        _raise_resume_projection_state_error(
++            "invalid_loop_progress",
++            f"repeat_until.{frame_key}.exhaustion does not cover max_iterations",
++        )
++    if not isinstance(frame_result, Mapping):
++        _raise_resume_projection_state_error(
++            "unsupported_shape",
++            f"steps.{frame_key} must be a mapping for terminal exhaustion",
++        )
++    if exhausted:
++        if frame_result.get("status") != "completed":
++            _raise_resume_projection_state_error(
++                "invalid_loop_progress",
++                f"repeat_until.{frame_key}.successful exhaustion requires a completed frame",
++            )
++        return tuple(completed)
++    error = frame_result.get("error")
++    if (
++        frame_result.get("status") != "failed"
++        or not isinstance(error, Mapping)
++        or error.get("type") != "repeat_until_iterations_exhausted"
++    ):
++        _raise_resume_projection_state_error(
++            "invalid_loop_progress",
++            f"repeat_until.{frame_key}.failed exhaustion requires the terminal exhaustion error",
++        )
++    return tuple(completed)
++
++
++def _validated_index_list(value: Any, *, field: str) -> tuple[int, ...]:
++    if not isinstance(value, list):
++        _raise_resume_projection_state_error(
++            "unsupported_shape",
++            f"{field} must be a list",
++        )
++    if any(not isinstance(index, int) or isinstance(index, bool) for index in value):
++        _raise_resume_projection_state_error(
++            "unsupported_shape",
++            f"{field} must contain only non-boolean integers",
++        )
++    if any(index < 0 for index in value):
++        _raise_resume_projection_state_error(
++            "invalid_loop_progress",
++            f"{field} must contain only nonnegative indices",
++        )
++    if len(set(value)) != len(value):
++        _raise_resume_projection_state_error(
++            "invalid_loop_progress",
++            f"{field} must not contain duplicate indices",
++        )
++    return tuple(value)
++
++
++def _validated_optional_index(value: Any, *, field: str) -> Optional[int]:
++    if value is None:
++        return None
++    if not isinstance(value, int) or isinstance(value, bool):
++        _raise_resume_projection_state_error(
++            "unsupported_shape",
++            f"{field} must be null or a non-boolean integer",
++        )
++    if value < 0:
++        _raise_resume_projection_state_error(
++            "invalid_loop_progress",
++            f"{field} must be nonnegative",
++        )
++    return value
++
++
++def _explicit_step_result_rows(
++    steps: Mapping[str, Any],
++) -> tuple[tuple[str, Any], ...]:
++    rows: list[tuple[str, Any]] = []
++    for presentation_key, value in steps.items():
++        if not isinstance(presentation_key, str):
++            continue
++        if isinstance(value, Mapping):
++            if "step_id" in value:
++                rows.append((presentation_key, value.get("step_id")))
++            continue
++        if not isinstance(value, list):
++            continue
++        for iteration_index, iteration_rows in enumerate(value):
++            if not isinstance(iteration_rows, Mapping):
++                continue
++            for nested_key, nested_value in iteration_rows.items():
++                if (
++                    isinstance(nested_key, str)
++                    and isinstance(nested_value, Mapping)
++                    and "step_id" in nested_value
++                ):
++                    rows.append(
++                        (
++                            f"{presentation_key}[{iteration_index}].{nested_key}",
++                            nested_value.get("step_id"),
++                        )
++                    )
++    return tuple(rows)
++
++
++def _raise_resume_projection_state_error(reason: str, message: str) -> None:
++    raise ResumeProjectionValidationError(reason, message)
+diff --git a/orchestrator/workflow_lisp/build.py b/orchestrator/workflow_lisp/build.py
+index 81178c1b..e7af59ad 100644
+--- a/orchestrator/workflow_lisp/build.py
++++ b/orchestrator/workflow_lisp/build.py
+@@ -384,7 +384,6 @@ def _select_and_reattach(
+     source_map_path = build_root / "source_map.json"
+     provenance = replace(
+         selected_bundle.provenance,
+-        frontend_kind="workflow_lisp",
+         frontend_build_root=build_root,
+         frontend_source_trace_path=source_map_path,
+         frontend_entry_workflow=entry_selection.selected_name,
+diff --git a/orchestrator/workflow_lisp/lowering/core.py b/orchestrator/workflow_lisp/lowering/core.py
+index 8fe49820..cbb1f772 100644
+--- a/orchestrator/workflow_lisp/lowering/core.py
++++ b/orchestrator/workflow_lisp/lowering/core.py
+@@ -2453,6 +2453,14 @@ def _validate_one_lowered_workflow(
+     )
+     if surface is None or loader.errors:
+         _raise_remapped_validation_error(lowered_workflow, loader.errors)
++    frontend_provenance = replace(
++        surface.provenance,
++        frontend_kind="workflow_lisp",
++    )
++    surface = replace(
++        surface,
++        provenance=frontend_provenance,
++    )
+     try:
+         return build_loaded_workflow_bundle(
+             surface,
+diff --git a/specs/acceptance/index.md b/specs/acceptance/index.md
+index b809c8a8..608bbc86 100644
+--- a/specs/acceptance/index.md
++++ b/specs/acceptance/index.md
+@@ -207,10 +207,68 @@
+ 194. v2.14 variant selection: `select_variant_output` selects exactly one changed snapshot candidate, validates the selected shape before commit, writes the canonical bundle atomically, and preserves the previous bundle when candidate validation fails
+ 195. v2.14 variant references: downstream refs to variant-only fields require a matching `match` case or `requires_variant`, and runtime fails before execution with `variant_unavailable` if the asserted variant is not selected
+ 196. Phase 2 v2.14 NeurIPS ergonomics evidence: the translated four-workflow stack keeps native JSON bundles instead of splitting them into per-field text fanout where the compact contract permits it, and the repo-local LOC comparison evidence must show a net reduction versus the legacy four-file stack
+-197. Root changed-source resume rejection: default resume rejects a root workflow-checksum mismatch before `WorkflowExecutor` construction and leaves the persisted run tree byte-identical
++197. Initial public CLI root-checksum envelope: default resume rejects a root workflow-checksum mismatch with exit `1` before executor-session/process metadata or `WorkflowExecutor` construction and leaves the persisted run tree byte-identical
+ 198. Callee checksum rejection boundary: an imported-callee checksum mismatch rejects before child-workflow or child provider/command execution and performs no child-state identity remap, while ordinary parent-level metadata may already exist
+ 199. Cross-source identity boundary: equality of persisted step, checkpoint, call-frame, or other identities alone is not evidence that changed source can resume a supported old run
+ 200. Atomic upgrader ownership: any future supported cross-source transition is implemented and tested as one atomic upgrader that owns checksum and program-identity compatibility rather than as an evidence record, alias, or partial remap
++201. Projection-compatible root resume: after schema and root-checksum acceptance, CLI preflight and structurally root executor revalidation both accept a valid current root projection before prologue
++202. Root explicit-ID rejection: a stale root `steps.*.step_id` fails projection integrity before workflow effects
++203. Scoped explicit-ID ownership: a present ID that belongs to another presentation slot or scope, is unclaimed, or has multiple scoped owners fails closed rather than being normalized or remapped
++204. Schema-supported omitted step-result ID: any recognized `steps.*` result row supported by existing fallback may omit `step_id` without rejection or backfill, including completed, skipped, failed, and supported running loop-frame/result rows
++205. Present optional ID validation: when a schema-supported step-result row includes `step_id`, the ID must resolve exactly in its owning current projection
++206. Required resume selectors: missing `current_step.step_id`, `call_frames.*.call_step_id`, or another schema-required non-step-result identity fails with a stable missing-required-identity diagnostic
++207. Projection-integrity schema boundary: pre-v2.0 state and pre-`schema_version: "2.1"` reusable-call state remain rejected without a tested atomic upgrader
++208. Valid active loop projection: valid `for_each` bookkeeping and valid active `repeat_until` bookkeeping generate exact qualified current/completed candidates without caller-side ID parsing
++209. Terminal repeat success: `current_iteration: null`, a completed/evaluated terminal iteration, `last_condition_result: true`, and absent/false `exhausted` is accepted and retains completed-iteration candidates
++210. Terminal successful exhaustion: completed/evaluated declared maximum history with `last_condition_result: false`, `exhausted: true`, and completed repeat-frame status is accepted
++211. Terminal failed exhaustion: completed/evaluated declared maximum history with `last_condition_result: false`, absent/false `exhausted`, and failed repeat-frame error `repeat_until_iterations_exhausted` is accepted
++212. Invalid loop bookkeeping: malformed types, boolean-as-integer values, duplicate/out-of-range indices, or inconsistent active/terminal progress fail before qualified candidates are generated
++213. Stale qualified loop identity: structurally valid loop bookkeeping with a stale/out-of-scope loop-local step ID or loop-contained call-boundary ID fails exact candidate lookup before effects, without parsing or backfill
++214. One-level current-callee ownership: a valid caller ID resolves exactly to its current parent call boundary, whose unique current import selects and validates the callee projection before child frame creation
++215. Two-level recursive ownership: valid nested call frames resolve parent boundary and selected current callee independently at each level
++216. Missing call boundary: a persisted caller ID with no current parent boundary fails before fresh child selection or child effects
++217. Ambiguous boundary/frame state: ambiguous projection candidates, multiple non-Workflow-Lisp resumable frames, or invalid Workflow Lisp lineage/cardinality fail without mapping-order selection
++218. Import uniqueness and absence: duplicate authored import aliases are rejected before bundle construction, while a missing current import fails at the reached call; runtime imported-bundle ambiguity is unreachable after valid load
++219. Persisted alias non-authority: a persisted alias mismatch fails validation and cannot redirect current-callee selection away from the current parent boundary
++220. Callee checksum precedence: imported-callee checksum mismatch retains `call_resume_checksum_mismatch` and wins before callee-local projection defects or child creation
++221. Non-Workflow-Lisp frame selection: completed frames remain unlimited history, and exactly one running or failed non-completed frame may resume only after checksum, resume-bound-input, and local projection validation
++222. Workflow Lisp running-lineage precedence: running-member checksum and resume-bound-input validation run first and win on failure; then every failed predecessor is checksum/audited ordinally; then the running local scope is audited and resumed
++223. Workflow Lisp fresh retry: with no running member, every failed predecessor is checksum/audited ordinally before deterministic next-unused retry-frame allocation
++224. Workflow Lisp lineage rejection: multiple running members, mixed bases, duplicate/malformed ordinals, malformed status, or name/suffix/family-based target selection fails closed
++225. Root executor checksum envelope: direct or post-CLI-race root checksum mismatch records the exact structured `workflow_checksum_mismatch` contract from `state.md`, changes only root `status`/`error`/`updated_at` among workflow state, stops before projection/prologue, and survives failed session closure
++226. Early root projection envelope: root projection failure during CLI preflight or direct root execution changes only root `status`/`error`/`updated_at`, occurs before the applicable prologue/outer metadata mutations, and leaves any unchanged current step forensic rather than live
++227. Post-CLI projection race: a checksum-compatible identity mutation after preflight is caught by root executor revalidation, preserves opened session/process metadata, applies the same three-field projection delta, and closes failed without replacing the diagnostic
++228. Reached-callee projection envelope: a pre-construction callee audit failure becomes the current parent's failed call-step and scope/run error while the selected callee frame/state/effects remain untouched
++229. Recursive diagnostic promotion: at deeper failure, existing ancestor frames persist ordinary failed step/current/visit/frame snapshots and promote the exact `resume_projection_integrity_error` unchanged to root
++230. Sticky projection failure: after ordinary failure persistence, projection-integrity failure bypasses authored success/failure/always routes, `on_error=continue`, and further loop/container execution, forcing failed termination at every caller
++231. Finalization and session preservation: configured finalization may run, but its failure remains supplemental; finalization, epilogue, and session closure cannot wrap, replace, clear, or downgrade the projection diagnostic, and status/report surfaces expose that exact root error
++232. Projection diagnostic contract: `resume_projection_integrity_error` exposes the exact diagnostic schema, reason enum, identity-only scope path, field, explicit JSON-null missing values, exact expected-owner keys, candidate count, and call-boundary ID defined in `state.md` without private inputs, context, artifacts, prompts, provider output, secrets, whole frame state, or whole projections
++233. Schema and selector independence: projection integrity remains additive under schema `2.1`, runtime does not read migration/retirement evidence, and behavior is not selected by workflow/module/procedure name, basename, family, or persisted alias
++234. Exact-resolution architecture: root, loop, and call-frame acceptance is proven through projection-owned exact candidates, with no ad hoc qualified-ID parsing, prefix matching, remapping, or backfill
++
++### Completed Resume Projection-Integrity Executable-Proof Routing
++
++Clauses 197 and 201-234 remain normative behavior. Their runtime implementation
++and public/default-path executable proof completed at `fdf1e06b` under
++`docs/plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md`.
++The completed proof collected 545 owning tests and passed the focused selector
++with 212 passed and 333 deselected; the deterministic public CLI smoke rejected
++an unknown explicit step ID without effect replay. The fresh broad gate recorded
++6 established unrelated failures, 4913 passes, and 13 skips, matching the
++accepted baseline, followed by independent specification and quality approval.
++This is baseline equivalence, not an all-pass claim. Executable proof ownership
++remains mapped as follows:
++
++| Clauses | Executable proof ownership |
++| --- | --- |
++| 201-205 | `tests/test_workflow_state_projection.py` for root scoped candidates, presentation/scope mismatch, and schema-supported omission compatibility; `tests/test_resume_command.py` for public root resume |
++| 206-207 | `tests/test_resume_command.py` for required root selectors and pre-v2.0 rejection; `tests/test_subworkflow_calls.py` for required `call_frames.*.call_step_id` and explicit pre-`schema_version: "2.1"` reusable-call rejection |
++| 208-213 | `tests/test_workflow_state_projection.py` for loop progress/candidate resolution; `tests/test_resume_command.py` for public resume and pre-effect mutation assertions; `tests/test_subworkflow_calls.py` for loop-contained call boundaries |
++| 214-224 | `tests/test_subworkflow_calls.py` for one/two-level current-callee selection, checksum precedence, frame classes, retry history, mutation boundaries, and recursive audit; `tests/test_loader_validation.py` for duplicate import-alias rejection and typed import/frontend validation |
++| 197, 225-227 | `tests/test_resume_command.py` for the initial public checksum envelope, direct/post-CLI executor checksum, early projection, and checksum-compatible projection-race envelopes using whole-run-tree comparisons |
++| 228-231 | `tests/test_subworkflow_calls.py` and `tests/test_resume_command.py` for unchanged nested promotion, sticky routing/container behavior, finalization, epilogue, and session closure; focused lifecycle coverage may live in `tests/test_runtime_step_lifecycle.py` |
++| 232-233 | `tests/test_state_manager.py` for exact persisted diagnostic schemas/deltas and schema-`2.1` assertions; `tests/test_observability_report.py` for privacy-preserving status/report rendering; tripwired public-path tests in `tests/test_resume_command.py` and `tests/test_subworkflow_calls.py` must prove no retirement-evidence reader and no workflow/module/procedure name, basename, family, or persisted-alias selector |
++| 234 | Exact-resolution proof spans `tests/test_workflow_state_projection.py` for root candidates, `tests/test_workflow_state_projection.py` plus `tests/test_resume_command.py` for loop-qualified candidates, and `tests/test_subworkflow_calls.py` for call-frame/callee candidates; each path proves no parsing, prefix matching, remap, or backfill |
+ 
+ ## DSL Evolution Rollout Crosswalk
+ 
+diff --git a/specs/state.md b/specs/state.md
+index 53422041..b2906ce3 100644
+--- a/specs/state.md
++++ b/specs/state.md
+@@ -240,11 +240,42 @@ Corruption detection and backups:
+ - When `--backup-state` or `--debug` is enabled, before each step copy `state.json` to `state.json.step_<Step>.bak` and keep the last 3 backups.
+ 
+ Checksum and program-identity compatibility:
+-- Default resume of a run whose root workflow checksum differs from the current source rejects before `WorkflowExecutor` construction and before any mutation of the persisted run tree.
++- The initial public CLI default-resume checksum precheck rejects a root workflow checksum mismatch before `WorkflowExecutor` construction and before any mutation of the persisted run tree.
+ - An imported-callee checksum mismatch rejects before child-workflow or child provider/command execution and must not remap child-state identities. The parent executor may already have been constructed, and ordinary parent-level metadata may already have been recorded before the child boundary rejects.
+ - Equality of step, checkpoint, call-frame, or other persisted identities is not by itself evidence that a run can resume across changed source. The root workflow checksum remains an independent compatibility guard.
+ - Any future cross-source compatibility mechanism must be a tested atomic upgrader that owns both checksum and program-identity compatibility, validates the complete old-to-new transition, and either commits the compatible state as one operation or leaves the old state unchanged. Evidence records, identity deltas, aliases, or partial remaps are not such an upgrader.
+ 
++Checksum-compatible resume projection integrity:
++- Scope ownership and ordering
++  - After schema and root-checksum acceptance, every ordinary root resume validates the persisted root scope against the current entry workflow projection. The CLI performs this validation before observability overrides, executor-session/process metadata, executor construction, or execution prologue. A structurally root executor revalidates the authoritative checksum and root projection immediately before prologue; a child call-frame executor does not repeat the root guard.
++  - A scope audit validates its locally stored call-frame shape, caller boundary, persisted alias, and deterministic cardinality/lineage before execution reaches future call binding. A reached call revalidates those properties so a checksum-compatible race cannot bypass them.
++  - A reached call resolves its persisted caller identity against the current parent projection. Exactly one current parent call boundary owns the caller identity, and that boundary's current unique import alias selects the callee bundle; the persisted alias is validation input and cannot redirect selection. Duplicate authored import aliases are rejected before bundle construction, so a loaded import mapping is uniquely keyed.
++  - The selected current callee projection owns frame-local state. Reached-callee validation occurs after ordinary parent call visit/start publication and the reached call's authored-input, managed/runtime-input, write-root, checksum, and applicable resume-bound-input validation, but before creation or mutation of the selected callee frame/state and before callee effects. Nested scopes apply the same rule recursively.
++- Explicit identities and omission compatibility
++  - Every present explicit durable step or call-boundary identity must resolve exactly to one candidate in its owning current scope. Stale, presentation-mismatched, out-of-scope, unclaimed, missing-required, or ambiguous identities fail closed before effects. Qualified loop/call identities are resolved through projection-owned candidates; resume validation does not split, normalize, prefix-match, reconstruct, remap, or backfill IDs.
++  - An absent `step_id` remains compatible for every recognized schema-valid `steps.*` result row supported by the existing presentation/name/order fallback, regardless of result status, including supported completed, skipped, failed, and running loop-frame/result shapes. Resume leaves the field absent. A present `step_id` is always audited.
++  - `current_step.step_id`, `call_frames.*.call_step_id`, call-frame current position, loop/current progress selectors, and other non-step-result identities required by schema remain mandatory.
++- Loop projection integrity
++  - Loop bookkeeping is shape- and domain-valid before it can generate qualified identity candidates. `for_each` indices are unique non-boolean nonnegative integers within `items`; the optional current index is in range and not completed.
++  - `repeat_until` admits exactly four consistent progress forms: active; terminal condition success; terminal successful exhaustion with completed `on_exhausted` outputs; and terminal failed exhaustion without such outputs. Active progress has a nonnegative current iteration not in completed history and consistent condition/result fields. Every terminal form has `current_iteration: null`, retains completed-iteration identity candidates, and identifies the terminal completed/evaluated iteration. Success has `last_condition_result: true` and is not exhausted. Successful exhaustion covers the declared maximum range, has `last_condition_result: false`, `exhausted: true`, and a completed repeat frame. Failed exhaustion covers the declared maximum range, has `last_condition_result: false`, absent/false `exhausted`, and a failed repeat frame with `error.type: "repeat_until_iterations_exhausted"`.
++  - Structurally valid bookkeeping does not excuse a stale or out-of-scope loop-local step or loop-contained call-boundary ID; exact generated-candidate resolution still applies before effects.
++- Call frames and Workflow Lisp retry lineage
++  - Every mapping frame validates caller identity, import alias, boundary ownership, and status. Completed frames are unlimited historical records and never resumable. A non-Workflow-Lisp boundary has at most one non-completed resumable frame; multiple candidates are ambiguous.
++  - A Workflow Lisp boundary is identified only by typed loaded-bundle frontend capability and has one validated retry lineage, zero or one running member, and any number of failed predecessors. Retry lineage parsing and next-ID allocation are centralized and deterministic; mixed lineages, multiple running members, duplicate ordinals, malformed ordinals, or malformed statuses fail closed without mapping-order selection.
++  - With a running Workflow Lisp member, its checksum and resume-bound-input validation run first and win on failure. If they pass, every failed predecessor is checksum-validated and recursively projection-audited in ordinal order, then the running member's local scope is audited and resumed. Without a running member, every failed predecessor is checksum-validated and recursively audited before deterministic fresh-retry allocation. Failed predecessor state is never exempt from audit.
++- Failure and mutation envelopes
++  - The initial CLI root-checksum precheck retains its existing byte-immutable exit-`1` behavior before session/executor creation.
++  - A direct or post-CLI-race structurally root checksum recheck failure persists `error.type: "workflow_checksum_mismatch"` with message `"Workflow has been modified since the run started"` and context fields `workflow_file`, `persisted_checksum`, and `current_checksum` (each string or JSON `null`) plus `reason`, which is exactly one of `workflow_modified`, `missing_recorded_checksum`, `missing_workflow_path`, or `workflow_unavailable`. It changes root `status`, `error`, and `updated_at`, leaves current step/steps/visits/loops/frames unchanged, and stops before projection audit or prologue. Already-open session/process metadata may remain; failed session closure cannot replace the checksum diagnostic.
++  - An early CLI or direct root projection failure changes only root `status`, `error`, and `updated_at`. A checksum-compatible identity race caught by the second root audit uses the same three-field projection delta, preserves already-open session/process metadata, stops before prologue, and closes the session failed without replacing the projection diagnostic. Run-level failed status/error are authoritative; an unchanged `current_step` is forensic and is not live for status, heartbeat, or stalled-run interpretation.
++  - A reached-callee pre-construction projection failure becomes the current caller's failed call-step result and scope/run error. The selected callee frame/state remains untouched. Already-existing ancestor frames persist ordinary failed step/current/visit/frame snapshots while promoting the exact same diagnostic unchanged to the root.
++  - `resume_projection_integrity_error` is a sticky, non-routable terminal failure after ordinary failure persistence: authored success/failure/`always` routes, `on_error=continue`, and loop/container continuation cannot consume it. Configured finalization may run under existing semantics, but any finalization failure remains supplemental and cannot wrap, replace, clear, or downgrade the projection diagnostic. Epilogue and session closure preserve it.
++- Diagnostic, privacy, and compatibility
++  - Projection-integrity diagnostics use `error.type: "resume_projection_integrity_error"`, a stable bounded `error.message`, and a stable bounded context. `diagnostic_schema` is exactly `"resume_projection_integrity_error.v1"`. `reason` is exactly one of `unknown_explicit_step_id`, `presentation_slot_mismatch`, `out_of_scope_step_id`, `unclaimed_explicit_step_row`, `missing_required_identity`, `missing_call_boundary`, `ambiguous_call_boundary`, `ambiguous_resumable_call_frame`, `persisted_import_alias_mismatch`, `missing_imported_bundle`, `unsupported_shape`, or `invalid_loop_progress`.
++  - The context always includes ordered identity-only `scope_path`, `field`, `offending_value` (JSON `null` when absent), `expected_owner` with exactly `workflow_file`, `workflow_checksum`, and `projection_scope`, `candidate_count` (integer or JSON `null`), and `call_boundary_step_id` (string or JSON `null`). These fields are present rather than omitted.
++  - Diagnostics do not expose bound inputs, context values, artifacts, prompts, provider output, secrets, whole frame state, or whole projections.
++  - This contract is additive under state schema `2.1`. Pre-v2.0 state and pre-`schema_version: "2.1"` reusable-call state remain rejected unless a tested atomic upgrader ships with the same tranche.
++  - Resume projection integrity does not read, require, or interpret procedure-migration, identity-retirement, or other migration evidence, and it does not select behavior by workflow/module/procedure name, basename, family, or persisted alias.
++
+ Workflow Lisp lexical-checkpoint default resume:
+ - Node-local restore selection is primary. A prior-boundary fallback is allowed only when the restart node owns lexical checkpoint metadata and restore selection positively reports typed `record_absent` for that node's next boundary.
+ - Only the canonical checkpoint index whose `program_point_id` matches the runtime-plan point and whose `storage_allocation_id` matches the canonical lexical-checkpoint-index allocation may establish absence. A missing canonical index or a valid canonical index with an empty `records` list is `record_absent`; a present unreadable, malformed, incomplete, foreign, stale, or otherwise invalid index is `record_present_unusable` and fails closed with a stable diagnostic.
+@@ -271,7 +302,7 @@ orchestrate clean --older-than 7d
+ 
+ Schema boundary note:
+ - Post-v2.0 runtimes reject resume from pre-v2.0 state rather than silently remapping old name-keyed lineage/freshness data.
+-- When a resumed run reaches a terminal state, `current_step` must be cleared.
++- Ordinary resumed execution clears `current_step` when it reaches terminal state. Accepted pre-prologue root checksum or projection failure envelopes may retain an unchanged forensic `current_step`; root failed `status`/`error` are authoritative, and that step is not live for status, heartbeat, or stalled-run interpretation.
+ 
+ ## Adjudicated Provider State (v2.11)
+ 

@@ -83,7 +83,7 @@ rung is reached; only rung 1 (`cf1-generic-unions`) has a package now. `eb-repl`
 | rung | slug | base | solution | orch | modules | spec/design files (lines) | test files | test fns | foreign | hidden | capability |
 | --- | --- | --- | --- | ---: | ---: | --- | ---: | ---: | --- | --- | --- |
 | 1 | `cf1-generic-unions` | `c77e7ec0` | `1798fc70` | 2060 | 33 | 8 (609) | 18 | 103 | 0 | **164** (166 qualify, 2 dropped) | Target 2.33 with first-order generic unions, `std/improve`, the loop-exhaustion and checkpoint-restore repairs, and an example (CF-1). |
-| 2 | `resume-projection-integrity` | `1cd60767` | `db988993` | 2555 | 16 | 5 (1390) | 18 | 76 | 191 (7.5%) | at its build | Audit resume projections: exact projection slots, scoped auditor, atomic failure recorders, retry lineage. |
+| 2 | `resume-projection-integrity` | `1cd60767` | `db988993` | 2555 | 16 | 5 (1390) | 18 | 76 | 0 (corrected, see note) | **169** (175 qualify, 6 dropped) | Audit resume projections: exact projection slots, scoped auditor, atomic failure recorders, retry lineage. |
 | 3 | `adopted-attempt-lineage` | `db210752` | `1eb06773` | 3214 | 5 | 0 (0) | 3 | 43 | 0 | at its build | Retirement tooling: lineage incident contracts, adopted-attempt disposition v2, restart authority (`orchestrator/retirement/`). |
 | 4 | `pure-result-replay` | `f80e551a` | `76427bde` | 4161 | 14 | 5 (1061) | 13 | 94 | 14 (0.3%) | at its build | Pure-result replay feasibility (dependency index, atomic witnesses, runtime) and its activation. |
 | 5 | `dsl-232-composition` | `2effff14` | `2574fa2b` | 10478 | 74 | 19 (3835) | 44 | 308 | 0 | at its build | Value and continuation composition, targets 2.28 to 2.32: union prompt inputs, rich loop values, pure-call composition, portable context, durable host input. |
@@ -118,8 +118,11 @@ repository. No two rows tie on the primary key.
       `workflow_lisp_improve_stdlib_sources.py`, and `tests/fixtures/workflow_lisp/generic_unions/**` (13 files).
 - **2 `resume-projection-integrity`.**
   - First design commit: `52e2b05f`. Base `1cd60767` is the tests-only commit that characterizes the ordering.
-  - Foreign commits: duplicate import aliases (`b095db21`, `af051c79`), frontend provenance (`e7068d7a`,
-    `ccbfc1cc`) and import sections (`0b5aa4c5`, `fdf1e06b`), 191 lines in all.
+  - Foreign commits: none. The first version of this note listed duplicate import aliases (`b095db21`,
+    `af051c79`), frontend provenance (`e7068d7a`, `ccbfc1cc`) and import sections (`0b5aa4c5`, `fdf1e06b`), 191
+    lines, as foreign. The feature's implementation plan owns all three: Task 1 rejects duplicate import aliases,
+    including the repeated and merge-mediated sections, and the plan requires typed `frontend_kind`. The rank does
+    not change, because foreign lines never entered the metric.
   - Hidden-test files (all M):
     - `test_adjudicated_provider_resume.py`, `test_adjudicated_provider_runtime.py`,
       `test_at72_provider_state_persistence.py`, `test_cli_observability_config.py`, `test_loader_validation.py`;
@@ -130,7 +133,6 @@ repository. No two rows tie on the primary key.
     - `test_workflow_lisp_materialize_view_runtime.py`, `test_workflow_lisp_modules.py`,
       `test_workflow_lisp_pure_projection_runtime.py`, `test_workflow_state_projection.py`;
     - helper `workflow_bundle_helpers.py`, and 7 fixture files.
-  - Only the foreign commits' tests stay out of the hidden set.
   - `test_workflow_lisp_key_migrations.py` has one opt-in live environment variable (`..._LIVE_...`), and that test
     skips.
 - **3 `adopted-attempt-lineage`.**
@@ -263,6 +265,70 @@ Limits of the search:
 - **Evidence** in `/home/ollie/Documents/agent-orchestration-compare-evidence/calibration/`:
   `cf1-generic-unions-hidden-base.txt` and `cf1-generic-unions-hidden-solution.txt` give per-node results for all
   752 nodes; `cf1-generic-unions-anchor-upstream.txt` and `cf1-generic-unions-anchor-stub.txt` cover the 164.
+
+## Rung 2 package: `resume-projection-integrity`
+
+- **Base check.** The base's `.gitignore` ignores `.orchestrate/` and `artifacts/` (lines 10 and 11, confirmed with
+  `git check-ignore`).
+- **Files.** `task.txt`, `intent.txt`, `base_commit`, `hidden/` (26 files) and `hidden_tests.txt` (169 node ids,
+  `LC_ALL=C` sorted). Anchors:
+  - `anchors/resume-projection-integrity-upstream.diff` is `base..solution` restricted to `orchestrator/`,
+    `specs/` and `workflows/` (R48). It has 18 files, there are no merges in the range, and it passes
+    `git apply --check` at the base.
+  - `anchors/resume-projection-integrity-stub.diff` registers the entry points and checks nothing:
+    - `ResumeProjectionValidationError`;
+    - `WorkflowStateProjection.enumerate_resume_slots`, `resolve_resume_step_id` and `resolve_call_boundary`,
+      which raise `NotImplementedError`;
+    - a `resume_projection_integrity` module whose `audit_scope` accepts every scope, plus `ResumeScopePath`, the
+      two error types, `RetryFrameMember`, and lineage functions that raise;
+    - the two `StateManager` recorders, which raise.
+
+    It applies.
+  - There is no `seed/`.
+- **Hidden set.** `hidden/` holds every test file the range adds or changes (18 test files, the helper
+  `workflow_bundle_helpers.py` and 7 golden fixtures). Their 1130 node ids were each run alone, with TMPDIR under the
+  scratch directory:
+  - At the base, 951 pass and 179 fail.
+  - At the solution, 1126 pass. The 4 that fail there (`test_workflow_lisp_key_migrations.py` tracked-plan
+    evidence) fail at the base too.
+  - Qualifying: 175.
+- **Dropped (6).**
+  - R44, private functions the solution added:
+    - `tests/test_subworkflow_calls.py::test_reached_call_fresh_retry_audits_all_failed_history_before_allocation`
+      patches the new private `CallExecutor._allocate_retry_frame_id` and expects it to be called.
+    - `tests/test_workflow_state_projection.py::test_retry_target_and_projection_resolution_functions_use_typed_identity_only`
+      parses the bodies of the new private `CallExecutor._retry_lineage_for_step` and others, and requires a
+      private `_resume_slot_candidates`.
+  - Literal rule: the four `tests/test_workflow_lisp_drain_roadmap_routing.py` nodes
+    `test_historical_and_durable_authorities_do_not_claim_live_selector_ownership`,
+    `test_procedure_first_status_surfaces_share_current_migration_wave_boundary`,
+    `test_projection_integrity_acceptance_proof_ownership_is_complete` and
+    `test_resume_projection_hardening_is_closed_without_claiming_migration`.
+    - They check documentation-routing text: `docs/index.md`, the capability matrix, plan files and their
+      wording.
+    - task.txt does not name that text, the base does not define it, and it lies outside the anchor's paths.
+- **Kept on base definitions.**
+  - Private executor and CLI internals whose signatures are unchanged at the base: `_handle_control_flow`,
+    `_execute_prologue`, `_execute_call`, `_typed_on_goto_transfer`, `_load_resume_workflow_bundle`,
+    `_merge_observability_overrides`, `_is_workflow_lisp_target`, and the Workflow Lisp build internals
+    `_compile_entry` and `_reattach_bundle_provenance`.
+  - The module-level `audit_scope` bindings in `calls`, `executor` and `resume`, which eight kept test functions
+    (15 nodes) substitute, and the auditor module's source guard (no receipts, no retirement readers). task.txt names both.
+- **Verification.** Each of the 169 node ids was run alone:
+  - Upstream anchor applied at the base: 169 of 169 pass.
+  - Stub applied at the base: 50 of 169 pass. These failed at the base only because a new name was missing, or
+    they pass with an auditor that accepts everything:
+    - 38 in `test_workflow_state_projection.py`, including 13 that exercise only the test file's own
+      architecture-guard helper;
+    - 5 lexical-restore resumes, 5 guard-ordering or no-load audit checks in `test_subworkflow_calls.py`, and the
+      2 auditor-module source guards.
+
+  So a single call that only adds the entry points scores 50/169 = 0.30.
+- **Evidence** in `/home/ollie/Documents/agent-orchestration-compare-evidence/calibration/`:
+  `resume-projection-integrity-hidden-base.txt` and `resume-projection-integrity-hidden-solution.txt` give
+  per-node results for all 1130 nodes; `resume-projection-integrity-anchor-upstream.txt` and
+  `resume-projection-integrity-anchor-stub.txt` cover the 169.
+- **Rung 2's scan solution hash:** `db9889937a895d67810dee1ea0b1b53552d30eca`.
 
 ## Contamination
 
