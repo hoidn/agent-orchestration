@@ -271,6 +271,11 @@ navigation are complete.
 **Keywords:** lean-pilot, forensics, protocol-failure, pytest-cache, e2, fixed-study, study-design, effectiveness
 **Use this when:** Reviewing the historical rationale and task-selection inputs for the first fixed study, preregistering a related effectiveness study, or interpreting pilot treatment-failure accounting. It changes no locked pilot record and amends no accepted plan; the E2 Task-10 arm set stays owned by the [E2 plan](plans/2026-08-01-workflow-lisp-e2-trial-component-plan.md). Future research selection now belongs to the [current roadmap](plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md), not a prerequisite that RICH win.
 
+
+### [Orc Effectiveness Comparison Harness](design/orc_effectiveness_comparison_harness.md)
+**Description:** Current design for comparing maintained `.orc` workflows with single agent calls: frozen criteria, recording shims in a bubblewrap sandbox, blind pooled scoring by two judges with anchors, adjudicated contamination scans, and the difficulty calibration follow-on tasks must pass. Operator contract: [harness README](../experiments/compare/README.md).
+**Keywords:** orc, effectiveness, experiment, comparison, best-of-n, reviewed-change, design-review-execute, judges, criterion, sandbox
+**Use this when:** Running or designing a workflow-versus-single-call comparison. The results are in the [E-A report](reports/2026-10-14-orc-versus-single-call-evaluated.md) (reviewed_change replicated; best_of_n fell one run short) and the [E-B report](reports/2026-10-14-design-review-execute-versus-single-call.md) (not evaluated; the task did not qualify). The [postmortem](reports/2026-10-14-effectiveness-experiments-postmortem.md) records what went wrong in running them.
 ### [ORC Research Charter](plans/2026-09-08-orc-research-charter.md)
 **Description:** Five independently assessed axes: programmability/compositionality, ergonomic reuse of `.orc`, introspection, self-programmability, and optimization. Authoring uses normal coding-agent sessions; tools remain delegated to agents/providers.
 **Keywords:** orc, research, programmability, composition, reuse, introspection, self-programming, optimization, representation
