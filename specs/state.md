@@ -380,21 +380,33 @@ truncates it, after its preflight. Exactly these record kinds and keys:
 | `record` | Keys (required unless noted) | Meaning |
 | --- | --- | --- |
 | `started` | `identity`, `attempt`, `input_digest`, `input_parts`, `implementation_files`, `result_path`, `time` | Reserves ordinal `attempt`, the next for the identity counting failed and invalidated attempts, synchronized before the attempt directory exists; not proof of a launch |
-| `committed` | `identity`, `attempt`, `input_digest`, `input_parts`, `value`, `result_path`, `result_digest`, `implementation_files`, `depends_on`, `effect_class`, `time`; `proof` only, and always, when `effect_class` is `run_ref` | The validated typed `value` is the result; `result_digest` is the sha256 of the attempt's result file; `input_digest`, `input_parts`, `implementation_files` and `result_path` equal the matching `started`; `depends_on` lists identities with active commits whose values the resolved input read (C9: computed per value, a superset of the parts actually read); `effect_class` ∈ `command`, `provider`, `run_ref` and must agree with the checked site |
+| `committed` | `identity`, `attempt`, `input_digest`, `input_parts`, `value`, `result_path`, `result_digest`, `implementation_files`, `depends_on`, `effect_class`, `time`; `proof` only, and always, when the class is a coordinator (`run_ref`: `{settled_result, artifacts}`; `agent_turn`: `{adapter, locator, position {turn_id, end_line}, predecessor, agent, config_digest}`, `agent` naming the active allocation commit, `predecessor` the previous active committed turn of that agent or `null`, `config_digest` equal to the allocation's pinned configuration) | The validated typed `value` is the result; `result_digest` is the sha256 of the attempt's result file; `input_digest`, `input_parts`, `implementation_files` and `result_path` equal the matching `started`; `depends_on` lists identities with active commits whose values the resolved input read (C9: computed per value, a superset of the parts actually read), plus, for an `agent_turn`, its predecessor turn even when the prompt does not consume its result; `effect_class` ∈ `command`, `provider`, `run_ref`, `agent`, `agent_turn` and must agree with the checked site |
 | `failed` | `identity`, `attempt`, `code`, `exit_info`; optional `violations` | Closes the pending attempt without a result. `exit_info` is `{exit_code, error}` for `command_exit_nonzero`, `provider_exit_nonzero` and `provider_timeout`, `{error}` for `provider_preparation_failed`, `{errno}` for `effect_attempt_path_exists` and `effect_attempt_allocation_failed`, otherwise `{}`; `violations` accompanies `provider_result_invalid` and a command result that fails its contract (code `evaluated_execution_failed`). No timestamp |
 | `settled` | `identity`, `attempt`, `by` ∈ `settle`, `reconcile` | A coordinator's final commit, after its `committed` |
 | `invalidated` | `from_commit`, `time` | The byte offset of the first byte of an active `committed` record: cancels that commit and every later active commit in one record and reopens a terminal; no identity or dependent list |
 | `terminal` | `outcome: "completed"`, `value`; or `outcome: "failed"`, `code`, `message` | `completed` only after `halt` with every reached effect committed and every coordinator settled; `failed` only with no pending start and no unsettled coordinator |
 | `suspended` | — | Refused by this profile |
 
+The additive classes `agent`/`agent_turn` appear only in journals of
+target-2.38 programs; the profile, schema and representation are unchanged,
+and journals of earlier targets reduce exactly as before.
+
 Reducer rules (`orchestrator/workflow/evaluated/memo.py`): after a terminal
 only `started` (after a `failed` terminal) or `invalidated` is accepted, and
 each clears the terminal; `started` refuses an identity with an active commit
 or a non-next ordinal; `committed` and `failed` require the matching pending
-`started`; an ordinary effect may not carry `proof`; `settled` requires an
-unsettled coordinator commit of that identity and attempt; an invalidation
+`started`; an ordinary effect may not carry `proof`; a coordinator is a
+`run_ref` or `agent_turn` site; `settled` requires an unsettled coordinator
+commit of either class with that identity and attempt; an invalidation
 anchor must be an active commit and its suffix must contain no coordinator
-commit; a terminal must leave no pending attempt or unsettled coordinator,
+commit; an `agent_turn` `started` requires an active allocation (`agent`)
+commit; an `agent_turn` proof's predecessor must be the same agent's latest
+active committed turn; an invalidation anchor at or before a pending agent
+turn attempt, or one closed `failed` with `agent_bootstrap_restarted`,
+`agent_turn_result_invalid` or a first-turn `provider_result_invalid`, is
+`memo_inconsistent` (these journal-only agent guards live in
+`memo_reducer_agents.py`; receipt-based guards are applied by the
+`invalidate` write preflight and by resume, never by the reducer); a terminal must leave no pending attempt or unsettled coordinator,
 and adjacent terminals are refused. `input_digest`, `result_digest` and
 `depends_on` are checked for spelling, matching and active-commit membership,
 not recomputed from `input_parts` or from files: a committed result is never
@@ -439,7 +451,12 @@ document; a failed command at least `stdout.txt` and `stderr.txt`, plus
 wrote; a provider
 `prompt.txt` first, then `result.json` when the provider wrote one (kept when
 invalid), `stdout.txt` and `stderr.txt`; a run reference `result.json` only,
-and an empty directory when it failed before its child. A result file
+and an empty directory when it failed before its child; an agent allocation
+`result.json` only (the Agent descriptor, no process); an agent turn
+`prompt.txt`, `receipt.json` (`agent_turn_receipt.v1`, written before
+dispatch and updated monotonically), then `result.json` when the provider
+wrote one, `stdout.txt`, `stderr.txt`, and `abandoned.json` when a bootstrap
+resume abandoned the candidate. A result file
 without a `committed` record is evidence, never a result, including a file
 left by an attempt that was killed before any outcome row. A directory whose
 exclusive creation collides records `failed` with `effect_attempt_path_exists`
@@ -470,6 +487,12 @@ invalidation whose suffix contains one refuses whole with
 `invalidate_coordinator_committed`. A run reference that fails before its
 child records `failed` with code `evaluated_execution_failed` and `exit_info {}`;
 resume retries it at the next ordinal.
+
+An agent turn commits with `effect_class: "agent_turn"` and the inline
+continuation proof; `settled` with `by: settle` follows immediately (local
+bookkeeping, no prompt); a stop after `committed` is reconciled on the next
+resume from the proof with `by: reconcile`, with no native append. A
+committed turn is never superseded (`invalidate_coordinator_committed`).
 
 A target-2.35 path child is an ordinary evaluated run in the clone's
 `.orchestrate/runs/<child_run_id>` with its own fourteen-key header:

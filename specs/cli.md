@@ -465,6 +465,11 @@ no code of its own; `invalidate` prints `[<code>] <detail>`.
 | `run_already_active`, `workspace_run_already_active` | `run`, `resume` | 2 | None |
 | `memo_busy` | `invalidate` | 2 | None |
 | `invalidate_not_committed`, `invalidate_coordinator_committed` | `invalidate` | 2 | None |
+| `agent_session_unavailable`, `agent_session_diverged`, `agent_policy_mismatch` | a reached agent turn (target 2.38) before its `started` and dispatch of a new turn | 1 during execution; 2 in `resume` preflight | No dispatch; failed terminal where the journal permits |
+| `agent_turn_unresolved` | a dispatched agent turn attempt whose completion or result cannot be established | 1 | The `started` stays pending: no `failed` row and no terminal; `resume` reconciles the attempt |
+| `agent_turn_result_invalid` | a later agent turn that completed natively with an invalid result | 1; `resume` refuses with the same code at preflight, 2 | `failed` row with `violations`; the attempt files kept |
+| `agent_bootstrap_restarted` | `resume` abandoning a first-turn candidate | diagnostic | Logged; the abandoned attempt's `failed` row carries this code with `exit_info {abandoned_attempt, locator}` |
+| `invalidate_agent_session_advanced` | `invalidate` over an agent turn attempt whose native session advanced or may have advanced | 2 | None written |
 | `undefined_variables`, `effect_input_invalid` | a reached command's template or input document before its `started` | 1; 2 in resume preflight at a command with a retry baseline | No `started`, directory or dispatch; failed terminal where the journal permits. Against an active commit the same condition is `effect_input_diverged`; with only a prior start the code is kept |
 | `command_closure_unreadable` | a reached command's closure before a first attempt (missing, unreadable, cyclic or unsupported entry), or a C4 destination overlap (reason `runtime destination overlaps command closure`) | 1 | No `started`, directory or dispatch; failed terminal where the journal permits. Against a prior start or commit a resolution failure is `effect_input_diverged`; a destination overlap keeps this code |
 | `effect_attempt_path_exists`, `effect_attempt_allocation_failed` | attempt allocation after `started` | 1 | `failed` row with `exit_info {errno}`; the existing directory is preserved; failed terminal where permitted |

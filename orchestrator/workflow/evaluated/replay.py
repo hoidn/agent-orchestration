@@ -12,6 +12,7 @@ from .authority import workspace_result_locator
 from .effect_inputs import effect_dependencies
 from .machine import evaluate_closed_program
 from .memo import JournalEntry, MemoError
+from .memo_reducer import is_coordinator_class
 from .provider_io import WorkflowIOReader
 from .values import EvaluatedValue, coerce_evaluated_value
 
@@ -105,7 +106,7 @@ class _Discovery:
             raise MemoError('memo_inconsistent', 'effect starts before its structured predecessor completes')
 
     def _settled_offset(self, commit):
-        if commit.data['effect_class'] != 'run_ref':
+        if not is_coordinator_class(commit.data['effect_class']):
             return commit.offset
         key = commit.data['identity'], commit.data['attempt']
         settlement = self.settlements.get(key)
