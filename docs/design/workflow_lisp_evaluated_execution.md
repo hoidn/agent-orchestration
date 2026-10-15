@@ -1021,8 +1021,10 @@ the ordinal rule's moves are measured against the alternative (gate report,
 A failed terminal does not require the failed effect to have committed.
 Failure during settlement leaves a committed, unsettled effect and no new
 terminal; resume must reconcile it. The checked program maps each
-`effect_class` to ordinary or coordinator execution (only `run_ref` is a
-coordinator in the first release). The record's class must agree with its
+`effect_class` to ordinary or coordinator execution (`run_ref` and, at
+target 2.38, `agent_turn` are the admitted coordinators; the agent
+attempt-history guard is `invalidate_agent_session_advanced` (Agent Sessions,
+Persistence)). The record's class must agree with its
 site, and coordinator proof is required, not inferred from an optional field.
 
 A terminal is reopened by `invalidated`, or, after a failed terminal, the
@@ -1393,6 +1395,7 @@ view never invokes reconciliation.
 | --- | --- |
 | A committed result with input digest equal to the digest of `x`, not invalidated | Return the result. Run nothing. For a coordinator effect, `reconcile` first (K3) |
 | A committed result with another input digest | Stop with `effect_input_diverged`, located at the site, showing both digests, which parts of the input differ and which files |
+| A `started` agent turn with no commit | Classify from receipt and native store ([Agent Sessions](workflow_lisp_agent_sessions.md), Persistence); never the generic retry rule |
 | A `started` or `failed` attempt with no commit | Before retry, enforce C4's implementation-file comparison below. If the boundary declares `must_not_repeat`, stop with `lexical_restore_pending_effect_unsafe` regardless. Otherwise record `effect_rerun`, naming the identity and its earlier attempts, and run the next attempt |
 | An `invalidated` range covers the last commit, with no newer uncommitted attempt | Run the next attempt. No rerun diagnostic |
 | A `suspended` record and no commit | Stop and report the pending request |
@@ -1731,7 +1734,7 @@ does not bypass that guard.
 
 | Rule | Statement |
 | --- | --- |
-| C8 | `invalidate <run> <identity>` atomically cancels the chosen active commit and every later active commit in journal order with **one** synchronized `invalidated` range record. The next resume runs those effects again; every earlier commit stays. Under the writer lock, validate the whole suffix before writing anything. Refuse `memo_busy` for another writer, `invalidate_not_committed` for a chosen identity without an active commit, and `invalidate_coordinator_committed` if the suffix contains any committed coordinator: a committed child run is never superseded (K8) |
+| C8 | `invalidate <run> <identity>` atomically cancels the chosen active commit and every later active commit in journal order with **one** synchronized `invalidated` range record. The next resume runs those effects again; every earlier commit stays. Under the writer lock, validate the whole suffix before writing anything. Refuse `memo_busy` for another writer, `invalidate_not_committed` for a chosen identity without an active commit, and `invalidate_coordinator_committed` if the suffix contains any committed coordinator: a committed child run or agent turn is never superseded (K8); at target 2.38 refuse `invalidate_agent_session_advanced` for agent turn attempt history the cut would cancel that was dispatched, advanced or is of uncertain outcome (Agent Sessions, Persistence) |
 | C9 | Each `committed` record keeps `depends_on`: the identities whose results its resolved input read, through names, arguments, results, loop state, join parameters, `case` bindings and the conditions that chose a value; an effect inside a branch does not depend on the branch's condition. `depends_on` is computed per value, not per field: a record, list or loop state carries the union of its parts' dependencies and a field or item taken from it keeps them all (§4.2.3). It is therefore a superset of the identities actually read and never omits one; in a serial `list/map-effect`, whose items pass through a loop state that also accumulates their results, each item depends on every earlier item. Evidence that one effect consumed another's output rests on C6 read digests, not on `depends_on` alone. Narrowing `depends_on` to the parts actually read is an entry condition of the release that scopes invalidation by C9. In the first release this is evidence, not the scope of an invalidation: a dependence through a file, where one effect writes a path that a later one reads, leaves no trace in values, and a shipped workflow has that shape (`workflows/library/verified_iteration_drain/drain.orc`). Narrowing an invalidation to dependents through values and declared files is a later release, entered when command boundaries declare the files they read and write, with the file-dependence fixture of §17 as its evidence |
 
 The range's `from_commit` names the chosen commit's immutable byte offset in
@@ -1739,8 +1742,11 @@ The range's `from_commit` names the chosen commit's immutable byte offset in
 range record and cancel precisely the commits active in that prefix whose
 offset is at or after the anchor. The record itself closes the range; later
 retry commits are not canceled by it. Validate that the anchor names an active
-commit and that its suffix contains no coordinator commit, or report
-`memo_inconsistent`. Derive the chosen identity and affected attempts from
+commit and that its suffix contains no coordinator commit and, at target
+2.38, no `agent_turn` attempt started at or after the anchor that is still
+pending or closed `failed` with a dispatched-failure code
+(`agent_bootstrap_restarted`, `agent_turn_result_invalid`,
+`provider_result_invalid`), or report `memo_inconsistent`. Derive the chosen identity and affected attempts from
 those records, without storing a second list or emitting per-effect records.
 
 The same range retires pending starts whose byte offsets are at or after
@@ -2639,7 +2645,7 @@ closed program, the resolved input, the result path and the workspace. It
 returns a result or a failure. It reads no run state and writes none. A
 coordinator (§9.3) is a performer with a ledger of its own.
 
-| Class | First release | Performer built from | Notes |
+| Class | First release (2.35) | Performer built from | Notes |
 | --- | --- | --- | --- |
 | Command | Yes | `StepExecutor.execute_command` | Independent of the executor today |
 | Provider, composed delivery, portable subset | Yes | `ProviderExecutor.prepare_invocation` and `execute`, with prompt assembly moved out of the executor | The prompt is assembled as the present route assembles it, with the differences of R2 and R3, and of the opening lines of the structured-result contract block that this route renders for its file transport ([provider result delivery](provider_result_delivery.md)) (spike iteration 2, B) |
@@ -2651,10 +2657,12 @@ coordinator (§9.3) is a performer with a ledger of its own.
 | Materialized view | Later | The existing step function | Reads its value from the environment |
 | Trial | Later | The trial runtime behind the coordinator protocol | Has the pair of commits today (K6) |
 | Provider, phased delivery; supervision; peer group; adjudication | Later | The existing coordinators, each changed to expose the pair of commits (K6) | One effect, one identity, its own ledger |
-| Provider, authored sequential native-session turns | Later | Existing session/turn transports with a bounded coordinator | The [queue design](workflow_lisp_provider_prompt_queue.md) requires qualified turn-prefix recovery; neither composed delivery nor K4's restart rule supplies it |
+| Run-local agent allocation and sequential native-session turns | No; implemented at 2.38 | Ordinary non-coordinator allocation with its own checked class; existing session/turn transports behind one bounded `agent_turn` coordinator | [Agent Sessions](workflow_lisp_agent_sessions.md) commits each typed turn separately; E3 reuses the prefix and pending-turn recovery uses the scoped K4 exception (§9.3). [PQ-1a](../reports/2026-10-14-agent-sessions-pq1a-qualification.md) owns deterministic proofs and bounded real-adapter smoke evidence; `prompt-queue` is superseded for first delivery, and the separate acceptance comparison remains pending |
 
-A program at the new target that uses a class marked later is refused at
-build (§1.1). Older executable entries are retired; no old-route fallback is available.
+At first-release target 2.35, a program using a class marked later is refused
+at build (§1.1). Target 2.38 additionally admits the bounded Agent allocation
+and turn row above; other exclusions remain target-aware. Older executable
+entries are retired; no old-route fallback is available.
 
 ### 9.3 Coordinators
 
@@ -2667,7 +2675,7 @@ run's state; the memo replaces that commit.
 | K1 | A coordinator receives the effect node and the resolved input as values, keeps its ledger under the run root, and reads and writes no run state |
 | K2 | The protocol has three calls. `prepare(node, resolved, identity, attempt)` runs the effect to the coordinator's pending commit and returns the value and a proof. The evaluator validates the value and appends `committed` with the proof. `settle(node, identity, proof)` makes the coordinator's final commit; the evaluator then appends `settled` |
 | K3 | On a memo hit, `reconcile(node, resolved, identity, proof)` completes a pending final commit from the proof, and the evaluator appends `settled` (`by: reconcile`) when the memo lacks it |
-| K4 | The memo's `committed` record lies between the coordinator's two commits. Killed after the pending commit, resume discards the pending attempt and starts one more child; killed after the memo's commit, resume starts none. A coordinator that makes its final commit before the memo's is a defect: killed between the two, the run cannot continue (spike iteration 2, D1) |
+| K4 | The memo's `committed` record lies between the coordinator's two commits. Killed after the pending commit, resume discards the pending attempt and starts one more child; killed after the memo's commit, resume starts none. A coordinator that makes its final commit before the memo's is a defect: killed between the two, the run cannot continue (spike iteration 2, D1). Agent turns (target 2.38) are the scoped exception: a pending turn is reconciled from its receipt and native store; only an agent with no committed turn may be restarted, by explicit public `resume`, abandoning the old candidate first ([Agent Sessions](workflow_lisp_agent_sessions.md), Bootstrap retry policy); later turns refuse |
 | K5 | The proof is the coordinator's settled result record and its artifacts, stored inline in the `committed` record. It is what `settle` and `reconcile` need, and nothing else |
 | K6 | Which coordinators have the pair of commits today, and which must change, by the inventory of the execution facts, B.1, and the gate report, §7: run references reuse pending ledger record, final commit and reconcile call through the K7 adapter; trials (prepared and final parent settlement) need their own adapter; phased providers make one authoritative commit, supervision and peer groups finalize directly into parent state, adjudication's parent result is committed by the caller, and human input commits reply and result together into `state.json`. Each of these five must give that up and expose `prepare`, `settle` and `reconcile` before it enters a release |
 | K7 | A run reference: its static configuration is built at build time, each input bound as the reference `inputs.<name>`; the name rule of the child's inputs is the reference rule, so no valid name is unsafe. The coordinator resolves the references against a parent state that holds only the resolved input values. The visit key is derived from the identity: parent run id the run root's name, execution frame `root`, no call frame, step id `root.<digest of the identity>`, visit count 1. The runtime's ledger, `run-ref-attempts.jsonl`, retains its wire contract; physical IO and child authority follow §9.3.1 |
@@ -2783,14 +2791,16 @@ adapter: treating it as an ordinary composed call, as the spike did, proves
 no parity and must be refused at admission. None of this changes C3's
 diagnostic-only interpreter upgrade rule or K8's no-supersession rule.
 
-Authored native-session turns are another later class. Their
-[recovery contract](workflow_lisp_provider_prompt_queue.md#recovery-contract)
-retains completed turn progress before the parent result commits. K4's
-discard-and-restart rule does not provide that behavior: admission requires
-a reviewed, evidenced refinement for this class, including the binding of
-turn progress across attempts and the final K2–K5 settlement gaps. This
-prerequisite changes neither K4 for the first release nor the admission of
-any existing class.
+Authored native-session turns retain completed turn progress before the
+parent result commits, which K4's discard-and-restart rule does not provide.
+They are admitted at target 2.38 by the [Agent Sessions
+design](workflow_lisp_agent_sessions.md) with a scoped K4 exception: a
+pending agent turn is never discarded; resume quiesces its process group,
+classifies it from its receipt and the native store, and may commit the same
+ordinal without dispatch (§8.1). Only an agent with no committed turn may
+restart, and only by explicit public `resume`: the old candidate is marked
+abandoned and its attempt closed `failed agent_bootstrap_restarted` before the
+next `started`. K4 is unchanged for every other class.
 
 ### 9.4 The request contract
 

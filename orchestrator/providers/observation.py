@@ -461,7 +461,7 @@ class ProviderObservationManager:
             digest = hashlib.sha256(
                 (
                     f"{invocation_id}\0{member_id}\0{turn_id}\0"
-                    f"{self._allocation_index}"
+                    f"{self._allocation_index}\0{self._session_name}"
                 ).encode("utf-8")
             ).hexdigest()[:16]
             stem = f"{self._allocation_index:06d}-{digest}"

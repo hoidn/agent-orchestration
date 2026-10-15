@@ -3,6 +3,7 @@
 EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION = "2.35"
 PARALLEL_MAP_MIN_TARGET_DSL_VERSION = "2.37"
 RUN_REF_CONFINED_MIN_TARGET_DSL_VERSION = "2.38"
+AGENT_SESSIONS_MIN_TARGET_DSL_VERSION = "2.38"
 LOWERING_SCHEMA_LEGACY = 1
 LOWERING_SCHEMA_WCC = 2
 DEFAULT_LOWERING_SCHEMA = LOWERING_SCHEMA_WCC
@@ -54,6 +55,14 @@ def target_dsl_supports_parallel_map(target_dsl_version: str) -> bool:
 
 def target_dsl_supports_run_ref_confined(target_dsl_version: str) -> bool:
     """Return whether a registered target admits `run-ref :program (:workflow ...)`."""
+
+    return target_dsl_version in SUPPORTED_TARGET_DSL_VERSIONS and tuple(
+        map(int, target_dsl_version.split("."))
+    ) >= (2, 38)
+
+
+def target_dsl_supports_agent_sessions(target_dsl_version: str) -> bool:
+    """Return whether a registered target admits `agent`, `Agent` and agent turns."""
 
     return target_dsl_version in SUPPORTED_TARGET_DSL_VERSIONS and tuple(
         map(int, target_dsl_version.split("."))

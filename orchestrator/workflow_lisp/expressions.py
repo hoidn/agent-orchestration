@@ -887,6 +887,18 @@ class SessionArtifactSpec:
 
 
 @dataclass(frozen=True)
+class AgentExpr:
+    """One run-local agent allocation over a statically resolved provider extern."""
+
+    provider: "ExprNode"
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+    model: "ExprNode | None" = field(default=None, metadata={"json_omit_if_none": True})
+    effort: "ExprNode | None" = field(default=None, metadata={"json_omit_if_none": True})
+
+
+@dataclass(frozen=True)
 class ProviderResultExpr:
     """One provider result with a typed structured return contract."""
 
@@ -932,6 +944,7 @@ class ProviderResultExpr:
         default=None,
         metadata={"json_omit_if_none": True},
     )
+    agent_origins: tuple[str, ...] | None = field(default=None, metadata={"json_omit_if_none": True})
     return_spec: ReturnSpec | None = field(
         default=None,
         repr=False,
@@ -1220,6 +1233,7 @@ ExprNode = (
     | LetProcExpr
     | WithLiveProvidersExpr
     | WithLiveProviderPeersExpr
+    | AgentExpr
     | ProviderResultExpr
     | ProviderBundlePathExpr
     | CommandResultExpr
@@ -1552,13 +1566,13 @@ def _elaborate_list(
         form_spec = None
     if (
         form_spec is None
-        and head.resolved_name in {"run-ref", "trial"}
+        and head.resolved_name in {"run-ref", "trial", "agent"}
         and head.resolved_name not in session_state.function_names
         and head.resolved_name not in procedure_names
         and head.resolved_name not in available_names
     ):
-        route = _route_run_ref if head.resolved_name == "run-ref" else _route_trial
-        return route(
+        return _dispatch_elaboration_route(
+            head.resolved_name.replace("-", "_"),  # route keys of the target-gated heads
             datum,
             form_path=form_path,
             bound_names=bound_names,
@@ -1846,6 +1860,8 @@ def _route_trial(
 
 
 def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
+    from .agent_forms import _elaborate_agent
+
     return {
         "record": _elaborate_record,
         "pure_op": _elaborate_pure_op,
@@ -1875,6 +1891,7 @@ def _elaboration_route_handlers() -> dict[str, _ElaborationRouteHandler]:
         "with_live_providers": _elaborate_with_live_providers,
         "with_live_provider_peers": _elaborate_with_live_provider_peers,
         "provider_result": _elaborate_provider_result,
+        "agent": _elaborate_agent,
         "provider_bundle_path": _elaborate_provider_bundle_path,
         "command_result": _elaborate_command_result,
         "request_input": _elaborate_request_input,

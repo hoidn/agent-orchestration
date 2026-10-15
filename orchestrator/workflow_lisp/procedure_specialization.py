@@ -14,6 +14,7 @@ from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import EMPTY_EFFECT_SUMMARY
 from .expression_traversal import _rebuild_with_replacements, is_pure_projection_expr, iter_child_exprs
 from .expressions import (
+    AgentExpr,
     BindProcExpr,
     GeneratedRelpathSeedExpr,
     LoopStateSeedExpr,
@@ -575,6 +576,7 @@ def _private_workflow_binding_local_value(
             CommandResultExpr,
             ProviderResultExpr,
             RequestInputExpr,
+            AgentExpr,
             RunProviderPhaseExpr,
             ProduceOneOfExpr,
             ResumeOrStartExpr,
@@ -650,6 +652,7 @@ def _private_workflow_body_exports_step_backed_outputs(
             ProviderResultExpr,
             RequestInputExpr,
             CallExpr,
+            AgentExpr,
             RunProviderPhaseExpr,
             ProduceOneOfExpr,
             ResumeOrStartExpr,

@@ -9,11 +9,14 @@ import math
 import re
 from typing import Any
 
+from orchestrator.workflow.evaluated import memo_reducer_agents as agents
 from orchestrator.workflow.evaluated.closure_evidence import validate_implementation_evidence
 
 _RECORDS = {"started", "committed", "failed", "suspended", "settled", "invalidated", "terminal"}
 
-_CLASSES = {"command", "provider", "run_ref"}
+_CLASSES = {"command", "provider", "run_ref", "agent", "agent_turn"}
+
+COORDINATOR_CLASSES = frozenset({"run_ref", "agent_turn"})
 
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 
@@ -48,6 +51,11 @@ class MemoSnapshot:
     settlements: frozenset[tuple[str, int]]
     unsettled_coordinators: dict[tuple[str, int], JournalEntry]
     terminal: JournalEntry | None
+
+
+def is_coordinator_class(name: str) -> bool:
+    """Coordinator commits carry an inline proof and need a `settled` row before a terminal (K8)."""
+    return name in COORDINATOR_CLASSES
 
 
 def _inconsistent(detail: str) -> MemoError:
@@ -138,6 +146,8 @@ def _implementation_files(value: Any) -> None:
 
 
 class _Reducer:
+    inconsistent = staticmethod(_inconsistent)
+
     def __init__(self, site_classes: Mapping[str, str]) -> None:
         if not isinstance(site_classes, Mapping) or any(
             not isinstance(site, str) or not site or not isinstance(kind, str) or kind not in _CLASSES
@@ -214,10 +224,11 @@ class _Reducer:
     def started(self, entry: JournalEntry) -> None:
         row = entry.data
         _shape(row, {"record", "identity", "attempt", "input_digest", "input_parts", "implementation_files", "result_path", "time"})
-        identity, attempt, _ = self.identity_attempt(row)
+        identity, attempt, kind = self.identity_attempt(row)
         expected = self.next_ordinal.get(identity, 1)
         if attempt != expected or identity in self.active:
             raise _inconsistent("started attempt ordinal is not the next available ordinal")
+        agents.check_started(self, identity, kind)
         if self.terminal is not None and self.terminal.data.get("outcome") != "failed":
             raise _inconsistent("a completed terminal cannot be reopened by started")
         _digest(row["input_digest"], "input_digest")
@@ -259,7 +270,10 @@ class _Reducer:
         if row["effect_class"] != expected_class:
             raise _inconsistent("effect class disagrees with the checked site")
         if expected_class == "run_ref":
-            self._proof(row.get("proof"), identity)
+            self._run_ref_proof(row.get("proof"), identity)
+            self.unsettled[(identity, attempt)] = entry
+        elif expected_class == "agent_turn":
+            agents.check_committed_proof(self, row, identity)
             self.unsettled[(identity, attempt)] = entry
         elif "proof" in row:
             raise _inconsistent("ordinary effect cannot carry coordinator proof")
@@ -283,7 +297,7 @@ class _Reducer:
             if dependency not in self.active:
                 raise _inconsistent("depends_on names an effect without an active commit")
 
-    def _proof(self, value: Any, identity: str) -> None:
+    def _run_ref_proof(self, value: Any, identity: str) -> None:
         proof = _object(value, "coordinator proof")
         if set(proof) != {"settled_result", "artifacts"}:
             raise _inconsistent("coordinator proof must contain settled_result and artifacts")
@@ -330,7 +344,7 @@ class _Reducer:
         identity, attempt, kind = self.identity_attempt(row)
         key = (identity, attempt)
         commit = self.active.get(identity)
-        if kind != "run_ref" or commit is None or commit.data["attempt"] != attempt or key not in self.unsettled:
+        if kind not in COORDINATOR_CLASSES or commit is None or commit.data["attempt"] != attempt or key not in self.unsettled:
             raise _inconsistent("settled record does not match one unsettled coordinator commit")
         if not isinstance(row["by"], str) or row["by"] not in {"settle", "reconcile"}:
             raise _inconsistent("settled.by must be settle or reconcile")
@@ -352,8 +366,9 @@ class _Reducer:
     def _check_invalidation(self, anchor: int) -> None:
         if not any(item.offset == anchor for item in self.active.values()):
             raise _inconsistent("invalidation anchor is not an active commit")
-        if any(item.offset >= anchor and item.data["effect_class"] == "run_ref" for item in self.active.values()):
+        if any(item.offset >= anchor and is_coordinator_class(item.data["effect_class"]) for item in self.active.values()):
             raise _inconsistent("invalidation range contains a committed coordinator")
+        agents.check_invalidation_cut(self, anchor)
 
     def finish(self, entry: JournalEntry) -> None:
         row = entry.data

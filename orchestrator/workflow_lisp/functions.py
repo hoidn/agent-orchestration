@@ -18,6 +18,7 @@ from .expression_traversal import (
     walk_expr,
 )
 from .expressions import (
+    AgentExpr,
     BindProcExpr,
     CallExpr,
     CommandResultExpr,
@@ -2163,6 +2164,8 @@ def _find_purity_violation(
         return None
     if isinstance(expr, ProviderResultExpr):
         return "provider-result"
+    if isinstance(expr, AgentExpr):
+        return "agent"
     if isinstance(expr, CommandResultExpr):
         return "command-result"
     if isinstance(expr, WithPhaseExpr):

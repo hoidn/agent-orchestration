@@ -83,6 +83,9 @@ GATES_FROM_EVALUATED_EXECUTION = {
 GATES_FROM_PARALLEL_MAP = {
     "PARALLEL_MAP_MIN_TARGET_DSL_VERSION": syntax.target_dsl_supports_parallel_map,
 }
+GATES_FROM_AGENT_SESSIONS = {
+    "AGENT_SESSIONS_MIN_TARGET_DSL_VERSION": syntax.target_dsl_supports_agent_sessions,
+}
 
 
 def _write_program(root: Path, target: str) -> dict[str, Path]:
@@ -133,7 +136,7 @@ def test_target_239_is_refused_as_unsupported(tmp_path: Path) -> None:
 def test_every_min_target_gate_has_a_predicate_here() -> None:
     assert {name for name in vars(syntax) if name.endswith("_MIN_TARGET_DSL_VERSION")} == set(GATE_PREDICATES) | set(
         GATES_FROM_234
-    ) | set(GATES_FROM_EVALUATED_EXECUTION) | set(GATES_FROM_PARALLEL_MAP)
+    ) | set(GATES_FROM_EVALUATED_EXECUTION) | set(GATES_FROM_PARALLEL_MAP) | set(GATES_FROM_AGENT_SESSIONS)
 
 
 @pytest.mark.parametrize("gate", sorted(GATE_PREDICATES))

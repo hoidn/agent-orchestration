@@ -111,6 +111,9 @@ def translate_perform(builder: Any, perform: WccPerform, d: Any, env: Mapping[st
         return _translate_provider_result(builder, perform, d, env)
     if perform.perform_kind == "run_ref":
         return _translate_run_ref(builder, perform, d, env)
+    if perform.perform_kind in {"agent", "agent_turn"}:
+        from .agent_effects import translate_agent_perform
+        return translate_agent_perform(builder, perform, d, env)
     if perform.perform_kind != "command_result":
         forms = {
             "provider_result": "provider-result",
@@ -252,12 +255,6 @@ def _translate_provider_result(
 ) -> dict[str, Any]:
     """Translate one supported provider result from its retained WCC payload."""
 
-    from orchestrator.workflow_lisp.prompts import PromptApplicationExpr
-    from orchestrator.workflow_lisp.type_env import PathTypeRef
-    from orchestrator.workflow_lisp.typed_prompt_inputs import select_prompt_fragment_renderer
-    from orchestrator.workflow.prompt_fragment_contract import _RENDERERS_BY_KIND
-    from orchestrator.workflow.view_renderer import ViewRendererError, resolve_default_view_renderer
-
     payload = perform.operation_payload
     if not isinstance(payload, Mapping):
         raise ValueError("provider_result WCC payload is missing")
@@ -272,7 +269,34 @@ def _translate_provider_result(
     provider_row = owner_config["providers"].get(perform.target_name)
     if not isinstance(provider_row, Mapping) or not isinstance(provider_row.get("provider_id"), str):
         raise ValueError(f"provider extern {perform.target_name!r} is missing from its owner")
+    core, source_subjects = _provider_effect_core(builder, perform, d, env, perform.positional_args)
+    effect = {
+        "k": "perform",
+        "class": "provider",
+        "result": builder.desc(perform.metadata.type_ref, d),
+        "repeat": "rerun",
+        "provider": provider_row["provider_id"],
+        **core,
+    }
+    provenance = builder.provenance(perform.metadata)
+    if source_subjects:
+        provenance.setdefault("@", {})["source_map_subject"] = source_subjects
+    effect.update(provenance)
+    builder.retain_generated_result_contract(effect, perform, d)
+    return effect
 
+
+def _provider_effect_core(builder, perform, d, env, inputs):
+    """Project prompt, inputs, dependencies, policy and contract shared by provider and agent turns."""
+
+    from orchestrator.workflow_lisp.prompts import PromptApplicationExpr
+    from orchestrator.workflow_lisp.type_env import PathTypeRef
+    from orchestrator.workflow_lisp.typed_prompt_inputs import select_prompt_fragment_renderer
+    from orchestrator.workflow.prompt_fragment_contract import _RENDERERS_BY_KIND
+    from orchestrator.workflow.view_renderer import ViewRendererError, resolve_default_view_renderer
+
+    payload = perform.operation_payload
+    owner_config = builder.configuration_for(d.source_program, d.owner)
     prompt_application = payload.get("prompt_application")
     if prompt_application is None:
         prompt = owner_config["prompts"].get(perform.prompt_name)
@@ -321,8 +345,8 @@ def _translate_provider_result(
     )
 
     input_rows = []
-    input_names = _unique_provider_input_names(perform.positional_args, d)
-    for value, name in zip(perform.positional_args, input_names, strict=True):
+    input_names = _unique_provider_input_names(inputs, d)
+    for value, name in zip(inputs, input_names, strict=True):
         type_ref = value.metadata.type_ref
         renderer_id = (
             "posix-path-line"
@@ -355,24 +379,9 @@ def _translate_provider_result(
         policy["delivery"] = delivery_value
 
     contract, source_subjects = _result_contract(builder, perform, d)
-    effect = {
-        "k": "perform",
-        "class": "provider",
-        "result": builder.desc(perform.metadata.type_ref, d),
-        "repeat": "rerun",
-        "provider": provider_row["provider_id"],
-        "prompt": prompt_payload,
-        "inputs": input_rows,
-        "dependencies": dependencies,
-        "policy": policy,
-        "contract": contract,
-    }
-    provenance = builder.provenance(perform.metadata)
-    if source_subjects:
-        provenance.setdefault("@", {})["source_map_subject"] = source_subjects
-    effect.update(provenance)
-    builder.retain_generated_result_contract(effect, perform, d)
-    return effect
+    core = {"prompt": prompt_payload, "inputs": input_rows, "dependencies": dependencies,
+            "policy": policy, "contract": contract}
+    return core, source_subjects
 
 
 def _provider_input_name(value: Any, index: int, d: Any) -> str:

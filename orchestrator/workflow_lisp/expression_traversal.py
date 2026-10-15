@@ -7,6 +7,7 @@ from dataclasses import fields as dataclass_fields, is_dataclass, replace
 from typing import Any, cast
 
 from .expressions import (
+    AgentExpr,
     BindProcExpr,
     CallExpr,
     CommandResultExpr,
@@ -295,6 +296,8 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
         return tuple(value for _, _, value in command_operands(expr))
     if isinstance(expr, RequestInputExpr):
         return (expr.question,)
+    if isinstance(expr, AgentExpr):
+        return tuple(child for child in (expr.provider, expr.model, expr.effort) if child is not None)
     if isinstance(expr, ContinueExpr):
         return (expr.state_expr,)
     if isinstance(expr, DoneExpr):

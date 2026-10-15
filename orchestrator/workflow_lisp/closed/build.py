@@ -76,6 +76,7 @@ from orchestrator.contracts.closed_program.program import (
 )
 from .program import canonical_configuration, logical_asset_base_for_module
 from orchestrator.contracts.closed_program.sites import assign_sites
+from .agent_effects import refuse_parallel_agents
 from orchestrator.contracts.closed_program.check import validate
 
 
@@ -4750,6 +4751,7 @@ def _build_with_builder(typed: Any, builder: Builder) -> ClosedProgram:
     }
     if command_params is not None:
         tree["command_params"] = command_params
+    refuse_parallel_agents(tree)
     tree["sites"] = [list(row) for row in assign_sites(tree)]
     builder.finalize_run_refs(tree)
     validate(tree)

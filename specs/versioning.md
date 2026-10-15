@@ -7,8 +7,9 @@ and analysis; they are distinct from executable support. The owner-selected
 2026-10-13 retirement cutoff follows the CLI support boundary; the
 [closeout](../docs/reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md)
 records implementation and delivery status.
-It admits evaluated entries/profiles at 2.35/2.36 and the registered bounded
-2.37 surface with its existing limits, not entries through 2.34. The
+It admits evaluated entries/profiles at 2.35/2.36, the registered bounded
+2.37 surface and the registered bounded 2.38 agent-sessions surface with their
+existing limits, not entries through 2.34. The
 [CLI support boundary](cli.md#executable-support-boundary) owns refusal
 codes/exits and precedence. Old entry builds/runs/dry-runs refuse before
 publication; old-profile resume/restart/repair/invalidation refuse without
@@ -1025,6 +1026,7 @@ no new package version or universal recovery guarantee is inferred.
   - `v2.34`: implemented decimal literals in expressions, numeric operators and finite boundary values; repetition reduction remains an unapproved proposal
   - `v2.35`: evaluated execution: closed-program compilation and the memo-backed public `run`/`resume`/`invalidate` route (Phase 3 complete; [closeout](../docs/reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md))
   - `v2.36`: W3 local-hook and graph-selected helper contract on the existing evaluated route; [qualification record](../docs/reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md)
+  - `v2.38`: Workflow Lisp agent sessions: `agent`/`Agent` and sequential native-session turns through `provider-result` on an agent, memo commit per turn, two session adapters (Claude, Codex). First slice implemented; [PQ-1a qualification evidence](../docs/reports/2026-10-14-agent-sessions-pq1a-qualification.md) records deterministic proofs and bounded adapter smokes; acceptance comparison (PQ-1c) has not run.
 
 - Ordering note
   - D2a scalar bookkeeping is intentionally sequenced before D3 cycle guards.
@@ -1144,14 +1146,15 @@ not yet a copy-safe authoring surface. Existing
 
 Target **2.38** is registered for run-ref confined workflow children
 (`run-ref :program (:workflow ...)` under the sibling profile
-`run_ref_confinement.v1`), which are proposed, unimplemented and not
-copy-safe
+`run_ref_confinement.v1`), whose command, recovery and export paths are implemented; public confined
+provider dispatch and native provider qualification remain pending. This surface is not copy-safe
 ([design](../docs/design/workflow_lisp_run_ref_expression_environments.md),
 [plan](../docs/plans/2026-10-14-run-ref-expression-environments-plan.md)).
-Confined sites are not admitted for execution until Increment A qualifies;
-the compiler types them and refuses them with
-`run_ref_child_target_unavailable`. A 2.38 entry with no confined site
-accepts exactly what bounded 2.37 accepts, and no existing target widens. Path
+Confined command sites use the runtime-owned child and holder path. Confined
+providers refuse with `run_ref_provider_transport_unavailable`; private Holder
+transport evidence does not admit public provider dispatch. Agent allocation and
+agent turns remain excluded from confined children. Target 2.38 also independently
+adds the bounded agent-sessions surface; no earlier target widens. Path
 children keep the internal run-reference target 2.35, their configuration
 bytes and recovery. Contracts:
 [DSL](dsl.md), [State](state.md#proposed-run-ref-confined-child-state-target-238),
@@ -1209,6 +1212,7 @@ diagnostics for their recorded artifacts.
 | 2.34 | Workflow Lisp numeric surface | Adds decimal literals in expressions, exponent forms included, and the numeric operators `/`, `int/div`, `int/mod`, `float/abs`, `float/sqrt`, `float/log`, `int/to-float`, `float/floor` and `float/round`, with `Float` operands for `+ - * min max`; their type rules and evaluation live once in the pure-expression catalog. A non-finite `Float` is refused at every boundary and on resume. Otherwise accepts and lowers exactly what 2.33 does. Repetition reduction remains a separate unapproved proposal; no repetition syntax is implemented here. State schema remains 2.1. |
 | 2.35 | Workflow Lisp evaluated execution | Public compile writes and validates a closed program for commands, portable composed providers without context capture, procedure/workflow calls and captures, and path run references; public run, resume and invalidate evaluate it on a memo-backed run (`evaluated_execution.v1`, state schema `3.0`) with derived views, command closures bound by content, one pin per distinct bare interpreter token fixed for the run, typed external-tool input documents, an immutable rebuild recipe plus run-reference and result roots in the header, and whole-suffix invalidation. Selected excluded effects refuse with `closed_program_gap`. See the v2.35 additions above for availability and admission limits. Older module headers retain typed/import contracts; old executable entries/profiles are retired without artifact conversion. |
 | 2.36 | W3 local hooks and graph-selected `std/improve` | Uses the existing evaluated schemas/profile. Inferred lexical captures, several local bindings and one-site incomplete signatures; four-argument helper selected per source graph, with old-caller migration on retargeting and unchanged snapshot/resume guards. See v2.36 additions and the Phase 4c plan for qualification status. |
-| 2.38 (registered; confined sites proposed) | Workflow Lisp run-ref confined workflow children | Confined sites are not admitted for execution until Increment A qualifies; otherwise accepts exactly what bounded 2.37 does. Named private child entry, `:commit` expression, closed confinement policy, `COMPLETED`/`FAILED` site union, `run_ref_static_config.v2` and `run_ref_confinement.v1`. See the 2.38 paragraph above. |
+| 2.38 (command path implemented; provider qualification pending) | Workflow Lisp run-ref confined workflow children | Command, recovery and export paths are implemented; public confined providers and native provider qualification remain pending. Agent allocation and turns are excluded from confined children. Named private child entry, `:commit` expression, closed confinement policy, `COMPLETED`/`FAILED` site union, `run_ref_static_config.v2` and `run_ref_confinement.v1`. See the 2.38 paragraph above. |
+| 2.38 | Workflow Lisp agent sessions: `agent` constructor, opaque `Agent`, `provider-result` on an agent as a coordinator `agent_turn` effect | Implemented and additive; 2.35/2.36/2.37 unchanged. Allocation/turn runtime, recovery, C8 guards and views are delivered by [Plan B](../docs/plans/2026-10-14-agent-sessions-implementation-plan-b.md); [PQ-1a evidence](../docs/reports/2026-10-14-agent-sessions-pq1a-qualification.md) records deterministic proofs and bounded adapter smokes, with the acceptance comparison pending. State schema `3.0`, profile `evaluated_execution.v1` unchanged (additive `effect_class` values and class-specific `proof`). |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

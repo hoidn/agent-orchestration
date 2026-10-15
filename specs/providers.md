@@ -30,7 +30,13 @@ schema notation, not authored workflow files.
     - `input_mode: 'argv' | 'stdin'` (default: 'argv').
   - `defaults`: map of provider parameters (e.g., `model`).
   - v2.10 session-capable templates may also declare `session_support`:
-    - `metadata_mode`
+    - `metadata_mode`, one of `codex_exec_jsonl_stdout`, `omp_json_stdout`,
+      or `claude_stream_json_stdout`. The last decodes
+      `claude -p --output-format stream-json --verbose` stdout: it binds
+      `session_id` from the `system/init` and later events, assistant text
+      from `assistant` events, and completion from the terminal `result`
+      event (finalize metadata adds `result_subtype` and `is_error`). It has
+      no resume-boundary observation, so `turn_boundary_resume` stays `false`.
     - `fresh_command`
     - optional `resume_command`
     - optional boolean `turn_boundary_resume` (default `false`)
@@ -62,6 +68,50 @@ schema notation, not authored workflow files.
     a validated preterminal resume boundary. Provider name, input mode, TTY
     behavior, or session support without that declaration never implies the
     capability.
+  - Native session stores (target 2.38 agent sessions). The Codex store is
+    `$CODEX_HOME` (default `~/.codex`) `sessions/**/rollout-*<thread id>.jsonl`
+    whose first row is `session_meta`; the Claude store is
+    `$CLAUDE_CONFIG_DIR` (default `~/.claude`) `projects/**/<session id>.jsonl`.
+    The orchestrator reads them (`orchestrator/providers/native_store.py`,
+    selected by `session_support.metadata_mode`) to establish the head position
+    (last completed turn id and its terminal line) and to bind one completed
+    turn to one attempt (the user message carrying the attempt's result path);
+    it never writes them, never selects a per-run home and never provisions
+    credentials. A turn binds only when it is the store's head, follows the
+    expected predecessor position and is the only user message carrying the
+    marker. For Claude, the submitted prompt's parent must reach the expected
+    predecessor final (or its admitted resume padding), or the root for a first
+    turn, directly or through a chain of strictly earlier same-session,
+    non-sidechain `attachment` rows with an absent `promptId`; every ancestor
+    hop, including the expected predecessor, must precede its child. The
+    first-turn hook-attachment chain was observed in the
+    [bounded runtime smoke](../docs/reports/2026-10-14-agent-sessions-pq1a-qualification.md#real-provider-smokes-tasks-1920);
+    its passing resumed prompt linked directly to the previous final, so that
+    evidence does not establish a resumed attachment chain. Codex completion
+    is the turn's `task_complete` after exactly one `final_answer` agent
+    message; Claude completion is exactly one logical final in the turn's
+    lineage (every row descends from the submitted user row, same session and
+    prompt, no sidechain): a `StructuredOutput` `toolEndsTurn` row with its
+    matching `structured_output` attachment (observed live) or an assistant
+    `stop_reason: end_turn` message, observed in the plain `stream-json`
+    [mini-probe](../docs/reports/2026-10-14-claude-plain-form-mini-probe.md#adapter-follow-up).
+    Split assistant rows sharing a `message.id` must form a consistent parent
+    chain with the same stop reason and prompt; they collapse to their last
+    row as one logical final (`02a0067b`: all three retained probe turns bind
+    offline, without another paid run). Anything else, including a second
+    logical final or a trailing row other than
+    the synthetic resume padding, is incomplete, never guessed. A locator
+    matching zero or more than one file (any `*<id>.jsonl` under the store
+    counts unless its header names another session) is
+    `agent_session_unavailable` at the runtime (Plan B); an open (incomplete)
+    head refuses a new append. Operator limit (D1): the check-then-append
+    window against a concurrent external writer (an operator resuming the
+    same native session from a shell) is not closed; external advancement
+    inside the window is detected at the next turn. Retention: native history
+    stays in the provider default home under the provider's own retention;
+    the orchestrator neither deletes nor garbage-collects it and promises no
+    remote durability; the run retains only receipts and proofs. These facts
+    are evidence for the memo, not authority.
 
   - The code-owned OMP registry family consists of public `omp`,
     `omp_unrestricted_workspace`, `omp_no_tools`, and `omp_conf`, plus internal
@@ -250,6 +300,14 @@ schema notation, not authored workflow files.
     `model -> model` and `effort -> effort`, and has exact command
     `["claude", "-p", "--model", "${model}", "--effort", "${effort}",
     "--permission-mode", "bypassPermissions"]`.
+    It additionally declares `session_support` with metadata mode
+    `claude_stream_json_stdout`, `turn_boundary_resume: false`, fresh command
+    `["claude", "-p", "--output-format", "stream-json", "--verbose",
+    "--model", "${model}", "--effort", "${effort}", "--permission-mode",
+    "bypassPermissions"]`, and resume command `["claude", "-p", "--resume",
+    "${SESSION_ID}", "--output-format", "stream-json", "--verbose", "--model",
+    "${model}", "--effort", "${effort}", "--permission-mode",
+    "bypassPermissions"]`. Ordinary (non-session) calls keep `command`.
   - These profiles are generic provider data. Their presence does not prove
     workflow-family parity or promotion eligibility.
 
@@ -1092,6 +1150,7 @@ steps:
 | claude_haiku_summary | `claude -p ${PROMPT} --model ${model}` | argv | Built-in low-cost observability summary alias. Default model: `claude-3-5-haiku-20241022`. Advisory only; not for control-flow gates. |
 | gemini | `gemini -p ${PROMPT}` | argv | Model selection may not be supported via CLI; rely on CLI configuration if applicable. |
 | codex | `codex exec --dangerously-bypass-approvals-and-sandbox --model ${model} --config model_reasoning_effort=${reasoning_effort}` (prompt via stdin) | stdin | Reads prompt from stdin; `${PROMPT}` must not appear in template. Built-in defaults are `model: gpt-5.5`, `reasoning_effort: high` (can be overridden in workflow/defaults/provider_params). Use only for trusted workflow workspaces because it disables Codex's own approval and sandbox layer. |
+| claude_unrestricted_workspace | `claude -p --model ${model} --effort ${effort} --permission-mode bypassPermissions` (prompt via stdin) | stdin | Session-capable (`claude_stream_json_stdout`); used by agent sessions at 2.38. |
 
 Exit code mapping:
 - 0 = Success

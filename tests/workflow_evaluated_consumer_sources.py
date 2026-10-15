@@ -107,6 +107,13 @@ def _launcher(root: Path) -> None:
     (root / "scripts" / "launch_experiment.py").write_text(LAUNCHER, encoding="utf-8")
 
 
+def design_docs(root: Path) -> None:
+    """The documents the design_review_execute prompts name; the shims never read them."""
+    for relpath in ("AGENTS.md", "docs/index.md", "docs/templates/design_template.md"):
+        (root / relpath).parent.mkdir(parents=True, exist_ok=True)
+        (root / relpath).write_text(f"# {relpath}\n", encoding="utf-8")
+
+
 def _candidates(root: Path) -> None:
     _repository(root / CANDIDATES[0])
     for repo in CANDIDATES[1:]:
@@ -158,6 +165,11 @@ PROGRAMS["w3_reviewed_change"] = Program(
     "tests/fixtures/workflow_lisp/w3_consumers/reviewed_change.orc", "2.36", "reviewed_change::reviewed-change",
     "tests/fixtures/workflow_lisp/w3_consumers", {"providers": f"{COMPARISON}/reviewed_change.providers.json"},
     prepare=lambda root: _repository(root / "repo"))
+# Target 2.38 (Agent Sessions): install with `current=False`, which copies the source unchanged (no 2.35 rewrite).
+PROGRAMS["design_review_execute_agents"] = Program(
+    "workflows/examples/design_review_execute_agents.orc", "2.38", "design_review_execute_agents::run",
+    "workflows/examples", {"providers": "workflows/examples/inputs/design_review_execute_agents/providers.json"},
+    prepare=design_docs)
 
 
 def _copy(root: Path, relpath: str, *, source_fixture: str | None = None) -> None:

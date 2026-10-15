@@ -53,6 +53,9 @@ Status: Normative master. This index defines scope, versioning, conformance, and
     Follow [versioning](versioning.md#version-gating-summary) and the
     [Phase 5 status](../docs/plans/2026-10-07-evaluated-execution-phase-5-plan.md#status-entry-and-decisions)
     for its limits; it is not yet a copy-safe authoring surface.
+  - Target 2.38 is registered and bounded (agent sessions; see
+    [versioning](versioning.md#version-gating-summary)); its runtime is not
+    yet delivered.
   - State schema: `schema_version: "2.1"` for targets through 2.34; a
     target-2.35/2.36 evaluated run publishes `"3.0"` (see [state](state.md)).
   - Validation is strict: unknown fields are rejected at the declared DSL `version`.

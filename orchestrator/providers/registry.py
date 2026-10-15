@@ -209,6 +209,21 @@ class ProviderRegistry:
                     "model": CallPolicyBinding(target_param="model"),
                     "effort": CallPolicyBinding(target_param="effort"),
                 },
+                session_support=ProviderSessionSupport(
+                    metadata_mode=ProviderSessionMetadataMode.CLAUDE_STREAM_JSON_STDOUT.value,
+                    fresh_command=[
+                        "claude", "-p", "--output-format", "stream-json", "--verbose",
+                        "--model", "${model}", "--effort", "${effort}",
+                        "--permission-mode", "bypassPermissions",
+                    ],
+                    resume_command=[
+                        "claude", "-p", "--resume", "${SESSION_ID}",
+                        "--output-format", "stream-json", "--verbose",
+                        "--model", "${model}", "--effort", "${effort}",
+                        "--permission-mode", "bypassPermissions",
+                    ],
+                    turn_boundary_resume=False,
+                ),
             ),
             **omp_templates(),
         }

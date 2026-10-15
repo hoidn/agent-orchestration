@@ -598,7 +598,7 @@ def analyze_workflow_boundary_type(
                 offending_path=source_path,
                 offending_type_name=type_ref.name,
             )
-        if type_ref.name in {"Provider", "Prompt"}:
+        if type_ref.name in {"Provider", "Prompt", "Agent"}:
             return WorkflowBoundaryAnalysis(
                 lowerable=False,
                 contains_json=False,

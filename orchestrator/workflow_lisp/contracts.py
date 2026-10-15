@@ -155,6 +155,10 @@ def is_transportable_result_type(
     express it as one direct JSON root value.
     """
 
+    from .typecheck_agents import contains_agent
+
+    if contains_agent(type_ref):
+        return False
     if isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
         return True
     target = target_dsl_version or getattr(type_env, "target_dsl_version", None)
@@ -1427,7 +1431,7 @@ def _field_contract_definition(
                 span=span,
                 form_path=form_path,
             )
-        if type_ref.name in {"Provider", "Prompt"}:
+        if type_ref.name in {"Provider", "Prompt", "Agent"}:
             _raise_contract_error(
                 code="workflow_boundary_type_invalid",
                 message=f"`{type_ref.name}` cannot lower into workflow boundary or structured-result contracts",
@@ -1837,7 +1841,7 @@ def _structured_result_field_definition(
             span=span,
             form_path=form_path,
         )
-    if isinstance(type_ref, PrimitiveTypeRef) and type_ref.name in {"Json", "Provider", "Prompt"}:
+    if isinstance(type_ref, PrimitiveTypeRef) and type_ref.name in {"Json", "Provider", "Prompt", "Agent"}:
         _raise_contract_error(
             code="collection_element_type_unsupported",
             message=f"`{type_ref.name}` cannot appear inside a collection-valued structured result",

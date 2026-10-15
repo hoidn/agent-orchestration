@@ -11,6 +11,8 @@ from .authority import RunAuthority
 from .commands import CommandPerformerError, launch_command, workspace_relative_path
 from .confined_dispatch import EFFECT_UNSUPPORTED, ConfinedDispatchRefusal, ConfinedLeafContext, dispatch_confined
 from .interpreters import is_image_pin
+from . import agent_turn_recovery, agent_turns
+from .agent_sessions import perform_allocation
 from .providers import launch_provider
 from .run_ref import perform_evaluated_run_ref
 
@@ -35,12 +37,15 @@ class PreparedAttempt:
     launch_cwd: Path | None = None
     stream_output: bool = False
     confined: ConfinedLeafContext | None = None  # set for run_ref_confinement.v1 children only
+    views: Any = None
+    recovered: bool = False
 
 
 @dataclass(frozen=True)
 class ExternalOutcome:
     result_path: str | None = None
     run_ref: Any = None
+    agent_turn: Any = None
 
 
 def perform_external(attempt: PreparedAttempt) -> ExternalOutcome:
@@ -59,6 +64,12 @@ def perform_external(attempt: PreparedAttempt) -> ExternalOutcome:
     if node['class'] == 'command':
         path = _dispatch_command(attempt, logical_root)
         return ExternalOutcome(result_path=path)
+    if node['class'] == 'agent':
+        return perform_allocation(attempt)
+    if node['class'] == 'agent_turn' and attempt.recovered:    # resume of a completed pending turn: never redispatched
+        return agent_turn_recovery.recover_pending_turn(attempt)
+    if node['class'] == 'agent_turn':
+        return agent_turns.perform_turn(attempt, views=attempt.views)
     if node['class'] == 'run_ref':
         result = perform_evaluated_run_ref(attempt.authority, attempt.resolved,
             attempt.identity, attempt.ordinal, attempt.workspace)

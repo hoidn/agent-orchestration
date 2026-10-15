@@ -336,6 +336,12 @@ def _child(name: str, body: str, *, params: str = "((seed Int))", result: str = 
 
 
 EFFECT_REFUSALS = {
+    "agent-allocation": (_child("bad", "(let* ((a (agent providers.review))) seed)"),
+                         "run_ref_environment_effect_unsupported"),
+    "agent-turn": ('(defprompt ask (:fills (task :text)) -> Verdict "Task: {task}")'
+                   + _child("bad", '(let* ((a (agent providers.review)) '
+                                   '(v (provider-result a :prompt (ask :task "t")))) seed)'),
+                   "run_ref_environment_effect_unsupported"),
     "nested-run-ref": (_child("bad", f"(let* ((c {PATH_RUN_REF})) seed)"),
                        "run_ref_environment_effect_unsupported"),
     "nested-run-ref-imported-helper": (_child("bad", "(nested seed)"),
@@ -968,3 +974,21 @@ def test_map_walk_skips_callees_resolved_outside_the_program_tables(tmp_path):
 
     assert refuse_unsupported_confined_children(
         _with_imports(typed, other=confined.imported_programs["dep"])) is None
+
+
+def test_confined_child_readback_refuses_agent_effects(tmp_path):
+    from orchestrator.contracts.closed_program.program import ClosedProgramInvalid
+    from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
+    from tests.test_workflow_lisp_agent_turn_admission import ALIAS, _request
+
+    tree = deepcopy(_built(_confined(tmp_path / "confined")).tree)
+    agent_root = tmp_path / "agent"
+    agent_root.mkdir()
+    agent_child = build_closed_program_bundle(_request(agent_root, ALIAS)).program.tree
+    [digest] = tree["children"]
+    tree["children"][digest] = agent_child
+
+    with pytest.raises(ClosedProgramInvalid, match="agent session effects") as refused:
+        ClosedProgram.from_artifact(json.dumps(tree))
+
+    assert refused.value.rule == "run_ref_child"

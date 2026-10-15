@@ -26,6 +26,7 @@ from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.providers.registry import ProviderRegistry
 from orchestrator.workflow.evaluated.provider_io import ProviderIOContext
 from .providers import provider_result
+from .agent_sessions import allocation_result
 from . import effect_execution
 from .effect_execution import PreparedAttempt, ExternalOutcome, perform_external
 from .run_ref import (
@@ -35,12 +36,36 @@ from .run_ref import (
 )
 from .authority import RunAuthority, _require_retained_root, workspace_result_locator
 from .machine import evaluate_closed_program, site_classes
-from .replay import discover_prefix
+from .resume_prefix import (
+    _prepare_parallel_recovery, _replay_resume_prefix, _replayed_halt_result, _resume_refusal,
+    _validate_discovered_prefix,
+)
 from .views import ViewPublicationError
 from . import effect_inputs
+from . import agent_turns
+from .agent_views import AgentViews
 
 
 logger = logging.getLogger(__name__)
+
+
+def observation_backend():
+    """`None` selects the tmux backend inside the manager; test drivers replace this attribute in-process."""
+    return None
+
+
+def provider_executor_for_run(workspace, run_root, *, agents_present: bool):
+    """One executor per run; observation only for agent-bearing programs (R2), best-effort, never changing execution."""
+    manager = None
+    if agents_present:
+        from orchestrator.providers.observation import ProviderObservationManager
+        try:
+            manager = ProviderObservationManager(run_root, backend=observation_backend())
+            logger.info("[provider_observation] session %s (attach read-only with tmux attach -r)", manager.session_name)
+        except Exception as exc:
+            logger.warning("[provider_observation] disabled: %s", type(exc).__name__)
+    return ProviderExecutor(workspace, ProviderRegistry(), provider_observation_enabled=manager is not None,
+                            observation_manager=manager), manager
 
 
 def execute_pure_run(
@@ -68,6 +93,7 @@ def execute_pure_run(
     owns_run_files = authority.run_files is None
     authority = replace(authority, run_files=run_files)
     workspace_files = WorkspaceFiles(workspace)
+    views = AgentViews(None)
     try:
         _require_retained_root(run_files)
         before = read_memo(authority.memo_path, checked_site_classes, run_files=authority.run_files)
@@ -77,13 +103,15 @@ def execute_pure_run(
         provider_executor = None
 
         def handle(node, operands, identity, owner, reader, *, launch_workspace=None):
-            nonlocal provider_executor
-            if node.get("class") not in {"command", "provider", "run_ref"}:
+            nonlocal provider_executor, views
+            if node.get("class") not in {"command", "provider", "run_ref", "agent", "agent_turn"}:
                 raise RuntimeError("unsupported evaluated effect class")
-            if node["class"] == "provider" and provider_executor is None:
-                provider_executor = ProviderExecutor(
-                    workspace, ProviderRegistry(), provider_observation_enabled=False
-                )
+            if confined is not None:
+                require_confinable(node, authority.header["interpreters"])
+            if node["class"] in {"provider", "agent_turn"} and provider_executor is None:
+                provider_executor, manager = provider_executor_for_run(workspace, authority.run_root,
+                    agents_present=not {"agent", "agent_turn"}.isdisjoint(checked_site_classes.values()))
+                views = AgentViews(manager)
             return _execute_effect(
                 authority,
                 node,
@@ -99,6 +127,7 @@ def execute_pure_run(
                 stream_output=stream_output,
                 launch_workspace=launch_workspace,
                 confined=confined,
+                views=views,
             )
 
         handler = _execution_handler(handle, authority, inputs, run_id, workspace, provider_io,
@@ -133,6 +162,7 @@ def execute_pure_run(
         logger.error("[%s] %s", code, message)
         return 1, None
     finally:
+        views.close()
         workspace_files.close()
         if owns_run_files:
             run_files.close()
@@ -217,75 +247,6 @@ def execute_pure_resume(
     return result
 
 
-def _replay_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, site_classes, confined=None):
-    snapshot = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
-    commits = sorted(snapshot.active_commits.values(), key=lambda entry: entry.offset)
-    prefix = discover_prefix(authority, snapshot, inputs=inputs, run_id=run_id, provider_io=provider_io)
-    _validate_discovered_prefix(authority, prefix, snapshot, workspace, defer_parallel_fault=True, confined=confined)
-    from .parallel import has_parallel
-    if has_parallel(authority.program):
-        from .run_ref import inventory_parallel_run_ref_recovery
-        obligations = [reached for reached in prefix.commits if reached.node["class"] == "run_ref"
-            and (reached.identity, reached.commit.data["attempt"]) not in snapshot.settlements]
-        inventory_parallel_run_ref_recovery(authority, obligations, workspace)
-    return snapshot, commits, len(prefix.commits), prefix.value, not prefix.halted
-
-
-def _prepare_parallel_recovery(authority, inputs, run_id, workspace, provider_io, site_classes, confined=None):
-    snapshot = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
-    if not snapshot.entries:
-        return frozenset()
-    prefix = discover_prefix(authority, snapshot, inputs=inputs, run_id=run_id, provider_io=provider_io)
-    _validate_discovered_prefix(authority, prefix, snapshot, workspace, defer_parallel_fault=True, confined=confined)
-    run_ref_obligations = []
-    for reached in prefix.commits:
-        if reached.node['class'] == 'run_ref' and (reached.identity, reached.commit.data['attempt']) not in snapshot.settlements:
-            run_ref_obligations.append(reached)
-    from .run_ref import inventory_parallel_run_ref_recovery, resolve_run_ref_input
-    inventory_parallel_run_ref_recovery(authority, run_ref_obligations, workspace)
-    for reached in run_ref_obligations:
-        resolved, _parts = resolve_run_ref_input(reached.node, reached.operands)
-        reconcile_evaluated_run_ref(authority, resolved, reached.identity, workspace, reached.commit, site_classes)
-    return frozenset(reached.identity for reached in prefix.frontiers)
-
-
-def _validate_discovered_prefix(authority, prefix, snapshot, workspace, *, defer_parallel_fault=False, confined=None, proof_only=False):
-    for reached in sorted(prefix.commits, key=lambda reached: reached.commit.offset):
-        effect_inputs._replay_committed_effect(authority, reached.node, reached.operands,
-            reached.identity, reached.reader, reached.commit, workspace, snapshot, reached.owner,
-            launch_workspace=reached.launch_workspace, confined=confined)
-    if proof_only:
-        return
-    frontiers = frozenset(reached.identity for reached in prefix.frontiers)
-    for reached in prefix.frontiers:
-        effect_inputs._check_resume_boundary(authority, snapshot, reached.node, reached.operands,
-            reached.identity, reached.reader, workspace, reached.owner, reached_frontiers=frontiers,
-            launch_workspace=reached.launch_workspace, confined=confined)
-    if prefix.fault is not None and not (defer_parallel_fault and prefix.fault_in_parallel):
-        raise prefix.fault
-
-
-def _resume_refusal(exc: Exception) -> tuple[int, None]:
-    code = getattr(exc, "code", "resume_preflight_failed")
-    logger.error("[%s] %s", code, str(exc) or code)
-    return 2, None
-
-
-def _replayed_halt_result(snapshot, value, reached_boundary):
-    if reached_boundary:
-        return None
-    if snapshot.pending_starts:
-        return _resume_refusal(
-            MemoError("memo_inconsistent", "evaluated halt leaves active effect evidence unsettled")
-        )
-    terminal = snapshot.terminal
-    if terminal is None or terminal.data["outcome"] != "completed":
-        return None
-    if canonical_sha256(value) != canonical_sha256(terminal.data["value"]):
-        return _resume_refusal(MemoError("memo_inconsistent", "completed terminal differs from evaluated halt"))
-    return 0, terminal.data["value"]
-
-
 def _persist_completed_terminal(
     authority: RunAuthority,
     site_classes: Mapping[str, str],
@@ -356,6 +317,7 @@ def prepare_effect(
     parallel_frontiers: frozenset[str] = frozenset(),
     parallel_unsettled: bool = False,
     confined: Any = None,
+    views=None,
 ) -> PreparedAttempt | EvaluatedValue:
     snapshot = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
     commit = snapshot.active_commits.get(identity)
@@ -375,6 +337,7 @@ def prepare_effect(
         authority, node, operands, identity, workspace, reader,
         commit, baseline, attempt_directory, result_path, owner=owner, workspace_files=workspace_files, launch_cwd=launch_cwd,
         confined=confined,
+        snapshot=snapshot,
     )
     if confined is not None and commit is None:  # D5 attempt snapshot of named clone files (P1, Q3, Q5)
         parts = {**parts, **confined.clone_input_parts(node, launch_cwd, operands)}
@@ -383,10 +346,15 @@ def prepare_effect(
     if commit is not None:
         return _reuse_reached_commit(authority, node, identity, parts, input_digest,
             dependencies, resolved, workspace, commit, snapshot, site_classes)
+    if node['class'] == 'agent_turn':
+        return agent_turns.prepare_agent_attempt(authority, node, operands, identity, snapshot, ordinal=ordinal,
+            attempt_directory=attempt_directory, result_path=result_path, resolved=resolved, parts=parts,
+            implementation_files=implementation_files, dependencies=dependencies, context=dict(run_files=run_files,
+            workspace=workspace, workspace_files=workspace_files, site_classes=site_classes, reader=reader,
+            provider_executor=provider_executor, launch_cwd=launch_cwd, stream_output=stream_output, views=views))
     if baseline is not None and node.get("repeat") == "never":
         raise effect_inputs._PreflightRefusal("lexical_restore_pending_effect_unsafe",
             f"{identity}: effect declares that it must not be repeated")
-    assert ordinal is not None and attempt_directory is not None
     if baseline is not None:
         logger.warning("[effect_rerun] %s attempts=%s", identity, list(range(1, ordinal)))
     if node['class'] == 'run_ref':
@@ -403,17 +371,23 @@ def prepare_effect(
         before_failure=None if confined is None else lambda exc: confined.record_failure(authority, exc))
     return PreparedAttempt(authority, node, identity, ordinal, result_path, input_digest,
         parts, implementation_files, tuple(dependencies), resolved, workspace, workspace_files,
-        site_classes, provider_executor, attempt_files, launch_cwd, stream_output, leaf_context)
+        site_classes, provider_executor, attempt_files, launch_cwd, stream_output, confined=leaf_context, views=views)
 
 
 def _reuse_reached_commit(authority, node, identity, parts, input_digest, dependencies,
     resolved, workspace, commit, snapshot, site_classes):
+    if node["class"] == "agent_turn":
+        dependencies = list(agent_turns.turn_dependencies(resolved, dependencies))
     result = effect_inputs._reuse_effect_commit(authority, commit, node, identity, parts, input_digest, dependencies)
+    settled = (identity, commit.data["attempt"]) in snapshot.settlements
     if node["class"] == "run_ref":
-        settled = (identity, commit.data["attempt"]) in snapshot.settlements
         validate_evaluated_run_ref(authority, resolved, identity, workspace, commit, settled=settled)
         if not settled:
             reconcile_evaluated_run_ref(authority, resolved, identity, workspace, commit, site_classes)
+    elif node["class"] == "agent_turn":
+        agent_turns.validate_turn(authority, resolved, identity, commit, settled=settled)
+        if not settled:
+            agent_turns.reconcile_turn(authority, resolved, identity, commit, site_classes)
     return result
 
 
@@ -433,10 +407,12 @@ def finish_effect(attempt: PreparedAttempt, outcome: ExternalOutcome | None = No
                   *, error: Exception | None = None, fatal_publication: bool = False) -> EvaluatedValue:
     """Validate, rehash, publish and settle on the run's coordinator."""
     authority, node = attempt.authority, attempt.node
+    projected = False
     try:
         if error is not None:
             raise error
         result, digest, proof, prepared = _validate_attempt_outcome(attempt, outcome)
+        projected = node['class'] == 'agent_turn'   # prepared proof durable: commit the same attempt later, never `failed`
         implementation = (effect_inputs.rehash_command_implementation(node, attempt.workspace,
             attempt.implementation_files, attempt.launch_cwd, authority=authority, confined=attempt.confined)
             if node['class'] == 'command' else {})
@@ -452,7 +428,8 @@ def finish_effect(attempt: PreparedAttempt, outcome: ExternalOutcome | None = No
             attempt.confined.runner.check_evidence(extra_bytes=len(canonical_json_bytes(committed)) + 1)
         _append_effect_commit(authority, committed, fatal_publication)
         if prepared is not None:
-            settle_evaluated_run_ref(authority, attempt.resolved, attempt.identity, attempt.ordinal,
+            settle = settle_evaluated_run_ref if node['class'] == 'run_ref' else agent_turns.settle_turn
+            settle(authority, attempt.resolved, attempt.identity, attempt.ordinal,
                 attempt.workspace, attempt.site_classes, prepared, committed)
         return EvaluatedValue(result.value, result.descriptor,
             dependencies=(*attempt.dependencies, attempt.identity),
@@ -460,17 +437,25 @@ def finish_effect(attempt: PreparedAttempt, outcome: ExternalOutcome | None = No
     except ViewPublicationError:
         raise
     except Exception as exc:
-        if getattr(exc, "publication_failure", False) or (fatal_publication
-                and getattr(exc, "code", "") == "reserved_run_root_changed"):
+        if _keeps_start_unfailed(exc, fatal_publication):
             raise
         if attempt.confined is not None:
             attempt.confined.runner.record_failure(authority, exc)
+        if projected:
+            raise agent_turns.unresolved_after_projection(attempt, exc) from exc
         publication_error = _fail_started_effect(
             authority, attempt.identity, attempt.ordinal, attempt.site_classes, exc)
         _raise_if_publication_fatal(publication_error, fatal_publication)
         raise
     finally:
         attempt.attempt_files.close()
+
+
+def _keeps_start_unfailed(exc, fatal_publication):
+    """Publication failures propagate as they are; an unresolved agent turn (`keep_pending`) keeps its `started`
+    pending, so neither `failed` nor a terminal is appended."""
+    return bool(getattr(exc, "publication_failure", False) or getattr(exc, "keep_pending", False)
+                or (fatal_publication and getattr(exc, "code", "") == "reserved_run_root_changed"))
 
 
 def _append_effect_commit(authority, committed, fatal_publication):
@@ -490,7 +475,11 @@ def _raise_if_publication_fatal(error, fatal_publication):
 def _validate_attempt_outcome(attempt, outcome):
     if attempt.node['class'] == 'run_ref':
         return project_evaluated_run_ref(attempt.node, outcome.run_ref, attempt.attempt_files)
-    if attempt.node['class'] == 'command':
+    if attempt.node['class'] == 'agent_turn':
+        return agent_turns.project_turn(attempt, outcome)
+    if attempt.node['class'] == 'agent':
+        result, digest = allocation_result(attempt)
+    elif attempt.node['class'] == 'command':
         result, digest = command_result(attempt.node, attempt_files=attempt.attempt_files,
             workspace_files=attempt.workspace_files, result_path=outcome.result_path)
     else:

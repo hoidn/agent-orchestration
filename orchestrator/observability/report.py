@@ -670,7 +670,8 @@ def _render_evaluated_status_markdown(snapshot: Dict[str, Any]) -> str:
     lines.extend(["## Progress", _render_kv_lines(snapshot["progress"].items()), "", "## Steps"])
     for step in snapshot["steps"]:
         lines.extend([f"### {step['name']} ({step['status']})", _render_kv_lines(
-            (key, step.get(key)) for key in ("kind", "attempt", "result_path", "started_at", "completed_at"))])
+            (key, step.get(key)) for key in ("kind", "attempt", "result_path", "started_at", "completed_at",
+                                         "agent", "predecessor", "continuation", "locator_present"))])
         if "value" in step:
             lines.extend(["```json", json.dumps(step["value"], indent=2), "```"])
         if step.get("error"):

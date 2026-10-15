@@ -22,6 +22,7 @@ from ..expression_traversal import (
     walk_expr,
 )
 from ..expressions import (
+    AgentExpr,
     BindProcExpr,
     CallExpr,
     CommandResultExpr,
@@ -2214,6 +2215,7 @@ def _elaborate_expr_to_body(
             ProviderResultExpr,
             CommandResultExpr,
             RequestInputExpr,
+            AgentExpr,
             RunRefExpr,
             TrialExpr,
             RunProviderPhaseExpr,
@@ -2877,6 +2879,7 @@ def _elaborate_let_star(
                 ProviderResultExpr,
                 CommandResultExpr,
                 RequestInputExpr,
+                AgentExpr,
                 RunRefExpr,
                 TrialExpr,
                 RunProviderPhaseExpr,
@@ -4594,6 +4597,7 @@ def _elaborate_match_to_body(
             ProviderResultExpr,
             CommandResultExpr,
             RequestInputExpr,
+            AgentExpr,
             RunProviderPhaseExpr,
             ProduceOneOfExpr,
             ResumeOrStartExpr,
@@ -5673,6 +5677,8 @@ def _prebind_effect_argument_matches(
         return (
             replace(
                 expr,
+                provider=expr.provider if expr.agent_origins is None
+                else replace_arg(expr.provider, role="agent", prebind_pure_projection=True),
                 inputs=tuple(
                     replace_arg(input_expr, role=f"provider-input:{index}")
                     for index, input_expr in enumerate(expr.inputs)
@@ -6535,10 +6541,14 @@ def _elaborate_effect_expr_to_binding_value(
                 form_path=spec.form_path,
                 expansion_stack=spec.expansion_stack,
             )
+        agent_turn = expr.agent_origins is not None
+        if agent_turn:
+            operation_payload["agent_origins"] = expr.agent_origins
         return WccPerform(
-            metadata=scope.value_metadata(role="perform:provider_result", **metadata_kwargs),
-            perform_kind="provider_result",
-            target_name=_require_name_expr(expr.provider),
+            metadata=scope.value_metadata(role=f"perform:{'agent_turn' if agent_turn else 'provider_result'}",
+                                          **metadata_kwargs),
+            perform_kind="agent_turn" if agent_turn else "provider_result",
+            target_name="agent" if agent_turn else _require_name_expr(expr.provider),
             prompt_name=(
                 None
                 if isinstance(expr.prompt, PromptApplicationExpr)
@@ -6557,12 +6567,21 @@ def _elaborate_effect_expr_to_binding_value(
                     compile_time_bindings=compile_time_bindings,
                     active_phase_scope=active_phase_scope,
                 )
-                for index, item in enumerate(expr.inputs)
+                for index, item in enumerate((expr.provider, *expr.inputs) if agent_turn else expr.inputs)
             ),
             keyword_args=(),
             returns_type_name=expr.returns_type_name,
             operation_payload=operation_payload,
         )
+    if isinstance(expr, AgentExpr):
+        from ..agent_forms import elaborate_agent_perform
+        return elaborate_agent_perform(expr, metadata=scope.value_metadata(role="perform:agent", **metadata_kwargs),
+                                       elaborate=lambda item, name: _elaborate_atomic_value(
+            item, scope=scope.child_scope("agent-policy", authored_binding_name=name), type_env=type_env,
+            value_env=value_env, workflow_return_types=workflow_return_types,
+            procedure_return_types=procedure_return_types, effect_summary=effect_summary,
+            procedure_edges_by_site=procedure_edges_by_site, compile_time_bindings=compile_time_bindings,
+            active_phase_scope=active_phase_scope))
     if isinstance(expr, RequestInputExpr):
         return WccPerform(
             metadata=scope.value_metadata(
@@ -7032,6 +7051,7 @@ def _elaborate_workflow_call_binding_value(
             ProviderResultExpr,
             CommandResultExpr,
             RequestInputExpr,
+            AgentExpr,
             RunRefExpr,
             TrialExpr,
             RunProviderPhaseExpr,
@@ -7551,6 +7571,8 @@ def _infer_expr_type(
                 expansion_stack=expr.expansion_stack,
             ),
         )
+    if isinstance(expr, AgentExpr):
+        return PrimitiveTypeRef(name="Agent")
     if isinstance(expr, RequestInputExpr):
         return type_env.resolve_type(
             HUMAN_REPLY_TYPE_NAME,

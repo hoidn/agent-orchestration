@@ -990,6 +990,7 @@ _PROVIDER_ATOMS = (UsesProviderEffect, LiveSupervisionEffect, LivePeerMessagingE
 # has no dynamic-evaluation form at this target, so there is none to list.
 _FORBIDDEN_CHILD_FORMS = {
     ex.RunRefExpr: "nested run-ref",
+    ex.AgentExpr: "agent allocation",
     ex.TrialExpr: "trial",
     ex.WithLiveProvidersExpr: "parallel live providers",
     ex.WithLiveProviderPeersExpr: "parallel live provider peers",
@@ -1013,7 +1014,8 @@ def _child_form_refusal(node, *, network_none: bool) -> tuple[str, str] | None:
     if isinstance(node, ex.ListMapEffectExpr) and node.parallel_count is not None:
         reason = "parallel list/map-effect"
     if isinstance(node, ex.ProviderResultExpr) and (
-        node.context_expr is not None
+        node.agent_origins is not None
+        or node.context_expr is not None
         or node.capture_context is not None
         or node.session_artifact is not None
     ):

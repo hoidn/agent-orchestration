@@ -83,7 +83,7 @@ _CONTROL_EMITTERS = (
 )
 
 _LEAF_EMITTERS = (
-    ex.CommandResultExpr, ex.ProviderResultExpr, ex.RequestInputExpr, ex.CallExpr,
+    ex.CommandResultExpr, ex.ProviderResultExpr, ex.RequestInputExpr, ex.CallExpr, ex.AgentExpr,
     ex.RunProviderPhaseExpr, ex.ResourceTransitionExpr, ex.RecordExpr, ex.UnionVariantExpr,
     ex.NameExpr, ex.FieldAccessExpr, ex.LiteralExpr, ex.PhaseTargetExpr, ex.PureOpExpr,
     ex.RecordUpdateExpr, ex.LoopStateSeedExpr, ex.LoopStateUpdateExpr, ex.ProviderBundlePathExpr,
