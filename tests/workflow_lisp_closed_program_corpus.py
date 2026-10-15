@@ -443,10 +443,6 @@ print(json.dumps({"report": sys.argv[1]}))
             missing = (
                 f"command {name!r} has literal argv prefix {argv!r}, but no checked implementation source and closure"
             )
-            if name == "pilot_product_manifest" and argv == ("python",):
-                missing = (
-                    "command 'pilot_product_manifest' is parameterized by workflow input "
-                ) + "'controller_script', whose concrete script path, source bytes, and closure are missing"
             raise NotSynthesizableError(missing)
         closure_rows = [_copy_file(implementation, workspace)]
         if name == "materialize_lisp_frontend_work_item_inputs":

@@ -1,0 +1,125 @@
+{
+  "experiment": "E-A: on the evaluated route, do generate-four-select-one and review-and-revise with a stronger reviewer from another family beat single calls on the September task, as they did on the flat route?",
+  "task": "experiments/compare/tasks/ea-loop-result-paths",
+  "base_commit": "468e79084b10ff7fdfaf2ac7b82902f5c94abdeb",
+  "arms": [
+    "best_of_n",
+    "reviewed_change",
+    "direct_task"
+  ],
+  "comparator": {
+    "best_of_n": "group mean of the run's own four candidates (group_gain, the September primary comparator); first candidate (paired_gain); six gpt-6-sol single calls, one scored in each best_of_n batch (minus_control, the September second clause)",
+    "reviewed_change": "the run's first implementer call (paired_gain)",
+    "direct_task": "none: the control, gpt-6-sol with the bare task text, effort high"
+  },
+  "primary": [
+    {
+      "measure": "best_of_n.group_gain_runs_positive",
+      "op": ">=",
+      "value": 5
+    },
+    {
+      "measure": "best_of_n.group_gain_mean",
+      "op": ">=",
+      "value": 0.75
+    },
+    {
+      "measure": "best_of_n.minus_control",
+      "op": ">=",
+      "value": 0
+    },
+    {
+      "measure": "reviewed_change.paired_gain_runs_negative",
+      "op": "<=",
+      "value": 0
+    },
+    {
+      "measure": "reviewed_change.paired_gain_mean",
+      "op": ">=",
+      "value": 0.5
+    },
+    {
+      "measure": "reviewed_change.runs",
+      "op": ">=",
+      "value": 5
+    },
+    {
+      "measure": "direct_task.runs",
+      "op": ">=",
+      "value": 5
+    }
+  ],
+  "secondary": [
+    {
+      "measure": "best_of_n.paired_gain_mean",
+      "op": ">=",
+      "value": 0
+    }
+  ],
+  "scale": "each clone scores 0-8: the sum of four rubric criteria rated 0-2, averaged over the judges not excluded; September used the same 8-point scale",
+  "judges": [
+    "claude-opus-5-5",
+    "gpt-6.1-sol"
+  ],
+  "runs_per_arm": {
+    "best_of_n": 6,
+    "reviewed_change": 6,
+    "direct_task": 6
+  },
+  "anchors": [
+    "sonnet-single-call",
+    "silence-relpath-check"
+  ],
+  "anchor_roles": {
+    "sonnet-single-call": "drift reference: one Sonnet single call through best_of_n::implement-one outside every arm (no upstream fix exists for targets 2.29-2.32)",
+    "silence-relpath-check": "low anchor: deletes the relpath override check, weakening validation for authored workflows"
+  },
+  "known_differences_from_september": [
+    "runtime: evaluated route at 2.35 instead of the flat route at 2.28; the authored prompts drop the result-file sentence because the runtime supplies the result path, and September's wrapper that made that path absolute and removed stale results is gone",
+    "judges: claude-opus-5-5 and gpt-6.1-sol for every batch, instead of a fresh pair of Opus subagents per batch; gpt-6.1-sol shares a family with the selector, the reviewer and the control model gpt-6-sol",
+    "scoring: typed per-clone ratings; best_of_n in six batches of seven clones instead of one batch of 32 (24 candidates, 6 single calls, 2 anchors); a reviewed_change run's first and final patches sit in different batches instead of one batch of 15 that included intermediate patches; minus_control and reviewed_change.paired_gain therefore compare scores across batches",
+    "anchors: a Sonnet single call and a symptom-silencing patch, instead of candidate patches repeated from earlier batches",
+    "control: direct_task with the bare task text, effort high, through the codex binding; September's gpt-6-sol single calls used best_of_n's implement prompt through variant files not in the tree, effort unrecorded",
+    "candidates built from the base commit alone; the September candidates were worktrees of the main checkout with all refs",
+    "no fix of record exists for targets 2.29-2.32; public commit cdb60211 adds a 2.33 route in the same lowering code, the contamination risk",
+    "agent environment: the shims strip PYTHONPATH, OLDPWD and COMPARE_* (R6, R24) and run each CLI under bubblewrap with a private /tmp, /dev/shm and process list (R35); run state sits in the working directory (R34); September agents had PYTHONPATH at the runner checkout and no sandbox",
+    "best_of_n's implementers resolve the result path from their own candidate through a link the harness adds (R37); September's runner made the result path absolute"
+  ],
+  "exclusions": "Only runs whose scan hits the controller adjudicates as contaminated (R20; scan solution hash cdb60211a31db4659727a87c962d8272dbccba46, R27). Infrastructure failures are resumed, never relaunched or excluded (R3). Any other failure stays a failed run: never relaunched or replaced, means over the remaining runs. A contaminated run is not replaced. No run beyond six per arm is launched. If budget or quota stops the batch before six runs per arm exist, the verdict is 'not evaluated'.",
+  "written_before_scoring": true,
+  "runtime": {
+    "path": "/home/ollie/compare-runtime",
+    "commit": "197e35ed",
+    "reviewed_change_and_direct_task_commit": "1a77e0af",
+    "note": "1a77e0af..197e35ed changes only best_of_n's state directory in prepare.py (R37); the other arms' runs at 1a77e0af ran under identical conditions and stand"
+  },
+  "package_sha256": "5bb1487dadf33982af56170f351edad76bbfd3e31b35c85b67ab87d5d91302a3",
+  "package_sha256_method": "cd <runtime>/<task>; find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum",
+  "validity": "The evaluation is void unless mapping.json's task is <runtime>/<task>, the package hash matches, its judges equal `judges` (summarize refuses otherwise), and every batch carries exactly the `anchors` stems.",
+  "claims": {
+    "best_of_n": [
+      "best_of_n.group_gain_runs_positive",
+      "best_of_n.group_gain_mean",
+      "best_of_n.minus_control",
+      "direct_task.runs"
+    ],
+    "reviewed_change": [
+      "reviewed_change.paired_gain_runs_negative",
+      "reviewed_change.paired_gain_mean",
+      "reviewed_change.runs"
+    ]
+  },
+  "verdict_rules": "Each claim holds iff all its entries are met; E-A replicates iff both hold; a measure summarize does not emit (met null) counts as not met; secondary entries never change a primary verdict; a gain of exactly 0 is neither positive nor negative (September: 'beats', 'no run got worse').",
+  "anchor_use": "Anchor scores are reported per batch and judge only; no gain is adjusted and no batch, run or judge is excluded, rescaled or re-scored because of them.",
+  "judge_rules": "A judge is left out only by a contaminated scan verdict recorded, with its reason, before summarize runs. With one judge left the verdict uses that judge and the report says so; with none, not evaluated. Per-judge values are reported and never used for the verdict.",
+  "threshold_provenance": "best_of_n thresholds are September's preregistered confirmation criterion; reviewed_change thresholds are set just below September's observed result (no run worse, +0.58), which was not preregistered.",
+  "work_root": "/home/ollie/compare-work2",
+  "amends": {
+    "previous_sha256": "a495900a00cb5abf267cdd7cdfe2724d1a7b74ea8897004a489b93d9fddacbd4",
+    "reason": "Amendment 1 (2026-10-14, before any run at this commit): the harness at aac25b7d had two defects found in the live smoke and first batch. R34: run state outside the agent's workspace gave result paths outside it, and agents misplaced relpath outputs (2 of 4 review calls, against 0 of 5 in three diagnostic runs with the default layout) or left the result unwritten. R35: agents shared /tmp, tmux servers and the process list with other runs and sessions; a stale tmux server carried PYTHONPATH at the main checkout. The fixed harness keeps run state under the working directory's .orchestrate/runs and runs every agent and judge CLI under bubblewrap with a private /tmp, /dev/shm and process list. Every run made at aac25b7d is discarded (none is pooled) and listed in the report with this reason; the reruns use a fresh work root. Discarded at aac25b7d: direct_task 1-5 completed; best_of_n 1, 2, 4 completed, 3 failed (result missing), 5 and 6 stopped; reviewed_change 3, 4 completed, 1, 2 failed (misplaced report), 5 and 6 stopped."
+  },
+  "amends_2": {
+    "previous_sha256": "6d1c4090a1b8d600e69360b2895f3e709a889bf0adb8dd9cd3c98c2c5c6bf989",
+    "reason": "Amendment 2 (2026-10-14, before any best_of_n run at 197e35ed): best_of_n's workspace is the tree while its implementers work in cand-k; with run state in the tree they resolved the tree-relative result path inside cand-k and the runtime found no result (best_of_n run-1 and run-2 at 1a77e0af failed at their first candidate). R37: best_of_n's state directory is linked from every candidate's .orchestrate/ so the path resolves from either. best_of_n runs 1-6 under /home/ollie/compare-work2 are discarded (1, 2 failed, 3 stopped, 4-6 never started); the six best_of_n runs are run-7..run-12 there. reviewed_change and direct_task runs 1-6 are unaffected and stand."
+  }
+}

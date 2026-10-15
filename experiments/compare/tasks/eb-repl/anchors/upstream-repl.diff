@@ -1,0 +1,2084 @@
+diff --git a/docs/capability_status_matrix.md b/docs/capability_status_matrix.md
+index fefe3e07..770c250d 100644
+--- a/docs/capability_status_matrix.md
++++ b/docs/capability_status_matrix.md
+@@ -34,6 +34,7 @@ Status labels:
+ | `.orc` effectiveness lean-pilot apparatus | Implemented | No; this is a bounded experiment apparatus and historical evidence route, not a workflow-authoring template | `docs/superpowers/specs/2026-07-26-orc-effectiveness-lean-pilot-design.md`; `docs/superpowers/plans/2026-07-26-orc-effectiveness-lean-pilot.md`; `docs/plans/2026-07-27-lean-pilot-a1-v5-review-citation-incident-recovery.md` | A1-v7 lock `b8d69ba2f3d2b2e7bc6d9181d776db0b7abacd2035f851cd44be613dac6d8503`; authoritative summary `153263159d6516d032be83bd8f53954be0ba05b39af58be23d1abdca34085e89`; deterministic report `docs/reports/2026-07-26-orc-effectiveness-lean-pilot.md`; `LEAN_PILOT_FINAL_EVIDENCE_APPROVED`; owner handoff `docs/reports/2026-07-31-orc-effectiveness-lean-pilot-owner-decision.md` | Historical controlled A1 nanoBragg pilot only | One smoke and exactly three valid live blocks completed without pilot resume or rerun. `DIRECT` won 3/3 against `ORC`; `DIRECT` was viable in 3/3 and `ORC` in 1/3. Four treatment-specific protocol failures remain outcomes, all token/cost values are `UNKNOWN`, and the result is exploratory only. It does not establish general `.orc`, Workflow Lisp, or orchestration effectiveness. The owner handoff permits E0 activation but does not automatically select E1+. |
+ | Workflow Lisp canonical trial runs (E0-E3 direction) | Implemented | Yes for E0's bounded one-call direct-task shape and the exact target-2.24 `run-ref` and target-2.25 `trial` component contracts | `docs/design/workflow_lisp_trial_runs.md`; `docs/design/workflow_lisp_program_search_boundaries.md`; `docs/plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md`; `docs/plans/2026-07-31-workflow-lisp-e0-direct-control-component-plan.md`; `docs/plans/2026-07-31-workflow-lisp-e1-e3-owner-selection.md`; `docs/plans/2026-07-31-workflow-lisp-e1-run-ref-component-plan.md`; `docs/plans/2026-08-01-workflow-lisp-e2-trial-component-plan.md`; `docs/plans/2026-08-02-workflow-lisp-es-first-effectiveness-study-component-plan.md`; `artifacts/review/e1-run-ref-plan-review.md`; `artifacts/review/e1-run-ref-final-review.md`; `artifacts/review/e2-trial-plan-review.md`; `artifacts/review/e2-trial-final-review.md` (`sha256:03ae6a57fb38f6d2d093004eac0ce851f256da8e19b0ff75d24f9859a5ee2d83`); `artifacts/review/es-first-effectiveness-study-plan-review.md`; `artifacts/review/es-first-effectiveness-study-task1-review.md`; `artifacts/review/es-first-effectiveness-study-task2-review.md`; `artifacts/review/es-first-effectiveness-study-task3-review.md`; `artifacts/review/es-first-effectiveness-study-task4-review.md`; `artifacts/review/es-first-effectiveness-study-task5-review.md`; `docs/design/orc_reuse_introspection_search_experiment.md` | E0 is complete with `PASS_E0`; E1 is complete at `577715f1`, tree `ef7eacbd`, with `PASS_E1`; E2 is complete at `8aad035d`, tree `aafa31c`, with `PASS_E2` after ordered `E2_FINAL_SPEC_APPROVED` then `E2_FINAL_QUALITY_APPROVED`. Its exact slice passed 51 tests, precommit and postcommit focused gates each passed 3,557, the real-subprocess smoke passed, the adjacent repair gate passed 249, the broad non-security gate passed 11,403 with 19 skipped and 5 warnings, and the postcommit routing/readiness control passed 112. The ES component plan is accepted at `27be07e2`, tree `e669471a`, after ordered `ES_PLAN_SPEC_APPROVED` then `ES_PLAN_QUALITY_APPROVED`; ES Tasks 0–5 are complete. Task 1 closed at `62a5c72d`, tree `5eb5ca32`; Task 2 at `d24c1818`, tree `5e8f84cb`; Task 3 at `0d16ca36`, tree `ee6d60eb`; Task 4 at `d72c6085`, tree `4e576d09`; and Task 5 at `e5ec552d`, tree `1b0f0e67`, after ordered `ES_TASK5_SPEC_APPROVED` then `ES_TASK5_QUALITY_APPROVED`. The frozen F1v2 refreeze plan retains Task-4 binding/adoption requirements; ES is [owner-parked before launch](plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#current-es-boundary), with explicit selection and the existing adoption gate required before resumption | `workflows/library/control/direct_task.orc` is copy-safe only for E0's bounded one-call direct-control shape; E1/E2 add no checked-in production `.orc` registry row, so route-readiness remains unchanged | Canonical mapping and implemented status are unchanged: E0 direct control, E1 pinned `run-ref`, E2 blinded trials; E3 is not implemented. E2's fixed study is mechanism evidence only, with no effectiveness, quality, security, isolation, or sandbox claim; route-readiness is unchanged. The current roadmap separately assesses programmability/compositionality, reuse, introspection, self-programmability, and optimization: R0 ES disposition; R1a construction/reuse/diagnosis; separately budgeted R1b actual agent authoring/revision; R2 live finite catalog; R3 adaptive/representation studies. Each axis can be supported, adverse, inconclusive, or untested; failed reuse/diagnosis does not automatically park the project, and untested promise does not authorize expansion. R1b requires usable execution/oracles/composition cases, not positive utility screens; R2 does not require R1b success; R3 requires usable executable program space/evaluation, not all five axes passing. A RICH win is not a prerequisite; legacy ES readiness labels remain fixed-screen outputs without authority to select future work. The research documentation selects no implementation or live calls. ME remains nonblocking; C1–C3, E2O, historical registry machinery, and other unselected work remain unselected. The clone remains an output boundary, not a sandbox. |
+ | Workflow Lisp typed program gates (C1 companion) | Designed | No; separate selection and implementation evidence are pending | `docs/design/workflow_lisp_typed_program_gates.md`; `docs/design/workflow_lisp_program_search_boundaries.md` | Ordered `E_DESIGNS_SPEC_APPROVED` then `E_DESIGNS_QUALITY_APPROVED`; `compile_stage3_entrypoint` is a reuse candidate, not proof of the proposed step | Conceptual examples in the design only | C1 proposes a stable full-compiler verdict boundary. C2 adapters and parked C3 are not incorporated or selected; generic resume must reject pilot attempts. No current syntax/runtime capability may be inferred. |
++| Workflow Lisp REPL | Implemented for evaluated 2.35/2.36 runs | No new authoring surface; optional inspection of existing typed modules/runs | [CLI](../specs/cli.md#workflow-lisp-repl-targets-235-and-236); [proposed design](design/workflow_lisp_repl.md); [bounded plan](plans/2026-10-12-workflow-lisp-repl-plan.md) | Behavioral public integration owner `tests/test_workflow_evaluated_repl.py`; ordinary build, view/readers/publication, provider and resume regressions | [REPL recipe](lisp_workflow_drafting_guide.md#inspect-a-run-with-the-workflow-lisp-repl); `workflows/examples/plan_review_execute.orc` | Checked authority/memo replay captures lexical bindings and entry result; ordinary frontend/evaluator handles pure expressions and module calls. Inspection writes no run evidence; explicit `:run` delegates to public execution. Excludes interactive effects, session resume, flat targets through 2.34, multiline, definitions, hot reload, completion/history and LSP changes. Provider test stand-ins prove integration only. Design status remains proposed. |
+ | Workflow Lisp language server v1 + L0 reliability | Implemented | Yes as optional editor tooling; it is not a second authoring or execution surface | `docs/design/workflow_lisp_frontend_specification.md` §76.1; `docs/design/workflow_lisp_language_server.md`; L-series in `docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md` | `tests/test_workflow_lisp_lsp_*.py`; Stage-8 Tasks 1–9 and Gate S8 in `docs/plans/2026-07-25-workflow-lisp-language-server-implementation-plan.md`; completed L0 plan `docs/plans/2026-07-26-workflow-lisp-language-server-l0-implementation-plan.md` | `docs/workflow_lisp_language_server_setup.md`; launch with `python -m orchestrator.lsp` after installing `[lsp]` | Read-only, frame-clean stdio over exactly one canonical workspace root. Clean disk-equal open/save drives one serialized full Stage-3 compile; compiler diagnostics, exact direct-call definition, module/procedure/workflow symbols, and visibility/registry completion are implemented. L0 adds content-keyed pure-projection export reuse, one-probe saves with no-watcher reverse invalidation, structured compiler initialization failures, and visible ordered notes/expansion roles without changing diagnostic identity. Dirty, pending, failed, invalidated, or stale navigation returns null. Production compile policy is fixed, source/config freshness is content-addressed, root/config drift requires restart, and the server writes no workspace files. P1–P5 and runtime debugging remain deferred. Demonstrated W3 sources have source/helper selection parity only: LSP `evaluated_execution_unavailable` remains; evaluated F2 is **OPEN_NOT_WAIVED**, with no successful snapshot/navigation or terminal parity claim. Legacy F2 and L2 static recovery rules remain unchanged. |
+ | Workflow Lisp language server L1 authored symbols/signatures | Implemented | Yes as optional read-only editor tooling; it is not a second analyzer | `docs/design/workflow_lisp_language_server.md`; `docs/design/workflow_lisp_frontend_specification.md` §76.1; L1 in `docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md` | Ordered design and plan reviews; implementation `f1eecf65`, `ec2328dd`, `d174faf2`, and `66163dc0`; compiler-projection, navigation, stdio, freshness, repository-real E2E, and ordered final reviews under `docs/plans/2026-07-26-workflow-lisp-language-server-l1-implementation-plan.md` | `docs/workflow_lisp_language_server_setup.md`; checked-in `workflows/examples/kiss_backlog_item.orc` repository-real stdio evidence | Compiler-owned original-syntax projection ships ten symbol kinds with exact full/name ranges. Procedure, workflow, and form completion namespaces remain distinct and callable details come from resolved compiler signatures. Generated/ambiguous shapes and definition/document symbols for every non-current snapshot fail closed. L2 adds only the implemented recovery-static form completion exception. |
+ | Workflow Lisp language server L2 recovery-safe static completion | Implemented | Yes as optional syntax-head recovery help; it is not semantic validation of an unsaved buffer | `docs/design/workflow_lisp_language_server.md`; `docs/design/workflow_lisp_frontend_specification.md` §76.1; L2 in `docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md` | Ordered design and plan reviews; implementation `70b83f32`, `b399c041`, `ee213a43`, and `10e3ccc3`; focused and broad gates; ordered `L2_FINAL_SPEC_APPROVED` then `L2_FINAL_QUALITY_APPROVED` under `docs/plans/2026-07-27-workflow-lisp-language-server-l2-implementation-plan.md` | `docs/workflow_lisp_language_server_setup.md`; `docs/lisp_workflow_drafting_guide.md` | Implemented three-way selector: current success keeps full completion; valid dirty/current-pending/current-failed open entries receive only the process-frozen form registry with `isIncomplete=true` and no stale callable; configuration-stale, unavailable, closed, unassociated, malformed, and index-failed states remain empty. Definition and document-symbol freshness do not change. |
+diff --git a/docs/design/README.md b/docs/design/README.md
+index c65876a0..6e7e03e3 100644
+--- a/docs/design/README.md
++++ b/docs/design/README.md
+@@ -14,6 +14,7 @@ page, not a replacement for the linked docs.
+ | [workflow_language_design_principles.md](workflow_language_design_principles.md) | Cross-frontend semantic authority principles | Yes | Yes | Use for design judgment before changing DSL, Workflow Lisp, or workflow abstractions. |
+ | [workflow_command_adapter_contract.md](workflow_command_adapter_contract.md) | Command adapter and inline glue policy | Partial; the command closure declaration (C1–C5) is enforced at run time at target 2.35 | Yes | Use when deciding whether command behavior is a certified adapter, legacy adapter, or runtime-native candidate, and for what a 2.35 command's `closure` promises. |
+ | [workflow_lisp_frontend_specification.md](workflow_lisp_frontend_specification.md) | Accepted Workflow Lisp frontend baseline | Yes | Yes | Parent contract for `.orc` frontend work. |
++| [workflow_lisp_repl.md](workflow_lisp_repl.md) | Pure interactive inspection of evaluated 2.35/2.36 runs; design remains proposed | Yes | No | Checked read-only lexical replay and ordinary typed expressions; explicit `:run` delegates to public execution. [Bounded execution plan](../plans/2026-10-12-workflow-lisp-repl-plan.md) owns implementation and evidence. |
+ | [../plans/2026-07-17-workflow-lisp-provider-prompt-dependencies-design.md](../plans/2026-07-17-workflow-lisp-provider-prompt-dependencies-design.md) | Workflow Lisp provider prompt dependencies | Implemented functional contract | Yes | Typed required/optional exact relpaths lower through a compiler side table into one immutable per-attempt snapshot. Current allocation state is counter-only and deterministic immutable files carry persisted inspection evidence; runtime plan remains topology-only and evidence remains non-authoritative. |
+ | [workflow_lisp_procedure_first_reuse_contract.md](workflow_lisp_procedure_first_reuse_contract.md) | Procedure-first boundary roles, lowering identity, effects, and migration rules | Accepted contract / adoption gated | No | Focused decision and migration companion; the frontend specification remains durable semantic authority, and Stage 5 substrate plus pilot evidence gates migration guidance. |
+ | [workflow_lisp_procedure_migration_identity_compatibility.md](workflow_lisp_procedure_migration_identity_compatibility.md) | Strict-default procedure-migration identity compatibility and bounded internal retirement | Accepted durable contract / historical generator and pilot evidence | No | The strict checksum/runtime contract remains current and the evidence-only exception remains narrow. The tracked-plan pilot completed at `0769e837`; M1 later retired its served-purpose record/scanner generator while preserving frozen evidence and Git history. This is not a current general retirement route. |
+diff --git a/docs/design/workflow_lisp_repl.md b/docs/design/workflow_lisp_repl.md
+new file mode 100644
+index 00000000..8686c376
+--- /dev/null
++++ b/docs/design/workflow_lisp_repl.md
+@@ -0,0 +1,430 @@
++# Workflow Lisp REPL
++
++## Metadata
++
++- **Title:** Workflow Lisp REPL
++- **Status:** implemented
++- **Kind:** feature
++- **Owner:** Workflow Lisp frontend and evaluated-runtime maintainers
++- **Reviewers:** Independent code and design reviewers
++- **Created:** 2026-10-12
++- **Last material update:** 2026-10-12
++- **Related docs / issues / plans:** [Execution plan](../plans/2026-10-12-workflow-lisp-repl-plan.md), [evaluated execution](workflow_lisp_evaluated_execution.md), [frontend baseline](workflow_lisp_frontend_specification.md)
++- **Implementation target:** Evaluated entries at DSL 2.35 and 2.36
++
++## Summary
++
++Add `orchestrator repl` to load a Workflow Lisp module, explicitly run it through
++the ordinary public run service, attach to an evaluated run, inspect its lexical
++bindings and result, and evaluate a pure expression against those bindings.
++Attachment reconstructs a checked memo prefix without launching effects or
++writing run evidence. Expression compilation and evaluation use the ordinary
++frontend and closed evaluator, including pure module functions and procedures.
++
++This is a new interactive CLI surface over existing compilation and run
++contracts. It creates no persistence profile, expression language, operator
++implementation, or alternate execution authority.
++
++## Context And Authority
++
++Read [the documentation hub](../index.md), [capability matrix](../capability_status_matrix.md)
++and [design routing](README.md) before selecting contracts. Normative CLI and
++persistence behavior remain owned by [CLI](../../specs/cli.md) and
++[State](../../specs/state.md). This proposal supplies their bounded REPL delta;
++it does not supersede the existing run or resume entrypoints.
++
++The [evaluated-execution design](workflow_lisp_evaluated_execution.md) owns
++lexical values (§5), authoritative header/program and rebuild recipe (§8.4),
++checked read-only replay (§10), and diagnostics (§12). The frontend baseline,
++[W3 contract](workflow_lisp_write_once.md) and existing target-aware compiler
++own expression syntax, names, typechecking and inferred local hooks.
++
++Implementation authorities are `cli/main.py::_add_frontend_flags`, the public
++`run_workflow` service, `cli/commands/evaluated.py::_resume_build_request`,
++`workflow_lisp/closed/{frontend,artifact,values}.py`,
++`workflow/evaluated/{authority,memo,views,machine,values}.py` and
++`workflow/workspace_files.py`. Existing read-only view replay already checks
++commit reachability/order and completed-terminal consistency. Lexical capture
++and standalone expression compilation are additive seams whose feasibility
++must be demonstrated by the integration scenarios below before acceptance;
++existing report evidence alone does not prove those capabilities.
++
++## Problem
++
++An operator can compile, run and report a workflow, but cannot inspect its
++current lexical environment or try a typed pure expression in that environment.
++Flat persisted steps are insufficient: values are computed in lexical frames,
++and the position of an interrupted program requires checked replay. Adding a
++second evaluator or reconstructing scope from report JSON would create a
++competing semantic authority.
++
++## Goals And Non-Goals
++
++Goals are checked attachment to completed, interrupted and pure-failed runs;
++correct lexical scope, shadowing and binding types; ordinary pure expression
++and pure module-call semantics; explicit public execution; and byte-preserving
++inspection with ordinary diagnostics.
++
++Non-goals are effects in entered expressions, resume inside the session,
++module editing or hot reload, LSP integration, flat targets through 2.34,
++multiline input, new definitions, completion or persistent history, and changes
++to workflow launching mechanics. New modules remain below 500 lines.
++
++## Decision
++
++Use a small CLI session, an in-memory compiler context, a capture subclass of
++the existing frozen machine, and an ordinary frontend expression pipeline.
++Replay uses the existing checked view replay and terminal checks. A loaded
++module must match the attached run's program digest. Without a loaded module,
++rebuild its persisted recipe in memory to recover the compiler context.
++
++Reject Python `eval`, a second JSON operator evaluator, and `report --expr`:
++each either bypasses language contracts or puts executable expression handling
++inside an existing reporting surface. This choice couples capture to the
++machine's private callbacks and makes multiline editing, effectful interactive
++execution and source-independent module calls harder; those remain separate
++features. No core design decision is left open.
++
++## Design Details
++
++### CLI session and commands
++
++```text
++orchestrator repl [WORKFLOW] [frontend flags] [--run-id RUN_ID] [--state-dir DIR]
++:load PATH [frontend flags]
++:run [--input NAME=VALUE ...] [--input-file JSON] [--state-dir DIR] [--run-ref-root DIR]
++:attach RUN_ID
++:bindings
++:result
++:help
++:quit
++```
++
++Reuse `_add_frontend_flags` exactly as run/compile do for entry selection,
++source roots and extern/boundary/import manifests. Startup loads the optional
++workflow first, then attaches the optional run. Input is one expression or
++command per `input()` line. A prompt and optional readline support are enabled
++only for a TTY; piped input receives no prompt. EOF and `:quit` exit 0.
++
++`:load` constructs `FrontendBuildRequest` and calls
++`build_closed_program_bundle`, publishing only the ordinary build artifact.
++Compile diagnostics use `render_diagnostic`. Failed loads retain the previously
++loaded module. Failed ordinary commands retain compatible session state; a digest mismatch
++clears attachment so no incompatible module/frame pairing remains usable.
++
++`:run` requires a loaded module. Parse its options using the public run CLI
++contract, pass the loaded module's frontend request to `run_workflow`, and
++attach the returned `run_root` after the public service releases writer locks.
++Forward the session's state directory unless `:run --state-dir` overrides it.
++Inputs retain public run parsing, precedence and validation; there is no
++second binding path. Effects and evidence writes occur only during this
++explicit command, with ordinary public run authority.
++
++### Checked read-only attachment
++
++Locate the requested root using the session state directory, then retain
++`WorkspaceFiles` while reading `run.json`, `closed_program.json` and
++`memo.jsonl`. Use `load_run_authority_from_bytes` and
++`reduce_memo(..., site_classes(program))`; a derived `state.json` is never
++input authority. Attachment neither acquires the writer lock nor appends,
++repairs, reconciles or publishes views. It captures one checked journal prefix,
++not a live subscription or an atomic transaction against a concurrent writer.
++
++Require the evaluated profile. A flat run fails `repl_profile_unsupported`;
++a missing root fails `repl_run_not_found`; malformed authority or memo keeps
++ordinary checked-loader diagnostics. When a module is loaded, compare its
++program digest with the attached authority before accepting the session state;
++a mismatch fails `resume_program_changed` and leaves the session detached.
++
++When no module is loaded, use `_resume_build_request` and
++`prepare_closed_program_bundle` to rebuild the header's durable recipe entirely
++in memory. Require a present recipe (`resume_request_missing`) and matching
++program digest (`resume_program_changed`). Preserve ordinary compile errors.
++Do not read or publish build-cache artifacts, infer a recipe from bound inputs,
++rebind fresh input files, or acquire resume writer authority. Replay binds the
++stored authoritative inputs. A matching explicitly loaded module allows
++inspection of a historical header without a recipe.
++
++### Capture at the true execution position
++
++Add `workflow/evaluated/capture.py` with a frozen `_CaptureMachine` subclass of
++`_Machine`. Its mutable trace object survives `dataclasses.replace` when calls
++construct callee machines. It adds observation only:
++
++- `_halt` calls `super()` first, then appends its environment and already
++  evaluated value to the shared `trace.completions`.
++- `_done` calls `super()._done` and observes the existing `_ControlTransfer`
++  after its operands have been evaluated. For `kind == "done"`, append the
++  environment and already evaluated transfer value, then rethrow the same
++  exception. Do not reevaluate operands or alter loop/control-transfer handling.
++- `_perform` calls the ordinary implementation and catches `views._MissingCommit`
++  after operand evaluation, recording the first stopped environment and effect
++  identity. A stop overrides incidental successful halt/done exits.
++- `_body` catches `EvaluatedValueError`, recording the first (innermost) failed
++  lexical environment and position `failed:<code>`, then rethrows. A failure
++  also overrides incidental successful completions.
++
++For successful replay, the last halt/done event supplies the lexical exit
++frame. A root loop can complete through `done` without a halt event; an
++incidental seed-block halt of 3 must not replace the loop result 7. Capture the
++actual return of `_Machine.evaluate` separately in `trace.result`, after
++ordinary result coercion and dependency propagation, rather than using an
++observed completion value. Completed capture still has position `halt`, naming
++the terminal semantic outcome rather than requiring a particular body opcode.
++
++An uncommitted effect inside a callee captures the callee's lexical frame,
++not the caller's frame. The shared trace must retain that capture as exceptions
++unwind. Ordinary evaluation order, calls, coercion and control transfers remain
++unchanged.
++
++`views._replay` gains a keyword evaluator parameter defaulting to
++`evaluate_closed_program`. Its effect handler, consumed-commit checks and
++error handling stay unchanged. Capture supplies its evaluator to `_replay`
++and calls `_checked_terminal` afterward. An unreachable/out-of-order commit,
++pending-start inconsistency or contradictory completed terminal therefore
++fails `memo_inconsistent` exactly as reporting does. A normal pure failure
++with no contradictory evidence remains inspectable and has no result.
++
++### Binding types and transient compiler context
++
++`capture.py::visible_bindings` walks innermost frames first, retains
++the first occurrence of each name and hides compiler names beginning with
++`%`. Display surviving bindings in outer-frame order, retaining inner-frame
++shadowing, with name, rendered type, capture position and run identity.
++
++Map runtime descriptors back to frontend type refs by canonical structural
++descriptor identity with provenance removed. Collect the transitive closure
++of signature types, refs in `builder.emitted_descriptors`, every `TypedExpr`
++ref in entry/procedure bodies, and resolved record fields, list items, map
++keys/values, optional items and union components. Do not restrict the map to
++top-level named types: nested enum bindings must remain usable. Synthesized
++runtime `variant_case` descriptors may be displayed but cannot enter the
++expression type environment; descriptor similarity cannot invent frontend
++variant proof.
++
++Add frozen `ExpressionCompileContext` containing `function_catalog`,
++`typed_functions_by_name`, and the function/procedure/workflow name resolvers.
++Attach it to the entry module's `Stage3CompileResult` using the existing
++compiler locals. The additive `expression_context` field defaults to `None`,
++with `compare=False` and `repr=False`.
++
++Add equally transient/defaulted `typed_program`, `stage3` and `builder` fields
++to `ClosedProgramBuildResult`. Introduce
++`compile_typed_program_with_result` returning the typed program and entry
++Stage-3 result; preserve `compile_typed_program` as its existing-result wrapper.
++These are in-memory products, excluded from artifacts, manifests, schema,
++header and digests. Preserve existing callers and exports.
++
++### Ordinary expression compilation and evaluation
++
++Read with `read_sexpr_text` and require exactly one datum, producing a
++`SyntaxNode`. Call `expressions.elaborate_expression` with captured type refs
++and the loaded module's extern/type/procedure/function/workflow catalogs and
++resolvers. Preserve the ordinary target-2.36 inferred-hook branching. Apply
++`functions.normalize_function_calls` where the ordinary compiler supports it,
++then `typecheck_expression`. Ordinary unresolved names remain `name_unknown`.
++A missing context refuses module calls with `repl_module_context_missing`,
++rather than silently using reduced catalogs or another evaluator.
++
++Keep the ordinary frontend §10.2 equality contract: `=` / `!=` accept supported
++scalars and same-type enums, with no added deep-list equality. `list/empty?`
++is the ordinary list-emptiness predicate. This feature does not broaden
++operators or their operand/result semantics.
++
++Enforce purity at three boundaries:
++
++1. Refuse a nonempty `typed.effect_summary.transitive_effects` with
++   `repl_effect_refused`, including transitive procedure effects.
++2. Lower through the normal prepared-owner pipeline. Build an ephemeral
++   `TypedWorkflowDef` containing the actual `TypedExpr`, with a minimal signature
++   of the captured typed parameters and expression return type, retaining the
++   loaded entry's source owner. Create `builder.definition_context`, retain
++   identity names, call `_prepare_command_owner`, `_install_prepared_requests`,
++   the ordinary computed-capture preparation, then `builder.body` and the
++   installed request verifier. Direct `frontend_value` alone lacks prepared
++   call coordinates for closed-opaque pure calls. Recursively guard the lowered
++   value, block bodies and reachable callee bodies against `perform`; allow pure
++   calls. Never determine purity from the entered head alone.
++3. Call `evaluate_closed_value` with ordinary `_Machine._body`/`_bound`
++   callbacks and `effect_handler=None`, `provider_io=None`. Map an eventual
++   `closed_effect_handler_missing` to `repl_effect_refused`.
++
++Pure module `defun` and `defproc` calls use ordinary lowering and callee
++execution. Lowering may add previously unreachable pure procedure definitions
++into the retained builder. Evaluate such calls against an in-memory program
++view carrying the builder definitions and nominal types; do not mutate
++`authority.program`, the published closed artifact or its digest. The loaded
++build result's `.program` is a JSON-readback snapshot, not an alias of the
++retained builder, so this view requires no deep copy of the builder. There is
++no Python evaluation or REPL-specific operator evaluator.
++Entered expressions cannot mutate the captured lexical frame or run evidence.
++
++## Contracts And Interfaces
++
++This adds a CLI command and transient compiler/runtime helpers; existing run,
++compile, resume and report contracts retain their behavior. An expression or
++`:result` prints canonical UTF-8, compact, sorted-key JSON on one line followed by a second line exactly
++`: <rendered type>` on stdout. `:result` returns only the halted entry value
++and entry return type; otherwise it fails `repl_no_result`.
++
++REPL/runtime errors print `[code] detail` to stderr. Frontend errors keep
++ordinary localized `render_diagnostic` output with `kind`/`form` context.
++Session commands fail without ending the input loop; startup failures exit 2 and unexpected failures exit 1.
++Diagnostics include `repl_effect_refused`, `repl_run_not_found`,
++`repl_profile_unsupported`, `repl_not_attached`, `repl_module_required`,
++`repl_expression_arity`, `repl_no_result`, `repl_module_context_missing`,
++ordinary `name_unknown`, and the reused authority/compile/resume codes.
++`:bindings`, `:result` and expressions require attachment; `:run` requires a
++loaded module. `:help` describes these commands and the pure-expression limit.
++
++## Dependencies And Sequencing
++
++The evaluated 2.35/2.36 authority, public build/run services, closed evaluator
++and W3 compiler are prerequisites. This proposal does not select broader
++runtime roadmap work. Implement the transient compile products before the
++expression bridge, and capture before CLI attachment. The bounded
++[execution checklist](../plans/2026-10-12-workflow-lisp-repl-plan.md) owns work
++ordering and verification records; this durable design owns the contracts.
++
++## Invariants And Failure Modes
++
++Run evidence is byte-identical before/after attach, bindings, result and any
++pure/refused/failed expression. `:load` writes only ordinary build artifacts;
++`:run` writes only through public execution. No new memo records, schema,
++header keys, digest components or evaluator semantics are introduced.
++
++Loaded source/context must match the attached program. Failed loads and ordinary command errors preserve compatible session state;
++a digest-mismatched attach clears attachment and never retains an incompatible
++module/frame pairing. Checked replay errors cannot be masked by
++capture or replaced with a best-effort report. Stops/failures inside operand
++blocks must expose the correct lexical environment. Completion through halt or
++loop done preserves the actual machine result, never an incidental seed or
++operand completion value.
++
++## Security, Operations, And Performance
++
++Attachment has existing local run-file read authority only. Binding/result
++inspection exposes those local values to the operator's terminal; it adds no
++credentials, network access or provider dispatch. Explicit `:run` retains the
++ordinary command/provider permissions. Use descriptor-relative run loading
++and existing path checks. Replay and in-memory reconstruction have the cost of
++ordinary checked replay and frontend compilation; captured frames are session
++memory, not durable state. No deployment or background process is required.
++
++## Evidence And Implementation Boundaries
++
++Public subprocess CLI tests must load actual `.orc` sources and attach to runs
++created by the real public run service. Authority loaders, memo reduction,
++frontend compilation and replay must be production paths. A deterministic
++provider executable shim may stand in for an external provider solely to make
++completion/interruption reproducible; it proves orchestration integration,
++not live provider behavior. Never run provider smoke against the live checkout.
++
++Hashes of retained authority, memo, state and attempt files establish the
++read-only boundary. Test-only direct capture helpers supplement but do not
++replace the public acceptance scenarios. Review must verify no parser,
++operator evaluator or effect-launch route is duplicated.
++
++## Compatibility And Migration
++
++No existing source, artifact, memo, header, profile or schema migrates. Targets
++through 2.34 retain their route and refuse REPL attachment. Existing compile
++callers retain their result type; additive transient fields default to `None`
++and do not affect equality, repr or serialization. Existing view replay callers
++retain the ordinary evaluator by default. Stored artifacts remain the only
++execution program authority; fresh module context must have the same digest.
++
++## Verification Strategy
++
++Add behavioral tests in `tests/test_workflow_evaluated_repl.py`, collecting
++that module before execution. Cover completed field/list expressions, pure
++module function/procedure calls, including an unused helper and a nested
++`defun` → `defproc` call, and entry result; completed root loops with no halt
++event and an incidental seed halt 3 followed by done 7; interrupted compound operands
++and callee scope; transitive effect refusal with evidence hashes; digest mismatch;
++recipe-only attachment; pure failures before/after a committed effect; custom
++state-root forwarding through `:run`; and nested enum binding type recovery.
++
++Run narrow build, view, provider and resume selectors, then the complete
++non-E2E campaign with `pytest -q -n 16 --dist=worksteal` in tmux. Run the
++maintained `plan_review_execute` workflow through public execution in a disposable workspace;
++the provider shim is a bounded stand-in, never a live-checkout provider run.
++Reuse valid evidence unless later changes or unresolved failures invalidate it.
++Independent review checks artifacts/digests, checked replay parity and module
++size. Tests assert behavior/dataflow, never literal prompt prose.
++
++## Declarative Acceptance / Integration Scenarios
++
++| Initial state and public entry | Required observation and invariant | Dependencies |
++| --- | --- | --- |
++| A real 2.35/2.36 module/run has record/list bindings; pipe `repl WORKFLOW --run-id ID` with field/list expressions, pure `defun`/`defproc`, and `:result` | Ordinary typed JSON values and halted entry result; evidence hashes unchanged | Real frontend, run service, reader loaders and evaluator; deterministic provider shim where needed |
++| Complete a root loop through `done`, both without a halt event and with a seed-block halt of 3 before done 7; attach and use `:bindings` / `:result` | Capture the loop exit frame; position is `halt`, and result is the actual postcoercion/dependency-preserving machine return 7 rather than incidental 3 | Real closed evaluator, existing control transfer and checked replay |
++| Attach a module whose pure helper is unused by its workflow and whose pure function calls a pure procedure; enter those calls | Ordinary prepared-owner lowering resolves call coordinates and returns typed values; stored program, build artifact/digest and run evidence remain unchanged | Real frontend catalogs, prepared command owner and ephemeral program view |
++| Interrupt a run at the first uncommitted effect after a compound operand block or inside a callee; `:attach ID`, then inspect bindings | Correct stopped lexical scope, effect identity and shadowing; no operand halt published as result; no launches/writes | Real memo replay and captured machine; controlled provider interruption |
++| Attach a completed run and enter a directly/transitively effectful procedure expression | `repl_effect_refused`; memo/state/attempt files byte-identical | Real frontend type/effect analysis, lowered guard and evaluator |
++| Start recipe-only attachment, then attach with a semantically changed loaded module | First reconstructs only in memory; second refuses `resume_program_changed`; missing recipe without module refuses `resume_request_missing` | Real durable recipe, build request and digest checks |
++| Attach pure failure before/after an effect, or journal with unreachable commit/contradictory completed terminal | Failure frame inspectable with no result when evidence is consistent; inconsistent evidence refuses `memo_inconsistent` identically to report | Real reduction, replay and terminal checks |
++| Start with a custom session state directory, load and `:run`; inspect a nested enum binding | Public run writes the selected root and attaches after locks release; enum remains typeable in an expression | Real public run parser/service and structural type recovery |
++
++## Success Criteria
++
++All primary and negative scenarios pass through the intended production
++boundaries, narrow regressions and required smoke are recorded, and the full
++campaign has explicit outcomes/dispositions. Independent code and design
++review must confirm byte-preserving inspection, exact replay consistency,
++ordinary pure-call semantics, compatibility and the <500-line module bound.
++CLI specs, capability routing and author guidance must describe only the
++verified scope. No claim of live-provider qualification follows from a shim.
++
++## Stop / Revise Criteria
++
++Revise if capture changes evaluation order or memo validation, purity requires
++a second evaluator, module calls require serialized new context, digest parity
++cannot be preserved, or public scenarios work only through private test helpers.
++Escalate rather than silently add effectful expression execution, hot reload,
++new artifact/schema fields or a broad runtime/compiler refactor.
++
++## Documentation Impact
++
++Create this design and its execution plan; add routing in [design index](README.md).
++Implementation updates [CLI](../../specs/cli.md), [capability matrix](../capability_status_matrix.md),
++[documentation hub](../index.md) and [drafting guide](../lisp_workflow_drafting_guide.md).
++Persistence specs require no new wire contract. Preserve proposed status until
++independent acceptance evidence supports a deliberate status change.
++
++## Implementation Handoff
++
++Likely files: `workflow_lisp/workflows.py`, `compiler.py`,
++`closed/{frontend,artifact}.py` for transient context;
++`workflow/evaluated/{views,capture}.py` for visible bindings and capture;
++`workflow_lisp/repl_expr.py` for the ordinary expression bridge;
++`cli/commands/{repl,__init__}.py`, `cli/main.py` and the installed CLI entry
++in `pyproject.toml` for registration/session;
++`tests/test_workflow_evaluated_repl.py` and the documentation surfaces above.
++
++The safe first step is the transient compile-result seam, checked against
++existing build callers and artifact bytes. Review capture/terminal parity and
++recursive purity guards before integrating the CLI. Keep new modules below
++500 lines, use current helpers, and retain error validation at every boundary.
++Implementation and test preparation follow subagent-driven execution; the
++coordinator owns integration, independent review and fresh final verification.
++
++## Open Questions
++
++None in the selected design. Feasibility of the new seams is a verification
++obligation, not permission to invent alternate semantics.
++
++## Appendix
++
++Illustrative session using the maintained `plan_review_execute` source and
++its declared provider manifest (execute only in a disposable workspace):
++
++```text
++:load workflows/examples/plan_review_execute.orc --provider-externs-file workflows/examples/inputs/plan_review_execute/providers.json
++:run --input task=inspect-this-disposable-workspace
++:bindings
++feedback.findings
++(list/length revised.steps)
++:result
++:quit
++```
+diff --git a/docs/index.md b/docs/index.md
+index 9c82f012..c2ec9fba 100644
+--- a/docs/index.md
++++ b/docs/index.md
+@@ -28,6 +28,7 @@ Informative guidance and mental models live in `docs/`.
+ | Decide before writing whether a `.orc` program shape runs | [Drafting guide §2A](lisp_workflow_drafting_guide.md#2a-program-shapes-what-runs-today) | Loops in branches and in loops, large state updates, records as command inputs, decimals, parallel commands and helpers in loops: each shape run at targets 2.33 and 2.34, with its diagnostic, whether it is a rule or a defect, and the form to write instead. At 2.35 the shapes are owned by the totality matrix, not this table. |
+ | Compile, run, stop/resume, inspect and invalidate a `.orc` program at target 2.35 | [Drafting guide recipe](lisp_workflow_drafting_guide.md#a-complete-235-recipe-compile-run-resume-report-invalidate), [evaluated profile lifecycle](runtime_execution_lifecycle.md#evaluated-profile-target-235), [State](../specs/state.md#evaluated-execution-persistence-profile-target-235), [CLI](../specs/cli.md#evaluated-execution-target-235), [Step IO](../specs/io.md#evaluated-command-and-provider-io-target-235) | One public fixture end to end: source, roots, manifests with closures, typed input, `compile` → `run` → `resume` → `report` → `invalidate` → `resume`, with the files and exits each step leaves. The specs own the header/journal/view keys, the resume precedence and the error table. |
+ | Change how `.orc` programs are executed, add decimal arithmetic or parallel effects | [Evaluated execution](design/workflow_lisp_evaluated_execution.md), [numeric surface](design/workflow_lisp_numeric_surface.md), [execution facts](reports/2026-09-29-workflow-lisp-execution-facts.md), [spike report for gate G1](reports/2026-09-29-evaluated-execution-spike.md), [plan](plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md) and [Phase 3 plan](plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md) | Evaluated execution is accepted at gate G1 (2026-09-29). Phase 2 closed-program compilation and the Phase 3 runtime (evaluator, memo, resume, invalidation, derived views and readers) are integrated at target 2.35 for the first release: commands, the admitted portable composed-provider subset (without context capture), calls and path-mode run references, selected on 2026-09-30, with public run/resume evidence per class and live-provider runs of the three maintained programs (`tests/test_workflow_evaluated_*.py`). Tasks 1–15, documentation cuts 16A–16D and the independently reviewed size/complexity corrections are integrated through `ef689a39`. Tasks 16/17 and Phase 3 are closed, delivered to `main` and `origin/main` at `06130a53`. The original full suite remains RED (402 failed, 23054 passed, exit 1), all failure dispositions are recorded, and final affected execution passed all 2857 cases at `ef689a39`, including public smoke/recovery subsets. Refreshed old-target audit and the qualified real-provider smoke are recorded; independent final code/evidence and documentation/spec reviews are PASS. The [Phase 3 closeout report](reports/2026-10-02-workflow-lisp-evaluated-execution-phase-3-closeout.md) records tested revisions, receipt digests and limitations. The reviewed [early Phase 6a pilot plan](plans/2026-10-07-evaluated-execution-phase-6a-pilot-plan.md) records executed Tasks 1–3 and the [pilot assessment](reports/2026-10-07-evaluated-execution-phase-6a-pilot.md): 21 pilot cases pass in the final full campaign, which remains RED overall; the report owns closeout status. Global Phase 6a remains open; the W3 closeout owns subsequent bounded compatibility evidence. This closure selects no later capability or retirement. Excluded classes refuse at build with `closed_program_gap`. The numeric surface is implemented at target 2.34 (decimal literals, numeric operators, finite values at boundaries), except that a refusal at run time points at the pure region, not at the failing application. |
++| Inspect an evaluated run interactively or try a pure Workflow Lisp expression | [REPL recipe](lisp_workflow_drafting_guide.md#inspect-a-run-with-the-workflow-lisp-repl), [CLI contract](../specs/cli.md#workflow-lisp-repl-targets-235-and-236) and [proposed design](design/workflow_lisp_repl.md) | Targets 2.35/2.36: checked lexical replay, bindings, result and ordinary pure module calls. Explicit `:run` uses public execution; inspection writes no run evidence. |
+ | Review the bounded pure-capture correction | [Correction report](reports/2026-10-07-workflow-lisp-pure-capture-correction.md) and [plan](plans/2026-10-07-workflow-lisp-pure-capture-fix-plan.md) | The bounded eleven-owner correction demonstrates lexical 8 and coupled effect-once behavior. The report records the material raw-gate amendment, positive retained-run evidence, legacy FAIL_CLOSED with four diagnostic/state writes, original affected RED and final 130 PASS / 2 XFAIL. Historical final code/spec reviews passed and the bounded prerequisite was accepted in the original worktree before interruption. The temporary evidence was subsequently lost; [recovery](plans/2026-10-10-phase4c-recovery-plan.md) now has fresh narrow/module PASS and accepted bounded public pure raw/committed stop/resume/replay evidence recorded in the correction report, including the exact 2.30 typed exception and a separate pure 2.35 lifecycle. Authentic Task14 old-import compatibility has bounded acceptance; this is no universal compatibility claim. The [closeout](reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md) owns final package-bound verification and delivery. W3 has accepted bounded public consumer evidence at 2.36. |
+ | Review the early Phase 6a caller pilot and next handoff | [Pilot report](reports/2026-10-07-evaluated-execution-phase-6a-pilot.md), [execution plan](plans/2026-10-07-evaluated-execution-phase-6a-pilot-plan.md) and [census addendum](reports/2026-09-29-workflow-lisp-repetition-census.md#phase-6a-pilot-addendum-2026-10-07) | Current-syntax proposal/explicit/bound callers have bounded independent PASS reviews; all 21 pilot cases pass at `688695e3`. No overall source-size reduction is demonstrated. Full suite RED; that historical assessment records the pure-inline shadow defect and then-open W3 choices. The [Phase 4c plan](plans/2026-10-07-evaluated-execution-phase-4c-w3-plan.md) owns subsequent 2.36/source-graph selection and the separate correction prerequisite; the [closeout](reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md) owns W3 qualification and delivery. |
+ | Review the prepared Phase 5 parallel-map plan | [Phase 5 plan](plans/2026-10-07-evaluated-execution-phase-5-plan.md) | D2/D3 are accepted as design; D1 target remains OPEN for the owner, with 2.36 allocated to W3. Owner order places Phase 5 after pure-capture correction and W3. Implementation and public qualification are pending; this plan selects no Phase 5 target. |
+@@ -592,6 +593,11 @@ re-reviewed. No successor substrate tranche is selected.
+ **Keywords:** lisp-frontend, future-target, let-proc, effectful-composition, runtime-closures
+ **Use this when:** Selecting, designing, or reviewing the next missing Workflow Lisp frontend increment without treating the target as a replacement specification.
+ 
++### [Workflow Lisp REPL](design/workflow_lisp_repl.md)
++**Description:** Proposed design for the interactive CLI surface over evaluated 2.35/2.36 runs: read-only checked lexical capture and ordinary typed pure expressions, with explicit public `:run` execution.
++**Keywords:** workflow-lisp, repl, lexical-bindings, evaluated-execution, pure-expressions
++**Use this when:** Loading or attaching a module/run, inspecting bindings/results, or maintaining the REPL integration. The [CLI](../specs/cli.md#workflow-lisp-repl-targets-235-and-236) owns public behavior; the [recipe](lisp_workflow_drafting_guide.md#inspect-a-run-with-the-workflow-lisp-repl) shows use; the [execution plan](plans/2026-10-12-workflow-lisp-repl-plan.md) owns verification evidence. This adds no authoring language or persistence profile.
++
+ ### [Workflow Lisp Frontend Specification](design/workflow_lisp_frontend_specification.md)
+ **Description:** Accepted baseline and umbrella contract for a typed procedural Lisp frontend that lowers to shared core workflow AST, validation, semantic IR, executable IR, and the existing runtime rather than YAML text, including the current closed pure-expression surface, generated `pure_projection`, `materialize_view`, declared `resource-transition`, structural private-exec-context / `std/context` contracts, target-2.16 bounded provider supervision, and target-2.17 cooperative provider peers.
+ **Keywords:** lisp-frontend, workflow-language, core-ast, semantic-ir, pure-expression, pure-projection, materialize-view, provider-supervision, defworkflow
+diff --git a/docs/lisp_workflow_drafting_guide.md b/docs/lisp_workflow_drafting_guide.md
+index 9e427e3d..6329dffc 100644
+--- a/docs/lisp_workflow_drafting_guide.md
++++ b/docs/lisp_workflow_drafting_guide.md
+@@ -1229,6 +1229,57 @@ every effect of the three maintained programs are owned by
+ [`tests/test_workflow_evaluated_recovery.py`](../tests/test_workflow_evaluated_recovery.py)
+ (Phase 3 Task 15, integrated).
+ 
++### Inspect a run with the Workflow Lisp REPL
++
++For evaluated targets 2.35/2.36, `orchestrator repl` lets you inspect captured
++lexical bindings and evaluate ordinary pure expressions. Use the maintained
++[`plan_review_execute.orc`](../workflows/examples/plan_review_execute.orc) and
++its [provider manifest](../workflows/examples/inputs/plan_review_execute/providers.json)
++in a workspace intended for the workflow's execution:
++
++```bash
++python -m orchestrator repl workflows/examples/plan_review_execute.orc \
++  --provider-externs-file workflows/examples/inputs/plan_review_execute/providers.json
++```
++
++Inside the session:
++
++```text
++:run --input task="Inspect this workspace and summarize the planned changes"
++:bindings
++feedback.findings
++(list/length revised.steps)
++(list/empty? feedback.findings)
++:result
++:quit
++```
++
++`:run` uses the ordinary public run service and executes the declared providers;
++`:bindings`, expressions and `:result` then inspect the checked captured frame.
++Values print as compact sorted JSON on one line and `: <type>` on the next.
++`:result` returns the entry result; a stopped/failed run instead reports
++`repl_no_result`. REPL/runtime errors print `[code] detail`; frontend errors
++retain localized compiler diagnostics with `kind`/`form` context. Expected
++session errors leave the session available for the next line. `list/empty?`
++tests list emptiness; `=` / `!=` keep the ordinary supported-scalar/same-enum
++contract, without deep list equality. See
++[frontend §10.2](design/workflow_lisp_frontend_specification.md#102-closed-pure-expression-surface).
++
++To inspect an existing run without starting another, add `--run-id RUN_ID`
++to the launch command, or use `:attach RUN_ID`; add `--state-dir DIR` for a
++custom run root. Without a loaded workflow, `repl --run-id RUN_ID` rebuilds
++its persisted recipe in memory and requires the same program digest. No run
++files change during attachment or pure inspection. Effectful expressions,
++including transitive procedure effects, refuse `repl_effect_refused`; only
++explicit `:run` executes effects. Input is one expression per line, with no
++session resume, new definitions, editing or multiline support.
++
++The [CLI contract](../specs/cli.md#workflow-lisp-repl-targets-235-and-236)
++owns flags and diagnostics; the [proposed design](design/workflow_lisp_repl.md)
++owns the capture/expression boundary. Behavioral public integration coverage
++is [`tests/test_workflow_evaluated_repl.py`](../tests/test_workflow_evaluated_repl.py);
++provider stand-ins in tests prove integration rather than live provider quality.
++
+ ## 3. Semantic Authority Rules
+ 
+ These rules apply across `.orc`, generated Core AST, the JSON-rendered
+diff --git a/docs/plans/2026-10-12-workflow-lisp-repl-plan.md b/docs/plans/2026-10-12-workflow-lisp-repl-plan.md
+new file mode 100644
+index 00000000..c056087e
+--- /dev/null
++++ b/docs/plans/2026-10-12-workflow-lisp-repl-plan.md
+@@ -0,0 +1,310 @@
++# Workflow Lisp REPL Implementation Plan
++
++> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` to execute this bounded checklist. The coordinator assigns implementation and independent review, integrates changes and owns final verification/commits. Do not ask again for execution confirmation.
++
++**Goal:** Add a typed, pure Workflow Lisp REPL over loaded 2.35/2.36 modules and checked evaluated-run lexical frames, with explicit ordinary public `:run` execution.
++
++**Architecture:** Preserve one frontend, one closed evaluator and one run authority. Retain compiler context in memory, capture lexical frames during ordinary checked memo replay, and compile entered expressions through ordinary elaboration/typecheck/lowering. Inspection never writes run evidence; only explicit `:run` uses public writer authority.
++
++**Tech stack:** Existing Python CLI/frontend/evaluated runtime, standard-library input/readline, pytest, tmux and public `python -m orchestrator` subprocesses. No dependencies added.
++
++**Authority:** [Proposed design](../design/workflow_lisp_repl.md), [evaluated design](../design/workflow_lisp_evaluated_execution.md) §§5, 8.4, 10, 12, [CLI](../../specs/cli.md), [State](../../specs/state.md), [test guide](../../tests/README.md) and repository `AGENTS.md`.
++
++**Scope:** Code/context/capture/expression/CLI integration, behavioral tests and the specified docs. No effects in entered expressions, session resume, flat support, editor/LSP, multiline, definitions, completion/history or launch-mechanics changes. Each new module stays below 500 lines. Existing tests are reused where they prove the contract; new tests must prove behavior/dataflow rather than literal prompt text.
++
++**Tradeoff:** Private machine callback reuse keeps semantics shared but couples capture to that callback contract. Source-independent module calls, multiline editing and interactive effects require later design.
++
++## File responsibilities and execution ownership
++
++| Files | Responsibility |
++| --- | --- |
++| `orchestrator/workflow_lisp/workflows.py`, `compiler.py`, `closed/frontend.py`, `closed/artifact.py` | Additive transient compiler products and retained builder, preserving existing compile wrapper and artifact identity |
++| `orchestrator/workflow/evaluated/views.py`, new `capture.py` | Visible bindings, injectable checked replay evaluator, frozen capture machine with shared trace |
++| New `orchestrator/workflow_lisp/repl_expr.py` | Canonical descriptor/type recovery and ordinary pure-expression compilation/evaluation |
++| New `orchestrator/cli/commands/repl.py`, `commands/__init__.py`, `cli/main.py`; `pyproject.toml` | Public registration, load/run/attach commands, input loop/diagnostics and installed console entry |
++| New `tests/test_workflow_evaluated_repl.py`; existing owner suites | Behavioral public integration, scope/purity/read-only/compatibility regressions |
++| `specs/cli.md`, `docs/capability_status_matrix.md`, `docs/index.md`, `docs/lisp_workflow_drafting_guide.md` | Verified public command, routing/status and author recipe |
++
++Delegate bounded code implementation/revision and test preparation using the
++repository's prescribed roles/models. Use a reviewer distinct from the author.
++The coordinator inspects the resulting diff and evidence. Read-only reviewers
++may work in parallel; dependency-bearing code edits follow the ordering below.
++Keep execution results, selected commits and failure dispositions in this plan
++or a linked evidence record, rather than live blocker text in the durable design.
++
++## Nine-step execution checklist
++
++- [x] **1. Write the design and route it before code.** Create `docs/design/workflow_lisp_repl.md` from `docs/templates/design_template.md` with status `proposed`, kind `feature`, creation date 2026-10-12 and targets 2.35/2.36. Add its Current Component Contracts row in `docs/design/README.md`; retain proposed design status even when implementation becomes available. Record this bounded execution checklist under `docs/plans/`. Independent review checks approved architecture and evidence boundaries before code integration.
++
++- [x] **2. Retain ordinary expression compiler context.** In `workflows.py`, add frozen `ExpressionCompileContext` (function catalog, typed functions and three name resolvers), then `Stage3CompileResult.expression_context = None` with `compare=False`, `repr=False`. Populate the entry module from existing `compiler.py` locals. In `closed/frontend.py`, add `compile_typed_program_with_result` returning typed program/entry Stage-3 result; preserve `compile_typed_program`'s existing result contract. In `closed/artifact.py`, retain `typed_program`, `stage3`, `builder` in additive defaulted transient fields. Check all callers/constructors/exports and prove artifact/manifest/digest parity with the existing closed-build suites. No new serialized context.
++
++- [x] **3. Inject the evaluator into existing checked replay.** In `orchestrator/workflow/evaluated/views.py`, add only `_replay(..., *, evaluate=evaluate_closed_program)`, calling that evaluator at the existing evaluation site. Keep the handler, commit order/reachability, exception handling and consumed-prefix checks unchanged. Existing report/view callers retain their default path; run the view/readers/publication selectors below.
++
++- [x] **4. Capture checked replay lexical positions.** Create `workflow/evaluated/capture.py` using a frozen `_CaptureMachine` and shared mutable trace that survives `replace`. Append successful `_halt` observations after `super` to `trace.completions`; observe `_done` by calling `super`, recording the already evaluated value/environment when its existing `_ControlTransfer.kind` is `done`, and rethrowing the same exception. Record first `_MissingCommit` in `_perform` after operand evaluation, and innermost `EvaluatedValueError` in `_body`. Stop/failure override incidental halt/done events. The last completion supplies the exit frame; the actual `machine.evaluate` return supplies the final result after ordinary coercion/dependency propagation. Completed position stays `halt`, including a root loop completing through done without halt. Invoke the existing injected `_replay` and `_checked_terminal`. Add `visible_bindings` to `capture.py` (inner name wins, hide `%`, outer display order). Exercise scope and `memo_inconsistent` parity before CLI integration.
++
++- [x] **5. Bridge ordinary pure expressions and binding types.** Create `workflow_lisp/repl_expr.py`: one `read_sexpr_text` datum into `SyntaxNode`; ordinary `elaborate_expression`, supported function normalization and `typecheck_expression`, with complete module catalogs/resolvers and the existing 2.36 inferred-hook branch. Recover frontend refs by provenance-free structural descriptors over signature/emitted/TypedExpr refs and recursive resolved components, including nested enums; exclude synthesized `variant_case` from expression scope. Lower an ephemeral `TypedWorkflowDef` with the actual `TypedExpr`, minimal captured-parameter/typed-return signature and retained source owner through builder definition context/identity names, `_prepare_command_owner`, `_install_prepared_requests`, ordinary computed-capture preparation, `builder.body` and its request verifier. Direct `frontend_value` alone lacks call coordinates for closed-opaque pure calls. Reject transitive effects, recursively reject lowered `perform` including block/reachable callee bodies, and evaluate with ordinary machine callbacks with no effect handler/provider IO. Use an ephemeral program view carrying builder definitions/nominal types for pure calls; the loaded `.program` is a separate JSON-readback snapshot, so no builder deep copy is needed. Authority/artifact/digest remain unchanged. Missing context refuses module calls; ordinary unknown-name diagnostics survive.
++
++- [x] **6. Implement CLI load, attach and explicit public run.** Register `repl [WORKFLOW]`, `_add_frontend_flags`, `--run-id`, `--state-dir` in `cli/main.py` and the existing commands export. Register the required public `orchestrator` console entry in `pyproject.toml` using the existing `orchestrator.cli.main:main`. Startup loads then attaches. Implement `:run` with public run-option parsing and `run_workflow`; forward session state directory unless overridden and attach the returned root after locks release. Add `:bindings`, `:result`, `:help`, `:quit`, one-line `input()` and TTY-only prompt/readline. Value output is compact sorted UTF-8 JSON on the first line and exactly `: <rendered type>` on the second line; REPL/runtime errors are `[code] detail` on stderr while frontend errors retain ordinary localized `render_diagnostic` output with kind/form context. EOF/quit exit 0, startup failure 2, unexpected failure 1; command errors keep the session usable. `:load` uses `FrontendBuildRequest`/`build_closed_program_bundle` and ordinary diagnostic rendering, retaining the old module on failure. Attach using retained `WorkspaceFiles`, authoritative byte loaders, memo reduction/site classes and capture. Refuse missing/flat roots with REPL codes. Compare loaded-module digest; without a module rebuild `_resume_build_request` with `prepare_closed_program_bundle` in memory, requiring recipe/digest parity. Use stored bound inputs; do not rebind current input files. Attachment takes no writer locks and performs no append/repair, view publication or cache-artifact publication. Ordinary failures retain compatible state; a digest mismatch clears attachment and cannot retain an incompatible module/frame pairing.
++
++- [x] **7. Prepare and execute public behavioral acceptance tests.** Add `tests/test_workflow_evaluated_repl.py` using actual frontend/public run/authority/replay paths and a deterministic provider executable shim only where external provider completion/interruption needs control. Cover record field/list expressions, pure module defun/defproc (including unused helper and nested defun-to-defproc calls), result, completed root-loop/done capture without halt and seed-block halt 3 followed by done 7, interrupted compound operand/callee scope, shadowing, direct/transitive effect refusal, byte-identical memo/state/authority/attempt files, mismatch, recipe-only/missing-recipe attachment, pure failure before/after effect, custom `:run` state directory and nested enum type recovery. Additional optional review checks are contradictory terminal/unreachable commit parity, failed-load/ordinary-error retention and detach on digest mismatch. Run `pytest --collect-only -q tests/test_workflow_evaluated_repl.py` after every test rename/addition, then `pytest -q tests/test_workflow_evaluated_repl.py`; expected collection success and all behavioral cases passing.
++
++- [x] **8. Update verified public documentation.** Update `specs/cli.md`, capability matrix, hub and drafting guide with the command/options, pure expression limit, attachment authority, explicit public run behavior, stable errors and a reproducible 2.35/2.36 recipe. The design index points to the proposed contract while its Current checkout availability becomes Yes once code is integrated; design status stays proposed. No new state schema contract or broad capability claim. Check every new relative Markdown link and independently review the design/plan against the implementation diff.
++
++- [x] **9. Complete regressions, public smoke, broad verification, review and integration.** Run the exact compile/CLI, view/readers/publication and combined final selectors below. Execute the maintained `plan_review_execute.orc` through public run in a disposable workspace with declared manifests and a deterministic provider stand-in, retaining exit/output/artifacts. Compilation alone does not satisfy this smoke; providers never run against the live checkout. Then run the full non-E2E campaign in tmux with `pytest -q -n 16 --dist=worksteal -m "not e2e"`, retaining exit/result output and every failure disposition. Review the full diff, new-module sizes, artifact/digest parity, writer-lock release before attach, no alternate evaluator and byte-preserving inspection. Obtain independent code and design/documentation review; return code corrections to the implementer and new architecture questions to Design. The coordinator verifies the final changed revision, records scope/evidence limits and commits only the intended files. Do not claim full-suite success if baseline/unrelated failures remain.
++
++## Verification commands and evidence limits
++
++Start from the repository root. Narrow tests use the default serial selector;
++broad, slow and full runs use tmux and the required 16-worker worksteal mode.
++Read the `tmux` skill before launching the long campaign.
++
++```bash
++pytest --collect-only -q tests/test_workflow_evaluated_repl.py
++pytest -q tests/test_workflow_evaluated_repl.py
++pytest -q tests/test_workflow_lisp_build_in_memory.py::test_read_only_build_matches_persistent_prefix_without_mutating_workspace
++pytest -q tests/test_workflow_lisp_closed_program_compile_cli.py tests/test_workflow_evaluated_cli.py
++pytest -q tests/test_workflow_evaluated_views.py tests/test_workflow_evaluated_readers.py tests/test_workflow_evaluated_view_publication.py
++pytest -q tests/test_workflow_evaluated_views.py tests/test_workflow_evaluated_readers.py tests/test_workflow_evaluated_view_publication.py tests/test_workflow_lisp_closed_program_compile_cli.py tests/test_workflow_evaluated_cli.py tests/test_workflow_evaluated_providers.py tests/test_workflow_evaluated_resume.py
++pytest -q -n 16 --dist=worksteal -m "not e2e"
++```
++
++If a selected owner suite becomes long, move it to tmux with the prescribed
++parallel flags. The public `plan_review_execute` execution smoke supplements
++the optional existing compile-only `tests/test_workflow_lisp_plan_review_execute_example.py` check; use the maintained source/header/manifests as
++inputs and record the exact disposable root, invocation, stdout/stderr, exit
++and evidence hashes. Public execution and production reader loaders are real;
++the deterministic provider stand-in proves integration only. Live-provider E2E
++is outside this bounded qualification and must be stated as unverified.
++
++Capture evidence for malformed/inconsistent memo refusals and pure-failed
++runs, not just happy-path output. Avoid literal prompt phrasing assertions.
++No broad retest is necessary after documentation-only corrections unless
++routing/contracts or unresolved findings make it relevant.
++
++## Stop or return to design
++
++Stop the implementation branch if the selected solution needs artifact/header
++schema changes, memo semantics changes, a second operator evaluator, weakened
++terminal/commit checks, effects in entered expressions or fixture-only public
++acceptance. Report the concrete mismatch and request a design decision; do not
++silently expand scope or treat a false-green helper test as qualification.
++
++## Execution record
++
++Evidence recorded below is the bounded verification available on 2026-10-12
++(local date; smoke timestamps are 2026-10-13 UTC). Counts/probe results and
++installed-console qualification are reported by the coordinator; the public
++REPL, combined-selector and all smoke receipts were also inspected while
++updating this record. The REPL suite and strict smoke fail the required equality
++scenario; no complete implementation acceptance or full-suite pass is claimed.
++
++Resolution by the owner, 2026-10-12: the brief's acceptance expression
++`(= feedback.findings (list))` was invalid for the language, which has no list
++equality at any target; the requirement was the emptiness check the language
++already expresses as `(list/empty? feedback.findings)`. The three tests now use
++that form with their Boolean expectations unchanged, and the public REPL module
++passes 16 of 16 (`pytest -q tests/test_workflow_evaluated_repl.py`, 47.54s).
++Full-suite failures outside the REPL reproduce on the baseline commit and are
++not part of this acceptance.
++
++| Check | Available result | Boundary |
++| --- | --- | --- |
++| Build/compile CLI regression control | 54 passed | Existing public build/compile control; coordinator-reported result |
++| Checked replay view/readers/publication control | 74 passed | Existing replay consumers; coordinator-reported result |
++| `tests/test_workflow_lisp_build_in_memory.py::test_read_only_build_matches_persistent_prefix_without_mutating_workspace` | 1 passed (2.27s) | Equal read-only/persistent build prefix without workspace mutation |
++| Capture feasibility probe | PASS | Bounded capture probe including root-loop/done completion; supplements public tests |
++| Expression feasibility probe | PASS | Bounded pure module-call prepared-owner probe; supplements public tests |
++| Initial disposable public `plan_review_execute` run/REPL/report smoke | Harness exit 0, raw `SMOKE PASS`; incomplete assertions | Real public services/readers with deterministic provider stand-ins; list equality did not succeed and was not asserted |
++| Installed wheel console in isolated venv with `PYTHONPATH` removed | PASS | Installed `orchestrator repl --run-id` works without source-root import injection; coordinator-reported result |
++| Current REPL collection | 16 collected in 1.61s, exit 0 | Coordinator-reported collection after the two supported-operator cases were added |
++| Prior 14-case public REPL module | 11 passed, 3 failed in 40.47s | `/tmp/test_workflow_evaluated_repl.log`; all three failures require Boolean list equality |
++| Two added supported-operator cases | 2 passed in 16.64s | `/tmp/test_workflow_evaluated_repl_positive.log`; fresh positive list reads/emptiness at 2.35 and 2.36 |
++| Current complete 16-case public REPL module | 13 passed, 3 failed in 85.32s | `/tmp/test_workflow_evaluated_repl_final.log`; required list-equality failures unchanged |
++| Exact combined final regression selectors | 207 passed in 311.54s, exit 0 | `/tmp/orc-repl-verification/narrow.log`; views/readers/publication, compile/CLI, providers and resume |
++| Reinforced strict public smoke | Exit 1 | `/tmp/orc-repl-verification/smoke-strict.log`; asserts required Boolean equality and fails when stdout lacks it |
++| Separate supported-operator public smoke | Exit 0, `SMOKE PASS` | `/tmp/orc-repl-verification/smoke-supported.log`; actual Bool output from `list/empty?`, without replacing strict requested equality acceptance |
++| Fresh ordinary-frontend probes at 2.35 and 2.36 | Required list equality refuses; `(list/empty? items)` compiles | Empty list lacks exact type context; explicitly typed list equality has incompatible operands under the ordinary scalar/enum equality contract |
++| Independent code review | Bounded diff/tests and the two added positive cases approved, excluding the equality contract conflict | Distinct reviewer; coordinator-reported bounded result, no waiver of failed requested acceptance |
++| Bounded documentation review | PASS | Coordinator-reported resolution of the diagnostic-format/evidence-boundary findings |
++| Final local Markdown links | 44 targets exist, exit 0 | Coordinator-reported final path check |
++| Three new runtime modules compile | Exit 0 | Coordinator-reported `compileall` for capture, expression bridge and CLI |
++| New-module size check | Capture 146, expression bridge 262, CLI 373, test owner 395 lines | Each new module is below 500 lines |
++| Full non-E2E campaign | 266 failed, 23493 passed, 7 skipped, 172 xfailed, 230 warnings in 1076.13s; exit 1 | `/tmp/orc-repl-verification/full-non-e2e.log` and `.exit`; collected the prior 14 REPL cases |
++| Baseline rerun of the 263 existing failing selectors | 260 failed, 3 passed in 56.87s; exit 1 | Baseline `47e85a9c`, exact selector JSON and baseline-failing-selectors log/exit |
++| Fresh current rerun of the three baseline-passing selectors | 2 failed, 1 passed in 42.12s | `unmatched-current.log`; spike mixed now passes |
++| Baseline code in the same active host workspace | 2 failed in 1.19s | `baseline-same-workspace.log`; both runtime cases fail with the same workspace ownership diagnostic |
++
++
++The initial smoke receipts are `/tmp/orc-repl-verification/smoke.log`,
++`smoke.exit` and `smoke-evidence.json`. The harness exited 0 and printed
++`SMOKE PASS`, but stdout contained no Boolean equality result and stderr
++contained `list_empty_type_context_required` for
++`(= feedback.findings (list))`. Its assertions did not verify that required
++scenario and tolerated the frontend diagnostic. This is an initial evidence
++limit, not complete smoke qualification. The reinforced rerun now asserts the
++required `true` / `: Bool` output and fails with exit 1 in
++`/tmp/orc-repl-verification/smoke-strict.log`. Its completed-run inspection still
++shows the other typed values and result; it does not produce the requested
++Boolean equality. The initial partial evidence and fresh strict failure remain
++separate; no initial harness success waives the failed acceptance. No new list
++capability or evaluator semantics is selected. The disposable workspace is
++`/tmp/orc-repl-smoke-fk43pkir`, completed run
++`20261013T022239Z-k6ot2e`. Public inspection returned visible bindings,
++`feedback.findings`, `(list/length revised.steps)` and the entry result; rejected
++an effectful expression; attached recipe-only; inspected a provider-failed
++prefix with no entry result; and exercised explicit `:run` under custom and
++overridden state roots. Report subsequently returned the ordinary completed
++four-provider view. The intentionally malformed provider-result run exited 1
++as a negative fixture; it is not a smoke harness failure.
++
++The completed run's before/after SHA-256 values were identical:
++
++| File | Before = after SHA-256 |
++| --- | --- |
++| `memo.jsonl` | `fd73e74aac45ee18b1dde1aaa9b4bc0c5d44a5806721a2984d41e666de9474c1` |
++| `state.json` | `9778bd1964d6774ab1203fe5ca435a41eeef6c78559b0c8c89fd005411aea31d` |
++
++These hashes prove those two inspected files were unchanged; they do not claim
++all-run-file hash coverage or live-provider qualification. The broader
++byte-preservation contract remains owned by the behavioral tests.
++
++The installed-console check used the wheel installed in
++`/tmp/orc-repl-verification/venv`, with
++`env -u PYTHONPATH /tmp/orc-repl-verification/venv/bin/orchestrator repl --run-id <retained-run-id>`.
++The launch is independent of `python -m orchestrator` from the source checkout.
++
++### Separate supported-operator smoke
++
++A separate receipt uses `(list/empty? feedback.findings)` and asserts its actual
++`true` / `: Bool` output. `/tmp/orc-repl-verification/smoke-supported.log`
++ends `SMOKE PASS`, exit 0; `smoke-supported-evidence.json` records the commands
++and typed output. Its workspace is `/tmp/orc-repl-smoke-u9oywy38`, completed
++run `20261013T023853Z-bpci80`. The public recipe exercises loaded and recipe-only
++attachment, field/list values, entry result, refusal/session recovery, failed
++capture, custom state roots and override, and ordinary completed report. A
++provider-result failure is intentional negative evidence in this harness.
++
++The supported smoke's inspected completed run preserves both hashes:
++
++| File | Before = after SHA-256 |
++| --- | --- |
++| `memo.jsonl` | `e83b20f0111a59274e80b857ffdd65dda19b9aadbc9d3fb75325659384eb6e3d` |
++| `state.json` | `cc38230dddcb4546bccfae6d47c7b1926d5cfffa292bf87dd0d5c0fdda1160cb` |
++
++This is positive integration evidence for supported ordinary operators. It is
++not the requested list-equality scenario, does not replace its strict red
++receipt and does not waive any failed acceptance. The original strict request
++and the supported alternative remain separate evidence lanes.
++
++### Necessary packaging deviation
++
++The original file list omitted packaging, but `[project.scripts]` had no public
++`orchestrator` console entry. Add `orchestrator = "orchestrator.cli.main:main"`
++to `pyproject.toml` so the approved `orchestrator repl` invocation exists after
++installation. This reuses the same CLI entrypoint, adds no dependency or
++alternate execution path, and is qualified by the installed-wheel check above.
++The design remains `proposed` as requested; implementation availability in the
++design index is independently `Yes`.
++
++### Contract conflict and remaining verification
++
++The current expanded public REPL suite collects 16 cases in 1.61s (exit 0)
++and executes with 13 passed / 3 failed in 85.32s. Its two added positive
++2.35/2.36 supported-operator cases separately pass in 16.64s; an independent
++reviewer approves those cases. The failures are
++`test_public_repl_attaches_to_completed_run_and_evaluates_typed_values` at
++2.35 and 2.36, and
++`test_effectful_expressions_refuse_without_changing_run_and_session_recovers`.
++Each requires `(= feedback.findings (list))` to produce a Boolean. The strict
++smoke requires the same output and now correctly fails, rather than accepting
++absence of that result.
++
++The [ordinary frontend contract §10.2](../design/workflow_lisp_frontend_specification.md#102-closed-pure-expression-surface)
++limits `=` / `!=` to supported scalars and same-type enums. Fresh probes at both
++2.35 and 2.36 confirm that an empty list lacks exact expected type context and
++explicitly typed list equality still refuses for incompatible operands;
++`(list/empty? items)` compiles. The coordinator has not changed code to broaden
++the ordinary equality contract or installed a REPL-only evaluator. Clarification
++of the requested list-equality priority versus preserving ordinary frontend
++semantics remains pending. The supported emptiness predicate is diagnostic
++context, not a silent replacement for the requested scenario.
++
++Steps 1–6 are implemented. Step 7 remains partial because the complete public
++REPL module is red, and step 9 remains partial despite the green 207-case
++combined control. Step 8's bounded documentation findings are resolved with
++review PASS. Independent code review approves only the bounded diff/tests
++excluding the contract conflict; it does not establish complete acceptance.
++The full non-E2E campaign finished red, with the dispositions below. It
++collected the prior 14 REPL cases before the two new positive cases were added
++and therefore does not cover those additions. Their fresh targeted and
++complete-module receipts above supply separate evidence; no claim extends the
++old collection.
++
++### Full campaign and bounded baseline audit
++
++The required `pytest -q -n 16 --dist=worksteal -m "not e2e"` campaign ran in
++tmux. `/tmp/orc-repl-verification/full-non-e2e.log` and `full-non-e2e.exit`
++record **266 failed / 23493 passed / 7 skipped / 172 xfailed / 230 warnings**
++in 1076.13s, exit 1. This is a red full result, not acceptance or a green run
++with waived failures. No tests were disabled and no new xfails were added.
++
++The automatic audit used baseline
++`47e85a9c7e452bfd367275a15d5e97b928efa5ca` in a disposable worktree and
++reran the 263 existing failing selectors, excluding the three new required
++REPL equality failures. `baseline-failing-selectors.json` preserves the exact
++full failure set and baseline selector list; `baseline-failing-selectors.log`
++and `.exit` record 260 failed / 3 passed in 56.87s, exit 1. Matching baseline
++failures establish reproduction in this environment, not their absence on
++other machines or a universal no-regression claim.
++
++The three baseline-passing selectors were:
++
++- `tests/test_runtime_failure_persistence.py::test_run_command_persists_unexpected_executor_exception`
++- `tests/test_runtime_failure_persistence.py::test_run_holds_writer_lock_through_executor_exit`
++- `tests/experiments/test_evaluated_execution_spike_trial.py::test_every_kill_of_the_spike_and_what_its_resume_gives[mixed]`
++
++The fresh current rerun (`unmatched-current.log`, `.exit`) gave 2 failed /
++1 passed in 42.12s. Both runtime tests failed because the outer hosting run
++owns `/home/ollie/Documents/agent-orchestration-repl`, producing
++`workspace_run_already_active`; the mixed spike passed. Running baseline code
++for those two runtime selectors from that same active host workspace reproduced
++both failures in 1.19s with the same diagnostic (`baseline-same-workspace.log`).
++`unmatched-failures.json` retains the three selectors; the shared outer-run
++ownership is an environment boundary, not proof that the runtime lock should
++be removed or bypassed.
++
++| Disposition of the 266 full-run failures | Count | Evidence limit |
++| --- | ---: | --- |
++| Existing selectors reproduced on baseline in this environment | 260 | Baseline/inherited-environment reproduction; no universal classification of every root cause |
++| Runtime persistence selectors reproduced with baseline code in the same active host workspace | 2 | Both fail before executor entry with `workspace_run_already_active` |
++| Mixed spike not reproduced in fresh baseline/current controls | 1 | Both fresh controls pass; original full-run failure is retained as non-reproduced, not erased |
++| Required REPL list-equality contract conflict | 3 | Current requested acceptance remains red; owner clarification pending |
++
++The mixed spike's original full-campaign failure has an unresolved root cause;
++the fresh passing controls do not establish that it is fixed.
++
++The coordinator removed the disposable baseline worktree after receipt review
++and moved the full suite's generated `.tmp/omp-fake-launcher` files outside
++the checkout. Logs/selector JSON remain separate local receipts. The checkout
++contains only the intended committed changes and this final evidence update.
++
++### Recorded implementation commits
++
++| Commit | Artifact |
++| --- | --- |
++| `4a3d1517` | Design and bounded execution plan |
++| `e142f281` | Retained expression compiler context |
++| `bab0fbc1` | Injectable shared checked replay |
++| `e7201328` | Read-only lexical capture |
++| `9014305a` | Ordinary frontend/evaluator expression bridge |
++| `dbb2a0b9` | REPL CLI and console entry point |
++| `22e6bdf4` | Public scope/evidence-preservation tests |
++| `807258ba` | Usage and read-only contracts documentation |
++
++A later final evidence/documentation commit is not assigned a hash by this
++record before it exists. The coordinator owns that commit and integration.
++
++Record the owner clarification, any approved correction/retest, strict smoke
++result and final acceptance review before closure. Steps 7 and 9 stay partial;
++all-complete is not claimed. Temporary evidence paths are local receipts, not
++portable checked-in test fixtures or persisted execution authority.
+diff --git a/orchestrator/cli/commands/__init__.py b/orchestrator/cli/commands/__init__.py
+index 72c4d554..4a7133a2 100644
+--- a/orchestrator/cli/commands/__init__.py
++++ b/orchestrator/cli/commands/__init__.py
+@@ -4,6 +4,7 @@ from .compile import compile_workflow
+ from .explain import explain_workflow
+ from .run import RunWorkflowResult
+ from .run import run_workflow
++from .repl import repl_workflow
+ from .prompt import prompt_workflow
+ from .resume import resume_workflow
+ from .report import report_workflow
+@@ -28,6 +29,7 @@ __all__ = [
+     'compile_workflow',
+     'explain_workflow',
+     'run_workflow',
++    'repl_workflow',
+     'RunWorkflowResult',
+     'prompt_workflow',
+     'resume_workflow',
+diff --git a/orchestrator/cli/commands/repl.py b/orchestrator/cli/commands/repl.py
+new file mode 100644
+index 00000000..11ad38f7
+--- /dev/null
++++ b/orchestrator/cli/commands/repl.py
+@@ -0,0 +1,373 @@
++"""Interactive inspection for evaluated Workflow Lisp runs."""
++
++from __future__ import annotations
++
++import argparse
++from contextlib import redirect_stderr, redirect_stdout
++from dataclasses import dataclass
++from io import StringIO
++import shlex
++import sys
++from pathlib import Path
++from typing import Any
++
++from orchestrator._common.safe_tree import resolve_path_preserving_fd
++from orchestrator.workflow.evaluated.capture import (
++    CapturedRun,
++    capture_run_environment,
++    load_run_for_capture,
++    visible_bindings,
++)
++from orchestrator.workflow.evaluated.views import has_evaluated_authority
++from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
++from orchestrator.workflow_lisp.closed.build import _strip_provenance
++from orchestrator.workflow_lisp.closed.artifact import (
++    ClosedProgramBuildResult,
++    build_closed_program_bundle,
++    prepare_closed_program_bundle,
++)
++from orchestrator.workflow_lisp.diagnostics import (
++    LispFrontendCompileError,
++    render_diagnostic,
++)
++from orchestrator.workflow_lisp.reader import SourceReadTrace
++from orchestrator.workflow_lisp.repl_expr import (
++    LoadedModule,
++    ReplRefusal,
++    binding_type_refs,
++    evaluate_repl_expression,
++)
++from orchestrator.workflow_lisp.type_env import render_type_ref
++
++
++@dataclass
++class ReplSession:
++    workspace: Path
++    state_dir: Path | None
++    module: LoadedModule | None = None
++    captured: CapturedRun | None = None
++
++
++def _frontend_argv(args: Any) -> tuple[str, ...]:
++    argv: list[str] = []
++    if args.entry_workflow:
++        argv.extend(("--entry-workflow", args.entry_workflow))
++    for path in args.source_root or ():
++        argv.extend(("--source-root", path))
++    for name, flag in (
++        ("provider_externs_file", "--provider-externs-file"),
++        ("prompt_externs_file", "--prompt-externs-file"),
++        ("imported_workflow_bundles_file", "--imported-workflow-bundles-file"),
++        ("command_boundaries_file", "--command-boundaries-file"),
++    ):
++        value = getattr(args, name, None)
++        if value:
++            argv.extend((flag, value))
++    return tuple(argv)
++
++
++def _request_frontend_argv(request: Any) -> tuple[str, ...]:
++    argv: list[str] = []
++    if request.entry_workflow:
++        argv.extend(("--entry-workflow", request.entry_workflow))
++    for path in request.source_roots:
++        argv.extend(("--source-root", str(path)))
++    for field, flag in (
++        ("provider_externs_path", "--provider-externs-file"),
++        ("prompt_externs_path", "--prompt-externs-file"),
++        ("imported_workflow_bundles_path", "--imported-workflow-bundles-file"),
++        ("command_boundaries_path", "--command-boundaries-file"),
++    ):
++        value = getattr(request, field)
++        if value is not None:
++            argv.extend((flag, str(value)))
++    return tuple(argv)
++
++
++def _load_parser() -> argparse.ArgumentParser:
++    from orchestrator.cli.main import _add_frontend_flags
++
++    parser = argparse.ArgumentParser(prog=":load")
++    parser.add_argument("workflow", help="Workflow Lisp .orc source file")
++    _add_frontend_flags(parser)
++    return parser
++
++
++def _show_compile_error(exc: LispFrontendCompileError) -> None:
++    for diagnostic in exc.diagnostics:
++        print(render_diagnostic(diagnostic), file=sys.stderr)
++
++
++def _report_error(exc: BaseException, *, fallback: str = "repl_command_failed") -> None:
++    code = getattr(exc, "code", None)
++    if not code:
++        code = "repl_io_error" if isinstance(exc, OSError) else fallback
++    print(f"[{code}] {exc}", file=sys.stderr)
++
++
++def _load_module(
++    session: ReplSession,
++    args: Any,
++) -> None:
++    from orchestrator.cli.commands.evaluated import _request
++
++    source_path = resolve_path_preserving_fd(args.workflow)
++    built: ClosedProgramBuildResult = build_closed_program_bundle(
++        _request(args, source_path, session.workspace),
++        source_read_trace=SourceReadTrace(),
++    )
++    module = LoadedModule(built, source_path, _frontend_argv(args))
++    session.module = module
++    if (
++        session.captured is not None
++        and session.captured.authority.program.digest != built.program.digest
++    ):
++        session.captured = None
++
++
++def _run_root(session: ReplSession, run_id: str) -> Path:
++    if (
++        not run_id
++        or run_id in {".", ".."}
++        or Path(run_id).name != run_id
++        or "\x00" in run_id
++    ):
++        raise ReplRefusal("repl_run_not_found", "run id is not a single path component")
++    runs_root = session.state_dir or session.workspace / ".orchestrate" / "runs"
++    return runs_root / run_id
++
++
++def _module_for_attachment(
++    session: ReplSession,
++    header: Any,
++) -> LoadedModule:
++    if session.module is not None:
++        return session.module
++    if "resume_request" not in header:
++        raise ReplRefusal(
++            "resume_request_missing", "run header has no durable rebuild request"
++        )
++    from orchestrator.cli.commands.evaluated import _resume_build_request
++
++    request = _resume_build_request(header, session.workspace)
++    built: ClosedProgramBuildResult = prepare_closed_program_bundle(
++        request, source_read_trace=SourceReadTrace()
++    )
++    return LoadedModule(
++        built,
++        request.source_path,
++        _request_frontend_argv(request),
++    )
++
++
++def _attach_root(session: ReplSession, run_root: Path) -> None:
++    if not run_root.exists():
++        raise ReplRefusal("repl_run_not_found", f"run directory not found: {run_root}")
++    if not has_evaluated_authority(run_root):
++        raise ReplRefusal(
++            "repl_profile_unsupported", "run does not use evaluated execution"
++        )
++    authority, snapshot = load_run_for_capture(run_root)
++    module = _module_for_attachment(session, authority.header)
++    if authority.header.get("program_digest") != module.build.program.digest:
++        session.captured = None
++        raise ReplRefusal(
++            "resume_program_changed", "current program differs from the run header"
++        )
++    captured = capture_run_environment(authority, snapshot)
++    session.module = module
++    session.captured = captured
++
++
++def _print_value(value: Any, type_ref: Any) -> None:
++    print(canonical_json_bytes(value.json_value()).decode("utf-8"))
++    print(f": {render_type_ref(type_ref)}")
++
++
++def _binding_lines(captured: CapturedRun, module: LoadedModule) -> list[str]:
++    visible = visible_bindings(captured)
++    refs = binding_type_refs(module, visible)
++    frames = []
++    frame = captured.environment
++    owners: dict[str, Any] = {}
++    while frame is not None:
++        frames.append(frame)
++        for name in frame.bindings:
++            if not name.startswith("%"):
++                owners.setdefault(name, frame)
++        frame = frame.parent
++    lines = []
++    emitted: set[str] = set()
++    for frame in reversed(frames):
++        for name in frame.bindings:
++            if name.startswith("%") or owners.get(name) is not frame or name in emitted:
++                continue
++            emitted.add(name)
++            type_ref = refs.get(name)
++            rendered = (
++                render_type_ref(type_ref)
++                if type_ref is not None
++                else canonical_json_bytes(
++                    _strip_provenance(visible[name].descriptor)
++                ).decode("utf-8")
++            )
++            lines.append(f"{name} : {rendered}")
++    lines.extend((f"position: {captured.position}", f"run: {captured.authority.header['run_id']}"))
++    return lines
++
++
++def _parse_command(parser: argparse.ArgumentParser, argv: list[str]) -> Any | None:
++    stdout, stderr = StringIO(), StringIO()
++    try:
++        with redirect_stdout(stdout), redirect_stderr(stderr):
++            parsed = parser.parse_args(argv)
++    except SystemExit as exc:
++        if exc.code == 0:
++            print(stdout.getvalue(), end="")
++            return None
++        detail = stderr.getvalue().strip().splitlines()
++        raise ReplRefusal(
++            "repl_command_invalid", detail[-1] if detail else "invalid command arguments"
++        ) from None
++    return parsed
++
++
++def _run(session: ReplSession, tail: list[str]) -> None:
++    if session.module is None:
++        raise ReplRefusal("repl_module_required", "load a workflow before :run")
++    from orchestrator.cli.main import create_parser
++    from orchestrator.cli.commands.run import run_workflow
++
++    argv = ["run", str(session.module.source_path), *session.module.frontend_argv, *tail]
++    if session.state_dir is not None and not any(
++        token == "--state-dir" or token.startswith("--state-dir=") for token in tail
++    ):
++        argv.extend(("--state-dir", str(session.state_dir)))
++    parsed = _parse_command(create_parser(), argv)
++    if parsed is None:
++        return
++    result = run_workflow(parsed)
++    if result.run_id is not None and result.run_root is not None:
++        try:
++            _attach_root(session, result.run_root)
++        except (OSError, UnicodeError, ValueError) as exc:
++            _report_error(exc)
++        print(f"run_id: {result.run_id}")
++        print(f"exit_code: {result.exit_code}")
++    else:
++        print(f"run_id: none")
++        print(f"exit_code: {result.exit_code}")
++
++
++def _dispatch(session: ReplSession, line: str) -> bool:
++    stripped = line.strip()
++    if not stripped:
++        return True
++    if not stripped.startswith(":"):
++        if session.captured is None:
++            raise ReplRefusal("repl_not_attached", "attach to an evaluated run first")
++        if session.module is None:
++            raise ReplRefusal("repl_module_required", "load a workflow before entering expressions")
++        value, typed = evaluate_repl_expression(stripped, session.module, session.captured)
++        _print_value(value, typed.type_ref)
++        return True
++
++    parts = stripped.split(maxsplit=1)
++    command = parts[0]
++    words = shlex.split(parts[1]) if len(parts) == 2 else []
++    if command == ":quit":
++        if words:
++            raise ReplRefusal("repl_command_invalid", ":quit takes no arguments")
++        return False
++    if command == ":help":
++        if words:
++            raise ReplRefusal("repl_command_invalid", ":help takes no arguments")
++        print(
++            ":load PATH [frontend flags]   load or replace a Workflow Lisp module\n"
++            ":run [--input NAME=VALUE] [--input-file JSON] [run flags]\n"
++            ":attach RUN_ID               attach to a checked evaluated run\n"
++            ":bindings                    list captured lexical bindings and types\n"
++            ":result                      show the completed entry result\n"
++            ":help                        show this help\n"
++            ":quit                        exit the REPL\n"
++            "Any other nonempty line is one pure Workflow Lisp expression."
++        )
++        return True
++    if command == ":load":
++        args = _parse_command(_load_parser(), words)
++        if args is not None:
++            _load_module(session, args)
++        return True
++    if command == ":run":
++        _run(session, words)
++        return True
++    if command == ":attach":
++        if len(words) != 1:
++            raise ReplRefusal("repl_command_invalid", ":attach requires one run id")
++        _attach_root(session, _run_root(session, words[0]))
++        return True
++    if command == ":bindings":
++        if words:
++            raise ReplRefusal("repl_command_invalid", ":bindings takes no arguments")
++        if session.captured is None or session.module is None:
++            raise ReplRefusal("repl_not_attached", "attach to an evaluated run first")
++        print("\n".join(_binding_lines(session.captured, session.module)))
++        return True
++    if command == ":result":
++        if words:
++            raise ReplRefusal("repl_command_invalid", ":result takes no arguments")
++        if session.captured is None or session.module is None:
++            raise ReplRefusal("repl_not_attached", "attach to an evaluated run first")
++        if session.captured.result is None:
++            raise ReplRefusal(
++                "repl_no_result",
++                f"entry has no completed result at position {session.captured.position}",
++            )
++        signature = session.module.typed_program.entry.signature
++        _print_value(session.captured.result, signature.return_type_ref)
++        return True
++    raise ReplRefusal("repl_command_unknown", f"unknown command {command}")
++
++
++def repl_workflow(args: Any) -> int:
++    """Load and inspect an evaluated Workflow Lisp module interactively."""
++    session = ReplSession(
++        workspace=Path.cwd(),
++        state_dir=Path(args.state_dir).expanduser().resolve() if args.state_dir else None,
++    )
++    try:
++        if args.workflow:
++            _load_module(session, args)
++        if args.run_id:
++            _attach_root(session, _run_root(session, args.run_id))
++    except LispFrontendCompileError as exc:
++        _show_compile_error(exc)
++        return 2
++    except (OSError, UnicodeError, ValueError) as exc:
++        _report_error(exc, fallback="repl_startup_failed")
++        return 2
++    except Exception as exc:
++        _report_error(exc, fallback="repl_internal_error")
++        return 1
++
++    tty = sys.stdin.isatty()
++    if tty:
++        try:
++            import readline  # noqa: F401
++        except ImportError:
++            pass
++    while True:
++        try:
++            line = input("orc> " if tty else "")
++        except EOFError:
++            return 0
++        try:
++            if not _dispatch(session, line):
++                return 0
++        except LispFrontendCompileError as exc:
++            _show_compile_error(exc)
++        except (OSError, UnicodeError, ValueError) as exc:
++            _report_error(exc)
++        except Exception as exc:
++            _report_error(exc, fallback="repl_internal_error")
++            return 1
+diff --git a/orchestrator/cli/main.py b/orchestrator/cli/main.py
+index 69e00f40..a902c029 100644
+--- a/orchestrator/cli/main.py
++++ b/orchestrator/cli/main.py
+@@ -427,6 +427,16 @@ def create_parser() -> argparse.ArgumentParser:
+         help='Emit one versioned machine-readable compile diagnostics document'
+     )
+ 
++    repl_parser = subparsers.add_parser(
++        'repl', help='Inspect Workflow Lisp expressions and evaluated runs'
++    )
++    repl_parser.add_argument(
++        'workflow', nargs='?', help='Optional Workflow Lisp .orc source file'
++    )
++    _add_frontend_flags(repl_parser)
++    repl_parser.add_argument('--run-id', help='Attach to an evaluated run at startup')
++    repl_parser.add_argument('--state-dir', help='Override the default runs directory')
++
+     explain_parser = subparsers.add_parser('explain', help='Explain a compiled Workflow Lisp form')
+     explain_parser.add_argument(
+         'workflow',
+@@ -727,6 +737,9 @@ def main(args: Optional[list] = None) -> int:
+ 
+     if parsed_args.command == 'run':
+         return run_workflow(parsed_args).exit_code
++    elif parsed_args.command == 'repl':
++        from .commands import repl_workflow
++        return repl_workflow(parsed_args)
+     elif parsed_args.command == 'prompt':
+         from .commands import prompt_workflow
+         return prompt_workflow(parsed_args)
+diff --git a/orchestrator/workflow/evaluated/capture.py b/orchestrator/workflow/evaluated/capture.py
+new file mode 100644
+index 00000000..e9d24030
+--- /dev/null
++++ b/orchestrator/workflow/evaluated/capture.py
+@@ -0,0 +1,146 @@
++"""Capture the lexical environment at a checked evaluated-run boundary."""
++
++from __future__ import annotations
++
++from dataclasses import dataclass, field
++import os
++from pathlib import Path
++
++from orchestrator.workflow.workspace_files import WorkspaceFiles
++from . import views
++from .authority import (
++    HEADER_FILENAME,
++    MEMO_FILENAME,
++    PROGRAM_FILENAME,
++    RunAuthority,
++    RunAuthorityError,
++    load_run_authority_from_bytes,
++)
++from .machine import EffectHandler, _ControlTransfer, _Machine, site_classes
++from .memo import MemoError, reduce_memo
++from .memo_reducer import MemoSnapshot
++from .values import EvaluatedValue, EvaluatedValueError, LexicalEnvironment
++
++
++@dataclass
++class _CaptureTrace:
++    completions: list[tuple[LexicalEnvironment, EvaluatedValue]] = field(default_factory=list)
++    stop: tuple[LexicalEnvironment, str] | None = None
++    result: EvaluatedValue | None = None
++
++
++@dataclass(frozen=True)
++class _CaptureMachine(_Machine):
++    trace: _CaptureTrace = field(compare=False, repr=False)
++
++    def _halt(self, node, environment, owner, activation, loops):
++        result = super()._halt(node, environment, owner, activation, loops)
++        self.trace.completions.append((environment, result))
++        return result
++
++    def _done(self, node, environment, owner, activation, loops):
++        try:
++            return super()._done(node, environment, owner, activation, loops)
++        except _ControlTransfer as transfer:
++            if transfer.kind == "done":
++                self.trace.completions.append((environment, transfer.values[0]))
++            raise
++
++    def _perform(self, node, environment, owner, activation, loops):
++        try:
++            return super()._perform(node, environment, owner, activation, loops)
++        except views._MissingCommit as exc:
++            if self.trace.stop is None:
++                self.trace.stop = environment, exc.identity
++            raise
++
++    def _body(self, node, environment, owner, activation, loops):
++        try:
++            return super()._body(node, environment, owner, activation, loops)
++        except EvaluatedValueError as exc:
++            if self.trace.stop is None:
++                self.trace.stop = environment, f"failed:{exc.code}"
++            raise
++
++
++@dataclass(frozen=True)
++class CapturedRun:
++    environment: LexicalEnvironment
++    position: str
++    halted: bool
++    result: EvaluatedValue | None
++    snapshot: MemoSnapshot
++    authority: RunAuthority
++
++
++def visible_bindings(captured: CapturedRun) -> dict[str, EvaluatedValue]:
++    """Return visible bindings innermost first, omitting compiler temporaries."""
++    bindings: dict[str, EvaluatedValue] = {}
++    frame = captured.environment
++    while frame is not None:
++        for name, value in frame.bindings.items():
++            if not name.startswith("%"):
++                bindings.setdefault(name, value)
++        frame = frame.parent
++    return bindings
++
++
++def capture_run_environment(
++    authority: RunAuthority,
++    snapshot: MemoSnapshot,
++) -> CapturedRun:
++    """Replay one checked memo prefix and retain its true lexical position."""
++    trace = _CaptureTrace()
++
++    def evaluate(program, inputs, *, effect_handler: EffectHandler, run_id: str):
++        result = _CaptureMachine(
++            program, effect_handler, run_id, None, None, trace
++        ).evaluate(inputs)
++        trace.result = result
++        return result
++
++    result, _next_effect, halted = views._replay(
++        authority, snapshot, evaluate=evaluate
++    )
++    views._checked_terminal(snapshot, result, halted)
++    if halted:
++        if trace.stop is not None or not trace.completions or trace.result is None:
++            raise MemoError(
++                "memo_inconsistent", "checked halt differs from the captured environment"
++            )
++        environment, _exit_value = trace.completions[-1]
++        position = "halt"
++        result_value = trace.result
++    else:
++        if trace.stop is None:
++            raise MemoError(
++                "memo_inconsistent",
++                "checked replay stopped without a captured failure or effect position",
++            )
++        environment, position = trace.stop
++        result_value = None
++    return CapturedRun(
++        environment, position, halted, result_value, snapshot, authority
++    )
++
++
++def load_run_for_capture(run_root: Path) -> tuple[RunAuthority, MemoSnapshot]:
++    """Load checked run files without locking or modifying them."""
++    root = Path(os.path.abspath(os.fspath(run_root)))
++    files = WorkspaceFiles(root)
++    try:
++        authority = load_run_authority_from_bytes(
++            root,
++            header_bytes=files.read(HEADER_FILENAME),
++            program_bytes=files.read(PROGRAM_FILENAME),
++        )
++        snapshot = reduce_memo(
++            files.read(MEMO_FILENAME), site_classes(authority.program)
++        )
++        return authority, snapshot
++    except (OSError, OverflowError, TypeError, ValueError) as exc:
++        if isinstance(exc, (MemoError, RunAuthorityError)):
++            raise
++        raise MemoError("memo_inconsistent", str(exc)) from exc
++    finally:
++        files.close()
+diff --git a/orchestrator/workflow/evaluated/views.py b/orchestrator/workflow/evaluated/views.py
+index fab6ee54..79e1963f 100644
+--- a/orchestrator/workflow/evaluated/views.py
++++ b/orchestrator/workflow/evaluated/views.py
+@@ -61,7 +61,7 @@ class _MissingCommit(Exception):
+         self.identity = identity
+ 
+ 
+-def _replay(authority, snapshot):
++def _replay(authority, snapshot, *, evaluate=evaluate_closed_program):
+     commits = sorted(snapshot.active_commits.values(), key=lambda entry: entry.offset)
+     consumed = 0
+ 
+@@ -78,7 +78,7 @@ def _replay(authority, snapshot):
+         return _committed_value(authority, node, commit, identity)
+ 
+     try:
+-        value = evaluate_closed_program(
++        value = evaluate(
+             authority.program, authority.header["bound_inputs"],
+             effect_handler=handle, run_id=authority.header["run_id"],
+         ).json_value()
+diff --git a/orchestrator/workflow_lisp/closed/artifact.py b/orchestrator/workflow_lisp/closed/artifact.py
+index ac16b81c..2e4f5a02 100644
+--- a/orchestrator/workflow_lisp/closed/artifact.py
++++ b/orchestrator/workflow_lisp/closed/artifact.py
+@@ -3,7 +3,7 @@
+ from __future__ import annotations
+ 
+ from collections.abc import Mapping
+-from dataclasses import dataclass
++from dataclasses import dataclass, field
+ import hashlib
+ import json
+ from pathlib import Path
+@@ -28,11 +28,17 @@ from .. import syntax
+ from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+ from ..effects import EffectSummary
+ from ..build import _iter_compiled_import_entries
++from ..workflows import Stage3CompileResult
+ from ..reader import SourceReadTrace
+ from .target import entry_target_dsl_version
+ from .build import Builder, build_closed_program
+ from .effects import require_command_closures
+-from .frontend import ProviderIOContext, TypedProgram, compile_typed_program
++from .frontend import (
++    ProviderIOContext,
++    TypedProgram,
++    compile_typed_program,
++    compile_typed_program_with_result,
++)
+ from .program import ClosedProgram, REPRESENTATION, SCHEMA
+ 
+ 
+@@ -47,6 +53,9 @@ class ClosedProgramBuildResult:
+     provider_io: ProviderIOContext
+     compile_diagnostics: tuple[LispFrontendDiagnostic, ...] | None
+     entry_effect_summary: EffectSummary
++    typed_program: TypedProgram | None = field(default=None, compare=False, repr=False)
++    stage3: Stage3CompileResult | None = field(default=None, compare=False, repr=False)
++    builder: Builder | None = field(default=None, compare=False, repr=False)
+ 
+ 
+ def closed_build_key(
+@@ -116,7 +125,7 @@ def _prepare_closed_program_bundle(
+         configuration_trace=configuration_trace,
+     )
+     trace = source_read_trace or SourceReadTrace()
+-    typed = compile_typed_program(
++    typed, stage3 = compile_typed_program_with_result(
+         resolved.source_path,
+         entry_workflow=resolved.entry_workflow,
+         source_roots=resolved.source_roots,
+@@ -186,6 +195,9 @@ def _prepare_closed_program_bundle(
+         provider_io=builder.provider_io.bind(read_back),
+         compile_diagnostics=typed.compile_diagnostics,
+         entry_effect_summary=typed.entry.effect_summary,
++        typed_program=typed,
++        stage3=stage3,
++        builder=builder,
+     )
+ 
+ 
+diff --git a/orchestrator/workflow_lisp/closed/frontend.py b/orchestrator/workflow_lisp/closed/frontend.py
+index 1cf72bda..f56ebca4 100644
+--- a/orchestrator/workflow_lisp/closed/frontend.py
++++ b/orchestrator/workflow_lisp/closed/frontend.py
+@@ -24,6 +24,7 @@ from ..workflows import (
+     ExternEnvironment,
+     ProviderExtern,
+     PromptExtern,
++    Stage3CompileResult,
+     TypedWorkflowDef,
+     WorkflowSignature,
+ )
+@@ -736,7 +737,7 @@ def typed_program_from_graph(
+     )
+ 
+ 
+-def compile_typed_program(
++def compile_typed_program_with_result(
+     entry_path: Path,
+     *,
+     entry_workflow: str | None,
+@@ -748,7 +749,7 @@ def compile_typed_program(
+     imported_programs: Mapping[str, TypedProgram] | None = None,
+     workspace_root: Path | None = None,
+     source_read_trace: SourceReadTrace | None = None,
+-) -> TypedProgram:
++) -> tuple[TypedProgram, Stage3CompileResult]:
+     from .. import compiler
+     from ..build import _select_entry_workflow_from_surface
+     from ..build_artifacts import _source_file_digests_from_trace
+@@ -839,12 +840,43 @@ def compile_typed_program(
+         source_read_records=trace.records,
+         source_revision_vector=trace.revision_vector,
+     )
+-    return replace(
++    typed_program = replace(
+         program,
+         entry=workflow,
+         source_file_digests=digests,
+         compile_diagnostics=result.diagnostics,
+     )
++    return typed_program, result.entry_result
++
++
++def compile_typed_program(
++    entry_path: Path,
++    *,
++    entry_workflow: str | None,
++    source_roots: tuple[Path, ...],
++    command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding],
++    provider_externs: Mapping[str, str] | None = None,
++    prompt_externs: Mapping[str, PromptExtern | str | Mapping[str, object]] | None = None,
++    imported_workflow_bundles: Mapping[str, object] | None = None,
++    imported_programs: Mapping[str, TypedProgram] | None = None,
++    workspace_root: Path | None = None,
++    source_read_trace: SourceReadTrace | None = None,
++) -> TypedProgram:
++    """Compile an evaluated program, preserving the original public result."""
++
++    typed_program, _ = compile_typed_program_with_result(
++        entry_path,
++        entry_workflow=entry_workflow,
++        source_roots=source_roots,
++        command_boundaries=command_boundaries,
++        provider_externs=provider_externs,
++        prompt_externs=prompt_externs,
++        imported_workflow_bundles=imported_workflow_bundles,
++        imported_programs=imported_programs,
++        workspace_root=workspace_root,
++        source_read_trace=source_read_trace,
++    )
++    return typed_program
+ 
+ 
+ def _candidate_source_module(program, owned, candidate):
+diff --git a/orchestrator/workflow_lisp/compiler.py b/orchestrator/workflow_lisp/compiler.py
+index 284356c7..f3fcd8bc 100644
+--- a/orchestrator/workflow_lisp/compiler.py
++++ b/orchestrator/workflow_lisp/compiler.py
+@@ -216,6 +216,7 @@ from .workflows import (
+     CertifiedAdapterBinding,
+     CommandBoundaryEnvironment,
+     ExternalToolBinding,
++    ExpressionCompileContext,
+     PromptExtern,
+     Stage3CompileResult,
+     TypedWorkflowDef,
+@@ -3836,6 +3837,17 @@ def _compile_stage3_graph(
+             retained_non_promotable_diagnostics=_retained_non_promotable_diagnostics(diagnostics),
+             lowering_schema_version=lowering_schema_for_route(normalized_lowering_route),
+             typed_program=typed_program_snapshot if module_name == graph.entry_module_name else None,
++            expression_context=(
++                ExpressionCompileContext(
++                    function_catalog=function_catalog,
++                    typed_functions_by_name=combined_typed_functions,
++                    function_name_resolver=local_function_resolver,
++                    procedure_name_resolver=local_procedure_resolver,
++                    workflow_name_resolver=local_workflow_resolver,
++                )
++                if module_name == graph.entry_module_name
++                else None
++            ),
+         )
+         compiled_results_by_name[module_name] = result
+         aggregate_diagnostics.extend(result.diagnostics)
+diff --git a/orchestrator/workflow_lisp/repl_expr.py b/orchestrator/workflow_lisp/repl_expr.py
+new file mode 100644
+index 00000000..9e3c8efc
+--- /dev/null
++++ b/orchestrator/workflow_lisp/repl_expr.py
+@@ -0,0 +1,262 @@
++"""Compile attached-run expressions through the ordinary Lisp frontend."""
++
++from __future__ import annotations
++
++from collections.abc import Mapping
++from dataclasses import dataclass, field, fields, is_dataclass, replace
++from pathlib import Path
++
++from orchestrator.workflow.evaluated.capture import CapturedRun, visible_bindings
++from orchestrator.workflow.evaluated.machine import _Machine
++from orchestrator.workflow.evaluated.values import (
++    EvaluatedValue, EvaluatedValueError, evaluate_closed_value,
++)
++from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
++
++from . import expressions, functions, syntax
++from .closed.artifact import ClosedProgramBuildResult
++from .closed.build import Builder, _strip_provenance
++from .closed.frontend import TypedProgram
++from .closed.names import canonical_type_descriptor
++from .closed.sites import _ast_nodes, _value_nodes
++from .compiler_session import CompilerSession
++from .diagnostics import LispFrontendCompileError
++from .reader import read_sexpr_text
++from .type_env import (
++    DiscriminantTypeRef, FrontendTypeEnvironment, ListTypeRef, MapTypeRef,
++    OptionalTypeRef, PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef,
++    VariantCaseTypeRef,
++)
++from .typecheck_context import TypedExpr
++from .typecheck_dispatch import typecheck_expression
++from .workflows import ProviderExtern, Stage3CompileResult, WorkflowSignature
++
++
++class ReplRefusal(ValueError):
++    def __init__(self, code: str, message: str) -> None:
++        super().__init__(message)
++        self.code = code
++
++
++@dataclass
++class LoadedModule:
++    build: ClosedProgramBuildResult
++    source_path: Path
++    frontend_argv: tuple[str, ...] = ()
++    typed_program: TypedProgram = field(init=False, repr=False)
++    stage3: Stage3CompileResult = field(init=False, repr=False)
++    builder: Builder = field(init=False, repr=False)
++    type_env: FrontendTypeEnvironment = field(init=False, repr=False)
++    _binding_refs: dict[bytes, TypeRef] = field(init=False, repr=False)
++
++    def __post_init__(self) -> None:
++        built = self.build
++        if built.typed_program is None or built.stage3 is None or built.builder is None:
++            raise ReplRefusal(
++                "repl_module_context_missing", "load requires retained compiler context"
++            )
++        self.typed_program = built.typed_program
++        self.stage3 = built.stage3
++        self.type_env = self.typed_program.workflow_type_env(
++            self.typed_program.entry.definition.name
++        )
++        self.builder = built.builder
++        self._binding_refs = _descriptor_type_refs(self)
++
++
++def _descriptor_key(descriptor: Mapping) -> bytes:
++    return canonical_json_bytes(_strip_provenance(descriptor))
++
++
++def _descriptor_type_refs(module: LoadedModule) -> dict[bytes, TypeRef]:
++    result: dict[bytes, TypeRef] = {}
++    seen: set[tuple[int, int]] = set()
++
++    def visit(ref, program):
++        key = id(ref), id(program)
++        if key in seen:
++            return
++        seen.add(key)
++        if isinstance(ref, (RecordTypeRef, PrimitiveTypeRef, PathTypeRef, UnionTypeRef,
++                            VariantCaseTypeRef, DiscriminantTypeRef,
++                            ListTypeRef, OptionalTypeRef, MapTypeRef)):
++            result[_descriptor_key(canonical_type_descriptor(ref, typed=program))] = ref
++        if isinstance(ref, RecordTypeRef):
++            children = ref.field_types.values()
++        elif isinstance(ref, (ListTypeRef, OptionalTypeRef)):
++            children = (ref.item_type_ref,)
++        elif isinstance(ref, MapTypeRef):
++            children = (ref.key_type_ref, ref.value_type_ref)
++        elif isinstance(ref, UnionTypeRef):
++            children = (*ref.type_args, *(child for row in ref.variant_field_types.values()
++                                         for child in row.values()))
++        elif isinstance(ref, VariantCaseTypeRef):
++            children = (*ref.union_type_args, *(ref.field_types or {}).values())
++        elif isinstance(ref, DiscriminantTypeRef):
++            children = tuple(child for child in (ref.applied_union, ref.owner_union)
++                             if child is not None)
++        else:
++            children = ()
++        for child in children:
++            visit(child, program)
++
++    def typed_nodes(body, program):
++        pending, visited = [body], set()
++        while pending:
++            node = pending.pop()
++            if id(node) in visited:
++                continue
++            visited.add(id(node))
++            if isinstance(node, TypedExpr):
++                visit(node.type_ref, program)
++            if isinstance(node, TypeRef):
++                continue
++            if is_dataclass(node):
++                pending.extend(getattr(node, row.name) for row in fields(node))
++            elif isinstance(node, Mapping):
++                pending.extend(node.values())
++            elif isinstance(node, (tuple, list)):
++                pending.extend(node)
++
++    for program in module.builder._programs():
++        for definition in (*program.workflows.values(), *program.procedures.values()):
++            for _name, ref in definition.signature.params:
++                visit(ref, program)
++            visit(definition.signature.return_type_ref, program)
++            typed_nodes(definition.typed_body, program)
++    for descriptor, ref, program, _context, _hint in module.builder.emitted_descriptors:
++        result[_descriptor_key(descriptor)] = ref
++        visit(ref, program)
++    return result
++
++
++def binding_type_refs(
++    module: LoadedModule, bindings: dict[str, EvaluatedValue]
++) -> dict[str, TypeRef]:
++    result = {}
++    for name, value in bindings.items():
++        if value.descriptor.get("kind") == "variant_case":
++            continue
++        ref = module._binding_refs.get(_descriptor_key(value.descriptor))
++        if ref is not None:
++            result[name] = ref
++    return result
++
++
++def _require_pure_lowered(value, definitions):
++    pending, checked = list(_value_nodes(value)), set()
++    while pending:
++        node = pending.pop()
++        if node.get("k") == "perform":
++            raise ReplRefusal("repl_effect_refused", "REPL expressions must be pure")
++        if node.get("k") == "call" and node["callee"] not in checked:
++            checked.add(node["callee"])
++            definition = definitions.get(node["callee"])
++            if definition is None:
++                raise ReplRefusal(
++                    "repl_module_context_missing", f"missing callee {node['callee']!r}"
++                )
++            pending.extend(_ast_nodes(definition["body"]))
++
++
++def evaluate_repl_expression(
++    line: str, module: LoadedModule, captured: CapturedRun
++) -> tuple[EvaluatedValue, TypedExpr]:
++    parsed = read_sexpr_text(line, source_path="<repl>")
++    if len(parsed.items) != 1:
++        raise ReplRefusal("repl_expression_arity", "enter exactly one expression")
++    datum = parsed.items[0]
++    node = syntax.SyntaxNode(datum, datum.span, "<repl>", ("repl",))
++    stage3, context = module.stage3, module.stage3.expression_context
++    captured_types = binding_type_refs(module, visible_bindings(captured))
++    values = dict(captured_types)
++    externs = stage3.extern_environment.bindings_by_name
++    lexical_names = frozenset(values) - frozenset(externs)
++    for name, binding in externs.items():
++        values[name] = PrimitiveTypeRef("Provider" if isinstance(binding, ProviderExtern) else "Prompt")
++    w3 = syntax.target_dsl_supports_local_hook_inference(module.typed_program.target)
++    session = CompilerSession(closed_program=True)
++    try:
++        expr = expressions.elaborate_expression(
++            node,
++            bound_names=lexical_names if w3 else frozenset(values),
++            extern_names=frozenset(externs) if w3 else frozenset(),
++            procedure_names=frozenset(stage3.procedure_catalog.signatures_by_name),
++            function_names=frozenset(context.function_catalog.signatures_by_name) if context else frozenset(),
++            function_name_resolver=context.function_name_resolver if context else None,
++            procedure_name_resolver=context.procedure_name_resolver if context else None,
++            workflow_name_resolver=context.workflow_name_resolver if context else None,
++            target_dsl_version=module.typed_program.target,
++            prompt_catalog=stage3.prompt_catalog,
++            session_state=session.elaboration,
++        )
++    except LispFrontendCompileError as exc:
++        if context is None and any(d.code in {"procedure_call_unknown", "function_call_unknown"}
++                                   for d in exc.diagnostics):
++            raise ReplRefusal("repl_module_context_missing", "module calls require compiler context") from exc
++        raise
++    if context is None:
++        from .expression_traversal import walk_expr
++        if any(isinstance(child, (expressions.ProcedureCallExpr,
++                                 expressions.FunctionCallExpr, expressions.CallExpr))
++               for child in walk_expr(expr)):
++            raise ReplRefusal("repl_module_context_missing", "module calls require compiler context")
++    elif syntax.target_dsl_supports_pure_call_composition(module.typed_program.target):
++        expr = functions.normalize_function_calls(
++            expr, typed_functions_by_name=context.typed_functions_by_name,
++            target_dsl_version=module.typed_program.target,
++        )
++    typed = typecheck_expression(
++        expr, type_env=module.type_env, value_env=values,
++        workflow_catalog=stage3.workflow_catalog,
++        procedure_catalog=stage3.procedure_catalog,
++        function_catalog=context.function_catalog if context else None,
++        extern_environment=stage3.extern_environment,
++        command_boundary_environment=stage3.command_boundary_environment,
++        prompt_catalog=stage3.prompt_catalog,
++        procedure_effects_by_name={name: proc.transitive_effect_summary
++                                   for name, proc in module.typed_program.procedures.items()},
++        workflow_effects_by_name={name: workflow.effect_summary
++                                  for name, workflow in module.typed_program.workflows.items()},
++        compiler_session=session,
++    )
++    if typed.effect_summary.transitive_effects:
++        raise ReplRefusal("repl_effect_refused", "REPL expressions must be pure")
++    entry, builder = module.typed_program.entry, module.builder
++    owner = module.build.program.tree["entry"]
++    expression_owner = replace(entry, typed_body=typed, signature=WorkflowSignature(
++        name=entry.definition.name, params=tuple(captured_types.items()),
++        return_type_ref=typed.type_ref, span=typed.span, form_path=typed.form_path,
++    ))
++    d = builder.definition_context(
++        canonical=owner, owner=entry.definition.name, source_program=module.typed_program,
++        type_env=module.type_env, node=typed, params=entry.definition.params,
++        callable_def=expression_owner,
++    )
++    d.names.update({name: name for name in visible_bindings(captured)})
++    normalized, children = builder._prepare_command_owner(
++        expression_owner, module.typed_program, d, type_env=module.type_env, value_env=values,
++    )
++    verify_requests = builder._install_prepared_requests(normalized, d, children)
++    builder._prepare_computed_capture_requests(normalized, d, module.typed_program)
++    body = builder.body(normalized, d, values)
++    verify_requests()
++    lowered = body["value"] if body["k"] == "halt" else {"k": "block", "body": body}
++    _require_pure_lowered(lowered, builder.definitions)
++    program = replace(captured.authority.program, tree={
++        **captured.authority.program.tree, "definitions": builder.definitions,
++        "types": builder.nominal_types,
++    })
++    machine = _Machine(program, None, captured.authority.header["run_id"], None, None)
++    activation = (owner,)
++    try:
++        value = evaluate_closed_value(
++            lowered, captured.environment,
++            evaluate_body=lambda body, scope: machine._body(body, scope, owner, activation, ()),
++            evaluate_binding=lambda bound, scope: machine._bound(bound, scope, owner, activation, ()),
++        )
++    except EvaluatedValueError as exc:
++        if exc.code == "closed_effect_handler_missing":
++            raise ReplRefusal("repl_effect_refused", "REPL expressions must be pure") from exc
++        raise
++    return value, typed
+diff --git a/orchestrator/workflow_lisp/workflows.py b/orchestrator/workflow_lisp/workflows.py
+index 3692b506..33e2949f 100644
+--- a/orchestrator/workflow_lisp/workflows.py
++++ b/orchestrator/workflow_lisp/workflows.py
+@@ -100,7 +100,7 @@ from .typecheck import (
+ 
+ if TYPE_CHECKING:
+     from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
+-    from .functions import FunctionCatalog
++    from .functions import FunctionCatalog, TypedFunctionDef
+     from .lowering import LoweredWorkflow
+     from .procedures import TypedProcedureDef
+ 
+@@ -425,6 +425,17 @@ class WorkflowCatalog:
+     allow_transportable_input_boundaries: bool = False
+ 
+ 
++@dataclass(frozen=True)
++class ExpressionCompileContext:
++    """Transient compiler facts needed to compile an expression in this module."""
++
++    function_catalog: "FunctionCatalog"
++    typed_functions_by_name: Mapping[str, "TypedFunctionDef"]
++    function_name_resolver: Callable[..., str]
++    procedure_name_resolver: Callable[..., str]
++    workflow_name_resolver: Callable[..., str]
++
++
+ @dataclass(frozen=True)
+ class Stage3CompileResult:
+     """Compiled module result after typecheck, lowering, and shared validation."""
+@@ -448,6 +459,11 @@ class Stage3CompileResult:
+         compare=False,
+         repr=False,
+     )
++    expression_context: ExpressionCompileContext | None = field(
++        default=None,
++        compare=False,
++        repr=False,
++    )
+ 
+ 
+ @dataclass(frozen=True)
+diff --git a/pyproject.toml b/pyproject.toml
+index aa6868ac..f8e84460 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -12,6 +12,9 @@ dependencies = [
+     "PyYAML>=6.0.2,<7",
+ ]
+ 
++[project.scripts]
++orchestrator = "orchestrator.cli.main:main"
++
+ [project.optional-dependencies]
+ dev = [
+     "pytest>=7.0",
+diff --git a/specs/cli.md b/specs/cli.md
+index f6683258..a8ff5cfa 100644
+--- a/specs/cli.md
++++ b/specs/cli.md
+@@ -286,8 +286,12 @@ orchestrator run WORKFLOW [the same frontend flags] [--input NAME=VALUE ...]
+ orchestrator resume RUN_ID [--state-dir DIR] [--run-ref-root DIR]
+ orchestrator invalidate RUN_ID IDENTITY [--state-dir DIR]
+ orchestrator report [--run-id RUN_ID] [--runs-root DIR] [--format md|json] [--output PATH]
++orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--state-dir DIR]
+ ```
+ 
++- `repl` loads a module, launches its entry through public `run`, attaches
++  read-only to an evaluated run and evaluates pure expressions over captured
++  bindings; see [REPL commands and diagnostics](#workflow-lisp-repl-targets-235-and-236).
+ - `compile` writes `.orchestrate/build/<build key>/closed_program.json` and
+   `manifest.json` (`schema_version: closed-program-build/1`, with
+   `build_key`, `program_digest`, `representation`, `target`, `entry_workflow`,
+@@ -483,6 +487,109 @@ no code of its own; `invalidate` prints `[<code>] <detail>`.
+ | `effect_rerun` | `resume` retrying an uncommitted attempt | diagnostic | Logged with the earlier attempt ordinals |
+ | `parallel_workspace_shared` | a later release | — | Not raised |
+ 
++### Workflow Lisp REPL (targets 2.35 and 2.36)
++
++`repl` loads an evaluated Workflow Lisp module, attaches to a checked run and
++accepts pure expressions in the captured lexical environment. It uses the
++ordinary frontend and closed evaluator; it adds no source definitions,
++operator semantics or persistence format. Owners are
++`orchestrator/cli/commands/repl.py`, `orchestrator/workflow_lisp/repl_expr.py`
++and `orchestrator/workflow/evaluated/capture.py`; behavioral integration coverage
++is `tests/test_workflow_evaluated_repl.py`. See the
++[proposed design](../docs/design/workflow_lisp_repl.md) and
++[author recipe](../docs/lisp_workflow_drafting_guide.md#inspect-a-run-with-the-workflow-lisp-repl).
++
++```text
++orchestrator repl [WORKFLOW] [--entry-workflow NAME] [--source-root DIR ...]
++  [--provider-externs-file JSON] [--prompt-externs-file JSON]
++  [--imported-workflow-bundles-file JSON] [--command-boundaries-file JSON]
++  [--run-id RUN_ID] [--state-dir DIR]
++:load PATH [the same frontend flags]
++:run [--input NAME=VALUE ...] [--input-file JSON] [--state-dir DIR] [--run-ref-root DIR]
++:attach RUN_ID
++:bindings
++:result
++:help
++:quit
++```
++
++The frontend flags have the same meanings as `compile` and `run`. Startup
++loads `WORKFLOW` before attaching `--run-id`. `:load` publishes the ordinary
++closed-program build bundle; failed compilation reports ordinary rendered
++diagnostics and retains the previous module. `:run` requires a loaded module,
++uses public run option/input parsing and `run_workflow`, and forwards the
++session state directory unless the command overrides it. It attaches the
++returned run root after public execution releases its writer locks. This
++explicit command has ordinary run effects, lock ownership and evidence writes.
++
++`:attach` resolves `RUN_ID` under `.orchestrate/runs`, or the session's
++`--state-dir`, and reads checked `run.json`, `closed_program.json` and one
++`memo.jsonl` prefix through `WorkspaceFiles`. It uses stored bound inputs and
++ordinary memo reduction, replay commit checks and completed-terminal validation.
++It takes no writer lock, launches no effects and neither repairs/appends the
++memo nor publishes a derived view. `state.json` is not authority. Attachment
++captures a prefix, not a live subscription to a running writer.
++
++A loaded module's program digest must match the run. A mismatch reports
++`resume_program_changed` and clears attachment. Without a loaded module,
++attachment rebuilds the durable `resume_request` in memory using the ordinary
++resume build request and `prepare_closed_program_bundle`; no build artifact
++or cache is published. Missing recipe reports `resume_request_missing`, and
++changed fresh program reports `resume_program_changed`. Fresh input files are
++not rebound for inspection. A matching explicitly loaded module allows reading
++a historical run without a recipe. Ordinary checked-authority, memo and compile
++errors retain their codes.
++
++Expressions are one datum per input line and require attachment. Lexical
++shadowing chooses the innermost binding; compiler names beginning with `%`
++are hidden. Ordinary field/list operations and pure module `defun`/`defproc`
++calls are admitted. Equality `=` / `!=` retains the
++[ordinary frontend §10.2](../docs/design/workflow_lisp_frontend_specification.md#102-closed-pure-expression-surface)
++contract for supported scalars and same-type enums; lists do not gain deep
++equality semantics. Use the ordinary `list/empty?` operator to test list
++emptiness. The frontend rejects transitive effects; a recursive
++lowered-body guard and the evaluator with no effect callback also refuse
++`perform`. Synthesized runtime variant-case bindings may be displayed but do
++not supply frontend proof for expression evaluation. The session accepts no
++multiline expressions, definitions, interactive effects, resume command,
++module editing, completion/history or flat-profile attachment through 2.34.
++
++`:bindings` shows visible names/types in outer-frame order, capture position
++and run identity. `:result` prints the completed entry result with the entry's
++return type, including completion through a loop's `done`, or `repl_no_result`
++when stopped or failed. Its value is the ordinary evaluator's final return,
++not an incidental operand or loop-seed completion. Expression and result
++values use two stdout lines: canonical UTF-8 compact sorted-key JSON, then
++exactly `: <rendered type>`. REPL and runtime errors print `[code] detail`
++on stderr. Frontend errors retain ordinary localized `render_diagnostic`
++output, including diagnostic code and `kind`/`form` context. A prompt and
++readline are enabled only for a TTY; piped input receives no prompt.
++
++EOF and `:quit` exit `0`. A startup load/attach refusal exits `2`; an unexpected
++failure exits `1`. Expected command/expression errors keep the session usable
++and eventual normal EOF/quit still exits `0`. Failed ordinary commands retain
++compatible session state; digest mismatch leaves it detached. Read-only startup,
++attachment, bindings, result and pure/refused expressions leave run authority,
++memo, views and attempt evidence byte-identical; `:load` can publish only build
++artifacts. `:run` remains the explicit exception using public execution.
++
++| Diagnostic | Condition | Session/startup behavior | Run evidence |
++| --- | --- | --- | --- |
++| `repl_effect_refused` | Entered expression or called procedure has effects, or a lowered/evaluated `perform` is reached | Session continues | None |
++| `repl_run_not_found` | Requested run root does not exist | Session continues; startup exits 2 | None |
++| `repl_profile_unsupported` | Requested run uses the flat profile | Session continues; startup exits 2 | None |
++| `repl_not_attached` | Expression, `:bindings` or `:result` without an attached run | Session continues | None |
++| `repl_module_required` | `:run` without a loaded module | Session continues | None |
++| `repl_expression_arity` | Expression line does not contain exactly one datum | Session continues | None |
++| `repl_no_result` | Attached replay has no halted entry result | Session continues | None |
++| `repl_module_context_missing` | Module call needs unavailable transient compiler context | Session continues | None |
++
++Reused `name_unknown`, `resume_program_changed`, `resume_request_missing`,
++`memo_inconsistent` and ordinary frontend/value diagnostics retain their
++codes and the appropriate rendering above; session errors continue, startup
++errors exit `2`, with no inspection evidence writes. A public `:run` failure retains ordinary run
++behavior and any evidence that public execution legitimately wrote.
++
+ ### Extended CLI Options
+ 
+ ```bash

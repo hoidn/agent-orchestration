@@ -1,0 +1,54 @@
+diff --git a/orchestrator/cli/commands/repl.py b/orchestrator/cli/commands/repl.py
+new file mode 100644
+index 0000000..4674501
+--- /dev/null
++++ b/orchestrator/cli/commands/repl.py
+@@ -0,0 +1,23 @@
++"""Interactive Workflow Lisp REPL (first cut: session loop only)."""
++
++import sys
++
++_HELP = """Commands:
++  :help   show this help
++  :quit   leave the REPL
++Expressions are not evaluated yet."""
++
++
++def repl_workflow(args) -> int:
++    """Read forms from standard input until :quit or end of input."""
++    for raw in sys.stdin:
++        line = raw.strip()
++        if not line:
++            continue
++        if line == ":quit":
++            return 0
++        if line == ":help":
++            print(_HELP)
++            continue
++        print(f"[repl_unsupported] cannot evaluate {line!r} yet", file=sys.stderr)
++    return 0
+diff --git a/orchestrator/cli/main.py b/orchestrator/cli/main.py
+index 69e00f4..595dd0c 100644
+--- a/orchestrator/cli/main.py
++++ b/orchestrator/cli/main.py
+@@ -414,6 +414,10 @@ def create_parser() -> argparse.ArgumentParser:
+     )
+     _add_frontend_flags(trial_parser, require_entry_workflow=True)
+ 
++    repl_parser = subparsers.add_parser('repl', help='Start a Workflow Lisp REPL')
++    repl_parser.add_argument('source', nargs='?')
++    repl_parser.add_argument('--run-id')
++    repl_parser.add_argument('--state-dir')
+     compile_parser = subparsers.add_parser('compile', help='Compile a Workflow Lisp entrypoint')
+     compile_parser.add_argument(
+         'workflow',
+@@ -733,6 +737,9 @@ def main(args: Optional[list] = None) -> int:
+     elif parsed_args.command == 'trial':
+         from orchestrator.cli.commands.trial import trial_workflow
+         return trial_workflow(parsed_args)
++    elif parsed_args.command == 'repl':
++        from orchestrator.cli.commands.repl import repl_workflow
++        return repl_workflow(parsed_args)
+     elif parsed_args.command == 'compile':
+         from orchestrator.cli.commands import compile_workflow
+         return compile_workflow(parsed_args)

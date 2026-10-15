@@ -1425,10 +1425,6 @@ def test_atomic_writers_use_the_exact_common_owner() -> None:
             "orchestrator/providers/observation.py",
             "ProviderObservationHandle.finalize",
         ),
-        (
-            "orchestrator/experiments/_runner_block.py",
-            "_atomic_record",
-        ),
     )
     for path, target in excluded_local_replacement_controls:
         node = _qualified_functions(path).get(target)

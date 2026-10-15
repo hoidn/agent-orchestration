@@ -183,6 +183,7 @@ its post-Stage-8 handoff remains an input list, not a selector.
 | --- | --- | ---: | ---: | --- |
 | [lisp_frontend_review_fix_loops.md](lisp_frontend_review_fix_loops.md) | Review/fix loop semantics | Partial/unknown from this index; read the doc and linked evidence | Yes | Use with review/revise stdlib and parity architecture docs. |
 | [verified_iteration_drain.md](verified_iteration_drain.md) | Verified-iteration drain: single fused-session select/plan/implement/verify loop | Implemented; Workflow Lisp primary | Yes | Promoted `.orc` route alongside, not replacing, the `lisp_frontend_*` drain family; treats the repo, git history, and check exit codes as the sole authority instead of a second typed state copy. New launches use `workflows/library/verified_iteration_drain/drain.orc`; its retired YAML twin remains only in history and parity evidence. |
+| [orc_effectiveness_comparison_harness.md](orc_effectiveness_comparison_harness.md) | Comparing maintained `.orc` workflows with single agent calls (`experiments/compare/`) | Implemented (experiment apparatus) | No (not an authoring surface) | Frozen criteria, sandboxed recording shims, blind two-judge scoring with anchors, adjudicated scans and difficulty calibration; results in the 2026-10-14 E-A/E-B reports and postmortem. Replaces the retired lean pilot. |
 
 ## Historical Or Narrow Decision Notes
 

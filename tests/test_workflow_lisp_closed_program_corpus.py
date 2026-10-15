@@ -16,7 +16,7 @@ from orchestrator.contracts.closed_program.sites import _ast_nodes
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.stdlib_contracts import STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME
-from tests.workflow_lisp_closed_program_corpus import Built, Gap, NotSynthesizable, Refused, corpus, target_dsl_version, try_build
+from tests.workflow_lisp_closed_program_corpus import Built, Gap, Refused, corpus, target_dsl_version, try_build
 
 
 TARGET = syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
@@ -89,7 +89,6 @@ EXPECTED = {
     "workflows/experiments/qa_placement_effectiveness/qa_placement_arms.orc::product-qa": Built(3),
     "workflows/experiments/qa_placement_effectiveness/qa_placement_arms.orc::rich": Built(6),
     "workflows/experiments/qa_placement_effectiveness/qa_placement_trial.orc::compare": Refused("evaluated_execution_target_direction_invalid"),
-    "workflows/experiments/repository_task_pilot/task_loop.orc::run-task": NotSynthesizable(("command 'pilot_product_manifest' is parameterized by workflow input 'controller_script', whose concrete script path, source bytes, and closure are missing",)),
     "workflows/library/control/direct_task.orc::direct-task": Built(1),
     "workflows/library/design_plan_impl_implementation_phase.orc::design-plan-impl-implementation-phase": Built(2),
     "workflows/library/generic_run_watchdog/watchdog.orc::watchdog": Built(5),
@@ -123,7 +122,6 @@ EXPECTED_PARTITION = {
     "Built": 39,
     "Gap": 9,
     "Refused": 5,
-    "NotSynthesizable": 1,
 }
 
 
@@ -806,7 +804,7 @@ def test_phase_reference_variants_keep_their_exact_call_owners(tmp_path):
 def test_corpus_keys_and_pinned_partition_are_exact() -> None:
     workflows = corpus()
     keys = [workflow.key for workflow in workflows]
-    assert len(workflows) == 54
+    assert len(workflows) == 53
     assert len(set(keys)) == len(keys)
     assert set(keys) == set(EXPECTED)
 
@@ -814,7 +812,7 @@ def test_corpus_keys_and_pinned_partition_are_exact() -> None:
 def test_pinned_corpus_partition_is_exact() -> None:
     counts = Counter(type(outcome).__name__ for outcome in EXPECTED.values())
     assert counts == EXPECTED_PARTITION
-    assert sum(counts.values()) == 54
+    assert sum(counts.values()) == 53
 
 
 @pytest.mark.parametrize(

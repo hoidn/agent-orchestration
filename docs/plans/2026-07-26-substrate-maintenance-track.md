@@ -537,7 +537,7 @@ Scope split:
 | --- | --- |
 | `orchestrator/experiments/` (45 files, ~11.5k physical lines: sealed controller, workspace staging, label maps, product guards, evaluation, summary generation), the treatment driver, and their dedicated tests | Delete after `PASS_E2`; the trial platform owns every one of these responsibilities |
 | Pilot treatment workflows and prompts (`workflows/experiments/repository_task_pilot/`) | Disposition separately once a current-target successor ORC treatment exists (the REC0 measurement rewrite tracked in the [REC-series roadmap](2026-08-01-workflow-lisp-recursion-rec-series-roadmap.md) is the natural producer). Pinned-commit `run-ref` consumers, including E2 fixed-study fixtures, are unaffected by HEAD deletion |
-| Frozen pilot control tree (`experiments/orc_effectiveness/lean_pilot/`), the external A1-v7 evidence root, and every locked digest | Never mutated; these are evidence, not machinery |
+| Frozen pilot control tree (`experiments/orc_effectiveness/lean_pilot/`), the external A1-v7 evidence root, and every locked digest | Existing files unchanged; a removal-notice README was added to the tree when the apparatus was retired (`61b7d04d`); these are evidence, not machinery |
 
 Gate: frozen inventory digest with per-entry owner and disposition; zero
 undispositioned live consumers after reference/export/route scans; deletion
