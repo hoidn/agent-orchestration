@@ -3,7 +3,7 @@
   "owner_rule": "raise task difficulty until the expected number of review blockers is >= 1 (owner, 2026-10-14); design 'Difficulty calibration for follow-on experiments'",
   "ladder": {
     "file": "experiments/compare/tasks/calibration-ladder.md",
-    "sha256": "078e021c05a55f65ae3ffd3a5f6cf3849c3141f8e9983fc64d251cc4b6ebc9c4",
+    "sha256": "fcef8a7a41ece60dd96b0681a2d076f4ade040ae3ed4a03038aea255712c564c",
     "rung_n": "the n-th row of the ranked table",
     "direction": "smallest first: rung 1 is the first row (R43)"
   },
@@ -46,7 +46,7 @@
   "runtime": {
     "path": "/home/ollie/calib-runtime",
     "commit": "2b9efd81",
-    "validity": "a run counts only if record.json runtime_commit starts with 2b9efd81 and the package hash reproduces at <runtime>; the review_once smoke runs at 2b9efd81 and is collected before the criterion is hashed"
+    "validity": "a run counts only if record.json runtime_commit is 2b9efd81 or a later commit whose diff from 2b9efd81 touches only experiments/compare/tasks/ and experiments/compare/criteria/ (harness code identical), and the rung's package hash reproduces at <runtime>; the review_once smoke ran at 2b9efd81 and was collected before the criterion was first hashed"
   },
   "work_root": "/home/ollie/calib-work/ladder",
   "scan_solution_hash": "each rung's solution commit (rung 1: 1798fc70)",
@@ -61,5 +61,16 @@
   "review_inputs_frozen": "review_once refuses --set account/replies; inputs as above",
   "review_scope": "the blocker reviewer is reviewed_change's for both Task 9 treatments; for design_review_execute the count stands for 'work left to do' (plan Task 8 Definitions)",
   "run_membership": "a run belongs to the rung whose package is record.json task; within a rung, direct_task runs count in run-number order; a review pairs with the run whose final.diff its applied.path names; every launched run is reported",
-  "report_rung_findings": "the report lists every review's findings verbatim, so a reader can judge whether a prescriptive task suppressed design objections (R46)"
+  "report_rung_findings": "the report lists every review's findings verbatim, so a reader can judge whether a prescriptive task suppressed design objections (R46)",
+  "rung_2": {
+    "slug": "resume-projection-integrity",
+    "package_sha256": "f7d54b1a0546e1affafe91f4a19fd71ed70b61c06a077746c5eeca26d6cd73d2",
+    "runtime_commit": "05693d14",
+    "hidden_node_ids": 119,
+    "drop_rule_R49": "node ids the stub anchor passes are dropped (50 of 169)"
+  },
+  "amends": {
+    "previous_sha256": "996d8e5701e4957fb148a0bbf5677f69a0b30b1e4b183870b31fdfa47e46870a",
+    "reason": "Amendment 1 (2026-10-14, after rung 1 and before any rung-2 run): rung 1 did not qualify (single calls 0.909 and 0.902 hidden; mean blockers 1.0). Rung 2's package was built before any rung-1 result was seen (7c7f0579); its hidden set drops the 50 node ids its stub passes (R49), leaving 119. The ladder file changed only in rung 2's metrics (commits the feature's own plan covers were reassigned to it, 7c7f0579) and an R49 note; the order and rung 1 are unchanged. The runtime rule admits commits that differ from 2b9efd81 only in task packages and criteria."
+  }
 }
