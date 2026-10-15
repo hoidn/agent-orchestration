@@ -1076,7 +1076,8 @@ API-key-only experiment is relabelled as a native-login success.
 | Native-owner fixture, 2026-10-15 | Bounded independent PASS review; 19 historical category rows retained. Native auth RPC and routing were exercised with synthetic credentials in an isolated namespace, not a real account. |
 | Image-CLI / real-Holder synthetic bridge, 2026-10-15 | Bounded independent PASS review; 62 category rows, `DONE_WITH_CONCERNS`. An image-owned Codex CLI made two synthetic SSE requests, edited and tested the candidate, delivered typed JSON and left a committed checkpoint. This uses the experimental socket seam under `network=none`, not production `model-only` admission or the public ORC provider lifecycle. |
 | Native-login qualification decision and remote-control correction, 2026-10-15 | Independent documentary PASS. The pinned config schema accepted 20 corrected overrides; the former `allow_remote_control` ConfigToml override was rejected. The replacement is the pinned internal environment marker `CODEX_INTERNAL_APP_SERVER_REMOTE_CONTROL_DISABLED=1`, with no `--remote-control`. Schema/source checks are not operational startup or account evidence. |
-| New prerequisites and real-login run | Operational prerequisites and their independent code/evidence review remain pending. No real-account auth, refresh or inference result is recorded here; F4 and integrated Task 10 acceptance remain unqualified. |
+| Operational prerequisites and cancellation correction | Independent bounded PASS. The original 78-row synthetic campaign remains intact; the R1 correction has 80 rows in eleven suites, exit 0, and 14 fresh independent cancellation controls pass. A timing race in the old-code RED replay fixture is recorded; two direct old-code replays reproduce the late POST. No synthetic TLS seam is presented as a real handshake. |
+| First existing-login attempt | **UNQUALIFIED**: the one-attempt, two-request/90-second entry reached its absolute deadline before confirming the native account binding. No inference gateway or Holder was created. The supervisor observed group/Holder/carriers empty; wrapper exit 0 is not experiment success. F4 and integrated Task 10 remain pending. |
 
 The original owner output (19 rows), subsequent synthetic output (62 rows),
 source manifests, dates and categories remain unchanged in the local SDD evidence
@@ -1101,7 +1102,8 @@ store object), and native-startup auxiliary isolation. Startup checks include
 a static pinned catalog, all three OTEL exporters disabled, the
 `environments.toml` existence guard before startup/grant, and a positive/negative
 remote-control canary with persisted enabled preference. The source/schema
-re-reading does not claim those operational checks have passed.
+re-reading alone did not establish those checks; the subsequent operational
+campaign and independent review now provide their bounded synthetic evidence.
 
 The initial real-login experiment is bounded to one attempt, at most two serial
 inference requests and 90 seconds total from before owner startup, with no
@@ -1114,3 +1116,15 @@ incomplete usage and unsupported cost remain `UNKNOWN`. A local disconnect does
 not prove immediate remote cancellation. A later live result, including refusal,
 must be recorded separately; it cannot by itself complete Task 10 or advance
 Task 13 admission.
+
+The first live result is preserved separately in local SDD
+`task-10-native-auth-live-report.md` (SHA-256
+`3499a05d9475e9d17a2e3803ec0dc5a4cae26af008ae3d431c1dabbcad2d6c56`)
+and `task-10-native-auth-live/`, including exact invocation, original categories,
+exit and evidence hashes. Its private owner directory exists, but the exact
+startup/RPC phase before binding is unknown. It does not demonstrate invalid
+credentials or missing entitlement. Native startup/discovery/refresh traffic
+and changes to its store are unconfirmed; our code did not inspect that store.
+The supervisor observed a 0.067191 ms deadline delay and 45.915125 ms cleanup
+after the cut, without a real-time guarantee. No retry or limit expansion has
+been performed; diagnosis is pending while command acceptance continues.
