@@ -409,12 +409,30 @@ def _claude_users(records: Records) -> tuple[str, Records]:
     return session_id, users
 
 
-def _claude_links(submitted: dict[str, Any], prior_final_id: object, prompts: set[str]) -> bool:
-    """Fresh prompt and row identities, and the row descends from the previous turn's final (or its padding)."""
+def _claude_follows(prior_final_id: object, line: int, submitted: dict[str, Any], by_id, session_id: str) -> bool:
+    """The submitted row's parent is `prior_final_id` (None: a root), directly or via earlier promptless attachments.
+
+    Session-start hooks and resumes write such a chain before the prompt (CLI 2.1.300); any other row breaks the link.
+    """
+    current = submitted.get("parentUuid")
+    while _identity(current) and current != prior_final_id:
+        parent = by_id.get(current)
+        line, row = parent if parent is not None and parent[0] < line else (0, {})
+        if (
+            row.get("type") != "attachment" or not isinstance(row.get("attachment"), dict) or "promptId" in row
+            or row.get("sessionId") != session_id or row.get("isSidechain", False) is not False
+        ):
+            return False
+        current = row.get("parentUuid")
+    return current == prior_final_id
+
+
+def _claude_links(line: int, submitted: dict[str, Any], prior_final_id: object, prompts: set[str], by_id, session_id: str) -> bool:
+    """Fresh prompt and row identities, and the row follows the previous turn's final (or its padding)."""
     prompt_id = submitted.get("promptId")
     return (
         _identity(prompt_id) and _identity(submitted.get("uuid")) and prompt_id not in prompts
-        and "parentUuid" in submitted and submitted.get("parentUuid") == prior_final_id
+        and "parentUuid" in submitted and _claude_follows(prior_final_id, line, submitted, by_id, session_id)
     )
 
 
@@ -428,7 +446,7 @@ def _claude_turns(path: Path) -> tuple[str, Records, list[NativePosition | None]
     prompts: set[str] = set()
     for index, (start_line, submitted) in enumerate(users):
         final = None
-        if _claude_links(submitted, prior_final_id, prompts):
+        if _claude_links(start_line, submitted, prior_final_id, prompts, by_id, session_id):
             next_line = users[index + 1][0] if index + 1 < len(users) else len(records) + 1
             turn = [
                 (line, row) for line, row in records

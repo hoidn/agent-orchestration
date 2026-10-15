@@ -280,3 +280,60 @@ def test_claude_inconsistent_split_message_is_rejected(tmp_path, field) -> None:
     path = tmp_path / f"{CLAUDE_SID}.jsonl"
     _jsonl(path, rows)
     assert native_store_adapter("claude_stream_json_stdout").completed_turn(path, after=None, prompt_marker="m1") is None
+
+
+# --- Claude prompt descending from pre-prompt attachments (SessionStart hooks, resume context; CLI 2.1.300) ----------
+
+def _pre_prompt(rows, prompt_id: str, kinds=("hook_success", "hook_success", "hook_additional_context")):
+    """Insert a chain of promptless attachments between `prompt_id`'s submitted row and its parent."""
+    index = next(i for i, row in enumerate(rows) if row["uuid"] == f"user-{prompt_id}")
+    parent, chain = rows[index]["parentUuid"], []
+    for n, kind in enumerate(kinds):
+        chain.append({"type": "attachment", "uuid": f"pre-{prompt_id}-{n}", "parentUuid": parent, "sessionId": CLAUDE_SID,
+                      "isSidechain": False, "attachment": {"type": kind, "hookEvent": "SessionStart"}})
+        parent = chain[-1]["uuid"]
+    rows[index]["parentUuid"] = parent
+    return rows[:index] + chain + rows[index:]
+
+
+def _resume_padding(parent: str):
+    usage = dict.fromkeys(("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"), 0)
+    return {"type": "assistant", "uuid": f"pad-{parent}", "parentUuid": parent, "sessionId": CLAUDE_SID, "isSidechain": False,
+            "isApiErrorMessage": False,
+            "message": {"id": f"msg-pad-{parent}", "model": "<synthetic>", "role": "assistant", "type": "message",
+                        "stop_reason": "stop_sequence", "stop_sequence": "", "usage": usage,
+                        "content": [{"type": "text", "text": "No response requested."}]}}
+
+
+def test_claude_first_prompt_after_session_start_hooks_binds(tmp_path) -> None:
+    path = tmp_path / f"{CLAUDE_SID}.jsonl"
+    _jsonl(path, _pre_prompt(_claude_rows([("p1", "m1", True)]), "p1"))
+    adapter = native_store_adapter("claude_stream_json_stdout")
+    assert adapter.head(path).position == NativePosition("p1", 5)
+    turn = adapter.completed_turn(path, after=None, prompt_marker="m1")
+    assert (turn.position, turn.user_line) == (NativePosition("p1", 5), 4)
+
+
+@pytest.mark.parametrize("padded", [False, True], ids=["from-final", "from-resume-padding"])
+def test_claude_resumed_prompt_after_pre_prompt_attachments_binds(tmp_path, padded) -> None:
+    rows = _claude_rows([("p1", "m1", True), ("p2", "m2", True)])
+    if padded:
+        rows.insert(2, _resume_padding("assistant-p1"))
+        rows[3]["parentUuid"] = rows[2]["uuid"]
+    rows = _pre_prompt(_pre_prompt(rows, "p1"), "p2", kinds=("environment", "model", "hook_success"))
+    path = tmp_path / f"{CLAUDE_SID}.jsonl"
+    _jsonl(path, rows)
+    turn = native_store_adapter("claude_stream_json_stdout").completed_turn(
+        path, after=NativePosition("p1", 5), prompt_marker="m2")
+    assert (turn.position, turn.user_line) == (NativePosition("p2", 10 + padded), 9 + padded)
+
+
+@pytest.mark.parametrize("change", [{"promptId": "p1"}, {"isSidechain": True}, {"type": "system"}],
+                         ids=["carries-prompt-id", "sidechain", "not-an-attachment"])
+def test_claude_prompt_after_an_unsupported_pre_prompt_row_is_not_a_position(tmp_path, change) -> None:
+    rows = _pre_prompt(_claude_rows([("p1", "m1", True)]), "p1")
+    rows[1].update(change)
+    path = tmp_path / f"{CLAUDE_SID}.jsonl"
+    _jsonl(path, rows)
+    head = native_store_adapter("claude_stream_json_stdout").head(path)
+    assert (head.position, head.open_turn) == (None, True)
