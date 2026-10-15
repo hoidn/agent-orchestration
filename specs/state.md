@@ -381,7 +381,7 @@ truncates it, after its preflight. Exactly these record kinds and keys:
 | --- | --- | --- |
 | `started` | `identity`, `attempt`, `input_digest`, `input_parts`, `implementation_files`, `result_path`, `time` | Reserves ordinal `attempt`, the next for the identity counting failed and invalidated attempts, synchronized before the attempt directory exists; not proof of a launch |
 | `committed` | `identity`, `attempt`, `input_digest`, `input_parts`, `value`, `result_path`, `result_digest`, `implementation_files`, `depends_on`, `effect_class`, `time`; `proof` only, and always, when the class is a coordinator (`run_ref`: `{settled_result, artifacts}`; `agent_turn`: `{adapter, locator, position {turn_id, end_line}, predecessor, agent, config_digest}`, `agent` naming the active allocation commit, `predecessor` the previous active committed turn of that agent or `null`, `config_digest` equal to the allocation's pinned configuration) | The validated typed `value` is the result; `result_digest` is the sha256 of the attempt's result file; `input_digest`, `input_parts`, `implementation_files` and `result_path` equal the matching `started`; `depends_on` lists identities with active commits whose values the resolved input read (C9: computed per value, a superset of the parts actually read), plus, for an `agent_turn`, its predecessor turn even when the prompt does not consume its result; `effect_class` ∈ `command`, `provider`, `run_ref`, `agent`, `agent_turn` and must agree with the checked site |
-| `failed` | `identity`, `attempt`, `code`, `exit_info`; optional `violations` | Closes the pending attempt without a result. `exit_info` is `{exit_code, error}` for `command_exit_nonzero`, `provider_exit_nonzero` and `provider_timeout`, `{error}` for `provider_preparation_failed`, `{errno}` for `effect_attempt_path_exists` and `effect_attempt_allocation_failed`, otherwise `{}`; `violations` accompanies `provider_result_invalid` and a command result that fails its contract (code `evaluated_execution_failed`). No timestamp |
+| `failed` | `identity`, `attempt`, `code`, `exit_info`; optional `violations` | Closes the pending attempt without a result. `exit_info` is `{exit_code, error}` for `command_exit_nonzero`, `provider_exit_nonzero` and `provider_timeout`, `{error}` for `provider_preparation_failed`, `{errno}` for `effect_attempt_path_exists` and `effect_attempt_allocation_failed`, otherwise `{}`; `violations` accompanies ordinary-provider `provider_result_invalid` and a command result that fails its contract (code `evaluated_execution_failed`). Agent invalid-result failures use `exit_info {}` and omit `violations` (including first-turn `provider_result_invalid`). No timestamp |
 | `settled` | `identity`, `attempt`, `by` ∈ `settle`, `reconcile` | A coordinator's final commit, after its `committed` |
 | `invalidated` | `from_commit`, `time` | The byte offset of the first byte of an active `committed` record: cancels that commit and every later active commit in one record and reopens a terminal; no identity or dependent list |
 | `terminal` | `outcome: "completed"`, `value`; or `outcome: "failed"`, `code`, `message` | `completed` only after `halt` with every reached effect committed and every coordinator settled; `failed` only with no pending start and no unsettled coordinator |
@@ -390,6 +390,13 @@ truncates it, after its preflight. Exactly these record kinds and keys:
 The additive classes `agent`/`agent_turn` appear only in journals of
 target-2.38 programs; the profile, schema and representation are unchanged,
 and journals of earlier targets reduce exactly as before.
+
+For Agent typed-result validation failures (`provider_result_invalid` on a first turn,
+`agent_turn_result_invalid` on a later turn), the public diagnostic contains only logical
+agent identity and the safe failure code. Do not copy raw provider output, result details,
+exception chains, exit information or schema violations into that diagnostic, derived
+state or reports; the required journal `exit_info` remains `{}` and `violations` is absent.
+Ordinary-provider diagnostics retain their existing detail.
 
 Reducer rules (`orchestrator/workflow/evaluated/memo.py`): after a terminal
 only `started` (after a `failed` terminal) or `invalidated` is accepted, and

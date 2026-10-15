@@ -60,6 +60,10 @@
   - The agent view is derived from invocation-local streams and can never
     authorize, reconcile or dispatch a turn; every observation failure is
     best-effort. Parallel workers keep observation disabled.
+  - Agent result-validation diagnostics, derived state and reports use only
+    logical agent identity and safe code, without raw provider/result detail,
+    exit information or violations ([State](state.md#memo-records)); ordinary
+    provider failure diagnostics retain their existing detail.
 
 - Provider peer-group evidence (v2.17)
   - The `interactive_terminal_turn_queue.v1` adapter pane owns the actual

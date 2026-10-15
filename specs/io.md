@@ -516,7 +516,10 @@ Evidence: `tests/test_workflow_evaluated_command_templates.py`,
     typed-result validation; a result file alone is never a result, and a
     Claude `result` with `is_error: true` is an invalid result. An invalid
     typed result closes the attempt `failed` with `provider_result_invalid`
-    (first turn) or `agent_turn_result_invalid` (later turns). A failed
+    (first turn) or `agent_turn_result_invalid` (later turns). These Agent
+    validation errors expose only logical agent identity and safe code, with
+    `exit_info {}` and no `violations`; raw provider/result detail is not copied
+    into public diagnostics, state or reports ([State](state.md#memo-records)). A failed
     process closes `failed` with its provider code only when no child was
     spawned or the adapter proves a resumed conversation's head unchanged
     (receipt `not_dispatched`). Every other exception after `launching`
