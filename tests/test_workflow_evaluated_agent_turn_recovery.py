@@ -135,6 +135,31 @@ def test_timeout_after_adapter_confirmed_completion_recovers_the_same_ordinal_wi
     assert len(shim_requests(tmp_path)) == 4
 
 
+@pytest.mark.parametrize("tool, turn", [("claude", "/ a2"), ("codex", "/ b2")])
+def test_completed_missing_result_fails_same_ordinal_on_resume_without_redispatch(tmp_path, monkeypatch, tool, turn) -> None:
+    plan = {name: [dict(step) for step in steps] for name, steps in PLAN.items()}
+    plan[tool][1] = {**plan[tool][1], "mode": "missing-result"}
+    _install(tmp_path, monkeypatch, plan)
+    _stopped(tmp_path, STOP_AFTER_RECEIPT, {"STOP_AT_COMPLETION": "completed", "STOP_TURN": turn}, "run", *fixture(tmp_path))
+    run_root, _authority, classes, memo = memo_of(tmp_path)
+    (pending,) = memo.pending_starts.values()
+    attempt = run_root / Path(pending.data["result_path"]).parent
+    assert pending.data["identity"].endswith(turn)
+    assert json.loads((attempt / "receipt.json").read_text())["completion"] == "completed"
+    assert not (attempt / "result.json").exists()
+    dispatched = len(shim_requests(tmp_path))
+
+    resumed = _cli(tmp_path, "resume", run_root.name)
+
+    assert resumed.returncode == 1 and "agent_turn_result_invalid" in resumed.stderr, resumed.stderr
+    _root, _authority, classes, after = memo_of(tmp_path)
+    assert not after.pending_starts and after.terminal.data["outcome"] == "failed"
+    (failed,) = [entry.data for entry in after.entries if entry.data["record"] == "failed"]
+    assert failed["identity"] == pending.data["identity"] and failed["attempt"] == pending.data["attempt"]
+    assert failed["code"] == "agent_turn_result_invalid"
+    assert len(shim_requests(tmp_path)) == dispatched
+
+
 def test_orphaned_process_group_is_quiesced_before_recovery(tmp_path, monkeypatch) -> None:
     """The orchestrator died while the CLI ran; its grandchild outlives both. Resume admits the live group
     (`needs_quiescence` at the read-only preflight), stops it under the writer lock, then recovers b2 without redispatch."""

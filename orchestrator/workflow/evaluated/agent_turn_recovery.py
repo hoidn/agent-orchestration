@@ -133,7 +133,7 @@ def _undispatched(receipt: Receipt | None) -> str | None:
 
 
 def _classify_native(first_turn, receipt: Receipt, adapter, marker, result_present) -> PendingTurn:
-    """After quiescence: recoverable, provably not dispatched, or uncertain (bootstrap / unresolved)."""
+    """After quiescence, project a later exact native completion without its typed result; first turns bootstrap as before."""
     before = None if receipt.position_before is None else NativePosition.from_record(receipt.position_before)
     try:
         facts = _native_facts(receipt, adapter, marker, before)
@@ -142,8 +142,8 @@ def _classify_native(first_turn, receipt: Receipt, adapter, marker, result_prese
     if facts is None:
         return _uncertain(first_turn, receipt, None, "native session is missing, ambiguous or unknown")
     head, turn = facts
-    if turn is not None and result_present and _agrees(receipt, turn):
-        return PendingTurn("recoverable", receipt, turn, "native completion and result evidence intact")
+    if turn is not None and _agrees(receipt, turn) and (result_present or not first_turn):
+        return PendingTurn("recoverable", receipt, turn, "native completion confirmed")
     if turn is None and _head_unchanged(receipt, head, before):
         return PendingTurn("not_dispatched", receipt, None, "head unchanged, process group quiescent")
     return _uncertain(first_turn, receipt, turn, "native state advanced, open or uncertain without an intact result")

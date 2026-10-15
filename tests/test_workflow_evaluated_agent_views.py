@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 
 import pytest
 
@@ -92,3 +93,34 @@ def test_d1_refusal_reaches_state_and_report_without_native_facts(tmp_path, monk
         assert report.returncode == 0, report.stderr
         outputs.append(report.stdout)
     assert not [(i, s) for i, text in enumerate(outputs) for s in secrets if s in text]
+
+
+@pytest.mark.parametrize("tool, turn", [("claude", "/ a2"), ("codex", "/ b2")])
+@pytest.mark.parametrize("recovered", [False, True], ids=["uninterrupted", "resumed"])
+def test_agent_missing_result_sanitizes_public_outputs(tmp_path, monkeypatch, tool, turn, recovered) -> None:
+    from tests.test_workflow_evaluated_agent_turn_recovery import STOP_AFTER_RECEIPT, _stopped
+    plan = {name: [dict(step) for step in steps] for name, steps in PLAN.items()}
+    plan[tool][1] = {**plan[tool][1], "mode": "missing-result"}
+    install_agent_shims(tmp_path / "bin", monkeypatch, codex_home=tmp_path / "codex", claude_home=tmp_path / "claude", plan=plan)
+    if recovered:
+        _stopped(tmp_path, STOP_AFTER_RECEIPT, {"STOP_AT_COMPLETION": "completed", "STOP_TURN": turn}, "run", *fixture(tmp_path))
+        run_root, *_ = memo_of(tmp_path)
+        result = _cli(tmp_path, "resume", run_root.name)
+    else:
+        result = _cli(tmp_path, "run", *fixture(tmp_path))
+    assert result.returncode == 1 and "agent_turn_result_invalid" in result.stderr, result.stderr
+    run_root, _authority, _classes, memo = memo_of(tmp_path)
+    started = next(row.data for row in memo.entries if row.data["record"] == "started" and row.data["identity"].endswith(turn))
+    attempt = run_root / Path(started["result_path"]).parent
+    receipt = json.loads((attempt / "receipt.json").read_text())
+    native_path = next((tmp_path / tool).rglob(f"*{receipt['locator']}*.jsonl"))
+    secrets = (receipt["locator"], receipt["position_after"]["turn_id"], str(native_path), str(tmp_path / tool))
+    (failed,) = [row.data for row in memo.entries if row.data["record"] == "failed" and row.data["identity"].endswith(turn)]
+    assert failed["code"] == "agent_turn_result_invalid"
+    assert failed["exit_info"] == {} and "violations" not in failed
+    outputs = [result.stderr, (run_root / "state.json").read_text()]
+    for fmt in ("json", "md"):
+        report = _cli(tmp_path, "report", "--run-id", run_root.name, "--format", fmt)
+        assert report.returncode == 0, report.stderr
+        outputs.append(report.stdout)
+    assert all(secret not in output for secret in secrets for output in outputs)

@@ -260,7 +260,7 @@ def perform_turn(attempt, *, views=None):
         session = execution.provider_session or {}
         turn = _verify_completion(attempt, resolved, session.get("session_id") or locator, before)
         if session.get("is_error"):     # Claude `is_error: true` finalizes as metadata, never as a valid result
-            raise _result_invalid(resolved, f"{attempt.identity}: provider reported is_error ({session.get('result_subtype')})")
+            raise _result_invalid(resolved)
     except ProviderPerformerError as exc:
         raise _unresolved_or_failed(attempt, exc) from exc
     except AgentTurnError:
@@ -314,9 +314,9 @@ def unresolved_after_projection(attempt, exc: Exception) -> AgentTurnError:
                           keep_pending=True)
 
 
-def _result_invalid(resolved: ResolvedTurn, detail, *, exit_info=None, violations=None):
+def _result_invalid(resolved: ResolvedTurn):
     code = "provider_result_invalid" if resolved.predecessor is None else "agent_turn_result_invalid"
-    return AgentTurnError(code, detail, exit_info=exit_info, violations=violations)
+    return AgentTurnError(code, f"{resolved.agent.identity}: {code}")
 
 
 def _head_unchanged(resolved: ResolvedTurn, receipt: Receipt) -> bool:
@@ -386,8 +386,8 @@ def project_turn(attempt, outcome):
         result, digest = provider_result(resolved.provider_node, resolved.provider, attempt.attempt_files,
                                          attempt.workspace_files, outcome.result_path)
         receipt = update_receipt(attempt.attempt_files, result_digest=digest)   # the prepared proof is durable here
-    except ProviderPerformerError as exc:
-        raise _result_invalid(resolved, str(exc), exit_info=exc.exit_info, violations=exc.violations) from exc
+    except ProviderPerformerError:
+        raise _result_invalid(resolved) from None
     except Exception as exc:
         raise unresolved_after_projection(attempt, exc) from exc
     proof = {"adapter": resolved.adapter.metadata_mode, "locator": receipt.locator, "position": receipt.position_after,

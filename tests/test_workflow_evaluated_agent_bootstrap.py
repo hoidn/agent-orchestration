@@ -82,6 +82,29 @@ def test_recoverable_first_turn_proof_wins_over_bootstrap(tmp_path, monkeypatch)
     assert len([r for r in shim_requests(tmp_path) if r["tool"] == "codex"]) == 2
 
 
+@pytest.mark.parametrize("tool, turn", [("claude", "/ a1"), ("codex", "/ b1")])
+def test_first_turn_completed_without_result_bootstraps_on_first_explicit_resume(tmp_path, monkeypatch, tool, turn) -> None:
+    from tests.test_workflow_evaluated_agent_turn_recovery import STOP_AFTER_RECEIPT, _stopped
+    plan = {name: [dict(step) for step in steps] for name, steps in PLAN.items()}
+    plan[tool].insert(0, {**plan[tool][0], "mode": "missing-result"})
+    _install(tmp_path, monkeypatch, plan)
+    _stopped(tmp_path, STOP_AFTER_RECEIPT, {"STOP_AT_COMPLETION": "completed", "STOP_TURN": turn}, "run", *fixture(tmp_path))
+    run_root, _authority, _classes, memo = memo_of(tmp_path)
+    (pending,) = memo.pending_starts.values()
+    attempt = run_root / Path(pending.data["result_path"]).parent
+    assert json.loads((attempt / "receipt.json").read_text())["completion"] == "completed"
+    assert not (attempt / "result.json").exists()
+
+    resumed = _cli(tmp_path, "resume", run_root.name)
+
+    assert resumed.returncode == 0, resumed.stderr
+    assert "agent_bootstrap_restarted" in resumed.stderr
+    _root, _authority, classes, after = memo_of(tmp_path)
+    failed = _rows(after, "failed", turn)
+    assert [row["code"] for row in failed] == ["agent_bootstrap_restarted"]
+    assert turns(after, classes)[turn.rsplit("/ ", 1)[1]]["attempt"] == 2
+
+
 @pytest.mark.parametrize("mode, code", [("interrupted", "agent_turn_unresolved"), ("invalid-result", "agent_turn_result_invalid")])
 def test_later_turn_failures_cannot_bootstrap(tmp_path, monkeypatch, mode, code) -> None:
     plan = {"claude": [{"mode": "success", "result": {"text": "d1"}}, {"mode": mode, "result": {"text": "d2"}}], "codex": PLAN["codex"]}
@@ -91,7 +114,7 @@ def test_later_turn_failures_cannot_bootstrap(tmp_path, monkeypatch, mode, code)
     run_root, _a, _c, memo = memo_of(tmp_path)
     if code == "agent_turn_result_invalid":
         (failed,) = _rows(memo, "failed", "/ a2")
-        assert failed["code"] == code and failed["violations"]
+        assert failed["code"] == code and failed["exit_info"] == {} and "violations" not in failed
     memo_bytes = (run_root / "memo.jsonl").read_bytes()
     resumed = _cli(tmp_path, "resume", run_root.name)
     assert resumed.returncode == 2 and code in resumed.stderr
