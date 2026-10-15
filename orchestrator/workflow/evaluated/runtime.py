@@ -32,6 +32,7 @@ from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.providers.registry import ProviderRegistry
 from orchestrator.workflow.evaluated.provider_io import ProviderIOContext
 from .providers import provider_result
+from .agent_sessions import allocation_result
 from . import effect_execution
 from .effect_execution import PreparedAttempt, ExternalOutcome, perform_external
 from .run_ref import (
@@ -77,7 +78,7 @@ def execute_pure_run(
 
         def handle(node, operands, identity, owner, reader, *, launch_workspace=None):
             nonlocal provider_executor
-            if node.get("class") not in {"command", "provider", "run_ref"}:
+            if node.get("class") not in {"command", "provider", "run_ref", "agent", "agent_turn"}:
                 raise RuntimeError("unsupported evaluated effect class")
             if node["class"] == "provider" and provider_executor is None:
                 provider_executor = ProviderExecutor(
@@ -437,7 +438,9 @@ def _raise_if_publication_fatal(error, fatal_publication):
 def _validate_attempt_outcome(attempt, outcome):
     if attempt.node['class'] == 'run_ref':
         return project_evaluated_run_ref(attempt.node, outcome.run_ref, attempt.attempt_files)
-    if attempt.node['class'] == 'command':
+    if attempt.node['class'] == 'agent':
+        result, digest = allocation_result(attempt)
+    elif attempt.node['class'] == 'command':
         result, digest = command_result(attempt.node, attempt_files=attempt.attempt_files,
             workspace_files=attempt.workspace_files, result_path=outcome.result_path)
     else:

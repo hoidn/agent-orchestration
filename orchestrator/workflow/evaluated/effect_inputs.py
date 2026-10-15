@@ -19,6 +19,7 @@ from orchestrator.workflow.evaluated.values import coerce_evaluated_value
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from .authority import RunAuthority, workspace_result_locator
+from .agent_sessions import resolve_allocation_input
 from .inputs import DocumentInputError, command_binding_kind, prepare_command_document
 from .providers import DELIVERY_NAMES_BY_DIGEST, FILE_DELIVERY_NAME, resolve_provider_input
 from .run_ref import require_run_ref_root, resolve_run_ref_input, validate_evaluated_run_ref
@@ -99,21 +100,29 @@ def _resolve_effect_input(
         require_run_ref_root(authority)
         resolved, parts = resolve_run_ref_input(node, operands)
         implementation_files = {}
+    elif node["class"] == "agent":
+        resolved, parts = resolve_allocation_input(node, operands)
+        implementation_files = {}
     else:
-        delivery_name = _provider_delivery_name(node, commit, identity)
-        try:
-            resolved = resolve_provider_input(node, operands, workspace=workspace, reader=reader,
-                result_path=workspace_relative_path(workspace, authority.run_root / result_path),
-                delivery_name=delivery_name, logical_workspace=launch_cwd is not None)
-        except Exception as exc:
-            if commit is not None:
-                raise _EffectInputDiverged(identity, f"provider inputs could not be resolved: {exc}") from exc
-            raise
+        resolved = _resolve_provider_effect_input(authority, node, operands, identity, workspace, reader,
+            commit, result_path, launch_cwd)
         parts = dict(resolved.input_parts)
         implementation_files = {}
     if launch_cwd is not None:
         parts["launch_cwd"] = _cwd_digest(workspace, launch_cwd)
     return resolved, parts, implementation_files
+
+
+def _resolve_provider_effect_input(authority, node, operands, identity, workspace, reader, commit, result_path, launch_cwd):
+    delivery_name = _provider_delivery_name(node, commit, identity)
+    try:
+        return resolve_provider_input(node, operands, workspace=workspace, reader=reader,
+            result_path=workspace_relative_path(workspace, authority.run_root / result_path),
+            delivery_name=delivery_name, logical_workspace=launch_cwd is not None)
+    except Exception as exc:
+        if commit is not None:
+            raise _EffectInputDiverged(identity, f"provider inputs could not be resolved: {exc}") from exc
+        raise
 
 
 def _provider_delivery_name(node, commit, identity):

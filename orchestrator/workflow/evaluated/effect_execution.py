@@ -9,6 +9,7 @@ from orchestrator.workflow.workspace_files import WorkspaceFiles
 
 from .authority import RunAuthority
 from .commands import CommandPerformerError, launch_command, workspace_relative_path
+from .agent_sessions import perform_allocation
 from .providers import launch_provider
 from .run_ref import perform_evaluated_run_ref
 
@@ -51,6 +52,8 @@ def perform_external(attempt: PreparedAttempt) -> ExternalOutcome:
     if node['class'] == 'command':
         path = _dispatch_command(attempt, logical_root)
         return ExternalOutcome(result_path=path)
+    if node['class'] == 'agent':
+        return perform_allocation(attempt)
     if node['class'] == 'run_ref':
         result = perform_evaluated_run_ref(attempt.authority, attempt.resolved,
             attempt.identity, attempt.ordinal, attempt.workspace)
