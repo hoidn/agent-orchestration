@@ -873,3 +873,51 @@ A scratch pytest plugin patched names in the test module at setup; no file was e
 - Without `ORCHESTRATE_E2E`: `16 skipped`. `--collect-only` -> `16 tests collected`. `pyright` 0 errors.
 - Afterwards no `run-ref-*` units or cgroups remained.
 - The intermittent teardown error did not recur in these six runs, or in five runs of the two older modules after fix round 3 (`18802b53`, ENOENT/ENODEV treated as vanished).
+
+## Task 6: integrated confined command execution (2026-10-15)
+
+Tested code: `c48d8fcc06e4177fc633a7f3155a8f71548eb876`, including the
+integration corrections in `89f5c43b` and `d95e6857`. Independent conformance
+review followed by code/security review: **PASS**, with no open findings.
+This qualifies live command execution and completed-result reuse; controller
+crash recovery (F5), exports/cleanup (F6) and live provider transport remain
+separate acceptance requirements.
+
+The public CLI fixture imports an OCI layout built from the Task 1 Debian
+Python rootfs, whose pinned tree digest is
+`sha256:973cd37339e7ef7627c497292983fa6b110ef784f121f41d8a52edc6385fadae`.
+`tests/e2e/run_ref_image_fixture.py` records the construction and import path.
+The command witness runs two leaves, checks their committed memo values and
+checkpoint, and performs a completed public resume. The same suite covers
+holder loss, budget exhaustion and provider refusal. Its per-test run roots
+were temporary; their run IDs are not retained in this summary.
+
+Commands ran from the feature worktree with `PYTHONPATH` pointing there:
+
+| Check | Result |
+| --- | --- |
+| `ORCHESTRATE_E2E=1 pytest -q tests/e2e/test_e2e_run_ref_confined_child.py tests/e2e/test_e2e_run_ref_holder_runtime.py tests/e2e/test_e2e_run_ref_holder_failures.py` | **29 passed**, 39.16 s, exit 0 |
+| `pytest -q tests/test_workflow_run_ref_quiescence.py` | **3 passed**, 2.17 s; the same regressions were first observed failing |
+| `pytest --collect-only -q tests/test_workflow_run_ref_quiescence.py` | **3 collected** |
+| `pytest -q -n 16 --dist=worksteal -m 'not e2e'` | **18 failed, 15856 passed, 6 skipped, 1 xfailed**, 1018.02 s, exit 1 |
+| Isolated rerun of the two failures absent from the recorded base list | **1 passed, 1 xfailed**, 37.98 s, exit 0 |
+
+The broad campaign is **not all green**. Sixteen failing node IDs also occur
+in the preserved 85-failure baseline at `0c156966`: four nanoBragg harness
+cases, ten use-site-scope cases, the Neovim diagnostic-progress case and the
+evaluated growth-selector case. The other two are
+`test_cancellation_escalates_after_a_failed_term_delivery` (process already
+gone during fallback cleanup after a scheduling deadline; isolated PASS) and
+`test_a_late_refusal_of_a_fresh_run_retries_with_the_fresh_run_id` (watchdog
+timeout under load; isolated known F50 xfail). Their relevant source and tests
+are unchanged from base. No related regression remained unresolved; no test
+was weakened. Baseline failures absent from this campaign are not claimed
+as fixes.
+
+The corrections close the sessionless host-command route, charge admission
+and ongoing host work to the budget, verify resolved inputs from retained
+snapshots, and prevent clone repair or settlement after failed quiescence.
+The final broad run used frozen sources. Local detailed evidence is retained
+in the SDD `task-6c-broad-classification.md` and `task-6c-quiescence-review.md`,
+and `/tmp/runref-t6c-quiescence-e2e.log`; this committed section preserves the
+acceptance summary independently of those local logs.
