@@ -12,9 +12,9 @@ the Workflow Lisp REPL: base `47e85a9c`, with 16 hidden node ids from `fe49c1c4`
 
 - Criterion: [`experiments/compare/criteria/eb.json`](../../experiments/compare/criteria/eb.json).
 - SHA-256: `d5b8737829fba1bc33bcfa3d81b63d239dc01fe3bc172c5c5604f3c3d76e009c` (amendment 1; the first version, `de57fba1…`, is cited in its `amends` field).
-- It was frozen before any run, and every scoring run binds it.
+- Each version was committed before the runs it governs. E-B made no scoring run, so no run bound it.
 - Runs, pooling and summarizing use the frozen runtime at `1a77e0af`.
-- Two qualification runs made at `aac25b7d` were discarded for harness defects (R34 and R35).
+- Two qualification runs made at `aac25b7d` were discarded for a harness defect (R35).
 - Package SHA-256: `585e057e3828b7eb7a9208ccb5188925949357737c03e156013096ceabcb5f61`.
 
 ## Qualification
@@ -24,14 +24,14 @@ The criterion requires that two single calls, made with the control's binding (`
 
 | run | outcome | wall clock | calls | patch | hidden acceptance | scan hits | verdict |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| qualification run-1 | completed | 2394 s | 1 | 17 files, 1871 added lines | 16/16 | 27 | cleared |
-| qualification run-2 | completed | 1656 s | 1 | 22 files, 1738 added lines | 14/16 | 55 | cleared |
-| anchor `upstream-repl` | | | | 1804 added lines | 16/16 | | |
+| qualification run-1 | completed | 2394 s | 1 | 17 files, 1854 added lines | 16/16 | 27 | cleared |
+| qualification run-2 | completed | 1656 s | 1 | 22 files, 1716 added lines | 14/16 | 55 | cleared |
+| anchor `upstream-repl` | | | | 1786 added lines | 16/16 | | |
 | anchor `stub-repl` | | | | | 0/16 | | |
 
 - Run-2 fails `test_completed_root_loop_captures_done_result_not_seed_halt[False]` (`memo_inconsistent`:
   replay failed before a lexical scope was available) and its `[True]` variant (the `state` binding is
-  missing).
+  missing). The node-by-node rerun is recorded in the evidence directory (`eb/qualification/run-2-failing-nodes.txt`).
 - Every scan hit was the `claude-tmux-sockets` pattern. In each case the agent read the tmux skill and used
   sockets under `/tmp/claude-tmux-sockets`. Inside the sandbox that path is the run's own private `/tmp`:
   the agent's first `ls` there found no such directory.

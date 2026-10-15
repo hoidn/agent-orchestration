@@ -4,6 +4,8 @@ Material of the experiment of 2026-09-28.
 
 - Report: [`docs/reports/2026-09-28-orc-versus-single-call.md`](../../docs/reports/2026-09-28-orc-versus-single-call.md)
 - Guidance: [`docs/orc_workflow_design_lessons.md`](../../docs/orc_workflow_design_lessons.md)
+- Rerun of both workflows on the evaluated route (2026-10-14), unchanged, through the comparison harness:
+  [`docs/reports/2026-10-14-orc-versus-single-call-evaluated.md`](../../docs/reports/2026-10-14-orc-versus-single-call-evaluated.md)
 
 | Path | Contents |
 | --- | --- |

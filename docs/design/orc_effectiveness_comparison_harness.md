@@ -3,7 +3,7 @@
 ## Metadata
 
 - **Title:** A small reusable harness for workflow-versus-single-call comparisons on the evaluated route, retirement of the apparatus that can no longer run, and two preregistered experiments
-- **Status:** draft, 2026-10-14, revised after one independent design review and again during implementation; owner decisions recorded in §Open Questions
+- **Status:** implemented, 2026-10-14. The harness is in `experiments/compare/` and both experiments have run: see the [E-A report](../reports/2026-10-14-orc-versus-single-call-evaluated.md), the [E-B report](../reports/2026-10-14-design-review-execute-versus-single-call.md) and the [postmortem](../reports/2026-10-14-effectiveness-experiments-postmortem.md). Decisions made during implementation are recorded in the plan's rulings appendix.
 - **Kind:** operational design (experiment apparatus) with experiment preregistration
 - **Owner:** experiment and evaluated-runtime maintainers
 - **Reviewers:** one independent design reviewer; one code reviewer distinct from the implementer
@@ -75,10 +75,10 @@ evidence stays, code goes.
   providers the absolute path of their pinned result file; a missing file
   fails the effect with `provider_result_missing` ([providers
   spec](../../specs/providers.md)).
-- The [capability matrix](../capability_status_matrix.md) lists the lean-pilot
-  apparatus as "Implemented". Its unit tests pass, but the apparatus cannot
-  execute its ORC treatment. This design surfaces the contradiction and
-  resolves it through D1.
+- Before this design, the [capability matrix](../capability_status_matrix.md)
+  listed the lean-pilot apparatus as "Implemented", although it could not
+  execute its ORC treatment. D1 resolved this: the apparatus was removed, and
+  the matrix row is now Retired.
 - Owner decisions of 2026-10-14, recorded here: the lean-pilot row was removed
   from the README evidence table; the ES F1 study is invalid and is not a
   candidate comparison; the REPL-shaped workflow is a candidate treatment.
@@ -551,7 +551,8 @@ a judge binding per chosen judge family (`score.providers.json` for Claude;
 `providers/score_codex.json` for OpenAI, because a judge's directory is not a
 git repository; no Google judge, since the `gemini` CLI is absent and its
 template has no model binding),
-access to the models named above, and tmux. Sequence: the E-B task's hidden
+access to the models named above, tmux, and bubblewrap (`bwrap`) for the
+agents' sandbox (R35). Sequence: the E-B task's hidden
 set check, then the harness and D1 in parallel, then E-A. E-B's design and
 criterion do not depend on E-A's results, so E-B may run while E-A runs, from
 the same frozen runtime path (one path for the scan pattern) with its own

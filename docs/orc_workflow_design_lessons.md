@@ -2,14 +2,19 @@
 
 Status: informative guidance
 Source: experiments of 2026-09-28, reported in
-[`.orc` Workflows Versus A Single Agent Call](reports/2026-09-28-orc-versus-single-call.md)
+[`.orc` Workflows Versus A Single Agent Call](reports/2026-09-28-orc-versus-single-call.md), and their rerun on the
+evaluated route on 2026-10-14 ([E-A](reports/2026-10-14-orc-versus-single-call-evaluated.md),
+[E-B](reports/2026-10-14-design-review-execute-versus-single-call.md),
+[postmortem](reports/2026-10-14-effectiveness-experiments-postmortem.md))
 Audience: workflow authors and reviewers
 Normative contracts: `specs/`
 
 A single call to a current agent already plans, edits, tests and corrects
 itself. A workflow improves on it only by supplying something the agent cannot
 give itself. This guide records what did and did not, and the authoring
-mistakes that cost runs.
+mistakes that cost runs. On the evaluated route, the two patterns that gained in
+September still gained over their own first or average candidate. Each scored
+less than half a point (of 8) above a single call of the selector's model.
 
 The compiler/runtime observations and workarounds below describe the original
 pre-2.35 experiment targets. For current 2.35/2.36 admission and execution,
@@ -29,15 +34,15 @@ add the step.
 | --- | --- |
 | What does each step add that the previous agent did not have? | The only sources of gain found were independent candidates to choose from, and a judge with different knowledge than the author. A deterministic gate and a human decision are two more; they were not measured here |
 | Is the judge a different, stronger model than the author? | With the author's own model as reviewer or selector, results ranged from -0.5 to +0.44 on an 8-point scale. With a stronger model from another family, from +0.58 to +1.02 |
-| Does a single call already solve the task? | On a task one call solved every time, every workflow tied and cost twice as much |
+| Does a single call already solve the task? | On a task one call solved every time, every workflow tied and cost twice as much. A feature chosen as too large for one call (the REPL, with its public interface spelled out) was finished by one call, 16/16 and 14/16 hidden tests. Measure this before running any treatment |
 | How will you know the workflow helped? | A verdict such as `READY` is not evidence. With a same-model reviewer, verdicts did not track quality |
 
 ## Choosing A Pattern
 
 | Pattern | Use when | Measured |
 | --- | --- | --- |
-| Generate several candidates, select one | single calls vary in quality and a stronger judge is available | +0.83 and +1.02 over the candidate-group mean, gain in 11 of 12 runs |
-| Review and revise with a stronger reviewer | one candidate is expensive, or the change must be corrected rather than replaced | +0.58, no run got worse; judges agreed less |
+| Generate several candidates, select one | single calls vary in quality and a stronger judge is available | Flat route (2026-09-28): +0.83 and +1.02 over the candidate-group mean, gain in 11 of 12 runs. Evaluated route ([E-A](reports/2026-10-14-orc-versus-single-call-evaluated.md)): +1.02, gain in 4 of 6 runs, one run short of its criterion; +0.33 over single calls |
+| Review and revise with a stronger reviewer | one candidate is expensive, or the change must be corrected rather than replaced | Flat route: +0.58, no run got worse; judges agreed less. Evaluated route (E-A): +0.67, no run worse; the reviewer approved 4 of 6 first patches unchanged |
 | Review and revise with the author's model | no benefit was demonstrated in this bounded experiment; validate it on the intended task | -0.5 to 0 |
 
 Selection leaves candidate patches unchanged, though it can choose a worse
@@ -141,3 +146,6 @@ that delivers nothing in a later loop iteration fails with
 | Repeat anchor patches across batches | judges used different parts of the scale; two anchors moved from 8.0 and 3.0 to 7.0 and 5.0 |
 | Do not score with tests the agent can run | agents test themselves until they pass; every arm reached 100 percent |
 | Report judge agreement | it ranged from 19 of 60 to 68 of 72 |
+| Calibrate difficulty before freezing the criterion: single call below half of hidden acceptance, expected review blockers at least one | the reviewer approved 4 of 6 first patches unchanged, which leaves review-and-revise nothing to gain; the E-B task did not qualify |
+| Smoke with the real agents before freezing, and isolate them (own `/tmp`, process list, result paths inside the workspace) | live agents misplaced result files and inherited another session's environment; a batch and a half of runs were discarded |
+| Compute interim readouts with the summarizer's own join and check the anchors first | a positional join reported both workflows losing; joined by clone id they met most clauses |

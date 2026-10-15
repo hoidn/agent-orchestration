@@ -175,8 +175,9 @@ The repository records negative results next to positive ones.
 | [Design lessons](docs/orc_workflow_design_lessons.md) | What a workflow must add that the agent cannot give itself | Independent candidates plus a judge with different knowledge than the author were the only measured sources of gain |
 
 The conclusion the evidence supports is narrow: a workflow beats a single call
-when it supplies something the agent lacks, and the cost of finding out is one
-disciplined experiment. The runtime's value is that the experiment is
+when it supplies something the agent lacks, and the margin can be small. On the
+evaluated route both winning patterns scored under half a point above a single
+call. The cost of finding out is one disciplined experiment. The runtime's value is that the experiment is
 cheap to run and its evidence is complete.
 
 ## Scale and provenance

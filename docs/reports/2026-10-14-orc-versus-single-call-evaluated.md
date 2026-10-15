@@ -14,7 +14,10 @@ on the September task (`468e7908`, `bugs/loop_result_paths`), as they did on the
 
 - Criterion: [`experiments/compare/criteria/ea.json`](../../experiments/compare/criteria/ea.json).
 - SHA-256: `0030e44a3b765de43dafff280f00600f52e7698afb9e002dec4a543da512f7c9` (amendment 2; earlier versions are cited in its `amends` and `amends_2` fields).
-- It was frozen before any run, and every scoring run binds it.
+- Each version of the criterion was committed before the runs it governs, and both scoring runs bound this
+  version's hash. Amendment 2 was committed while the `reviewed_change` and `direct_task` runs at `1a77e0af`
+  were under way. It changes only `best_of_n`'s runtime commit and lists the discarded runs. No amendment
+  changed a threshold, a measure, a judge or an anchor.
 - Harness, runtime and task package: the frozen runtime at commit `197e35ed` for `best_of_n` and at `1a77e0af` for the
   other arms. The difference touches only `best_of_n`'s state directory (R37). The runs made at `aac25b7d`
   were discarded before pooling, for two harness defects (R34 and R35). The criterion's `amends` field lists them.
@@ -48,8 +51,9 @@ Runs discarded before pooling, and never scored:
 - **At `aac25b7d`:** all runs of the first batch (R34, R35; listed in the criterion's `amends`).
 - **At `1a77e0af`:** `best_of_n` run-1 to run-6. Runs 1 and 2 lost their first candidate's result (R37), run-3 was
   stopped, and runs 4 to 6 never started (`amends_2`).
-- **At `197e35ed`:** run-10. It was stopped twice before any committed call by a controller error in the queue
-  and replaced by run-13, which ran on a fresh tree.
+- **At `197e35ed`:** run-10. A controller error in the queue stopped it twice before any committed call, and
+  run-13 replaced it on a fresh tree. This deviates from the criterion's "never relaunched or replaced". The
+  replacement was outcome-blind: run-10 had produced nothing to judge.
 
 ## Scores, Anchors And Agreement
 
@@ -72,12 +76,13 @@ Runs discarded before pooling, and never scored:
   - mean absolute difference 1.35 points;
   - the OpenAI judge scores about 0.9 points lower;
   - identical criterion ratings: root cause 37/54, scope 26/54, generality 35/54, layering 34/54.
-- **Anchors behaved as designed in every batch.** The symptom-silencing patch scored 0–2 from both judges. The
-  Sonnet single call scored 3–8 (`results.json`, `anchors`).
+- **Anchors behaved as designed.** The symptom-silencing patch scored 0–2 from `claude-opus-5-5` and 0–1 from
+  `gpt-6.1-sol` in every batch. The Sonnet single call scored 5–8 from `claude-opus-5-5` and 1–8 from
+  `gpt-6.1-sol` (1 in batch 6) (`results.json`, `anchors`).
 - **Where `best_of_n` lost:**
   - In run-7 and run-11 the selector picked a candidate at or below its group's mean.
   - In run-11 a candidate scoring 7 was available and the selector picked one scoring 3.5.
-  - The four candidates of a run spread widely (3 to 8 within one run). Selection is worth more than
+  - The four candidates of a run spread widely (up to 3.5–8, in run-9). Selection is worth more than
     generation here, and in 2 of 6 runs it went wrong.
 - **Where `reviewed_change` gained:**
   - In 4 of 6 runs the `gpt-6-sol` reviewer approved the first patch, so the final patch is the first one
@@ -98,10 +103,11 @@ sandbox-era patterns (R35).
   - `best_of_n`: 25 Sonnet implementer calls (one resumed) and 6 `gpt-6-sol` selector calls;
   - `reviewed_change`: 9 Sonnet coder calls and 9 `gpt-6-sol` reviewer calls;
   - `direct_task`: 6 `gpt-6-sol` calls.
-- **Judges:** 8 `claude-opus-5-5` calls and 8 `gpt-6.1-sol` calls, one of which was interrupted and resumed.
+- **Judges:** 8 `claude-opus-5-5` calls and 9 `gpt-6.1-sol` calls (8 batches, plus one interrupted call that was
+  resumed).
 - **Discarded runs:** about 13 more runs' worth of calls, at `aac25b7d` and `1a77e0af`.
 - **Codex:** the credit balance stayed at 29795.96 (has credits, pro plan). The weekly window went from 82% to
-  96% used.
+  96% used (readings in the evidence directory, `ea/codex-usage.txt`).
 - **Mean wall clock per run:** `best_of_n` 1323 s, `reviewed_change` 754 s, `direct_task` 497 s.
 
 ## Verdict
@@ -123,7 +129,8 @@ They do so at about 2.6 times (`best_of_n`) and 1.5 times (`reviewed_change`) th
   each judge alone would reverse one clause.
 - **Interim readout error.** During scoring the coordinator gave the owner a preliminary readout that joined ratings
   to clones by position. The readout was wrong, and the owner stopped the second judge on it. The judge was resumed,
-  and nothing it had scored was repeated. The verdict above comes from `summarize`, which joins by clone id.
+  and nothing it had scored was repeated. The verdict above comes from `summarize`. It joins ratings to clones
+  by position in each judge's own inputs and refuses any batch whose copied-back clone id disagrees.
 - **Public later code.** The fix is not public, but later public commits touch the same code. The scan found no
   use of them.
 - **Judge families.** The judges differ from September's, and `gpt-6.1-sol` shares a family with the selector, the
@@ -133,6 +140,11 @@ They do so at about 2.6 times (`best_of_n`) and 1.5 times (`reviewed_change`) th
 - **The task is easy for the reviewer.** It approved 4 of 6 first patches, which caps `reviewed_change`'s measurable
   gain. Follow-on experiments calibrate difficulty, so that expected review blockers are at least one (design,
   "Difficulty calibration for follow-on experiments").
+- **Contended wall clock.** The arms overlapped in time (R3, R32, R33). The wall-clock ratios were measured
+  under contention and are indicative only.
+- **Staged files.** Between calls, the shim used at these commits reset the candidate's git index. A file an
+  implementer had staged with `git add` was unstaged before the reviewer's call, and the reviewer saw it as
+  untracked. The patches themselves were unaffected, and the shim was fixed after the experiments.
 - **Harness accommodation.** `best_of_n`'s result path relies on a harness link (R37). Without it, on the evaluated
   route, its implementers lose their results.
 

@@ -30,7 +30,7 @@ What failed was the execution of the study:
 | 2 | Agents shared `/tmp`, tmux servers and the process list with other runs and sessions. A stale tmux server carried `PYTHONPATH` at the main checkout, which holds the E-B solution | No sandbox. `TMPDIR` does not stop hard-coded `/tmp` paths (R35) | First E-B qualification pair discarded; first batch discarded |
 | 3 | `best_of_n` implementers wrote their result inside `cand-k` | The workflow's workspace is the tree, the agents work in `cand-k`, and the runtime presents result paths relative to the workspace (R37) | Six `best_of_n` runs discarded |
 | 4 | The E-B task did not qualify: one call passed 16/16 and 14/16 hidden tests | The public-interface appendix needed by the hidden tests specified the feature closely, and difficulty was never measured before the criterion was frozen | E-B not evaluated |
-| 5 | The owner was told the workflows were losing (best_of_n −1.67, reviewed_change −0.83, judges disagreeing, r = 0.30) | An ad hoc script joined ratings to clones by position in `mapping.json`'s batch order. Judges receive clones in another order | Scoring stopped for 30 minutes on a wrong premise |
+| 5 | The owner was told the workflows were losing (best_of_n −1.67, reviewed_change −0.83, the judge "noisy") | An ad hoc script joined ratings to clones by position in `mapping.json`'s batch order. Judges receive clones in another order | Scoring stopped for 30 minutes on a wrong premise |
 | 6 | Operational errors | See the list below | Lost time; one run (run-10) discarded |
 
 The operational errors (item 6):
@@ -51,7 +51,7 @@ The live smoke ran after the criterion was frozen and alongside the first batch,
   that cites the previous hash and lists the discarded runs, before any rerun. No discarded run was ever scored.
 - **Contamination detection.** The scan and adjudication found the cross-session channel (defect 2), and every
   verdict carries its reason.
-- **The verdict comes from `summarize`.** It joins by clone id and refuses mismatches. The anchors behaved as
+- **The verdict comes from `summarize`.** It joins by position in each judge's inputs and refuses any batch whose copied-back clone id disagrees. The anchors behaved as
   designed in every batch, and the two judges agree at r = 0.81.
 - **Resumable runs.** Resumes worked: an owner-ordered stop and a judge stop each resumed without repeating a
   committed call.
@@ -83,7 +83,22 @@ honest reading is "small positive effect, not robustly above the bar".
 
 Two limits make a stronger claim impossible on this task:
 - **The reviewer had little to do.** It approved 4 of 6 first patches.
-- **The selector cannot exploit good candidates.** The spread within a run is large (3 to 8), and in 2 of 6 runs
+- **The selector cannot exploit good candidates.** The spread within a run is large (up to 3.5–8), and in 2 of 6 runs
   the selector picked a candidate at or below its group's mean.
 
 Both point to the difficulty rule above.
+
+## Closeout
+
+- **Suite at `037b8ab9`:** `pytest -q -n 16 --dist=worksteal -m "not e2e"` gave 13 failed and 14723 passed. That is
+  the 11 failures that predate the branch plus two load flakes, which pass in isolation.
+- **Branch:** `feat/compare-harness`. It contains the design and plan, the harness, `score.orc`, the control, the
+  task packages, the frozen and amended criteria, the lean-pilot retirement (`61b7d04d`) and the three reports.
+  It is merged into `main` with a merge commit (R40), so every cited commit stays reachable.
+- **Rulings:** the plan's appendix lists every ruling, R1 to R41.
+- **The EasySpin (ES) boundary edit** was left to the session that owns it. That session had not committed it
+  when this plan closed.
+- **Evidence:** run records, pools, patches, results and scan outputs are kept in the evidence directory beside
+  the repository (`agent-orchestration-compare-evidence/ea/` and `eb/`). The candidate trees and clones were
+  deleted after the reports were written.
+
