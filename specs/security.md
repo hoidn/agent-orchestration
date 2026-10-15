@@ -168,15 +168,24 @@ Note: These safety checks apply to paths the orchestrator resolves (e.g., `input
     refuses at dispatch before `started` with
     `run_ref_environment_effect_unsupported`.
   - Network: `:none` grants none. `:model-only` keeps the network namespace
-    unshared and binds one unix socket to a host-owned inference gateway that
-    admits only the selected provider/model API operations with byte limits,
-    an attempt-bound capability, expiry and installation-policy
-    token/cost/request ceilings, toward a fixed configured upstream; no
-    arbitrary URL, CONNECT, redirect authority, host tool, filesystem API or
-    credential read. A relay under an image executable pin runs inside each
-    provider leaf and dies with it; the capability is revoked when the
-    attempt stops and excluded from durable artifacts. Only API-key accounts
-    are admitted; OAuth credential-file passthrough is forbidden.
+    unshared and binds one unix socket to a host-owned inference gateway.
+    It admits only qualified provider/model operations toward a fixed upstream,
+    with request/response byte limits, an attempt-bound expiring capability,
+    a request ceiling and the remaining durable child wall budget. Cancellation,
+    expiry, revocation and exhaustion cancel pending local auth and transport
+    operations and streams. Token/cost ceilings require endpoint-specific
+    enforcement evidence; if installation policy requires an unsupported
+    ceiling, admission refuses. Bytes or disconnection do not establish remote
+    generation/cost limits, and incomplete usage/cost is UNKNOWN. No arbitrary
+    URL, CONNECT, redirects, host tools, filesystem API or credential reads are
+    exposed. The image-pinned relay runs in the provider leaf and dies with it;
+    capabilities are revoked at attempt stop and excluded from durable artifacts.
+    Qualified Codex managed ChatGPT login may be reused only by a private
+    persistent pinned native auth owner, with serialized acquisition, initial
+    account/origin/routing binding and strict refusal on mismatch or error as
+    specified by D7. Native refresh stays native. Authfiles, permanent upstream
+    credentials and owner RPC channels never enter the guest; the host owner
+    cannot execute candidate coding or tools. Unsupported transports refuse.
   - Enforced resources: CPU, memory, process count, workspace and scratch
     bytes, export bytes, file count and depth, and bounded stdout/stderr; a post-run `du`
     is insufficient. Protected evidence is charged to a separate

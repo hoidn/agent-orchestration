@@ -291,9 +291,94 @@ Confinement also applies when the trusted host reads candidate-controlled files 
 
 Required positive evidence covers unprivileged host launch through the existing fixed `bwrap` authority; private user/PID/mount/IPC/UTS/cgroup/network namespaces; all capabilities dropped; no privilege gain; sealed read-only imported rootfs; bounded temporary mounts with `/dev` and `/run` read-only; no inherited host descriptors beyond `/dev/null` and the two spawner sockets in any in-namespace holder process (pid 1, spawner); a positive mount allowlist; `memory.max`/`pids.max`/`cpu.max` enforced on the scope as unit properties; workspace quota enforced; the spawner's channels unreachable from leaves; leaves in their own sessions; spawner attributes (F3b-1) unchanged at every post-leaf quiescence; a fresh empty session keyring, key syscalls refused and `/proc/keys` masked in every leaf (F3b-2); whole-slot quiescence before every host read; and no committed effect lost by a holder death. Host `/`, home, parent/peer workspaces, cloud credentials, SSH agents, engine sockets and orchestration state are absent. Reuse `DurableLaunchReleaseGate` for the durable release fact, `CgroupV2ContainmentRoot`/`Slot` for containment and quiescence, the result broker for transfer and `isolation_network_preflight.py` for the denied-endpoint inventory.
 
-Tool-enabled provider processes run inside the same confinement as commands. Their child shells, filesystem tools, plugins and subprocesses cannot leave it. Provider CLI flags that bypass internal approvals do not establish outer isolation. A normal authenticated host SDK process is not a permitted alternative. For `:none`, commands and providers get no network. For `:model-only`, the network namespace is still unshared and only a bound unix socket enters the sandbox; a host-authored relay started inside each provider leaf under an image executable pin forwards loopback to it and dies with the leaf's quiescence (R4); the socket leads to a host-owned inference gateway that accepts only the admitted provider/model API operations with request/response byte limits, an attempt-bound capability, expiry and token/cost/request ceilings from installation policy. It chooses a fixed configured upstream; no arbitrary URL, CONNECT proxy, redirect authority, host tool call, filesystem API or credential read is provided. The capability is revoked when the attempt stops and is excluded from durable artifacts; the leaf script that carried it is removed with the leaf.
+Tool-enabled provider processes run inside the same confinement as commands. Their child shells, filesystem tools, plugins and subprocesses cannot leave it. Provider CLI flags that bypass internal approvals do not establish outer isolation. A normal authenticated host SDK process is not a permitted alternative. For `:none`, commands and providers get no network. For `:model-only`, the network namespace remains unshared and only the gateway socket enters the sandbox. An image-pinned relay runs inside each provider leaf and dies with its quiescence. The host gateway admits only the selected provider/model API operations toward a fixed configured upstream, with an attempt-bound expiring capability, request and response byte limits, a request ceiling and the remaining durable child wall budget. Expiry, revocation, cancellation or exhaustion cancels every pending local operation and stream. A transport is refused when installation policy requires a token or cost ceiling that its endpoint cannot enforce with qualified evidence; bytes and disconnected streams do not establish such a ceiling. Missing or incomplete usage/cost remains UNKNOWN. No arbitrary URL, CONNECT, redirect authority, host tool call, filesystem API or credential read is provided to the guest. The capability is excluded from durable artifacts and revoked when its attempt stops; its leaf script is removed with the leaf.
 
-**D7, inference gateway prerequisites**, each unbuilt today: a per-attempt environment/config overlay outside R8/R10 (evaluated providers set only `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`, and the executor copies `os.environ`); profile-specific provider template variants (`registry.py` templates are fixed host argv with no base-URL/config injection) that name the image executable pins of the provider CLIs rather than host binaries; telemetry and non-model traffic disabled; the per-leaf unix-socket relay, because `--unshare-net` leaves only a bound socket and neither CLI speaks HTTP over a unix socket; a gateway implementing the streaming Responses/Messages APIs the CLIs use; API-key accounts only, because OAuth file passthrough (`~/.codex/auth.json`, `~/.claude/.credentials.json`) is forbidden, which may change billing and model availability. Reason: these are the concrete gaps between today's executor and a confined provider; naming them prevents a mounted-home shortcut. It makes harder: providers arrive later than commands. **Increment A: confined commands and `:network :none`; providers refuse with `run_ref_provider_transport_unavailable`** until F4 passes, so the profile can be admitted before transport is qualified.
+**D7, inference gateway prerequisites.** Confined providers require a
+per-attempt clean environment/config overlay, profile-specific templates
+naming image-pinned provider executables, disabled telemetry and auxiliary
+guest traffic, an image-pinned per-leaf relay, and a qualified streaming
+inference gateway. The selected native-login transport is Codex managed
+ChatGPT authentication through one private persistent, version-pinned
+native app-server owned by the gateway. Only initialization and the
+serialized `account/read → getAuthStatus → account/read` acquisition
+protocol are sent. The gateway binds the initial account, origin and routing
+policy, checks every acquisition against that binding, and refuses absent,
+invalid, unsupported or changed identity/routing and native errors. A new
+owner must revalidate the original binding. Native startup, discovery and
+refresh may update the native login normally; the gateway implements no
+credential-file reader, token parser or OAuth refresh. Native configuration
+isolation must be qualified before startup with an existing login.
+Permanent credentials and native RPC channels never enter the guest.
+The host owner performs authentication only, not coding, tools, threads or
+turns; all provider execution remains in the holder. The first inference
+401 refuses without retry, and partial streams are never replayed.
+Admission is specific to the qualified CLI/interface, endpoint, routing
+policy, model and controls; neither another authentication mode nor Claude
+inherits it. Reason: reuse the native login without exposing its authority
+to candidate tools. It makes harder: the deprecated auth RPC and experimental
+routing require pinning and upgrade requalification, and an endpoint without
+a demonstrated token/cost ceiling cannot serve a policy that requires one.
+**Increment A remains commands with `:network :none`; provider transport
+refuses with `run_ref_provider_transport_unavailable` until its F4 and
+production integration gates qualify it.**
+
+The native owner is pinned to Codex `0.162.1`, source revision
+`092d3acd6bec3e3a14bdc7e7a2810ab628ab759d`, executable SHA-256
+`628e35487d888a28f0427fc37501da529dd3d81fcbad7a2c3421c1e8670d92e1`.
+It runs `codex app-server --strict-config --listen stdio://` over private pipes,
+with no listener or other clients. Only `initialize`, `initialized`,
+`account/read` and `getAuthStatus` are emitted. Initialization enables
+the pinned experimental routing response; both account reads require matching
+nonempty managed ChatGPT workspace identity and admitted routing, and the
+intermediate response requires `requiresOpenaiAuth=true`, `authMethod=chatgpt`
+and a nonempty header-safe bearer. The initial binding remains authoritative
+across owner replacement. Native errors, invalid/oversized responses, EOF or
+timeout refuse the current acquisition without cached-routing fallback.
+No bearer claims are decoded; the gateway never persists bearers or auth RPC
+responses. Native credential storage and refresh retain their native behavior.
+
+Before startup with an existing login, qualify a controller-private empty cwd,
+an explicit native-only environment and strict, schema-validated fixed config;
+no candidate configuration, token override, proxy or exporter may be inherited.
+Use the pinned source's static local model catalog, disable all three OTEL
+exporters (`otel.exporter`, `otel.trace_exporter`, `otel.metrics_exporter` set
+to `none`) and qualify disabled hooks, MCP, telemetry, online catalog and remote
+execution. Reject `CODEX_HOME/environments.toml` on `lexists`, including symlinks,
+without reading it, before startup and before each grant. Native credential
+storage and normal refresh remain exclusively native; required same-user local
+credential-service paths are private to the owner. Disable remote control before
+spawn with `CODEX_INTERNAL_APP_SERVER_REMOTE_CONTROL_DISABLED=1` and forbid
+`--remote-control`; `allow_remote_control` is not a ConfigToml override. This
+internal mechanism and the exact binary/config/catalog combination require
+requalification on upgrade. Configuration or managed-policy conflicts refuse.
+Native authentication, routing and managed-policy services may still be contacted;
+this is not a promise of zero native traffic.
+
+The selected upstream is fixed independently of guest or routing response:
+`POST https://chatgpt.com:443/backend-api/codex/responses`, verified TLS, no
+redirects, environment proxy, CONNECT or transport replay. The selected routing
+origin/policy is `https://chatgpt.com` / `NO_CONSTRAINT`; other routing is
+unqualified. The guest route is `/v1/responses`; the gateway builds upstream
+authentication headers from the native acquisition and rejects guest account
+authority, hosted/unknown tools, continuation and background requests. Allowed
+local tool schemas must be frozen from the exact CLI/config/model request and
+checked against pinned source, not supplied by the guest. No first-401 retry or
+partial-stream replay is permitted.
+
+Grant expiry and remaining-wall calculations use integer nanoseconds of
+`CLOCK_BOOTTIME` and the existing durable child allowance, including host auth
+and transport work. Independent cancellation must interrupt every blocking
+phase, including startup, native pipes, DNS/TLS, body and SSE transfer and guest
+backpressure. Revocation, exhaustion or controller loss closes local channels
+and terminates owned pending work; no abandoned thread or restarted allowance
+satisfies this rule. Canceling a shared owner fails its pending grants closed.
+This adds no autonomous watchdog while the controller is absent and does not
+prove when remote generation stops. Consume the request counter atomically
+before native acquisition; start no operation after observed expiry or revocation;
+retain only validated complete request-specific usage, leaving incomplete totals
+and unsupported cost evidence `UNKNOWN`. A local output-token default is not
+an upstream generation cap. Experimental request counts and wall limits do not
+replace the checked per-attempt policy or durable remaining budget.
 
 Resource enforcement includes CPU, memory, process count, workspace/scratch bytes, exported bytes/file count/depth, and bounded stdout/stderr. The live controller checks cumulative child wall time, including host work (R3); [durable accounting](../../specs/state.md#confined-wall-budget-recovery) charges interrupted open intervals through recovery quiescence. It does not provide an autonomous wall deadline while the controller is absent; no watchdog is selected. Post-run `du` is insufficient. Resume retains the visit's elapsed/resource/provider allowances across holder incarnations and K4 replacement. An oversized artifact, fork bomb, lingering daemon, output flood, decompression bomb or failed quiescence cannot proceed to export. **D8:** protected evidence snapshots are charged against a separate installation-policy evidence allowance, checked at each effect commit before the next dispatch and at `started` before an attempt snapshot is copied (refusing with `run_ref_budget_exhausted`, Q3), never against the author's `:output-mib`, which covers exports only; reason: evidence size is a runtime property authors cannot predict. It makes harder: two allowances to explain. Limits and effective kernel settings are retained in admission evidence.
 

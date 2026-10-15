@@ -4,6 +4,11 @@
 - **Design authority:** [Workflow Lisp Run-Ref Confined Child Environments](../../design/workflow_lisp_run_ref_expression_environments.md).
 - **Host:** reference workstation, Linux 7.0.0-38-generic x86_64. All commands run from the worktree root with `PYTHONPATH=<worktree>`.
 
+The Task 0/1 account prerequisite and F4/P2 results below are historical.
+The [native-authentication follow-up](#task-10-native-authentication-follow-up-2026-10-15)
+records the current selected investigation without replacing those results or
+qualifying F4.
+
 ## Task 0: baseline and readiness (2026-10-14)
 
 Tested commit `0c156966bd25e598b44eafcdab0670236676d3b9` on branch `feat/run-ref-confined`, isolated worktree `.worktrees/run-ref-confined`. `git status --short` was empty (no dirty paths in the worktree). The main checkout carries other sessions' uncommitted hunks; they are not touched by this branch.
@@ -921,3 +926,59 @@ The final broad run used frozen sources. Local detailed evidence is retained
 in the SDD `task-6c-broad-classification.md` and `task-6c-quiescence-review.md`,
 and `/tmp/runref-t6c-quiescence-e2e.log`; this committed section preserves the
 acceptance summary independently of those local logs.
+
+## Task 10: native authentication follow-up (2026-10-15)
+
+This is a current feasibility investigation, not F4 or production qualification.
+The revised [D7 contract](../../design/workflow_lisp_run_ref_expression_environments.md#isolation-credentials-and-resource-contract)
+and [Task 10](../../plans/2026-10-14-run-ref-expression-environments-plan.md#task-10-provider-transport)
+select Codex managed ChatGPT login through a private persistent native auth owner.
+The user authorized reuse of the existing native login and normal refresh; no API
+key is required for this selected route. Claude and other transports remain
+unqualified. Historical F4/P2 keeps its original in-sandbox PASS,
+`502 upstream_blocked` upstream result and host-binary deviation; no earlier
+API-key-only experiment is relabelled as a native-login success.
+
+| Evidence | Observed result and limit |
+| --- | --- |
+| Native-owner fixture, 2026-10-15 | Bounded independent PASS review; 19 historical category rows retained. Native auth RPC and routing were exercised with synthetic credentials in an isolated namespace, not a real account. |
+| Image-CLI / real-Holder synthetic bridge, 2026-10-15 | Bounded independent PASS review; 62 category rows, `DONE_WITH_CONCERNS`. An image-owned Codex CLI made two synthetic SSE requests, edited and tested the candidate, delivered typed JSON and left a committed checkpoint. This uses the experimental socket seam under `network=none`, not production `model-only` admission or the public ORC provider lifecycle. |
+| Native-login qualification decision and remote-control correction, 2026-10-15 | Independent documentary PASS. The pinned config schema accepted 20 corrected overrides; the former `allow_remote_control` ConfigToml override was rejected. The replacement is the pinned internal environment marker `CODEX_INTERNAL_APP_SERVER_REMOTE_CONTROL_DISABLED=1`, with no `--remote-control`. Schema/source checks are not operational startup or account evidence. |
+| New prerequisites and real-login run | Operational prerequisites and their independent code/evidence review remain pending. No real-account auth, refresh or inference result is recorded here; F4 and integrated Task 10 acceptance remain unqualified. |
+
+The original owner output (19 rows), subsequent synthetic output (62 rows),
+source manifests, dates and categories remain unchanged in the local SDD evidence
+for this plan. The historical `keyring:absent` category meant absence of mounted
+user-runtime paths and credential-service sockets with a file-backed fixture;
+it did not demonstrate kernel-keyring isolation. The complete synthetic fixture
+also superseded refresh/owner-generation inferences affected by its original
+incomplete identity. Those causal limits are preserved rather than treated as
+native concurrency guarantees. The synthetic `token-budget` category did not
+prove upstream token enforcement; slow-body rejection measured inactivity,
+not a total deadline. The original F4 host-binary mount remains a deviation;
+the later synthetic bridge used a new image-owned executable and did not
+retroactively qualify that earlier run.
+
+The selected native pin is Codex `0.162.1`, source
+`092d3acd6bec3e3a14bdc7e7a2810ab628ab759d`, executable SHA-256
+`628e35487d888a28f0427fc37501da529dd3d81fcbad7a2c3421c1e8670d92e1`.
+Before using a real login, the new probe must prove total `CLOCK_BOOTTIME`
+deadline/cancellation across blocking phases, exact model/config tool schemas,
+secret-free synthetic artifacts (excluding only the exact synthetic credential
+store object), and native-startup auxiliary isolation. Startup checks include
+a static pinned catalog, all three OTEL exporters disabled, the
+`environments.toml` existence guard before startup/grant, and a positive/negative
+remote-control canary with persisted enabled preference. The source/schema
+re-reading does not claim those operational checks have passed.
+
+The initial real-login experiment is bounded to one attempt, at most two serial
+inference requests and 90 seconds total from before owner startup, with no
+HTTP/stream/CLI retry. These are probe limits only: production must use checked
+per-attempt policy and the child's existing durable remaining wall allowance,
+without resetting it or adding a Task 7 watchdog. Request/response byte and wall
+controls do not prove a remote generation-token or economic cap. A policy that
+requires an unsupported hard token/cost ceiling refuses before auth/inference;
+incomplete usage and unsupported cost remain `UNKNOWN`. A local disconnect does
+not prove immediate remote cancellation. A later live result, including refusal,
+must be recorded separately; it cannot by itself complete Task 10 or advance
+Task 13 admission.

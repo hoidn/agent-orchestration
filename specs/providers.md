@@ -359,9 +359,17 @@ schema notation, not authored workflow files.
     `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` takes the guest spelling of
     [IO](io.md#proposed-run-ref-confined-child-io-target-238). Each provider
     timeout is clamped at dispatch to the remaining child wall budget.
-  - `:model-only` traffic reaches the model only through the inference
-    gateway and per-leaf relay of the security profile; only API-key accounts
-    are admitted.
+  - `:model-only` traffic reaches the model only through the qualified inference
+    gateway and per-leaf relay of the security profile. The selected Codex
+    managed ChatGPT route uses the private persistent native auth owner of D7;
+    every acquisition checks the initial account/origin/routing binding.
+    First inference 401, invalid native acquisition and partial-stream failure
+    terminate without replay. The gateway exposes no app-server RPC to the
+    guest, and native authentication does not permit host provider execution.
+    Enforce request/byte/wall controls and refuse installation-required token
+    or cost ceilings without endpoint enforcement evidence; incomplete usage
+    or cost stays UNKNOWN. Qualification is transport-specific and does not
+    qualify Claude or an API-key route by analogy.
   - Increment A: until provider transport qualifies (design gate F4), a
     provider dispatch in a confined child refuses with
     `run_ref_provider_transport_unavailable` before dispatch.

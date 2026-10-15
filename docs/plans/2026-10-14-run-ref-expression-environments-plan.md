@@ -12,7 +12,7 @@
 
 **Design authority:** [Workflow Lisp Run-Ref Confined Child Environments](../design/workflow_lisp_run_ref_expression_environments.md). That document owns syntax, profile, identity, confinement, artifact transport and recovery contracts. This plan owns sequencing, tests, decisions needed before implementation, and execution evidence. If a gate invalidates a design assumption, revise and review the design before continuing; do not invent a competing contract in code or in this plan.
 
-**Tradeoffs:** a static workflow name forces authors to forward values through declared inputs; digest-pinned images require image publication when dependencies change; the Bubblewrap profile and the gateway restrict the supported host/provider combinations to rootless user namespaces, delegated cgroup v2 and API-key provider accounts. Keeping authority outside the clone requires deliberate guest-path translation and artifact copying. These costs are accepted to make isolation and recovery enforceable.
+**Tradeoffs:** a static workflow name forces authors to forward values through declared inputs; digest-pinned images require image publication when dependencies change; the Bubblewrap profile and the gateway restrict the supported host/provider combinations to rootless user namespaces, delegated cgroup v2 and separately qualified provider transports. The selected native Codex login route depends on its exact native-interface pin and upgrade requalification; endpoints without demonstrated token/cost ceilings cannot serve installation policies that require those ceilings. Keeping authority outside the clone requires deliberate guest-path translation and artifact copying. These costs are accepted to make isolation and recovery enforceable.
 
 ## Scope and current evidence
 
@@ -205,12 +205,48 @@ Evidence (2026-10-14): F1, F2 and F3 PASS, F4 in-sandbox leg PASS and upstream l
 
 **Create:** `orchestrator/providers/inference_gateway.py`. **Modify:** `orchestrator/providers/registry.py` (profile-specific template variants), `executor.py` (env overlay), `evaluated/providers.py`, `run_ref/confinement.py` (socket bind). **Tests:** `tests/test_provider_inference_gateway.py`; real provider case in `tests/e2e/test_e2e_run_ref_confined.py`; existing `tests/test_workflow_evaluated_provider_delivery.py`, `tests/test_workflow_evaluated_provider_lifecycle.py`. Security brief for the reviewer.
 
-- [ ] Failing tests: model routes only, fixed upstream endpoint/model policy, scoped per-attempt token, expiry, body limits, streaming API support, telemetry off, API-key accounts only, unauthorized route denial, credential redaction. The result-file broker is not the gateway.
-- [ ] Bind the unix socket into the holder at `/run/gateway.sock`; the per-attempt env/config overlay points the provider CLI at it and is carried by the leaf script, which is removed with the leaf; the template variants name the image executable pins of the provider CLIs (F4 bound host binaries, a deviation that is not qualified) and the host-authored relay starts inside each provider leaf under an image executable pin and dies with the leaf's quiescence (R4); permanent credentials stay in the host-owned gateway. Unsupported authentication or session transports refuse with `run_ref_provider_transport_unavailable`.
-- [ ] Collect the new module, run it, then the provider delivery/lifecycle suites. Run a real tool-enabled provider inside the sandbox in tmux that edits and tests the clone and returns typed data within the clamped wall budget; record image, CLI, model and usage availability.
-- [ ] Commit explicit paths after security review: `feat: relay confined provider inference through a host-owned gateway`.
+- [ ] Qualify the pinned Codex managed ChatGPT route through the private
+  persistent native auth owner and serialized initial-binding protocol of
+  D7. Test invalid/missing/error RPCs, identity/origin/routing mismatch,
+  native refresh/coexistence, owner replacement, startup auxiliary isolation
+  and secret-free evidence; no authfile/token parser, host coding or guest RPC.
+- [ ] Test fixed route/model, scoped expiring capability, bounded headers,
+  bodies and streams, request ceilings, total deadlines and cancellation at
+  every blocking boundary, direct first-401 refusal, zero partial replay,
+  hosted/unknown-tool rejection and credential redaction. Remove any local
+  default presented as an unproven generation cap; unsupported mandatory
+  token/cost ceilings refuse and incomplete usage/cost stays UNKNOWN.
+- [ ] Bind `/run/gateway.sock` only for qualified `model-only`; use clean
+  per-attempt overlays and image-pinned CLI/relay templates. Preserve
+  `:none` and unsupported-transport refusal. Permanent credentials and native
+  auth channels stay host-side. Prove revocation and cleanup on leaf/holder/
+  controller loss and durable budget continuity across recovery.
+- [ ] Retain the bounded native/synthetic/live feasibility evidence with
+  its limits. Then qualify the integrated public provider path after Task 9:
+  collect/run the gateway tests, provider delivery/lifecycle suites and the
+  real confined end-to-end case; include an orchestrator/demo smoke. Verify
+  edit, tests, typed delivery, checkpoint, usage availability and cleanup.
+  The experimental `network=none` socket seam is not production admission.
+- [ ] Commit explicit paths after independent conformance/security review:
+  `feat: relay confined provider inference through a host-owned gateway`.
 
-**Done:** a real tool-enabled provider is qualified inside the sandbox with model traffic only.
+**Done:** The selected real tool-enabled provider is qualified through the
+integrated confined public route with model-only traffic, native host-only
+authentication, enforced supported budgets and honest usage/cost evidence.
+Other transports continue to refuse until separately qualified.
+
+Native Codex authentication follow-up (2026-10-15): the pinned private-owner
+fixture and image-CLI/real-Holder synthetic tool/SSE/delivery bridge have bounded
+independent PASS reviews. They do not establish real-account entitlement,
+upstream success, generation/cost ceilings, total deadline coverage or production
+admission. Native-startup, absolute-deadline and exact live-request prerequisites
+remain pending operational evidence; their decision has independent documentary
+PASS, including the remote-control correction. See the
+[current feasibility addendum](../reports/run-ref-confinement-feasibility/README.md#task-10-native-authentication-follow-up-2026-10-15).
+Historical F4/P2 retains the in-sandbox PASS, `502 upstream_blocked` result and
+host-binary deviation. This investigation advances no task status or dependency:
+Task 10 integration still follows Task 9; production admission remains subject to
+the final Task 13 contract and admission gate. Claude remains unqualified.
 
 ## Task 11: Complete author use case
 
