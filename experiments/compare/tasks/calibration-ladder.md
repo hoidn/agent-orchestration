@@ -372,3 +372,5 @@ are on this machine, as of 2026-10-14.
     loop-result code near CF-1a. E-A's solution hash `cdb60211` lies inside rung 1's range. Both are covered by the
     prefix pattern.
   - `docs/reports/2026-09-28-cf1a-exhaustion-projection-check.md` and the CF-1 plans exist only after the base.
+
+**R49 (2026-10-14, before any rung-2 run):** rung 2's hidden set drops the 50 node ids its stub anchor passes (they measure imports or the test file's own helpers), leaving 119; the dropped ids are the PASS rows of the evidence file `resume-projection-integrity-anchor-stub.txt`.
