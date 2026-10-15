@@ -490,7 +490,9 @@ the treatment's reviewer raises on those patches, which must be at least one.
 Both measurements and their thresholds are frozen in the criterion. A task
 that misses either one is replaced by a harder task, not run. Census commits
 of a few hundred lines are not candidates. The E-B qualification rule above
-is the first of the two checks.
+is the first of the two checks. The procedure, the review-only arm and the
+candidate ladder are planned in the plan's Task 8, and the calibrated experiment
+in its Task 9.
 
 Budget, serial, approximate. E-A: six `best_of_n` runs of five calls, six
 `reviewed_change` runs of two to six calls and six single-call control runs,

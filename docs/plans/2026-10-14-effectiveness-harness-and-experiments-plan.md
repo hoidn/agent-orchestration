@@ -13,7 +13,9 @@
 qualify. The outcomes are in the [E-A report](../reports/2026-10-14-orc-versus-single-call-evaluated.md), the
 [E-B report](../reports/2026-10-14-design-review-execute-versus-single-call.md) and the
 [postmortem](../reports/2026-10-14-effectiveness-experiments-postmortem.md). Q1–Q5 were answered by coordinator
-rulings, and every ruling made during execution is listed in the appendix below.
+rulings, and every ruling made during execution is listed in the appendix below. Tasks 8 and 9
+(task-difficulty calibration and the calibrated experiment) were added at the owner's request on 2026-10-14. They
+are planned, not executed.
 **Design:** [comparison harness and experiments](../design/orc_effectiveness_comparison_harness.md).
 **Goal:** a comparison between a maintained workflow and a single call can be
 run on current `main` with one command per arm, scored blind side by side
@@ -391,6 +393,119 @@ Commits are pathspec commits on the branch (`git add` new files first,
   and before each merge.
 - Live: one run per arm before any batch; batches in tmux from a detached
   worktree; every run's memo and scan result kept.
+
+## Task 8: Task-Difficulty Calibration
+
+**Role:** coordinator for live runs and rulings. `impl_code_compare_calibration` (Opus) builds the one piece of new
+apparatus, and `review_code_compare_calibration` (Opus) reviews it. A distinct Opus reviewer,
+`review_design_calibration_criterion`, reviews the calibration criterion. **Depends on:** Tasks 1–7 merged. The
+owner decisions are listed at the end of this task.
+
+The owner's rule (design, "Difficulty calibration for follow-on experiments"): later experiments raise task
+difficulty until the expected number of review blockers is at least 1, and a single call must pass less than half
+of the hidden acceptance tests. Both are measured before any treatment run, on single-call patches made with the
+control's binding. Calibration runs are never treatment or control data.
+
+**Definitions, frozen in the calibration criterion before any calibration run:**
+- **Single-call patch:** the final patch of a `direct_task` run with the control's binding (`gpt-6.1-sol`, effort
+  high, `:timeout-sec 14400`), on the candidate task's package.
+- **Hidden fraction:** `summarize.hidden_fraction`, run over a calibration pool built without running any judge,
+  exactly as in the E-B qualification.
+- **Review blockers of one patch:** the result of one call of the treatment reviewer on that patch.
+  - The reviewer is `reviewed_change.orc`'s `review-prompt` and `Review` union, bound to `gpt-6-sol`.
+  - It reviews the patch applied, uncommitted, to a fresh seeded candidate.
+  - `REQUEST_CHANGES` counts `len(findings)`; `WRONG_APPROACH` counts 1; `APPROVE` counts 0.
+  - `NEEDS_HUMAN` counts 0 and is reported.
+- **Expected review blockers:** the mean over the step's `k` patches.
+- **Qualifies:** every patch's hidden fraction is below 0.5, and expected review blockers are at least 1.
+
+- [ ] **Apparatus.** One review-only arm, the smallest addition that reuses the reviewer unchanged:
+      - `prepare.py run --arm review_once --apply <patch.diff>` builds a seeded candidate, applies the patch
+        uncommitted, and writes the inputs the review step needs (`repo`, `intent`, `account`, `replies`).
+      - The arm runs one call of the reviewer. If the language lets `reviewed_change.orc` export `review-prompt`
+        and `Review`, export them and import them into `experiments/compare/control/review_once.orc`.
+        Otherwise copy both, plus a contract test that renders the two prompts for the same fills and checks
+        that they are equal. The test checks provenance, not phrasing.
+      - `collect` records the blocker count.
+      - Tests: a stand-in reviewer returning each variant gives the counts above; the applied patch is
+        uncommitted in the candidate; the arm runs inside the sandbox like every other arm.
+- [ ] **Candidate ladder:** written to `experiments/compare/tasks/calibration-ladder.md` before any run.
+      - **Candidates** are commits or features on `main` after 2026-07-01 (R4) with an objective oracle: at least
+        10 behavioural tests that fail at the parent and pass at the solution, runnable alone in a clone.
+      - **Order** is by expected difficulty: changed lines under `orchestrator/` (at least 1500), modules touched
+        (at least 5), spec and design changes, and the number of hidden tests.
+      - **Step 0 is a calibration of the existing E-B task.** `eb-repl` with its appendix cut to the entry
+        points the hidden tests call, and no output formats or codes. If it still qualifies only with the full
+        appendix, the hidden tests are over-specifying the task and the next rung is used.
+      - **Steps 1–3** take the next candidates in order. Each needs its own package (`task.txt`, `intent.txt`,
+        `base_commit`, `hidden/`, `hidden_tests.txt`, two anchors) and its fail-at-base and pass-at-solution
+        check recorded, as in Task 0.
+- [ ] **Calibration criterion:** `experiments/compare/criteria/calibration.json`.
+      - It holds the definitions above, `k = 2` single calls and `k` reviews per step, the ladder file's hash and
+        the stop rule.
+      - **Stop rule:** take the first rung that qualifies; stop after at most 4 rungs; if none qualifies, report
+        and stop.
+      - Have it reviewed, then hash and commit it before any calibration run.
+- [ ] **Live smoke before freezing** (postmortem action): one `direct_task` and one `review_once` call on rung 0,
+      with the real CLIs, inspected by hand (memo, result path, sandbox, scan). Fix harness defects only, then
+      freeze.
+- [ ] **Run the ladder.** For each rung, in order:
+      - `k` `direct_task` runs, then collect, scan and adjudicate;
+      - the calibration pool and its hidden fractions;
+      - `k` `review_once` runs, one on each single-call patch, then collect and scan.
+
+      Record the rung's hidden fractions and blockers in `experiments/compare/tasks/<rung>/calibration.json`.
+      Stop at the first rung that qualifies.
+- [ ] **Report:** `docs/reports/<date>-task-difficulty-calibration.md`. It gives, per rung, the hidden fraction
+      of each run, the blockers of each review with their findings, the qualifying rung or none, the cost, and
+      the limits (k = 2 is a small sample; the reviewer's own variance).
+- [ ] **Verification:** harness tests and `--collect-only` on the new tests; the stand-in smoke for `review_once`;
+      the reviewer finds the calibration criterion complete; the report's numbers match the per-rung
+      `calibration.json` files.
+
+**Owner decisions** (each with the coordinator's default):
+- **Budget per rung:** two `gpt-6.1-sol` calls of up to 4 h each, plus two `gpt-6-sol` reviews of up to 1 h each.
+  At most 4 rungs. Default: approve.
+- **Codex use:** all calibration calls are pre-registered experiment calls, which the owner's codex rule allows.
+  Default: allowed.
+- **`k`:** 2 per rung. Default: 2. Raise it to 3 if the first qualifying rung is borderline (blockers between 1
+  and 1.5).
+
+## Task 9: Calibrated Experiment (E-B2)
+
+**Role:** as Task 5. **Depends on:** Task 8 found a qualifying rung, and the owner decisions below.
+
+- [ ] **Package:** the qualifying rung's package, unchanged.
+- [ ] **Arms:**
+      - `design_review_execute` (planner `claude-fable-5-1`; reviewer and executor `gpt-6.1-sol`);
+      - `reviewed_change` (coder Sonnet; reviewer `gpt-6-sol`, the reviewer the calibration used);
+      - control `direct_task` (`gpt-6.1-sol`, effort high, `:timeout-sec 14400`).
+
+      `best_of_n` is optional, if the budget allows. Four runs per arm. Task 8's calibration runs are excluded.
+- [ ] **Criterion** `experiments/compare/criteria/eb2.json`, in the form of `eb.json`:
+      - **Primary:** `design_review_execute.hidden_minus_control >= 0.3` and `reviewed_change.hidden_minus_control
+        >= 0.3`, each with run floors of 3.
+      - **Secondary:** `minus_control` per arm, and `reviewed_change.paired_gain_mean`.
+      - **Judges:** `claude-opus-5-5` and `gpt-6-sol`.
+      - **Anchors:** the package's two anchors.
+      - **Rules and provenance:** exclusions, `anchor_use`, `judge_rules`, `validity`, and `threshold_provenance`
+        citing the calibration report.
+
+      Have it reviewed, then hash and commit it before any run.
+- [ ] **Live smoke:** one run per arm before freezing, as in Task 8. Then the batch, at most four live runs, every
+      run collected, scanned and adjudicated; pool, both judges, `verify-pool` after each, `summarize`.
+- [ ] **Interim readouts** come only from `summarize`'s join, and are labelled partial.
+- [ ] **Report:** `docs/reports/<date>-calibrated-orc-versus-single-call.md`, with the same sections as E-A, plus the
+      calibration numbers it rests on. Add the README evidence row, the design lessons' Measured column, and the
+      index entry.
+- [ ] **Verification:** `results.json` and the report agree; the evidence is copied beside the repository.
+
+**Owner decisions** (each with the coordinator's default):
+- **`design_review_execute`'s planner model `claude-fable-5-1`:** it is an experiment provider, not a coordination
+  subagent. The owner's "no Fable subagent in this session" rule is read as not covering it. Default: ask before
+  running.
+- **Runs per arm:** default 4.
+- **`best_of_n` as a fourth arm:** default no.
 
 ## Appendix: Rulings Made During Execution
 
