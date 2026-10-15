@@ -777,3 +777,57 @@ This is an anonymous Docker Hub pull, with each blob verified and the store seal
 - A guest can make the host's exclusive `mkdir /result/<leaf>` fail by pre-creating the directory; the wipe is what prevents this (M6). The runtime should treat a failed exclusive create as `escape_rejected`, not as a host error.
 - `/dev` is not wiped between leaves, but it is read-only, so a leaf cannot leave state there.
 - The result broker must open guest result entries with `O_NONBLOCK|O_NOFOLLOW`, check `S_ISREG` with `fstat` and bound the read. A plain `O_RDONLY` open of a guest FIFO blocks the host forever (M13).
+
+## Task 5b: F3b-keyring witness and F3b gate re-record (2026-10-14)
+
+Design row F3b-2 was added after the Task 5a gate ran (commit `6841bea7`). The throwaway holder in `tests/e2e/run_ref_holder.py` now has the F3b-2 launcher and argv, and the whole module was rerun with it.
+
+| Gate | Run | Status | Evidence |
+| --- | --- | --- | --- |
+| F3b-channel (Task 5a) | launcher without keyring join, filter or `/proc/keys` masks | **PASS** (record of what that run measured; unchanged) | section "Task 5a" above |
+| F3b-channel + F3b-keyring (Task 5b) | F3b-2 launcher and argv; channel witnesses rerun | **PASS**: the keyring witnesses pass and every channel witness passes again | `13 passed in 13.82s`; table below |
+
+### Changes to the holder
+
+- **Launcher.** After the release token, the launcher loads `orchestrator/providers/provider_launch_shim.py` by file path (it runs under `python3 -I`) and calls `_join_fresh_session_keyring()`. Only then does it exec `bwrap`. It keeps three more descriptors, all of which `bwrap` consumes: fd 7 and fd 8 are empty memfds for the masks, fd 9 is the filter program.
+- **bwrap argv additions** (after `--proc /proc`): `--perms 0000 --ro-bind-data 7 /proc/keys --perms 0000 --ro-bind-data 8 /proc/key-users --seccomp 9`.
+- **Ruling P19 deviation.** P19 says `--ro-bind-data <fd>` followed by `--chmod 0000`, but bwrap 0.9.0 refuses that with `bwrap: Can't chmod 0 /proc/keys: Read-only file system`. The `--perms 0000` modifier before `--ro-bind-data` does what P19 intends: `---------- 0 1000 1000 0 /proc/keys`, and a read gives `Permission denied`. There is still no host-path bind source. Cost: one argv change in Task 6.
+- **Filter bytes.** `_install_key_syscall_filter` (shim :913) builds its instruction list inline and installs it, so the bytes cannot be taken from it without modifying the shim; the builder is Task 6. `run_ref_holder.key_syscall_filter()` rebuilds the same list from the shim's own constants and `_SockFilter`. `test_harness_key_filter_has_the_shim_filter_semantics` then runs one probe in three fresh host interpreters: one after `shim._install_key_syscall_filter()`, one after `prctl(PR_SET_SECCOMP)` of the harness bytes, and one unfiltered. The shim and harness results must equal `EXPECTED_FILTER` and the unfiltered result must differ:
+  - `add_key`, `request_key` and `keyctl`, native and x32 (`0x40000000|nr`): `EPERM`;
+  - `getpid`: `ok`;
+  - i386 `int 0x80` from an executable page: `SIGSYS` (foreign architecture killed).
+
+### Witnesses (verbatim from the evidence run)
+
+The test process first joins its own anonymous session keyring (`_join_fresh_session_keyring`) and adds a `user` canary key to it, so no host keyring is touched. In this run the test session was `763493425` and the canary `1013664960`.
+
+| Witness | Test | Status | Observable |
+| --- | --- | --- | --- |
+| Harness filter = shim filter semantics | `test_harness_key_filter_has_the_shim_filter_semantics` | **PASS** | Shim-installed and harness-installed both give `{"add_key:native": "EPERM", "add_key:x32": "EPERM", "request_key:native": "EPERM", "request_key:x32": "EPERM", "keyctl:native": "EPERM", "keyctl:x32": "EPERM", "getpid": "ok", "i386_int80": "SIGSYS"}`. Unfiltered: `add_key`/`keyctl` native `EKEYREVOKED`, `request_key` `ENOKEY`, x32 `ENOSYS`, i386 `exit 0`. |
+| Leaf key syscalls refused, `/proc/keys` unreadable | `test_holder_keyring_is_fresh_and_key_syscalls_are_refused` | **PASS** | Leaf: the same eight `EPERM`/`ok`/`SIGSYS` values, plus `"/proc/keys": "EACCES", "/proc/key-users": "EACCES"`. |
+| Key quota unchanged | same | **PASS** | The leaf loops `add_key` 50 times: `add_key_ok 0`. The host's `/proc/key-users` `qnkeys` for uid 1000 was `9` before and `9` after. |
+| Control launch, identical except for `--seccomp` (diagnostic, not the profile) | same | **PASS** | Leaf session keyring `73487681` is not `763493425`. `KEYCTL_READ` of it returns `0` bytes (no key). Canary `KEYCTL_READ` `EACCES`, `KEYCTL_LINK` to its session `EACCES`. In the control, `add_key`/`keyctl` native are `ok`, so the filter is what refuses them in the profile. |
+| Channel witnesses rerun with the new launcher | `test_holder_channels_descriptors_and_scope_shape`, `test_fifo_and_pipe_placed_like_the_channels_reopen_from_a_leaf` and the rest of the module | **PASS** | The in-namespace descriptor set is unchanged (`/dev/null`, the two sockets, pid 1's eventfd), so `bwrap` consumed fds 7, 8 and 9. The FIFO and pipe controls still reopen and the sockets are `ENXIO`. |
+
+### Mutation RED
+
+| Mutation | Test | Result |
+| --- | --- | --- |
+| K1 launcher skips the keyring join | keyring | RED: control leaf session `547294256` == test session; `KEYCTL_READ` of it `4` bytes (the canary); canary `KEYCTL_READ` `14` bytes and `KEYCTL_LINK` `0`. Without the join, a leaf reads the controller's keys. |
+| K2 profile without `--seccomp` | keyring | RED: `add_key:native ok`; quota `(50, 50)`, i.e. 50 keys charged to the host user |
+| K3 `/proc/keys` unmasked | keyring | RED: `"/proc/keys": "read 639 bytes"` (the host user's key list) |
+| K4 mask mode `0644` | keyring | RED: `"/proc/keys": "read 0 bytes"` (mode 0000 is what refuses the read) |
+| K5 harness filter without x32 entries | filter semantics | RED: harness `add_key:x32 ENOSYS` instead of `EPERM` |
+| K6 mask descriptor left unconsumed (`/proc/keys` mask argument removed) | channels | RED: spawner holds `/memfd:runref-holder (deleted)`, reopened (`opened`) from the leaf |
+
+TDD note: the harness change and the tests were written together, so RED was observed by these mutations rather than by a first failing run.
+
+### Commands and durations
+
+- `ORCHESTRATE_E2E=1 PYTHONPATH=<worktree> pytest -q tests/e2e/test_e2e_run_ref_confined.py` -> `13 passed in 13.82s`.
+- Without `ORCHESTRATE_E2E`: `13 skipped`.
+- `pytest --collect-only -q` -> `13 tests collected`.
+- Afterwards, `systemctl --user list-units 'run-ref-*' --all` showed 0 units and no `run-ref-*` cgroup remained.
+- Launch to `ready` is now a median of 138 ms (max 152), up from 59 ms. This is not attributed: the launcher now loads the shim by path, and the host was busy with parallel work (the rootfs rehash was also slower, 0.47 s against 0.27 s). The leaf round trip is 75 ms.
+- The filter-semantics test takes 2.5 s (three fresh interpreters).
+- The keyring test takes 1.0 s.

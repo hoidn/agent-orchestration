@@ -1,29 +1,25 @@
-"""Throwaway F3b-channel holder in the D-a shape (Task 5a evidence, not runtime code).
+"""Throwaway F3b holder in the D-a shape (Tasks 5a/5b evidence, not runtime code).
 
-One holder launch = one transient `systemd-run --user --scope` unit
-(`run-ref-<token prefix>.scope`, `Delegate=yes`, memory/swap/tasks/cpu limits
-and `OOMPolicy` as unit properties) around a token-gated launcher. The
-launcher reports its pid on a launch socket; the host resolves the scope
-cgroup from that pid, reads the unit properties and cgroup limits back, moves
-the launcher into `<scope>/holder`, verifies the scope root holds no process
-and only then sends the exact launch token. EOF or any other line makes the
-launcher exit (97/98) without starting `bwrap`. Before `exec bwrap` the
-launcher points 0-2 at `/dev/null` and keeps only the control socket (3), the
-gate socket (4), the `--info-fd` pipe (5) and the sealed rootfs descriptor (6).
+Launch: one `systemd-run --user --scope` unit `run-ref-<token prefix>.scope`
+(limits and `OOMPolicy` as unit properties) around a token-gated launcher that
+reports its pid; the host resolves the scope from it, reads the properties and
+cgroup limits back, moves the launcher into `<scope>/holder`, checks the scope
+root is empty and sends the exact token (EOF exits 97, a wrong line 98, never
+starting `bwrap`). The launcher then joins a fresh session keyring with the
+provider shim's `_join_fresh_session_keyring` (F3b-2), points 0-2 at
+`/dev/null` and keeps only fds 3 control socket, 4 gate socket, 5 `--info-fd`,
+6 rootfs, 7/8 empty `/proc/keys` and `/proc/key-users` masks, 9 the
+`--seccomp` key-syscall filter, then execs `bwrap`.
 
-Inside `bwrap` the image `/bin/sh` runs `SPAWNER`: per request line on the
-control socket it forks a leaf subshell, acknowledges `ack <pid>`, waits and
-reports `status <code>`. The subshell drops the control socket, blocks on one
-`go` line from the gate socket, drops it and execs the image `setsid` over the
-host-written `/run/runref/<leaf>/leaf.sh`. The host derives the leaf from the
-holder slot's membership (exactly one member beyond the set recorded at
-`ready`), moves it into its own leaf slot, then releases the gate.
+Inside, image `/bin/sh` runs `SPAWNER`: per request it forks a subshell, acks
+its pid, waits and reports the status; the subshell drops the control socket,
+waits for `go` on the gate, drops it and execs `setsid` over the host-written
+`/run/runref/<leaf>/leaf.sh`. The host takes the leaf from holder-slot
+membership and moves it into its own leaf slot before releasing the gate.
 
-Dependencies: a reachable user systemd manager with cpu/memory/pids
-delegation, `bwrap` (0.9.0 flags), `systemctl`, a sealed rootfs containing
-`/bin/sh`, `setsid`, `python3` and the empty mount points `/workspace` and
-`/result` (see `IMAGE_RECORD`). Stateful effects: one transient scope and its
-cgroup subtree per launch, killed by `stop()`; files only under `workdir`.
+Dependencies: user systemd manager with cpu/memory/pids delegation, `bwrap`
+0.9.0, `systemctl`, x86_64, the sealed rootfs of `IMAGE_RECORD`. Effects: one
+scope per launch, killed by `stop()`; files only under `workdir`.
 """
 
 from __future__ import annotations
@@ -41,6 +37,8 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+
+from orchestrator.providers import provider_launch_shim as shim
 
 # Task 1 image (docs/reports/run-ref-confinement-feasibility/README.md, F3).
 IMAGE_RECORD = Path.home() / ".cache/run-ref-spike-images/records" / (
@@ -65,6 +63,11 @@ while not line.endswith(b"\n"):
     line += chunk
 if line != token:
     os._exit(98)
+import importlib.util
+spec = importlib.util.spec_from_file_location("provider_launch_shim", sys.argv[4])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+module._join_fresh_session_keyring()
 high = [fcntl.fcntl(fd, fcntl.F_DUPFD, 100) for fd in kept]
 null = os.open("/dev/null", os.O_RDWR)
 for fd in (0, 1, 2):
@@ -73,7 +76,7 @@ os.closerange(3, 100)
 for target, fd in enumerate(high, start=3):
     os.dup2(fd, target)
 os.closerange(3 + len(high), 4096)
-os.execvp(sys.argv[4], sys.argv[4:])
+os.execvp(sys.argv[5], sys.argv[5:])
 '''
 
 SPAWNER = r'''echo ready >&3
@@ -91,6 +94,29 @@ while IFS= read -r leaf <&3; do
   echo "status $?" >&3
 done
 '''
+
+
+def key_syscall_filter() -> bytes:
+    """`bwrap --seccomp` bytes of the shim's key-syscall filter, rebuilt from its constants: the shim inlines
+    the list in `_install_key_syscall_filter` until Task 6; the e2e module checks both have equal semantics."""
+    f = shim._SockFilter
+    instructions = [f(shim._BPF_LD | shim._BPF_W | shim._BPF_ABS, 0, 0, 4),
+                    f(shim._BPF_JMP | shim._BPF_JEQ | shim._BPF_K, 1, 0, shim._AUDIT_ARCH_X86_64),
+                    f(shim._BPF_RET | shim._BPF_K, 0, 0, shim._SECCOMP_RET_KILL_PROCESS),
+                    f(shim._BPF_LD | shim._BPF_W | shim._BPF_ABS, 0, 0, 0)]
+    for number in (shim._X86_64_ADD_KEY, shim._X86_64_REQUEST_KEY, shim._X86_64_KEYCTL):
+        for syscall in (number, shim._X32_SYSCALL_BIT | number):
+            instructions += [f(shim._BPF_JMP | shim._BPF_JEQ | shim._BPF_K, 0, 1, syscall),
+                             f(shim._BPF_RET | shim._BPF_K, 0, 0, shim._EPERM_RESULT)]
+    instructions.append(f(shim._BPF_RET | shim._BPF_K, 0, 0, shim._SECCOMP_RET_ALLOW))
+    return b"".join(bytes(instruction) for instruction in instructions)
+
+
+def _memfd(data: bytes) -> int:
+    fd = os.memfd_create("runref-holder")
+    os.write(fd, data)
+    os.lseek(fd, 0, os.SEEK_SET)
+    return fd
 
 
 def tree_digest(rootfs: Path) -> str:
@@ -176,8 +202,9 @@ class Holder:
 
     def __init__(self, rootfs: Path, workdir: Path, *, memory_mib: int = 256, tasks: int = 64,
                  cpu_percent: int = 100, oom_policy: str = "continue", shm_mib: int = 8,
-                 extra_fds: tuple[int, ...] = ()) -> None:
-        """`extra_fds` are inherited by the spawner from fd 7 on (positive controls only)."""
+                 extra_fds: tuple[int, ...] = (), key_filter: bool = True) -> None:
+        """`extra_fds` reach the spawner after the bwrap-consumed descriptors (positive controls only);
+        `key_filter=False` is the diagnostic control launch without `--seccomp`."""
         self.token = secrets.token_hex(16)
         self.unit = f"run-ref-{self.token[:16]}.scope"
         self.limits = {"MemoryMax": memory_mib << 20, "MemorySwapMax": 0, "TasksMax": tasks,
@@ -190,12 +217,15 @@ class Holder:
                      "--setenv", "HOME", "/tmp", "--ro-bind-fd", "6", "/",
                      "--dev", "/dev", "--size", str(shm_mib << 20), "--tmpfs", "/dev/shm",
                      "--remount-ro", "/dev", "--proc", "/proc",
+                     "--perms", "0000", "--ro-bind-data", "7", "/proc/keys",
+                     "--perms", "0000", "--ro-bind-data", "8", "/proc/key-users",
+                     *(("--seccomp", "9") if key_filter else ()),
                      "--size", str(32 << 20), "--tmpfs", "/workspace",
                      "--size", str(16 << 20), "--tmpfs", "/tmp",
                      "--size", str(16 << 20), "--tmpfs", "/result",
                      "--tmpfs", "/run", "--ro-bind", str(self.runref), "/run/runref", "--remount-ro", "/run",
                      "--info-fd", "5", "--", "/bin/sh", "-c", SPAWNER]
-        self.rootfs, self.extra_fds = rootfs, extra_fds
+        self.rootfs, self.extra_fds, self.key_filter = rootfs, extra_fds, key_filter
         self.process: subprocess.Popen | None = None
         self.scope: Path | None = None
         self.child_pid: int | None = None
@@ -220,20 +250,22 @@ class Holder:
         info_read, info_write = os.pipe()
         root = os.open(self.rootfs, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         self.channels = {f"socket:[{os.fstat(end.fileno()).st_ino}]" for end in (ctrl_guest, gate_guest)}
-        kept = [ctrl_guest.fileno(), gate_guest.fileno(), info_write, root, *self.extra_fds]  # -> 3, 4, 5, 6, 7...
+        masks = [_memfd(b""), _memfd(b"")]  # empty /proc/keys and /proc/key-users, mode 0000
+        program = [_memfd(key_syscall_filter())] if self.key_filter else []
+        kept = [ctrl_guest.fileno(), gate_guest.fileno(), info_write, root, *masks, *program,
+                *self.extra_fds]  # -> 3, 4, 5, 6, 7, 8, 9...
         properties = [f"MemoryMax={self.limits['MemoryMax']}", "MemorySwapMax=0",
                       f"TasksMax={self.limits['TasksMax']}", f"CPUQuota={self.limits['CPUQuota']}%",
                       f"OOMPolicy={self.limits['OOMPolicy']}", "Delegate=yes"]
         argv = ["systemd-run", "--user", "--scope", "--quiet", "--unit", self.unit,
                 *(arg for prop in properties for arg in ("-p", prop)), "--",
                 sys.executable, "-I", "-c", LAUNCHER, self.token, str(launch_guest.fileno()),
-                ",".join(map(str, kept)), *self.argv]
+                ",".join(map(str, kept)), shim.__file__, *self.argv]
         self.process = subprocess.Popen(argv, pass_fds=(launch_guest.fileno(), *kept), stdin=subprocess.DEVNULL,
                                         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        for obj in (launch_guest, ctrl_guest, gate_guest):
-            obj.close()
-        os.close(info_write)
-        os.close(root)
+        for fd in (launch_guest.detach(), ctrl_guest.detach(), gate_guest.detach(), info_write, root, *masks,
+                   *program):
+            os.close(fd)
         try:
             launch_host.settimeout(15)
             reported = int(launch_host.recv(64).split(b"\n")[0])
@@ -429,12 +461,7 @@ class Holder:
             os.close(fd)
         self.roots = {}
         if self.scope is not None and self.scope.exists():
-            report["scope_emptied"] = kill_and_wait(self.scope)
-            try:  # systemd removes the scope (and our slots) once it is empty
-                for child in [p for p in self.scope.iterdir() if p.is_dir()]:
-                    child.rmdir()
-            except FileNotFoundError:
-                pass
+            report["scope_emptied"] = kill_and_wait(self.scope)  # systemd then removes the scope and our slots
         if self.process is not None:
             try:
                 self.process.wait(timeout=10)
@@ -448,9 +475,6 @@ class Holder:
         for sock in (getattr(self, "ctrl", None), getattr(self, "gate", None)):
             if sock is not None:
                 sock.close()
-        deadline = time.monotonic() + 10
-        while self.scope is not None and populated(self.scope) and time.monotonic() < deadline:
-            time.sleep(0.01)
         report["scope_populated"] = self.scope is not None and populated(self.scope)
         # A unit stopped by systemd (e.g. OOMPolicy=stop) stays listed as failed; non-zero when already gone.
         subprocess.run(["systemctl", "--user", "reset-failed", self.unit], capture_output=True, timeout=15)
