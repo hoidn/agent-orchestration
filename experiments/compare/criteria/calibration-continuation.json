@@ -1,0 +1,80 @@
+{
+  "experiment": "Task 8 continuation: complete the borderline rung 1 with its third single call and review, then apply the ordered stop rule of calibration.json (amends_4) over rungs 1 and 2. This criterion is written after every Task 8 rung and after Task 9 (E-B2) were run and read. It is a post-data continuation, not a preregistered experiment, and its result must be reported as such.",
+  "status": "freeze requires an independent Opus review distinct from the author, the committed criterion, and its sha256 recorded in the evidence start.json before the first continuation launch",
+  "owner_instruction": "after integrating in main, continue the calibration (owner, 2026-10-15, after R55)",
+  "base_criterion": {
+    "file": "experiments/compare/criteria/calibration.json",
+    "sha256": "9faa4c01d0e3f231278f85d809a3e0d3bb3f64813cd59afba690089afd355f46",
+    "unchanged": "single_call, review, blockers, k, borderline, qualifies, failed_runs, empty_patch, review_inputs_frozen, run_membership, report_rung_findings, data_use and codex (R8) apply as written there; the hidden_fraction definition applies with this file's pool and runtime; base_criterion is never edited by this continuation"
+  },
+  "ruling": "R56 (owner choice, 2026-10-15T19:53:11Z, before the first continuation launch; evidence continuation/owner-choice.json): asked whether to continue by completing the existing samples (a third sample on rung 1 and, if rung 1 does not qualify, rung 2 on its existing mean of 2.5) or to start a fresh calibration, the owner answered 'Completar las muestras existentes'. This supersedes the coordinator's earlier provisional interpretation of 'continue the calibration'. R56 applies the existing borderline extension to rung 1 by reusing its two recorded samples and adding a third, then applies the ordered stop rule over rungs 1-2, reusing rung 2's two recorded samples unchanged. It is a post-data continuation separate from amends_4, which stays as written (the stop rule was not re-run over the completed ladder); Task 8's frozen outcome (no rung qualified under 3149bc36) and E-B2's owner choice of rung 3 stand",
+  "reused_samples": {
+    "evidence_root": "/home/ollie/Documents/agent-orchestration-compare-evidence/calibration",
+    "immutability": "read only; every sha256 below is checked before the first continuation run and again before the report, and a mismatch stops the continuation",
+    "rung_1": {
+      "summary": {"file": "rung-1-calibration.json", "sha256": "fe29c26c7e13f90debf100d6e35849dfb516ef707f672d316476360ddfe79948"},
+      "start": {"file": "rung-1-start.json", "sha256": "3fdded3e2afeb1fda3f95f20026f20eedd2aa311589c7276bb62c23ab2e24958"},
+      "runtime_commit": "2b9efd81305d687ce3f8b03ade334d221ba38eb3",
+      "samples": [
+        {"sample": 1, "direct_task": "runs/ladder/direct_task-run-1", "record_sha256": "bca8433d247360e6282dd6d45cac18d6aa71395edbcbb75f3cb5cf0911ca4257",
+         "final_diff_sha256": "010d7b0a6b13cd01266de4d014823a1570b9e1b638e12fc69adcbec41e9c4e27",
+         "review_once": "runs/ladder/review_once-run-1", "review_record_sha256": "affafbb6c2ac015a357421219be5fac42e583cbcb278ba1548195e58ecfea016", "blockers": 1},
+        {"sample": 2, "direct_task": "runs/ladder/direct_task-run-2", "record_sha256": "3d8755c966b6f97aca085cf0bdb3d7e8887d149bd5c888530579e7cf0b14314d",
+         "final_diff_sha256": "57f5d3a08b8cee6a2c080d88ea30f960b61137b2409736e228c70df8a3ed4df5",
+         "review_once": "runs/ladder/review_once-run-2", "review_record_sha256": "ab9ca3933583032d8907cc2640374eaae828f0f5788e2206c23a964a09de4af8", "blockers": 1}
+      ],
+      "contaminated_runs": 0
+    },
+    "rung_2": {
+      "summary": {"file": "rung-2-calibration.json", "sha256": "b0c722cc6eac8ed4f18140cee93c0260767e0833bfa8c7dd4ca0cfaee4392b11"},
+      "start": {"file": "rung-2-start.json", "sha256": "c66ef021dfbf6d779399c7d9e74f07cf296a7d6bdadd03241d7868639e33ccf9"},
+      "runtime_commit": "80611ee6 (records); calibration.json names 05693d14, the package commit; both differ from 2b9efd81 only under tasks/ and criteria/, and the package hash f7d54b1a... reproduces at both",
+      "samples": [
+        {"sample": 1, "direct_task": "runs/ladder/direct_task-run-3", "record_sha256": "37e6535565ffbc59a5f809d4894e4bc21492e513c482729f9a8b5599058c472c",
+         "final_diff_sha256": "ebcae5bc9ec7eec874327b3c3b66a5f6200255f450b10c7891c11a8da0a2f87b",
+         "review_once": "runs/ladder/review_once-run-3", "review_record_sha256": "673711ed9a3456020625de945f718c7190e34421a2c5bc90326a07ffcac06b89", "blockers": 1},
+        {"sample": 2, "direct_task": "runs/ladder/direct_task-run-4", "record_sha256": "aa04074b6707ab118dae6998d31f53b1ddeef8a6300f12a34893bc9151129e60",
+         "final_diff_sha256": "15676b6d72c6a7205049e803332921eb585f675ecbaa897692a28259b95329ea",
+         "review_once": "runs/ladder/review_once-run-4", "review_record_sha256": "c5962a6eb9309df7ff11cb34d23569c29e8b1857eb40d2cccc6bba5eb9a5a904", "blockers": 4}
+      ],
+      "mean_blockers": 2.5,
+      "contaminated_runs": 0
+    },
+    "not_used": "rungs 3-4 samples, the smoke and every Task 9 (E-B2) run, including E-B2's three direct_task runs on rung 3"
+  },
+  "new_sample": {
+    "rung": 1,
+    "slug": "cf1-generic-unions",
+    "sample": 3,
+    "package_sha256": "23681b729c512c7589cc9a6f0a12e7be102d7928d8f7967d2e6ca87a20dcd728 (method as base criterion rung_1); the package directory is not edited, and continuation results are written only to the evidence root",
+    "compare_base": "19f76c85a4fda1840ca75accaad4459d95d75e26, the seeded commit of samples 1-2; a different value stops the continuation",
+    "inputs": "direct_task inputs.json byte-identical to samples 1-2 (task.txt, model gpt-6.1-sol, effort high); review_once intent, account and replies identical to review_once-run-1, repo being the new candidate",
+    "pairing": "base run_membership, asserted before launch: the review_once record.json applied.path equals the direct_task run's collected/final.diff path and applied.sha256 equals that file's sha256",
+    "identity": "a continuation run is named by its full records path under work_root, for example /home/ollie/calib-continuation-work/records/direct_task/run-1, and reported as 'continuation direct_task/run-1'; the harness numbers runs per work root, so the bare names run-1 and run-2 also exist in Task 8 and are never used alone",
+    "replacement": "a contaminated continuation run is replaced once by the next run number in work_root; a second contaminated run of rung 1 (Task 8 had none) rejects rung 1"
+  },
+  "runtime": {
+    "path": "/home/ollie/calib-continuation-runtime",
+    "commit": "2b9efd81305d687ce3f8b03ade334d221ba38eb3",
+    "creation": "created by coordinator preflight on 2026-10-15 as a detached worktree at the commit above, outside the main checkout's prefix and outside work_root (evidence runtime-preflight.json); validated before launch and never recreated",
+    "validity": "a continuation run counts only if record.json runtime_commit is exactly the commit above, the runtime has no tracked or untracked change under experiments/compare/, and the package hash reproduces at <path>/experiments/compare/tasks/cf1-generic-unions"
+  },
+  "work_root": "/home/ollie/calib-continuation-work",
+  "pool": "/home/ollie/calib-continuation-work/rung1-pool, built by prepare.py pool with this criterion and the Task 8 rung-1 pool's judge names (claude-opus-5-5, gpt-6-sol), after the third review has been collected, scanned and adjudicated; no judge is run",
+  "evidence_root": "/home/ollie/Documents/agent-orchestration-compare-evidence/calibration/continuation",
+  "evidence_outputs": "each continuation run is copied to <evidence_root>/runs/<arm>-run-<k> and cited by that copy and by its full work_root records path; continuation-outputs.sha256 there covers each copy's record.json, inputs.json and collected/final.diff (when present), pool/mapping.json and every hidden-*.json; work_root may be deleted only after it is written",
+  "scan_solution_hash": "1798fc7034d38dc5938472a7cff883b8381703e4",
+  "qualification": {
+    "rung_1": "mean of blockers over samples 1, 2 and 3 >= 1; since samples 1-2 each have 1, rung 1 qualifies iff sample 3 has at least 1 blocker (an empty completed patch counts 1, R47)",
+    "rung_1_fails": "sample 3 has 0 blockers; its direct_task fails other than by infrastructure; its review fails twice other than by infrastructure; or rung 1 is rejected for contamination",
+    "rung_2": "considered only if rung 1 does not qualify: its recorded mean 2.5 >= 1.5 qualifies without extension and without any new run",
+    "stop": "stop at the first of rungs 1-2 that qualifies; no rung 3 or 4 run and no further rung is considered"
+  },
+  "halt_without_result": "the continuation stops and is reported to the owner without a rung if: a reused sha256 or the runtime, package or compare_base check fails; a generated command's --dry-run exits non-zero or leaves a run root or call record; the Codex CLI is not codex-cli 0.162.1 or bwrap is missing; the unqualified import of orchestrator resolves to a path other than the Task 8 worktree .worktrees/omp-i1-prerequisites (only the path is compared; its Task 8 HEAD was never recorded); or the budget gate forbids the next call",
+  "hidden_fraction": "measured once for sample 3 with summarize.hidden_failures from the runtime above, as the base criterion defines it; void unless this pool's upstream anchor passes all 164 nodes; descriptive only, never a qualification condition",
+  "budget_worst_case": "1 direct_task (4 h) and 1 review_once (1.5 h), plus at most one contamination replacement in total (a second contaminated rung-1 run rejects the rung) and one non-infrastructure review rerun: at most 4 runs, one live at a time",
+  "codex": "R8 as amended applies: designed runs may continue past the weekly limit on credits, no run beyond this design, and the report states credits before and after. Before each launch, read the newest ~/.codex/sessions rollout's rate_limits (metadata only); rate_limits null means re-read, not launch. Conservative guard stricter than R8, not R8 text: launch only if primary used_percent < 95, or credits.has_credits is true and the balance is at least 1245.01 (Task 8's whole credit spend, Task 8 report Cost). One more reading after the last continuation run gives the after balance",
+  "data_use": "continuation runs are never treatment or control data in Task 9 or any later experiment, and they do not change E-B2's criterion, results or rung choice",
+  "written_before_any_continuation_run": true,
+  "written_after_task8_and_task9_data": true
+}
