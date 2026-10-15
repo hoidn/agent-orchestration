@@ -100,3 +100,23 @@ def test_agent_constructed_in_a_loop_body_is_a_new_agent_per_iteration(tmp_path,
     requests = shim_requests(tmp_path)
     assert len(requests) == 4 and len({r["session"] for r in requests}) == 2
     assert ["resume" in r["argv"] for r in requests] == [False, True, False, True]
+
+
+CONDITIONAL = HEADER + '''  (defworkflow run ((task String) (pick Bool)) -> Note
+    (let* ((chosen (if pick (make "m") (make "m")))
+           (first (if pick (turn chosen task) (turn chosen task)))
+           (again (turn chosen first.text)))
+      again)))'''
+
+
+@pytest.mark.parametrize("pick, arm, unselected", [("true", "/ then /", "/ else /"), ("false", "/ else /", "/ then /")])
+def test_only_the_selected_branch_allocates_and_invokes_and_the_join_keeps_its_handle(tmp_path, monkeypatch, pick, arm, unselected) -> None:
+    agents, t = _run(tmp_path, monkeypatch, CONDITIONAL, f"pick={pick}")
+    (agent,) = agents                                                                              # one allocation, not one per arm
+    assert arm in agent and not any(unselected in i for i in agents)
+    (first,) = _named(t, "/ first / "); (again,) = _named(t, "/ again=")
+    assert arm in first["identity"] and not any(unselected in i for i in t)                       # only the selected arm invokes
+    assert first["proof"]["agent"] == again["proof"]["agent"] == agent                             # the join retains the handle
+    assert (first["proof"]["predecessor"], again["proof"]["predecessor"]) == (None, first["identity"])
+    requests = shim_requests(tmp_path)
+    assert len(requests) == 2 and len({r["session"] for r in requests}) == 1
