@@ -310,8 +310,24 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
     outcome and dispatches nothing; a completed run without one keeps the
     no-write rule above
     ([State](state.md#proposed-run-ref-confined-child-state-target-238)).
-    Open for the contract owner: the exit status and report when the retry
-    fails again (the design states only retry and record).
+    For a valid completed run, resume exits `0` when no cleanup obligation
+    is pending or all known obligations complete. If a cleanup retry leaves
+    an obligation pending, resume exits `2` and emits
+    `[run_ref_cleanup_pending]` with the existing coordinator identity,
+    attempt and bounded reason, including the preserved private location
+    when a replacement was moved there. The persisted terminal remains
+    completed with its original value; cleanup failure neither appends a
+    workflow failure nor alters parent commitment or settlement. The pending
+    obligation survives for a later resume. Integrity and preflight refusals
+    retain their existing codes and do not authorize mutation of invalid
+    authority. These paths dispatch no child effect, start no holder and
+    allocate no child. A completed run without pending cleanup retains the
+    no-write rule.
+    `report` projects pending obligations read-only and preserves the
+    completed status, workflow outputs and run-level error of the terminal.
+    Successfully reading and rendering a report exits `0` even when cleanup
+    is pending; report never attempts cleanup. The pending projection is
+    specified in [Observability](observability.md).
 - `invalidate RUN_ID IDENTITY [--state-dir DIR]` (also
   `python -m orchestrator invalidate ...`) uses the same path resolution as
   `resume` (`.orchestrate/runs/RUN_ID`, or `DIR/RUN_ID`); unlike `resume`,

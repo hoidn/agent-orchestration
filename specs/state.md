@@ -1123,14 +1123,58 @@ carries the named amendments.
   terminal the same way. Missing snapshots block settlement and cleanup
   rather than being reconstructed from current source. An already durable
   COMPLETED is not replaced by FAILED because of later replay/settlement.
+  Settled validation reads only retained child authority, protected evidence
+  and committed exports. It does not require the clone, a materialized
+  baseline, or the shared image store. Retain the exact result, variable
+  input, snapshot and configuration bytes the read-only validators consume.
+  For image executable/closure identity, retain the complete canonical
+  inventory hashed by `image_store.tree_digest`, captured from the admitted
+  image and bound to its protected image/platform/tree-digest admission.
+  Validate canonical bytes, row shapes, unique safe paths, directory parents
+  and canonical traversal order, and require the complete inventory's hash
+  to equal that admitted tree digest. Resolve guest symlinks under the same
+  image path rules and recompute file or directory-subtree evidence and
+  targets exactly as `image_implementation_files`; compare with the live
+  checked rows before commitment and the recorded rows on retained replay.
+  This authenticates pins without retaining large executable binaries;
+  isolated digests copied from memo rows do not establish membership in the
+  admitted image. Charge the complete inventory to the evidence allowance;
+  missing, malformed or over-budget inventory refuses. Bytes needed as
+  actual input/configuration content still require retention, even if they
+  originated in the image. Live admission and precommit image checks remain.
+  Bind the live-validated baseline/final manifests and canonical delta to
+  settlement before deleting the clone. Read-only reuse validates this
+  retained capture and its bindings without rebuilding a diff from deleted
+  files. This does not waive environment checks for an attempt that must
+  execute again or ordinary parent resume preflight.
 - Retention and cleanup: after terminal validation, export (none for
   `FAILED`) and parent settlement of either outcome, the coordinator deletes
   the clone and its checkpoint header, recording cleanup intent and
   completion in the ledger under the parent writer lock after revalidating
   the exact owned root, the absence of a live scope and quiescence; it never
-  deletes a pending or live workspace. A failure retains the workspace and
-  records a pending obligation, retried by completed resume
-  ([CLI](cli.md#evaluated-execution-target-235)). Protected child
+  deletes a pending or live workspace. A failure preserves all surviving
+  workspace/evidence and leaves cleanup pending, retried by completed resume
+  ([CLI](cli.md#evaluated-execution-target-235)). Cleanup starts only after
+  the parent coordinator's `settled` memo record is durable. Its obligation
+  binds the original owned root, parent and mount identities established during
+  valid provisioning, not identities first observed at deletion time. Under
+  the parent writer lock, prove no live scope and quiescence, validate those
+  roots/parents/mounts and isolate the clone by a no-overwrite rename to a
+  private name bound to the same obligation. Revalidate the moved root
+  against retained identity before removing any content. If rename moved a
+  replacement, preserve it intact at the private name, leave cleanup pending
+  and durably record a diagnostic identifying that location. Do not
+  automatically restore, adopt or delete it. Every retry checks the original
+  bound identity at the original or private name; a replacement at either
+  name blocks cleanup, and the private name alone grants no authority. Do
+  not pursue an original clone displaced elsewhere. Failure may leave a
+  partial or absent clone or a displaced replacement; neither an intact
+  workspace nor its original pathname is guaranteed. Preserve protected
+  evidence and every surviving object. Remove only the checked clone and
+  its exact checkpoint header, reject nested mounts, and acknowledge
+  completion only after absence and parent-directory fsync. Partial deletion
+  or a crash before completion does not invalidate the settled result and
+  does not permit reconstructing proof from the remnants. Protected child
   artifact, header and memo, the failed terminal row, environment
   admission, baseline and final manifests, delta, accounting, attempt
   snapshots, export manifest and committed exported bytes are kept for the
