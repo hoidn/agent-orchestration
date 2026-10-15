@@ -53,6 +53,28 @@ class ClosedProgramBuildResult:
     builder: Builder | None = field(default=None, compare=False, repr=False)
 
 
+class ConfinedRunRefUnavailable(ValueError):
+    """A checked program has confined run-ref sites, which this release cannot run."""
+
+    code = "run_ref_child_target_unavailable"
+
+
+def refuse_confined_run_ref_sites(program: ClosedProgram) -> None:
+    """Refuse execution before any run state or child provisioning (Ruling P11).
+
+    Confined sites compile into checked child entries, but the confinement
+    runtime is not admitted yet; programs without such sites run normally.
+    """
+
+    children = program.tree.get("children", {})
+    if children:
+        names = sorted(child["entry"].removeprefix("workflow:") for child in children.values())
+        raise ConfinedRunRefUnavailable(
+            "confined run-ref children are not admitted for execution in this release: "
+            + ", ".join(names)
+        )
+
+
 def closed_build_key(
     *,
     target: str,

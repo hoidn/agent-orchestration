@@ -1174,3 +1174,196 @@ def test_binding_literals_reject_non_scalar_and_nonfinite_values() -> None:
     for value in ([], {}, math.nan, math.inf, -math.inf):
         with pytest.raises((TypeError, ValueError)):
             LiteralBinding(value)
+
+
+# Task 4: `run_ref_static_config.v2` for confined `(:workflow <name>)` sites and
+# the durable confined child request identity.
+
+from orchestrator.workflow.run_ref.config import (  # noqa: E402
+    RUN_REF_CONFINED_STATIC_CONFIG_SCHEMA,
+    ConfinedPolicy,
+    WorkflowProgram,
+    build_run_ref_confined_static_config,
+    decode_run_ref_confined_static_config,
+    encode_run_ref_confined_static_config,
+)
+from orchestrator.workflow.run_ref.contracts import RUN_REF_CONFINEMENT_RESERVED_MIB  # noqa: E402
+from orchestrator.workflow.run_ref.wire import (  # noqa: E402
+    confined_child_request,
+    validate_confined_child_request,
+)
+
+IMAGE = "registry.example/project@sha256:" + "a" * 64
+LIMITS = (("wall-seconds", 900), ("memory-mib", 4096), ("cpus", 2), ("pids", 256),
+          ("workspace-mib", 2048), ("output-mib", 64))
+CONFINED_INPUTS = {"task": "write it", "variant": 2}
+
+
+def _confined_config(**overrides):
+    descriptor, result_digest = _result_contract()
+    arguments = {
+        "target_dsl_version": "2.38",
+        "compiler_runtime_identity_digest": COMPILER_IDENTITY,
+        "site_digest": _site_digest(descriptor),
+        "repo": "file:///srv/project.git",
+        "program": WorkflowProgram(workflow_name="isolated_candidates::candidate-body",
+                                   child_program_digest="sha256:" + "1" * 64,
+                                   owner_configuration_digest="sha256:" + "2" * 64),
+        "policy": ConfinedPolicy(image=IMAGE, network="model-only", limits=LIMITS),
+        "inputs": (
+            RunRefInput(name="task", type_descriptor={"kind": "primitive", "name": "String"},
+                        binding=ReferenceBinding("inputs.task")),
+            RunRefInput(name="variant", type_descriptor={"kind": "primitive", "name": "Int"},
+                        binding=ReferenceBinding("inputs.variant")),
+        ),
+        "result_descriptor": descriptor,
+        "result_digest": result_digest,
+    }
+    arguments.update(overrides)
+    return build_run_ref_confined_static_config(**arguments)
+
+
+def test_confined_config_round_trips_canonical_bytes() -> None:
+    config = _confined_config()
+    encoded = encode_run_ref_confined_static_config(config)
+    decoded = decode_run_ref_confined_static_config(encoded)
+
+    assert (decoded, encode_run_ref_confined_static_config(decoded), decoded.record["schema_version"]) == (
+        config, encoded, RUN_REF_CONFINED_STATIC_CONFIG_SCHEMA)
+
+
+def test_confined_config_records_profile_constants_and_ordered_policy() -> None:
+    environment = _confined_config().record["environment"]
+
+    assert environment == {
+        "profile": "run_ref_confinement.v1",
+        "image": IMAGE,
+        "network": "model-only",
+        "limits": [list(row) for row in LIMITS],
+        "profile_constants_mib": [["scratch", 256], ["dev-shm", 64], ["result", 128], ["headroom", 512]],
+    }
+
+
+def test_profile_reserve_is_the_parser_headroom() -> None:
+    from orchestrator.workflow_lisp.expressions import PROFILE_HEADROOM_MIB
+
+    assert (RUN_REF_CONFINEMENT_RESERVED_MIB, PROFILE_HEADROOM_MIB) == (960, 960)
+
+
+def test_confined_config_carries_no_commit() -> None:
+    record = _confined_config().record
+
+    assert record["source"] == {"normalized_locator": "file:///srv/project.git"}
+
+
+def test_old_decoder_refuses_confined_config_bytes() -> None:
+    with pytest.raises(ValueError):
+        decode_run_ref_static_config(encode_run_ref_confined_static_config(_confined_config()))
+
+
+def test_confined_decoder_refuses_old_config_bytes() -> None:
+    with pytest.raises(ValueError):
+        decode_run_ref_confined_static_config(encode_run_ref_static_config(_config(mode="path")))
+
+
+def _reencoded(edit) -> bytes:
+    record = _confined_config().record
+    edit(record)
+    return canonical_json_bytes(record)
+
+
+CONFINED_CONFIG_TAMPERING = {
+    "relabelled-v1": lambda r: r.update(schema_version=RUN_REF_STATIC_CONFIG_SCHEMA),
+    "unknown-profile": lambda r: r["environment"].update(profile="provider_phase_isolation.v1"),
+    "changed-constant": lambda r: r["environment"]["profile_constants_mib"][3].__setitem__(1, 256),
+    "path-mode": lambda r: r["program"].update(mode="path"),
+    "commit-in-source": lambda r: r["source"].update(resolved_commit_sha=COMMIT),
+    "unordered-limits": lambda r: r["environment"]["limits"].reverse(),
+    "tagged-image": lambda r: r["environment"].update(image="registry.example/project:latest"),
+    "open-network": lambda r: r["environment"].update(network="internet"),
+    "unnormalized-repo": lambda r: r["source"].update(normalized_locator="file:///srv/../srv/project.git"),
+    "older-target": lambda r: r.update(target_dsl_version="2.37"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(CONFINED_CONFIG_TAMPERING))
+def test_confined_decoder_refuses_mixed_or_unknown_records(case) -> None:
+    with pytest.raises((ValueError, TypeError)):
+        decode_run_ref_confined_static_config(_reencoded(CONFINED_CONFIG_TAMPERING[case]))
+
+
+def _request(config=None, *, commit=COMMIT, inputs=None):
+    return confined_child_request(config or _confined_config(), commit=commit,
+                                  inputs=CONFINED_INPUTS if inputs is None else inputs)
+
+
+REQUEST_FIELD_CHANGES = {
+    "repo": lambda: _request(_confined_config(repo="file:///srv/other.git")),
+    "commit": lambda: _request(commit="f" * 40),
+    "child-entry": lambda: _request(_confined_config(program=WorkflowProgram(
+        workflow_name="isolated_candidates::candidate-body", child_program_digest="sha256:" + "3" * 64,
+        owner_configuration_digest="sha256:" + "2" * 64))),
+    "owner-configuration": lambda: _request(_confined_config(program=WorkflowProgram(
+        workflow_name="isolated_candidates::candidate-body", child_program_digest="sha256:" + "1" * 64,
+        owner_configuration_digest="sha256:" + "4" * 64))),
+    "input-value": lambda: _request(inputs={"task": "write it", "variant": 3}),
+    "input-type": lambda: _request(_confined_config(inputs=(
+        RunRefInput(name="task", type_descriptor={"kind": "primitive", "name": "String"},
+                    binding=ReferenceBinding("inputs.task")),
+        RunRefInput(name="variant", type_descriptor={"kind": "primitive", "name": "Value"},
+                    binding=ReferenceBinding("inputs.variant")),
+    ))),
+    "image": lambda: _request(_confined_config(policy=ConfinedPolicy(
+        image="registry.example/project@sha256:" + "b" * 64, network="model-only", limits=LIMITS))),
+    "network": lambda: _request(_confined_config(policy=ConfinedPolicy(
+        image=IMAGE, network="none", limits=LIMITS))),
+    "limit": lambda: _request(_confined_config(policy=ConfinedPolicy(
+        image=IMAGE, network="model-only", limits=(("wall-seconds", 901), *LIMITS[1:])))),
+}
+
+
+@pytest.mark.parametrize("field", sorted(REQUEST_FIELD_CHANGES))
+def test_each_bound_request_field_changes_the_request_digest(field) -> None:
+    assert REQUEST_FIELD_CHANGES[field]()["digest"] != _request()["digest"]
+
+
+def test_request_validates_against_its_site_and_operands() -> None:
+    record = json.loads(json.dumps(_request()))
+
+    assert validate_confined_child_request(record, _confined_config(), commit=COMMIT,
+                                           inputs=CONFINED_INPUTS) == _request()
+
+
+REQUEST_TAMPERING = {
+    "repo": lambda r: r["source"].update(normalized_locator="file:///srv/other.git"),
+    "commit": lambda r: r["source"].update(resolved_commit_sha="f" * 40),
+    "child-entry": lambda r: r["child"].update(child_program_digest="sha256:" + "3" * 64),
+    "owner-configuration": lambda r: r["child"].update(owner_configuration_digest="sha256:" + "4" * 64),
+    "input-value": lambda r: r["inputs"][1].update(value=3),
+    "input-order": lambda r: r["inputs"].reverse(),
+    "image": lambda r: r["environment"].update(image="registry.example/project@sha256:" + "b" * 64),
+    "network": lambda r: r["environment"].update(network="none"),
+    "limit": lambda r: r["environment"]["limits"][0].__setitem__(1, 901),
+    "digest": lambda r: r.update(digest="sha256:" + "0" * 64),
+}
+
+
+@pytest.mark.parametrize("field", sorted(REQUEST_TAMPERING))
+def test_tampered_request_is_refused_even_with_a_recomputed_digest(field) -> None:
+    record = json.loads(json.dumps(_request()))
+    REQUEST_TAMPERING[field](record)
+    if field != "digest":
+        record["digest"] = canonical_sha256({key: value for key, value in record.items() if key != "digest"})
+
+    with pytest.raises(ValueError):
+        validate_confined_child_request(record, _confined_config(), commit=COMMIT, inputs=CONFINED_INPUTS)
+
+
+@pytest.mark.parametrize(("commit", "inputs"), [
+    ("abc", CONFINED_INPUTS),
+    (COMMIT, {"variant": 2, "task": "write it"}),
+    (COMMIT, {"task": "write it", "variant": "two"}),
+])
+def test_request_refuses_invalid_operands(commit, inputs) -> None:
+    with pytest.raises(ValueError):
+        _request(commit=commit, inputs=inputs)

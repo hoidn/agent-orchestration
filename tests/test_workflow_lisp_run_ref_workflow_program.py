@@ -8,7 +8,9 @@ surface syntax yet; that arrives with the syntax task).
 from __future__ import annotations
 
 import json
+import sys
 
+from copy import deepcopy
 from dataclasses import replace
 from importlib import import_module
 from pathlib import Path
@@ -177,7 +179,7 @@ CONFINED = '''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
   (defworkflow candidate-body ((seed Int) (task String)) -> Int
     (let* ((verdict (provider-result providers.review :prompt prompts.base
                       :inputs (task) :returns Verdict)))
-      (if verdict.ok (let* ((box (fetch (bump seed)))) box.n) 0)))
+      (if verdict.ok (let* ((n (bump seed)) (box (fetch n))) box.n) 0)))
   (defworkflow leaf ((value String)) -> String value)
   EXTRA
   (defworkflow run ((seed Int) (revision String)) -> Int
@@ -416,14 +418,19 @@ def test_path_mode_run_ref_is_unchanged_at_target_238(tmp_path):
             config.target_dsl_version) == (None, "path", "2.35")
 
 
-def _wcc_perform(typed):
-    from orchestrator.workflow_lisp.expression_traversal import walk_expr
-    from orchestrator.workflow_lisp.wcc import WccLet, WccPerform, elaborate_typed_workflow_body
+def _wcc_body(typed):
+    from orchestrator.workflow_lisp.wcc import elaborate_typed_workflow_body
 
     run = typed.workflows["controller::run"]
-    body = elaborate_typed_workflow_body(
+    return elaborate_typed_workflow_body(
         run.typed_body, owner_name="controller::run", type_env=typed.workflow_type_envs["controller::run"],
         value_env=dict(run.signature.params), route_schema_version="wcc_m4")
+
+
+def _wcc_perform(typed):
+    from orchestrator.workflow_lisp.wcc import WccLet, WccPerform
+
+    body = _wcc_body(typed)
     pending, performs = [body], []
     while pending:
         node = pending.pop()
@@ -464,15 +471,6 @@ def test_workflow_program_wcc_payload_carries_child_policy_inputs_and_commit(tmp
         {"kind": "primitive", "name": "Int"},
         payload.generated_outcome_type,
     )
-
-
-def test_workflow_program_closed_build_refuses_until_child_entry_compiles(tmp_path):
-    typed = _confined(tmp_path)
-
-    with pytest.raises(LispFrontendCompileError) as refused:
-        build_closed_program(typed, builder=Builder(typed))
-
-    assert [row.code for row in refused.value.diagnostics] == ["run_ref_child_target_unavailable"]
 
 
 def test_trial_arm_cannot_run_a_confined_workflow_child():
@@ -550,3 +548,255 @@ def test_retained_outcome_must_match_its_site(tmp_path):
     with pytest.raises(TypecheckSessionStateCollisionError):
         resolve_unique_run_ref_site_metadata(replace(site, run_ref_metadata=forged), session_state=session,
                                              prefer_retained=True)
+
+
+# Task 4: the confined site compiles into a checked private child entry carried
+# by `run_ref_static_config.v2`.
+
+def _built(typed) -> ClosedProgram:
+    return ClosedProgram.from_artifact(build_closed_program(typed, builder=Builder(typed)).artifact())
+
+
+def _confined_site(program):
+    from base64 import b64decode
+    from orchestrator.workflow.evaluated.machine import site_nodes
+    from orchestrator.workflow.run_ref.config import decode_run_ref_confined_static_config
+
+    [node] = [node for node in site_nodes(program).values() if node["class"] == "run_ref"]
+    return node, decode_run_ref_confined_static_config(b64decode(node["config"]))
+
+
+def _child_program(program) -> ClosedProgram:
+    [child] = program.tree["children"].values()
+    return ClosedProgram.from_artifact(json.dumps(child))
+
+
+def test_confined_site_carries_a_checked_child_entry(tmp_path):
+    program = _built(_confined(tmp_path))
+    _node, config = _confined_site(program)
+    child = _child_program(program)
+
+    assert (list(program.tree["children"]), child.tree["entry"], [name for name, _ in child.tree["params"]],
+            sorted(site_classes(child).values())) == (
+        [config.program.child_program_digest], f"workflow:{CHILD}", ["seed", "task"], ["command", "provider"])
+
+
+def test_child_entry_is_the_ordinary_compile_of_the_named_workflow(tmp_path):
+    typed = _confined(tmp_path)
+
+    assert _child_program(_built(typed)).digest == _child_entry(typed).digest
+
+
+def test_parent_keeps_one_run_ref_site_and_child_sites_are_its_own(tmp_path):
+    program = _built(_confined(tmp_path))
+
+    child_owners = {owner for owner, _site in _child_program(program).sites}
+
+    assert (program.sites, f"workflow:{CHILD}" in child_owners, "workflow:controller::run" in child_owners) == (
+        (("workflow:controller::run", "child"),), True, False)
+
+
+def test_confined_config_binds_child_owner_configuration_policy_and_inputs(tmp_path):
+    from orchestrator.contracts.closed_program.program import canonical_digest
+
+    program = _built(_confined(tmp_path))
+    _node, config = _confined_site(program)
+    child = _child_program(program)
+
+    assert (config.target_dsl_version, config.repo, config.program.workflow_name,
+            config.program.owner_configuration_digest, config.policy.image, config.policy.network,
+            dict(config.policy.limits)["memory-mib"], [row.name for row in config.inputs],
+            child.tree["configuration"]["providers"]) == (
+        "2.38", "file:///srv/project.git", CHILD, canonical_digest(child.tree["configuration"]),
+        f"registry.example/project@sha256:{DIGEST}", "model-only", 4096, ["seed", "task"],
+        {"providers.review": {"provider_id": "probe-provider"}, "scorer": {"provider_id": "probe-provider"}})
+
+
+def test_site_type_is_the_outcome_union_of_the_generated_envelope(tmp_path):
+    program = _built(_confined(tmp_path))
+    node, config = _confined_site(program)
+
+    assert (node["result"], program.tree["types"][config.generated_outcome_type]) == (
+        config.outcome_descriptor, config.outcome_descriptor)
+
+
+class _Stop(Exception):
+    pass
+
+
+def test_commit_projection_is_evaluated_in_the_parent_as_the_first_operand(tmp_path):
+    typed = _confined(tmp_path, (":commit revision", ":commit sha"),
+                      ("(let* ((child", "(let* ((rev (record Rev :sha revision)) (sha rev.sha) (child"),
+                      extra="(defrecord Rev (sha String))")
+    seen = []
+
+    def perform(node, operands, _identity, _owner, _reader):
+        seen.append([operand.json_value() for operand in operands])
+        raise _Stop
+
+    with pytest.raises(_Stop):
+        evaluate_closed_program(_built(typed), {"seed": 1, "revision": "c" * 40}, effect_handler=perform)
+
+    assert seen == [["c" * 40, 1, "t"]]
+
+
+def test_one_child_entry_serves_every_site_naming_it(tmp_path):
+    typed = _confined(tmp_path, ("(let* ((child ", f"(let* ((other {RUN_REF}) (child "))
+
+    program = _built(typed)
+
+    assert (len(program.sites), len(program.tree["children"])) == (2, 1)
+
+
+def test_installation_maxima_are_not_consulted_at_compile_time(tmp_path):
+    huge = (":wall-seconds 900 :memory-mib 4096 :cpus 2 :pids 256 :workspace-mib 2048",
+            ":wall-seconds 31536000 :memory-mib 1048576 :cpus 4096 :pids 4194304 :workspace-mib 1047616")
+
+    _node, config = _confined_site(_built(_confined(tmp_path, huge)))
+
+    assert dict(config.policy.limits)["memory-mib"] == 1048576
+
+
+def test_source_relocation_keeps_parent_and_child_identity(tmp_path):
+    first = _built(_confined(tmp_path / "a"))
+    moved = _built(_confined(tmp_path / "b", ("  (defworkflow leaf", "\n\n\n  (defworkflow leaf"),
+                             ("(defrecord Verdict", "\n\n  (defrecord Verdict")))
+
+    assert (moved.digest, list(moved.tree["children"])) == (first.digest, list(first.tree["children"]))
+
+
+def test_stored_program_keeps_its_captured_child_after_dependency_changes(tmp_path, monkeypatch):
+    built = _built(_confined(tmp_path))
+    stored = built.artifact()
+    monkeypatch.setattr(sys.modules[__name__], "NESTED_HELPER", NESTED_HELPER.replace("(+ n 1)", "(+ n 2)"))
+    rebuilt = _built(_confined(tmp_path))
+    reloaded = ClosedProgram.from_artifact(stored)
+
+    # The stored program keeps the captured child; a fresh compile of the
+    # changed import is a different child and parent identity (the resume
+    # program-digest comparison refuses it).
+    assert (_child_program(reloaded).digest, _confined_site(reloaded)[1].program.child_program_digest,
+            rebuilt.digest != built.digest, list(rebuilt.tree["children"]) != list(built.tree["children"])) == (
+        _child_program(built).digest, _child_program(built).digest, True, True)
+
+
+def _tampered(program, edit) -> str:
+    tree = json.loads(program.artifact())
+    edit(tree)
+    return json.dumps(tree)
+
+
+def _swap_child(tree, replacement):
+    [digest] = tree["children"]
+    tree["children"][digest] = replacement
+
+
+CHILD_TAMPERING = {
+    "owner-configuration": lambda tree, _other: next(iter(tree["children"].values()))["configuration"]["providers"][
+        "providers.review"].update(provider_id="other-provider"),
+    "child-from-changed-source": lambda tree, other: _swap_child(tree, next(iter(other.tree["children"].values()))),
+    "rekeyed-child-from-changed-source": lambda tree, other: tree.update(children=dict(other.tree["children"])),
+    "dropped-child": lambda tree, _other: tree.pop("children"),
+    "nested-child": lambda tree, _other: next(iter(tree["children"].values())).update(
+        children=deepcopy(tree["children"])),
+}
+
+
+@pytest.mark.parametrize("case", sorted(CHILD_TAMPERING))
+def test_substituted_child_entry_or_owner_configuration_is_refused(tmp_path, case):
+    from orchestrator.contracts.closed_program.program import ClosedProgramInvalid
+
+    program = _built(_confined(tmp_path / "a"))
+    other = _built(_confined(tmp_path / "b", ("(bump seed)", "(bump (+ seed 1))")))
+
+    with pytest.raises(ClosedProgramInvalid):
+        ClosedProgram.from_artifact(_tampered(program, lambda tree: CHILD_TAMPERING[case](tree, other)))
+
+
+def test_preparation_comparison_distinguishes_confined_policies(tmp_path):
+    from orchestrator.workflow_lisp.closed.preparation_check import _Comparison
+
+    payload = _wcc_perform(_confined(tmp_path)).operation_payload
+    other = _wcc_perform(_confined(tmp_path / "b", (":network :model-only", ":network :none"),
+                                   (":program (:workflow candidate-body) :inputs (:seed seed :task \"t\")",
+                                    ":program (:workflow leaf) :inputs (:value \"v\")"),
+                                   ("((COMPLETED c) c.result.value)", "((COMPLETED c) 1)"))).operation_payload
+    comparison = object.__new__(_Comparison)
+
+    comparison.run_ref_header(payload, payload, "payload")
+    with pytest.raises(ValueError):
+        comparison.run_ref_header(payload, other, "payload")
+
+
+def test_generated_outcome_name_resolves_to_the_site_union(tmp_path):
+    from orchestrator.workflow_lisp.expressions import RunRefExpr  # noqa: F401
+
+    typed = _confined(tmp_path)
+    outcome = _site(typed).run_ref_metadata.outcome_type_ref
+    env = typed.workflow_type_envs["controller::run"]
+
+    resolved = env.resolve_type(outcome.name, span=_site(typed).span, form_path=("probe",),
+                                session_state=env.session_state)
+
+    assert resolved is outcome
+
+
+def _run(tmp_path, source: str, *inputs: str):
+    import os
+    import subprocess
+    import sys
+
+    install(tmp_path, {"helper.orc": NESTED_HELPER, "controller.orc": source})
+    (tmp_path / "providers.json").write_text(json.dumps({"providers.review": "probe-provider"}))
+    (tmp_path / "prompts.json").write_text(json.dumps({"prompts.base": "inputs/prompt.md"}))
+    (tmp_path / "boundaries.json").write_text(json.dumps({"fetch": {
+        "kind": "external_tool", "stable_command": ["python", "probe.py"], "closure": ["probe.py"]}}))
+    (tmp_path / "state").mkdir()
+    argv = [sys.executable, "-m", "orchestrator", "run", "controller.orc", "--entry-workflow", "controller::run",
+            "--provider-externs-file", "providers.json", "--prompt-externs-file", "prompts.json",
+            "--command-boundaries-file", "boundaries.json", "--state-dir", "state"]
+    for item in inputs:
+        argv += ["--input", item]
+    repo = Path(__file__).resolve().parents[1]
+    return subprocess.run(argv, cwd=tmp_path, env={**os.environ, "PYTHONPATH": str(repo)},
+                          capture_output=True, text=True, timeout=180)
+
+
+def test_running_a_confined_site_is_refused_before_any_run_state(tmp_path):
+    source = CONFINED.replace("EXTRA", "").replace("RUN_REF", RUN_REF)
+
+    completed = _run(tmp_path, source, "seed=1", "revision=" + "c" * 40)
+
+    assert (completed.returncode, "run_ref_child_target_unavailable" in completed.stderr,
+            list((tmp_path / "state").iterdir())) == (2, True, [])
+
+
+def test_target_238_program_without_a_confined_site_runs(tmp_path):
+    source = CONFINED.replace("EXTRA", "").replace("RUN_REF", RUN_REF).replace(
+        "(let* ((child", "(let* ((unused 0) (child").split("    (let* ((unused 0)")[0] + "    (+ seed 1)))"
+
+    completed = _run(tmp_path, source, "seed=1", "revision=x")
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_commit_operand_is_demanded_by_the_run_ref_like_its_inputs(tmp_path):
+    from orchestrator.workflow_lisp.closed.command_templates import _wcc_continuation_binding_demands
+
+    body = _wcc_body(_confined(tmp_path))
+    run_ref_demand = _wcc_continuation_binding_demands(body)[id(body)][0]
+
+    assert {"revision", "seed"} <= run_ref_demand
+
+
+@pytest.mark.parametrize("children", [{}, "foreign"])
+def test_program_without_confined_sites_refuses_child_entries(tmp_path, children):
+    from orchestrator.contracts.closed_program.program import ClosedProgramInvalid
+
+    plain = _child_entry(_typed(tmp_path / "plain"))
+    foreign = _built(_confined(tmp_path / "confined")).tree["children"]
+    tree = json.loads(plain.artifact())
+    tree["children"] = foreign if children == "foreign" else children
+
+    with pytest.raises(ClosedProgramInvalid):
+        ClosedProgram.from_artifact(json.dumps(tree))

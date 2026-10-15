@@ -12,13 +12,21 @@ from orchestrator.contracts.closed_program.targets import (
     target_dsl_uses_evaluated_execution,
 )
 
+from orchestrator.workflow.type_descriptor import validate_transport_value
+
+from .config import RunRefConfinedStaticConfig
 from .contracts import RepositoryRevisionId, canonical_sha256
-from .source import MaterializedSource, canonical_repository_revision_result
+from .source import (
+    MaterializedSource,
+    canonical_repository_revision_result,
+    validate_commit_sha,
+)
 from .workspace import TreeEntry, TreeManifest, manifest_from_entries
 
 
 RUN_REF_CHILD_DIAGNOSTIC_SCHEMA = "run_ref_child_diagnostic.v1"
 RUN_REF_MATERIALIZED_SOURCE_SCHEMA = "run_ref_materialized_source.v1"
+RUN_REF_CONFINED_CHILD_REQUEST_SCHEMA = "run_ref_confined_child_request.v1"
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _STRUCTURAL_REFUSAL_CODES = frozenset(
     {
@@ -501,3 +509,60 @@ def _repository_revision_from_payload(value: object) -> RepositoryRevisionId:
     if canonical_repository_revision_result(revision) != value:
         raise ValueError("repository revision is not canonical")
     return revision
+
+
+def confined_child_request(
+    config: RunRefConfinedStaticConfig,
+    *,
+    commit: str,
+    inputs: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Bind one confined child's durable request to its parent-resolved operands.
+
+    The request binds the literal repo and the evaluated `:commit`, the checked
+    child entry and its owner configuration, the typed ordered inputs, the
+    image and the whole confinement policy; its digest covers all of them.
+    """
+
+    if type(config) is not RunRefConfinedStaticConfig:
+        raise TypeError("confined child request requires RunRefConfinedStaticConfig")
+    commit = validate_commit_sha(commit)
+    if not isinstance(inputs, Mapping) or list(inputs) != [row.name for row in config.inputs]:
+        raise ValueError("confined child request inputs differ from the site's ordered inputs")
+    components = {
+        "schema_version": RUN_REF_CONFINED_CHILD_REQUEST_SCHEMA,
+        "static_config_digest": config.digest,
+        "source": {"normalized_locator": config.repo, "resolved_commit_sha": commit},
+        "child": config.program.record,
+        "environment": config.policy.record,
+        "inputs": [
+            {
+                "name": row.name,
+                "type_descriptor": row.type_descriptor,
+                "value": validate_transport_value(
+                    inputs[row.name], row.type_descriptor, allow_nested_structures=True
+                ),
+            }
+            for row in config.inputs
+        ],
+    }
+    return {**components, "digest": canonical_sha256(components)}
+
+
+def validate_confined_child_request(
+    record: object,
+    config: RunRefConfinedStaticConfig,
+    *,
+    commit: str,
+    inputs: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Refuse, before any launch, a request that is not exactly the re-derived one."""
+
+    expected = confined_child_request(config, commit=commit, inputs=inputs)
+    try:
+        actual = _plain_json(record)
+    except TypeError as exc:
+        raise ValueError("confined child request is not plain JSON") from exc
+    if actual != expected:
+        raise ValueError("confined child request does not match its site and resolved operands")
+    return expected

@@ -6195,15 +6195,6 @@ def _elaborate_effect_expr_to_binding_value(
             for name, input_type in metadata.input_types
         )
         if isinstance(expr.program, RunRefWorkflowProgram):
-            if scope.closed_program:
-                raise LispFrontendCompileError((LispFrontendDiagnostic(
-                    code="run_ref_child_target_unavailable",
-                    message="confined `run-ref :program (:workflow ...)` has no checked child "
-                            "entry in this release (the child-entry compiler is not wired yet)",
-                    span=expr.span,
-                    form_path=expr.form_path,
-                    expansion_stack=expr.expansion_stack,
-                ),))
             return WccPerform(
                 metadata=scope.value_metadata(role="perform:run_ref", **metadata_kwargs),
                 perform_kind="run_ref",

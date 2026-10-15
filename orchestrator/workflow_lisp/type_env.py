@@ -1021,7 +1021,7 @@ class FrontendTypeEnvironment:
                 known_run_ref_type,
             )
 
-            if name.startswith("RunRefResult$") or name in RUN_REF_FIXED_TYPE_NAMES:
+            if name.startswith(("RunRefResult$", "RunRefOutcome$")) or name in RUN_REF_FIXED_TYPE_NAMES:
                 known_type = known_run_ref_type(
                     name,
                     session_state=session_state,

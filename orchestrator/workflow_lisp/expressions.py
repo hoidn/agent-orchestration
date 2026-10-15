@@ -22,6 +22,11 @@ from orchestrator.workflow.run_ref.source import (
     normalize_repository_locator,
     validate_commit_sha,
 )
+from orchestrator.workflow.run_ref.contracts import (
+    CONFINED_IMAGE_RE,
+    RUN_REF_CONFINED_LIMITS,
+    RUN_REF_CONFINEMENT_RESERVED_MIB,
+)
 from orchestrator.contracts.closed_program.targets import (
     RUN_REF_CONFINED_MIN_TARGET_DSL_VERSION,
     target_dsl_supports_run_ref_confined,
@@ -2036,22 +2041,10 @@ def _parse_run_ref_setup(
     return SetupPolicy(commands=tuple(commands))
 
 
-RUN_REF_CONFINED_LIMITS = (
-    "wall-seconds",
-    "memory-mib",
-    "cpus",
-    "pids",
-    "workspace-mib",
-    "output-mib",
-)
-# Profile scratch (256) + /dev/shm (64) + result (128) + process headroom (512)
-# MiB above the workspace quota (design D-d, R7); one constant so a design
-# revision changes one value.
-PROFILE_HEADROOM_MIB = 960
-_CONFINED_IMAGE = re.compile(
-    r"(?:[a-z0-9.-]+(?::[0-9]+)?/)?[a-z0-9]+(?:[._-][a-z0-9]+)*"
-    r"(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*@sha256:[0-9a-f]{64}\Z"
-)
+# The profile owner (`run_ref.contracts`) holds the limit order, the image rule
+# and the memory reserved above the workspace quota (design D-d, R7).
+PROFILE_HEADROOM_MIB = RUN_REF_CONFINEMENT_RESERVED_MIB
+_CONFINED_IMAGE = CONFINED_IMAGE_RE
 
 
 def _parse_run_ref_inputs(

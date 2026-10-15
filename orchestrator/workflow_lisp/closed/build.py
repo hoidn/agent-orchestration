@@ -71,6 +71,7 @@ from orchestrator.contracts.closed_program.program import (
     SCHEMA,
     ClosedProgram,
     _canonical_json,
+    canonical_digest,
     program_digest,
 )
 from .program import canonical_configuration, logical_asset_base_for_module
@@ -159,6 +160,7 @@ class RunRefProducer:
     site: str | None = None
     site_digest: str | None = None
     generated_name: str | None = None
+    child: Any = None
 
 
 def _closed_path_program(program: Any, envelope: Mapping[str, Any]) -> Any:
@@ -184,6 +186,44 @@ def _closed_path_program(program: Any, envelope: Mapping[str, Any]) -> Any:
         environment=program.environment,
         allow_nested_structures=True,
     )
+
+
+def _outcome_envelope(outcome: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the `COMPLETED.result` envelope of a confined site's outcome union."""
+    [completed] = [row for row in outcome["variants"] if row["name"] == "COMPLETED"]
+    [result] = completed["fields"]
+    return result["type"]
+
+
+def _confined_config_bytes(producer, tree, compiler_identity, inputs, result_descriptor, result_digest):
+    """Encode `run_ref_static_config.v2` and attach the checked child entry to the parent tree."""
+    from orchestrator.workflow.run_ref.config import (
+        ConfinedPolicy,
+        WorkflowProgram,
+        build_run_ref_confined_static_config,
+        encode_run_ref_confined_static_config,
+    )
+
+    payload = producer.perform.operation_payload
+    child = producer.child
+    tree.setdefault("children", {})[child.digest] = child.tree
+    config = build_run_ref_confined_static_config(
+        target_dsl_version=tree["target"],
+        compiler_runtime_identity_digest=compiler_identity,
+        site_digest=producer.site_digest,
+        repo=payload.repo,
+        program=WorkflowProgram(
+            workflow_name=payload.workflow_name,
+            child_program_digest=child.digest,
+            owner_configuration_digest=canonical_digest(child.tree["configuration"]),
+        ),
+        policy=ConfinedPolicy(image=payload.policy.image, network=payload.policy.network,
+                              limits=tuple(payload.policy.limits)),
+        inputs=inputs,
+        result_descriptor=result_descriptor,
+        result_digest=result_digest,
+    )
+    return encode_run_ref_confined_static_config(config)
 
 
 def _capture_owner_groups(
@@ -366,6 +406,7 @@ class Builder:
         ] = []
         self.boundary_requests: list[dict[str, Any]] = []
         self.compiler_runtime_identity: str | None = None
+        self.run_ref_children: dict[tuple[int, str], ClosedProgram] = {}
         self._workflow_wcc_cache: dict[tuple[int, str], Any] = {}
         self.prepared_by_key: dict[str, Any] = {}
         self.completed_preparations: dict[Any, Any] = {}
@@ -1112,9 +1153,9 @@ class Builder:
         d: Definition,
         node: dict[str, Any],
     ) -> RunRefProducer:
-        from .names import _run_ref_signatures
+        from .names import _run_ref_signatures, run_ref_outcome_result
 
-        type_ref = perform.metadata.type_ref
+        type_ref = run_ref_outcome_result(perform.metadata.type_ref) or perform.metadata.type_ref
         if not isinstance(getattr(type_ref, "run_ref_origin", None), tuple):
             raise ValueError("run-ref perform has no retained generated type origin")
         projection = _run_ref_signatures(d.source_program)
@@ -1138,6 +1179,25 @@ class Builder:
         self.run_ref_producers.append(producer)
         self.run_ref_producers_by_effect[id(node)] = producer
         return producer
+
+    def child_entry(self, typed: Any, workflow_name: str) -> ClosedProgram:
+        """Build a confined site's named workflow as its own checked closed program.
+
+        The child goes through the ordinary pipeline with a fresh builder, so it
+        has its own sites, source maps and owner configuration; it is built once
+        per typed program and workflow and shared by every site naming it.
+        """
+        key = (id(typed), workflow_name)
+        child = self.run_ref_children.get(key)
+        if child is None:
+            workflow = typed.workflows.get(workflow_name)
+            if workflow is None:
+                raise ValueError(f"confined run-ref child {workflow_name!r} is not a typed workflow")
+            module = workflow_name.rpartition("::")[0] or typed.entry_module
+            entry = replace(typed, entry=workflow, entry_module=module)
+            child = build_closed_program(entry, builder=Builder(entry))
+            self.run_ref_children[key] = child
+        return child
 
     def _run_ref_context_for_binding(self, value, d, seen):
         if isinstance(value, WccNameAtom):
@@ -1493,6 +1553,8 @@ class Builder:
                 )
                 self._register_types(input_descriptor)
             envelope = producer.node["result"]
+            if producer.child is not None:
+                envelope = _outcome_envelope(envelope)
             result_descriptor = {
                 "schema": RUN_REF_RESULT_CONTRACT_SCHEMA,
                 "envelope": envelope,
@@ -1502,6 +1564,13 @@ class Builder:
                 from orchestrator.workflow.run_ref.contracts import compute_compiler_runtime_identity
 
                 self.compiler_runtime_identity = compute_compiler_runtime_identity().digest
+            if producer.child is not None:
+                config_bytes = _confined_config_bytes(
+                    producer, tree, self.compiler_runtime_identity, tuple(input_rows),
+                    result_descriptor, result_digest)
+                producer.node["config"] = b64encode(config_bytes).decode("ascii")
+                self._register_types(producer.node["result"])
+                continue
             config = build_run_ref_static_config(
                 compiler_runtime_identity_digest=self.compiler_runtime_identity,
                 site_digest=producer.site_digest,

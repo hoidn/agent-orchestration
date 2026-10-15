@@ -301,6 +301,8 @@ def _canonical_identity(
                 return carrier_identity
             return _definition_owner_identity(type_ref, typed=typed)
         if isinstance(type_ref, UnionTypeRef):
+            if _GENERATED_OUTCOME_NAME.fullmatch(type_ref.name):
+                return _outcome_alias(type_ref, run_ref_projection)
             template = _definition_owner_identity(type_ref, typed=typed)
             if not type_ref.type_args:
                 return template
@@ -353,6 +355,29 @@ def _canonical_identity(
         raise CanonicalNameError(getattr(type_ref, "name", type(type_ref).__name__))
     finally:
         active.remove(marker)
+
+
+_GENERATED_OUTCOME_NAME = re.compile(r"RunRefOutcome\$[0-9a-f]{16}\Z")
+
+
+def run_ref_outcome_result(type_ref: Any) -> Any:
+    """Return the `COMPLETED.result` record of a confined site outcome union, else None."""
+
+    if not _GENERATED_OUTCOME_NAME.fullmatch(getattr(type_ref, "name", "") or ""):
+        return None
+    result = type_ref.variant_field_types["COMPLETED"]["result"]
+    if not isinstance(getattr(result, "run_ref_origin", None), tuple):
+        raise CanonicalNameError(type_ref.name)
+    return result
+
+
+def _outcome_alias(type_ref: Any, run_ref_projection: Any) -> str:
+    """Name an outcome union after its site's generated result record."""
+
+    result = run_ref_outcome_result(type_ref)
+    if run_ref_projection is None:
+        return type_ref.name
+    return "RunRefOutcome$" + run_ref_projection.alias_for(result).removeprefix("RunRefResult$")
 
 
 def canonical_type_identity(type_ref: Any, *, typed: Any) -> str:
