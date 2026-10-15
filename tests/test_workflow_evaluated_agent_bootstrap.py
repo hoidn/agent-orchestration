@@ -48,8 +48,10 @@ def test_reviewer_first_turn_failure_bootstraps_a_fresh_candidate_on_explicit_re
     assert len(codex) == 3 and codex[0]["session"] != codex[1]["session"] == codex[2]["session"]
     assert "resume" not in codex[1]["argv"]       # fresh candidate, never adopting the abandoned session
     attempt1 = run_root / Path(_rows(after, "started", "/ b1")[0]["result_path"]).parent
-    assert json.loads((attempt1 / "receipt.json").read_text())["completion"] == "abandoned"
-    assert (attempt1 / "abandoned.json").exists()
+    receipt = json.loads((attempt1 / "receipt.json").read_text())
+    assert receipt["completion"] == "abandoned" and (attempt1 / "abandoned.json").exists()
+    assert f"[agent_bootstrap_restarted] {_rows(after, 'failed', '/ b1')[0]['identity']} abandoned attempt 1" in resumed.stderr
+    assert receipt["locator"] and receipt["locator"] not in resumed.stderr      # evidence only, never the log
 
 
 def test_recoverable_first_turn_proof_wins_over_bootstrap(tmp_path, monkeypatch) -> None:
@@ -101,6 +103,7 @@ def test_kill_between_abandonment_failure_and_next_start_keeps_ordering_valid(tm
     assert len([r for r in shim_requests(tmp_path) if r["tool"] == "codex"]) == 1
     resumed = _cli(tmp_path, "resume", run_root.name)
     assert resumed.returncode == 0, resumed.stderr
+    assert "[agent_bootstrap_restarted]" in resumed.stderr and receipt["locator"] not in resumed.stderr
     _r, _a, classes, after = memo_of(tmp_path)
     assert [r["code"] for r in _rows(after, "failed", "/ b1")] == ["agent_bootstrap_restarted"]   # not duplicated
     assert turns(after, classes)["b1"]["attempt"] == 2

@@ -246,7 +246,7 @@ def abandon_candidate(authority, pending_files, pending, receipt, site_classes) 
     if identity in snapshot.pending_starts:
         _require_retained_root(authority.run_files)
         agent_turns.append_record(authority.memo_path, failure, run_files=authority.run_files, checked_authority=authority)
-    logger.warning("[agent_bootstrap_restarted] %s abandoned attempt %s locator=%s", identity, attempt, locator)
+    logger.warning("[agent_bootstrap_restarted] %s abandoned attempt %s", identity, attempt)   # logical identities only
     return failure
 
 
