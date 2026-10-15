@@ -31,7 +31,6 @@ from orchestrator.providers.isolation_backend import (
 from orchestrator.workflow.evaluated.machine import site_nodes
 from orchestrator.workflow.evaluated.memo import reduce_memo
 from orchestrator.workflow.run_ref import image_store
-from orchestrator.workflow.run_ref.child import execute_confined_child
 from orchestrator.workflow.run_ref.confined_config import decode_run_ref_confined_static_config
 from orchestrator.workflow.run_ref.confinement import (
     ConfinedAttemptLayout,
@@ -46,6 +45,7 @@ from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
 from orchestrator.workflow.run_ref.evaluated_child import (
     _captured_child_authority,
     confined_child_header,
+    execute_confined_child,
     validate_confined_child_terminal,
 )
 from orchestrator.workflow.run_ref.ledger import RunRefVisitKey
@@ -73,6 +73,9 @@ def _tar(members: list[tuple[str, str, object, int]]) -> bytes:
                 archive.addfile(info)
             elif kind == "symlink":
                 info.type, info.linkname = tarfile.SYMTYPE, str(data)
+                archive.addfile(info)
+            elif kind == "hardlink":
+                info.type, info.linkname = tarfile.LNKTYPE, str(data)
                 archive.addfile(info)
             elif kind == "chr":
                 info.type = tarfile.CHRTYPE
@@ -102,9 +105,10 @@ def _blob(layout: Path, payload: bytes) -> str:
     return "sha256:" + digest
 
 
-def _oci_layout(root: Path, layers=(BASE_LAYER, TOP_LAYER)) -> tuple[Path, str]:
+def _oci_layout(root: Path, layers=(BASE_LAYER, TOP_LAYER), architecture="amd64") -> tuple[Path, str]:
     layout = root / "layout"
-    config = _blob(layout, json.dumps({"config": {"Env": ["PATH=/usr/bin"]}}).encode())
+    config = _blob(layout, json.dumps({"os": "linux", "architecture": architecture,
+                                       "config": {"Env": ["PATH=/usr/bin"]}}).encode())
     manifest = {"schemaVersion": 2, "config": {"digest": config},
                 "layers": [{"mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
                             "digest": _blob(layout, _tar(list(layer)))} for layer in layers]}
@@ -200,6 +204,83 @@ def test_import_refuses_an_image_without_the_pinned_executables(tmp_path):
 
     with pytest.raises(image_store.ImageStoreError, match="/bin/sh is absent"):
         image_store.import_oci_layout(tmp_path / "store", image, layout)
+
+
+def _host_secret(tmp_path: Path) -> Path:
+    secret = tmp_path / "host-secret"
+    secret.write_text("HOST SECRET\n")
+    secret.chmod(0o600)
+    return secret
+
+
+@pytest.mark.parametrize("linkname", ["absolute", "parent"])
+def test_import_refuses_a_hardlink_to_a_host_file(tmp_path, linkname):
+    secret = _host_secret(tmp_path)
+    target = str(secret) if linkname == "absolute" else "../../../host-secret"
+    layout, image = _oci_layout(tmp_path, layers=(BASE_LAYER, [("etc/stolen", "hardlink", target, 0o644)]))
+
+    with pytest.raises(image_store.ImageStoreError):
+        image_store.import_oci_layout(tmp_path / "store", image, layout)
+
+    assert (os.stat(secret).st_nlink, os.stat(secret).st_mode & 0o777) == (1, 0o600)
+
+
+def test_import_refuses_a_member_written_through_a_symlink_to_the_host(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    layout, image = _oci_layout(tmp_path, layers=(
+        BASE_LAYER, [("escape", "symlink", str(outside), 0o777), ("escape/planted", "file", b"x", 0o644)]))
+
+    with pytest.raises(image_store.ImageStoreError):
+        image_store.import_oci_layout(tmp_path / "store", image, layout)
+
+    assert list(outside.iterdir()) == []
+
+
+def test_import_keeps_a_hardlink_between_image_files(tmp_path):
+    layout, image = _oci_layout(tmp_path, layers=(BASE_LAYER, [("usr/bin/env2", "hardlink", "usr/bin/env", 0o755)]))
+
+    image_store.import_oci_layout(tmp_path / "store", image, layout)
+
+    assert (_rootfs(tmp_path / "store", image) / "usr" / "bin" / "env2").read_bytes() == b"#!env\n"
+
+
+@pytest.mark.parametrize("whiteout", ["etc/.wh..", "etc/.wh...", ".wh...", ".wh."])
+def test_import_refuses_a_whiteout_of_dot_names(tmp_path, whiteout):
+    layout, image = _oci_layout(tmp_path, layers=(BASE_LAYER, [(whiteout, "file", b"", 0o644)]))
+    sentinel = tmp_path / "store" / "staging" / "sentinel"
+    sentinel.parent.mkdir(parents=True)
+    sentinel.write_text("kept")
+
+    with pytest.raises(image_store.ImageStoreError, match="whiteout"):
+        image_store.import_oci_layout(tmp_path / "store", image, layout)
+
+    assert sentinel.read_text() == "kept"
+
+
+def test_import_refuses_a_manifest_for_another_platform(tmp_path):
+    layout, image = _oci_layout(tmp_path, architecture="arm64")
+
+    with pytest.raises(image_store.ImageStoreError, match="linux/amd64"):
+        image_store.import_oci_layout(tmp_path / "store", image, layout)
+
+
+def test_import_refuses_a_malformed_manifest_with_a_coded_error(tmp_path):
+    layout = tmp_path / "layout"
+    digest = _blob(layout, json.dumps({"schemaVersion": 2}).encode())
+
+    with pytest.raises(image_store.ImageStoreError) as caught:
+        image_store.import_oci_layout(tmp_path / "store", f"registry.example/project@{digest}", layout)
+
+    assert caught.value.code == "run_ref_environment_unavailable"
+
+
+def test_reimport_verifies_the_existing_tree_instead_of_returning_a_stale_record(store_image, tmp_path):
+    store, image = store_image
+    _rewrite_rootfs(store, image, lambda rootfs: (rootfs / "etc" / "hostname").write_text("x\n"))
+
+    with pytest.raises(image_store.ImageStoreError, match="digest differs"):
+        image_store.import_oci_layout(store, image, tmp_path / "layout")
 
 
 def test_admission_rehash_follows_the_retained_descriptor_not_a_renamed_store_path(store_image, tmp_path):
@@ -446,6 +527,31 @@ def test_a_commit_absent_from_the_repository_is_refused_without_a_control_root(w
     assert (caught.value.code, os.path.lexists(_layout(world).child_root)) == ("trial_source_unresolvable", False)
 
 
+def test_an_orphan_clone_without_a_control_root_is_discarded_and_reprovisioned(world):
+    layout = _layout(world)
+    layout.workspace.mkdir(parents=True)
+    (layout.workspace / "partial").write_text("crash before the control root\n")
+
+    admission, provisioned, value = _run(world)
+
+    assert (value, sorted(path.name for path in provisioned.layout.workspace.iterdir())) == (
+        42, [".git", "payload.txt"])
+
+
+@pytest.mark.parametrize("recipe", [None, b'{"schema_version": "run_ref_conf'])
+def test_a_control_root_without_a_complete_recipe_is_discarded_and_reprovisioned(world, recipe):
+    layout = _layout(world)
+    layout.workspace.mkdir(parents=True)
+    layout.child_root.mkdir(parents=True)
+    if recipe is not None:
+        (layout.child_root / "child-recipe.json").write_bytes(recipe)
+
+    _admission, provisioned, value = _run(world)
+
+    assert (value, (provisioned.layout.child_root / "child-recipe.json").read_bytes()) == (
+        42, provisioned.recipe_bytes)
+
+
 # --- child authority outside the clone, run, resume and terminal witness -----------
 
 def test_child_run_authority_lives_only_in_external_control_root(world):
@@ -502,8 +608,12 @@ def _tamper_memo_value(root: Path) -> None:
     memo.write_bytes(canonical_json_bytes(record) + b"\n")
 
 
-@pytest.mark.parametrize("tamper", ["memo-value", "recipe", "direct-value"])
-def test_terminal_witness_refuses_tampered_authority(world, tamper):
+@pytest.mark.parametrize(("tamper", "reason"), [
+    ("memo-value", "replayed halt and direct result disagree"),
+    ("recipe", "recipe differs"),
+    ("direct-value", "replayed halt and direct result disagree"),
+])
+def test_terminal_witness_refuses_tampered_authority(world, tamper, reason):
     admission, provisioned, value = _run(world)
     root = provisioned.layout.child_root
     if tamper == "memo-value":
@@ -513,7 +623,7 @@ def test_terminal_witness_refuses_tampered_authority(world, tamper):
     else:
         value = 43
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=reason):
         _witness(world, admission, provisioned, value)
 
 

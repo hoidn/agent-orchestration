@@ -1,4 +1,4 @@
-"""Readonly terminal/value proofs for checked evaluated children.
+"""Terminal/value proofs for checked evaluated children, and the confined child run.
 
 The path profile keeps its sole-terminal witness over `<clone>/.orchestrate/runs/<id>`.
 The confined profile (`run_ref_confinement.v1`) reads the external control root that
@@ -168,7 +168,7 @@ def confined_child_header(*, program, child_run_id, child_root, clone_root, run_
 def require_confined_child_header(header, expected):
     if {name: header.get(name) for name in expected} != expected or set(header) - set(expected) - {
             "schema_version", "result_persistence_profile", "started_at", "input_digest",
-            "representation", "interpreters"} or header["interpreters"]:
+            "representation", "interpreters"} or header.get("interpreters"):
         raise ValueError("confined child header differs from its child recipe")
 
 
@@ -213,3 +213,52 @@ def validate_confined_child_terminal(*, child_root, clone_root, expected_header,
         "header_sha256": hashed(header_bytes), "program_sha256": hashed(program_bytes),
         "memo_sha256": hashed(memo_bytes[:complete_bytes]), "recipe_sha256": hashed(recipe_bytes)})
     return value, child_root / "run.json", digest
+
+
+def execute_confined_child(admission, provisioned, *, run_ref_root):
+    """Run or resume one pure confined child from the parent's checked child artifact.
+
+    Authority lives only in the external control root (`provisioned.layout.child_root`),
+    under that root's writer lock: the clone gets no `.orchestrate`, guard or lock entry
+    and is never compiled. An existing header is reused only when it matches the child
+    recipe; the ordinary memo resume then replays committed effects. Returns the direct
+    terminal value.
+    """
+    from orchestrator.run_lock import run_writer_lock
+    from orchestrator.workflow.evaluated.authority import load_run_authority, publish_run_authority
+    from orchestrator.workflow.evaluated.runtime import execute_pure_resume, execute_pure_run
+
+    from .runtime import RunRefRuntimeError
+
+    layout = provisioned.layout
+    program = admission.program
+    header = confined_child_header(program=program, child_run_id=layout.child_run_id,
+        child_root=layout.child_root, clone_root=layout.workspace, run_ref_root=run_ref_root,
+        inputs=admission.inputs)
+    with run_writer_lock(layout.child_root) as root_fd:
+        files = WorkspaceFiles(layout.child_root, root_fd=root_fd)
+        try:
+            if files.read("child-recipe.json") != provisioned.recipe_bytes:
+                raise RunRefRuntimeError("run_ref_evidence_invalid", "confined_child_recipe_disagrees")
+            if not files.exists("run.json"):
+                with publish_run_authority(layout.child_root, program, run_id=layout.child_run_id,
+                        workflow_file=header["workflow_file"], workflow_checksum=header["workflow_checksum"],
+                        bound_inputs=header["bound_inputs"], resume_request=header["resume_request"],
+                        run_ref_root=header["run_ref_root"], run_files=files,
+                        result_root=header["result_root"]) as authority:
+                    status, value = execute_pure_run(authority, header["bound_inputs"],
+                                                     run_id=layout.child_run_id, workspace=layout.workspace)
+            else:
+                authority = load_run_authority(layout.child_root, run_files=files)
+                try:
+                    require_confined_child_header(authority.header, header)
+                except ValueError as exc:
+                    raise RunRefRuntimeError("run_ref_evidence_invalid", "confined_child_header_disagrees") from exc
+                status, value = execute_pure_resume(authority, header["bound_inputs"],
+                                                    run_id=layout.child_run_id, workspace=layout.workspace)
+        finally:
+            files.close()
+    if status != 0:
+        raise RunRefRuntimeError("run_ref_child_launch_failed", "workflow_execution_failed")
+    return value
+

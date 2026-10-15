@@ -27,6 +27,8 @@ import hashlib
 import os
 from pathlib import Path
 import platform
+import shutil
+import stat
 from typing import Any
 
 from orchestrator.contracts.closed_program.program import ClosedProgram
@@ -37,11 +39,9 @@ from .contracts import RUN_REF_CONFINEMENT_PROFILE, VerifiedGitTreeIdentity, can
 from .image_store import ImageStoreError, SealedImage, open_sealed_image
 from .ledger import RunRefVisitKey
 from .runtime import RunRefRuntimeError, build_run_ref_accounting, run_ref_visit_workspace
+from .confined_source import ConfinedSource, confined_revision, materialize_confined_source
 from .source import (
-    ConfinedSource,
-    _confined_revision,
     canonical_repository_revision_result,
-    materialize_confined_source,
 )
 from .wire import validate_confined_child_request
 from .workspace import freeze_tree
@@ -258,13 +258,21 @@ def provision_confined_child(
     """Allocate the sanitized clone and the control root, or revalidate an existing pair."""
     refuse_overlapping_roots(layout, parent_run_root=parent_run_root, parent_workspace=parent_workspace)
     if os.path.lexists(layout.child_root):
-        return _reuse_provisioned_child(admission, layout)
+        try:
+            _read_recipe(layout)
+        except RunRefRuntimeError:
+            _discard_unpublished_attempt(layout)
+        else:
+            return _reuse_provisioned_child(admission, layout)
+    elif os.path.lexists(layout.workspace):
+        _discard_entry(layout.workspace)  # a crash between cloning and the control root
     source = materialize_confined_source(admission.config.repo, admission.commit,
                                          run_ref_root=run_ref_root, workspace=layout.workspace)
     refuse_overlapping_roots(layout, parent_run_root=parent_run_root, parent_workspace=parent_workspace)
     provisioned = ProvisionedChild(layout=layout, source=source, recipe=_recipe(admission, layout, source))
     layout.child_root.parent.mkdir(parents=True, exist_ok=True)
     layout.child_root.mkdir(mode=0o700)
+    _fsync_directory(layout.child_root.parent)
     fd = os.open(layout.child_root / RECIPE_FILENAME,
                  os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
     try:
@@ -272,7 +280,36 @@ def provision_confined_child(
         os.fsync(fd)
     finally:
         os.close(fd)
+    _fsync_directory(layout.child_root)
     return provisioned
+
+
+def _fsync_directory(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _discard_entry(path: Path) -> None:
+    if stat.S_ISDIR(os.lstat(path).st_mode):
+        shutil.rmtree(path)
+    else:
+        os.unlink(path)
+
+
+def _discard_unpublished_attempt(layout: ConfinedAttemptLayout) -> None:
+    """Without a complete recipe nothing was released: drop the partial control root and clone.
+
+    Anything beyond a torn recipe in the control root means authority was published, so
+    that root fails closed instead.
+    """
+    if not stat.S_ISDIR(os.lstat(layout.child_root).st_mode) or set(os.listdir(layout.child_root)) - {RECIPE_FILENAME}:
+        raise RunRefRuntimeError("run_ref_evidence_invalid", "confined_child_recipe_unreadable")
+    _discard_entry(layout.child_root)
+    if os.path.lexists(layout.workspace):
+        _discard_entry(layout.workspace)
 
 
 def _read_recipe(layout: ConfinedAttemptLayout) -> dict[str, Any]:
@@ -294,7 +331,7 @@ def _read_recipe(layout: ConfinedAttemptLayout) -> dict[str, Any]:
 
 def _reuse_provisioned_child(admission: ConfinedAdmission, layout: ConfinedAttemptLayout) -> ProvisionedChild:
     recipe = _read_recipe(layout)
-    _source, revision = _confined_revision(admission.config.repo, admission.commit)
+    _source, revision = confined_revision(admission.config.repo, admission.commit)
     expected = {
         "schema_version": RECIPE_SCHEMA, "child_run_id": layout.child_run_id,
         "child_root": layout.child_root.as_posix(), "clone_root": layout.workspace.as_posix(),
@@ -311,11 +348,17 @@ def _reuse_provisioned_child(admission: ConfinedAdmission, layout: ConfinedAttem
         manifest = freeze_tree(layout.workspace, excluded_roots=(".git",))
     except (OSError, ValueError) as exc:
         raise RunRefRuntimeError("run_ref_environment_changed", "clone_unreadable") from exc
+    try:
+        verified_tree = VerifiedGitTreeIdentity(recipe.get("verified_git_tree"))
+        mirror_path = Path(recipe.get("mirror_path"))
+        if not isinstance(recipe.get("baseline_digest"), str):
+            raise TypeError("baseline digest is not a string")
+    except (TypeError, ValueError) as exc:
+        raise RunRefRuntimeError("run_ref_evidence_invalid", "confined_child_recipe_disagrees") from exc
     if manifest.digest != recipe["baseline_digest"]:
         raise RunRefRuntimeError("run_ref_environment_changed", "clone_differs_from_baseline")
-    source = ConfinedSource(repository_revision_id=revision,
-                            verified_git_tree=VerifiedGitTreeIdentity(recipe["verified_git_tree"]),
-                            mirror_path=Path(recipe["mirror_path"]), workspace_path=layout.workspace,
+    source = ConfinedSource(repository_revision_id=revision, verified_git_tree=verified_tree,
+                            mirror_path=mirror_path, workspace_path=layout.workspace,
                             source_tree_manifest=manifest)
     return ProvisionedChild(layout=layout, source=source, recipe=recipe)
 

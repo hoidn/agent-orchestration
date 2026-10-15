@@ -114,8 +114,8 @@ def _platform_manifest(layout: Path, digest: str) -> tuple[str, dict[str, Any]]:
 
 
 def _inside(root: Path, path: str) -> bool:
-    real = os.path.realpath(path)
-    return os.path.commonpath([real, str(root)]) == str(root)
+    real, base = os.path.realpath(path), os.path.realpath(root)
+    return os.path.commonpath([real, base]) == base
 
 
 def _whiteout(rootfs: Path, parent: str, name: str) -> None:
@@ -126,7 +126,10 @@ def _whiteout(rootfs: Path, parent: str, name: str) -> None:
         for child in directory.iterdir() if directory.is_dir() else ():
             _remove(child)
         return
-    victim = directory / name[len(".wh."):]
+    victim_name = name[len(".wh."):]
+    if victim_name in {"", ".", ".."}:
+        raise ImageStoreError("layer whiteout names no entry")
+    victim = directory / victim_name
     if os.path.lexists(victim):
         _remove(victim)
 
@@ -136,6 +139,20 @@ def _remove(path: Path) -> None:
         shutil.rmtree(path)
     else:
         path.unlink()
+
+
+def _require_image_hardlink(rootfs: Path, member: tarfile.TarInfo) -> None:
+    """A hard link may only name a regular file this image already extracted.
+
+    The "tar" extraction filter checks member names but not hard-link targets, so an
+    absolute or `../` link name would otherwise link a host file into the rootfs.
+    """
+    link = member.linkname
+    if link.startswith("/") or posixpath.normpath(link).split("/")[0] == "..":
+        raise ImageStoreError(f"layer hard link leaves the rootfs: {member.name}")
+    target = os.path.realpath(rootfs / link)
+    if not _inside(rootfs, target) or not os.path.lexists(target) or not stat.S_ISREG(os.lstat(target).st_mode):
+        raise ImageStoreError(f"layer hard link does not name an image file: {member.name}")
 
 
 def _apply_layer(rootfs: Path, blob: bytes, media_type: str) -> None:
@@ -156,9 +173,12 @@ def _apply_layer(rootfs: Path, blob: bytes, media_type: str) -> None:
                     if member.isdir():
                         member.mode |= 0o700
                     members.append(member)
-            # The "tar" filter refuses paths and links leaving the rootfs and clears
-            # setuid/setgid/sticky and group/other write bits.
-            archive.extractall(rootfs, members=members, filter="tar")
+            for member in members:
+                if member.islnk():
+                    _require_image_hardlink(rootfs, member)
+                # The "tar" filter refuses names and symlinks leaving the rootfs and clears
+                # setuid/setgid/sticky and group/other write bits.
+                archive.extract(member, rootfs, filter="tar")
     except (tarfile.TarError, gzip.BadGzipFile, OSError) as exc:
         raise ImageStoreError(f"layer cannot be applied: {exc}") from exc
     for directory, dirs, _files in os.walk(rootfs):
@@ -294,13 +314,31 @@ def _paths(store: Path, image: str) -> tuple[Path, Path]:
 
 
 def import_oci_layout(store: Path, image: str, layout: Path) -> dict[str, Any]:
-    """Import `image` from an OCI layout once per digest; return its canonical record."""
+    """Import `image` from an OCI layout once per digest; return its canonical record.
+
+    An existing record is returned only after its tree is admitted again. Every
+    refusal is an `ImageStoreError`.
+    """
     store, layout = Path(store), Path(layout)
     record_path, rootfs = _paths(store, image)
     if record_path.is_file():
+        open_sealed_image(store, image).close()
         return _read_record(record_path, image)
+    try:
+        return _import(store, image, layout, record_path, rootfs)
+    except ImageStoreError:
+        raise
+    except (KeyError, TypeError, ValueError, AttributeError, RecursionError, OSError) as exc:
+        raise ImageStoreError(f"image layout cannot be imported: {exc!r}") from exc
+
+
+def _import(store: Path, image: str, layout: Path, record_path: Path, rootfs: Path) -> dict[str, Any]:
+    # ponytail: no import lock, blob/extraction size caps or tree fsync; installation-time,
+    # single installer. Add them when imports run concurrently or from untrusted layouts.
     manifest_digest, manifest = _platform_manifest(layout, "sha256:" + _digest_hex(image))
     config = json.loads(_blob(layout, manifest["config"]["digest"]))
+    if (config.get("os"), config.get("architecture")) != (PLATFORM["os"], PLATFORM["architecture"]):
+        raise ImageStoreError("image config is not linux/amd64")
     for directory in ("records", "rootfs", "staging"):
         (store / directory).mkdir(mode=0o700, parents=True, exist_ok=True)
     staging = store / "staging" / rootfs.name
@@ -379,7 +417,7 @@ def open_sealed_image(store: Path, image: str) -> SealedImage:
         _require_empty_mount_points(root_fd)
         if executable_pins(root_fd) != record["executable_pins"]:
             raise ImageStoreError("image executable pins differ from the record")
-    except (ImageStoreError, OSError) as exc:
+    except (ImageStoreError, OSError, KeyError, TypeError, RecursionError) as exc:
         sealed.close()
         if isinstance(exc, ImageStoreError):
             raise

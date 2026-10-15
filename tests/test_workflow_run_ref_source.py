@@ -1769,7 +1769,7 @@ from orchestrator.workflow.run_ref.contracts import (  # noqa: E402
     RUN_REF_CONFINED_MATERIALIZER_VERSION,
     RUN_REF_NO_SETUP_IDENTITY,
 )
-from orchestrator.workflow.run_ref.source import (  # noqa: E402
+from orchestrator.workflow.run_ref.confined_source import (  # noqa: E402
     materialize_confined_source,
     sanitized_git_environment,
 )
@@ -1812,6 +1812,19 @@ def test_sanitized_git_environment_drops_credentials_agents_and_proxies(
     env = sanitized_git_environment(tmp_path)
 
     assert "/host/secret" not in env.values()
+
+
+@pytest.mark.skipif(shutil.which("ssh") is None, reason="needs the OpenSSH client")
+def test_sanitized_ssh_offers_no_default_identity_agent_or_config(tmp_path: Path) -> None:
+    import shlex
+
+    command = shlex.split(sanitized_git_environment(tmp_path)["GIT_SSH_COMMAND"])
+    effective = subprocess.run([*command, "-G", "example.invalid"], check=True, capture_output=True,
+                               text=True).stdout.splitlines()
+
+    assert sorted(line for line in effective if line.split(" ", 1)[0] in {
+        "identityfile", "identitiesonly", "identityagent", "batchmode"}) == [
+        "batchmode yes", "identitiesonly yes", "identityagent none", "identityfile /dev/null"]
 
 
 def _hostile_source(root: Path) -> str:
