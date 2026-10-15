@@ -1313,3 +1313,46 @@ def test_failed_repair_rejects_wrong_child_authority_before_writing_memo(world, 
     before = (child / 'memo.jsonl').read_bytes()
     assert fixture._cli('resume', run_root.name, '--run-ref-root', str(world['refs'])) != 0
     assert (child / 'memo.jsonl').read_bytes() == before
+
+
+@pytest.mark.parametrize('checkpoint', ['initial', 'impossible', 'absent_before_provision'])
+def test_zero_commit_k4_checks_present_checkpoint_identity_without_repair(world, monkeypatch, checkpoint):
+    import tests.test_workflow_run_ref_confined_child as fixture
+    from orchestrator.workflow.run_ref import runtime
+    from orchestrator.workflow.evaluated import attempts
+    original_append, original_persist = attempts.append_record, runtime.persist_run_ref_lifecycle_event
+    def append(path, row, **kwargs):
+        result = original_append(path, row, **kwargs)
+        authority = kwargs.get('checked_authority')
+        if authority is not None and authority.confined and row['record'] == 'started':
+            raise InjectedControllerCrash()
+        return result
+    def persist(request, event):
+        result = original_persist(request, event)
+        if event.event_kind == 'allocation':
+            raise InjectedControllerCrash()
+        return result
+    with monkeypatch.context() as patch:
+        patch.setattr(attempts, 'append_record', append)
+        if checkpoint == 'absent_before_provision':
+            patch.setattr(runtime, 'persist_run_ref_lifecycle_event', persist)
+        with pytest.raises(InjectedControllerCrash):
+            fixture._run(world)
+    run_root, = (world['parent'] / '.orchestrate' / 'runs').iterdir()
+    head = ledger.load_attempt_ledger(run_root / 'run-ref-attempts.jsonl').rows[-1]
+    header_path = run_root / 'run-ref-children' / head.bindings.child_run_id / 'checkpoint.json'
+    if checkpoint == 'impossible':
+        header = json.loads(header_path.read_text())
+        header['effect_identity'], header['ordinal'] = 'a' * 64, 17
+        header_path.write_bytes(canonical_json_bytes(header))
+        before = header_path.read_bytes()
+    status = fixture._cli('resume', run_root.name, '--run-ref-root', str(world['refs']))
+    rows = ledger.load_attempt_ledger(run_root / 'run-ref-attempts.jsonl').rows
+    assert (status == 0) is (checkpoint != 'impossible')
+    if checkpoint == 'impossible':
+        assert rows[-1].attempt_ordinal == 1
+        assert header_path.read_bytes() == before
+        assert head.bindings.workspace_path.exists()
+        assert not [row for row in rows if row.event_kind == 'failed_terminal']
+    else:
+        assert rows[-1].attempt_ordinal == 2

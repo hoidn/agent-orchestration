@@ -28,7 +28,7 @@ from .confinement import (
     probe_host,
     provision_confined_child,
 )
-from .contracts import RUN_REF_CONFINED_MATERIALIZER_VERSION, canonical_sha256
+from .contracts import RUN_REF_CONFINED_MATERIALIZER_VERSION, canonical_json_bytes, canonical_sha256
 from .delta import build_workspace_delta, validate_workspace_delta
 from .evaluated_child import (
     confined_child_header,
@@ -208,6 +208,7 @@ def prepare_confined_recovery_allocation(request, effects):
         workspace=layout.workspace, parent_values=resolve_run_ref_parent_input_values(request))
     if any(getattr(head.bindings, name) != getattr(expected, name) for name in _STATIC_BINDINGS):
         raise _invalid("retained_attempt_bindings_disagree")
+    recipe = None
     if (layout.child_root / RECIPE_FILENAME).exists():
         from .confinement import _read_recipe, require_owned_roots
         recipe = _read_recipe(layout)
@@ -234,9 +235,17 @@ def prepare_confined_recovery_allocation(request, effects):
         from orchestrator.workflow.evaluated.memo import read_memo
         from orchestrator.workflow.evaluated.machine import site_classes
         authority = load_run_authority(layout.child_root)
+        if recipe is None:
+            raise _invalid('child_authority_without_recipe')
+        from .confined_recovery import _require_child_authority
+        _require_child_authority(request, layout, authority, canonical_json_bytes(recipe))
         memo = read_memo(authority.memo_path, site_classes(authority.program))
         commits = bool(memo.active_commits)
         terminal = memo.terminal
+    from .confinement import CHECKPOINT_HEADER, validate_checkpoint_identity
+    if head.bindings.post_setup_baseline_digest is not None and not os.path.lexists(layout.child_root / CHECKPOINT_HEADER):
+        raise _invalid('checkpoint_header_missing_after_setup')
+    validate_checkpoint_identity(layout)  # read-only, after quiescence and before K4
     failure = next((row for row in reversed(rows) if row.visit == request.visit
                     and row.attempt_ordinal == head.attempt_ordinal and row.event_kind == 'failed_terminal'), None)
     if terminal is None and failure is None and not commits and remaining_ns(state) > 0:

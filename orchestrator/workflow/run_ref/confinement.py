@@ -418,10 +418,10 @@ def _reuse_provisioned_child(admission: ConfinedAdmission, layout: ConfinedAttem
     return ProvisionedChild(layout=layout, source=source, recipe=recipe)
 
 
-def _recover_checkpoint(layout):
-    """Only a coherent memo attempt may authorize repairing a checkpoint intent."""
+def validate_checkpoint_identity(layout):
+    """Read-only P30 guard, including an attempt K4 may discard without continuation."""
     import hashlib
-    from .checkpoint import read_checkpoint_header, preflight_checkpoint, RunRefCheckpointError
+    from .checkpoint import read_checkpoint_header, RunRefCheckpointError
     from orchestrator.workflow.evaluated.authority import load_run_authority
     from orchestrator.workflow.evaluated.machine import site_classes
     from orchestrator.workflow.evaluated.memo import read_memo
@@ -449,6 +449,15 @@ def _recover_checkpoint(layout):
             starts[0].data['identity'], starts[0].data['attempt']) == (last.data['identity'], last.data['attempt']))
     if not valid:
         raise RunRefRuntimeError("run_ref_evidence_invalid", "checkpoint_attempt_identity_invalid")
+    return header
+
+
+def _recover_checkpoint(layout):
+    """Only a coherent memo attempt may authorize repairing a checkpoint intent."""
+    from .checkpoint import preflight_checkpoint, RunRefCheckpointError
+    if validate_checkpoint_identity(layout) is None:
+        return
+    path = layout.child_root / CHECKPOINT_HEADER
     fd = os.open(layout.workspace, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
     try:
         preflight_checkpoint(path, fd)
