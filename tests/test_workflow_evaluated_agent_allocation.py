@@ -49,7 +49,7 @@ def test_allocations_commit_descriptors_with_no_dispatch_and_replay_readonly(tmp
     assert {k: value[k] for k in ("run_id", "identity", "provider", "policy")} == {"run_id": run_root.name, "identity": designer.data["identity"], "provider": "codex", "policy": {"model": "chosen-model", "effort": "low"}}
     from orchestrator.providers.registry import ProviderRegistry
     from orchestrator.workflow.evaluated.agent_sessions import pinned_config_digest
-    assert value["config_digest"] == pinned_config_digest(ProviderRegistry().get("codex"), value["policy"], None)
+    assert value["config_digest"] == pinned_config_digest(ProviderRegistry().get("codex"), value["policy"], tmp_path.resolve())  # effective cwd
     assert designer.data["effect_class"] == "agent" and "proof" not in designer.data
     assert {c.data["value"]["identity"] for c in allocations.values()} == set(allocations)
     assert shim_requests(tmp_path) == []
@@ -86,4 +86,50 @@ def test_receipt_round_trips_and_rejects_foreign_schema(tmp_path) -> None:
     (tmp_path / "receipt.json").write_text(json.dumps({"schema": "other"}))
     with pytest.raises(MemoError, match="memo_inconsistent"):
         read_receipt(files)
+    files.close()
+
+
+def _receipt(**changes) -> Receipt:
+    base = dict(run_id="r", agent="a", turn="t", attempt=1, predecessor=None, input_digest="sha256:" + "0" * 64,
+                adapter="codex_exec_jsonl_stdout", config_digest="sha256:" + "0" * 64, mode="fresh", locator=None, pgid=None,
+                leader_start_time=None, position_before=None, position_after=None, completion="intent", result_digest=None)
+    return Receipt(**{**base, **changes})
+
+
+def test_missing_receipt_reads_as_none(tmp_path) -> None:
+    files = WorkspaceFiles(tmp_path)
+    assert read_receipt(files) is None
+    files.close()
+
+
+@pytest.mark.parametrize("field, value", [("mode", "replay"), ("completion", "done"), ("attempt", 0), ("attempt", True),
+                                          ("pgid", "4242"), ("position_after", {"turn_id": "x"}), ("run_id", None)])
+def test_malformed_receipt_field_is_refused_on_read_and_write(tmp_path, field, value) -> None:
+    files = WorkspaceFiles(tmp_path)
+    with pytest.raises(MemoError, match="memo_inconsistent"):
+        write_receipt(files, _receipt(**{field: value}))
+    row = json.loads(json.dumps({**_receipt().__dict__, field: value}))
+    (tmp_path / "receipt.json").write_text(json.dumps(row))
+    with pytest.raises(MemoError, match="memo_inconsistent"):
+        read_receipt(files)
+    files.close()
+
+
+def test_backward_completion_transition_is_refused(tmp_path) -> None:
+    files = WorkspaceFiles(tmp_path)
+    write_receipt(files, _receipt(completion="launching", pgid=7))
+    with pytest.raises(MemoError, match="memo_inconsistent"):
+        write_receipt(files, _receipt(completion="intent"))
+    assert read_receipt(files).completion == "launching"
+    files.close()
+
+
+@pytest.mark.parametrize("field, value", [("run_id", "r2"), ("agent", "b"), ("turn", "u"), ("attempt", 2),
+                                          ("input_digest", "sha256:" + "1" * 64), ("predecessor", "p")])
+def test_binding_field_change_is_refused(tmp_path, field, value) -> None:
+    files = WorkspaceFiles(tmp_path)
+    write_receipt(files, _receipt())
+    with pytest.raises(MemoError, match="memo_inconsistent"):
+        write_receipt(files, _receipt(**{field: value}, completion="launching"))
+    assert read_receipt(files) == _receipt()
     files.close()

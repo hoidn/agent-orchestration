@@ -5,14 +5,15 @@ digest of the registry template's native configuration (I7) into a runtime-owned
 descriptor `{run_id, identity, provider, policy, config_digest}` committed as an ordinary
 memo value. A handle decodes only against this run's active allocation commit with the same
 descriptor. Depends on: `ProviderRegistry()` (current templates), the attempt directory's
-`WorkspaceFiles` (`result.json`, `receipt.json`).
+`WorkspaceFiles` (`result.json`, `receipt.json`). `write_receipt` is the one receipt writer and
+enforces monotonicity; `read_receipt` refuses a malformed receipt as `memo_inconsistent`.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any, Mapping
 
 from orchestrator.workflow.run_ref.contracts import canonical_json_bytes, canonical_sha256
@@ -52,6 +53,11 @@ def pinned_config_digest(template, policy: Mapping[str, str], launch_cwd) -> str
     })
 
 
+def effective_cwd(launch_cwd, workspace):
+    """The directory a turn's CLI runs in; Claude keys its native store by it, so it is pinned at allocation."""
+    return launch_cwd or workspace
+
+
 def resolve_allocation_input(node: Mapping[str, Any], operands) -> tuple[dict[str, Any], dict[str, str]]:
     """Pin provider and policy once; both parts enter the ordinary input digest."""
     policy = dict(zip(node["policy"], (value.json_value() for value in operands), strict=True))
@@ -72,7 +78,7 @@ def perform_allocation(attempt):
     if template is None:
         raise MemoError("memo_inconsistent", f"agent provider {provider!r} is not registered")
     binding = AgentBinding(attempt.identity, attempt.authority.header["run_id"], provider, policy,
-                           pinned_config_digest(template, policy, attempt.launch_cwd))
+                           pinned_config_digest(template, policy, effective_cwd(attempt.launch_cwd, attempt.workspace)))
     attempt.attempt_files.write_atomic("result.json", canonical_json_bytes(binding.record()))
     return ExternalOutcome(result_path=attempt.result_path)
 
@@ -115,8 +121,57 @@ class Receipt:
     schema: str = RECEIPT_SCHEMA
 
 
+_COMPLETION_RANK = {"intent": 0, "launching": 1, "not_dispatched": 2, "unknown": 2, "completed": 2, "abandoned": 3}
+_BINDING_FIELDS = ("run_id", "agent", "turn", "attempt", "input_digest", "predecessor")
+_TEXT, _OPTIONAL_TEXT, _OPTIONAL_INT = (str,), (str, type(None)), (int, type(None))
+_FIELD_TYPES = {"run_id": _TEXT, "agent": _TEXT, "turn": _TEXT, "attempt": (int,), "predecessor": _OPTIONAL_TEXT,
+                "input_digest": _TEXT, "adapter": _TEXT, "config_digest": _TEXT, "mode": _TEXT, "locator": _OPTIONAL_TEXT,
+                "pgid": _OPTIONAL_INT, "leader_start_time": _OPTIONAL_INT, "completion": _TEXT, "result_digest": _OPTIONAL_TEXT,
+                "schema": _TEXT}
+_ENUMS = {"mode": {"fresh", "resume"}, "completion": set(_COMPLETION_RANK), "schema": {RECEIPT_SCHEMA}}
+
+
+def _check_receipt(receipt: Receipt) -> None:
+    """Field types and enums of one receipt; a malformed receipt is unreadable evidence (`memo_inconsistent`)."""
+    from orchestrator.providers.native_store import NativePosition
+
+    wrong = [name for name, kinds in _FIELD_TYPES.items() if type(getattr(receipt, name)) not in kinds]
+    wrong += [name for name, allowed in _ENUMS.items() if getattr(receipt, name) not in allowed]
+    if wrong or receipt.attempt < 1:
+        raise MemoError("memo_inconsistent", f"agent turn receipt is malformed: {wrong or 'attempt'}")
+    try:
+        for position in (receipt.position_before, receipt.position_after):
+            if position is not None:
+                NativePosition.from_record(position)
+    except ValueError as exc:
+            raise MemoError("memo_inconsistent", f"agent turn receipt is malformed: {exc}") from exc
+
+
 def write_receipt(files: WorkspaceFiles, receipt: Receipt) -> None:
+    """The one receipt writer: creation, or a monotone update of the stored receipt.
+
+    Binding fields never change and `completion` never moves backwards (intent < launching <
+    not_dispatched | unknown | completed < abandoned).
+    """
+    _check_receipt(receipt)
+    current = read_receipt(files)
+    if current is not None:
+        changed = [name for name in _BINDING_FIELDS if getattr(current, name) != getattr(receipt, name)]
+        if changed or _COMPLETION_RANK[receipt.completion] < _COMPLETION_RANK[current.completion]:
+            raise MemoError("memo_inconsistent", f"receipt update is not monotone: binding {changed}, "
+                            f"completion {current.completion} -> {receipt.completion}")
     files.write_atomic("receipt.json", canonical_json_bytes(asdict(receipt)))
+
+
+def update_receipt(files: WorkspaceFiles, **changes) -> Receipt:
+    """Monotone update from the stored receipt: a field already set keeps its value unless `changes` gives one."""
+    current = read_receipt(files)
+    if current is None:
+        raise MemoError("memo_inconsistent", "receipt update without a stored receipt")
+    merged = {name: value for name, value in changes.items() if value is not None or getattr(current, name) is None}
+    updated = replace(current, **merged)
+    write_receipt(files, updated)
+    return updated
 
 
 def read_receipt(files: WorkspaceFiles) -> Receipt | None:
@@ -125,9 +180,8 @@ def read_receipt(files: WorkspaceFiles) -> Receipt | None:
     except FileNotFoundError:
         return None
     try:
-        row = json.loads(raw)
-        if row.pop("schema") != RECEIPT_SCHEMA:
-            raise ValueError("unknown receipt schema")
-        return Receipt(**row)
-    except (ValueError, TypeError, KeyError, AttributeError) as exc:
+        receipt = Receipt(**json.loads(raw))
+    except (ValueError, TypeError) as exc:
         raise MemoError("memo_inconsistent", f"agent turn receipt is unreadable: {exc}") from exc
+    _check_receipt(receipt)
+    return receipt
