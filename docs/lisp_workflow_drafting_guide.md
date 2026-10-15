@@ -195,8 +195,8 @@ compile/runtime/resume tests cited by the selected registry entry.
 For targeted design-doc review/fix semantics, read
 `workflows/examples/review_revise_design_docs.orc` as a reference, not as a
 preferred copy target. It targets DSL 2.23, whose execution is retired:
-`compile` rejects it with `workflow_execution_target_retired` before checking
-the source, so neither a compile check nor `run --dry-run` runs on it today.
+`compile` rejects it at its target declaration with
+`workflow_execution_target_retired`, so no compile check or dry run completes on it today.
 The [README](../README.md#first-compile-check) compile check uses
 `plan_review_execute.orc` at 2.35 instead.
 

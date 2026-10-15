@@ -23,7 +23,7 @@ is captured by strict-xfail test
 Runtime provider observation panes are ephemeral, process-local execution
 views. The evaluated runtime opens them only for a program with target-2.38
 agent sessions, best-effort, and degrades safely if observation is
-unavailable; ordinary provider invocations get no pane. The target-2.16
+unavailable; in a program without agent sessions no pane is opened. The target-2.16
 `with-live-providers` and target-2.17 `with-live-provider-peers` groups are
 retired with no evaluated port ([status](capability_status_matrix.md)); their
 panes, endpoints, member ledgers and `provider_peer_group` state records

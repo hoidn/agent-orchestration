@@ -53,7 +53,7 @@ Short version:
 - The derived `state.json`/report view (`steps.*`, `current_step`) an evaluated run rebuilds from its memo; never authority.
 
 `step`
-- One effect site in a workflow program (`command`, `provider`, `call`, `run_ref`, or an agent turn).
+- One effect site in a workflow program (`command`, `provider`, `run_ref`, or an agent allocation or turn), identified under its call frames.
 
 `step execution`
 - One runtime invocation of one step in one run.
@@ -162,8 +162,8 @@ present."
   Reports and dashboards may render persisted legacy state without parsing its
   source. `resume`, including `--force-restart`, refuses a retired execution
   profile first with `workflow_execution_profile_retired`, before source
-  checks or mutation; a recorded non-`.orc` suffix otherwise fails closed
-  with `.orc required`. Legacy state remains viewable only
+  checks or mutation; a fresh `run` of a non-`.orc` path fails closed with
+  `.orc required`. Legacy state remains viewable only
   through state-only report/dashboard observability.
 
 Confusion: "Execution runs the authored source tree directly."
