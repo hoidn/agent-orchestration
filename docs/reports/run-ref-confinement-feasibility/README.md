@@ -1059,6 +1059,38 @@ recovery without redispatch. External public SIGKILL at those export windows and
 before parent settlement remains Task 12 work. No provider admission, global
 suite PASS or Increment A acceptance is claimed by this Task 8 result.
 
+## Task 9: Increment A accepted for commands (2026-10-15)
+
+Test commit `0771999243b0ae279252a59b1e989a1ad7e8cd69` has independent
+conformance and subsequent quality/security PASS. Runtime remains Task 8
+`e85fcbf9`, manifest `948342c2e667af8619f91b7a99d4e2df8201e10ea1b590a8b601c8bed8dbbfe6`.
+The coordinator inspected the diff, logs and retained run and checked all three
+test-file hashes against both evidence and commit.
+
+The public `python -m orchestrator` compile/run/resume/report recipe uses
+absolute inputs and manifests. Run `20261015T114931Z-vqdha4` was externally
+SIGKILLed after its first durable child command commit. Resume retained child
+`run-ref-2e77c09bb1b6847120a986997e4df141c8e4f413`, attempt ordinal 1, and
+executed only the second command. The parent consumed the typed export after
+clone/checkpoint cleanup. Two completed resumes and a repeated report preserve
+authority, value and export without dispatch, allocation or writes. The
+unsupported provider case refuses before run-state creation or Holder launch.
+
+The real module passed **13 tests in 24.96 s**, exit 0, serial in tmux with
+`ORCHESTRATE_E2E=1 RUN_REF_REQUIRE_IMAGE=1`; the unit owner passed **66 tests in
+7.91 s**, exit 0; collection found **82 tests**. A prior fixture filename error
+failed compilation and was corrected without changing runtime. Local
+`.tmp/task9/evidence-2/` and `retained-runs-2/` retain argv, logs, IDs, artifacts,
+image and binary pins; SDD reports are `task-9-report.md` and
+`task-9-code-review.md`. Source OCI is Python `2b4f19dae3a7…`; the run admits
+the derived fixture reference `9cd7c527bd91…`, tree `973cd37339e7…`, whose full
+pins are recorded in the Task 7 section and the retained evidence.
+
+Increment A is the first shippable increment for commands with `:network :none`.
+This does not complete provider transport, the maintained best-of-N migration,
+the final global campaign or production admission. No global rerun was needed
+for these test-only changes; the existing broad RED classification remains.
+
 ## Task 10: native authentication follow-up (2026-10-15)
 
 This is a current feasibility investigation, not F4 or production qualification.
@@ -1077,7 +1109,7 @@ API-key-only experiment is relabelled as a native-login success.
 | Image-CLI / real-Holder synthetic bridge, 2026-10-15 | Bounded independent PASS review; 62 category rows, `DONE_WITH_CONCERNS`. An image-owned Codex CLI made two synthetic SSE requests, edited and tested the candidate, delivered typed JSON and left a committed checkpoint. This uses the experimental socket seam under `network=none`, not production `model-only` admission or the public ORC provider lifecycle. |
 | Native-login qualification decision and remote-control correction, 2026-10-15 | Independent documentary PASS. The pinned config schema accepted 20 corrected overrides; the former `allow_remote_control` ConfigToml override was rejected. The replacement is the pinned internal environment marker `CODEX_INTERNAL_APP_SERVER_REMOTE_CONTROL_DISABLED=1`, with no `--remote-control`. Schema/source checks are not operational startup or account evidence. |
 | Operational prerequisites and cancellation correction | Independent bounded PASS. The original 78-row synthetic campaign remains intact; the R1 correction has 80 rows in eleven suites, exit 0, and 14 fresh independent cancellation controls pass. A timing race in the old-code RED replay fixture is recorded; two direct old-code replays reproduce the late POST. No synthetic TLS seam is presented as a real handshake. |
-| First existing-login attempt | **UNQUALIFIED**: the one-attempt, two-request/90-second entry reached its absolute deadline before confirming the native account binding. No inference gateway or Holder was created. The supervisor observed group/Holder/carriers empty; wrapper exit 0 is not experiment success. F4 and integrated Task 10 remain pending. |
+| First existing-login attempt | **UNQUALIFIED**: the one-attempt, two-request/90-second entry reached its absolute deadline before confirming the native account binding. No inference gateway or Holder was created. The supervisor verified its worker group empty; Holder/carrier cleanup fields are not applicable. Wrapper exit 0 is not experiment success. F4 and integrated Task 10 remain pending. |
 
 The original owner output (19 rows), subsequent synthetic output (62 rows),
 source manifests, dates and categories remain unchanged in the local SDD evidence
@@ -1127,4 +1159,7 @@ credentials or missing entitlement. Native startup/discovery/refresh traffic
 and changes to its store are unconfirmed; our code did not inspect that store.
 The supervisor observed a 0.067191 ms deadline delay and 45.915125 ms cleanup
 after the cut, without a real-time guarantee. No retry or limit expansion has
-been performed; diagnosis is pending while command acceptance continues.
+been performed; diagnosis is pending and command Increment A is accepted above.
+The original Holder/carrier cleanup booleans default to true when Holder metadata
+is absent; they do not prove a launched Holder was emptied. This interpretation
+is preserved separately in SDD `task-10-native-auth-live-observation-addendum.md`.
