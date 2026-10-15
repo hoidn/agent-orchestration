@@ -428,7 +428,7 @@ schema notation, not authored workflow files.
     and ordinary IO; this is no general secret-removal promise or relaxation for
     upstream bearers, authfiles, permanent credentials or native RPC.
     `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` takes the guest spelling of
-    [IO](io.md#proposed-run-ref-confined-child-io-target-238). Each provider
+    [IO](io.md#run-ref-confined-child-io-target-238). Each provider
     timeout is clamped at dispatch to the remaining child wall budget.
   - `:model-only` traffic reaches the model only through the qualified inference
     gateway and per-leaf relay of the security profile. The selected Codex

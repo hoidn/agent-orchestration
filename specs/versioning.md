@@ -1164,8 +1164,8 @@ agent turns remain excluded from confined children. Target 2.38 also independent
 adds the bounded agent-sessions surface; no earlier target widens. Path
 children keep the internal run-reference target 2.35, their configuration
 bytes and recovery. Contracts:
-[DSL](dsl.md), [State](state.md#proposed-run-ref-confined-child-state-target-238),
-[IO](io.md#proposed-run-ref-confined-child-io-target-238),
+[DSL](dsl.md), [State](state.md#run-ref-confined-child-state-target-238),
+[IO](io.md#run-ref-confined-child-io-target-238),
 [Security](security.md), [Providers](providers.md) and the
 [CLI completed-resume amendment](cli.md#evaluated-execution-target-235).
 Rollback means declining the target and profile while retaining read-only
