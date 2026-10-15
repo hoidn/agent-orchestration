@@ -678,3 +678,94 @@ Full driver output (F3, then F4, capability redacted):
  }
 }
 ```
+
+## Task 5a: F3b-channel holder topology and channel confinement (2026-10-14)
+
+Gate: F3b-channel in the design's evidence table (D-a, D-b, D-g, R4, R5, R6, R7, R10, N8). It is checked with a throwaway holder, `tests/e2e/run_ref_holder.py`, a test-local helper rebuilt from `fdfa8b0d`'s `profile.py` in the D-a shape. No holder code is in `orchestrator/`. **Verdict: PASS.** There are two design-text deltas below (pid 1's bwrap eventfd; how the `setsid` daemon case should be read). Neither changes the topology, so the Podman fallback is not needed.
+
+### Harness shape
+
+- **Scope per launch (D-a).** `systemd-run --user --scope --quiet --unit run-ref-<token[:16]>.scope -p MemoryMax=<bytes> -p MemorySwapMax=0 -p TasksMax=<n> -p CPUQuota=100% -p OOMPolicy=continue -p Delegate=yes -- python3 -I -c <launcher> <token> <launch fd> <kept fds> bwrap ...`. The token is 128 random bits.
+- **Launcher.** It writes its own pid on a launch socketpair and blocks for one line. EOF exits 97 and any line other than the exact token exits 98, so `bwrap` never starts in either case. After the token it points fds 0-2 at `/dev/null`, keeps only the control socket (3), the gate socket (4), the `--info-fd` pipe (5) and the sealed rootfs directory (6, `--ro-bind-fd 6 /`), closes everything else and execs `bwrap`.
+- **Host steps before release.** The host checks the reported pid against the spawned pid and resolves the scope from `/proc/<pid>/cgroup`, requiring the leaf name to equal the unit. It then reads back `systemctl --user show -p MemoryMax,MemorySwapMax,TasksMax,CPUQuotaPerSecUSec,OOMPolicy,Delegate,ControlGroup` and the scope's `memory.max`, `memory.swap.max`, `pids.max` and `cpu.max`; any mismatch refuses before release. Next it creates `<scope>/holder`, moves the launcher into it, checks that the scope root's `cgroup.procs` is empty and that `holder` holds only the launcher, enables `+memory +pids` for the slots and sends the token. The harness never writes a limit itself.
+- **Holder argv.** `bwrap --unshare-user --unshare-ipc --unshare-pid --unshare-net --unshare-uts --unshare-cgroup --disable-userns --die-with-parent --new-session --cap-drop ALL --clearenv --setenv PATH /usr/local/bin:/usr/bin:/bin --setenv HOME /tmp --ro-bind-fd 6 / --dev /dev --size 8388608 --tmpfs /dev/shm --remount-ro /dev --proc /proc --size 33554432 --tmpfs /workspace --size 16777216 --tmpfs /tmp --size 16777216 --tmpfs /result --tmpfs /run --ro-bind <host leaf dir> /run/runref --remount-ro /run --info-fd 5 -- /bin/sh -c <spawner>`. The test sizes are smaller than the design's 256/64/128 MiB constants.
+- **Spawner.** It runs as image `/bin/sh` and reports `ready`. For each request line it runs `( exec 3>&-; read go <&4; exec 4<&-; cd /workspace; exec setsid /bin/sh /run/runref/<leaf>/leaf.sh <stdin >/result/<leaf>/stdout 2>/result/<leaf>/stderr ) &`, then `echo "ack $!"`, `wait $!` and `echo "status $?"`.
+- **Per-leaf host protocol.** These steps match the design's host protocol:
+  1. Require quiescence: the holder slot equals the set recorded at `ready` and every leaf slot is empty.
+  2. Empty `/tmp`, `/dev/shm` and `/result` through root descriptors that were opened once from `/proc/<holder>/root/...` after `ready`. Then `mkdir` `/result/<leaf>` exclusively.
+  3. Write `leaf.sh`, create `<scope>/leaf-<name>` and send the request.
+  4. Require the `ack` within 2 s and wait for exactly one member beyond the holder set; two or more refuse with `escape_rejected`. Move that member into the leaf slot, check membership, then send `go` on the gate.
+  5. Wait for the status line, an empty leaf slot or the wall deadline. A missing status 2 s after the leaf slot empties, or EOF on the control socket, is holder death: `cgroup.kill` the whole scope. A leaf slot still populated after its status line counts as `lingering`.
+  6. `cgroup.kill` the leaf slot and wait for it to empty, then check quiescence again before any read.
+- **Teardown.** `stop()` is idempotent and runs in the fixture's teardown, so it also runs when a test fails. It kills the scope through `cgroup.kill` and reaps the launcher; systemd then garbage-collects the empty scope. It calls `systemctl --user reset-failed` for units that systemd stopped itself. After every run in this section, `systemctl --user list-units 'run-ref-*' --all` was empty.
+
+### Commands
+
+- `ORCHESTRATE_E2E=1 PYTHONPATH=<worktree> pytest -q tests/e2e/test_e2e_run_ref_confined.py` -> `10 passed in 7.40s` (5 Task 1 tests and 5 new ones).
+- Without `ORCHESTRATE_E2E`: `10 skipped in 0.06s`. With `XDG_RUNTIME_DIR=/nonexistent DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent`: `10 skipped`, reason `user systemd manager unreachable` (`systemctl --user show -p Version` fails). The Task 1 tests now share this skip.
+- `pytest --collect-only -q tests/e2e/test_e2e_run_ref_confined.py` -> `10 tests collected`.
+
+### Witnesses
+
+| Witness | Test | Status | Observable (verbatim from the evidence run) |
+| --- | --- | --- | --- |
+| D-a scope shape, read-back, launcher in `holder`, scope root empty | `test_holder_channels_descriptors_and_scope_shape` | **PASS** | Unit: `{"OOMPolicy": "continue", "Delegate": "yes", "CPUQuotaPerSecUSec": "1s", "MemoryMax": "268435456", "MemorySwapMax": "0", "TasksMax": "64", "ControlGroup": ".../app.slice/run-ref-78d41f18a835592b.scope"}`. Cgroup files: `{"memory.max": "268435456", "memory.swap.max": "0", "pids.max": "64", "cpu.max": "100000 100000"}`. Scope root procs `[]`. Holder set `[launcher 1741417, 1741421, 1741422]`, unchanged after four leaves. |
+| Exact release token | `test_launcher_without_the_exact_release_token_never_starts_bwrap` | **PASS** | EOF: `{"child_pid": null, "launcher_exit": 97, "scope_populated": false}`. Wrong line: `{"child_pid": null, "launcher_exit": 98, "scope_populated": false}`. `--info-fd` reached EOF without `child-pid`, so `bwrap` never ran. |
+| Memory enforced by `MemoryMax` | `test_unit_property_limits_are_enforced_and_oom_keeps_the_scope` | **PASS** | 128 MiB scope, leaf allocates 512 MiB: status `137`, `memory.events` `oom 1, oom_kill 1`, `memory.peak` `134217728`. |
+| `OOMPolicy=continue` keeps the scope | same | **PASS** | After the OOM kill: `is-active` `active`, holder quiescent, later leaves run. The manager's `DefaultOOMPolicy=stop`, so the property is required (mutation M8). |
+| Pids enforced by `TasksMax` | same | **PASS** | `TasksMax=32`: `28 Resource temporarily unavailable`, `pids.events max 1`. |
+| CPU enforced by `CPUQuota` | same | **PASS** | 100%, four busy loops for 2 s: `cpu_seconds 2.087` in `2.073` s wall, `nr_throttled +20`. |
+| Sockets unreachable from a leaf | channels test | **PASS** | Spawner fds `{"3": "socket:[188313993]", "4": "socket:[188313995]"}`, equal to the inodes of the host-created guest ends. From the leaf, both give `open` `ENXIO` and `pidfd_getfd` `EPERM`. Probe check: `pidfd_getfd` on the leaf's own child returned `obtained`. |
+| FIFO and pipe positive controls | `test_fifo_and_pipe_placed_like_the_channels_reopen_from_a_leaf` | **PASS** | The same launcher also passes a pipe read end and an `O_RDWR` FIFO to the spawner (fds 7, 8). From the leaf: `{"pipe": "opened", "fifo": "opened", "socket": "ENXIO"}`; `pidfd_getfd` stays `EPERM` for all. |
+| In-namespace descriptors (pid 1, spawner) | channels test | **PASS, design-text delta** | pid 1: `{"0": "/dev/null", "1": "/dev/null", "2": "/dev/null", "8": "anon_inode:[eventfd]"}`. Spawner: `/dev/null` x3 and the two sockets. `--info-fd` (5) and `--ro-bind-fd` (6) are not inherited by the spawner. The extra entry is bwrap's own pid-1 `event_fd` (it reports the child's exit to the monitor). From a leaf it gives `open` `EACCES` and `pidfd_getfd` `EPERM`, so it is unreachable. The test pins the set to exactly `{"anon_inode:[eventfd]"}` beyond `/dev/null` and the channels, and requires every entry to be unreachable. The N8 sentence "pid 1 holds only `/dev/null`, the sockets and guest objects" should name this eventfd. |
+| `setsid` leaf: `kill 0` spares the spawner; leaf pid = ack (P4) | channels test | **PASS** | Probe leaf: `ack 3`, `leaf_nspid 3`, `pid 3`, `sid 3`, `pgid 3`, spawner pgid `1`. `kill 0` leaf: `ack 5`, stdout `5`, status `143` (killed its own group). The next leaf was acknowledged and the holder set was unchanged. |
+| Stopped spawner -> failed attempt, empty scope | `test_stopped_or_signalled_spawner_and_setsid_daemon_fail_the_attempt_with_an_empty_scope` | **PASS** | `kill -STOP $PPID`: `holder_death`, `no status line within the deadline` after 2.06 s; scope killed, `scope_populated false`. |
+| Signalled spawner | same | **PASS** | `kill -KILL $PPID`: `holder_death`, `control socket EOF` after 0.014 s; `bwrap` exited 137; scope empty. |
+| `setsid` daemon | same | **PASS (interpretation recorded)** | `setsid sleep 300 &`: status `0`, then outcome `lingering` (failed attempt: the leaf slot was still populated after its status line). It was killed in the leaf slot, the holder set was unchanged, and the scope was empty after the child's stop. The daemon is a failed attempt and not a holder death; the scope empties at the child terminal. |
+| `/dev`, `/run` read-only; `/dev/shm` sized | channels test (scratch leaves) | **PASS** | `{"/dev/x": "EROFS", "/run/x": "EROFS", "/run/runref/x": "EROFS"}`; `/dev/shm` fill stopped at `8388608` bytes with `ENOSPC`. |
+| Earlier leaf's `/result` entry gone | same | **PASS** | `scratch-a` wrote `/result/scratch-b/forged`, `/result/scratch-a/extra`, `/tmp/left` and `/dev/shm/left`. `scratch-b` then saw `{"/result": ["scratch-b"], "/result/scratch-b": ["stderr", "stdout"], "/tmp": [], "/dev/shm": []}`. |
+| Host creates files in `/workspace` through `/proc/<holder>/root` | same | **PASS** | `openat(<workspace root fd>, "from-host", O_CREAT|O_EXCL|O_NOFOLLOW)`; the next leaf read `written through /proc/<holder>/root`. |
+| Holder-slot membership equals the recorded set outside request windows | all holder tests | **PASS** | Checked before and after every leaf; any change refuses with `escape_rejected`. |
+
+### Mutation RED (one control removed per run, files restored afterwards)
+
+| Mutation | Test | Result |
+| --- | --- | --- |
+| M1 no `setsid` (`exec /bin/sh leaf.sh`) | channels | RED: the `kill 0` leaf killed the spawner (`holder_death`, `control socket EOF`) |
+| M2 forking `setsid -f` | channels | RED: `wait` returned at once (`status 0`); the real leaf was `lingering` with empty stdout |
+| M3 launcher keeps inherited stdio | channels | RED: pid 1 and spawner held `pipe:[188250582]` (systemd-run's stderr), `open` `opened` from the leaf |
+| M4 no `--remount-ro /dev` | channels | RED: `/dev/x` created (the second scratch leaf saw `EEXIST`) |
+| M4b no `--remount-ro /run` | channels | RED: `/run/x` created |
+| M5 `/dev/shm` without `--size` | channels | RED: the fill leaf was OOM-killed (`137`) instead of getting `ENOSPC` |
+| M6 no scratch wipe | channels | RED: `FileExistsError: 'scratch-b'` (exclusive create of the pre-created result directory) |
+| M7 launcher continues on EOF | release | RED in part: EOF fell through to the compare and exited `98`, not `97`; the token compare alone still refuses |
+| M7b launcher accepts any line | release | RED: wrong line started `bwrap` (`child-pid 1737322`, scope populated) |
+| M8 `OOMPolicy=stop` | limits | RED: systemd stopped the scope on the OOM kill (scope directory gone) |
+| M9 `CPUQuota=400%` | limits | RED: `8.006` CPU-s in `2.076` s wall |
+| M10 `TasksMax=1000` | limits | RED: 100 forks succeeded (no fork failure line) |
+| M11 `MemoryMax=1024M` | limits | RED: the 512 MiB allocation completed (status 0) |
+| M12 missing status treated as exit | spawner | RED: the stopped spawner became `exited`, scope still populated |
+
+"FIFO instead of socketpair" is not a cheap mutation of the protocol. The FIFO/pipe positive-control test is the evidence that a FIFO or pipe channel would be reopenable.
+
+### Durations
+
+Each figure is the median of 5 launches: launch to `ready` (systemd-run round trip, read-back, move, release) 59 ms (max 73); leaf round trip 53 ms; stop 38 ms. Rootfs rehash 0.27 s per module. Full module 7.0-7.4 s; the slowest tests are the limits test (2.5 s: CPU loop) and the spawner-death test (2.4 s: the 2 s status deadline). All runs were foreground with `timeout`.
+
+### Image on a fresh host
+
+The tests use the Task 1 sealed rootfs through its record `~/.cache/run-ref-spike-images/records/sha256-2b4f19dae3a777dfc3b76730bda1e82e1f66ab2a2686fa93ca78edbfb4f04ffe.json` and rehash it against `tree_digest` (a mismatch fails the test). Without the record they skip and name the path. To obtain it:
+
+```bash
+d=$(mktemp -d) && git show fdfa8b0d:experiments/run_ref_confinement_spike/image_import.py > "$d/image_import.py"
+python3 -I "$d/image_import.py" ~/.cache/run-ref-spike-images library/python sha256:2b4f19dae3a777dfc3b76730bda1e82e1f66ab2a2686fa93ca78edbfb4f04ffe
+```
+
+This is an anonymous Docker Hub pull, with each blob verified and the store sealed read-only (125 MiB). Re-run on 2026-10-14 into a scratch store, it took 5.0 s and printed the recorded `tree_digest` `sha256:973cd37339e7ef7627c497292983fa6b110ef784f121f41d8a52edc6385fadae`. To remove it: `chmod -R u+w ~/.cache/run-ref-spike-images && rm -rf ~/.cache/run-ref-spike-images`. The cache is the only state left outside pytest tmp directories.
+
+### Findings for Tasks 5b and 6
+
+- bwrap 0.9.0 closes `--info-fd` and `--ro-bind-fd` descriptors before the command, so the D-a launcher can pass the rootfs by descriptor without leaking it to the spawner.
+- With `--new-session`, the spawner is in process group 1 (pid 1's group). Without `setsid` a leaf's `kill 0` reaches the spawner (M1), so `setsid` is a required image pin, as R5 says.
+- A guest can make the host's exclusive `mkdir /result/<leaf>` fail by pre-creating the directory; the wipe is what prevents this (M6). The runtime should treat a failed exclusive create as `escape_rejected`, not as a host error.
+- `/dev` is not wiped between leaves, but it is read-only, so a leaf cannot leave state there.
