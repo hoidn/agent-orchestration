@@ -1,7 +1,7 @@
 # E-B3 Plan: Maintained Workflows Against A Single Call On Rung 1
 
-Status: **DRAFT, revision 1** (review `review_design_eb3.md`, findings F1–F7 applied; dispositions in
-`revision_design_eb3.md`). Runtime and R48 package are built; S1 passed 116 tests. Anchor verification is running. S2 and the nine-run batch have not started. Criterion draft:
+Status: **APPROVED protocol, pre-batch** (review `review_design_eb3.md`, findings F1–F7 applied; dispositions in
+`revision_design_eb3.md`). Runtime and R48 package are built; S1 passed 116 tests, the upstream anchor passed 164/164, and S2 passed with four Opus sessions including its native subagent. The nine-run batch has not started. Criterion draft:
 [`experiments/compare/criteria/eb3.json`](../../experiments/compare/criteria/eb3.json). Design notes and fact checks:
 `agent-orchestration-compare-evidence/eb3/design_eb3.md`.
 
@@ -60,11 +60,11 @@ What this makes harder later:
 | --- | --- | --- |
 | `G`: reviewed, committed guard (subagent pin `CLAUDE_CODE_SUBAGENT_MODEL=claude-opus-5-5`, `_FORCE=1`, atomic guard install; reviewed separately, 116 harness tests passing) | step 1 | `60775825`, approved and integrated in main |
 | `RTC` and the R48 `package_sha256` | steps 2, 6 | runtime `6f43fae173b5b09374665fb17ae7a7c120514dee`; package `5e2ef0a4aa54b1c9938b57ffc65d18f9099311af9c66567c4092402c605f0f80` |
-| upstream anchor 164/164 | step 3 | PENDING |
+| upstream anchor 164/164 | step 3 | passed, `anchor-upstream-r48.json` |
 | S1 at `$RT` | step 4 | 116 passed, `EXIT=0` |
-| plan pathspec commit, recorded in `$E/plan-commit.txt` | step 5 (S2) | PENDING (coordinator) |
-| S2 real-CLI probe | step 6 | PENDING |
-| Opus re-review of this revision, then the criterion freeze | step 6 | PENDING |
+| plan pathspec commit, recorded in `$E/plan-commit.txt` | step 5 (S2) | `da9bf8ef`, before S2 |
+| S2 real-CLI probe | step 6 | passed, `s2-probe-check.json`; five shim calls, four Opus sessions |
+| Opus re-review of this revision, then the criterion freeze | step 6 | `review_design_eb3_r1.md` APPROVED; required R1/R2 corrections applied |
 | optional owner threshold answer | none; it replaces the coordinator's choice only if it arrives before freeze | unanswered |
 
 ## Runtime (Option A, decided)
@@ -349,7 +349,7 @@ Pass, all of:
   $PY -c 'import json,sys; d=json.load(open(sys.argv[1])); v=d[sys.argv[2]]; assert v["sessions"]>=4 and set(v["models"])=={"claude-opus-5-5"}' $PR/census.json $PR/tree
   ```
 
-- at least one subagent transcript, meaning a `.jsonl` below the top level of the probe tree's project directory
+- With `_FORCE=1`, Claude Code removes the Agent tool's model selector; an explicit `model: sonnet` argument is therefore unavailable. The prompt requests Sonnet, and this expected refusal is recorded in `s2-probe-check.json` against the [vendor contract](https://code.claude.com/docs/en/sub-agents#run-every-subagent-on-one-model). The required evidence is at least one subagent transcript, meaning a `.jsonl` below the top level of the probe tree's project directory
   (`find ~/.claude/projects/-home-ollie-eb3-probe-tree* -mindepth 2 -name '*.jsonl'`), whose assistant rows answer
   `claude-opus-5-5`. If CLI 2.1.301 stores subagent transcripts elsewhere, locate the file read-only and record its
   path. The probe does not pass without the subagent's own answering model.
@@ -411,7 +411,7 @@ for k in 1 2 3; do
     --set model=gpt-6.1-sol --set effort=high &&
   PYTHONPATH=$RT $PY $H/prepare.py run --task $T --arm reviewed_change --root $W --runtime $RT || break
 done
-RUNS=$(for k in 1 2 3; do for a in design_review_execute direct_task reviewed_change; do echo $W/records/$a/run-$k; done; done)
+RUNS=$(for k in 1 2 3; do for a in design_review_execute direct_task reviewed_change; do printf '%s ' "$W/records/$a/run-$k"; done; done)
 ok=1; for R in $RUNS; do dry_run_ok $R || { echo "DRY-RUN FAILED $R"; ok=0; }; done
 for k in 1 2 3; do
   cmp $W/records/direct_task/run-$k/inputs.json $EV/runs/ladder/direct_task-run-1/inputs.json || ok=0
@@ -456,9 +456,9 @@ tick() { local s=0 trees t; trees=$(started)
   $PY -I $E/model_census.py $H sweep "$(cat $E/batch-since)" $trees > $E/sweep-latest.json || s=1
   echo "$(date -Is) started=$(echo $trees | wc -w) $(for R in $RUNS; do run_state $R; done | awk '{print $NF}' | sort | uniq -c | tr -s ' \n' ' ') status=$s" >> $E/watchdog.log
   return $s; }
-stop_launches() {   # stops the queue process only; runs already live finish on their own
+stop_launches() {   # pauses the queue, keeping its pane and live runs alive
   local pane q; pane=$($TM display-message -p -t eb3-batch '#{pane_pid}') &&
-  q=$(ps -o pid=,comm= --ppid $pane | awk '$2 ~ /^python/ {print $1}') && test -n "$q" && kill -TERM $q
+  q=$(ps -o pid=,comm= --ppid $pane | awk '$2 ~ /^python/ {print $1}') && test -n "$q" && kill -STOP $q && echo "$q" > $E/paused-queue.pid
   echo "$(date -Is) launches stopped: $1" >> $E/watchdog.log; }
 batch_done() { grep -q '^EXIT=' $W/queue.log && ! $TM ls 2>/dev/null | grep -q '^eb3-r-' &&
   ! { for R in $RUNS; do run_state $R; done | grep -q ' running$'; }; }
@@ -471,7 +471,7 @@ batch_done() { grep -q '^EXIT=' $W/queue.log && ! $TM ls 2>/dev/null | grep -q '
   3. investigate and record the cause in `$E/rulings.md`.
 
   The affected run is excluded. Launches continue only if the recorded cause lies outside the frozen runtime and needs
-  no runtime change. Restarting means running `$Q` again with the same `$RUNS`: it skips runs that have `finished`.
+  no runtime change. Continue the same queue with `kill -CONT "$(cat $E/paused-queue.pid)"`; it records finished live runs and launches only pending ones. Never restart `$Q`.
   Otherwise, halt without a result. Never retry a call that could reach Fable.
 - **Resume rule (R3).** A run that stopped on provider infrastructure (rate limit, usage limit, auth, or a CLI crash
   before any agent output) is resumed in its own directory, only when:
@@ -495,6 +495,8 @@ PYTHONPATH=$RT $PY $H/prepare.py scan --run $R --verdict cleared --reason "<what
 PYTHONPATH=$RT $PY $H/prepare.py scan --run $R --verdict contaminated --reason "<what the agent read>"
 ```
 
+For a Fable session attributed by the sweep, record a contaminated verdict on its run before pool, or on its judge before summarize, using `prepare.py scan --run R --verdict contaminated --reason "attributed Fable -tmp- session <id>"` (judge: `--pool P --judge J`). This applies even when the scan itself has zero hits.
+
 A Fable-model hit cannot be cleared, and pool excludes that run. There is no replacement, so an excluded or failed run
 leaves its arm's claim not evaluated.
 
@@ -509,7 +511,8 @@ PYTHONPATH=$RT $PY $H/prepare.py scan --pool $P --judge claude-opus-5-5 --hash $
 budget_ok && $TM new-session -d -s eb3-j2 bash -o pipefail -c "bash $P/records/score-gpt-6-sol.sh 2>&1 | tee $E/judge-gpt.log; echo EXIT=\$? >> $E/judge-gpt.log"
 waitexit $E/judge-gpt.log && PYTHONPATH=$RT $PY $H/prepare.py verify-pool --pool $P &&
 PYTHONPATH=$RT $PY $H/prepare.py scan --pool $P --judge gpt-6-sol --hash $SOL && tick          # adjudicate hits
-cp $E/census-latest.json $E/census-final.json && cp $E/sweep-latest.json $E/sweep-final.json
+# Only after judge 2's verify-pool, scan, adjudication and tick above succeeded:
+cp $E/census-latest.json $E/census-final.json && cp $E/sweep-latest.json $E/sweep-final.json &&
 $TM new-session -d -s eb3-sum bash -o pipefail -c "PYTHONPATH=$RT $PY $H/summarize.py --pool $P --criterion $C --python $PY 2>&1 | tee $E/summarize.log; echo EXIT=\$? >> $E/summarize.log"
 waitexit $E/summarize.log
 ```
