@@ -49,6 +49,7 @@ from .resume_prefix import (
 from .views import ViewPublicationError
 from . import effect_inputs
 from . import agent_turns
+from .agent_views import AgentViews
 
 
 logger = logging.getLogger(__name__)
@@ -91,7 +92,7 @@ def execute_pure_run(
     owns_run_files = authority.run_files is None
     authority = replace(authority, run_files=run_files)
     workspace_files = WorkspaceFiles(workspace)
-    views = agent_turns.AgentViews(None)
+    views = AgentViews(None)
     try:
         _require_retained_root(run_files)
         before = read_memo(authority.memo_path, checked_site_classes, run_files=authority.run_files)
@@ -107,7 +108,7 @@ def execute_pure_run(
             if node["class"] in {"provider", "agent_turn"} and provider_executor is None:
                 provider_executor, manager = provider_executor_for_run(workspace, authority.run_root,
                     agents_present=not {"agent", "agent_turn"}.isdisjoint(checked_site_classes.values()))
-                views = agent_turns.AgentViews(manager)
+                views = AgentViews(manager)
             return _execute_effect(
                 authority,
                 node,

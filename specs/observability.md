@@ -40,13 +40,18 @@
   - An evaluated run whose checked program contains `agent`/`agent_turn`
     effects constructs the run-scoped observation manager best-effort;
     evaluated runs of programs without agents keep observation disabled as
-    before, so 2.35–2.37 behaviour is unchanged (R2). Within an agent-bearing
+    before, so 2.35–2.37 behaviour is unchanged: observation is enabled only
+    where an agent instance needs a durable view. Within an agent-bearing
     run, ordinary `provider-result` effects keep the one-invocation/one-pane
     contract.
   - Each agent instance owns one logical read-only view: every turn of that
     agent appends to the same pane and transcript, with
     `--- turn <identity> attempt <n> ---` and `--- idle ---` boundary lines;
-    invoking the agent again never opens a second pane. Attach is read-only
+    invoking the agent again never opens a second pane. If an agent's view
+    cannot open, that agent stays unobserved for the rest of the process: its
+    turns never fall back to ordinary per-invocation panes and the open is not
+    retried each turn. View files are unique per process, so a resumed run
+    opens fresh views beside the earlier ones. Attach is read-only
     (`tmux -S <socket> attach -r -t <session>`); the session is logged once per
     run at manager creation and each agent view's socket and pane target are
     logged when that view opens. They are transient: a runtime restart may

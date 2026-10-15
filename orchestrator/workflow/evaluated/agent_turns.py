@@ -15,9 +15,7 @@ or env-selected homes), the attempt directory's receipt (`agent_sessions`), and 
 
 from __future__ import annotations
 
-import hashlib
 import json
-import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
@@ -40,8 +38,6 @@ from .commands import workspace_relative_path
 from .memo import MemoError, append_record, read_memo
 from .providers import ProviderPerformerError, launch_provider, provider_delivery_name_for_template, provider_result, resolve_provider_input
 
-logger = logging.getLogger(__name__)
-
 
 class AgentTurnError(RuntimeError):
     def __init__(self, code, message, *, exit_info=None, violations=None, keep_pending=False):
@@ -60,46 +56,6 @@ class ResolvedTurn:
     input_parts: dict
     delivery_name: str
     pending: Any = None         # PendingTurn | None (Task 11), set with dataclasses.replace
-
-
-class AgentViews:
-    """D6: one read-only observation view per agent instance for the life of this process; every turn of the agent
-    appends to it with turn/idle boundary lines. Targets are transient and never persisted; every failure is
-    best-effort (no handle) and never affects a turn. `close` finalizes the views and closes the run's manager."""
-
-    def __init__(self, manager) -> None:
-        self._manager, self._handles = manager, {}
-
-    def handle_for(self, agent_identity: str, turn_identity: str, ordinal: int):
-        if self._manager is None:
-            return None
-        handle = self._handles.get(agent_identity)
-        try:
-            if handle is None:
-                digest = hashlib.sha256(agent_identity.encode("utf-8")).hexdigest()[:16]
-                handle = self._manager.open_observation(invocation_id=f"agent-{digest}", member_id="agent", turn_id="all")
-                self._handles[agent_identity] = handle
-                logger.info("[provider_observation] agent view: tmux -S %s attach -r -t %s (pane %s)",
-                            handle.socket_path, self._manager.session_name, handle.target)
-            handle.append_display(f"\n--- turn {turn_identity} attempt {ordinal} ---\n".encode("utf-8"))
-        except Exception:
-            pass
-        return handle
-
-    def idle(self, agent_identity: str) -> None:
-        try:
-            self._handles[agent_identity].append_display(b"\n--- idle ---\n")
-        except Exception:
-            pass
-
-    def close(self) -> None:
-        for closable in (*self._handles.values(), self._manager):
-            try:
-                if closable is not None:
-                    closable.close()
-            except Exception:
-                pass
-        self._handles.clear()
 
 
 def update_receipt(attempt_files, **changes) -> Receipt:

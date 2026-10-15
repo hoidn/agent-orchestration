@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from orchestrator.providers.observation import ProviderObservationError, ProviderObservationManager
-from orchestrator.workflow.evaluated.agent_turns import AgentViews
+from orchestrator.workflow.evaluated.agent_views import AgentViews
 from tests.agent_session_shims import install_agent_shims, shim_requests
 from tests.test_provider_observation import _FakeObservationBackend
 from tests.test_workflow_evaluated_agent_turns import PLAN, SOURCE, fixture, memo_of, turns
@@ -17,7 +17,8 @@ from tests.test_workflow_evaluated_invalidate import _cli
 ROOT = Path(__file__).parents[1]
 
 # Test-only driver: replaces the module-level backend factory in-process (the kill-point hook pattern). The fake backend
-# hands out `%pane-N` targets and leaves the display files as the pane contents; `broken` raises on server start.
+# hands out `%pane-N` targets and leaves the display files as the pane contents; `broken` raises on server start;
+# `first_two_opens_fail` refuses the first two panes (the two agent views of the program; later panes open).
 # With STOP_RECORD set it also dies (exit 75) right after appending that record for STOP_TURN.
 OBSERVE = r'''import os, sys
 from orchestrator.workflow.evaluated import agent_turns, attempts, runtime
@@ -25,6 +26,14 @@ from tests.test_provider_observation import _FakeObservationBackend
 backend = _FakeObservationBackend()
 if os.environ["OBSERVATION_BACKEND"] == "broken":
     backend.start_error = RuntimeError("no tmux here")
+if os.environ["OBSERVATION_BACKEND"] == "first_two_opens_fail":
+    opened, attempts = backend.open_pane, []
+    def open_pane(*args):
+        attempts.append(args)
+        if len(attempts) <= 2:
+            raise RuntimeError("pane refused")
+        return opened(*args)
+    backend.open_pane = open_pane
 runtime.observation_backend = lambda: backend
 if "STOP_RECORD" in os.environ:
     append = runtime.append_record
@@ -71,14 +80,27 @@ def test_agent_views_open_one_handle_per_agent_with_turn_and_idle_boundaries(tmp
     assert b"--- idle ---" in first.transcript_path.read_bytes()
 
 
-def test_agent_views_without_manager_or_with_broken_backend_return_no_handle(tmp_path) -> None:
+def test_agent_views_without_manager_return_no_handle() -> None:
     assert AgentViews(None).handle_for("run / a", "run / t1", 1) is None
+
+
+def test_failed_agent_view_is_a_cached_no_op_handle_opened_once(tmp_path) -> None:
     backend = _FakeObservationBackend()
     backend.open_error = ProviderObservationError("pane_allocation_failed")
     views = AgentViews(ProviderObservationManager(tmp_path, backend=backend))
-    assert views.handle_for("run / a", "run / t1", 1) is None
+    first = views.handle_for("run / a", "run / t1", 1)
     views.idle("run / a")
+    assert first is not None and views.handle_for("run / a", "run / t2", 1) is first
     views.close()
+    assert len(list((tmp_path / "provider-observation" / "display").glob("*.display"))) == 1   # one open attempt
+
+
+def test_two_managers_on_one_run_root_allocate_distinct_display_files(tmp_path) -> None:
+    """A resumed process opens views under the same run root: stems must not collide with the earlier process."""
+    first, second = (ProviderObservationManager(tmp_path, backend=_FakeObservationBackend()) for _ in range(2))
+    a, b = (m.open_observation(invocation_id="agent-x", member_id="agent", turn_id="all") for m in (first, second))
+    assert a.display_path != b.display_path and a.display_path.exists() and b.display_path.exists()
+    first.close(); second.close()
 
 
 def test_each_agent_has_one_view_across_its_turns_and_ordinary_calls_keep_one_pane(tmp_path, monkeypatch) -> None:
@@ -118,6 +140,11 @@ def test_crash_and_resume_opens_new_views_without_redispatch(tmp_path, monkeypat
     assert resumed.returncode == 0, resumed.stderr
     after = _views(run_root)
     assert set(first) <= set(after) and len(after) == 4    # new views for the resumed process; old streams retained
+    new = [after[name] for name in set(after) - set(first)]
+    assert all(b"--- turn" in view for view in new)
+    for turn in ("a2", "b2"):
+        (view,) = [v for v in new if f"/ {turn} attempt 1 ---".encode() in v]
+        assert view.count(b"--- turn") == 1
     assert len(shim_requests(tmp_path)) == 4
     _r, _a, classes, memo = memo_of(tmp_path)
     assert all(v["attempt"] == 1 for v in turns(memo, classes).values())
@@ -129,6 +156,17 @@ def test_observation_failure_never_changes_execution(tmp_path, monkeypatch) -> N
     assert run.returncode == 0, run.stderr
     _r, _a, classes, memo = memo_of(tmp_path)
     assert set(turns(memo, classes)) == {"a1", "b1", "a2", "b2"} and len(shim_requests(tmp_path)) == 4
+
+
+def test_failed_agent_views_open_no_fallback_panes(tmp_path, monkeypatch) -> None:
+    """D6: an agent whose view cannot open gets no ordinary per-turn pane; the ordinary call still gets its own."""
+    _install(tmp_path, monkeypatch, {"claude": PLAN["claude"], "codex": [*PLAN["codex"], {"mode": "success", "result": {"notes": ["plain"]}}]})
+    run = _observed(tmp_path, "first_two_opens_fail", "run", *fixture(tmp_path, MIXED))
+    assert run.returncode == 0, run.stderr
+    run_root, *_ = memo_of(tmp_path)
+    views = _views(run_root)
+    assert len(views) == 3 and sum(1 for v in views.values() if v) == 1   # two refused agent views + the `plain` pane
+    assert len(shim_requests(tmp_path)) == 5 and "agent view unavailable" in run.stderr
 
 
 def test_views_never_enter_memo_state_or_report(tmp_path, monkeypatch) -> None:
