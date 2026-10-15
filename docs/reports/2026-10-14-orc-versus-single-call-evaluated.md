@@ -144,7 +144,8 @@ They do so at about 2.6 times (`best_of_n`) and 1.5 times (`reviewed_change`) th
   under contention and are indicative only.
 - **Staged files.** Between calls, the shim used at these commits reset the candidate's git index. A file an
   implementer had staged with `git add` was unstaged before the reviewer's call, and the reviewer saw it as
-  untracked. The patches themselves were unaffected, and the shim was fixed after the experiments.
+  untracked. The patches themselves were unaffected, except that a force-added ignored file would have dropped out
+  of later patches; none was seen. The shim was fixed after the experiments.
 - **Harness accommodation.** `best_of_n`'s result path relies on a harness link (R37). Without it, on the evaluated
   route, its implementers lose their results.
 
