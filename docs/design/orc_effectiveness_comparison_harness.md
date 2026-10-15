@@ -511,6 +511,13 @@ Sessions with a literal sandbox `/tmp` working directory are not attributed to a
 run. Earlier runs had no guard: nested Fable probes ran in Task 8 and E-B2 (see
 their reports).
 
+**Evaluation policy (owner, 2026-10-15).** Hidden acceptance is descriptive
+secondary evidence only; it does not decide the primary claim or its validity.
+The owner selected the existing blind quality rubric for E-B3. Its
+[judge-primary criterion](../../experiments/compare/criteria/eb3-judge-primary.json)
+supersedes the original hidden-primary criterion; historical frozen criteria
+remain records of their original decisions.
+
 **Difficulty calibration for follow-on experiments (owner, 2026-10-14; amended
 2026-10-15).** A task can show a workflow's value only when the work leaves
 something for the workflow to do. Later experiments raise task difficulty until

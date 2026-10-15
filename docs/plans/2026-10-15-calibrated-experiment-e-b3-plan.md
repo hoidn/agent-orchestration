@@ -1,9 +1,85 @@
 # E-B3 Plan: Maintained Workflows Against A Single Call On Rung 1
 
-Status: **APPROVED protocol, pre-batch** (review `review_design_eb3.md`, findings F1–F7 applied; dispositions in
-`revision_design_eb3.md`). Runtime and R48 package are built; S1 passed 116 tests, the upstream anchor passed 164/164, and S2 passed with four Opus sessions including its native subagent. The nine-run batch has not started. Criterion draft:
+Status: **IN PROGRESS, judge-primary amendment below governs scoring**. Live state is recorded in `agent-orchestration-compare-evidence/eb3/execution-status.json`. Original pre-batch protocol: **APPROVED** (review `review_design_eb3.md`, findings F1–F7 applied; dispositions in
+`revision_design_eb3.md`). Runtime and R48 package are built; S1 passed 116 tests, the upstream anchor passed 164/164, and S2 passed with four Opus sessions including its native subagent. The historical pre-batch criterion is:
 [`experiments/compare/criteria/eb3.json`](../../experiments/compare/criteria/eb3.json). Design notes and fact checks:
 `agent-orchestration-compare-evidence/eb3/design_eb3.md`.
+
+## Addendum 2026-10-15: judge-primary amendment (supersedes the hidden-primary criterion for scoring)
+
+**Status:** reviewed by independent Opus (`primary-amendment-review.md`); required E1-E5 corrections applied before freeze and queue continuation.
+
+**Why.** The coordinator recorded this mid-batch owner reply at 2026-10-15T22:44:49Z: "don't use hidden tests, or only use them as secondary
+criterion. they are imo too brittle and hard to design correctly" (`$E/owner-primary-amendment-request.json`). At that stage the queue was paused with SIGSTOP: four runs were live and continued, and five were pending. No pool or judge existed, and no hidden result or score had been read.
+
+**What changes.**
+- The new criterion is [`eb3-judge-primary.json`](../../experiments/compare/criteria/eb3-judge-primary.json).
+- [`eb3.json`](../../experiments/compare/criteria/eb3.json) (sha256 `6208b5c0…`, commit `f7f91591`) and `$E/start.json`
+  stay unchanged as the historical pre-batch freeze.
+- **Primary measure:** the existing blind 0–8 rubric of `score.orc`, scored by the same two judges (Opus and
+  `gpt-6-sol`) with the same prompts.
+- **Primary entries:**
+  - `design_review_execute.minus_control >= 0.9`, meaning at least 1 point;
+  - `reviewed_change.paired_gain_mean >= 0.5`, with `paired_gain_runs_negative <= 0`, as in E-A;
+  - run floors of 3, unchanged.
+- **Hidden acceptance** is still computed by the existing `summarize`, but only as description. It has no threshold,
+  gates no validity and ranks nothing.
+- **The owner selected the existing blind rubric** (`owner-rubric-choice.json`); the numerical thresholds are coordinator choices fixed before scoring.
+- **Unchanged:** runtime, code, prompts, task, models, arms, the nine runs, exclusions, the Fable halt and the model
+  policy.
+- **Judge self-preference** is now a limit on the primary measure itself. The report gives each judge's arm means and
+  gains, and the agreement, beside the verdict (`judge_reporting`).
+
+**Commands.** Use these in place of steps 6 and 10's `C`. Steps 8, 9 and 11 are otherwise unchanged.
+
+```bash
+source /home/ollie/Documents/agent-orchestration-compare-evidence/eb3/operation-env.sh
+source "$E/monitor-functions.sh"     # run_state, started, tick, stop_launches, batch_done
+C=$PWD/experiments/compare/criteria/eb3-judge-primary.json OLD=$PWD/experiments/compare/criteria/eb3.json
+# A. after the independent Opus review: pathspec-commit the new criterion and this addendum, then
+test "$(sha256sum < $OLD | cut -c1-64)" = 6208b5c05b8f80a286df96cbbe84822c9b9e020ba92e956f5e104516e2451588 &&
+test "$(sha256sum < $E/start.json | cut -c1-64)" = 50d7f5e22443a8387b145c5a8a3b53c1a8f8e69cecede7d484a712c5a40634fc &&
+test ! -e $P && git ls-files --error-unmatch "$C" docs/plans/2026-10-15-calibrated-experiment-e-b3-plan.md >/dev/null &&
+git diff --quiet HEAD -- "$C" docs/plans/2026-10-15-calibrated-experiment-e-b3-plan.md &&
+$PY -c '
+import hashlib, json, subprocess, sys, time
+h = lambda p: hashlib.sha256(open(p, "rb").read()).hexdigest()
+pid = open(sys.argv[3]).read().strip()
+commit = subprocess.check_output(["git", "log", "-1", "--format=%H", "--", sys.argv[1]], text=True).strip()
+plan_commit = subprocess.check_output(["git", "log", "-1", "--format=%H", "--", "docs/plans/2026-10-15-calibrated-experiment-e-b3-plan.md"], text=True).strip()
+assert commit and plan_commit
+print(json.dumps({"recorded_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "criterion": sys.argv[1], "criterion_sha256": h(sys.argv[1]),
+  "criterion_commit": commit, "plan_commit": plan_commit,
+  "amends_sha256": h(sys.argv[2]), "owner_request_sha256": h(sys.argv[4]),
+  "queue_pid": pid, "queue_state": subprocess.check_output(["ps", "-o", "stat=", "-p", pid], text=True).strip()}, indent=1))' \
+  $C $OLD $E/paused-queue.pid $E/owner-primary-amendment-request.json > $E/amendment-start.json
+# B. continue the paused queue (it launches only the pending runs)
+test -s $E/amendment-start.json && ps -o stat= -p "$(cat $E/paused-queue.pid)" | grep -q '^T' && tick &&
+kill -CONT "$(cat $E/paused-queue.pid)"
+```
+
+Persist the new criterion for later shells:
+```bash
+cat > "$E/amendment-env.sh" <<'EOF'
+C=/home/ollie/Documents/agent-orchestration-compare/experiments/compare/criteria/eb3-judge-primary.json
+EOF
+source "$E/amendment-env.sh"
+# After sourcing operation-env.sh in any later shell, source amendment-env.sh too.
+test "$C" = "$PWD/experiments/compare/criteria/eb3-judge-primary.json"
+# After pool and before either judge launch:
+$PY -c 'import json,sys; m=json.load(open(sys.argv[1])); a=json.load(open(sys.argv[2])); assert m["criterion_sha256"]==a["criterion_sha256"]' "$P/records/mapping.json" "$E/amendment-start.json"
+```
+
+Steps 8–9 continue with `$C` from above. Step 10 builds the pool with `--criterion $C`, so both judges bind the new
+sha256, and runs `summarize --criterion $C` once. After `summarize`, read in this order:
+1. the criterion's `validity` list, which has no hidden gate;
+2. the measures and the verdict;
+3. the per-judge values and the agreement;
+4. hidden acceptance, as description, with any upstream-anchor shortfall stated as a caveat.
+
+The report names both criteria and the stage at which the amendment was made.
+
+---
 
 **No E-B3 call** (S2 probe, run or judge) happens before both of these:
 - the model guard is reviewed and committed;
