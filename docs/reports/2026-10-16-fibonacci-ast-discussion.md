@@ -2,7 +2,7 @@
 
 Historical discussion summary, captured on 2026-10-16. This note records the
 examples and clarifications from a conversation about abstract syntax trees
-(ASTs), including the requested top-down ASCII drawing.
+(ASTs), including top-down ASCII and Mermaid diagrams of both examples.
 
 The examples illustrate Python and Scheme, not the repository's Workflow Lisp
 AST contract. Use the [documentation hub](../index.md) and
@@ -107,6 +107,45 @@ shows its function reference followed by its argument. For readability,
 `Name(n)` abbreviates `Name(id='n', ctx=Load())`, and the drawing omits empty
 fields and separate `Load` leaves.
 
+### Python AST in Mermaid
+
+This diagram uses the same abbreviations as the ASCII tree. Edge labels name
+AST fields; `body[]` remains a display grouping for the function's statements.
+
+```mermaid
+flowchart TD
+    py_module["Module"] -->|body| py_function["FunctionDef: fib"]
+    py_function -->|args| py_arguments["arguments"]
+    py_arguments -->|args| py_parameter["arg: n"]
+    py_function --> py_body["body[]"]
+    py_body -->|0| py_if["If"]
+    py_body -->|1| py_return["Return"]
+
+    py_if -->|test| py_compare["Compare"]
+    py_if -->|body| py_base_return["Return"]
+    py_compare -->|left| py_test_n["Name(n)"]
+    py_compare -->|ops| py_lt["Lt"]
+    py_compare -->|comparators| py_two["Constant(2)"]
+    py_base_return -->|value| py_base_n["Name(n)"]
+
+    py_return -->|value| py_sum["BinOp"]
+    py_sum -->|left| py_call1["Call"]
+    py_sum -->|op| py_add["Add"]
+    py_sum -->|right| py_call2["Call"]
+
+    py_call1 -->|func| py_fib1["Name(fib)"]
+    py_call1 -->|args| py_diff1["BinOp"]
+    py_diff1 -->|left| py_n1["Name(n)"]
+    py_diff1 -->|op| py_sub1["Sub"]
+    py_diff1 -->|right| py_one["Constant(1)"]
+
+    py_call2 -->|func| py_fib2["Name(fib)"]
+    py_call2 -->|args| py_diff2["BinOp"]
+    py_diff2 -->|left| py_n2["Name(n)"]
+    py_diff2 -->|op| py_sub2["Sub"]
+    py_diff2 -->|right| py_last_two["Constant(2)"]
+```
+
 ## Scheme: source syntax and explicit AST nodes
 
 The initial Scheme answer gave this source expression:
@@ -170,7 +209,7 @@ Its selected branch supplies the lambda's result, so there are no explicit
 `Return` nodes. Operators such as `+`, `-`, and `<` appear as variable
 references in procedure calls in this illustrative representation.
 
-## The same tree drawn vertically in ASCII
+### Scheme AST drawn vertically in ASCII
 
 The user asked to rotate the presentation so the tree structure was visible,
 then requested ASCII instead of Mermaid. The root is at the top:
@@ -211,9 +250,45 @@ Read the drawing as follows:
 - The two recursive branches are separate subtrees for `fib(n - 1)` and
   `fib(n - 2)`; the drawing does not expand recursive calls into more trees.
 
+### Scheme AST in Mermaid
+
+The same illustrative Scheme tree is shown below with explicit leaf types.
+Argument indices describe tree structure, not evaluation order.
+
+```mermaid
+flowchart TD
+    sc_program["Program"] -->|body| sc_define["Define: fib"]
+    sc_define -->|value| sc_lambda["Lambda: (n)"]
+    sc_lambda -->|body| sc_if["If"]
+
+    sc_if -->|test| sc_test["Call"]
+    sc_if -->|consequent| sc_base["Variable: n"]
+    sc_if -->|alternative| sc_sum["Call"]
+
+    sc_test -->|operator| sc_lt["Variable: &lt;"]
+    sc_test -->|arg 0| sc_test_n["Variable: n"]
+    sc_test -->|arg 1| sc_two["Literal: 2"]
+
+    sc_sum -->|operator| sc_add["Variable: +"]
+    sc_sum -->|arg 0| sc_call1["Call"]
+    sc_sum -->|arg 1| sc_call2["Call"]
+
+    sc_call1 -->|operator| sc_fib1["Variable: fib"]
+    sc_call1 -->|arg 0| sc_diff1["Call"]
+    sc_diff1 -->|operator| sc_sub1["Variable: -"]
+    sc_diff1 -->|arg 0| sc_n1["Variable: n"]
+    sc_diff1 -->|arg 1| sc_one["Literal: 1"]
+
+    sc_call2 -->|operator| sc_fib2["Variable: fib"]
+    sc_call2 -->|arg 0| sc_diff2["Call"]
+    sc_diff2 -->|operator| sc_sub2["Variable: -"]
+    sc_diff2 -->|arg 0| sc_n2["Variable: n"]
+    sc_diff2 -->|arg 1| sc_last_two["Literal: 2"]
+```
+
 ## Verification scope
 
 The Python AST was generated with the standard-library parser. The Scheme
-AST and its drawing were illustrative; neither came from a Scheme compiler.
+AST and its diagrams were illustrative; none came from a Scheme compiler.
 The discussion did not execute either Fibonacci function, benchmark them,
 or change the repository's compiler implementation.
