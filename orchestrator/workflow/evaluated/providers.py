@@ -14,7 +14,7 @@ from orchestrator.deps.content_snapshot import (
 )
 from orchestrator.deps.resolver import DependencyResolver
 from orchestrator.workflow.assets import WorkflowAssetResolver
-from orchestrator.workflow.prompting import PromptComposer
+from orchestrator.workflow.prompting import CanonicalPromptCut, PromptComposer
 from orchestrator.workflow.evaluated.values import EvaluatedValue
 from orchestrator.workflow.evaluated.provider_io import WorkflowIOReader
 from orchestrator.contracts.closed_program.sites import _effect_value_children
@@ -28,7 +28,7 @@ from orchestrator.contracts.output_contract import (
 )
 
 from .commands import CommandPerformerError, validate_effect_result
-from .prompts import assemble_provider_prompt, provider_expected_outputs
+from .prompts import assemble_provider_prompt_with_cut, provider_expected_outputs
 
 
 DELIVERY_SELECTORS = {"legacy": "legacy", "file/1": "file"}
@@ -50,6 +50,7 @@ class ResolvedProviderInput:
     policy: Mapping[str, Any]
     input_parts: Mapping[str, str]
     expected_outputs: list[dict[str, Any]]
+    canonical_cut: CanonicalPromptCut | None = None
 
 
 @dataclass(frozen=True)
@@ -78,7 +79,7 @@ def resolve_provider_io(
 ) -> ProviderIOReads:
     """Read one reached provider's source and dependency snapshot exactly once."""
 
-    if node.get("class") != "provider":
+    if node.get("class") not in {"provider", "provider_phased"}:
         raise TypeError("checked provider effect required")
     children = _effect_value_children(dict(node))
     if len(children) != len(operands) or not all(
@@ -187,11 +188,12 @@ def resolve_provider_input(node, operands, *, workspace, reader, result_path, de
     policy_count = len(node["policy"])
     policy_values = values[-policy_count:] if policy_count else ()
     policy = dict(zip(node["policy"], policy_values, strict=True))
-    prompt = assemble_provider_prompt(
+    cut = assemble_provider_prompt_with_cut(
         node, operands, source_text=reads.source_text,
         dependency_snapshot=reads.dependency_snapshot, result_path=result_path, logical_workspace=logical_workspace,
         delivery=DELIVERY_SELECTORS["legacy" if delivery_name is None else delivery_name],
     )
+    prompt = cut.canonical_composed.decode("utf-8")
     dependency_rows = (
         [] if reads.dependency_snapshot is None
         else [asdict(row) for row in reads.dependency_snapshot.authored_rows]
@@ -214,8 +216,14 @@ def resolve_provider_input(node, operands, *, workspace, reader, result_path, de
         f"dependency:{path}": digest
         for path, digest in reads.dependency_sha256s.items()
     })
+    if node["class"] == "provider_phased":
+        if delivery_name != FILE_DELIVERY_NAME or logical_workspace:
+            raise ValueError("phased providers require ordinary file rendering")
+        parts["phased_protocol"] = canonical_sha256("provider_phased_protocol_frame.v1")
+        parts["phased_cut"] = canonical_sha256(asdict(cut.projection))
     return ResolvedProviderInput(
-        prompt, policy, parts, provider_expected_outputs(fills, fill_values)
+        prompt, policy, parts, provider_expected_outputs(fills, fill_values),
+        cut if node["class"] == "provider_phased" else None,
     )
 
 

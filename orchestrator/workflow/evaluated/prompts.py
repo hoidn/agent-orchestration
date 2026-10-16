@@ -16,11 +16,14 @@ from orchestrator.deps.content_snapshot import (
 )
 from orchestrator.deps.injector import DependencyInjector
 from orchestrator.workflow.prompting import (
+    CanonicalPromptCut,
+    _prompt_byte_projection,
     PromptComposer,
     append_prompt_block,
     render_prompt_fragment_value,
     substitute_prompt_template,
 )
+from orchestrator.workflow.provider_phased_delivery.models import CompositionProjection
 from orchestrator.workflow.evaluated.values import EvaluatedValue
 from orchestrator.contracts.closed_program.sites import _effect_value_children
 from orchestrator.workflow.typed_prompt_inputs import render_typed_prompt_input_blocks
@@ -135,7 +138,7 @@ def _output_contract_prompt(
     fill_values: Sequence[Any],
     result_path: str,
     delivery: str = "legacy",
-) -> str:
+) -> CanonicalPromptCut:
     expected_outputs = provider_expected_outputs(fills, fill_values)
     contributions: list[tuple[str, str]] = []
     if expected_outputs:
@@ -155,12 +158,14 @@ def _output_contract_prompt(
         else:
             raise ValueError("checked provider result contract kind is invalid")
         contributions.append(("structured_result", block))
-    for _kind, insertion in PromptComposer._output_contract_insertions(
-        prompt,
-        contributions,
-    ):
-        prompt += insertion
-    return prompt
+    task = prompt.encode("utf-8")
+    suffix = "".join(insertion for _kind, insertion in
+        PromptComposer._output_contract_insertions(prompt, contributions)).encode("utf-8")
+    canonical = task + suffix
+    return CanonicalPromptCut(task, suffix, canonical, CompositionProjection(
+        canonical_composed=_prompt_byte_projection(canonical),
+        task_slice=_prompt_byte_projection(task),
+        materialization_slice=_prompt_byte_projection(suffix)))
 
 
 def assemble_provider_prompt(
@@ -173,12 +178,29 @@ def assemble_provider_prompt(
     logical_workspace: bool = False,
     delivery: str = "legacy",
 ) -> str:
+    """Keep the composed string interface over the same single rendering."""
+    return assemble_provider_prompt_with_cut(
+        checked_node, evaluated_operands, source_text=source_text,
+        dependency_snapshot=dependency_snapshot, result_path=result_path,
+        logical_workspace=logical_workspace, delivery=delivery).canonical_composed.decode("utf-8")
+
+
+def assemble_provider_prompt_with_cut(
+    checked_node: Mapping[str, Any],
+    evaluated_operands: Sequence[EvaluatedValue],
+    *,
+    source_text: str | None,
+    dependency_snapshot: DependencyContentSnapshot | None,
+    result_path: str,
+    logical_workspace: bool = False,
+    delivery: str = "legacy",
+) -> CanonicalPromptCut:
     """Assemble a prompt from one checked provider operation and captured inputs.
 
     `delivery` selects the structured-result contract rendering (`legacy` or `file`).
     """
 
-    if checked_node.get("class") != "provider":
+    if checked_node.get("class") not in {"provider", "provider_phased"}:
         raise TypeError("checked provider effect node required")
     if not isinstance(result_path, str) or not result_path:
         raise ValueError("explicit provider result path is required")

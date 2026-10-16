@@ -188,20 +188,20 @@ evidence, not production acceptance; the implementation checks below remain open
 
 **Role/artifact:** Implementation / evaluated phased binding code/tests.
 
-- [ ] Add `tests/test_workflow_evaluated_phased.py` and helpers for one checked
+- [x] Add `tests/test_workflow_evaluated_phased.py` and helpers for one checked
   phased effect. Capture source/dependencies once and render the canonical
   task/materialization cut once; protocol frames stay outside that canonical
   identity. Test dependency mutation after capture without asserting prose.
-- [ ] Implement `phased_providers.py` against Task 2's prepared interface, reusing shared
+- [x] Implement `phased_providers.py` against Task 2's prepared interface, reusing shared
   provider input resolution, result validators, `WorkspaceFiles`, interactive
   invocation preparation and existing endpoint/ledger/frame owners. Use the
   evaluator's allocated identity/ordinal rather than allocate another attempt.
-- [ ] Validate all output-position files and structured result in one submitted
+- [x] Validate all output-position files and structured result in one submitted
   snapshot. Preflight unique candidate paths as absent; reject aliasing,
   preexisting content, traversal, escaping symlinks and runtime-owned paths.
   Reset only that attempt's owned candidates between materializations. Freeze
   immutable validated bytes, then restore/verify them after natural shutdown.
-- [ ] Persist the design's minimal attempt-local receipt before backend launch;
+- [x] Persist the design's minimal attempt-local receipt before backend launch;
   bind program/site/ordinal/input/result locator, candidate set and private
   cleanup identity. Use `phased-attempt.json` with schema
   `evaluated_phased_provider_attempt.v1` and the exact inline proof
@@ -209,7 +209,7 @@ evidence, not production acceptance; the implementation checks below remain open
   only after freeze and natural exit.
   Keep phase ledger, stdout and pane output audit-only. A torn optional ledger
   cannot authorize a result or block otherwise proven cleanup.
-- [ ] Implement the selected [endpoint ownership protocol](../design/workflow_lisp_phased_contract_delivery.md#submit-endpoint-ownership-and-recovery)
+- [x] Implement the selected [endpoint ownership protocol](../design/workflow_lisp_phased_contract_delivery.md#submit-endpoint-ownership-and-recovery)
   in the existing endpoint: durable controller identity before bind, observed
   socket identity before listener/workers and `closed` only after zero survivors.
   Test pre/post-bind interruption, dead versus live/ambiguous controller identity,
@@ -217,17 +217,17 @@ evidence, not production acceptance; the implementation checks below remain open
   Recovery admission is read-only; provider cleanup precedes endpoint cleanup,
   then candidate cleanup. The run lock or failed connection alone proves no
   endpoint-worker death. Keep the transport receipt schema unchanged.
-- [ ] Test explicit capability absence/malformed data before launch, model/effort
+- [x] Test explicit capability absence/malformed data before launch, model/effort
   translation, total deadline across operations, exhausted materializations,
   candidate mutation after submission, receipt/proof mismatch and result digest
   mismatch. No missing runtime binding may fall back to composed execution.
-- [ ] Derive and test the design's original live deadline: capture `t0` before
+- [x] Derive and test the design's original live deadline: capture `t0` before
   request composition/transport and add the authored positive literal once;
   refuse nonfinite conversion/addition or `deadline <= t0` before allocation.
   Cover composition time, task/correction sharing, shutdown/first-commit expiry
   and no per-phase renewal. K4 starts a fresh live budget only after separately
   bounded cleanup; provider/per-operation defaults supply no finite authority.
-- [ ] Collect and run:
+- [x] Collect and run:
 
   ```bash
   pytest --collect-only -q tests/test_workflow_evaluated_phased.py
@@ -420,6 +420,22 @@ accurate current routing. Ordinary composed behavior remains compatible.
   Earlier failing logs remain diagnostic evidence. Adapter tests use real tmux
   with deterministic local processes; paid provider qualification was not run.
   The candidate-preservation/redispatch and public resume checks above remain
-  open for Tasks 3–5. Tasks 3–7 remain incomplete; runtime dispatch is unavailable.
+  open for Tasks 4–5.
+- Task 3 complete: evaluated bindings share one captured prompt cut, jointly
+  validate and freeze candidate bytes, persist atomic attempt ownership and
+  prepared proof, and implement memo-only settlement and exact-attempt cleanup
+  helpers. The existing submit endpoint now records durable controller/socket
+  ownership and refuses unproven cleanup. Independent spec-compliance and
+  code-quality reviews approved the eight frozen code/test files against base
+  `3f97a22f`; the coordinator inspected the diff and verified their SHA-256
+  hashes against the test receipt. Final focused checks passed **45** cases,
+  the affected broad selector passed **367**, and the new modules collected
+  **45**; these selections overlap. Evidence:
+  `/tmp/orc-phased-239-evidence/task3-bindings/verification_receipt.json`,
+  `run-final.sh`, `focused.log`, `broad.log`, `collect.log` and exit receipts.
+  Real local tmux cases exercise same-process correction and natural close.
+  Tasks 4–7 remain incomplete: these bindings are not yet wired into public
+  evaluated dispatch, memo commit or resume; public CLI kill-gap evidence and
+  current documentation routing remain required.
 - Live-provider qualification: not selected; deterministic fixtures do not claim
   it and do not establish improved provider task quality.
