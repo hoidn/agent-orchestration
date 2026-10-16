@@ -4,6 +4,7 @@
 
 - **Title:** Provider result delivery rendering, versioned replay, and a typed channel for inability
 - **Status:** implemented on 2026-10-13; execution record in the [closeout](../reports/2026-10-13-provider-result-delivery-closeout.md)
+- **Nested presentation follow-on:** `file/2`; [implementation and verification](../reports/2026-10-13-provider-json-rendering.md)
 - **Kind:** clarification and operational design
 - **Owner:** evaluated runtime and prompt-contract maintainers
 - **Reviewers:** one independent design reviewer; one code reviewer distinct from the implementer
@@ -11,6 +12,7 @@
 - **Last material update:** 2026-10-13
 - **Related docs / issues / plans:**
   [missing-result-file report](../reports/2026-10-13-claude-missing-result-file.md),
+  [follow-up prompt review](../reports/2026-10-13-provider-prompt-review.md),
   [design principle 30](workflow_language_design_principles.md#30-provider-attention-is-a-bounded-resource-the-language-conserves),
   [evaluated execution](workflow_lisp_evaluated_execution.md),
   [prompt calculus](workflow_lisp_prompt_calculus.md),
@@ -31,8 +33,8 @@ execution. Original qualification results remain in the linked closeout.
 
 ## Summary
 
-Every provider call on the evaluated route delivers its result through one
-mechanism: a file at the attempt's `result.json`, named to the agent by the
+Every ordinary file-transport provider call on the evaluated route delivers
+its result through a file at the attempt's `result.json`, named to the agent by the
 `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` environment variable and by the contract
 block's `- path:` line. The contract block the runtime appends to the prompt
 does not say so. It opens with "Produce one JSON value", then offers a
@@ -51,6 +53,10 @@ diagnostic; and gives authors a typed way to say "I cannot" instead of
 withholding the file. Authored prompts stop carrying transport instructions.
 The original delivery change preserved flat-route composition bytes; that
 pre-retirement comparison remains historical evidence, not current execution support.
+OMP is a distinct, existing transport exception:
+the parent exclusively materializes its validated normalized assistant output
+into the attempt file before the same result validation. This is not a fallback
+for an ordinary provider that omitted its file.
 
 ## Context And Authority
 
@@ -142,8 +148,10 @@ Goals:
 
 Non-goals:
 
-- Materializing a result from stdout or from assistant text. The file stays
-  the only result authority on this route (`specs/io.md`).
+- Adding an assistant-text fallback for ordinary file-transport providers.
+  OMP's existing normalized-text transport exception is governed by
+  `specs/providers.md`; after parent materialization, the attempt file remains
+  the result validator's input.
 - Changing the result contract, validation, the memo wire beyond one additive
   provider input part, or the run header.
 - Rendering changes for the flat route or for `expected_outputs` output
@@ -160,17 +168,23 @@ version that rendering per committed effect.
 - The three structured-result renderers take a `delivery` selector. `legacy`
   reproduces the pre-change text exactly and remains the default for shared
   callers, earlier evaluated-effect replay and OMP integration.
-  `file` renders the evaluated route's block: the write action first,
+  `file` preserves the evaluated route's `file/1` block: the write action first,
   pointing at the `- path:` line (the path itself appears exactly once in the
   prompt, rule R3 of the evaluated design), the environment variable as the
   same target, the statement that a reply does not deliver, then the schema. The relpath guidance is rendered
   under `file` only when the contract's schema contains a `relpath` type.
+- New ordinary evaluated calls select `file/2`: the action and single path
+  lead a nested JSON-shaped type notation. It displays real keys, complete
+  union alternatives and guidance at the corresponding fields. Generated
+  aliases and JSON pointers remain internal. The
+  [JSON rendering plan](../plans/2026-10-13-provider-json-contract-rendering-plan.md)
+  records this presentation change; transport and result validation stay the same.
 - The evaluated route records the rendering it used as a provider input part,
   `delivery`, whose value is the canonical digest of the rendering name
-  (`"legacy"` or `"file/1"`). On replay of a committed effect the runtime reads
+  (`"legacy"`, `"file/1"` or `"file/2"`). On replay of a committed effect the runtime reads
   the committed row's `delivery` part, absent meaning `legacy`, and renders
   with that selector before comparing parts. New attempts use the current
-  selector, `file/1`.
+  selector, `file/2`, for ordinary file transport; OMP keeps `legacy`.
 - The `provider_result_missing` message carries a bounded excerpt of the
   attempt's `stdout.txt` (first 240 characters, whitespace collapsed) after
   the path. The memo `failed` row is unchanged (`specs/state.md` fixes its
@@ -192,13 +206,15 @@ Alternatives considered:
 | Change the wording and accept one-time `effect_input_diverged` on in-flight runs | Breaks resume of every evaluated run with committed provider effects; contradicts the resume contract that a changed runtime must not force re-execution of committed work |
 | Pin the rendering version in the run header | Needs a header profile change (`specs/state.md` fixes exactly fourteen keys) and a schema bump for an additive fact that the memo row can carry |
 | Exclude the contract block from the `prompt` part | Also changes the recomputed digest of every existing row; the block's content (path, schema) is legitimately input |
-| Materialize assistant text as the result when the file is absent | Removes validation before commit and the file's authority; rejected by `specs/io.md` and by the evaluated design |
+| Treat an ordinary file-transport provider's assistant reply as a fallback result | Silently substitutes another delivery channel when the required file is absent; rejected by `specs/io.md` and the evaluated design. OMP's explicitly selected normalized-text transport is a separate existing contract and still undergoes result validation |
 | Add a new memo field for the stdout excerpt | Memo wire change for a diagnostic the attempt directory already retains; the error string suffices |
 
 Tradeoffs accepted: the `legacy` rendering stays in the codebase after the
 flat route is deleted, because evaluated runs committed before this change
 replay it; it is one string per renderer. The `file/1` wording is a new
-identity input for new runs, so a later wording change needs `file/2`.
+identity input for runs that used it. `file/2` adds nested type presentation;
+subsequent byte changes require another rendering name. Both historical
+renderings remain replay obligations.
 
 Left open: see §Open Questions (omp transport; the top-of-prompt delivery
 line as a measured variant).
@@ -212,9 +228,10 @@ assemble_provider_prompt(node, operands, ..., result_path, delivery)
   -> _output_contract_prompt(..., delivery)
      -> render_output_bundle_contract_block(payload, delivery=...)
         | render_variant_output_contract_block(payload, delivery=...)
+        | file/2 nested shape from the checked result descriptor
 ```
 
-`delivery="file"` block for a non-record root (illustrative; the exact text
+Historical `delivery="file"` block for a non-record root (illustrative; the exact text
 is owned by the renderer and is not a test oracle):
 
 ```text
@@ -228,10 +245,24 @@ Returning the value in your reply does not deliver it.
   type: string
 ```
 
-Records and tagged unions keep their field and discriminant sections; only
+Under `file/1`, records and tagged unions keep their field and discriminant sections; only
 the opening sentences change. The `- path:` line remains the attempt's
 workspace-relative `result.json` (R3). The relpath guidance line is appended
 only when the schema spec, walked recursively, contains a `relpath` type.
+
+Under `file/2`, the checked result descriptor supplies the nested structure,
+including empty records, through the existing transport-schema converter.
+The validated contract payload supplies constraints and authored guidance.
+Their JSON pointers are decoded internally to attach annotations to actual
+nodes; generated field names are never split to infer nesting. An explicitly
+labelled type notation uses markers such as `<string>` and `<finite number>`;
+only authored examples appear as example data. Complete union alternatives
+repeat common fields to avoid a separate merge notation. Optional values
+permit `null`; omission is described separately where the existing contract
+permits it. Root scalar and `Value` results stay direct roots. Path notes
+appear only at path nodes, and authored keys, tags and annotations are
+JSON-encoded. The renderer cannot recover guidance already absent from the
+compiled payload, including flattened empty-record guidance.
 
 `delivery="legacy"` returns the pre-change text. The retained shared composer
 (`orchestrator/workflow/prompting.py`) uses the renderer's default and preserves
@@ -243,10 +274,11 @@ run or resume a retired flat entry.
 `resolve_provider_input` gains a `delivery` argument and records
 `parts["delivery"] = canonical_sha256(delivery_name)`. `_resolve_effect_input`
 passes `commit.data["input_parts"].get("delivery")` when a commit is present,
-mapping the digest back to a known name through a two-entry table and
+mapping the digest back to a known rendering name and
 treating absence as `legacy`; an unknown digest refuses with
 `effect_input_diverged` naming the part. Without a commit it passes the
-current name, `file/1`. The `started` row of a new attempt therefore carries
+current name, `file/2`, for ordinary file transport (`legacy` for OMP).
+The `started` row of a new attempt therefore carries
 the part, and a later runtime replays it by the same rule.
 
 Historical flat runs recorded no `delivery` part; this change does not rewrite
@@ -288,7 +320,7 @@ outcome. It reads nothing but memo rows and attempt files and writes nothing.
 
 | Contract | Old | New | Compatibility |
 | --- | --- | --- | --- |
-| Rendered contract block, evaluated route | Content-first sentence with a conditional alternative; relpath guidance always | Delivery-first sentence for the file transport; relpath guidance only with a path type | New runs only; replay of committed rows renders what they recorded |
+| Rendered contract block, evaluated route | Content-first sentence with a conditional alternative; relpath guidance always | Delivery-first file action and nested type shape; path notes attached to path nodes | New runs only; replay of committed rows renders what they recorded |
 | Historical flat-route contract block / retained shared rendering | unchanged | unchanged | Original retained-release or snapshot comparison; no current flat execution |
 | Provider `input_parts` (`specs/state.md`) | `declaration`, `values`, `policy`, `params`, `prompt`, `dependency_rows`, sources, dependencies | plus `delivery` | Additive; absence means `legacy` on replay |
 | `provider_result_missing` failure message (terminal row `message`, view `error.message`, `report`) | `provider did not create <path>` | same, plus `; reply began: <excerpt>` when `stdout.txt` is non-empty | Message text only; the memo `failed` row keeps `exit_info` `{}` |
@@ -311,8 +343,11 @@ must-exist checks keep their diagnostics.
 
 ## Invariants And Failure Modes
 
-- The file at the attempt's result path is the only result authority; no
-  code path reads the result from stdout, stderr or assistant text.
+- The result validator reads only the attempt's result file. Ordinary
+  providers must create it; OMP's parent exclusively creates it from successful
+  normalized transport output. Raw stdout, stderr and an ordinary provider's
+  reply cannot substitute for the file. Existing or provider-planted leaves
+  are never overwritten or accepted by OMP materialization.
 - The contract block is appended exactly once (`specs/providers.md`).
 - A committed effect is reused on resume if and only if its recorded input
   parts equal the recomputed ones, with the recomputation using the recorded
@@ -329,13 +364,14 @@ must-exist checks keep their diagnostics.
 
 The excerpt in the failure message repeats up to 240 characters of provider
 stdout into the terminal row of `memo.jsonl` and derived views, which already retain the full
-`stdout.txt`; no new data class is exposed. Rendering cost is unchanged. No
+`stdout.txt`; no new data class is exposed. The nested renderer walks the
+existing checked schema; its performance has not been benchmarked. No
 deployment or credential impact.
 
 ## Evidence And Implementation Boundaries
 
-- Default path: `assemble_provider_prompt` with `delivery="file/1"` for new
-  attempts, reached through public `run` and `resume`.
+- Default path: `assemble_provider_prompt` with `delivery="file/2"` for new
+  ordinary attempts, reached through public `run` and `resume`.
 - The retained shared `PromptComposer` keeps the renderer default; direct
   shared-composition checks compare its bytes with retained snapshots. The
   original flat-step before/after comparison belongs to the pre-retirement
@@ -346,24 +382,28 @@ deployment or credential impact.
 
 ## Compatibility And Migration
 
-Admitted evaluated runs started before this change resume unchanged: their committed provider
-rows carry no `delivery` part and replay with `legacy`. Their next new
-attempts render `file/1` and record it, so one run may hold both renderings;
-that is by design. No migration of existing memos or headers. Rollback is
-removing the selector; rows recorded with `file/1` would then diverge, so a
-rollback after any new run is a new rendering change, not a revert.
+Admitted evaluated runs started before delivery versioning resume unchanged: their committed
+provider rows carry no `delivery` part and replay with `legacy`. Committed
+`file/1` rows likewise replay their recorded bytes. The next new ordinary
+attempt selects `file/2`, so one run may hold several rendering versions;
+that is by design. No migration of existing memos or headers. Removing a
+recorded selector would make its rows diverge. Any rollback must preserve
+known selectors for replay and select a different version for new attempts.
 
 ## Verification Strategy
 
-- Renderer: for each of the three renderers and both selectors, the block
+- Historical renderer: for each of the three renderers and both old selectors, the block
   contains the attempt path line and the schema; under `file` the relpath
   guidance is present if and only if the schema contains a `relpath`; under
   `legacy` the output equals a stored pre-change rendering for the same
   payload (structural and byte checks, no phrasing assertions).
+- Current renderer: nested keys, complete alternatives, constraints and
+  encoded guidance match the checked contract; direct roots, empty records,
+  nullable/omittable fields and containers preserve their semantics.
 - Identity: a public evaluated run with two provider effects, interrupted after
-  the first commit under `legacy` rendering (fixture captured before the
-  change), resumed after the change: the first effect is reused with no
-  dispatch, the second runs with `file/1` and records the part; completed
+  the first commit under `legacy` or `file/1` rendering (fixtures captured
+  before their successor), resumed after the change: the first effect is reused with no
+  dispatch, the second runs with `file/2` and records the part; completed
   resume twice yields identical memo bytes.
 - Divergence: a committed row with a fabricated unknown `delivery` digest
   refuses with `effect_input_diverged` naming `delivery`, before any launch.
@@ -376,8 +416,10 @@ rollback after any new run is a new rendering change, not a revert.
   nothing has no excerpt suffix.
 - Authoring: the chess workflow compiles with `MoveOutcome` and a deterministic
   provider returning `Blocked` routes to the loop's typed outcome.
-- Smoke: one real-provider round of the chess workflow and one
-  `plan_review_execute` dry run after the change.
+- Initial delivery smoke: one real-provider round of the chess workflow and
+  one `plan_review_execute` dry run. The nested-presentation follow-on uses
+  public compile/run/resume with a fake provider and distinct guided contracts;
+  this proves contract flow and replay, not improved model compliance.
 - Measurement: the census over the four runs in §Problem reproduces 4 missing
   of 67 before the change; after it, the same sites with the same models over
   at least ten attempts each, reported by shape.
@@ -468,7 +510,7 @@ whole suite is unchanged until the evaluated composer opts in.
 | Question | Owner | Blocking |
 | --- | --- | --- |
 | Resolved 2026-10-13: `specs/providers.md` states that OMP JSON-transport children never receive the binding; they emit one validated final assistant JSON value that the parent materializes. Providers bound to `omp` templates therefore keep `legacy`, whose text includes that branch; a dedicated text rendering is later work. Owner selection recorded in the plan | owner | No |
-| Does a one-line delivery statement at the top of a long prompt (the 24 KB design case) reduce prose-only replies? | measured after phase 4, as `file/2` if adopted | No |
+| Does a one-line delivery statement at the top of a long prompt (the 24 KB design case) reduce prose-only replies? | measured after phase 4, under a new rendering version if adopted (`file/2` is already assigned to nested presentation) | No |
 | Should `report` render the excerpt distinctly from the error code? | views maintainer | No |
 
 ## Appendix

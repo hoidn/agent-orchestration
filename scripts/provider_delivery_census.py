@@ -20,7 +20,7 @@ from pathlib import Path
 # Same bytes as orchestrator.workflow.run_ref.contracts.canonical_sha256 for a string.
 DELIVERY_NAMES = {
     "sha256:" + hashlib.sha256(json.dumps(name).encode("utf-8")).hexdigest(): name
-    for name in ("legacy", "file/1")
+    for name in ("legacy", "file/1", "file/2")
 }
 
 

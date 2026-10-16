@@ -194,12 +194,19 @@ schema notation, not authored workflow files.
   - On the evaluated route the output-contract block states the delivery the
     runtime selected. A provider that receives `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`
     gets the file action first, pointing at the `- path:` line that names its
-    attempt's result file (rendering `file/1`), and
-    the relpath guidance only when the contract carries a path type; a provider
+    attempt's result file (rendering `file/2`), followed by a nested JSON-shaped
+    type notation using the result's actual keys. Compiler field aliases and
+    generated JSON pointers are not displayed. Complete tagged-union
+    alternatives include their shared fields; nullable values and omittable
+    fields remain distinct. Constraints and JSON-encoded authored guidance
+    appear at the corresponding node, with relpath guidance only at path
+    nodes. The notation is explicitly a type shape, not an example result;
+    it invents no field values. A provider
     bound to an `omp` template keeps the earlier rendering (`legacy`), whose text
     includes the final-assistant-text branch that transport materializes. The
     rendering an attempt used is recorded as the provider input part `delivery`
-    and replayed as recorded ([State](state.md#memo-records)). Authored prompts
+    and replayed as recorded ([State](state.md#memo-records)); historical
+    `legacy` and `file/1` prompt bytes remain unchanged. Authored prompts
     carry no delivery instructions; a `provider_result_missing` failure names
     the head of the provider's stdout in its error text
     ([design](../docs/design/provider_result_delivery.md)).
@@ -543,8 +550,10 @@ schema notation, not authored workflow files.
     `variant_output` and `inject_output_contract` is not `false`, append the
     deterministic contract suffixes describing required artifacts (`name`,
     `path`, `type`, optional constraints) and/or the required JSON bundle
-    (`path`, `fields[*].json_pointer`, `fields[*].type`, optional
-    constraints). An admitted target-2.21 pair renders exactly two blocks in
+    (`path`, field types and optional constraints). Historical `legacy` and
+    `file/1` renderings display `fields[*].json_pointer`; ordinary evaluated
+    `file/2` uses those pointers internally to show actual nested keys and
+    their annotations. An admitted target-2.21 pair renders exactly two blocks in
     fixed `expected_outputs`-then-structured-contract order; a single contract
     continues to render one block.
     - An `output_bundle` whose sole field uses `json_pointer: ""` (a direct

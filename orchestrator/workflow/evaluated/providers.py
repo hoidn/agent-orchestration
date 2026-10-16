@@ -31,8 +31,8 @@ from .commands import CommandPerformerError, validate_effect_result
 from .prompts import assemble_provider_prompt, provider_expected_outputs
 
 
-DELIVERY_SELECTORS = {"legacy": "legacy", "file/1": "file"}
-FILE_DELIVERY_NAME = "file/1"  # the current file rendering for new rows; one edit switches every selector
+DELIVERY_SELECTORS = {"legacy": "legacy", "file/1": "file", "file/2": "file/2"}
+FILE_DELIVERY_NAME = "file/2"  # the current file rendering for new rows; one edit switches every selector
 DELIVERY_NAMES_BY_DIGEST = {canonical_sha256(name): name for name in DELIVERY_SELECTORS}
 
 
@@ -175,7 +175,7 @@ def provider_dependency_rows(node, values):
 def resolve_provider_input(node, operands, *, workspace, reader, result_path, delivery_name, logical_workspace=False):
     """Capture a reached provider's request and all content-bound input parts.
 
-    `delivery_name` (`legacy` or `file/1`) selects the contract rendering and is
+    `delivery_name` (`legacy`, `file/1` or `file/2`) selects the contract rendering and is
     recorded as the `delivery` part; None replays a row committed before the
     part existed: it renders `legacy` and records no part.
     """
@@ -269,6 +269,13 @@ def launch_provider(
     finally:
         attempt_files.create("stdout.txt", stdout, exclusive=True)
         attempt_files.create("stderr.txt", stderr, exclusive=True)
+    if invocation.metadata_mode == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value:
+        if not execution.normalized_stdout:
+            raise ProviderPerformerError(
+                "provider_result_missing",
+                f"provider did not provide normalized output for {result_path}{_reply_excerpt(attempt_files)}",
+            )
+        attempt_files.create("result.json", execution.normalized_stdout, exclusive=True)
     return execution
 
 

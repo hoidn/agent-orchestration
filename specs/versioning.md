@@ -947,10 +947,11 @@ owns the finite retained-reader boundary; its implementation plan owns status.
 
   - Provider result delivery rendering: on the evaluated route the output
     contract block leads with the delivery the runtime selected (the attempt's
-    result file, rendering `file/1`), renders the relpath guidance only when
-    the contract carries a path type, and records the rendering as the
+    result file, initially `file/1`, now `file/2` with nested JSON type shapes),
+    attaches relpath guidance to path nodes, and records the rendering as the
     provider input part `delivery`; a committed effect replays with the
-    rendering it recorded, so a wording change never diverges it. Providers
+    rendering it recorded, preserving historical bytes when a new rendering
+    version is introduced. Providers
     bound to `omp` templates keep the earlier rendering (`legacy`). A
     `provider_result_missing` failure carries the head of the provider's
     stdout in its error text. The original through-2.34 flat prompt comparison

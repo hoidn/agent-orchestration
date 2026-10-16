@@ -15,10 +15,12 @@ import pytest
 from orchestrator.workflow.evaluated.authority import load_run_authority
 from orchestrator.workflow.evaluated.machine import site_classes
 from orchestrator.workflow.evaluated.memo import read_memo
+from orchestrator.workflow.evaluated.providers import FILE_DELIVERY_NAME
 from orchestrator.workflow_lisp.build import FrontendBuildRequest
 from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.contracts.prompt_contract import render_output_bundle_contract_block
+from orchestrator.contracts.prompt_json_shape import render_json_shape_contract_block
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 
 
@@ -208,7 +210,7 @@ def test_public_completed_provider_resume_is_readonly_through_service_and_cli(tm
     (request,) = _requests(tmp_path)
     _assert_public_request_contract(tmp_path, run_root, commit.data, request)
     _assert_attempt_evidence(run_root, commit.data, request)
-    assert commit.data["input_parts"]["delivery"] == canonical_sha256("file/1")
+    assert commit.data["input_parts"]["delivery"] == canonical_sha256("file/2")
     from orchestrator.cli.commands.resume import resume_workflow
 
     monkeypatch.chdir(tmp_path)
@@ -318,7 +320,10 @@ def test_complete_provider_request_preserves_preparation_and_dispatch_contract(t
             observed["execute_args"], observed["execute_kwargs"] = args, kwargs
             return real_execute(executor, *args, **kwargs)
 
-        with patch.object(ProviderExecutor, "prepare_invocation", prepare), patch.object(ProviderExecutor, "execute", execute):
+        with patch("orchestrator.workflow.evaluated.prompts.render_json_shape_contract_block",
+                   wraps=render_json_shape_contract_block) as render_shape, \
+                patch.object(ProviderExecutor, "prepare_invocation", prepare), \
+                patch.object(ProviderExecutor, "execute", execute):
             code, value = _execute(tmp_path, built, authority)
             assert code == 0 and value == {"ok": True}
         snapshot = read_memo(authority.memo_path, site_classes(built.program))
@@ -339,9 +344,12 @@ def test_complete_provider_request_preserves_preparation_and_dispatch_contract(t
         assert os.path.isabs(bundle) and Path(bundle) == authority.run_root / commit.data["result_path"]
         node = next(row for row in built.program.tree["body"].values()
             if isinstance(row, dict) and row.get("class") == "provider")
-        block = render_output_bundle_contract_block({**node["contract"]["payload"],
-            "path": workspace_relative(bundle, tmp_path)}, delivery="file")
-        assert block in current["prompt_content"]
+        (rendered_contract, rendered_result, rendered_path), = [call.args for call in render_shape.call_args_list]
+        assert rendered_contract == node["contract"] and rendered_result == node["result"]
+        assert rendered_path == workspace_relative(bundle, tmp_path)
+        assert commit.data["input_parts"]["delivery"] == canonical_sha256(FILE_DELIVERY_NAME)
+        assert commit.data["input_parts"]["prompt"] == "sha256:" + hashlib.sha256(
+            current["prompt_content"].encode()).hexdigest()
         assert current["prompt_content"].index("ASSET SOURCE") < current["prompt_content"].index("typed input")
         invocation = observed["invocation"]
         assert invocation.prompt == invocation.prepared_prompt == current["prompt_content"]
@@ -368,12 +376,14 @@ def test_complete_provider_request_preserves_preparation_and_dispatch_contract(t
 
 
 def _assert_prompt_path_parity(node, current, previous, workspace, *, previous_delivery="legacy"):
-    """The prompts differ only in the contract block: the flat route renders `legacy`, a new evaluated attempt `file`."""
+    """The prompts differ only in the contract block: the flat route renders `legacy`, a new evaluated attempt `file/2`."""
     payload, key = node["contract"]["payload"], "ORCHESTRATOR_OUTPUT_BUNDLE_PATH"
-    flat_block = render_output_bundle_contract_block(
-        {**payload, "path": workspace_relative(previous["env"][key], workspace)}, delivery=previous_delivery)
-    current_block = render_output_bundle_contract_block(
-        {**payload, "path": workspace_relative(current["env"][key], workspace)}, delivery="file")
+    previous_path = workspace_relative(previous["env"][key], workspace)
+    flat_block = (render_json_shape_contract_block(node["contract"], node["result"], previous_path)
+        if previous_delivery == "file/2" else render_output_bundle_contract_block(
+            {**payload, "path": previous_path}, delivery=previous_delivery))
+    current_block = render_json_shape_contract_block(node["contract"], node["result"],
+        workspace_relative(current["env"][key], workspace))
     assert flat_block in previous["prompt_content"]
     assert current["prompt_content"] == previous["prompt_content"].replace(flat_block, current_block, 1)
     return flat_block, current_block
@@ -390,7 +400,7 @@ def _assert_retry_request_parity(program, current, previous):
         if isinstance(row, dict) and row.get("class") == "provider"]
     _assert_prompt_path_parity(node,
         {"env": current["env"], "prompt_content": current["prompt"]},
-        {"env": previous["env"], "prompt_content": previous["prompt"]}, current["cwd"], previous_delivery="file")
+        {"env": previous["env"], "prompt_content": previous["prompt"]}, current["cwd"], previous_delivery="file/2")
 
 
 @pytest.mark.parametrize("document_kind", ["doc", "dependencies"])

@@ -195,3 +195,22 @@ and `tests/test_workflow_lisp_result_guidance_e2e.py` remain uncommitted with th
 pre-existing file/2 implementation changes they require. No push or live-provider
 campaign was performed. The default-suite repair objective is complete; existing
 live/environment prerequisite gates and the two pre-existing xfails are unchanged.
+
+## Requested commit closure
+
+The owner's subsequent `stage comit merge` request closes the three deferred
+file/2-dependent test edits recorded above. They are committed with their complete
+existing dependency set: versioned nested renderer, OMP result materialization,
+replay/consumer helpers and tests, exact historical file/1 fixtures, census and
+owning contract documentation. Independent review verified the selected index
+against the passing full-suite inputs and excluded unrelated local work. The
+three provider-parity hunks are included from the mixed evaluated-execution design;
+its separate checked-program proposal remains local.
+
+A fresh eight-module check passed all 128 tests in 33.71 seconds, with exit 0.
+No runnable source changed since the complete 16,044-pass run. The commit containing
+this closure is created directly on main, so the requested local integration is
+complete without an additional branch merge. Other local work is preserved;
+no push is part of this operation. Receipts: `remaining-commit-check.xml`,
+`remaining-commit-packaging-review.md` and `remaining-commit-index-freeze.json`
+under `/tmp/orc-suite-repair-20261016/`.

@@ -21,7 +21,7 @@ from tests.test_workflow_evaluated_invalidate import _cli
 from tests.workflow_lisp_improve_example_sources import APPROVED_LAUNCH, EXHAUSTED_LAUNCH, QUESTION, _params
 from tests.workflow_evaluated_consumer_sources import (
     BUGGY, BUNDLE, CANDIDATES, PROGRAMS, SITE, ROOT, assert_request_lineage, current_route,
-    git, install, install_shims, jsonl, lineage, missing_edges, request_view, requests, run_consumer,
+    git, install, install_shims, jsonl, lineage, missing_edges, request_view, requests, run_consumer, sha256,
 )
 
 
@@ -500,3 +500,42 @@ WATCH_CASES = {
     "claude-repair": ("failed", "claude_opus", "invoke-repair", ["claude"], ("FAILED", "YES", "RESUME"),
                       (f"{EVIDENCE}/repair-result.json", *REPAIRED.values())),
 }
+
+
+def test_request_comparison_checks_the_selected_contract_before_normalizing_it(tmp_path):
+    from copy import deepcopy
+    from orchestrator.contracts.closed_program.sites import _ast_nodes
+    from orchestrator.contracts.prompt_contract import render_output_bundle_contract_block
+    from orchestrator.contracts.prompt_json_shape import render_json_shape_contract_block
+    from tests.test_workflow_evaluated_providers import _cli, _fixture, _requests
+    from tests.workflow_evaluated_consumer_sources import BUNDLE, r2, r3
+    from tests.workflow_evaluated_totality_helpers import checked_run
+
+    fixture = _fixture(tmp_path)
+    assert _cli(tmp_path, fixture).returncode == 0
+    (request,) = _requests(tmp_path)
+    authority, _snapshot = checked_run(tmp_path)
+    run_root = authority.run_root
+    node = next(node for node in _ast_nodes(
+        authority.program.tree['body']) if node.get('class') == 'provider')
+    selected = render_json_shape_contract_block(node['contract'], node['result'], r2(request))
+    legacy = render_output_bundle_contract_block({**node['contract']['payload'], 'path': r2(request)})
+    legacy_request = deepcopy(request)
+    legacy_request['prompt'] = request['prompt'].replace(selected, legacy, 1)
+    legacy_request['env'][BUNDLE] = r2(request)
+    assert r3(request) == r3(legacy_request)
+
+    changed_input = deepcopy(request)
+    changed_input['prompt'] = request['prompt'].replace('typed input', 'different input')
+    rows = jsonl(run_root / 'memo.jsonl')
+    started = next(row for row in rows if row['record'] == 'started')
+    started['input_parts']['prompt'] = sha256(changed_input['prompt'])
+    (run_root / 'memo.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in rows))
+    assert r3(changed_input) != r3(legacy_request)
+
+    changed_contract = deepcopy(request)
+    changed_contract['prompt'] = request['prompt'].replace('<boolean>', '<string>')
+    started['input_parts']['prompt'] = sha256(changed_contract['prompt'])
+    (run_root / 'memo.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in rows))
+    with pytest.raises(AssertionError):
+        r3(changed_contract)

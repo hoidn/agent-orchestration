@@ -160,3 +160,9 @@ def test_counts_by_site_delivery_and_outcome(census: subprocess.CompletedProcess
         "legacy=5 (committed=2, missing=1, open=1, provider_exit_nonzero=1); "
         "sha256:feed=1 (committed=1)",
     ]
+
+
+@pytest.mark.parametrize('name', ['legacy', 'file/1', 'file/2'])
+def test_versioned_delivery_digest_names(name):
+    from scripts.provider_delivery_census import delivery_name
+    assert delivery_name({'delivery': canonical_sha256(name)}) == name

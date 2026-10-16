@@ -435,8 +435,9 @@ digest: a command has `argv`, `contract`, `closure`, `implementation_files`,
 plus `document` for a checked input document and `input_contract` for an
 external-tool document; a provider has `declaration`, `values`, `policy`,
 `params`, `prompt`, `dependency_rows`, `delivery` (the canonical digest of
-the name of the output-contract rendering the attempt used, `legacy` or
-`file/1`; absent in rows written before the part existed, which replay reads
+the name of the output-contract rendering the attempt used, `legacy`,
+`file/1` or `file/2`; new ordinary file-transport attempts select `file/2`,
+and OMP selects `legacy`; absent in rows written before the part existed, which replay reads
 as `legacy`; replay recomputes a committed provider effect's parts with the
 rendering its `delivery` names, and an unknown digest is
 `effect_input_diverged`), plus `source:<asset_file|input_file>:<path>`

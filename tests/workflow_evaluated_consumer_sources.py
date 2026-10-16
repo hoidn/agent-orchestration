@@ -45,8 +45,8 @@ BUGGY = "def add(a, b):\n    return a - b\n"
 CANDIDATES = ("candidates/alpha", "candidates/beta")
 BUNDLE = "ORCHESTRATOR_OUTPUT_BUNDLE_PATH"  # R2: differs between routes by rule
 SITE = "ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY"  # R5: differs between routes by rule
-# The structured-result block's lines before its `- path:` line: the flat route renders the `legacy`
-# delivery, a new evaluated attempt `file/1` (docs/design/provider_result_delivery.md).
+# After verifying the evaluated contract and rendering it as legacy for comparison,
+# normalize only the delivery opening; the complete contract body remains compared.
 DELIVERY = re.compile(r"^(## (?:Variant )?Output Contract\n)(?:(?!- ).*\n)*(?=- path: )", re.MULTILINE)
 FUTURE = "from __future__ import annotations\n"
 
@@ -307,10 +307,40 @@ def r2(request: dict) -> str:
 
 
 def r3(request: dict) -> str:
-    """The prompt with the request's own R2 path, which R3 places in it once, and the delivery
-    lines of its structured-result block, which the routes render differently, named."""
+    """Compare the full contract in a common rendering, preserving the surrounding prompt and R2."""
     assert request["prompt"].count(r2(request)) == 1
-    return DELIVERY.sub(r"\1<delivery>\n", request["prompt"].replace(r2(request), "<R2>"))
+    prompt = _legacy_provider_prompt(request) if os.path.isabs(request["env"][BUNDLE]) else request["prompt"]
+    return DELIVERY.sub(r"\1<delivery>\n", prompt.replace(r2(request), "<R2>"))
+
+
+def _legacy_provider_prompt(request: dict) -> str:
+    from orchestrator.contracts.closed_program.program import strip_provenance
+    from orchestrator.contracts.closed_program.sites import _ast_nodes
+    from orchestrator.contracts.prompt_contract import render_output_bundle_contract_block, render_variant_output_contract_block
+    from orchestrator.contracts.prompt_json_shape import render_json_shape_contract_block
+    from orchestrator.workflow.evaluated.authority import load_run_authority
+    from orchestrator.workflow.evaluated.providers import DELIVERY_NAMES_BY_DIGEST, DELIVERY_SELECTORS
+    from orchestrator.workflow.run_ref.contracts import canonical_sha256
+
+    target = Path(request["env"][BUNDLE])
+    authority = load_run_authority(target.parents[3])
+    (started,) = [row for row in jsonl(authority.memo_path) if row["record"] == "started"
+        and row["result_path"] == target.relative_to(authority.run_root).as_posix()]
+    assert request["env"][SITE] == sha256(started["identity"])
+    assert sha256(request["prompt"]) == started["input_parts"]["prompt"]
+    bodies = [authority.program.tree["body"],
+              *(definition["body"] for definition in authority.program.tree["definitions"].values())]
+    node = next(node for body in bodies for node in _ast_nodes(body) if node.get("class") == "provider"
+        and canonical_sha256(strip_provenance({"body": node})["body"]) == started["input_parts"]["declaration"])
+    payload = {**node["contract"]["payload"], "path": r2(request)}
+    renderer = (render_output_bundle_contract_block if node["contract"]["kind"] == "output_bundle"
+                else render_variant_output_contract_block)
+    digest = started["input_parts"].get("delivery")
+    delivery = "legacy" if digest is None else DELIVERY_SELECTORS[DELIVERY_NAMES_BY_DIGEST[digest]]
+    selected = (render_json_shape_contract_block(node["contract"], node["result"], r2(request))
+                if delivery == "file/2" else renderer(payload, delivery=delivery))
+    assert request["prompt"].count(selected) == 1
+    return request["prompt"].replace(selected, renderer(payload, delivery="legacy"), 1)
 
 
 def request_view(route: Route) -> list[tuple]:

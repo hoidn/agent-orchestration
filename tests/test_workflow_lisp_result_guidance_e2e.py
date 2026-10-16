@@ -15,11 +15,11 @@ from orchestrator.workflow.evaluated.memo import read_memo
 from orchestrator.workflow_lisp.build import FrontendBuildRequest
 from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
 from orchestrator.workflow_lisp.result_guidance import normalized_result_guidance_payload
-from tests.prompt_contract_test_helpers import parse_prompt_contract_document
 
 
 FIXTURE = Path(__file__).parent / "fixtures/workflow_lisp/valid/native_bool_return_guidance.orc"
 _GUIDANCE_KEYS = ("description", "format_hint", "example", "guidance_context", "guidance_by_variant")
+_RENDERED_GUIDANCE_KEYS = ("description", "format_hint", "example")
 SHIM = '''import json, os, sys
 from pathlib import Path
 with Path("requests.jsonl").open("a") as stream:
@@ -33,16 +33,46 @@ def _guidance_payload(spec: Mapping[str, object]) -> dict[str, object]:
     return {key: spec[key] for key in _GUIDANCE_KEYS if key in spec}
 
 
-def _variant_guidance_projection(contract: Mapping[str, object]) -> dict[str, object]:
-    guidance = contract.get("guidance")
-    return {
-        "guidance": _guidance_payload(guidance) if isinstance(guidance, Mapping) else {},
-        "shared_fields": {field["name"]: _guidance_payload(field)
-                          for field in contract.get("shared_fields", ())},
-        "variants": {variant: {field["name"]: _guidance_payload(field)
-                               for field in payload.get("fields", ())}
-                     for variant, payload in contract.get("variants", {}).items()},
-    }
+def _authored_annotations(prompt: str) -> list[dict[str, object]]:
+    annotations = []
+    for line in prompt.splitlines():
+        comment = line.lstrip()
+        if not comment.startswith("// "):
+            continue
+        try:
+            value = json.loads(comment[3:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            annotations.append(value)
+    return annotations
+
+
+def _expected_authored_annotations(contract: Mapping[str, object]) -> list[dict[str, object]]:
+    expected = [{"guidance": contract["guidance"]}] if contract.get("guidance") else []
+    fields = list(contract.get("shared_fields", ()))
+    fields.extend(field for variant in contract.get("variants", {}).values()
+                  for field in variant.get("fields", ()))
+    for field in fields:
+        guidance = {key: field[key] for key in _RENDERED_GUIDANCE_KEYS if key in field}
+        if guidance and "guidance_by_variant" not in field:
+            expected.append(guidance)
+        expected.extend(
+            {key: value for key, value in context.items() if key in _RENDERED_GUIDANCE_KEYS}
+            for context in field.get("guidance_context", ())
+            if any(key in context for key in _RENDERED_GUIDANCE_KEYS)
+        )
+        for variant_guidance in field.get("guidance_by_variant", {}).values():
+            annotation = {key: variant_guidance[key] for key in _RENDERED_GUIDANCE_KEYS
+                          if key in variant_guidance}
+            if annotation:
+                expected.append(annotation)
+            expected.extend(
+                {key: value for key, value in context.items() if key in _RENDERED_GUIDANCE_KEYS}
+                for context in variant_guidance.get("guidance_context", ())
+                if any(key in context for key in _RENDERED_GUIDANCE_KEYS)
+            )
+    return expected
 
 
 def _fixture(root: Path, source: str, *, module: str, result: object, commands=False):
@@ -98,7 +128,7 @@ def _run_and_resume(root: Path, built, arguments, env):
     assert (root / "requests.jsonl").read_bytes() == requests
     assert (run_root / "memo.jsonl").read_bytes() == memo_bytes
     (request,) = [json.loads(line) for line in requests.splitlines()]
-    return memo, parse_prompt_contract_document(request["prompt"])
+    return memo, request["prompt"]
 
 
 def _provider(built):
@@ -119,12 +149,11 @@ def test_direct_bool_provider_guidance_executes_without_wrapper_or_overall_promp
     overall = normalized_result_guidance_payload(entry.definition.return_spec.guidance,
         expected_type=entry.signature.return_type_ref,
         type_env=built.typed_program.workflow_type_env(entry.definition.name))
-    assert overall
-    memo, prompt_contract = _run_and_resume(tmp_path, built, arguments, env)
-    assert prompt_contract["type"] == occurrence["type"] == "bool"
-    assert _guidance_payload(prompt_contract) == _guidance_payload(occurrence)
-    assert _guidance_payload(prompt_contract) != overall
-    assert "result_guidance" not in prompt_contract
+    occurrence_guidance, overall_guidance = _guidance_payload(occurrence), _guidance_payload(overall)
+    assert overall_guidance and overall_guidance != occurrence_guidance
+    memo, prompt = _run_and_resume(tmp_path, built, arguments, env)
+    annotations = _authored_annotations(prompt)
+    assert annotations == [occurrence_guidance]
     assert "guidance" not in provider["contract"]["payload"]
     commits = [entry.data for entry in memo.entries if entry.data["record"] == "committed"]
     assert [row["effect_class"] for row in commits] == ["provider", "command"]
@@ -156,8 +185,17 @@ def test_nested_union_guidance_renders_and_selected_variant_keeps_source_lineage
     assert approved["value"]["APPROVE"]["workflow_name"] == "workflow:guidance_runtime_neutrality::orchestrate"
     assert any(row["value"].get("subject_name", "").endswith("Decision::APPROVE::meta__score")
                for row in subjects)
-    memo, prompt_contract = _run_and_resume(tmp_path, built, arguments, env)
-    assert _variant_guidance_projection(prompt_contract) == _variant_guidance_projection(contract)
+    memo, prompt = _run_and_resume(tmp_path, built, arguments, env)
+    annotations = _authored_annotations(prompt)
+    expected_annotations = _expected_authored_annotations(contract)
+    assert expected_annotations and all(annotation in annotations for annotation in expected_annotations)
+    shared_variants = [
+        {key: value for key, value in guidance.items() if key in _RENDERED_GUIDANCE_KEYS}
+        for field in contract["shared_fields"]
+        for guidance in field.get("guidance_by_variant", {}).values()
+        if any(key in guidance for key in _RENDERED_GUIDANCE_KEYS)
+    ]
+    assert len(shared_variants) > 1 and len({json.dumps(row, sort_keys=True) for row in shared_variants}) > 1
     assert contract["guidance"]
     assert any(field.get("guidance_by_variant") for field in contract["shared_fields"])
     assert any(field.get("guidance_context") for variant in contract["variants"].values()
