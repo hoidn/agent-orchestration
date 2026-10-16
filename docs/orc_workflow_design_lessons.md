@@ -15,6 +15,13 @@ Working examples:
 [`best_of_n.orc`](../experiments/orc_vs_single_call/workflows/best_of_n.orc) and
 [`reviewed_change.orc`](../experiments/orc_vs_single_call/workflows/reviewed_change.orc).
 
+Use the [library task chooser](lisp_library_reference.md#choose-by-task) for
+complete sources, caller-prepared candidate repositories, bindings and execution
+profiles. Canonical best-of-n targets 2.35; reviewed_change and the proposal/search
+applications retain their declared older targets. The measurements and observed
+pitfalls below describe the original experiment, not a claim that every defect
+applies to typed 2.35/2.36 or native 3.0.
+
 ## Before Drafting
 
 Answer these four questions. If the answer to the first is "nothing", do not

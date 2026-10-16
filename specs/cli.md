@@ -65,6 +65,11 @@ orchestrator repl [WORKFLOW] [--entry-workflow NAME] [--source-root DIR ...]
 :attach RUN_ID
 :bindings
 :result
+:where [NAME]
+:browse
+:info NAME
+:source NAME
+:type EXPR
 :help
 :quit
 ```
@@ -96,6 +101,37 @@ changed fresh program reports `resume_program_changed`. Fresh input files are
 not rebound for inspection. A matching explicitly loaded module allows reading
 a historical run without a recipe. Ordinary checked-authority, memo and compile
 errors retain their codes.
+
+### Module and result inspection
+
+`:browse`, `:info NAME`, `:source NAME` and `:type EXPR` require a loaded
+module, not attachment. `:browse` takes no arguments; `:info`/`:source` require
+exactly one symbol and follow actual import aliases, qualified names and
+namespace visibility. They project real declaration metadata, not rendered
+output or inaccessible declarations elsewhere in the source graph. Unknown
+module declarations report `repl_name_unknown`; ordinary resolver ambiguity
+diagnostics retain their codes. Extern display exposes kind/contracts only,
+without manifest secrets, prompt contents or command argv.
+
+`:source` returns the checked authored form from the immutable successful-load
+snapshot. It verifies retained bytes/hash/span/name, including normalized line
+endings. Disk mutation/deletion never causes a filesystem fallback. Missing,
+expanded or unavailable authored forms report `repl_source_unavailable`.
+
+Typed `:type` uses ordinary static type/effect analysis and prints `type:` and
+`effects:`. It accepts effectful expressions for analysis without evaluating
+expressions or operands. Attached lexical names shadow module declarations.
+This is distinct from entering a pure expression, which still refuses effects.
+
+`:where [NAME]` requires attachment. At typed targets, it locates a performed
+value's retained checked `committed_result_path` beneath the attached authority
+root. Omit NAME to inspect the completed entry result. Computed values and
+missing/invalid locators report `repl_no_result_file`; unknown captured names
+report `name_unknown`; an absent completed entry reports `repl_no_result`.
+It locates result files, not source declaration locations. See the
+[accepted introspection design](../docs/design/workflow_lisp_repl_introspection.md)
+for provenance and per-profile projection boundaries. These commands dispatch
+no effects and leave run authority, memo, views and attempt evidence unchanged.
 
 Typed expressions are one datum per input line and require attachment. Lexical
 shadowing chooses the innermost binding; compiler names beginning with `%`
@@ -135,10 +171,14 @@ artifacts. `:run` remains the explicit exception using public execution.
 | `repl_effect_refused` | Entered expression or called procedure has effects, or a lowered/evaluated `perform` is reached | Session continues | None |
 | `repl_run_not_found` | Requested run root does not exist | Session continues; startup exits 2 | None |
 | `repl_profile_unsupported` | Requested run uses the flat profile | Session continues; startup exits 2 | None |
-| `repl_not_attached` | Expression, `:bindings` or `:result` without an attached run | Session continues | None |
-| `repl_module_required` | `:run` without a loaded module | Session continues | None |
+| `repl_not_attached` | Expression, `:bindings`, `:result` or `:where` without an attached run | Session continues | None |
+| `repl_module_required` | `:run` or module inspection without a loaded module | Session continues | None |
 | `repl_expression_arity` | Expression line does not contain exactly one datum | Session continues | None |
 | `repl_no_result` | Attached replay has no halted entry result | Session continues | None |
+| `repl_name_unknown` | Unknown visible module declaration for `:info`/`:source` | Session continues | None |
+| `repl_source_unavailable` | No checked retained authored source for the declaration | Session continues | None |
+| `repl_type_unavailable` | Native `:type` receives a compound expression | Session continues | None |
+| `repl_no_result_file` | Captured value has no valid retained result-file provenance | Session continues | None |
 | `repl_module_context_missing` | Module call needs unavailable transient compiler context | Session continues | None |
 
 Reused `name_unknown`, `resume_program_changed`, `resume_request_missing`,
@@ -170,6 +210,23 @@ A running snapshot may reconstruct an unpublished pure halt, exposed as
 `halt-unpublished`; `:result` still reports `repl_no_result`. This explicit REPL
 consumer does not alter ordinary source-independent, nonreplaying dynamic
 report/status readers. See [state reconstruction](state.md#repl-read-only-reconstruction).
+
+Native loaded-only `:browse`/`:info`/`:source` use real retained lowerer
+metadata and the same immutable source checks. `define` exposes parameter
+names with unavailable parameter/return/effect inference; workflow, prompt and
+type declarations expose their explicit schemas. Native `:type` never evaluates:
+literals show literal kinds, visible function names show `Function` with
+unavailable return/effect inference, and captured bindings show **observed
+runtime kind**, including `Function` for closures. These kinds are distinct
+from declared boundary schemas. Compound expressions refuse
+`repl_type_unavailable` before evaluating any operand. Unknown value/function
+names report `name_unknown`.
+
+Native captured plain values retain no result-file provenance. Native
+`:where [NAME]` therefore reports `repl_no_result_file`, even when a value equals
+a performed result. Unknown captured names still report `name_unknown`, and
+`:where` without a completed entry result reports `repl_no_result`. No lookup
+adds lineage wrappers, native recovery or equality-based provenance.
 
 Native expressions use the ordinary reader/lowerer and evaluator with one
 finite budget afresh per expression. Direct effects in entered expressions or

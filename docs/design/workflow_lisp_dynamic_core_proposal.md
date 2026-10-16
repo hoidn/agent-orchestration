@@ -19,6 +19,10 @@ combined runtime. The selected REPL extension does not select application
 adoption, migration or a default profile. Earlier W3 counterfactuals below
 retain their historical scope.
 
+Native REPL declaration/source/type queries and result-file refusal follow the
+[accepted introspection boundary](workflow_lisp_repl_introspection.md) and
+[normative native inspection](../../specs/cli.md#native-target-30-inspection).
+
 ## 1. Recommendation
 
 Use a small dynamically typed lexical language: ordinary functions and closures,

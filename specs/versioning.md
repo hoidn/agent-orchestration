@@ -801,6 +801,13 @@
     have different digests.
 
 - v2.35 additions
+  - The REPL provides loaded-module `:browse`, `:info`, `:source` and static
+    non-evaluating `:type`, plus attached-value `:where` for a checked retained
+    committed-result locator. Type queries report effects without running them;
+    source queries use immutable checked load snapshots. The same inspection
+    contract applies at typed 2.36. No new target/profile/state schema or effect
+    execution authority is introduced. See [CLI](cli.md#module-and-result-inspection)
+    and the [introspection design](../docs/design/workflow_lisp_repl_introspection.md).
   - Ordinary composed-provider delivery has independent rendering identities:
     `legacy`, `file/1` and current `file/2`. The latter presents nested JSON
     type shapes and preserves actual keys, constraints and authored guidance.
@@ -916,6 +923,12 @@ architecture is recorded in [proposal §9](../docs/design/workflow_lisp_dynamic_
   providers through existing shared performers. Parallel/child/trial/resource/
   view/host-input effects, provider sessions/context/phased/live surfaces and
   versioned consumes/publishes are outside this profile and refuse.
+- REPL declaration inspection uses actual retained native compiler metadata and
+  immutable loaded source snapshots. Native `:type` reports literal/function or
+  observed captured runtime kinds, not inferred signatures; compound queries
+  refuse without evaluation. `:where` refuses because captured native values
+  retain no file provenance. Declared boundary schemas remain distinct. See
+  [native inspection](cli.md#native-target-30-inspection).
 - State routes exactly by `3.1` / `dynamic_execution.v1`. Each run is fresh,
   stop-on-error, with zero runtime retries and no memo/checkpoint/reuse.
   Resume and invalidation refuse; a corrected fresh invocation may repeat

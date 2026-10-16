@@ -2,6 +2,18 @@
 
 ## Metadata
 
+The [REPL baseline](workflow_lisp_repl.md) and
+[introspection extension](workflow_lisp_repl_introspection.md) define read-only
+lexical/module inspection over this execution model. Typed result-file lookup
+uses checked retained locators; native inspection has its own explicit boundary.
+Shared checked artifacts/checkers/sites/identities live in
+`orchestrator/contracts/closed_program/`, prepared provider IO carriers in
+`orchestrator/workflow/evaluated/provider_io.py`, and runtime typed prompt helpers
+in `orchestrator/workflow/typed_prompt_inputs.py`. Frontend preparation and source
+projection remain frontend-owned; compatibility imports preserve existing API
+identity. These ownership seams do not establish full CLI/runtime frontend
+isolation or retire the typed frontend.
+
 - **Status:** accepted for the first release at gate G1 on 2026-09-29;
   Closed-program compilation and bounded pure, command and portable
   composed-provider execution use the current typed evaluated targets 2.35 and

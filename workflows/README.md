@@ -83,6 +83,16 @@ python -m orchestrator run workflows/library/generic_run_watchdog/watchdog.orc \
 
 ## Which Example Should I Copy?
 
+Start with the [library task chooser](../docs/lisp_library_reference.md#choose-by-task)
+for candidate generation/selection, typed/native improvement, deterministic
+command evaluation and search. It states complete inputs and manifests and
+whether candidate clones/environments must already be prepared by the caller.
+The maintained best-of-n source targets 2.35; proposal and reviewed-change
+examples retain 2.33 and 2.28 respectively. W3 2.36 has separate complete examples
+in the reference. Source target, not catalogue placement, selects the API/runtime.
+Native examples remain branch-qualified with explicit setup and fresh-only
+execution; this catalogue does not authorize an application migration.
+
 | Goal | Starting point | Route status |
 | --- | --- | --- |
 | Start new authoring | [`improve_experiment_proposal.orc`](examples/improve_experiment_proposal.orc) for a `std/improve` review loop; [`best_of_n.orc`](../experiments/orc_vs_single_call/workflows/best_of_n.orc) and [`reviewed_change.orc`](../experiments/orc_vs_single_call/workflows/reviewed_change.orc) for generate-and-select and a hand-written review loop | Recent examples; each passes `--dry-run` through the command-line entry. The registry labels `improve_experiment_proposal.orc` `preferred_current_guidance`; the two experiment workflows have no registry entry. |

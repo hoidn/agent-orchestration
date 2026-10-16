@@ -28,6 +28,9 @@ implementation, or alternate execution authority.
 The sections below retain the typed upstream contract from commit
 `a761b1c62bb2e492eb30e9f03bbe416468ce31b0`. The final section specifies
 the native target-3.0 extension and its explicit profile differences.
+The accepted [introspection extension](workflow_lisp_repl_introspection.md)
+adds loaded-only declaration/source/type queries and attached result-file lookup;
+its profile-specific metadata and refusal rules govern those commands.
 
 ## Context And Authority
 
@@ -100,6 +103,11 @@ orchestrator repl [WORKFLOW] [frontend flags] [--run-id RUN_ID] [--state-dir DIR
 :attach RUN_ID
 :bindings
 :result
+:where [NAME]
+:browse
+:info NAME
+:source NAME
+:type EXPR
 :help
 :quit
 ```
@@ -123,6 +131,26 @@ Forward the session's state directory unless `:run --state-dir` overrides it.
 Inputs retain public run parsing, precedence and validation; there is no
 second binding path. Effects and evidence writes occur only during this
 explicit command, with ordinary public run authority.
+
+### Loaded-module inspection and result-file lookup
+
+`:browse`, `:info NAME`, `:source NAME` and `:type EXPR` require only a loaded
+module; attachment supplies optional lexical names for type queries. Typed
+`:type` uses ordinary static type/effect analysis without execution. Native
+`:type` accepts literals/names and captured values, reports its basis (including
+observed runtime kinds), and refuses compound expressions without evaluation.
+`:info` distinguishes native declared workflow/prompt/type schemas from
+unavailable internal function inference. `:source` uses checked immutable
+loaded bytes, with no fallback after source mutation/deletion. Extern inspection
+never reveals manifest secrets, prompt content or command argv.
+
+`:where [NAME]` requires attachment and locates typed retained committed result
+files under the checked authority root. Computed values have no locator; native
+captured plain values have no file provenance. Unknown bindings and absent
+completed entry results keep `name_unknown` and `repl_no_result`; missing
+provenance reports `repl_no_result_file`. All are read-only. Exact namespace,
+snapshot, type and locator rules belong to the
+[introspection contract](workflow_lisp_repl_introspection.md).
 
 ### Checked read-only attachment
 

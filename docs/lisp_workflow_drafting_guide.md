@@ -12,6 +12,8 @@ This guide explains how to author deterministic workflows using the Workflow
 Lisp frontend. It is about authoring choices, not runtime implementation.
 Normative DSL and runtime contracts live under `specs/`.
 
+Use the [library reference](lisp_library_reference.md) to choose task APIs,
+complete examples and prerequisites by runtime profile.
 Before choosing a review, revise, or select pattern, read
 [Designing `.orc` Workflows That Beat A Single Call](orc_workflow_design_lessons.md).
 
@@ -1221,8 +1223,11 @@ limit. Review captures goal/rubric separately; revision captures only goal.
 Local records/helpers are internal untyped values. Workflow inputs/defaults and
 Improvement results, plus command Decision/Draft results, retain canonical
 strict schemas. Useful old-target declarations import without linking their
-typed executable bodies. The typed [std/improve API](#137-improve) still takes
-five arguments, including separate inputs; its early checks/recovery remain.
+typed executable bodies. The typed [std/improve API](#137-improve) takes five arguments through 2.35,
+including separate inputs; at 2.36 W3 selects four arguments and local captures.
+These typed APIs retain their own early checks/recovery. The
+[library reference](lisp_library_reference.md#review-and-revise) compares all three
+profiles and supplies complete typed examples.
 
 Nonpositive limits fail before hooks. APPROVE/BLOCKED return the current draft;
 REVISE calls revision; reaching the limit returns EXHAUSTED without another
@@ -1349,6 +1354,36 @@ its own `--state-dir` overrides it. `:run --input n=9` and
 Native public run option restrictions also apply to `:run`. Each native `:run`
 creates a fresh run and can repeat all prior external calls/writes; it neither
 resumes nor reuses earlier effect results.
+
+Module inspection is available before `:run` or `:attach`:
+
+```text
+:browse
+:info run
+:source run
+:type 7
+```
+
+`:browse` lists declarations visible from the loaded module, including aliases;
+`:info` shows available contracts and `:source` shows the checked retained
+snapshot, unchanged by later disk edits/deletion. Extern metadata never reveals
+manifest secrets, prompt contents or argv. With the typed `scratch` module,
+`:type (add-five 7)` reports `Int` and no effects without evaluating it. Typed
+queries can report effectful expression types/effects without executing them.
+Native `:info run` shows declared boundary schemas; native internal function
+return/effect inference is unavailable. After native `:run`, `:type add` reports
+`Function` with basis **observed runtime kind**; `:type (add 5)` refuses
+`repl_type_unavailable` without evaluation. Entering `(add 5)` as a pure
+expression remains supported; type query and expression evaluation are separate.
+
+`:where NAME` locates an attached typed performed binding's checked result file;
+`:where` uses the completed entry result. Pure/computed values, including the
+pure examples above, report `repl_no_result_file`. Native captured values have
+no retained file provenance and report the same refusal. An unknown captured
+name reports `name_unknown`; no completed entry result reports `repl_no_result`.
+These are result-file locators, not declaration-source navigation. The
+[introspection design](design/workflow_lisp_repl_introspection.md) owns the
+precise per-profile boundaries.
 
 Only explicit `:run` invokes public execution, and it executes a loaded
 workflow's declared effects. Attachment, bindings, result and entered
@@ -3374,6 +3409,9 @@ backlog-drain authoring.
 
 ### 13.7 `improve`
 
+The [library reference](lisp_library_reference.md#review-and-revise) supplies
+complete 2.35/2.36 API examples, domain inputs, native setup and operating limits.
+The application excerpt below retains its declared 2.33 target.
 Through target 2.35, this is the retained typed five-argument API. At typed
 2.36 the entry source graph selects `improve(initial, review, revise, limit)`;
 local hooks capture context under the [W3 contract](design/workflow_lisp_write_once.md#63-language-changes-to-let-proc).
