@@ -133,3 +133,16 @@ and completion audit.
 The integrated-main checkpoint for these documentation, process/isolation and
 watcher/Neovim repairs passed 721 cases, with three existing environment skips
 and one existing xfail, in 50.47 seconds. The complete default suite is pending.
+
+The research demo collection error is repaired under the existing executor-retirement
+decision. The complete original test module is preserved byte-exact in
+`tests/fixtures/retired_execution/orc_research_demo.py.txt`. Its two exclusive trial
+execution cases remain historical; all nine pure numeric and fifteen mixed
+algorithm/oracle cases remain active as explicit leaf-composition unit fixtures.
+Independent review confirmed the assertion/mutation ledger, exact numeric AST,
+locally valid missing/reset/stale-root controls and independent expected values.
+The existing `novel_cases.py` is included unchanged as their sole non-stdlib import
+dependency; it requires no other untracked experiment assets. This retains algorithm
+coverage without restoring or claiming historical workflow execution. Integrated
+main collected all 24 retained cases and passed those plus both public retirement
+checks (26 passed in 3.23 seconds). Full default-suite verification remains pending.

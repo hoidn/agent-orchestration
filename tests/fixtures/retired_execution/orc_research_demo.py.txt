@@ -1,0 +1,992 @@
+"""Public-entry smoke and gap controls for the ORC research demo wrapper."""
+
+from __future__ import annotations
+
+from copy import deepcopy
+import hashlib
+import json
+from pathlib import Path
+import sys
+
+import shutil
+import subprocess
+
+import pytest
+
+from orchestrator.state import StateManager
+from orchestrator.providers.executor import ProviderExecutionResult
+from orchestrator.workflow import executor as workflow_executor
+from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.trial import sdk as trial_sdk
+from orchestrator.workflow.trial.adjudication import TrialEvaluationDependencies
+from orchestrator.workflow.trial.sdk import TrialRunOptions, run_trial_entry
+from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle
+from tests.e2e.test_e2e_workflow_lisp_trial import _decode_trailing_trial_packet
+from tests.experiments.test_es_controller_e2_integration import FAKE_CODEX
+from experiments.orc_research_demo.novel_cases import (
+    evaluate_behavior,
+    SCENARIOS,
+    TASK2_FIXTURES,
+    scripted_leaf,
+)
+
+from tests.workflow_bundle_helpers import bundle_context_dict
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+EXPERIMENT_ROOT = REPOSITORY_ROOT / "experiments" / "orc_research_demo"
+WORKFLOWS_ROOT = REPOSITORY_ROOT / "workflows"
+TASK_TEXT = "review-to-selected-completion smoke task\n"
+CHECK_TEXT = "run the local smoke contract\n"
+FIXED_SALT = (b"orc-research-demo-fixed-opaque-label-salt" * 2)[:32]
+
+
+def _git(repository: Path, *args: str) -> str:
+    completed = subprocess.run(
+        ["git", *args],
+        cwd=repository,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return completed.stdout.strip()
+
+
+class _TestOnlyPacketScorer:
+    def __init__(self) -> None:
+        self.prepared: list[dict[str, object]] = []
+        self.executed: list[tuple[str, str]] = []
+
+    def prepare_invocation(self, provider, params, context, **kwargs):
+        assert provider == "codex_gpt55_unrestricted_workspace"
+        assert isinstance(params.params, dict)
+        assert context == {}
+        packet, _packet_bytes = _decode_trailing_trial_packet(kwargs["prompt_content"])
+        citable = packet["citable_item_ids"]
+        assert isinstance(citable, list)
+        citation = (
+            "failure_evidence"
+            if "failure_evidence" in citable
+            else "validated_result"
+        )
+        assert citation in citable
+        self.prepared.append(packet)
+        return (packet["evaluation_id"], citation), None
+
+    def execute(self, invocation, *, cwd):
+        label, citation = invocation
+        self.executed.append((label, citation))
+        return ProviderExecutionResult(
+            exit_code=0,
+            stdout=json.dumps(
+                {
+                    "candidate_id": label,
+                    "score": 0.5,
+                    "summary": "the frozen evidence satisfies the rubric",
+                    "citations": [citation],
+                }
+            ).encode("utf-8"),
+            stderr=b"",
+            duration_ms=3,
+        )
+
+
+def _inject_test_only_packet_scorer(monkeypatch: pytest.MonkeyPatch) -> _TestOnlyPacketScorer:
+    scorer = _TestOnlyPacketScorer()
+    base_executor = trial_sdk.WorkflowExecutor
+
+    class _ScoredWorkflowExecutor(base_executor):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._trial_evaluation_dependencies = TrialEvaluationDependencies(
+                provider_registry=self.provider_registry,
+                prompt_composer=self.prompt_composer,
+                provider_executor=scorer,
+                check_runner=subprocess.run,
+            )
+
+    monkeypatch.setattr(trial_sdk, "WorkflowExecutor", _ScoredWorkflowExecutor)
+    return scorer
+
+
+def _install_fake_codex(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    fake_bin = (tmp_path / "bin").resolve()
+    fake_bin.mkdir()
+    interpreter = fake_bin / "python3.11"
+    if not interpreter.exists():
+        interpreter.symlink_to(Path(sys.executable).resolve())
+    launcher = fake_bin / "codex"
+    if not launcher.exists():
+        launcher.symlink_to(FAKE_CODEX)
+    control_path = (tmp_path / "fake-control.json").resolve()
+    control_path.write_text("{}\n", encoding="utf-8")
+    capture_dir = (tmp_path / "captured-prompts").resolve()
+    capture_dir.mkdir()
+    monkeypatch.setenv("ES_TASK5_FAKE_CONTROL_PATH", control_path.as_posix())
+    monkeypatch.setenv("ES_TASK5_FAKE_CAPTURE_DIR", capture_dir.as_posix())
+    monkeypatch.setenv("PATH", fake_bin.as_posix() + ":/usr/bin")
+    return capture_dir
+
+
+
+
+def _stage_workspace(tmp_path: Path, *, check_mode: str = "pass\n") -> tuple[Path, str]:
+    workspace = (tmp_path / "workspace").resolve()
+    shutil.copytree(
+        EXPERIMENT_ROOT,
+        workspace / "experiments/orc_research_demo",
+        ignore=shutil.ignore_patterns(
+            "evidence",
+            "*_session",
+            "*-session",
+            "*.sqlite",
+            "*.jsonl",
+            "*accounting*.json",
+        ),
+    )
+    (workspace / "experiments/orc_research_demo/assets/check_mode.txt").write_text(
+        check_mode,
+        encoding="utf-8",
+    )
+    (workspace / "workflows/experiments/qa_placement_effectiveness").mkdir(parents=True)
+    shutil.copy2(
+        WORKFLOWS_ROOT / "experiments/qa_placement_effectiveness/qa_placement_arms.orc",
+        workspace
+        / "workflows/experiments/qa_placement_effectiveness/qa_placement_arms.orc",
+    )
+    (workspace / "workflows/library/control").mkdir(parents=True)
+    shutil.copy2(
+        WORKFLOWS_ROOT / "library/control/direct_task.orc",
+        workspace / "workflows/library/control/direct_task.orc",
+    )
+    _git(workspace, "init")
+    _git(workspace, "config", "user.name", "ORC Demo Test")
+    _git(workspace, "config", "user.email", "orc-demo@example.invalid")
+    _git(workspace, "add", ".")
+    _git(workspace, "commit", "-m", "stage research demo")
+    commit = _git(workspace, "rev-parse", "HEAD")
+    for name in ("trial.orc", "oracle_trial.orc"):
+        path = workspace / "experiments/orc_research_demo" / name
+        source = path.read_text(encoding="utf-8")
+        source = source.replace("__TRIAL_SOURCE_REPO__", workspace.as_uri())
+        source = source.replace("__TRIAL_SOURCE_COMMIT__", commit)
+        path.write_text(source, encoding="utf-8")
+    return workspace, commit
+
+
+def _options(workspace: Path) -> TrialRunOptions:
+    return TrialRunOptions(
+        source_roots=(
+            workspace / "experiments",
+            workspace / "workflows/experiments",
+            workspace / "workflows/library",
+        ),
+        provider_externs_file=workspace / "experiments/orc_research_demo/providers.json",
+        prompt_externs_file=workspace / "experiments/orc_research_demo/prompts.json",
+        command_boundaries_file=workspace / "experiments/orc_research_demo/commands.json",
+        max_retries=0,
+        retry_delay_ms=0,
+    )
+
+
+def _run_trial(
+    workspace: Path,
+    *,
+    workflow_name: str = "trial.orc",
+    inputs: dict[str, object],
+    state_dir: Path,
+    run_ref_root: Path,
+):
+    return run_trial_entry(
+        workflow_file=workspace / "experiments/orc_research_demo" / workflow_name,
+        entry_workflow="compare",
+        inputs=inputs,
+        workspace=workspace,
+        state_dir=state_dir,
+        run_ref_root=run_ref_root,
+        options=_options(workspace),
+    )
+
+
+def _execute_oracle_workflow(
+    workspace: Path,
+    *,
+    entry_workflow: str,
+    inputs: dict[str, object],
+    run_id: str,
+    source_file: str = "oracle_review_completion.orc",
+) -> dict[str, object]:
+    source_path = workspace / "experiments/orc_research_demo" / source_file
+    built = build_frontend_bundle(
+        FrontendBuildRequest(
+            source_path=source_path,
+            source_roots=(workspace / "experiments",),
+            entry_workflow=entry_workflow,
+            command_boundaries_path=(
+                workspace / "experiments/orc_research_demo/commands.json"
+            ),
+            workspace_root=workspace,
+        )
+    )
+    manager = StateManager(
+        workspace=workspace,
+        run_id=run_id,
+        state_dir=(workspace / ".orchestrate" / "oracle-state").resolve(),
+    )
+    manager.initialize(
+        source_path.as_posix(),
+        context=bundle_context_dict(built.validated_bundle),
+        bound_inputs=inputs,
+    )
+    state = WorkflowExecutor(
+        built.validated_bundle,
+        workspace,
+        manager,
+        max_retries=0,
+        retry_delay_ms=0,
+    ).execute(on_error="stop")
+    assert isinstance(state, dict)
+    return state
+
+
+def _state_for(result, state_dir: Path) -> dict[str, object]:
+    return json.loads((state_dir / result.run_id / "state.json").read_text(encoding="utf-8"))
+
+
+def _captured_prompts(capture_dir: Path) -> tuple[dict[str, object], ...]:
+    return tuple(
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted(capture_dir.glob("*.json"))
+    )
+
+
+def test_public_demo_trial_runs_four_imported_arms_with_real_local_check_and_committed_scored_verdict(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    capture_dir = _install_fake_codex(tmp_path, monkeypatch)
+    workspace, _commit = _stage_workspace(tmp_path)
+    state_dir = (tmp_path / "runs").resolve()
+    state_dir.mkdir()
+    run_ref_root = (tmp_path / "children").resolve()
+    run_ref_root.mkdir()
+    monkeypatch.setattr(StateManager, "_generate_run_id", lambda _self: "orc-demo-smoke")
+    monkeypatch.setattr(workflow_executor.os, "urandom", lambda count: FIXED_SALT[:count])
+    scorer = _inject_test_only_packet_scorer(monkeypatch)
+
+    result = _run_trial(
+        workspace,
+        inputs={
+            "task": TASK_TEXT,
+            "check_contract": CHECK_TEXT,
+            "model": "gpt-5.5",
+            "effort": "high",
+        },
+        state_dir=state_dir,
+        run_ref_root=run_ref_root,
+    )
+
+    assert result.terminal_status == "completed"
+    state = _state_for(result, state_dir)
+    [trial_step] = [
+        step
+        for step in state["steps"].values()
+        if isinstance(step, dict) and isinstance(step.get("trial"), dict)
+    ]
+    outcomes = trial_step["trial"]["outcomes"]
+    assert [row["arm_id"] for row in outcomes] == [
+        "DIRECT",
+        "DESIGN_QA",
+        "PRODUCT_QA",
+        "RICH",
+    ]
+    assert all(row["variant"] == "Completed" for row in outcomes)
+    assert all(row["evidence"]["check_results"][0]["exit_code"] == 0 for row in outcomes)
+    assert all(row["evidence"]["score"] == 0.5 for row in outcomes)
+    child_states = tuple(run_ref_root.rglob(".orchestrate/runs/*/state.json"))
+    assert len(child_states) == 4
+    child_requests = tuple(run_ref_root.rglob("child-request.json"))
+    assert len(child_requests) == 4
+    assert trial_step["trial"]["verdict"]["ranking"] == [
+        "DIRECT",
+        "DESIGN_QA",
+        "PRODUCT_QA",
+        "RICH",
+    ]
+    _captured_prompts(capture_dir)
+    assert len(scorer.prepared) == 4
+    assert len(scorer.executed) == 4
+
+
+
+def test_public_demo_trial_required_check_control_is_committed_into_children(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_codex(tmp_path, monkeypatch)
+    workspace, _commit = _stage_workspace(tmp_path, check_mode="fail\n")
+    state_dir = (tmp_path / "runs").resolve()
+    state_dir.mkdir()
+    run_ref_root = (tmp_path / "children").resolve()
+    run_ref_root.mkdir()
+    monkeypatch.setattr(
+        StateManager,
+        "_generate_run_id",
+        lambda _self: "orc-demo-required-check-failure",
+    )
+    monkeypatch.setattr(workflow_executor.os, "urandom", lambda count: FIXED_SALT[:count])
+
+    result = _run_trial(
+        workspace,
+        inputs={
+            "task": TASK_TEXT,
+            "check_contract": CHECK_TEXT,
+            "model": "gpt-5.5",
+            "effort": "high",
+        },
+        state_dir=state_dir,
+        run_ref_root=run_ref_root,
+    )
+
+    assert result.terminal_status == "completed"
+    state = _state_for(result, state_dir)
+    [trial_step] = [
+        step
+        for step in state["steps"].values()
+        if isinstance(step, dict) and isinstance(step.get("trial"), dict)
+    ]
+    outcomes = trial_step["trial"]["outcomes"]
+    assert len(outcomes) == 4
+    assert all(row["variant"] == "Failed" for row in outcomes)
+    assert all(row["failure"]["code"] == "trial_required_check_failed" for row in outcomes)
+    assert all(row["failure"]["phase"] == "checks" for row in outcomes)
+    assert all(row["failure"]["retryable"] is False for row in outcomes)
+    assert all(row["evidence"]["facts"][2]["check_results"][0]["exit_code"] == 1 for row in outcomes)
+
+
+def _oracle_summary(
+    state: dict[str, object], inputs: dict[str, str]
+) -> dict[str, object]:
+    outputs = state.get("workflow_outputs", {})
+    steps = state["steps"]
+    assert isinstance(outputs, dict)
+    assert isinstance(steps, dict)
+    # Structural/projection steps may have no durable artifacts. Observe actual
+    # result records, not names, aliases, step counts or claimed selected steps.
+    artifacts = []
+    scopes = [state]
+    while scopes:
+        scope = scopes.pop()
+        for frame in scope.get("call_frames", {}).values():
+            if frame.get("status") == "completed":
+                scopes.append(frame["state"])
+        for step in scope["steps"].values():
+            if not isinstance(step, dict) or step.get("status") != "completed":
+                continue
+            artifact = step.get("artifacts")
+            if isinstance(artifact, dict) and "artifact_kind" in artifact:
+                artifacts.append(artifact)
+    return {
+        "execution_status": state.get("status"),
+        "inputs": inputs,
+        "context": {},
+        "outputs": {
+            key.removeprefix("return__"): value
+            for key, value in outputs.items()
+        },
+        "artifacts": artifacts,
+    }
+
+
+def _qualify(authored: dict[str, object], review_status: str):
+    scenario = {
+        "APPROVE": "development_approval",
+        "REVISE": "selected_completion_preserves_unaffected",
+        "BLOCK": "development_block",
+    }[review_status]
+    return evaluate_behavior(
+        spec=SCENARIOS[("review_completion", scenario)],
+        fixture={"inputs": _development_inputs(review_status), "context": {}},
+        authored=authored,
+    )
+
+
+def _development_inputs(review_status: str) -> dict[str, str]:
+    return {
+        "review_status": review_status,
+        "accepted_item": "accepted_design",
+        "changed_item": "changed_review",
+        "dependent_item": "dependent_review",
+    }
+
+
+def test_task1_direct_execution_accepts_two_structures_and_rejects_a_stale_input_control(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace, _commit = _stage_workspace(tmp_path)
+    for review_status in ("APPROVE", "REVISE", "BLOCK"):
+        inputs = _development_inputs(review_status)
+        positives = {}
+        for entry in ("correct-a", "correct-b", "renamed"):
+            authored = _oracle_summary(
+                _execute_oracle_workflow(
+                    workspace, entry_workflow=entry, inputs=inputs,
+                    run_id=f"oracle-{entry}-{review_status.lower()}",
+                ),
+                inputs,
+            )
+            result = _qualify(authored, review_status)
+            assert result.ok, result.codes
+            positives[entry] = authored
+
+        # The extra serialized findings -> gate -> branch dependency is real;
+        # renaming remains a separate invariant, not the second structure.
+        assert not any(
+            row["artifact_kind"] == "review_gate"
+            for row in positives["correct-a"]["artifacts"]
+        )
+        assert any(
+            row["artifact_kind"] == "review_gate"
+            for row in positives["correct-b"]["artifacts"]
+        )
+        assert positives["correct-a"]["artifacts"] == positives["renamed"]["artifacts"]
+        # Independent consumer-visible check of the fixture work, not a call to
+        # the same operation that produced the value.
+        final = positives["correct-a"]["outputs"]
+        if review_status == "REVISE":
+            [revision] = [
+                row for row in positives["correct-a"]["artifacts"]
+                if row["artifact_kind"] == "revised_candidate"
+            ]
+            assert revision["accepted_item"] == "accepted_design"
+            assert revision["changed_item"] == "resolved:changed_review"
+            assert revision["dependent_item"] == "dependent_review"
+            assert final["completion_payload"].endswith(
+                "|dependent_review=accepted_design+resolved:changed_review"
+            )
+            assert final["reused_items"] == ["accepted_design"]
+            assert final["invalidated_items"] == ["changed_review"]
+        elif review_status == "BLOCK":
+            assert final["completion_payload"].endswith("|dependent_review=withheld")
+        else:
+            assert final["completion_payload"].endswith(
+                "|dependent_review=accepted_design+changed_review"
+            )
+
+        broken = _oracle_summary(
+            _execute_oracle_workflow(
+                workspace, entry_workflow="broken", inputs=inputs,
+                run_id=f"oracle-broken-{review_status.lower()}",
+            ),
+            inputs,
+        )
+        # Each fresh-input control reaches a typed terminal output. Rejection
+        # cannot be attributed to a stale candidate or a subprocess failure.
+        assert broken["execution_status"] == "completed"
+        assert broken["outputs"]["candidate_payload"] == (
+            "candidate|accepted_design|changed_review|dependent_review"
+        )
+        result = _qualify(broken, review_status)
+        assert not result.ok
+        assert "stale_consumed_input" not in result.codes
+        assert {
+            "APPROVE": "invalid_payload:complete",
+            "REVISE": "missing_required_revision",
+            "BLOCK": "completion_after_block",
+        }[review_status] in result.codes
+
+    inputs = _development_inputs("APPROVE")
+    skipped_review = _oracle_summary(
+        _execute_oracle_workflow(
+            workspace, entry_workflow="broken-review", inputs=inputs,
+            run_id="oracle-skipped-review",
+        ),
+        inputs,
+    )
+    assert skipped_review["execution_status"] == "completed"
+    result = _qualify(skipped_review, "APPROVE")
+    assert not result.ok
+    assert "missing_required_review" in result.codes
+    assert "stale_consumed_input" not in result.codes
+
+    inputs = _development_inputs("REVISE")
+    stale = _oracle_summary(
+        _execute_oracle_workflow(
+            workspace, entry_workflow="stale-input", inputs=inputs,
+            run_id="oracle-stale-input",
+        ),
+        inputs,
+    )
+    assert stale["execution_status"] == "completed"
+    result = _qualify(stale, "REVISE")
+    assert not result.ok
+    assert "stale_consumed_input" in result.codes
+    assert any(r["operation"] == "revise" for r in stale["artifacts"])
+    assert any(r["operation"] == "complete" for r in stale["artifacts"])
+
+
+def test_behavior_oracle_rejects_missing_stale_and_skipped_evidence(tmp_path: Path) -> None:
+    workspace, _commit = _stage_workspace(tmp_path)
+    inputs = _development_inputs("REVISE")
+    authored = _oracle_summary(
+        _execute_oracle_workflow(
+            workspace, entry_workflow="correct-b", inputs=inputs,
+            run_id="oracle-evidence-regressions",
+        ),
+        inputs,
+    )
+    assert _qualify(authored, "REVISE").ok
+    rows = authored["artifacts"]
+    [revision] = [row for row in rows if row["operation"] == "revise"]
+    [approval] = [
+        row for row in rows
+        if row["operation"] == "review" and row["review_status"] == "APPROVE"
+    ]
+    [completion] = [row for row in rows if row["operation"] == "complete"]
+    # Regression for the observed failure: an APPROVE re-review of the revised
+    # payload is the required completion input, not the original REVISE findings.
+    assert scripted_leaf(
+        operation="complete",
+        inputs={
+            "candidate_payload": revision["payload"],
+            "findings_payload": approval["findings_payload"],
+        },
+        context={},
+    ) == completion
+
+    # Qualification is independent of artifact enumeration and composition names.
+    permuted = deepcopy(authored)
+    permuted["artifacts"].reverse()
+    permuted["outputs"]["composition_id"] = "unseen-name"
+    assert _qualify(permuted, "REVISE").ok
+
+    # Self-consistent hashes of unrelated findings, arbitrary revisions and
+    # skipped deliverables must not substitute for the declared work.
+    mutations = (
+        ("review", "findings_payload", "findings_digest", "findings|REVISE|" + "0" * 64),
+        ("revise", "payload", "payload_digest", revision["payload"].rsplit("|", 1)[0] + "|arbitrary"),
+        ("complete", "completion_payload", "completion_digest", "skipped"),
+    )
+    for operation, payload_key, digest_key, payload in mutations:
+        tampered = deepcopy(authored)
+        row = next(r for r in tampered["artifacts"] if r["operation"] == operation)
+        row[payload_key] = payload
+        row[digest_key] = hashlib.sha256(payload.encode()).hexdigest()
+        result = _qualify(tampered, "REVISE")
+        assert not result.ok
+        assert f"invalid_payload:{operation}" in result.codes
+
+    for operation in ("review", "revise", "complete"):
+        missing = deepcopy(authored)
+        missing["artifacts"] = [r for r in rows if r["operation"] != operation]
+        assert not _qualify(missing, "REVISE").ok
+
+    for key, replacement in (
+        ("status", "BLOCKED"), ("decision", "BLOCKED"),
+        ("reused_items", []), ("invalidated_items", []),
+        ("selected_steps", []), ("decision_boundary", "unrelated"),
+        ("candidate_payload", "stale"), ("candidate_digest", "0" * 64),
+        ("reviewed_candidate_digest", "0" * 64),
+        ("final_candidate_digest", "0" * 64),
+        ("findings_payload", "unrelated"), ("findings_digest", "0" * 64),
+        ("completion_payload", "skipped"), ("completion_digest", "0" * 64),
+    ):
+        bad_output = deepcopy(authored)
+        bad_output["outputs"][key] = replacement
+        assert "workflow_outputs_mismatch" in _qualify(bad_output, "REVISE").codes
+    # ScenarioSpec obligations apply even to a completely self-consistent run
+    # whose current input values differ from the required scenario resources.
+    different_inputs = {
+        **inputs, "accepted_item": "other_accepted", "changed_item": "other_changed",
+    }
+    different = _oracle_summary(
+        _execute_oracle_workflow(
+            workspace, entry_workflow="correct-a", inputs=different_inputs,
+            run_id="oracle-scenario-obligations",
+        ),
+        different_inputs,
+    )
+    result = _qualify(different, "REVISE")
+    assert different["execution_status"] == "completed"
+    assert "stale_consumed_input" not in result.codes
+    assert "reuse_obligation_mismatch" in result.codes
+    assert "invalidation_obligation_mismatch" in result.codes
+
+    assert not _qualify({**authored, "execution_status": "failed"}, "REVISE").ok
+
+    changed_inputs = {**inputs, "accepted_item": "other_accepted"}
+    assert "stale_consumed_input" in _qualify(
+        {**authored, "inputs": changed_inputs}, "REVISE"
+    ).codes
+    for malformed in ({}, {"artifacts": []}, {"artifacts": [None]}, None):
+        assert not _qualify(malformed, "REVISE").ok
+    for row in rows:
+        for key in row:
+            for malformed_value in (None, [], {}, 7, False):
+                if row[key] == malformed_value and type(row[key]) is type(malformed_value):
+                    continue
+                malformed = deepcopy(authored)
+                index = rows.index(row)
+                malformed["artifacts"][index][key] = malformed_value
+                result = _qualify(malformed, "REVISE")
+                assert not result.ok, (key, malformed_value)
+    assert not _qualify(
+        {**authored, "artifacts": [*rows, {"artifact_kind": []}]}, "REVISE"
+    ).ok
+
+
+def _execute_task2(
+    workspace: Path, family: str, scenario_id: str, entry: str, run_id: str,
+    *, fixture: dict[str, object] | None = None,
+) -> dict[str, object]:
+    fixture = fixture or TASK2_FIXTURES[(family, scenario_id)]
+    state = _execute_oracle_workflow(
+        workspace, entry_workflow=entry, run_id=run_id,
+        source_file="oracle_task2.orc",
+        inputs={
+            "root_inputs": json.dumps(fixture["inputs"], sort_keys=True),
+            "root_context": json.dumps(fixture["context"], sort_keys=True),
+        },
+    )
+    # Read actual canonical root bindings and actual command/call-frame results,
+    # rather than constructing a trace or declaring that execution completed.
+    bound = state["bound_inputs"]
+    summary = _oracle_summary(state, bound)
+    assert summary["execution_status"] == "completed", state
+    assert summary["outputs"]["artifact_kind"] == "task2_transport"
+    terminal = json.loads(summary["outputs"]["payload"])
+    return {
+        "execution_status": summary["execution_status"],
+        "inputs": json.loads(bound["root_inputs"]),
+        "context": json.loads(bound["root_context"]),
+        "artifacts": [
+            json.loads(row["payload"]) for row in summary["artifacts"]
+            if row["artifact_kind"] == "task2_transport"
+        ],
+        "outputs": {
+            **terminal["result"], "terminal_artifact_digest": terminal["artifact_digest"],
+        },
+    }
+
+
+def _assert_task2_controls(
+    workspace: Path, family: str, scenario_id: str, prefix: str,
+    correct: dict[str, object], run_prefix: str,
+) -> None:
+    for fault in ("missing", "stale", "reset"):
+        authored = _execute_task2(
+            workspace, family, scenario_id, f"{prefix}-{fault}", f"{run_prefix}-{fault}"
+        )
+        result = evaluate_behavior(
+            spec=SCENARIOS[(family, scenario_id)],
+            fixture=TASK2_FIXTURES[(family, scenario_id)], authored=authored,
+        )
+        assert authored["outputs"], "broken programs must reach real terminal outputs"
+        assert not result.ok
+        if fault == "missing":
+            assert any(code.startswith("missing_required_operation:") for code in result.codes)
+            # Disconnected correct work cannot rescue a missing-work output.
+            disconnected = deepcopy(authored)
+            disconnected["artifacts"].extend(correct["artifacts"])
+            result = evaluate_behavior(
+                spec=SCENARIOS[(family, scenario_id)],
+                fixture=TASK2_FIXTURES[(family, scenario_id)], authored=disconnected,
+            )
+            assert not result.ok
+            assert any(code.startswith("missing_required_operation:") for code in result.codes)
+        if fault == "reset":
+            # An internally consistent destructive operation, not stale-digest
+            # dictionary tampering, violates exact preservation/exclusion duties.
+            assert "invalidation_obligation_mismatch" in result.codes
+            assert "reuse_obligation_mismatch" in result.codes
+            assert not any(code.startswith("invalid_payload:") for code in result.codes)
+            for row in authored["artifacts"]:
+                assert scripted_leaf(
+                    operation=row["operation"], inputs=row["inputs"], context=row["context"]
+                ) == row
+        if fault == "stale":
+            assert any(code.startswith("invalid_payload:") for code in result.codes)
+    # Supplementary evidence-integrity checks; these are not composition proof.
+    missing = deepcopy(correct)
+    dependency = "independent_assess" if family == "conditional_judgment" else "pilot"
+    missing["artifacts"] = [
+        row for row in missing["artifacts"] if row["operation"] != dependency
+    ]
+    result = evaluate_behavior(
+        spec=SCENARIOS[(family, scenario_id)],
+        fixture=TASK2_FIXTURES[(family, scenario_id)], authored=missing,
+    )
+    assert not result.ok
+    assert "unresolved_consumed_input" in result.codes
+    for forbidden in ("candidate_id", "global_role", "scenario_id"):
+        mutated = deepcopy(correct)
+        mutated["artifacts"][0][forbidden] = "answer-bearing"
+        assert not evaluate_behavior(
+            spec=SCENARIOS[(family, scenario_id)],
+            fixture=TASK2_FIXTURES[(family, scenario_id)], authored=mutated,
+        ).ok
+    wrong_context = deepcopy(correct)
+    wrong_context["context"]["decision_boundary"] = "wrong-boundary"
+    assert not evaluate_behavior(
+        spec=SCENARIOS[(family, scenario_id)],
+        fixture=TASK2_FIXTURES[(family, scenario_id)], authored=wrong_context,
+    ).ok
+
+
+def test_task2_conditional_judgment_executes_two_compositions_and_controls(tmp_path: Path) -> None:
+    workspace, _ = _stage_workspace(tmp_path)
+    scenarios = (
+        "disagreement-bounded-reconsideration",
+        "agreement-acceptance-without-extra-revision",
+        "revision-after-material-disagreement",
+    )
+    for index, scenario_id in enumerate(scenarios):
+        outputs = []
+        operations = []
+        for composition in ("a", "b"):
+            authored = _execute_task2(
+                workspace, "conditional_judgment", scenario_id,
+                f"judgment-{composition}", f"judgment-{index}-{composition}",
+            )
+            result = evaluate_behavior(
+                spec=SCENARIOS[("case-conditional-judgment-disagreement", scenario_id)],
+                fixture=TASK2_FIXTURES[("conditional_judgment", scenario_id)],
+                authored=authored,
+            )
+            assert result.ok, result.codes
+            outputs.append(authored["outputs"])
+            operations.append({row["operation"] for row in authored["artifacts"]})
+            resolved = authored["outputs"]["produced_outputs"]["resolved_findings"]
+            assert resolved["findings_considered"] == [
+                authored["inputs"]["finding_a"], authored["inputs"]["finding_b"],
+            ]
+            assert resolved["accepted_basis"] == authored["inputs"]["accepted_findings"]
+            assert authored["outputs"]["reconsiderations_used"] == (
+                1 if scenario_id == "disagreement-bounded-reconsideration" else 0
+            )
+            if "revise" in operations[-1]:
+                assert "dependent_conclusions" in authored["outputs"]["produced_outputs"]
+        assert "judgment_gate" not in operations[0]
+        assert "judgment_gate" in operations[1]
+        assert {
+            k: v for k, v in outputs[0].items() if k != "terminal_artifact_digest"
+        } == {k: v for k, v in outputs[1].items() if k != "terminal_artifact_digest"}
+        _assert_task2_controls(
+            workspace, "conditional_judgment", scenario_id, "judgment", authored,
+            f"judgment-{index}",
+        )
+
+
+def test_task2_scientific_transfer_executes_two_compositions_and_controls(tmp_path: Path) -> None:
+    workspace, _ = _stage_workspace(tmp_path)
+    scenarios = (
+        "process-success-without-valid-scientific-acceptance",
+        "pilot-evidence-calls-for-method-reconsideration",
+        "selective-reuse-after-relevant-correction",
+    )
+    for index, scenario_id in enumerate(scenarios):
+        outputs = []
+        operations = []
+        for composition in ("a", "b"):
+            authored = _execute_task2(
+                workspace, "scientific_transfer", scenario_id,
+                f"scientific-{composition}", f"scientific-{index}-{composition}",
+            )
+            result = evaluate_behavior(
+                spec=SCENARIOS[("case-multi-item-scientific-transfer", scenario_id)],
+                fixture=TASK2_FIXTURES[("scientific_transfer", scenario_id)],
+                authored=authored,
+            )
+            assert result.ok, result.codes
+            output = authored["outputs"]
+            outputs.append(output)
+            operations.append({row["operation"] for row in authored["artifacts"]})
+            assert output["process_status"] == "COMPLETED"
+            assert output["scientific_acceptance"] is (index == 2)
+            assert output["next_item"] == authored["inputs"]["remaining_backlog"]
+            if index == 2:
+                roots = authored["inputs"]
+                changed = output["produced_outputs"][roots["current_claim"]["id"]]
+                assert changed["content"] == roots["corrected_outputs"]
+                assert changed["content"] != roots["current_claim"]["content"]
+                for key, value in roots["accepted_evidence"].items():
+                    assert output["preserved_outputs"][key] == value
+                assert all(
+                    not value["admissible_for_current_comparison"]
+                    for value in output["evidence_classification"]["prior_useful"].values()
+                )
+            if index == 1:
+                plan = output["produced_outputs"]["method_plan"]
+                assert plan["content"]["hold_current_comparison"]
+                assert plan["content"]["investigate"] == authored["inputs"]["observed_issue"]
+        assert "evidence_gate" not in operations[0]
+        assert {"evidence_gate", "item_gate"} <= operations[1]
+        assert {
+            k: v for k, v in outputs[0].items() if k != "terminal_artifact_digest"
+        } == {k: v for k, v in outputs[1].items() if k != "terminal_artifact_digest"}
+        _assert_task2_controls(
+            workspace, "scientific_transfer", scenario_id, "scientific", authored,
+            f"scientific-{index}",
+        )
+
+
+@pytest.mark.parametrize(
+    ("confidence", "other_confidence", "expected"),
+    (
+        ("0.799999", "0.30", "RECONSIDER"),
+        ("0.80", "0.30", "REVISE"),
+        ("0.800001", "0.30", "REVISE"),
+        ("0.70", "0.20", "REVISE"),
+    ),
+)
+def test_task2_materiality_boundary_consumes_assessments(
+    tmp_path: Path, confidence: str, other_confidence: str, expected: str,
+) -> None:
+    workspace, _ = _stage_workspace(tmp_path)
+    scenario = "disagreement-bounded-reconsideration"
+    fixture = deepcopy(TASK2_FIXTURES[("conditional_judgment", scenario)])
+    fixture["inputs"].update(confidence_a=confidence, confidence_b=other_confidence)
+    authored = _execute_task2(
+        workspace, "conditional_judgment", scenario, "judgment-b",
+        "materiality-boundary", fixture=fixture,
+    )
+    comparison = next(
+        row for row in authored["artifacts"] if row["operation"] == "compare_findings"
+    )
+    assert comparison["result"]["decision"] == expected
+    assert authored["outputs"]["reconsiderations_used"] == int(expected == "RECONSIDER")
+
+
+@pytest.mark.parametrize(("field", "bad"), (
+    ("confidence_a", "malformed"),
+    ("materiality_threshold", "NaN"),
+    ("metric", "Infinity"),
+    ("criterion", "-Infinity"),
+    ("confidence_a", "-0.1"),
+    ("confidence_a", "-1e-9999"),
+    ("criterion", "1.1"),
+    ("reconsideration_limit", "1.1"),
+    ("reconsiderations_used", "-0.1"),
+))
+def test_task2_numeric_policy_fails_closed(field: str, bad: str) -> None:
+    # These leaf-level boundary checks supplement the real ORC executions.
+    conditional = field not in {"metric", "criterion"}
+    fixture = deepcopy(TASK2_FIXTURES[
+        ("conditional_judgment", "disagreement-bounded-reconsideration")
+        if conditional else
+        ("scientific_transfer", "process-success-without-valid-scientific-acceptance")
+    ])
+    roots, context = fixture["inputs"], fixture["context"]
+    (context if field in context else roots)[field] = bad
+    with pytest.raises(ValueError):
+        if conditional:
+            a = scripted_leaf(operation="independent_assess", inputs={
+                "roots": roots, "finding": roots["finding_a"],
+                "confidence": roots["confidence_a"], "scope": roots["scope"],
+            }, context=context)
+            b = scripted_leaf(operation="independent_assess", inputs={
+                "roots": roots, "finding": roots["finding_b"],
+                "confidence": roots["confidence_b"], "scope": roots["scope"],
+            }, context=context)
+            scripted_leaf(operation="compare_findings", inputs={
+                "roots": roots, "assessment_a": a, "assessment_b": b,
+            }, context=context)
+        else:
+            if field == "metric":
+                roots["observation"]["metric"] = bad
+            diagnosis = scripted_leaf(operation="diagnose", inputs={"roots": roots}, context=context)
+            pilot = scripted_leaf(operation="pilot", inputs={
+                "roots": roots, "diagnosis": diagnosis,
+            }, context=context)
+            item = scripted_leaf(operation="continue_per_item", inputs={
+                "roots": roots, "per_item_decision": diagnosis, "pilot": pilot,
+            }, context=context)
+            scripted_leaf(operation="judge_scientific_value", inputs={
+                "roots": roots, "current_item_output": item,
+                "current_comparison_evidence": pilot,
+            }, context=context)
+
+
+@pytest.mark.parametrize("used", ("0", "1"))
+def test_task2_reconsideration_allowance_is_consumed_by_runtime(tmp_path: Path, used: str) -> None:
+    workspace, _ = _stage_workspace(tmp_path)
+    scenario = "disagreement-bounded-reconsideration"
+    fixture = deepcopy(TASK2_FIXTURES[("conditional_judgment", scenario)])
+    fixture["context"].update(reconsideration_limit="1", reconsiderations_used=used)
+    authored = _execute_task2(
+        workspace, "conditional_judgment", scenario, "judgment-b",
+        f"allowance-{used}", fixture=fixture,
+    )
+    operations = {row["operation"] for row in authored["artifacts"]}
+    assert authored["outputs"]["reconsiderations_used"] == 1
+    if used == "1":
+        assert "reconsider" not in operations
+        assert "revise" in operations
+        comparison = next(row for row in authored["artifacts"] if row["operation"] == "compare_findings")
+        with pytest.raises(ValueError, match="contradicts"):
+            scripted_leaf(operation="reconsider", inputs={
+                "roots": fixture["inputs"], "comparison": comparison,
+            }, context=fixture["context"])
+    else:
+        assert "reconsider" in operations
+        assert "revise" not in operations
+
+
+@pytest.mark.parametrize(("metric", "accepted"), (
+    ("0.799999", False), ("0.80", True), ("0.800001", True),
+    ("0.799999999999999999999999", False),
+))
+def test_task2_scientific_threshold_uses_declared_pilot_value(
+    tmp_path: Path, metric: str, accepted: bool,
+) -> None:
+    workspace, _ = _stage_workspace(tmp_path)
+    scenario = "process-success-without-valid-scientific-acceptance"
+    fixture = deepcopy(TASK2_FIXTURES[("scientific_transfer", scenario)])
+    fixture["inputs"]["metric"] = metric
+    fixture["inputs"]["observation"]["metric"] = metric
+    authored = _execute_task2(
+        workspace, "scientific_transfer", scenario, "scientific-a",
+        "scientific-threshold", fixture=fixture,
+    )
+    assert authored["outputs"]["process_status"] == "COMPLETED"
+    assert authored["outputs"]["scientific_acceptance"] is accepted
+
+
+def test_behavior_binds_explicit_nonregistry_fixture_and_context(tmp_path: Path) -> None:
+    from dataclasses import replace
+
+    workspace, _ = _stage_workspace(tmp_path)
+    family = "conditional_judgment"
+    scenario = "agreement-acceptance-without-extra-revision"
+    fixture = deepcopy(TASK2_FIXTURES[(family, scenario)])
+    fixture["inputs"].update(
+        scope="nonregistry-scope", finding_a="nonregistry-finding",
+        finding_b="nonregistry-finding",
+    )
+    fixture["context"]["materiality_threshold"] = "0.3333333333333333"
+    spec = replace(SCENARIOS[(family, scenario)], scenario_id="nonregistry-binding")
+    assert (family, spec.scenario_id) not in SCENARIOS
+    authored = _execute_task2(
+        workspace, family, scenario, "judgment-b", "nonregistry-binding", fixture=fixture,
+    )
+    result = evaluate_behavior(spec=spec, fixture=fixture, authored=authored)
+    assert result.ok, result.codes
+    # An internally valid result cannot supply or override controller truth.
+    assert "fixture_input_context_mismatch" in evaluate_behavior(
+        spec=spec, fixture=TASK2_FIXTURES[(family, scenario)], authored=authored,
+    ).codes
+    for field in ("inputs", "context"):
+        wrong = deepcopy(authored)
+        wrong[field] = TASK2_FIXTURES[(family, scenario)][field]
+        assert "fixture_input_context_mismatch" in evaluate_behavior(
+            spec=spec, fixture=fixture, authored=wrong,
+        ).codes
+    comparison = next(row for row in authored["artifacts"] if row["operation"] == "compare_findings")
+    for field in ("inputs", "context"):
+        foreign = deepcopy(fixture)
+        foreign[field] = TASK2_FIXTURES[(family, scenario)][field]
+        with pytest.raises(ValueError, match="different roots or context"):
+            scripted_leaf(
+                operation="accept", inputs={"roots": foreign["inputs"], "comparison": comparison},
+                context=foreign["context"],
+            )
