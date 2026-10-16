@@ -4499,15 +4499,24 @@ def test_phased_contract_delivery_routes_completed_surface() -> None:
         design_router_path,
         "workflow_lisp_phased_contract_delivery.md",
     )
-    assert "Historical execution; retained reader/shared-service scope only" in design_router_row
+    normalized_current_design = _normalized_routing_text(design_router_row)
+    assert "accepted" in normalized_current_design and "2.39" in normalized_current_design
+    assert "qualification" in normalized_current_design and "unselected" in normalized_current_design
 
     capability_row = _markdown_table_row(
         capability_matrix_path,
-        "Workflow Lisp phased contract delivery Q5",
+        "Workflow Lisp phased contract delivery",
     )
-    assert "| Retired |" in capability_row
-    assert Path(PHASED_CONTRACT_DELIVERY_PLAN_PATH).name in capability_row
-
+    current_status = _normalized_routing_text(capability_row.split("|")[2])
+    assert "implemented" in current_status and "2.39" in current_status
+    assert "qualification" in current_status and "unselected" in current_status
+    migration_plan = "docs/plans/2026-10-16-phased-execution-239-plan.md"
+    guide = "docs/lisp_workflow_drafting_guide.md"
+    for row in (design_router_row, capability_row):
+        assert Path(migration_plan).name in row
+        assert "authoring-phased-contract-delivery-target-239" in row
+    for owner in ("docs/index.md", "docs/design/README.md", "docs/capability_status_matrix.md"):
+        _assert_doc_routes(owner, PHASED_CONTRACT_DELIVERY_DESIGN_PATH, migration_plan, guide)
 
     _assert_doc_routes("docs/index.md", PHASED_CONTRACT_DELIVERY_DESIGN_PATH,
                        PHASED_CONTRACT_DELIVERY_PLAN_PATH)

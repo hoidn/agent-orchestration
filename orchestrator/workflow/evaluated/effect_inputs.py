@@ -313,7 +313,7 @@ def _resolve_provider_effect_input(authority, node, operands, identity, workspac
 
 def _provider_delivery_name(node, commit, identity):
     """The committed row's rendering on replay (None when it predates the part), else the current one."""
-    if node["class"] == "provider_phased":
+    if node.get("class") == "provider_phased":
         if commit is not None and commit.data["input_parts"].get("delivery") != canonical_sha256(FILE_DELIVERY_NAME):
             raise _EffectInputDiverged(identity, "phased delivery rendering is not file/1")
         return FILE_DELIVERY_NAME
