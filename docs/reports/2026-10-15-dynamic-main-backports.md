@@ -1,12 +1,12 @@
 # Selected main backports into the dynamic branch — 2026-10-15
 
-Status: verification, failure attribution and integration rehearsal complete; target fast-forward is the remaining delivery step. The full suite remains red as recorded below. This report records execution of the [reviewed plan](../plans/2026-10-15-dynamic-main-backports-plan.md); it does not select native adoption or change the default profile.
+Status: completed and integrated into `feat/orc-dynamic-core-cutover`, preserving the reviewed local documentation overlay. The full suite remains red as recorded below. This report records execution of the [reviewed plan](../plans/2026-10-15-dynamic-main-backports-plan.md); it does not select native adoption or change the default profile.
 
 ## Source pins and delivered scope
 
 - Dynamic base: `1ecde6e4566cf38a9d9f642e4e5c74e45d71b368`.
 - Main inspection pin: `6005b5c1f105057a41a5a57882e5df90abf44118`.
-- Product and consumer changes: `df65b7033dde242b357e575ba1285f644057ab5c`; documentation: `e08f44b89f90d235657ef4ef92c520b5f1c58da8`. Post-suite test-only corrections: `f760232d` (structural relpath guidance assertion) and `e438a3f8` (renderer guard import); no product code changed after the full campaign.
+- Product and consumer changes: `df65b7033dde242b357e575ba1285f644057ab5c`; documentation: `e08f44b89f90d235657ef4ef92c520b5f1c58da8`. Post-suite test-only corrections: `f760232d` (structural relpath guidance assertion) and `e438a3f87ce5e284d31bea416f6a4d60a6a9b3fa` (renderer guard import; final tested code/test pin); no product code changed after the full campaign.
 - Target: `feat/orc-dynamic-core-cutover`, `/var/tmp/agent-orchestration-orc-dynamic-core`. Integration branch: `integrate/dynamic-main-backports-20261015`.
 - Evidence root: `/tmp/orc-dynamic-main-sync-20261015-yenoqng0`. Receipts preserve actual commands, code pins, hashes, outputs and limitations.
 
@@ -68,8 +68,8 @@ Owner extraction preserved moved function ASTs, compatibility object identities,
 
 ## Preservation and integration
 
-The reviewed target fast-forward is ready and has not yet been applied. This task never wrote main. Its original HEAD, index, 34 dirty tracked files' bytes/modes and untracked inventory remained unchanged; an external one-line edit to `AGENTS.md` appeared at 01:07 UTC and was preserved separately in `main-external-change.json` and `main-observed-external-change/`. Final checks compare against that observed state rather than claiming main received no concurrent edits. The target snapshot contains 21 dirty tracked documents, one untracked plan and an empty index.
+The original target was fast-forwarded to `0ce17f75be1b7d826f7c8a1f94e9abad30e2f5a5`; only this completion report and its plan checkboxes follow as documentation closeout. `original-integration.json` records the actual stash/merge/apply and exact manifest verification; `integration-closeout.json` records the final branch tip. This task never wrote main. Its original HEAD, index, 34 dirty tracked files' bytes/modes and untracked inventory remained unchanged; an external one-line edit to `AGENTS.md` appeared at 01:07 UTC and was preserved separately in `main-external-change.json` and `main-observed-external-change/`. Final checks compare against that observed state rather than claiming main received no concurrent edits. The target snapshot contains 21 dirty tracked documents, one untracked plan and an empty index.
 
 The disposable rehearsal reproduced that state exactly before applying the integration. Its only textual conflict combined the user's two existing capability rows with the two new rows. Review then corrected one stale overlay paragraph saying REPL inspection was unavailable; the exact before/after is retained in `rehearsal-overlay-semantic-correction.json`. All other authored changes and the untracked plan remain intact, and the index remains empty. Both inputs, modes and reviewed output are retained in the snapshot/patch receipts. Rehearsal link checks and the three-profile smoke passed.
 
-Backups: `integration-target-snapshot/`, `rehearsal-expected/`, and the original named stash to be recorded when the authorized integration runs. The rehearsal stash is `ea866214e35b85ef7d5652a0b1b2658c6ea5bbe5`. No stash is dropped and no original worktree is reset or cleaned.
+Backups: `integration-target-snapshot/`, the reviewed `rehearsal-expected-ready/` and final `rehearsal-expected-final/` manifests, and original named stash `dynamic-backports-original-preserved-20261015` (`dbe66d55a072d9c0d70e0f7a8cadbc77f30e9a70`). The rehearsal stash is `ea866214e35b85ef7d5652a0b1b2658c6ea5bbe5`. No stash is dropped and no original worktree is reset or cleaned.
