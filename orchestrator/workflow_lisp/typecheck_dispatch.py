@@ -55,6 +55,7 @@ from .expressions import (
     RunRefExpr,
     TrialExpr,
     UnionVariantExpr,
+    UnionVariantTagExpr,
     WithLiveProviderPeersExpr,
     WithLiveProvidersExpr,
     WithPhaseExpr,
@@ -135,6 +136,7 @@ def _is_pure_or_provisional_procedure_call(
         (allow_provisional_procedure_calls) and (effect_summary_is_procedure_edge_only(summary))
     )
 from .type_env import (
+    DiscriminantTypeRef,
     FrontendTypeEnvironment,
     OptionalTypeRef,
     PathTypeRef,
@@ -373,6 +375,22 @@ def _typecheck(
     )
     if typed_structural_value is not None:
         return typed_structural_value
+
+    if isinstance(expr, UnionVariantTagExpr):
+        owner = expr.discriminant_owner
+        union_owner = owner if isinstance(owner, UnionTypeRef) else None
+        return _typed(
+            expr=expr,
+            type_ref=DiscriminantTypeRef(
+                union_name=expr.union_name,
+                variant_names=expr.variant_names,
+                applied_union=(
+                    union_owner if union_owner is not None and union_owner.type_args else None
+                ),
+                owner_union=union_owner,
+            ),
+            effect=EMPTY_EFFECT_SUMMARY,
+        )
 
     if isinstance(expr, LiteralExpr):
         return _typed(

@@ -18,8 +18,6 @@ from orchestrator.workflow_lisp.form_registry import (
     target_dsl_version_at_least,
 )
 from orchestrator.workflow_lisp.expressions import (
-    CallExpr,
-    ProcedureCallExpr,
     ProcRefLiteralExpr,
     ProviderResultExpr,
 )
@@ -42,7 +40,7 @@ from orchestrator.workflow_lisp.syntax import (
     ensure_syntax_datum,
 )
 from orchestrator.workflow_lisp.type_env import TypeRef, render_type_ref
-from orchestrator.workflow_lisp.workflows import WorkflowSignature
+from orchestrator.workflow_lisp.workflows import AuthoredDirectCall, WorkflowSignature
 
 from .coordinates import CoordinateTranslationError, source_span_to_lsp_range
 
@@ -194,6 +192,11 @@ def build_navigation_index(
                 continue
             for link in _reference_links_for_authored_owner(
                 typed_procedure.typed_body.expr,
+                direct_calls=tuple(
+                    call for call in compiled.authored_direct_calls
+                    if (call.owner_kind, call.owner_name)
+                    == ("procedure", definition.name)
+                ),
                 definition_spans=definition_spans,
                 syntax_lists=syntax_lists,
                 prompt_catalog=prompt_catalog,
@@ -210,6 +213,11 @@ def build_navigation_index(
                 continue
             for link in _reference_links_for_authored_owner(
                 typed_workflow.typed_body.expr,
+                direct_calls=tuple(
+                    call for call in compiled.authored_direct_calls
+                    if (call.owner_kind, call.owner_name)
+                    == ("workflow", definition.name)
+                ),
                 definition_spans=definition_spans,
                 syntax_lists=syntax_lists,
                 prompt_catalog=prompt_catalog,
@@ -643,21 +651,18 @@ def _prompt_application_assertions(
 def _reference_links_for_authored_owner(
     expr: object,
     *,
+    direct_calls: tuple[AuthoredDirectCall, ...] = (),
     definition_spans: Mapping[tuple[str, str], SourceSpan],
     syntax_lists: tuple[SyntaxList, ...],
     prompt_catalog: object,
     procedure_definitions: Mapping[str, ProcedureDef],
 ) -> tuple[DefinitionLink, ...]:
     links: list[DefinitionLink] = []
-    for node in walk_expr(expr):
-        if type(node) not in {CallExpr, ProcedureCallExpr}:
-            continue
+    for node in direct_calls:
         callee_span = node.authored_callee_span
         if callee_span is None:
             continue
-        callable_kind = (
-            "workflow" if type(node) is CallExpr else "procedure"
-        )
+        callable_kind = node.callee_kind
         definition_span = definition_spans.get(
             (callable_kind, node.callee_name)
         )

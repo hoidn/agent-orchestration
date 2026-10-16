@@ -1416,35 +1416,18 @@ def test_definition_links_are_frozen_five_field_semantic_rows(
         for link in links
     } == {
         (
-            (
-                "workflow-call"
-                if type(node) is CallExpr
-                else "procedure-call"
-            ),
-            node.authored_callee_span,
-            node.callee_name,
-            "workflow" if type(node) is CallExpr else "procedure",
+            f"{call.callee_kind}-call",
+            call.authored_callee_span,
+            call.callee_name,
+            call.callee_kind,
             _definition_span(
                 callable_result,
-                callable_name=node.callee_name,
-                kind=(
-                    "workflow"
-                    if type(node) is CallExpr
-                    else "procedure"
-                ),
+                callable_name=call.callee_name,
+                kind=call.callee_kind,
             ),
         )
         for compiled in callable_result.compiled_results_by_name.values()
-        for owner in (*compiled.typed_procedures, *compiled.typed_workflows)
-        if owner.specialization is None
-        and not owner.definition.expansion_stack
-        and (
-            not hasattr(owner.definition, "generated_local_procedure")
-            or owner.definition.generated_local_procedure is None
-        )
-        for node in walk_expr(owner.typed_body.expr)
-        if type(node) in {CallExpr, ProcedureCallExpr}
-        and node.authored_callee_span is not None
+        for call in compiled.authored_direct_calls
     }
     with pytest.raises(FrozenInstanceError):
         links[0].canonical_target = "changed"
@@ -1778,8 +1761,10 @@ def test_definition_reaches_imported_stdlib_defproc_authored_span(
     )
 
 
+@pytest.mark.parametrize("target", ("2.35", "2.39"))
 def test_definition_resolves_a_direct_local_procedure_call(
     tmp_path: Path,
+    target: str,
 ) -> None:
     source_path = tmp_path / "local.orc"
     source_path.write_text(
@@ -1787,7 +1772,7 @@ def test_definition_resolves_a_direct_local_procedure_call(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                f'  (:target-dsl "{target}")',
                 "  (defmodule local)",
                 "  (export run)",
                 "  (defpath WorkReport",
@@ -1798,7 +1783,7 @@ def test_definition_resolves_a_direct_local_procedure_call(
                 "    (report WorkReport))",
                 "  (defproc identity ((report_path WorkReport)) -> ChecksResult",
                 "    :effects ()",
-                "    :lowering inline",
+                "    :lowering inline" if target == "2.35" else "",
                 "    (record ChecksResult",
                 "      :report report_path))",
                 "  (defworkflow run ((report_path WorkReport)) -> ChecksResult",
@@ -1819,6 +1804,19 @@ def test_definition_resolves_a_direct_local_procedure_call(
 
     )
 
+    compiled = result.entry_result
+    assert not any(
+        type(node) is ProcedureCallExpr
+        for workflow in compiled.typed_workflows
+        for node in walk_expr(workflow.typed_body.expr)
+    )
+    assert len(compiled.authored_direct_calls) == 1
+    call = compiled.authored_direct_calls[0]
+    assert (call.owner_kind, call.owner_name) == ("workflow", "local::run")
+    assert (call.callee_kind, call.callee_name) == ("procedure", "local::identity")
+    with pytest.raises(FrozenInstanceError):
+        call.callee_name = "changed"
+
     assert _definition_at(
         _build_index(result),
         source_path=source_path,
@@ -1829,6 +1827,53 @@ def test_definition_resolves_a_direct_local_procedure_call(
         result,
         callable_name="local::identity",
         kind="procedure",
+    )
+
+
+@pytest.mark.parametrize("target", ("2.35", "2.39"))
+def test_function_expansion_does_not_create_an_authored_procedure_call_site(
+    tmp_path: Path,
+    target: str,
+) -> None:
+    source_path = tmp_path / "entry.orc"
+    lowering = ":lowering inline" if target == "2.35" else ""
+    source_path.write_text(
+        f'''(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "{target}")
+  (defmodule entry)
+  (export run)
+  (defproc identity ((x Int)) -> Int :effects () {lowering} x)
+  (defun helper ((x Int)) -> Int (identity x))
+  (defworkflow run () -> Int (helper 1))
+  (defworkflow direct () -> Int (identity 2)))
+''',
+        encoding="utf-8",
+    )
+    result = compile_stage3_entrypoint(
+        source_path,
+        source_roots=(tmp_path,),
+        provider_externs={},
+        prompt_externs={},
+        command_boundaries={},
+        validation_profile=Stage3ValidationProfile.SHARED_CALLABLE,
+        workspace_root=tmp_path,
+    )
+    assert tuple(
+        (call.owner_name, call.callee_name)
+        for call in result.entry_result.authored_direct_calls
+    ) == (("entry::direct", "entry::identity"),)
+    index = _build_index(result)
+    accepted_texts = _accepted_texts(result)
+    assert _definition_at(
+        index, source_path=source_path, line=6, character=34,
+        accepted_text_by_path=accepted_texts,
+    ) is None
+    assert _definition_at(
+        index, source_path=source_path, line=8, character=33,
+        accepted_text_by_path=accepted_texts,
+    ) == _definition_span(
+        result, callable_name="entry::identity", kind="procedure",
     )
 
 
@@ -1974,20 +2019,15 @@ def test_same_canonical_name_resolves_in_distinct_callable_namespaces(
     )
     compiled = result.compiled_results_by_name["same-name"]
     calls = {
-        type(node): node
-        for workflow in compiled.typed_workflows
-        if workflow.definition.name.endswith("-caller")
-        for node in walk_expr(workflow.typed_body.expr)
-        if type(node) in {CallExpr, ProcedureCallExpr}
+        call.callee_kind: call
+        for call in compiled.authored_direct_calls
+        if call.owner_name.endswith("-caller")
     }
     accepted_texts = _accepted_texts(result)
     index = _build_index(result)
 
-    for call_type, target_kind in (
-        (ProcedureCallExpr, "procedure"),
-        (CallExpr, "workflow"),
-    ):
-        call = calls[call_type]
+    for target_kind in ("procedure", "workflow"):
+        call = calls[target_kind]
         assert call.authored_callee_span is not None
         position = source_span_to_lsp_range(
             call.authored_callee_span,
@@ -2042,26 +2082,17 @@ def test_null_or_generated_call_provenance_is_never_indexed(
     callable_result: LinkedStage3CompileResult,
 ) -> None:
     entry_result = callable_result.compiled_results_by_name["neurips/entry"]
-    typed_workflow = entry_result.typed_workflows[0]
-    typed_body = typed_workflow.typed_body
-    assert isinstance(typed_body.expr, LetStarExpr)
-    procedure_call = typed_body.expr.bindings[0][1]
-    assert isinstance(procedure_call, ProcedureCallExpr)
-    without_provenance = replace(
-        procedure_call,
-        authored_callee_span=None,
-    )
-    replaced_body = replace(
-        typed_body.expr,
-        bindings=(("checks", without_provenance),),
-    )
-    replaced_workflow = replace(
-        typed_workflow,
-        typed_body=replace(typed_body, expr=replaced_body),
+    assert any(
+        call.callee_kind == "procedure"
+        for call in entry_result.authored_direct_calls
     )
     replaced_entry_result = replace(
         entry_result,
-        typed_workflows=(replaced_workflow,),
+        authored_direct_calls=tuple(
+            replace(call, authored_callee_span=None)
+            if call.callee_kind == "procedure" else call
+            for call in entry_result.authored_direct_calls
+        ),
     )
     replaced_result = replace(
         callable_result,
@@ -2082,6 +2113,106 @@ def test_null_or_generated_call_provenance_is_never_indexed(
         )
         is None
     )
+
+
+@pytest.mark.parametrize(
+    ("owner_kind", "excluded_shape"),
+    (
+        ("procedure", "generated"),
+        ("procedure", "expanded"),
+        ("procedure", "specialized"),
+        ("workflow", "expanded"),
+        ("workflow", "specialized"),
+    ),
+)
+def test_retained_direct_calls_exclude_generated_expanded_and_specialized_owners(
+    callable_result: LinkedStage3CompileResult,
+    owner_kind: str,
+    excluded_shape: str,
+) -> None:
+    module_name = "neurips/procedures" if owner_kind == "procedure" else "neurips/entry"
+    compiled = callable_result.compiled_results_by_name[module_name]
+    owner = (compiled.typed_procedures if owner_kind == "procedure"
+             else compiled.typed_workflows)[0]
+    original_call = callable_result.entry_result.authored_direct_calls[0]
+    retained_call = replace(
+        original_call, owner_kind=owner_kind, owner_name=owner.definition.name,
+    )
+    compiled = replace(compiled, authored_direct_calls=(retained_call,))
+    baseline = replace(
+        callable_result,
+        compiled_results_by_name={
+            **{name: replace(result, authored_direct_calls=())
+               for name, result in callable_result.compiled_results_by_name.items()},
+            module_name: compiled,
+        },
+    )
+    assert any(
+        link.reference_span == retained_call.authored_callee_span
+        for link in _build_index(baseline).definition_links
+    )
+    definition = replace(owner.definition)
+    if excluded_shape == "generated":
+        definition = replace(definition, generated_local_procedure=object())
+    elif excluded_shape == "expanded":
+        definition = replace(definition, expansion_stack=(object(),))
+    changed_owner = replace(
+        owner, definition=definition,
+        specialization=object() if excluded_shape == "specialized" else None,
+    )
+    changed_compiled = replace(
+        compiled,
+        **{("typed_procedures" if owner_kind == "procedure" else "typed_workflows"):
+           (changed_owner,)},
+    )
+    changed = replace(
+        baseline,
+        compiled_results_by_name={
+            **baseline.compiled_results_by_name,
+            module_name: changed_compiled,
+        },
+    )
+    assert all(
+        link.reference_span != retained_call.authored_callee_span
+        for link in _build_index(changed).definition_links
+    )
+
+
+def test_retained_direct_call_duplicates_use_the_common_conflict_checks(
+    callable_result: LinkedStage3CompileResult,
+) -> None:
+    compiled = callable_result.entry_result
+    call = compiled.authored_direct_calls[0]
+    duplicated = replace(
+        compiled,
+        authored_direct_calls=(*compiled.authored_direct_calls, call),
+    )
+    duplicated_result = replace(
+        callable_result,
+        entry_result=duplicated,
+        compiled_results_by_name={
+            **callable_result.compiled_results_by_name,
+            "neurips/entry": duplicated,
+        },
+    )
+    assert _build_index(duplicated_result) == _build_index(callable_result)
+    conflicting = replace(
+        call, callee_kind="workflow", callee_name="neurips/helper::secondary",
+    )
+    changed = replace(
+        duplicated,
+        authored_direct_calls=(*compiled.authored_direct_calls, conflicting),
+    )
+    conflicting_result = replace(
+        duplicated_result,
+        entry_result=changed,
+        compiled_results_by_name={
+            **callable_result.compiled_results_by_name,
+            "neurips/entry": changed,
+        },
+    )
+    with pytest.raises(ValueError, match="conflicting reference kinds"):
+        _build_index(conflicting_result)
 
 
 def test_document_symbols_are_all_ten_compiler_proven_kinds_in_source_order(
@@ -3197,33 +3328,17 @@ def test_l5_unsupported_generated_and_outside_token_requests_are_null(
     ) is None
 
     entry_result = callable_result.compiled_results_by_name["neurips/entry"]
-    typed_workflow = entry_result.typed_workflows[0]
-    typed_body = typed_workflow.typed_body
-    assert isinstance(typed_body.expr, LetStarExpr)
-    procedure_call = typed_body.expr.bindings[0][1]
-    assert isinstance(procedure_call, ProcedureCallExpr)
+    procedure_call = next(
+        call for call in entry_result.authored_direct_calls
+        if call.callee_kind == "procedure"
+    )
     assert procedure_call.authored_callee_span is not None
     generated_entry = replace(
         entry_result,
-        typed_workflows=(
-            replace(
-                typed_workflow,
-                typed_body=replace(
-                    typed_body,
-                    expr=replace(
-                        typed_body.expr,
-                        bindings=(
-                            (
-                                "checks",
-                                replace(
-                                    procedure_call,
-                                    authored_callee_span=None,
-                                ),
-                            ),
-                        ),
-                    ),
-                ),
-            ),
+        authored_direct_calls=tuple(
+            replace(call, authored_callee_span=None)
+            if call is procedure_call else call
+            for call in entry_result.authored_direct_calls
         ),
     )
     generated_result = replace(

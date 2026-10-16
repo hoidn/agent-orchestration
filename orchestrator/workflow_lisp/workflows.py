@@ -417,6 +417,17 @@ class ExpressionCompileContext:
     module_import_scope: "ModuleImportScope | None" = field(default=None, compare=False, repr=False)
 
 
+@dataclass(frozen=True, slots=True)
+class AuthoredDirectCall:
+    """Resolved authored call evidence retained across execution normalization."""
+
+    owner_kind: Literal["procedure", "workflow"]
+    owner_name: str
+    callee_kind: Literal["procedure", "workflow"]
+    callee_name: str
+    authored_callee_span: SourceSpan | None
+
+
 @dataclass(frozen=True)
 class Stage3CompileResult:
     """Typed module result with retained source and configuration evidence."""
@@ -444,6 +455,8 @@ class Stage3CompileResult:
         repr=False,
     )
 
+    authored_direct_calls: tuple[AuthoredDirectCall, ...] = ()
+
 
 @dataclass(frozen=True)
 class WorkflowBoundaryAnalysis:
@@ -458,6 +471,18 @@ class WorkflowBoundaryAnalysis:
     contains_collection: bool
     offending_path: tuple[str, ...] = ()
     offending_type_name: str | None = None
+
+
+def _has_forbidden_workflow_return_leaf(analysis: WorkflowBoundaryAnalysis) -> bool:
+    return (
+        analysis.contains_json
+        or analysis.contains_workflow_ref
+        or analysis.contains_proc_ref
+        or (
+            analysis.contains_provider_or_prompt
+            and analysis.offending_type_name != "Agent"
+        )
+    )
 
 
 def _phase_family_hidden_context_requirements(
@@ -551,6 +576,7 @@ def analyze_workflow_boundary_type(
     allow_nested_unions: bool = False,
     inside_collection: bool = False,
     allow_top_level_workflow_ref: bool = False,
+    scan_forbidden_leaves: bool = False,
 ) -> WorkflowBoundaryAnalysis:
     """Return whether one workflow-boundary type can lower to shared contracts."""
 
@@ -599,6 +625,18 @@ def analyze_workflow_boundary_type(
             contains_collection=False,
         )
     if isinstance(type_ref, WorkflowRefTypeRef):
+        if scan_forbidden_leaves:
+            return WorkflowBoundaryAnalysis(
+                lowerable=False,
+                contains_json=False,
+                contains_provider_or_prompt=False,
+                contains_workflow_ref=True,
+                contains_proc_ref=False,
+                contains_union=False,
+                contains_collection=False,
+                offending_path=source_path,
+                offending_type_name=type_ref.name,
+            )
         for index, param_type_ref in enumerate(type_ref.param_type_refs):
             analysis = analyze_workflow_boundary_type(
                 param_type_ref,
@@ -607,6 +645,7 @@ def analyze_workflow_boundary_type(
                 allow_nested_unions=False,
                 inside_collection=False,
                 allow_top_level_workflow_ref=False,
+                scan_forbidden_leaves=scan_forbidden_leaves,
             )
             if analysis.contains_collection:
                 return WorkflowBoundaryAnalysis(
@@ -629,6 +668,7 @@ def analyze_workflow_boundary_type(
             allow_nested_unions=False,
             inside_collection=False,
             allow_top_level_workflow_ref=False,
+            scan_forbidden_leaves=scan_forbidden_leaves,
         )
         if return_analysis.contains_collection:
             return WorkflowBoundaryAnalysis(
@@ -685,8 +725,11 @@ def analyze_workflow_boundary_type(
             allow_nested_unions=allow_nested_unions,
             inside_collection=True,
             allow_top_level_workflow_ref=False,
+            scan_forbidden_leaves=scan_forbidden_leaves,
         )
-        if not analysis.lowerable:
+        if not analysis.lowerable and (
+            not scan_forbidden_leaves or _has_forbidden_workflow_return_leaf(analysis)
+        ):
             return analysis
         return WorkflowBoundaryAnalysis(
             lowerable=True,
@@ -705,8 +748,11 @@ def analyze_workflow_boundary_type(
             allow_nested_unions=allow_nested_unions,
             inside_collection=True,
             allow_top_level_workflow_ref=False,
+            scan_forbidden_leaves=scan_forbidden_leaves,
         )
-        if not analysis.lowerable:
+        if not analysis.lowerable and (
+            not scan_forbidden_leaves or _has_forbidden_workflow_return_leaf(analysis)
+        ):
             return analysis
         return WorkflowBoundaryAnalysis(
             lowerable=True,
@@ -725,8 +771,12 @@ def analyze_workflow_boundary_type(
             allow_nested_unions=False,
             inside_collection=False,
             allow_top_level_workflow_ref=False,
+            scan_forbidden_leaves=scan_forbidden_leaves,
         )
-        if not key_analysis.lowerable:
+        if not key_analysis.lowerable and (
+            not scan_forbidden_leaves
+            or _has_forbidden_workflow_return_leaf(key_analysis)
+        ):
             return key_analysis
         value_analysis = analyze_workflow_boundary_type(
             type_ref.value_type_ref,
@@ -735,8 +785,12 @@ def analyze_workflow_boundary_type(
             allow_nested_unions=allow_nested_unions,
             inside_collection=True,
             allow_top_level_workflow_ref=False,
+            scan_forbidden_leaves=scan_forbidden_leaves,
         )
-        if not value_analysis.lowerable:
+        if not value_analysis.lowerable and (
+            not scan_forbidden_leaves
+            or _has_forbidden_workflow_return_leaf(value_analysis)
+        ):
             return value_analysis
         return WorkflowBoundaryAnalysis(
             lowerable=True,
@@ -759,8 +813,13 @@ def analyze_workflow_boundary_type(
                 allow_nested_unions=allow_nested_unions,
                 inside_collection=inside_collection,
                 allow_top_level_workflow_ref=False,
+                scan_forbidden_leaves=scan_forbidden_leaves,
             )
-            if not analysis.lowerable or analysis.contains_collection:
+            if scan_forbidden_leaves and _has_forbidden_workflow_return_leaf(analysis):
+                return analysis
+            if not scan_forbidden_leaves and (
+                not analysis.lowerable or analysis.contains_collection
+            ):
                 return analysis
         return WorkflowBoundaryAnalysis(
             lowerable=True,
@@ -772,19 +831,27 @@ def analyze_workflow_boundary_type(
             contains_collection=False,
         )
     if isinstance(type_ref, UnionTypeRef):
-        if allow_union:
+        if allow_union or scan_forbidden_leaves:
             for variant in type_ref.definition.variants:
                 for field in variant.fields:
                     field_type = type_ref.variant_field_types[variant.name][field.name]
                     analysis = analyze_workflow_boundary_type(
                         field_type,
                         source_path=source_path + (variant.name, field.name),
-                        allow_union=allow_nested_unions and inside_collection,
+                        allow_union=(
+                            scan_forbidden_leaves
+                            or (allow_nested_unions and inside_collection)
+                        ),
                         allow_nested_unions=allow_nested_unions,
                         inside_collection=inside_collection,
                         allow_top_level_workflow_ref=False,
+                        scan_forbidden_leaves=scan_forbidden_leaves,
                     )
-                    if not analysis.lowerable or analysis.contains_collection:
+                    if scan_forbidden_leaves and _has_forbidden_workflow_return_leaf(analysis):
+                        return analysis
+                    if not scan_forbidden_leaves and (
+                        not analysis.lowerable or analysis.contains_collection
+                    ):
                         return analysis
             return WorkflowBoundaryAnalysis(
                 lowerable=True,
@@ -891,6 +958,27 @@ def build_workflow_catalog(
             form_path=workflow_def.form_path,
             expansion_stack=workflow_def.expansion_stack,
         )
+        # Structured roots take a transportability fast path that must inspect
+        # their leaves here; scalar and collection roots retain their existing
+        # transportability diagnostics below.
+        if isinstance(return_type_ref, (RecordTypeRef, UnionTypeRef)):
+            return_analysis = analyze_workflow_boundary_type(
+                return_type_ref,
+                allow_union=True,
+                allow_nested_unions=True,
+                scan_forbidden_leaves=True,
+            )
+            if _has_forbidden_workflow_return_leaf(return_analysis):
+                diagnostic = _boundary_diagnostic(
+                    workflow_name=workflow_def.name,
+                    analysis=return_analysis,
+                    span=workflow_def.return_spec.span,
+                    form_path=workflow_def.form_path,
+                    expansion_stack=workflow_def.expansion_stack,
+                )
+                if diagnostic is not None:
+                    diagnostics.append(diagnostic)
+                    continue
         if not is_transportable_result_type(
             return_type_ref,
             type_env=type_env,

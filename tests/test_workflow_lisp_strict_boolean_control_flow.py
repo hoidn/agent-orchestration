@@ -1661,6 +1661,39 @@ def test_strict_variant_proof_equality_symmetric_tag(tmp_path: Path) -> None:
     )
 
 
+def test_union_variant_tag_retypecheck_preserves_applied_discriminant(tmp_path: Path) -> None:
+    """A normalized tag keeps its applied union identity on strict re-typecheck."""
+    from orchestrator.workflow_lisp.type_env import DiscriminantTypeRef, UnionTypeRef
+
+    module = _PROOF_TYPES_MODULE.replace(
+        "  (defunion ImplementationState",
+        "  (defunion GenericState :forall (T) (READY (value T)) (BLOCKED))\n"
+        "  (defunion ImplementationState",
+    )
+    path = tmp_path / "generic_proof_types.orc"
+    path.write_text(module, encoding="utf-8")
+    type_env = FrontendTypeEnvironment.from_module(compile_stage1_module(path))
+    probe = _expression_syntax('"seed"')
+    attempt = type_env.resolve_type(
+        "GenericState[WorkReport]",
+        span=probe.span,
+        form_path=probe.form_path,
+    )
+    assert isinstance(attempt, UnionTypeRef)
+
+    typed = _check_226(type_env, "(= attempt.variant READY)", {"attempt": attempt})
+    tag = next(node for node in walk_expr(typed.expr) if isinstance(node, UnionVariantTagExpr))
+    retyped = typecheck_expression(tag, type_env=type_env, value_env={"attempt": attempt})
+
+    assert retyped.type_ref == DiscriminantTypeRef(
+        union_name=attempt.name,
+        variant_names=("READY", "BLOCKED"),
+        applied_union=attempt,
+        owner_union=attempt,
+    )
+    assert retyped.type_ref.owner_union is attempt
+
+
 def test_strict_variant_proof_inequality_excludes_to_singleton(tmp_path: Path) -> None:
     """`(!= attempt.variant BLOCKED)` proves the remaining singleton on true."""
     type_env = _proof_env(tmp_path)

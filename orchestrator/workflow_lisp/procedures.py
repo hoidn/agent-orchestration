@@ -626,7 +626,7 @@ def resolve_procedure_effect_restrictions(
     procedure_defs, *, procedure_catalog, workflow_catalog, workflow_effects_by_name,
     extern_environment, workflow_name_resolver,
 ):
-    """Resolve new authored symbols once in their defining compiler environment."""
+    """Canonicalize concrete workflow effects and validate target-2.39 restrictions."""
     from .effects import CallsWorkflowEffect, UsesProviderEffect
     from .type_env import WorkflowRefTypeRef
     from .workflows import ProviderExtern
@@ -636,11 +636,12 @@ def resolve_procedure_effect_restrictions(
     resolved_definitions = dict(procedure_catalog.definitions_by_name)
     known_workflows = {*workflow_catalog.signatures_by_name, *workflow_effects_by_name}
     for definition in procedure_defs:
-        if isinstance(definition, TypedProcedureDef) or not target_dsl_supports_effect_ceilings(
-            definition.effect_contract_target or ""
-        ) or definition.declared_effects is None:
+        if isinstance(definition, TypedProcedureDef) or definition.declared_effects is None:
             definitions.append(definition)
             continue
+        enforce_ceiling = target_dsl_supports_effect_ceilings(
+            definition.effect_contract_target or ""
+        )
         signature = signatures[definition.name]
         formals = {name for name, ref in signature.params if isinstance(ref, WorkflowRefTypeRef)}
         effects = set()
@@ -650,11 +651,12 @@ def resolve_procedure_effect_restrictions(
                 resolved = name if name in known_workflows else (
                     workflow_name_resolver(name, definition.effects_clause_span or definition.span,
                         definition.form_path) if workflow_name_resolver is not None else name)
-                if resolved not in known_workflows:
+                if resolved in known_workflows:
+                    canonical = workflow_catalog.signatures_by_name.get(resolved)
+                    effect = CallsWorkflowEffect(subject=(canonical.name if canonical is not None else resolved,))
+                elif enforce_ceiling:
                     _raise_invalid_restriction_subject(definition, "workflow", name)
-                canonical = workflow_catalog.signatures_by_name.get(resolved)
-                effect = CallsWorkflowEffect(subject=(canonical.name if canonical is not None else resolved,))
-            elif isinstance(effect, UsesProviderEffect) and not isinstance(
+            elif enforce_ceiling and isinstance(effect, UsesProviderEffect) and not isinstance(
                 extern_environment.bindings_by_name.get(name), ProviderExtern
             ):
                 _raise_invalid_restriction_subject(definition, "provider", name)

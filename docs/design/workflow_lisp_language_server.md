@@ -941,7 +941,16 @@ The metadata seam is exact:
 - WCC-to-frontend reconstruction in
   `orchestrator/workflow_lisp/wcc/defunctionalize.py`, and every
   generated/expanded/ambiguous call construction, sets `None` rather than
-  copying a whole-form or generated span; and
+  copying a whole-form or generated span;
+- before execution normalization erases direct calls, the compiler retains
+  immutable `AuthoredDirectCall` facts on `Stage3CompileResult`, carrying
+  the owner kind/name, callee kind/canonical name, and exact authored callee
+  span. Only non-generated, non-specialized, unexpanded authored owners
+  and unexpanded call occurrences contribute these facts. The LSP projects
+  them through the same namespace lookup, duplicate/conflict checks and
+  current-success preflight, and checks
+  that the final owner is still eligible. Prompt applications and proc-refs
+  continue to require their supported final retained AST shapes; and
 - the LSP indexes only a non-null `authored_callee_span`. A null value, a
   cursor elsewhere in the whole-form span, or any unsupported call shape
   returns null.

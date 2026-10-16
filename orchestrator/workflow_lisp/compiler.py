@@ -183,6 +183,7 @@ from .validation import (
     run_validation_pipeline,
 )
 from .workflows import (
+    AuthoredDirectCall,
     CertifiedAdapterBinding,
     CommandBoundaryEnvironment,
     ExternalToolBinding,
@@ -2032,6 +2033,28 @@ def _compile_stage3_graph(
             },
         )
         typed_procedures = resolved_state.typed_procedures
+        # Inline normalization erases direct calls but must retain their authored identity.
+        authored_direct_calls = tuple(
+            AuthoredDirectCall(
+                owner_kind=owner_kind,
+                owner_name=owner.definition.name,
+                callee_kind="workflow" if type(node) is CallExpr else "procedure",
+                callee_name=node.callee_name,
+                authored_callee_span=node.authored_callee_span,
+            )
+            for owner_kind, owners in (
+                ("procedure", typed_procedures),
+                ("workflow", typed_workflows),
+            )
+            for owner in owners
+            if owner.specialization is None
+            and not owner.definition.expansion_stack
+            and getattr(owner.definition, "generated_local_procedure", None) is None
+            for node in walk_expr(owner.typed_body.expr)
+            if type(node) in {CallExpr, ProcedureCallExpr}
+            and node.authored_callee_span is not None
+            and not node.expansion_stack
+        )
         resolved_procedures_by_name = {
             **typed_procedures_by_name,
             **{
@@ -2289,6 +2312,7 @@ def _compile_stage3_graph(
             command_boundary_environment=command_boundary_environment,
             typed_procedures=typed_procedures,
             typed_workflows=typed_workflows,
+            authored_direct_calls=authored_direct_calls,
             prompt_catalog=prompt_catalog,
             diagnostics=diagnostics,
             validation_profile=normalized_validation_profile,

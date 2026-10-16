@@ -860,7 +860,7 @@ def test_build_workflow_catalog_rejects_unsupported_workflow_param_types(
         ("Json", "json_surface_unsupported"),
     ],
 )
-def test_workflow_return_contract_rejects_unsupported_fields_after_catalog_admission(
+def test_workflow_catalog_rejects_unsupported_nested_return_fields(
     tmp_path: Path,
     bad_type: str,
     expected_code: str,
@@ -900,12 +900,8 @@ def test_workflow_return_contract_rejects_unsupported_fields_after_catalog_admis
     )
     workflow_defs = elaborate_workflow_definitions(_build_syntax_module(workflow_path))
 
-    catalog = build_workflow_catalog(module, workflow_defs, type_env)
-    signature = catalog.signatures_by_name["summarize"]
-    assert signature.return_type_ref.field_types["value"] == PrimitiveTypeRef(name=bad_type)
-
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        derive_workflow_signature_contracts(signature, type_env=type_env)
+        build_workflow_catalog(module, workflow_defs, type_env)
 
     _assert_diagnostic_code(excinfo, expected_code)
 

@@ -25,7 +25,7 @@ from experiments.mlevolve_pair import leaves
 from experiments.mlevolve_pair.search import run_search
 from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.cli.commands.run import run_workflow
-from orchestrator.workflow.evaluated import machine, runtime, values
+from orchestrator.workflow.evaluated import machine, replay, runtime, values
 from orchestrator.workflow_lisp.reader import read_sexpr_text
 from orchestrator.workflow_lisp.sexpr import ListExpr, SymbolAtom
 from tests.experiments.test_mlevolve_pair_fixture import _SCRIPTED_LEAVES, _reference, _scenario_answers
@@ -40,7 +40,7 @@ LEAVES = "experiments/mlevolve_pair/leaves.py"
 ANSWERS = "experiments/mlevolve_pair/answers.json"
 PROPOSAL = ("operation", "branch", "candidate_a", "candidate_b", "other_a", "other_b", "history_size")
 FRESH = "execute_pure_run.<locals>.handle"
-VIEW_REPLAY = "_replay.<locals>.handle"
+VIEW_REPLAY = "memo-replay"
 _LOOP = "workflow:mlevolve_pair/search_compact::run-search / else"
 PAUSE_SITES = {  # the commit paused at: seed B with budget 2, else the first post-seed evaluation
     2: f"{_LOOP} / seed-b-evaluation",
@@ -420,7 +420,9 @@ def selector_events(monkeypatch: pytest.MonkeyPatch):
         return result
 
     def value(self, node, environment, owner, activation, loops):
-        frames.append((self.program.tree, getattr(self.effect_handler, "__qualname__", None), owner,
+        lane = (VIEW_REPLAY if isinstance(self.effect_handler, replay._Discovery)
+                else getattr(self.effect_handler, "__qualname__", None))
+        frames.append((self.program.tree, lane, owner,
                        activation, loops))
         try:
             return real_value(self, node, environment, owner, activation, loops)
