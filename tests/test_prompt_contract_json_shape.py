@@ -157,8 +157,10 @@ def test_relpath_constraints_are_local_and_enum_values_are_encoded():
     assert '"report": <relpath>' in prompt
     assert '{"under":"artifacts/review","must_exist_target":true}' in prompt
     assert '"kind": ' + ' | '.join(json.dumps(x) for x in schema['fields'][1]['allowed']) in prompt
-    assert prompt.count('workspace-relative') == 1
-    assert prompt.index('workspace-relative') < prompt.index('"report": <relpath>') < prompt.index('"note": <string>')
+    hints = [line for line in prompt.splitlines()
+             if line.lstrip().startswith('// ') and not line.lstrip().startswith('// {')]
+    assert len(hints) == 1
+    assert prompt.index(hints[0]) < prompt.index('"report": <relpath>') < prompt.index('"note": <string>')
 
 
 def test_nested_union_in_root_collection_selects_each_structural_guidance():
