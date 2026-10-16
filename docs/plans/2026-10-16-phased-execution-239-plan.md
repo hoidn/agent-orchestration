@@ -116,7 +116,7 @@ those runs; collection and one narrow test/module may run directly.
   Expected: new admission and tampering cases pass; old targets and unsupported
   routes refuse before dispatch. Record changed test names for final collection.
 
-- [ ] Follow-up admission refinement: require explicit positive `Int` literal
+- [x] Follow-up admission refinement: require explicit positive `Int` literal
   `:timeout-sec` for phased delivery in source and source-free closed checking,
   reusing the existing policy field. Test missing/boolean/nonpositive/nonliteral
   refusal and preserve composed optional-timeout controls. Collect changed
@@ -384,9 +384,15 @@ accurate current routing. Ordinary composed behavior remains compatible.
   changed coordinator module collected **194**. These selections overlap.
   Evidence: `/tmp/orc-phased-239-evidence/task2-coordinator/affected-owner.txt`,
   `narrow-preparation.txt` and `coordinator-collect.txt` beside it.
-- Task 2 adapter lifecycle refinement is approved but not implemented: group
-  quiescence and delayed-launch revocation are required in addition to server
-  absence. The Task 1 explicit-timeout follow-up is in progress. Tasks 3–7
-  remain incomplete; runtime dispatch remains unavailable.
+- Task 1 timeout follow-up complete at `0af16810`: source, imports and the
+  source-free checker require explicit positive `Int` literal `:timeout-sec`
+  for phased calls; composed omission remains admitted. New refusal cases were
+  observed red before implementation. The final broad selector passed **544**
+  cases, the phased module **53**, carriage/diagnostics **17**, and changed
+  modules collected **64** cases; these selections overlap. Evidence:
+  `/tmp/orc-phased-239-evidence/task1-timeout/broad.log` and `broad.exit`.
+- Task 2 adapter lifecycle implementation is in progress: group quiescence
+  and delayed-launch revocation are required in addition to server absence.
+  Tasks 3–7 remain incomplete; runtime dispatch remains unavailable.
 - Live-provider qualification: not selected; deterministic fixtures do not claim
   it and do not establish improved provider task quality.
