@@ -7,7 +7,6 @@ from .values import (
     coerce_evaluated_value,
     evaluate_closed_value,
 )
-from .machine import EffectHandler, evaluate_closed_program
 
 __all__ = [
     "EvaluatedValue",
@@ -18,3 +17,11 @@ __all__ = [
     "evaluate_closed_value",
     "evaluate_closed_program",
 ]
+
+
+def __getattr__(name):
+    if name in {"EffectHandler", "evaluate_closed_program"}:
+        from . import machine
+
+        return getattr(machine, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

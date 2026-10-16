@@ -8,7 +8,7 @@ import re
 from typing import Any
 
 from orchestrator.workflow.pure_expr import coerce_pure_value
-from orchestrator.workflow_lisp.closed.frontend import (
+from orchestrator.workflow.evaluated.provider_io import (
     ProviderIOActivation,
     ProviderIOContext,
     WorkflowIOReader,

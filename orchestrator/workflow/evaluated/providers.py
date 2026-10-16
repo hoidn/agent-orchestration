@@ -16,7 +16,7 @@ from orchestrator.deps.resolver import DependencyResolver
 from orchestrator.workflow.assets import WorkflowAssetResolver
 from orchestrator.workflow.prompting import PromptComposer
 from orchestrator.workflow.evaluated.values import EvaluatedValue
-from orchestrator.workflow_lisp.closed.frontend import WorkflowIOReader
+from orchestrator.workflow.evaluated.provider_io import WorkflowIOReader
 from orchestrator.workflow_lisp.closed.sites import _effect_value_children
 from orchestrator.workflow_lisp.closed.program import strip_provenance
 from orchestrator.workflow.run_ref.contracts import canonical_sha256

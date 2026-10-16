@@ -37,7 +37,7 @@ from orchestrator.workflow.workspace_files import WorkspaceFiles
 
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.providers.registry import ProviderRegistry
-from orchestrator.workflow_lisp.closed.frontend import ProviderIOContext
+from orchestrator.workflow.evaluated.provider_io import ProviderIOContext
 from .providers import (
     DELIVERY_NAMES_BY_DIGEST, current_provider_delivery_name,
     perform_provider, resolve_provider_input,

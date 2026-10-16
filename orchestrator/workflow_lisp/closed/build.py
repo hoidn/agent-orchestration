@@ -592,7 +592,8 @@ class Builder:
         self.io_calls.append((d.canonical, node, request.io_reader, request.io_references or {}))
 
     def _bind_provider_io(self, program):
-        from .frontend import ProviderIOActivation, ProviderIOCall, ProviderIOContext, WorkflowIOReader
+        from orchestrator.workflow.evaluated.provider_io import ProviderIOActivation, ProviderIOCall, ProviderIOContext
+        from .frontend import _workflow_io_reader_from_program
 
         calls = {}
         for owner, node, reader, references in self.io_calls:
@@ -603,7 +604,7 @@ class Builder:
                 raise ValueError("workflow IO emission repeats a checked call coordinate")
             calls[coordinate] = ProviderIOCall(node["callee"], reader, references)
         entry = ProviderIOActivation(program.tree["entry"],
-            WorkflowIOReader.from_program(self.typed, self.typed.entry_module))
+            _workflow_io_reader_from_program(self.typed, self.typed.entry_module))
         self.provider_io = ProviderIOContext(entry, calls, frozenset(program.sites), program.digest).bind(program)
 
     def _install_prepared_requests(self, body, d, children):

@@ -47,6 +47,31 @@ BOUNDARIES = {
 }
 
 
+def test_provider_io_preparation_recursively_selects_imported_bundles():
+    from types import SimpleNamespace
+    from orchestrator.workflow_lisp.closed.frontend import (
+        _workflow_io_reader_from_program,
+    )
+
+    def bundle(path, **imports):
+        return SimpleNamespace(provenance=SimpleNamespace(workflow_path=Path(path)), imports=imports)
+
+    leaf = bundle('/leaf/run.orc')
+    nested = bundle('/nested/run.orc', leaf=leaf)
+    imported_program = SimpleNamespace(entry_module='imported',
+        _io_source_paths={'imported': Path('/imported/run.orc')},
+        _io_import_bundles={}, _io_workflow_bundles={}, imported_programs={})
+    program = SimpleNamespace(_io_source_paths={'main': Path('/main/run.orc')},
+        _io_import_bundles={'nested': nested}, _io_workflow_bundles={'workflow': nested},
+        imported_programs={'nested': imported_program, 'imported': imported_program})
+    reader = _workflow_io_reader_from_program(program, 'main')
+    assert reader.select('nested', 'unused').select('leaf', 'unused').workflow_path == Path('/leaf/run.orc')
+    assert reader.select('workflow', 'unused').select('leaf', 'unused').workflow_path == Path('/leaf/run.orc')
+    assert reader.select('imported', 'unused').workflow_path == Path('/imported/run.orc')
+    with pytest.raises(ValueError, match='source selection is unavailable'):
+        _workflow_io_reader_from_program(program, 'missing')
+
+
 def _fixture(name: str, *, target: str = TARGET) -> str:
     return (FIXTURES / f"{name}.orc").read_text(encoding="utf-8").replace("TARGET", target)
 

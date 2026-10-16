@@ -34,7 +34,7 @@ from orchestrator.workflow.evaluated.values import _thaw
 from orchestrator.workflow.type_descriptor import transport_schema_for_descriptor
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.workflow_lisp.dynamic.program import _pointer
-from orchestrator.workflow_lisp.closed.frontend import WorkflowIOReader
+from orchestrator.workflow.evaluated.provider_io import WorkflowIOReader
 from .evaluator import _error, evaluate
 from .state import effect_paths, error_payload, publish_dynamic_run
 
