@@ -351,7 +351,7 @@ def test_target_2_22_fragment_typed_evidence_reuses_trace_without_rendering(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from orchestrator.workflow import prompting
-    from orchestrator.workflow_lisp import typed_prompt_inputs
+    from orchestrator.workflow import typed_prompt_inputs
 
     actual_render_view = prompting.render_view
     calls: list[str] = []
