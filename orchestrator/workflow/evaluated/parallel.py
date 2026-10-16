@@ -272,6 +272,8 @@ class ParallelCoordinator:
 
     def _prepare(self, token, node, operands, identity, owner, reader, kwargs):
         from . import runtime
+        if node.get("class") == "provider_phased":
+            raise MemoError('parallel_provider_boundary', 'phased provider cannot execute inside a parallel item')
         self._owned_identity(token, node, identity)
         if identity in self.active:
             raise MemoError('memo_inconsistent', 'parallel identity is already active')

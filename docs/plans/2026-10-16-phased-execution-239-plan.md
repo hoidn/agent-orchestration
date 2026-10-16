@@ -238,23 +238,23 @@ evidence, not production acceptance; the implementation checks below remain open
 
 **Role/artifact:** Implementation / evaluated runtime and recovery code/tests.
 
-- [ ] Add reducer tests in `tests/test_workflow_evaluated_memo.py` and phased
+- [x] Add reducer tests in `tests/test_workflow_evaluated_memo.py` and phased
   recovery tests for class/proof agreement, exact receipt binding, malformed
   proof refusal, mandatory settlement and blocked downstream/terminal records.
   Source-free memo validation must reject a phased proof relabeled as ordinary.
-- [ ] Route `provider_phased` through its concrete external performer and return
+- [x] Route `provider_phased` through its concrete external performer and return
   a prepared outcome in `effect_execution.py`. In `runtime.py`, project and
   validate that outcome, append the evaluator's sole authoritative `committed`,
   settle the exact attempt, then expose the typed result. Never publish early
   merely because the provider submitted valid candidate files.
-- [ ] Check the original attempt deadline immediately before the first memo
+- [x] Check the original attempt deadline immediately before the first memo
   commit. Prove that expiry after successful preparation produces no `committed`
   record, while expiry after a durable commit does not prevent settlement or
   reconciliation and never authorizes another provider launch.
-- [ ] Add `provider_phased` to coordinator classification and exact proof
+- [x] Add `provider_phased` to coordinator classification and exact proof
   validation in `memo_reducer.py`; preserve existing invalidation refusal for
   committed coordinators and settle-before-dependent-work replay barriers.
-- [ ] Integrate read-only preflight validation, writer-locked bounded cleanup
+- [x] Integrate read-only preflight validation, writer-locked bounded cleanup
   and reconciliation into `effect_inputs.py`, `runtime.py` and `resume_prefix.py`.
   Before commit, validate and clean only the exact old attempt; allocate a fresh
   ordinal and rerun the whole visit. Never adopt an uncommitted prepared result
@@ -264,7 +264,7 @@ evidence, not production acceptance; the implementation checks below remain open
   of every retained ancestor. Preflight must not create directories; unsafe
   paths, permission errors or an ancestor replaced before the negative result
   refuse without allocating a replacement attempt or touching its files.
-- [ ] After memo commit but before settlement, reconcile from the inline commit
+- [x] After memo commit but before settlement, reconcile from the inline commit
   proof without reopening candidate/result files or audit sidecars and without
   provider dispatch, then append `settled`. Cover a missing whole attempt
   directory or canonical parents: after normal preflight, safely recreate only
@@ -274,11 +274,11 @@ evidence, not production acceptance; the implementation checks below remain open
   settlement, completed resume remains read-only. Preserve input/divergence,
   path, memo and result-integrity guards. Unprovable cleanup leaves the attempt
   pending and prevents a new provider launch; do not silently quarantine it.
-- [ ] Preserve parallel refusal through reachable calls; a forged phased site
+- [x] Preserve parallel refusal through reachable calls; a forged phased site
   must not enter `parallel.py` or obtain ordinary-provider dispatch. Exercise
   the existing parallel, confinement and Agent negative controls alongside
   sequential helper/loop phased calls. Introduce no generic recovery framework.
-- [ ] Collect new/changed modules and run:
+- [x] Collect new/changed modules and run:
 
   ```bash
   pytest --collect-only -q tests/test_workflow_evaluated_phased_recovery.py tests/test_workflow_evaluated_memo.py
@@ -443,8 +443,27 @@ accurate current routing. Ordinary composed behavior remains compatible.
   `/tmp/orc-phased-239-evidence/task3-bindings/verification_receipt.json`,
   `run-final.sh`, `focused.log`, `broad.log`, `collect.log` and exit receipts.
   Real local tmux cases exercise same-process correction and natural close.
-  Tasks 4–7 remain incomplete: these bindings are not yet wired into public
-  evaluated dispatch, memo commit or resume; public CLI kill-gap evidence and
-  current documentation routing remain required.
+  At this checkpoint Tasks 4–7 remained incomplete: bindings were not yet
+  wired into public evaluated dispatch, memo commit or resume. The Task 4
+  evidence below records that subsequent integration; public CLI kill-gap
+  evidence and current documentation routing remain required.
+- Task 4 complete: concrete phased dispatch now commits only a jointly validated,
+  naturally closed prepared result, then settles before exposing it. Read-only
+  resume preflight validates exact ownership; uncommitted attempts clean up and
+  rerun at a fresh ordinal, while committed recovery uses only inline proof,
+  including safe reconstruction of absent canonical parents and receipts.
+  Independent spec-compliance and code-quality reviews approved all nine frozen
+  code/test files against base `054da62e`; the coordinator inspected the diff and
+  verified every file hash. Accepted findings added final negative-read ancestor
+  checks and canonical receipt comparisons before commit. Final affected checks
+  passed **407** cases, and changed modules collected **147**, both exit zero.
+  Narrow regressions cover helper/loop activation, original deadlines, K8 and
+  dependency barriers, exact rerun diagnostics, tampering and owner replacement.
+  Evidence: `/tmp/orc-phased-239-evidence/task4-runtime/HANDOFF.md`,
+  `frozen-files.json`, `run-broad.sh`, `broad.log`, `broad.exit`,
+  `collect-final.log` and its exit receipt. Earlier red runs remain diagnostic
+  evidence; overlapping selections are not additive. These are local-terminal
+  runtime checks; public subprocess CLI/SIGKILL qualification remains Task 5,
+  current guidance remains Task 6 and full-suite/final integration remains Task 7.
 - Live-provider qualification: not selected; deterministic fixtures do not claim
   it and do not establish improved provider task quality.

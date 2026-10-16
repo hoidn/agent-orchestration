@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from contextlib import closing
 import logging
 import sys
 from pathlib import Path
@@ -18,8 +19,8 @@ from orchestrator.workflow.evaluated.memo import (
     read_memo,
     repair_torn_tail,
 )
-from orchestrator.workflow.evaluated.values import EvaluatedValue
-from orchestrator.workflow.run_ref.contracts import canonical_sha256
+from orchestrator.workflow.evaluated.values import EvaluatedValue, coerce_evaluated_value
+from orchestrator.workflow.run_ref.contracts import canonical_sha256, canonical_json_bytes
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 
 from orchestrator.providers.executor import ProviderExecutor
@@ -42,7 +43,7 @@ from .resume_prefix import (
 )
 from .views import ViewPublicationError
 from . import effect_inputs
-from . import agent_turns
+from . import agent_turns, phased_providers
 from .agent_views import AgentViews
 
 
@@ -104,11 +105,14 @@ def execute_pure_run(
 
         def handle(node, operands, identity, owner, reader, *, launch_workspace=None):
             nonlocal provider_executor, views
-            if node.get("class") not in {"command", "provider", "run_ref", "agent", "agent_turn"}:
+            if node.get("class") not in {"command", "provider", "provider_phased", "run_ref", "agent", "agent_turn"}:
                 raise RuntimeError("unsupported evaluated effect class")
             if confined is not None:
                 require_confinable(node, authority.header["interpreters"])
-            if node["class"] in {"provider", "agent_turn"} and provider_executor is None:
+            needs_provider = node["class"] in {"provider", "agent_turn"} or (
+                node["class"] == "provider_phased" and identity not in read_memo(
+                    authority.memo_path, checked_site_classes, run_files=authority.run_files).active_commits)
+            if needs_provider and provider_executor is None:
                 provider_executor, manager = provider_executor_for_run(workspace, authority.run_root,
                     agents_present=not {"agent", "agent_turn"}.isdisjoint(checked_site_classes.values()))
                 views = AgentViews(manager)
@@ -333,6 +337,11 @@ def prepare_effect(
     ordinal, attempt_directory, result_path = (
         attempt_paths(snapshot, identity) if commit is None
         else (None, None, commit.data["result_path"]))
+    if commit is None:
+        effect_inputs.check_phased_retry(authority, node, operands, identity, reader, workspace, owner,
+            baseline, launch_cwd=launch_cwd, cleanup=True)
+    phased_deadline = (phased_providers.capture_phased_deadline(node)
+        if node["class"] == "provider_phased" and commit is None else None)
     resolved, parts, implementation_files = effect_inputs._resolve_effect_input(
         authority, node, operands, identity, workspace, reader,
         commit, baseline, attempt_directory, result_path, owner=owner, workspace_files=workspace_files, launch_cwd=launch_cwd,
@@ -356,7 +365,8 @@ def prepare_effect(
         raise effect_inputs._PreflightRefusal("lexical_restore_pending_effect_unsafe",
             f"{identity}: effect declares that it must not be repeated")
     if baseline is not None:
-        logger.warning("[effect_rerun] %s attempts=%s", identity, list(range(1, ordinal)))
+        code = "provider_attempt_interrupted_rerun" if node['class'] == 'provider_phased' else "effect_rerun"
+        logger.warning("[%s] %s attempts=%s", code, identity, list(range(1, ordinal)))
     if node['class'] == 'run_ref':
         validate_evaluated_run_ref_start(authority, resolved, identity, ordinal, workspace)
     leaf_context = None if confined is None else confined.leaf_context()  # after the snapshot copy (R3)
@@ -364,14 +374,14 @@ def prepare_effect(
         input_digest=input_digest, input_parts=parts, implementation_files=implementation_files,
         result_path=result_path, time=time.time())
     if confined is not None:
-        from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
         confined.check_evidence(extra_bytes=len(canonical_json_bytes(started)) + 1)
     _require_retained_root(run_files)
     attempt_files = allocate_attempt(run_files, authority.memo_path, started, checked_authority=authority,
         before_failure=None if confined is None else lambda exc: confined.record_failure(authority, exc))
     return PreparedAttempt(authority, node, identity, ordinal, result_path, input_digest,
         parts, implementation_files, tuple(dependencies), resolved, workspace, workspace_files,
-        site_classes, provider_executor, attempt_files, launch_cwd, stream_output, confined=leaf_context, views=views)
+        site_classes, provider_executor, attempt_files, launch_cwd, stream_output, confined=leaf_context, views=views,
+        phased_deadline=phased_deadline)
 
 
 def _reuse_reached_commit(authority, node, identity, parts, input_digest, dependencies,
@@ -384,6 +394,14 @@ def _reuse_reached_commit(authority, node, identity, parts, input_digest, depend
         validate_evaluated_run_ref(authority, resolved, identity, workspace, commit, settled=settled)
         if not settled:
             reconcile_evaluated_run_ref(authority, resolved, identity, workspace, commit, site_classes)
+    elif node["class"] == "provider_phased":
+        effect_inputs.validate_phased_commit(authority, node, resolved, identity, commit, workspace)
+        if not settled:
+            with closing(effect_inputs.open_phased_attempt(authority, commit.data, create=True)) as files:
+                phased_providers.settle_phased_receipt(files, commit.data["proof"])
+            append_record(authority.memo_path, dict(record="settled", identity=identity,
+                attempt=commit.data["attempt"], by="reconcile"), run_files=authority.run_files,
+                checked_authority=authority)
     elif node["class"] == "agent_turn":
         agent_turns.validate_turn(authority, resolved, identity, commit, settled=settled)
         if not settled:
@@ -408,6 +426,7 @@ def finish_effect(attempt: PreparedAttempt, outcome: ExternalOutcome | None = No
     """Validate, rehash, publish and settle on the run's coordinator."""
     authority, node = attempt.authority, attempt.node
     projected = False
+    prepared = None
     try:
         if error is not None:
             raise error
@@ -424,13 +443,25 @@ def finish_effect(attempt: PreparedAttempt, outcome: ExternalOutcome | None = No
         if proof is not None:
             committed['proof'] = proof
         if attempt.confined is not None:
-            from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
             attempt.confined.runner.check_evidence(extra_bytes=len(canonical_json_bytes(committed)) + 1)
+        if node['class'] == 'provider_phased':
+            phased_providers.verify_phased_precommit(prepared)
         _append_effect_commit(authority, committed, fatal_publication)
         if prepared is not None:
-            settle = settle_evaluated_run_ref if node['class'] == 'run_ref' else agent_turns.settle_turn
-            settle(authority, attempt.resolved, attempt.identity, attempt.ordinal,
-                attempt.workspace, attempt.site_classes, prepared, committed)
+            if node['class'] == 'provider_phased':
+                _require_retained_root(authority.run_files)
+                durable = read_memo(authority.memo_path, attempt.site_classes, run_files=authority.run_files)
+                active = durable.active_commits.get(attempt.identity)
+                if active is None or canonical_json_bytes(active.data) != canonical_json_bytes(committed):
+                    raise MemoError("memo_inconsistent", "phased settlement requires the exact durable commit")
+                phased_providers.settle_phased_provider_attempt(prepared)
+                append_record(authority.memo_path, dict(record='settled', identity=attempt.identity,
+                    attempt=attempt.ordinal, by='settle'), run_files=authority.run_files,
+                    checked_authority=authority)
+            else:
+                settle = settle_evaluated_run_ref if node['class'] == 'run_ref' else agent_turns.settle_turn
+                settle(authority, attempt.resolved, attempt.identity, attempt.ordinal,
+                    attempt.workspace, attempt.site_classes, prepared, committed)
         return EvaluatedValue(result.value, result.descriptor,
             dependencies=(*attempt.dependencies, attempt.identity),
             committed_result_path=workspace_result_locator(authority.header, attempt.result_path))
@@ -448,6 +479,9 @@ def finish_effect(attempt: PreparedAttempt, outcome: ExternalOutcome | None = No
         _raise_if_publication_fatal(publication_error, fatal_publication)
         raise
     finally:
+        if node["class"] == "provider_phased" and prepared is not None:
+            prepared.coordinator.close()
+            prepared.bindings.candidates.close()
         attempt.attempt_files.close()
 
 
@@ -473,6 +507,14 @@ def _raise_if_publication_fatal(error, fatal_publication):
 
 
 def _validate_attempt_outcome(attempt, outcome):
+    if attempt.node['class'] == 'provider_phased':
+        prepared = outcome.phased
+        if (not isinstance(prepared, phased_providers.EvaluatedPhasedPrepared)
+                or prepared.bindings.attempt is not attempt):
+            raise ValueError("phased effect requires its concrete prepared outcome")
+        result = coerce_evaluated_value(prepared.value.json_value(), attempt.node["result"],
+            context="prepared phased provider result")
+        return result, canonical_sha256(result.json_value()), prepared.proof, prepared
     if attempt.node['class'] == 'run_ref':
         return project_evaluated_run_ref(attempt.node, outcome.run_ref, attempt.attempt_files)
     if attempt.node['class'] == 'agent_turn':

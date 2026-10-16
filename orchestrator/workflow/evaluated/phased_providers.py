@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 import math
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -576,15 +577,21 @@ def validate_phased_commit_proof(proof, *, identity=None, attempt=None, input_di
     if candidates is not None:
         declarations = [{key: row.to_dict()[key] for key in (
             "contract_ordinal", "role", "logical_name", "workspace_relative_path")} for row in manifest.rows]
-        if declarations != list(candidates):
+        if canonical_json_bytes(declarations) != canonical_json_bytes(list(candidates)):
             raise ValueError("phased proof has foreign candidate declarations")
     return proof
 
 
 def _check_attempt_root(files):
-    linked, pinned = os.stat(files.workspace, follow_symlinks=False), os.fstat(files.root_fd)
-    if not stat.S_ISDIR(linked.st_mode) or (linked.st_dev, linked.st_ino) != (pinned.st_dev, pinned.st_ino):
-        raise ValueError("phased attempt directory replaced")
+    for path, device, inode in getattr(files, "_phased_ancestor_bindings", ()):
+        with closing(WorkspaceFiles(path)) as current:
+            linked = os.fstat(current.root_fd)
+            if (linked.st_dev, linked.st_ino) != (device, inode):
+                raise ValueError("phased attempt ancestor replaced")
+    with closing(WorkspaceFiles(files.workspace)) as current:
+        linked, pinned = os.fstat(current.root_fd), os.fstat(files.root_fd)
+        if (linked.st_dev, linked.st_ino) != (pinned.st_dev, pinned.st_ino):
+            raise ValueError("phased attempt directory replaced")
 
 
 def _load_receipt(files):
@@ -605,7 +612,7 @@ def _store_receipt(files, receipt):
 
 
 def _transition_receipt(files, previous, receipt):
-    if _load_receipt(files) != previous:
+    if canonical_json_bytes(_load_receipt(files)) != canonical_json_bytes(previous):
         raise ValueError("phased ownership receipt changed before transition")
     _store_receipt(files, receipt)
 
@@ -625,25 +632,26 @@ def _validate_transport_shape(transport):
         raise ValueError("invalid phased transport domains")
 
 
-def settle_phased_receipt(files, proof):
-    """Memo-only local settlement, without reopening candidates or transport."""
+def validate_phased_settlement_receipt(files, proof):
+    """Read-only K3 admission; torn or absent local receipts add no authority."""
     validate_phased_commit_proof(proof)
     try:
         receipt = _load_receipt(files)
     except (FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError):
         receipt = None
+    _check_attempt_root(files)
     if receipt is not None:
         if not isinstance(receipt, dict) or receipt.get("schema_version") != _RECEIPT_SCHEMA:
             raise ValueError("foreign phased receipt")
         for key in ("identity", "attempt", "input_digest", "result_path"):
             if key in receipt and receipt[key] != proof[key]:
                 raise ValueError("foreign phased receipt binding")
-        if "proof" in receipt and receipt["proof"] != proof:
+        if "proof" in receipt and canonical_json_bytes(receipt["proof"]) != canonical_json_bytes(proof):
             raise ValueError("phased receipt proof mismatch")
         if receipt.get("state") == "settled":
             if set(receipt) != {"schema_version", "state", "proof"}:
                 raise ValueError("invalid settled receipt shape")
-            return
+            return True
         if receipt.get("state") not in {"intent", "prepared"}:
             raise ValueError("phased receipt cannot settle")
         if set(receipt) != ({"schema_version", "state"} | _RECEIPT_BINDINGS
@@ -653,6 +661,12 @@ def settle_phased_receipt(files, proof):
             raise ValueError("invalid phased receipt ordinal")
         _validate_transport_shape(receipt["transport"])
         validate_phased_commit_proof(proof, candidates=receipt["candidates"])
+
+
+def settle_phased_receipt(files, proof):
+    """Memo-only local settlement, without reopening candidates or transport."""
+    if validate_phased_settlement_receipt(files, proof):
+        return
     _store_receipt(files, {"schema_version": _RECEIPT_SCHEMA, "state": "settled", "proof": proof})
 
 
@@ -711,7 +725,7 @@ def recover_phased_provider_attempt(attempt, *, deadline, transport_root):
             raise ValueError("provider resource cleanup incomplete")
         PhasedSubmitEndpoint.recover_owned(reservation, deadline=deadline,
             provider_cleanup=proof, admission=admission)
-        if _load_receipt(attempt.attempt_files) != receipt:
+        if canonical_json_bytes(_load_receipt(attempt.attempt_files)) != canonical_json_bytes(receipt):
             raise ValueError("phased receipt changed before candidate cleanup")
         preflight = bindings.candidates.preflight(previous=declarations)
         snapshot = bindings.candidates.snapshot(preflight, 1)
@@ -752,7 +766,7 @@ def prepare_phased_provider_attempt(attempt, *, deadline, transport_root):
                     getattr(outcome.provider_cleanup_proof, "proof_complete", False)))
             if (bindings.receipt is not None and resources_clean
                     and outcome.endpoint_shutdown_status in {"complete", "not_allocated"}):
-                if _load_receipt(attempt.attempt_files) != bindings.receipt:
+                if canonical_json_bytes(_load_receipt(attempt.attempt_files)) != canonical_json_bytes(bindings.receipt):
                     raise ValueError("phased receipt changed before candidate cleanup")
                 snapshot = bindings.candidates.snapshot(bindings.candidates.preflight_result, 1)
                 bindings.candidates.reset(snapshot)
@@ -792,7 +806,8 @@ def verify_phased_precommit(prepared):
     frozen = prepared.prepared.prepared.frozen
     prepared.bindings.candidates.verify(frozen, FrozenCandidateRestoration(frozen.frozen_sha256, len(frozen.files)))
     attempt = prepared.bindings.attempt
-    if _load_receipt(attempt.attempt_files) != {**prepared.bindings.receipt, "state": "prepared", "proof": prepared.proof}:
+    if canonical_json_bytes(_load_receipt(attempt.attempt_files)) != canonical_json_bytes(
+            {**prepared.bindings.receipt, "state": "prepared", "proof": prepared.proof}):
         raise ValueError("phased ownership receipt does not bind the prepared result")
     candidates = prepared.bindings.candidates
     output = candidates.validate_outputs(candidates.snapshot_result)

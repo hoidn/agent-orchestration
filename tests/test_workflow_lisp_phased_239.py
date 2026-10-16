@@ -419,7 +419,7 @@ def test_source_free_checker_rejects_direct_phased_provider_map_forgery(tmp_path
     assert excinfo.value.rule == "parallel_provider_boundary"
 
 
-def test_runtime_rejects_unwired_phased_class_before_memo_or_provider_dispatch(tmp_path: Path) -> None:
+def test_runtime_phased_without_interactive_capability_has_no_ordinary_fallback(tmp_path: Path) -> None:
     from tests.test_workflow_evaluated_providers import _cli, _fixture, _requests
 
     source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
@@ -430,13 +430,18 @@ def test_runtime_rejects_unwired_phased_class_before_memo_or_provider_dispatch(t
         (provider-result providers.review :prompt (review :message message)
           :delivery :phased :timeout-sec 60)))'''
     fixture = _fixture(tmp_path, source)
+    fixture[1].write_text('{"providers.review":"codex_gpt55"}')
     result = _cli(tmp_path, fixture)
 
     assert result.returncode == 1
     assert not _requests(tmp_path)
     (run_root,) = (tmp_path / ".orchestrate" / "runs").iterdir()
     memo = run_root / "memo.jsonl"
-    assert not memo.exists() or memo.read_bytes() == b""
+    import json
+    rows = [json.loads(line) for line in memo.read_bytes().splitlines()]
+    assert any(row["record"] == "started" for row in rows)
+    assert not any(row["record"] == "committed" for row in rows)
+    assert any(row.get("code") == "provider_phased_preparation_failed" for row in rows)
 
 
 def test_confined_run_ref_provider_walker_recognizes_phased_class(tmp_path: Path) -> None:

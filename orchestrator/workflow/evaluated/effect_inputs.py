@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
-from contextlib import closing, nullcontext
+from contextlib import ExitStack, closing, nullcontext
 import hashlib
+import time
+import stat
+import os
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -20,12 +23,13 @@ from orchestrator.workflow.evaluated.memo import JournalEntry, MemoSnapshot
 from orchestrator.workflow.evaluated.values import coerce_evaluated_value
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.workspace_files import WorkspaceFiles
-from .authority import RunAuthority, workspace_result_locator
+from .authority import RunAuthority, workspace_result_locator, _require_retained_root
 from .agent_sessions import resolve_allocation_input
 from .agent_turns import AgentTurnError, resolve_turn_input, turn_dependencies, validate_turn
 from .agent_turn_recovery import classify_pending_turn, latest_failure
 from .memo import MemoError
 from .inputs import DocumentInputError, command_binding_kind, prepare_command_document
+from . import phased_providers
 from .providers import DELIVERY_NAMES_BY_DIGEST, FILE_DELIVERY_NAME, resolve_provider_input
 from .run_ref import require_run_ref_root, resolve_run_ref_input, validate_evaluated_run_ref
 
@@ -62,10 +66,131 @@ def _replay_committed_effect(authority, node, operands, identity, reader, commit
     settled = (identity, commit.data["attempt"]) in snapshot.settlements
     if node["class"] == "run_ref":
         validate_evaluated_run_ref(authority, resolved, identity, workspace, commit, settled=settled)
+    elif node["class"] == "provider_phased":
+        validate_phased_commit(authority, node, resolved, identity, commit, workspace)
     elif node["class"] == "agent_turn":
         validate_turn(authority, resolved, identity, commit, settled=settled)
     return result
 
+
+
+def _phased_attempt_directory(row):
+    directory = f"effects/{hashlib.sha256(row['identity'].encode('utf-8')).hexdigest()}/attempt-{row['attempt']}"
+    if row["result_path"] != directory + "/result.json":
+        raise ValueError("phased result path differs from exact memo-derived attempt")
+    return Path(directory)
+
+
+def open_phased_attempt(authority, row, *, create=False):
+    """Walk exact memo-derived components, proving absence at the first missing leaf."""
+    directory = _phased_attempt_directory(row)
+    with ExitStack() as owners:
+        root = authority.run_files
+        if root is None:
+            root = owners.enter_context(closing(WorkspaceFiles(authority.run_root)))
+        opened = []
+
+        def revalidate():
+            _require_retained_root(root)
+            for parent, name, child in opened:
+                linked, pinned = parent.stat(name), os.fstat(child.root_fd)
+                if (not stat.S_ISDIR(linked.st_mode)
+                        or (linked.st_dev, linked.st_ino) != (pinned.st_dev, pinned.st_ino)):
+                    raise ValueError("phased attempt ancestor replaced")
+            _require_retained_root(root)
+
+        parent = root
+        for component in directory.parts:
+            revalidate()
+            try:
+                child = parent.subroot(component)
+            except FileNotFoundError:
+                revalidate()
+                try:
+                    parent.stat(component)
+                except FileNotFoundError:
+                    revalidate()
+                    if not create:
+                        return None
+                else:
+                    raise ValueError("phased attempt path changed during absence admission")
+                revalidate()
+                child = parent.mkdir_exclusive(component)
+            owners.enter_context(closing(child))
+            opened.append((parent, component, child))
+            parent = child
+        revalidate()
+        pinned = parent.duplicate()
+        pinned._phased_ancestor_bindings = tuple((files.workspace, os.fstat(files.root_fd).st_dev,
+            os.fstat(files.root_fd).st_ino) for files in (root, *(child for _, _, child in opened)))
+        return pinned
+
+
+def phased_candidate_declarations(resolved, workspace, authority, result_path):
+    # This projection reads declarations only; committed recovery never opens candidates.
+    return [dict(contract_ordinal=index, role="expected_output", logical_name=row["name"],
+            workspace_relative_path=row["path"]) for index, row in enumerate(resolved.expected_outputs)] + [
+        dict(contract_ordinal=len(resolved.expected_outputs), role="structured_bundle",
+            logical_name="__structured_result_bundle__",
+            workspace_relative_path=workspace_relative_path(workspace, authority.run_root / result_path))]
+
+
+def validate_phased_commit(authority, node, resolved, identity, commit, workspace):
+    row = commit.data
+    phased_providers.validate_phased_commit_proof(row["proof"], identity=identity,
+        attempt=row["attempt"], input_digest=row["input_digest"], result_path=row["result_path"],
+        result_digest=canonical_sha256(row["value"]), canonical_prompt_sha256=resolved.input_parts["prompt"],
+        candidates=phased_candidate_declarations(resolved, workspace, authority, row["result_path"]))
+    files = open_phased_attempt(authority, row)
+    if files is not None:
+        with closing(files):
+            phased_providers.validate_phased_settlement_receipt(files, row["proof"])
+
+
+def check_phased_retry(authority, node, operands, identity, reader, workspace, owner, baseline,
+        *, launch_cwd=None, cleanup=False):
+    """Validate the old memo attempt before either cleanup or a new live budget."""
+    if node["class"] != "provider_phased" or baseline is None:
+        return
+    try:
+        row = baseline.data
+        files = open_phased_attempt(authority, row)
+        if files is None:
+            return
+        with closing(files):
+            # Receipt absence precedes every dispatch. Never clean candidates in this case.
+            phased_providers._check_attempt_root(files)
+            try:
+                files.stat("phased-attempt.json")
+            except FileNotFoundError:
+                phased_providers._check_attempt_root(files)
+                return
+            resolved, _parts, _ = _resolve_effect_input(authority, node, operands, identity, workspace, reader,
+                None, baseline, None, row["result_path"], owner=owner, launch_cwd=launch_cwd)
+            receipt = phased_providers._load_receipt(files)
+            declarations = phased_candidate_declarations(resolved, workspace, authority, row["result_path"])
+            reservation = phased_providers.validate_phased_attempt_receipt(receipt, identity=identity,
+                attempt=row["attempt"], input_digest=row["input_digest"], result_path=row["result_path"],
+                candidates=declarations, transport_root=Path('/tmp'))
+            if receipt["state"] == "settled":
+                raise ValueError("uncommitted phased attempt has a settled receipt")
+            if receipt["state"] == "prepared":
+                phased_providers.validate_phased_commit_proof(receipt["proof"],
+                    canonical_prompt_sha256=row["input_parts"]["prompt"])
+            if receipt["state"] == "abandoned":
+                return
+            deadline = time.monotonic() + 30.0
+            phased_providers.PhasedSubmitEndpoint.inspect_owned(reservation, deadline=deadline)
+            if cleanup:
+                from types import SimpleNamespace
+                with closing(WorkspaceFiles(workspace)) as workspace_files:
+                    old = SimpleNamespace(authority=authority, node=node, identity=identity,
+                        ordinal=row["attempt"], result_path=row["result_path"], input_digest=row["input_digest"],
+                        resolved=resolved, workspace=workspace, workspace_files=workspace_files,
+                        attempt_files=files, launch_cwd=launch_cwd)
+                    phased_providers.recover_phased_provider_attempt(old, deadline=deadline, transport_root=Path('/tmp'))
+    except (OSError, ValueError, RuntimeError) as exc:
+        raise _PreflightRefusal("provider_phased_cleanup_failed", f"{identity}: exact old attempt unresolved: {exc}") from exc
 
 def _check_resume_boundary(authority, snapshot, node, operands, identity, reader, workspace, owner,
                            *, reached_frontiers=frozenset(), launch_workspace=None, confined=None) -> None:
@@ -83,13 +208,16 @@ def _check_resume_boundary(authority, snapshot, node, operands, identity, reader
             None, baseline, attempt_directory, result_path, owner=owner,
             check_command_destinations=False, launch_cwd=launch_cwd, confined=confined,
         )
-    elif node["class"] == "provider" and identity in snapshot.pending_starts:
+    elif (node["class"] == "provider" and identity in snapshot.pending_starts
+            or node["class"] == "provider_phased"):
         _ordinal, attempt_directory, result_path = attempt_paths(snapshot, identity)
         _resolve_effect_input(
             authority, node, operands, identity, workspace, reader,
             None, baseline, attempt_directory, result_path, owner=owner,
             launch_cwd=launch_cwd,
         )
+    check_phased_retry(authority, node, operands, identity, reader, workspace, owner, baseline,
+        launch_cwd=launch_cwd)
     _check_pending_turn(authority, snapshot, node, operands, identity, reader, workspace, launch_cwd)
     if baseline is not None and node.get("repeat") == "never":
         raise _PreflightRefusal(
@@ -185,6 +313,10 @@ def _resolve_provider_effect_input(authority, node, operands, identity, workspac
 
 def _provider_delivery_name(node, commit, identity):
     """The committed row's rendering on replay (None when it predates the part), else the current one."""
+    if node["class"] == "provider_phased":
+        if commit is not None and commit.data["input_parts"].get("delivery") != canonical_sha256(FILE_DELIVERY_NAME):
+            raise _EffectInputDiverged(identity, "phased delivery rendering is not file/1")
+        return FILE_DELIVERY_NAME
     if commit is None:
         # omp children never receive ORCHESTRATOR_OUTPUT_BUNDLE_PATH; they deliver by final assistant text
         # that the parent materializes (specs/providers.md), so they keep the legacy wording.

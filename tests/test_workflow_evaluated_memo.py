@@ -432,3 +432,103 @@ def test_active_checked_dependency_is_accepted(tmp_path: Path) -> None:
     )
 
     assert read_memo(journal, sites).active_commits[second].data["depends_on"] == [FETCH]
+
+
+PHASED = "workflow:demo::run / phased"
+
+
+def _phased_commit(identity=PHASED, attempt=1):
+    from orchestrator.workflow.provider_phased_delivery.models import CandidateDigestManifest, CandidateDigestRow
+    from orchestrator.workflow.provider_phased_delivery.ledger import _candidate_manifest
+    from orchestrator.workflow.run_ref.contracts import canonical_sha256
+    row = _committed(identity, attempt, effect_class="provider_phased")
+    row["input_parts"]["prompt"] = DIGEST
+    row["result_digest"] = canonical_sha256(row["value"])
+    manifest = CandidateDigestManifest.create(submission_ordinal=1, disposition="frozen", rows=(
+        CandidateDigestRow(0, "structured_bundle", "__structured_result_bundle__",
+            ".orchestrate/" + row["result_path"], "regular", 2, DIGEST),))
+    row["proof"] = dict(schema_version="evaluated_phased_provider_commit.v1", identity=identity,
+        attempt=attempt, input_digest=row["input_digest"], result_path=row["result_path"],
+        result_digest=row["result_digest"], canonical_prompt_sha256=DIGEST,
+        actual_deliveries_sha256=DIGEST, candidate_manifest=_candidate_manifest(manifest),
+        natural_shutdown=dict(disposition="natural_exit", return_code=0, pane_absent=True,
+            server_absent=True, proof_complete=True))
+    return row
+
+
+def _phased_started(commit):
+    started = _started(commit["identity"], commit["attempt"])
+    started["input_parts"] = commit["input_parts"].copy()
+    return started
+
+
+def test_phased_commit_requires_settlement_and_refuses_invalidation(tmp_path):
+    commit = _phased_commit()
+    journal = tmp_path / "memo.jsonl"
+    sites = {PHASED: "provider_phased", FETCH: "command"}
+    _write(journal, _phased_started(commit), commit)
+    snapshot = read_memo(journal, sites)
+    assert (PHASED, 1) in snapshot.unsettled_coordinators
+    for last in (_row("terminal", outcome="completed", value=commit["value"]),
+                 _row("invalidated", from_commit=snapshot.active_commits[PHASED].offset, time=3),
+                 _started(FETCH)):
+        _write(journal, _phased_started(commit), commit, last)
+        with pytest.raises(MemoError, match="memo_inconsistent"):
+            read_memo(journal, sites)
+    _write(journal, _phased_started(commit), commit, _row("settled", PHASED, 1, by="settle"),
+        _row("terminal", outcome="completed", value=commit["value"]))
+    assert read_memo(journal, sites).settlements == {(PHASED, 1)}
+
+
+@pytest.mark.parametrize("field,value", [("identity", FETCH), ("attempt", 2), ("attempt", True),
+    ("input_digest", "sha256:" + "1" * 64), ("result_path", "other/result.json"),
+    ("result_digest", DIGEST), ("canonical_prompt_sha256", "sha256:" + "1" * 64),
+    ("natural_shutdown", {"disposition": "natural_exit", "return_code": False,
+        "pane_absent": True, "server_absent": True, "proof_complete": True})])
+def test_phased_proof_binds_exact_enclosing_receipt_facts(tmp_path, field, value):
+    commit = _phased_commit()
+    commit["proof"][field] = value
+    journal = tmp_path / "memo.jsonl"
+    raw = _write(journal, _phased_started(commit), commit)
+    with pytest.raises(MemoError, match="memo_inconsistent"):
+        read_memo(journal, {PHASED: "provider_phased"})
+    assert journal.read_bytes() == raw
+
+
+@pytest.mark.parametrize("proof", [None, [], {}, {"schema_version": "evaluated_phased_provider_commit.v1"}])
+def test_phased_malformed_proof_is_refused(tmp_path, proof):
+    commit = _phased_commit()
+    commit["proof"] = proof
+    journal = tmp_path / "memo.jsonl"
+    _write(journal, _phased_started(commit), commit)
+    with pytest.raises(MemoError, match="memo_inconsistent"):
+        read_memo(journal, {PHASED: "provider_phased"})
+
+
+def test_source_free_ordinary_provider_cannot_adopt_phased_proof(tmp_path):
+    commit = _phased_commit()
+    commit["effect_class"] = "provider"
+    journal = tmp_path / "memo.jsonl"
+    _write(journal, _phased_started(commit), commit)
+    with pytest.raises(MemoError, match="ordinary effect cannot carry coordinator proof"):
+        read_memo(journal, {PHASED: "provider"})
+
+
+def test_phased_unsettled_commit_cannot_feed_already_started_downstream(tmp_path):
+    commit = _phased_commit()
+    journal = tmp_path / "memo.jsonl"
+    _write(journal, _started(FETCH), _phased_started(commit), commit,
+        _committed(FETCH, depends_on=[PHASED]))
+    with pytest.raises(MemoError, match="memo_inconsistent"):
+        read_memo(journal, {FETCH: "command", PHASED: "provider_phased"})
+
+
+def test_settled_phased_commit_still_cannot_be_invalidated(tmp_path):
+    commit = _phased_commit()
+    journal = tmp_path / "memo.jsonl"
+    _write(journal, _phased_started(commit), commit, _row("settled", PHASED, 1, by="settle"))
+    anchor = read_memo(journal, {PHASED: "provider_phased"}).active_commits[PHASED].offset
+    with journal.open("ab") as stream:
+        stream.write(_line(_row("invalidated", from_commit=anchor, time=3)))
+    with pytest.raises(MemoError, match="committed coordinator"):
+        read_memo(journal, {PHASED: "provider_phased"})
