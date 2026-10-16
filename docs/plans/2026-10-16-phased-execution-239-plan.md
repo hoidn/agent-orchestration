@@ -81,32 +81,32 @@ those runs; collection and one narrow test/module may run directly.
 
 **Role/artifact:** Implementation / compiler code and focused tests.
 
-- [ ] Add `tests/test_workflow_lisp_phased_239.py` with a fragment-backed 2.39
+- [x] Add `tests/test_workflow_lisp_phased_239.py` with a fragment-backed 2.39
   provider fixture and test the default `materialization_attempts=2`, literals
   1 and 3, rejection of booleans/out-of-range/nonliteral values and attempts
   without phased delivery. Verify provider-bound model/effort remain distinct.
-- [ ] Cover 2.35, 2.36, 2.37 and 2.38 refusal, including a 2.39 caller importing
+- [x] Cover 2.35, 2.36, 2.37 and 2.38 refusal, including a 2.39 caller importing
   a phased definition authored at an older target. Target gating belongs to
   the definition's owner, not merely the entry target. Keep Agent-valued phased
   calls, extern-prompt phased calls and unsupported context/session pairings
   rejected. Refuse phased effects reachable from `par-map`, including imported
   and specialized helper calls, in both source compilation and the source-free
   closed checker. Run the new module and record the expected initial failure.
-- [ ] Preserve `materialization_attempts` through
+- [x] Preserve `materialization_attempts` through
   `wcc/model.py:map_perform_payload_values`. Remove the selected phased-only
   blockers in `closed/build.py` and `closed/effects.py` for the admitted target;
   emit class `provider_phased`, `repeat=rerun`, a fragment prompt and literal
   paired policy. Keep class `provider` for absent/explicit composed delivery.
-- [ ] Independently validate this shape in `contracts/closed_program/check.py`.
+- [x] Independently validate this shape in `contracts/closed_program/check.py`.
   Cover missing/unknown fields, wrong class/policy pairing, forged target,
   missing fragment contract and malformed literal bounds using checked JSON
   with no frontend or source access. Update operand walkers, provider
   configuration checks and effect detection at every listed closed boundary.
-- [ ] Preserve existing confined-provider refusal for the new class; this is
+- [x] Preserve existing confined-provider refusal for the new class; this is
   recognition of the same closed gate, not new confinement qualification.
   Prove ordinary composed artifact identity/behavior unchanged and prove a
   phased runtime request cannot dispatch as an ordinary provider before wiring.
-- [ ] Collect the new module, then run:
+- [x] Collect the new module, then run:
 
   ```bash
   pytest --collect-only -q tests/test_workflow_lisp_phased_239.py
@@ -116,15 +116,41 @@ those runs; collection and one narrow test/module may run directly.
   Expected: new admission and tampering cases pass; old targets and unsupported
   routes refuse before dispatch. Record changed test names for final collection.
 
+- [ ] Follow-up admission refinement: require explicit positive `Int` literal
+  `:timeout-sec` for phased delivery in source and source-free closed checking,
+  reusing the existing policy field. Test missing/boolean/nonpositive/nonliteral
+  refusal and preserve composed optional-timeout controls. Collect changed
+  modules and record fresh focused evidence; the earlier Task 1 evidence does
+  not establish this added requirement.
+
 ## Task 2: Replace retired publication and make cleanup ownership durable
 
 **Role/artifact:** Implementation / shared coordinator and adapter code/tests.
 
-- [ ] Extend `tests/test_provider_phased_delivery_coordinator.py` to establish a
+Selected adapter refinement: implement the design's
+[reservation and ownership records](../design/workflow_lisp_phased_contract_delivery.md#adapter-reservation-and-resource-ownership)
+and [leased command/recovery protocol](../design/workflow_lisp_phased_contract_delivery.md#leased-commands-and-exact-recovery).
+These owners define private APIs, exact receipt shapes, all creation-client
+leases, pre-exec group registration/revocation, guarded server cleanup and the
+original absolute live deadline. Retain existing natural-proof and diagnostic
+ledger shapes; only strengthen the adapter proof invariant.
+
+Provider-free mechanism evidence is captured in
+[lifecycle architecture](/tmp/orc-phased-239-evidence/task2-lifecycle/architecture.md),
+[probe source](/tmp/orc-phased-239-evidence/task2-lifecycle/probe.py),
+[lifecycle results](/tmp/orc-phased-239-evidence/task2-lifecycle/results.json)
+and earlier [same-connection/lease results](/tmp/orc-phased-239-evidence/task2-feasibility/results.json).
+The probes show that server termination alone leaves a resistant writer,
+owned-group cleanup stops writes, delayed pre-exec observes revocation, the
+wrapper retains its lease through child reap, and foreign group identity is
+refused without signalling. These local temporary artifacts are mechanism
+evidence, not production acceptance; the implementation checks below remain open.
+
+- [x] Extend `tests/test_provider_phased_delivery_coordinator.py` to establish a
   prepared outcome after joint candidate validation, freeze, ingress shutdown
   and natural exit zero, with no parent publication by the coordinator.
   Preserve one task delivery and same-handle correction on rejected submissions.
-- [ ] Replace the old `atomic_success_commit` callback/receipt and synthetic
+- [x] Replace the old `atomic_success_commit` callback/receipt and synthetic
   parent-state commit contract with the design's prepared outcome and separate
   successful settlement. Enter `JOINED_PENDING_COMMIT` immediately on natural
   shutdown proof so later evidence failures cannot abort a terminal client.
@@ -137,6 +163,15 @@ those runs; collection and one narrow test/module may run directly.
   bounded cleanup without the original in-memory handle, absent resources and
   forged/foreign/symlinked ownership records. Reuse the adapter backend operations;
   do not serialize live handles or trust an arbitrary socket/session path.
+- [ ] Exercise both `start_server` and `start_pane` creation leases, parent
+  SIGKILL before/after each durable boundary, abnormal helper exit and an
+  exhausted original deadline during lease wait, kill/reap or output settlement.
+  Delayed pre-exec must recheck deadline/revocation immediately before exec.
+  Cover missing server-PID record, delayed socket after failed/timed-out
+  creation, replaced namespace/lock/socket and foreign group/server identities.
+  Active/unresolved cleanup must preserve candidate files and block redispatch.
+  Prove natural residual-group failure, including when later cleanup succeeds;
+  run at least one public evaluated resume smoke after integration.
 - [ ] Demonstrate that zero exit follows normal graceful close; timeout, nonzero
   exit, explicit abort, failed freeze and incomplete cleanup cannot produce a
   prepared success. Validate prestart failure and partial start cleanup too.
@@ -176,6 +211,12 @@ those runs; collection and one narrow test/module may run directly.
   translation, total deadline across operations, exhausted materializations,
   candidate mutation after submission, receipt/proof mismatch and result digest
   mismatch. No missing runtime binding may fall back to composed execution.
+- [ ] Derive and test the design's original live deadline: capture `t0` before
+  request composition/transport and add the authored positive literal once;
+  refuse nonfinite conversion/addition or `deadline <= t0` before allocation.
+  Cover composition time, task/correction sharing, shutdown/first-commit expiry
+  and no per-phase renewal. K4 starts a fresh live budget only after separately
+  bounded cleanup; provider/per-operation defaults supply no finite authority.
 - [ ] Collect and run:
 
   ```bash
@@ -321,8 +362,31 @@ accurate current routing. Ordinary composed behavior remains compatible.
 
 - Base focused evidence supplied by coordinator: 88 phased contract/policy tests
   passed before edits; retain the actual command/log in final evidence.
-- Fresh full baseline: running when this plan was written; record the final
-  failure inventory before interpreting the integrated broad run.
-- Implementation status: not started when this plan was written.
+- Fresh full baseline at `be3e3040`: `python -m pytest -q -n 16
+  --dist=worksteal --tb=short` completed with **75 failed, 15,871 passed,
+  117 skipped, 1 xfailed** in 1,264.44 seconds. Exact failure node IDs are in
+  `/tmp/orc-phased-239-evidence/baseline-failures.json`; command/exit receipt and
+  complete output are `baseline-result.json` and `baseline.log` beside it.
+  Classify these separately from new failures; this is not a green baseline.
+- Task 1 complete at `6ded8dda`: checked target-2.39 admission, source/capsule
+  owner refusal, nonempty semantic contracts, transitive parallel refusal and
+  pre-dispatch runtime refusal. Independent spec-compliance and code-quality
+  reviews approved. The affected broad selector passed **499** cases;
+  post-import-cleanup focused checks passed **73**, and the new module collected
+  **46**. These selections overlap and their counts are not additive. Logs:
+  `/tmp/orc-phased-239-evidence/task1/broad-final.log` and exit receipt beside it.
+- Task 2 coordinator slice complete at `9c3878eb`: `prepare()` returns
+  `PhasedProviderAttemptPrepared` in `JOINED_PENDING_COMMIT`; `settle(outcome)`
+  is exact-outcome-bound and idempotent after memo commit; `close()` closes only
+  diagnostic output on commit failure. The old atomic parent-state commit API
+  is deleted. Spec-compliance and code-quality reviews approved. Affected-owner
+  tests passed **586** cases, narrow preparation checks passed **10**, and the
+  changed coordinator module collected **194**. These selections overlap.
+  Evidence: `/tmp/orc-phased-239-evidence/task2-coordinator/affected-owner.txt`,
+  `narrow-preparation.txt` and `coordinator-collect.txt` beside it.
+- Task 2 adapter lifecycle refinement is approved but not implemented: group
+  quiescence and delayed-launch revocation are required in addition to server
+  absence. The Task 1 explicit-timeout follow-up is in progress. Tasks 3–7
+  remain incomplete; runtime dispatch remains unavailable.
 - Live-provider qualification: not selected; deterministic fixtures do not claim
   it and do not establish improved provider task quality.

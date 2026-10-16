@@ -1139,6 +1139,12 @@ remains retired. Evaluated admission adds existing `provider-result` policy
 (default `2`). It requires a fragment-backed prompt and a generated nonempty
 result-contract suffix. Omitted/explicit composed delivery remains unchanged.
 
+Phased delivery additionally requires explicit `:timeout-sec` as a positive
+`Int` literal. Source and source-free closed validation refuse omission,
+booleans, nonpositive values and nonliteral operands. Reuse the existing timeout
+policy field; no schema change or inherited finite default is introduced.
+Composed delivery retains its optional timeout contract.
+
 - One `provider_phased` checked effect owns one interactive attempt and one
   normal typed result. Explicit capability validation requires
   `interactive_terminal_turn_queue.v1`; absent/malformed capability never
@@ -1159,21 +1165,44 @@ result-contract suffix. Omitted/explicit composed delivery remains unchanged.
   becomes authoritative independently. Endpoint resources are allocated only
   after successful provider start. No candidate cleanup may delete an
   unrelated or pre-existing file.
-- Natural zero-exit shutdown and complete ingress cleanup precede frozen
-  restoration/verification and evaluated preparation. `prepare` never writes
+- Natural zero-exit shutdown, a naturally empty registered provider group,
+  bound private-server absence and complete ingress cleanup precede frozen
+  restoration/verification and evaluated preparation. The existing Timeouts
+  group-ownership limit applies: escaped descendants are outside that proof.
+  A natural leader exit with residual group members is failure even if forced
+  cleanup later succeeds. Strengthen `proof_complete` to require group emptiness
+  without changing existing natural-proof fields or ledger grammar.
+  `prepare` never writes
   parent state or memo. The evaluator validates and commits the typed result
   with the versioned phased proof, then `settle` finalizes the attempt. After
   natural shutdown, failure never authorizes another abort of that client.
-- One timeout bounds the live attempt through pre-commit preparation; the
-  evaluator checks it before the first memo commit. Committed settlement and
+- One original absolute monotonic deadline bounds the live attempt through
+  pre-commit preparation, including lease waits, command/pre-exec helpers,
+  termination, reap and output settlement. Capture `t0` once at the start of
+  live preparation, before request composition or transport allocation, and
+  compute `deadline = t0 + authored_timeout_seconds`. Conversion and addition
+  must be finite and yield `deadline > t0`; otherwise fail before allocation.
+  Task delivery and all corrections share this deadline. Parent death,
+  wrappers and phase changes never
+  renew it; reserve cleanup time within its remaining interval. The evaluator
+  checks it before the first memo commit. Committed settlement and
   interrupted-attempt cleanup are bounded recovery operations, not permission
-  to continue an expired interactive attempt.
+  to continue an expired interactive attempt. Only a fresh K4 attempt receives
+  a fresh live budget after old-attempt cleanup completes.
 - New attempts use the evaluated identity, ordinal, exclusive directory,
   ordinary provider IO/result contracts and environment binding. Recovery is
   [evaluated at-least-once](state.md#evaluated-phased-provider-attempts-target-239),
   with exact prior-attempt resource/candidate ownership checked before a fresh
   attempt. No old state allocator, checkpoint, quarantine, phase-cursor
   replay or provider transcript becomes execution authority.
+- Failed/interrupted cleanup must settle every resource-creating tmux client,
+  revoke delayed provider launch, prove the owned group empty and prove the
+  exact bound private server absent before candidate cleanup or redispatch.
+  Unknown helper/reap state or missing socket after failed/timed-out creation
+  remains unresolved; neither client exit nor socket absence proves no backend
+  allocation. Foreign/replaced resources refuse cleanup. The private
+  [adapter ownership protocol](../docs/design/workflow_lisp_phased_contract_delivery.md#adapter-reservation-and-resource-ownership)
+  defines the durable lease, identity and guarded server checks.
 
 ## Direct CLI Integration (details)
 

@@ -933,7 +933,12 @@ defines the closed proof and attempt-receipt fields.
   This record owns cleanup,
   never a workflow result or a phase-resumption cursor. Paths and transport
   locators are checked against the memo-derived attempt and checked effect
-  before any read, deletion or adapter cleanup.
+  before any read, deletion or adapter cleanup. The transport reservation binds
+  the exclusive namespace, full token and namespace/lease identities; the
+  adapter's durable command, server, pre-exec group and revocation records supply
+  private resource-cleanup authority. Their exact shapes and ownership belong
+  to the [adapter design](../docs/design/workflow_lisp_phased_contract_delivery.md#adapter-reservation-and-resource-ownership),
+  separate from the inline commit proof and diagnostic phase ledger.
 - On a committed memo hit, validate the inline proof and idempotently finish
   settlement (K3), without provider dispatch, candidate reconstruction or
   phase-ledger reads. Inline proof may reconstruct an absent/torn receipt as
@@ -944,7 +949,9 @@ defines the closed proof and attempt-receipt fields.
   authority if settlement fails. A
   committed phased coordinator cannot be superseded or invalidated (K8).
 - An exact uncommitted interrupted attempt follows generic K4: bound cleanup
-  to its private namespace, prove the old provider cannot write, clear only
+  to its private namespace, settle all resource-creating clients, durably revoke
+  late provider launch, prove its owned group empty and bound server absent,
+  then clear only
   its owned provisional candidates, preserve its attempt evidence, emit
   `provider_attempt_interrupted_rerun`, and allocate the next ordinal. Even a
   prepared-but-uncommitted result is discarded. No partial task/client/queue
@@ -952,6 +959,10 @@ defines the closed proof and attempt-receipt fields.
   it does not create historical sticky quarantine. The same cleanup rule
   applies before retrying a latest uncommitted `failed` attempt; a live failure
   may mark ownership abandoned only after resource and candidate cleanup.
+  Active/unresolved command state, identity mismatch or missing socket after
+  failed/timed-out creation is incomplete cleanup, not absence proof; candidates
+  remain untouched and no replacement attempt is allocated. Cleanup has a
+  separate bounded recovery deadline and cannot renew the expired live attempt.
 - Diagnostic phase-ledger loss or truncation alone does not block recovery.
   Missing/malformed operational ownership is distinct: it may justify no
   dispatch only where durable ordering proves that; otherwise it fails

@@ -66,6 +66,10 @@ model, effort, timeout, required documents and result-guidance contracts apply.
 - `:materialization-attempts` is an integer literal in `1..3`, defaults to `2`
   for phased delivery, and is illegal otherwise. It counts total candidate
   submissions in this attempt, not provider attempts or crash retries.
+- Phased delivery requires explicit `:timeout-sec` as a positive `Int` literal.
+  Omission, booleans, nonpositive values and nonliteral operands are refused;
+  no inherited finite timeout is supplied. Composed delivery retains its
+  optional timeout contract.
 - Admission requires the exact validated
   `interactive_terminal_turn_queue.v1` capability. Validate the selected
   template before dispatch and again at the runtime capability boundary;
@@ -85,6 +89,8 @@ provider fields: `k`, `class`, `result`, `repeat`, `site`, optional provenance,
 `provider`, `prompt`, `inputs`, `dependencies`, `policy` and `contract`.
 `repeat` is `rerun`; policy contains literal `delivery: phased` and literal
 `materialization_attempts` in addition to existing ordinary policy operands.
+Reuse the existing timeout policy operand for the required positive literal;
+the source-free closed checker independently enforces this phased requirement.
 Composed calls remain class `provider`; there is no runtime policy-based
 reclassification. `provider_phased` is a coordinator class everywhere the
 closed node, site table, memo, interpreter, replay, view or invalidation path
@@ -223,17 +229,133 @@ failure may mark it `abandoned` only after proving both resource and exact
 candidate cleanup; otherwise resume must complete the same cleanup before
 allocating any replacement, even if the memo already contains `failed`.
 
-Private transport identity must be reserved before backend start and must
-let the adapter clean exactly that attempt after process loss, including a
-kill between server allocation and handle publication. Extend the existing
-adapter's ownership API to expose this reservation and bounded cleanup; do
-not invent a second tmux controller in the evaluated runtime. The reservation
-binds an exclusively owned private namespace and non-reused instance token,
-not a user-controlled PID or pane. Before destructive cleanup, the adapter
-validates namespace ownership and the original server identity; if the
-namespace/server was replaced or ownership cannot be proved, fail closed
-before launch. No global server enumeration, broad process killing or
-reconstruction of an unvalidated `InteractiveMemberHandle` is allowed.
+#### Adapter Reservation And Resource Ownership
+
+Extend `InteractiveTerminalTurnQueueAdapter` and its existing tmux backend;
+the evaluated owner does not become a second tmux controller. The private APIs
+are `reserve_recoverable(root) -> InteractiveTerminalReservation`, which only
+creates the namespace and operation lease; `start(..., reservation=...)`,
+which consumes that exact reservation; and
+`recover_failed(reservation, *, deadline) -> PhasedFailedCleanupEvidence`,
+which needs no reconstructed live handle. Persist the reservation in
+`phased-attempt.json` before calling `start`. Live `abort(handle)` shares the
+same cleanup implementation and projects its handle-bound proof. `join(handle,
+...)` additionally proves the registered provider group naturally empty.
+These are private adapter/evaluated-owner APIs, with no authored configuration.
+
+The receipt's `transport` has exactly these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `schema_version` | `interactive_terminal_reservation.v1` |
+| `adapter_token` | Full non-reused UUID token |
+| `namespace` | Relative locator under the selected trusted transport root |
+| `namespace_dev`, `namespace_ino`, `namespace_uid` | Integer namespace identity |
+| `lease_dev`, `lease_ino` | Integer operation-lock identity |
+| `boot_id` | Linux boot ID |
+
+Create the namespace exclusively with mode `0700` and its fixed `launch.lock`
+exclusively with mode `0600`; the lock inode remains fixed. Derive `tmux.sock`,
+`server.json`, `client.json`, `command.json`, `revoked` and the existing
+exit-status file from that namespace, and the full session name from the full
+adapter token. Persisted data cannot select arbitrary child paths. All records
+have strict exact-shape parsing, owner/mode checks and no-follow descriptor-rooted
+access; publication uses atomic replacement plus file and directory fsync.
+
+The adapter owns these operational records, separate from memo and ledger:
+
+| Record | Exact fields and durable boundary |
+| --- | --- |
+| `server.json` | `schema_version: interactive_terminal_server.v1`, `adapter_token`, `boot_id`, `server_pid`, `server_start_ticks`, `socket_dev`, `socket_ino`; written after server observation and before `start_pane` |
+| `client.json` | `schema_version: interactive_terminal_client.v1`, `adapter_token`, `boot_id`, `leader_pid`, `pgid`, `sid`, `leader_start_ticks`; written by the pane's adapter-owned pre-exec helper before provider code |
+| `command.json` | `schema_version: interactive_terminal_command.v1`, `adapter_token`, `operation_token`, `kind: start_server \| start_pane`, `state: active \| completed`; only the completed variant adds `outcome: success \| failed \| timed_out` |
+| `revoked` | Exact adapter token; terminal revocation of provider launch |
+
+Require `leader_pid == pgid == sid`; otherwise refuse launch. This is the
+pane's isolated group, never the caller's inherited group. The pre-exec helper
+takes the same operation lease, validates namespace/token, refuses revocation,
+and makes the group record durable before executing the existing status-capturing
+wrapper. Recheck both the deadline and revocation immediately before exec;
+lease waiting consumes the original finite absolute live deadline. The lease
+descriptor is close-on-exec. Preserve provider argv, exit-status publication,
+terminal and input semantics. A delayed, unregistered pane can execute only
+adapter validation until this boundary, never provider code or candidate writes.
+
+#### Leased Commands And Exact Recovery
+
+Acquire the operation lease before spawning the adapter-owned bounded command
+helper; pass the already locked descriptor with `pass_fds`. The parent closes
+its duplicate without `LOCK_UN`. The helper holds the lease through the tmux
+client's execution, timeout handling, termination/reap and finite output
+collection, including after parent death. This covers both server creation
+and pane/window creation; every resource-creating operation must use this
+runner. The closed command-kind grammar currently has only `start_server` and
+`start_pane`.
+
+While leased, write `active` before spawning the tmux child and `completed`
+only after proving reap and output settlement. A missing command record means
+no helper crossed its pre-spawn boundary. An `active` record with an obtainable
+lease means incomplete cleanup and blocks candidate changes and redispatch;
+an unlocked lease alone does not prove that no child can act. Ordinary parent
+death leaves the helper holding the lease to finish its bounded work. Never
+kill only that wrapper with an outer `subprocess.run(timeout=...)` and orphan
+its tmux client. If helper failure or deadline expiry prevents proof of
+kill/reap/output settlement, retain `active` and report incomplete cleanup.
+A completed failed/timed-out client is not proof of no backend allocation:
+it may have forked a server before the socket appeared.
+
+Recovery validates the exact reservation and pinned namespace/lock identities,
+then acquires the same lease with its separate finite recovery deadline.
+Validate command completion and durably revoke future launch before examining
+the provider record. A missing `client.json` is safe only after this
+lease/revocation boundary. If present, validate its shape, token and boot binding,
+then use existing owned-group TERM/KILL and finite waits. Recheck a positive
+live leader's start token before signalling or escalation; mismatch, permission
+failure or a nonempty group at deadline refuses cleanup.
+
+Only then stop the bound private server. Revalidate namespace/socket identity
+and use one tmux connection with an `if-shell -F` condition checking the full
+reserved session token and, when recorded, server PID identity; its true branch
+invokes `kill-server`, its false branch emits an explicit ownership-mismatch
+marker. A false condition may exit zero, so return code alone is insufficient.
+Verify bound server/socket disappearance afterward. A responding server without
+the full reserved token is foreign or ambiguous; missing session is not server
+absence. Missing socket after failed/timed-out creation remains unresolved:
+find and stop the exact reserved server or refuse cleanup, since server startup
+may still be pending.
+
+Before `server.json` exists, the durable intent, unchanged exclusive namespace
+and lease identities, completed creation command under lease, and full reserved
+session token together authorize guarded cleanup through the same connection.
+This covers server creation before PID observation without inventing a persisted
+PID. Provider-pane creation is prohibited until the server record is durable.
+Use `-f /dev/null` and an inert adapter-owned anchor; user tmux configuration
+and an interactive login shell cannot run in the private server. Removing the
+exact bound server closes delayed pane allocation, and revocation prevents a
+delayed pre-exec helper from launching provider code.
+
+Complete cleanup requires settled creation commands, the owned group empty,
+and the bound server absent. No candidate cleanup or replacement attempt may
+precede all three. Server termination alone does not prove group emptiness.
+Natural completion likewise requires successful exit status, naturally empty
+registered group and removal of the inert private server; a residual group
+is a failure even if forced cleanup later succeeds. TERM/KILL cannot produce
+natural success. Strengthen the adapter's `proof_complete=True` invariant
+without changing the handle-bound proof shape or its existing five-field
+content-free projection: `disposition`, `return_code`, `pane_absent`,
+`server_absent`, `proof_complete`. Private group identity stays in the operational
+records; add no scalar to shared proof types, inline proof or historical ledger.
+
+Ownership retains the existing [provider group limit](../../specs/providers.md):
+only processes remaining in that group are covered, not escaped descendants.
+Retain R3's absent-leader policy: absence alone proves no group emptiness,
+recorded lingering groups can be signalled, and a positive live leader token
+mismatch is refused. The existing absent-leader/reused-group ambiguity remains.
+Namespace/inode/token checks detect stale identity and ordinary replacement;
+they do not confine an arbitrary same-UID process able to rewrite all receipts.
+No global server enumeration, broad process killing, pidfd/ctypes dependency,
+general supervisor or unvalidated `InteractiveMemberHandle` reconstruction is
+selected.
 
 On explicit resume, normal source/input/memo guards classify the exact latest
 uncommitted phased attempt, including a pending start or a failed attempt that
@@ -246,8 +368,10 @@ is being retried. If its memo committed, K3 settles without transport. Otherwise
    only when the pre-dispatch protocol and attempt state establish that its
    durable write could not have completed; malformed/ambiguous ownership
    fails closed, not as historical quarantine.
-2. Finish bounded cleanup of the old private provider/endpoint resources and
-   prove they can no longer write. Cleanup has a fresh bounded recovery
+2. Finish bounded cleanup of the old private provider/endpoint resources under
+   the adapter ownership protocol above: settle creation commands, revoke late
+   launch, prove the owned group empty and the exact private server absent.
+   Cleanup has a fresh bounded recovery
    operation budget, never a renewed live-attempt or materialization budget.
 3. Discard only exact provisional candidates owned by the old absence
    preflight. Compare their bound identities when observed, use safe regular
@@ -270,9 +394,21 @@ capability.
 
 ### Deadlines, Files And Evidence
 
-One authored timeout bounds live preparation, start, offers, waits,
-validation/reset/freeze, close/join and the pre-commit preparation. Preserve
-existing before/after deadline checks and proof-selected cleanup grammar.
+Capture monotonic `t0` once at the start of live attempt preparation, before
+request composition or transport allocation. Derive `deadline = t0 +
+authored_timeout_seconds` using the required positive literal; conversion and
+addition must be finite and the result strictly greater than `t0`, or fail
+before resource allocation. There is no finite default to infer from provider
+or per-operation adapter timeouts.
+
+This one original absolute monotonic deadline bounds live preparation, lease waits,
+command/pre-exec helpers, start, offers, validation/reset/freeze, close/join,
+TERM/KILL, reap, output settlement and pre-commit preparation. Reserve cleanup
+time within the remaining interval; no wrapper or parent death renews it.
+Task delivery and every materialization correction share it; no phase restarts
+the budget. A fresh K4 attempt receives a fresh live budget only after the old
+attempt's separately bounded recovery cleanup completes.
+Preserve existing before/after deadline checks and proof-selected cleanup grammar.
 The evaluator checks the same deadline immediately before its first commit;
 after a valid commit, idempotent settlement is not a renewed provider action
 and remains recoverable even after that deadline. No timeout makes an
