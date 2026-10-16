@@ -149,7 +149,7 @@ def _bound_capture_source(source: str) -> str:
 def _run_bound_focus(root: Path, program, focus: str) -> Route:
     inputs = {"task": "Fix add in repo/calc.py so that it returns the sum.",
               "intent": "Add returns a + b", "repo": "repo", "review_focus": focus}
-    frontend = install(root, program, inputs, current=True)
+    frontend = install(root, program, inputs)
     (root / program.source).write_text(
         _bound_locality_source(BOUND_REVIEWED_VARIANT.read_text(encoding="utf-8")),
         encoding="utf-8",
@@ -248,7 +248,7 @@ def test_proposal_review_focus_is_review_only_and_survives_public_resume(
     install_shims(tmp_path / "bin", monkeypatch, plan)
     new_root = tmp_path / "new"
     inputs = {"question": QUESTION, "review_focus": focus}
-    frontend = install(new_root, PROGRAMS["improve"], inputs, current=True)
+    frontend = install(new_root, PROGRAMS["improve"], inputs)
     (new_root / PROGRAMS["improve"].source).write_text(VARIANT.read_text(encoding="utf-8"), encoding="utf-8")
     new = _run_variant(new_root, frontend, focus, REVIEW)
     _assert_outcome_and_launcher(new, launch)
@@ -318,7 +318,7 @@ def test_reviewed_change_reuses_improve_without_changing_its_contract(
               "intent": "add returns a + b", "repo": "repo"}
     new_root = tmp_path / "new"
     program = PROGRAMS["reviewed_change"]
-    frontend = install(new_root, program, inputs, current=True)
+    frontend = install(new_root, program, inputs)
     (new_root / program.source).write_text(variant_path.read_text(encoding="utf-8"), encoding="utf-8")
     new = _run_reviewed_variant(new_root, frontend, marker)
     _assert_reviewed_contract(new, plan, inputs, value, paused_count)
@@ -337,7 +337,7 @@ def test_bound_review_captures_the_committed_account_before_shadowing_and_resume
               "intent": "outer-intent-decoy", "repo": "repo"}
     root = tmp_path / "new"
     program = PROGRAMS["reviewed_change"]
-    frontend = install(root, program, inputs, current=True)
+    frontend = install(root, program, inputs)
     source = _bound_capture_source(BOUND_REVIEWED_VARIANT.read_text(encoding="utf-8"))
     (root / program.source).write_text(source, encoding="utf-8")
     new = _run_reviewed_variant(root, frontend, CHANGE_STOP, paused_count=1)
@@ -413,7 +413,7 @@ def test_w3_creator_capture_survives_later_call_site_shadow_and_resume(tmp_path,
     plan = _improve_plan("REVISE", "APPROVE")
     install_shims(tmp_path / "bin", monkeypatch, plan)
     program, root = PROGRAMS["w3_improve"], tmp_path / "new"
-    frontend = install(root, program, {"question": captured}, current=False)
+    frontend = install(root, program, {"question": captured})
     source_path = root / program.source
     source = _replace_source_once(
         source_path.read_text(encoding="utf-8"),
@@ -439,7 +439,7 @@ def test_w3_two_creator_capture_environments_remain_distinct_in_one_run(tmp_path
     plan = _improve_plan("REVISE", "APPROVE")
     install_shims(tmp_path / "bin", monkeypatch, {"codex": plan["codex"] * 2})
     program, root = PROGRAMS["w3_improve"], tmp_path / "new"
-    frontend = install(root, program, {"question": QUESTION}, current=False)
+    frontend = install(root, program, {"question": QUESTION})
     source_path = root / program.source
     source = source_path.read_text(encoding="utf-8")
     header = "  (defworkflow run-experiment ((question String)) -> ExperimentRun\n"
@@ -479,7 +479,7 @@ def test_w3_two_creator_capture_environments_remain_distinct_in_one_run(tmp_path
 def test_w3_one_hook_extra_capture_changes_only_review_dataflow(tmp_path, monkeypatch, focus):
     install_shims(tmp_path / "bin", monkeypatch, _improve_plan("REVISE", "APPROVE"))
     program, root = PROGRAMS["w3_improve"], tmp_path / "new"
-    frontend = install(root, program, {"question": QUESTION, "review_focus": focus}, current=False)
+    frontend = install(root, program, {"question": QUESTION, "review_focus": focus})
     source_path = root / program.source
     source = _replace_source_once(source_path.read_text(encoding="utf-8"),
                                   "run-experiment ((question String))",

@@ -66,17 +66,17 @@ def test_external_document_pairs_are_checked_at_source(tmp_path, inputs):
     assert Path(diagnostic.span.start.path).name == "closed_elaboration.orc"
 
 
-def _compile_old_target(tmp_path, source, commands):
+def _compile_current_source(tmp_path, source, commands):
     path = tmp_path / "cp" / "closed_elaboration.orc"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(source)
     return compile_stage3_module(path, command_boundaries=commands, validate_shared=False, workspace_root=tmp_path)
 
 
-@pytest.mark.parametrize("target,extra", [("2.34", ""), ("2.35", ":adapter emit")])
+@pytest.mark.parametrize("target,extra", [("2.35", ":adapter emit")])
 def test_external_documents_preserve_target_and_mode_refusals(tmp_path, target, extra):
     with pytest.raises(LispFrontendCompileError) as caught:
-        _compile_old_target(tmp_path, source=_source(f'(command-result emit :argv ("python" "emit.py") {extra} :inputs () :returns String)', target=target), commands=_commands(tmp_path))
+        _compile_current_source(tmp_path, source=_source(f'(command-result emit :argv ("python" "emit.py") {extra} :inputs () :returns String)', target=target), commands=_commands(tmp_path))
     assert caught.value.diagnostics[0].code == "command_result_adapter_invalid"
 
 
@@ -129,10 +129,6 @@ def test_certified_recursive_inputs_preserve_nominal_type_check(tmp_path):
     assert caught.value.diagnostics[0].code == "type_mismatch"
 
 
-def test_certified_old_target_keeps_scalar_projection_restriction(tmp_path):
-    with pytest.raises(LispFrontendCompileError) as caught:
-        _compile_old_target(tmp_path, source=_source('(command-result emit :adapter emit :inputs ((payload value)) :returns String)', target="2.34", params='(value Box)', declarations='(defrecord Box (value Int))'), commands=_adapter_commands(tmp_path, "Box"))
-    assert caught.value.diagnostics[0].code == "command_adapter_input_not_projectable"
 
 
 def test_pure_operand_is_bound_in_source_order_before_later_effect(tmp_path):
@@ -147,10 +143,10 @@ def test_pure_operand_is_bound_in_source_order_before_later_effect(tmp_path):
     assert isinstance(values[-1], WccPerform)
 
 
-def test_legacy_adapter_binding_error_precedes_operand_type_error(tmp_path):
-    source = _source('(command-result emit :adapter emit :inputs ((payload (+ "bad" 1))) :returns Int)', target="2.34", returns="Int")
+def test_adapter_binding_error_precedes_operand_type_error(tmp_path):
+    source = _source('(command-result emit :adapter emit :inputs ((payload (+ "bad" 1))) :returns Int)', target="2.35", returns="Int")
     with pytest.raises(LispFrontendCompileError) as caught:
-        _compile_old_target(tmp_path, source, _adapter_commands(tmp_path, "Int"))
+        _compile_current_source(tmp_path, source, _adapter_commands(tmp_path, "Int"))
     assert caught.value.diagnostics[0].code == "command_result_return_type_invalid"
 
 
@@ -216,7 +212,7 @@ def test_generic_specialization_preserves_document_presence_and_order(tmp_path):
     ('(command-result emit :argv ("python" "emit.py") :returns String)', "19e8617fd9d5d4522c20e2b7e92e062bb09285e5191134d4a8437b597f2abcaa"),
     ('(command-result emit :adapter emit :inputs ((payload "hi")) :returns String)', "7074c9ecd4a5b6647e4fd9ddd170ca0c9946c740a2e34bbe1021ba0f96862986"),
 ])
-@pytest.mark.parametrize("target", ["2.34", "2.35"])
+@pytest.mark.parametrize("target", ["2.35", "2.36"])
 def test_legacy_node_serialization_matches_frozen_source_bytes(source, expected, target):
     import hashlib
     from orchestrator.workflow_lisp.build_manifest_io import _json_data
@@ -251,7 +247,7 @@ def test_legacy_command_semantic_identity_keeps_its_frozen_fields():
     from tests.test_workflow_lisp_command_adapters import _expression_syntax
 
     source = '(command-result emit :argv ("python" "emit.py") :returns String)'
-    expr = elaborate_expression(_expression_syntax(source), bound_names=frozenset(), target_dsl_version="2.34")
+    expr = elaborate_expression(_expression_syntax(source), bound_names=frozenset(), target_dsl_version="2.35")
     expected = "CommandResultExpr(step_name='emit',argv=(LiteralExpr(value='python',literal_kind='string'),LiteralExpr(value='emit.py',literal_kind='string')),adapter_name=None,adapter_inputs=(),return_spec=ReturnSpec(type_name='String',guidance=None))"
     assert _semantic_identity(expr) == expected
     empty = elaborate_expression(_expression_syntax(source.replace(':returns', ':inputs () :returns')), bound_names=frozenset(), target_dsl_version="2.35")

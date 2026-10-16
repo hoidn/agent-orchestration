@@ -11,10 +11,9 @@ from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.workflow_lisp.closed.names import CanonicalNameError, canonical_type_descriptor
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
-from orchestrator.workflow_lisp.expressions import ProviderBundlePathExpr
 from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
 from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
-from orchestrator.workflow_lisp.wcc.model import WccOpaqueFrontendValue
+from orchestrator.workflow_lisp.wcc.model import WccResultPath
 from orchestrator.workflow_lisp.workflows import PromptExtern
 from tests.workflow_lisp_closed_program_helpers import TARGET, install
 
@@ -308,13 +307,11 @@ def test_provider_bundle_path_translates_with_its_exact_runs_descriptor(tmp_path
             procedure_return_types={},
             resolved_procedures_by_name=typed.procedures,
             procedure_type_envs=typed.procedure_type_envs,
-            closed_program=True,
         )
     )
     (value,) = [
         node for node in _walk(body)
-        if isinstance(node, WccOpaqueFrontendValue)
-        and isinstance(node.expr, ProviderBundlePathExpr)
+        if isinstance(node, WccResultPath)
     ]
     builder = Builder(typed)
     definition = builder.definition_context(
@@ -325,7 +322,7 @@ def test_provider_bundle_path_translates_with_its_exact_runs_descriptor(tmp_path
         node=entry.typed_body,
         params=entry.definition.params,
     )
-    definition.names = {value.expr.source_expr.name: "provider_result"}
+    definition.names = {value.source.name: "provider_result"}
     translated = builder.value(value, definition, dict(entry.signature.params))
     assert {key: child for key, child in translated.items() if key != "@"} == {
         "k": "result_path",
@@ -336,7 +333,7 @@ def test_provider_bundle_path_translates_with_its_exact_runs_descriptor(tmp_path
 
 def test_compiled_import_keeps_its_native_body_and_explicit_context_route(tmp_path: Path) -> None:
     producer_source = '''(workflow-lisp
-      (:language "0.1") (:target-dsl "2.34")
+      (:language "0.1") (:target-dsl "2.35")
       (defmodule producer) (import std/phase :only (with-phase))
       (export entry run-phase)
       (defrecord RunCtx (run-id RunId) (state-root Path.state-root) (artifact-root Path.artifact-root))
@@ -408,7 +405,7 @@ def test_compiled_import_keeps_its_native_body_and_explicit_context_route(tmp_pa
 def test_imported_capture_resolves_native_context_after_omitted_and_explicit_calls(
     tmp_path: Path,
 ) -> None:
-    base_producer = '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+    base_producer = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
       (defmodule producer) (import std/context :only (PhaseCtx))
       (import std/phase :only (with-phase)) (export entry run-phase)
       (defworkflow entry ((payload Int)) -> Int
@@ -562,7 +559,7 @@ def test_old_native_record_path_boundary_keeps_1_to_n_views_defaults_and_order(
     producer_root.mkdir()
     producer_path = install(
         producer_root,
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
           (defmodule producer) (export get)
           (defpath Report :kind relpath :under "reports" :must-exist false)
           (defrecord Result (left Report) (right Report) (count Int))

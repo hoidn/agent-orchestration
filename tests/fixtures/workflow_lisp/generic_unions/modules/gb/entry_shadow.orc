@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.33")
+  (:target-dsl "2.35")
   (defmodule gb/entry_shadow)
   (import gb/lib :only (run-review))
   (export decide)

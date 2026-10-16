@@ -1,4 +1,4 @@
-"""Legacy-characterization and target-2.30 regression coverage for EC-1."""
+"""Current pure procedure composition and selected-hook regressions."""
 
 from __future__ import annotations
 
@@ -17,32 +17,13 @@ from orchestrator.workflow_lisp.expressions import ProcedureCallExpr
 from orchestrator.workflow_lisp.syntax import ProcedureExpansionFrame
 
 
-PREPARATION = Path(__file__).parent / "fixtures" / "workflow_lisp" / "pure_call_composition_preparation"
-
-
-def _fixture_at_current_target(fixture_name: str, *, workspace: Path) -> Path:
-    source = (PREPARATION / f"{fixture_name}.orc").read_text(encoding="utf-8")
-    workspace.mkdir(parents=True, exist_ok=True)
-    path = workspace / f"{fixture_name}_target_229.orc"
-    path.write_text(source.replace('(:target-dsl "2.27")', '(:target-dsl "2.29")'), encoding="utf-8")
-    return path
-
-
-def _fixture_at_target_230(fixture_name: str, *, workspace: Path) -> Path:
-    source = (PREPARATION / f"{fixture_name}.orc").read_text(encoding="utf-8")
-    workspace.mkdir(parents=True, exist_ok=True)
-    path = workspace / f"{fixture_name}_target_230.orc"
-    path.write_text(
-        source.replace('(:target-dsl "2.27")', '(:target-dsl "2.30")'),
-        encoding="utf-8",
-    )
-    return path
+CURRENT = Path(__file__).parent / "fixtures" / "workflow_lisp" / "pure_call_composition_current"
 
 
 def _compile(path: Path, *, workspace: Path):
     return compile_stage3_module(
         path,
-        lowering_route="wcc_m4",
+
         validate_shared=True,
         workspace_root=workspace,
     )
@@ -51,30 +32,24 @@ def _compile(path: Path, *, workspace: Path):
 
 
 @pytest.mark.parametrize(
-    ("fixture_name", "diagnostic_code"),
+    "fixture_name",
     (
-        ("early_defun_rejection", "pure_function_has_effect"),
-        ("uncalled_generic_function_specialization", "pure_function_has_effect"),
-        ("aggregate_map_rejection", "effect_not_permitted"),
-        ("once_only_hygienic_arguments", "effect_not_permitted"),
-        ("map_short_circuit_and_proc_rejection", "list_map_body_effect_forbidden"),
-        ("map_short_circuit_or_proc_rejection", "list_map_body_effect_forbidden"),
+        "early_defun_rejection",
+        "uncalled_generic_function_specialization",
+        "aggregate_map_rejection",
+        "once_only_hygienic_arguments",
+        "map_short_circuit_and_proc_rejection",
+        "map_short_circuit_or_proc_rejection",
     ),
 )
-def test_task5_current_target_red_probes_name_the_pre_normalization_blocker(
-    tmp_path: Path,
-    fixture_name: str,
-    diagnostic_code: str,
-) -> None:
-    """These rejections are Task-5 evidence, not expected Task-6 behavior."""
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile(
-            _fixture_at_current_target(fixture_name, workspace=tmp_path),
-            workspace=tmp_path,
-        )
-
-    assert excinfo.value.diagnostics[0].code == diagnostic_code
+def test_current_pure_composition_normalizes_calls(tmp_path: Path, fixture_name: str) -> None:
+    compiled = _compile(CURRENT / f"{fixture_name}.orc", workspace=tmp_path)
+    assert compiled.typed_workflows
+    assert not any(
+        isinstance(node, ProcedureCallExpr)
+        for workflow in compiled.typed_workflows
+        for node in walk_expr(workflow.typed_body.expr)
+    )
 
 
 
@@ -83,7 +58,7 @@ def test_task5_current_target_red_probes_name_the_pre_normalization_blocker(
 
 
 
-def test_task5_imported_nested_call_is_currently_rejected_before_normalization(
+def test_current_imported_nested_call_normalizes(
     tmp_path: Path,
 ) -> None:
     helper = tmp_path / "pure_helpers.orc"
@@ -93,7 +68,7 @@ def test_task5_imported_nested_call_is_currently_rejected_before_normalization(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.29")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule pure_helpers)",
                 "  (export increment)",
                 "  (defproc increment ((value Int)) -> Int :effects () :lowering inline (+ value 1)))",
@@ -106,7 +81,7 @@ def test_task5_imported_nested_call_is_currently_rejected_before_normalization(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.29")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule entry)",
                 "  (import pure_helpers :only (increment))",
                 "  (export orchestrate)",
@@ -117,20 +92,18 @@ def test_task5_imported_nested_call_is_currently_rejected_before_normalization(
         encoding="utf-8",
     )
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_entrypoint(
-            entry,
-            source_roots=(tmp_path,),
-            lowering_route="wcc_m4",
-            validate_shared=True,
-            workspace_root=tmp_path,
-        )
+    compiled = compile_stage3_entrypoint(
+        entry,
+        source_roots=(tmp_path,),
 
-    assert excinfo.value.diagnostics[0].code == "pure_function_has_effect"
-
-
-
-
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    assert not any(
+        isinstance(node, ProcedureCallExpr)
+        for workflow in compiled.entry_result.typed_workflows
+        for node in walk_expr(workflow.typed_body.expr)
+    )
 
 
 
@@ -149,9 +122,13 @@ def test_task5_imported_nested_call_is_currently_rejected_before_normalization(
 
 
 
-def test_target_230_retains_selected_pure_callee_provenance(tmp_path: Path) -> None:
+
+
+
+
+def test_current_target_retains_selected_pure_callee_provenance(tmp_path: Path) -> None:
     compiled = _compile(
-        _fixture_at_target_230("early_defun_rejection", workspace=tmp_path),
+        CURRENT / "early_defun_rejection.orc",
         workspace=tmp_path,
     )
 
@@ -163,28 +140,26 @@ def test_target_230_retains_selected_pure_callee_provenance(tmp_path: Path) -> N
         if isinstance(frame, ProcedureExpansionFrame)
     ]
 
-    assert any(frame.procedure_name == "increment" for frame in frames)
+    assert any(frame.procedure_name == 'early_defun_rejection::increment' for frame in frames)
 
 
 
 
-def test_target_230_materializes_uncalled_function_procedure_specializations(
+def test_current_target_materializes_uncalled_function_procedure_specializations(
     tmp_path: Path,
 ) -> None:
     result = _compile(
-        _fixture_at_target_230(
-            "uncalled_generic_function_specialization", workspace=tmp_path
-        ),
+        CURRENT / "uncalled_generic_function_specialization.orc",
         workspace=tmp_path,
     )
 
     assert any(
-        procedure.definition.name.startswith("%parametric-call.identity.")
+        procedure.definition.name.startswith('%parametric-call.uncalled_generic_function_specialization.identity.')
         for procedure in result.typed_procedures
     )
 
 
-def test_target_230_expands_selected_pure_hook_in_its_specialized_environment(
+def test_current_target_expands_selected_pure_hook_in_its_specialized_environment(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "selected_pure_hook.orc"
@@ -193,7 +168,7 @@ def test_target_230_expands_selected_pure_hook_in_its_specialized_environment(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.30")',
+                '  (:target-dsl "2.35")',
                 "  (defproc increment ((value Int)) -> Int :effects () :lowering inline (+ value 1))",
                 "  (defproc apply-hook",
                 "    :forall (T)",
@@ -212,7 +187,7 @@ def test_target_230_expands_selected_pure_hook_in_its_specialized_environment(
     generic_base = next(
         procedure
         for procedure in compiled.typed_procedures
-        if procedure.definition.name == "apply-hook"
+        if procedure.definition.name == 'entry::apply-hook'
     )
     assert isinstance(generic_base.typed_body.expr, ProcedureCallExpr)
     assert generic_base.typed_body.expr.callee_name == "hook"
@@ -225,7 +200,7 @@ def test_target_230_expands_selected_pure_hook_in_its_specialized_environment(
 
 
 
-def test_target_230_expands_selected_bind_proc_hook_with_runtime_residual(
+def test_current_target_expands_selected_bind_proc_hook_with_runtime_residual(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "selected_bound_pure_hook.orc"
@@ -234,7 +209,7 @@ def test_target_230_expands_selected_bind_proc_hook_with_runtime_residual(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.30")',
+                '  (:target-dsl "2.35")',
                 "  (defproc add-leading ((leading Int) (value Int)) -> Int",
                 "    :effects () :lowering inline (+ leading value))",
                 "  (defproc apply-hook",
@@ -253,13 +228,13 @@ def test_target_230_expands_selected_bind_proc_hook_with_runtime_residual(
     selected_apply_hook = next(
         procedure
         for procedure in compiled.typed_procedures
-        if getattr(procedure.specialization, "base_name", None) == "apply-hook"
+        if getattr(procedure.specialization, "base_name", None) == 'entry::apply-hook'
         and "hook" in procedure.specialization.proc_ref_bindings
     )
     selected_bound_hook = next(
         procedure
         for procedure in compiled.typed_procedures
-        if getattr(procedure.specialization, "base_name", None) == "add-leading"
+        if getattr(procedure.specialization, "base_name", None) == 'entry::add-leading'
         and "leading" in procedure.specialization.value_bindings
     )
     assert (
@@ -277,14 +252,14 @@ def test_target_230_expands_selected_bind_proc_hook_with_runtime_residual(
 
 
 
-def test_target_230_rechecks_uncalled_effectful_functions(tmp_path: Path) -> None:
+def test_current_target_rechecks_uncalled_effectful_functions(tmp_path: Path) -> None:
     source = tmp_path / "uncalled_effectful.orc"
     source.write_text(
         "\n".join(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.30")',
+                '  (:target-dsl "2.35")',
                 "  (defproc provider-backed ((value Int)) -> Int",
                 "    :effects ((uses-provider providers.execute))",
                 "    :lowering inline",
@@ -300,7 +275,7 @@ def test_target_230_rechecks_uncalled_effectful_functions(tmp_path: Path) -> Non
     with pytest.raises(LispFrontendCompileError) as excinfo:
         compile_stage3_module(
             source,
-            lowering_route="wcc_m4",
+
             validate_shared=True,
             workspace_root=tmp_path,
             provider_externs={"providers.execute": "test-provider"},
@@ -310,7 +285,7 @@ def test_target_230_rechecks_uncalled_effectful_functions(tmp_path: Path) -> Non
     assert excinfo.value.diagnostics[0].code == "pure_function_has_effect"
 
 
-def test_target_230_rechecks_uncalled_effectful_functions_in_linked_modules(
+def test_current_target_rechecks_uncalled_effectful_functions_in_linked_modules(
     tmp_path: Path,
 ) -> None:
     helper = tmp_path / "helper.orc"
@@ -320,7 +295,7 @@ def test_target_230_rechecks_uncalled_effectful_functions_in_linked_modules(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.30")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule helper)",
                 "  (export identity)",
                 "  (defproc provider-backed ((value Int)) -> Int",
@@ -338,7 +313,7 @@ def test_target_230_rechecks_uncalled_effectful_functions_in_linked_modules(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.30")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule entry)",
                 "  (import helper :only (identity))",
                 "  (export orchestrate)",
@@ -352,7 +327,7 @@ def test_target_230_rechecks_uncalled_effectful_functions_in_linked_modules(
         compile_stage3_entrypoint(
             entry,
             source_roots=(tmp_path,),
-            lowering_route="wcc_m4",
+
             validate_shared=True,
             workspace_root=tmp_path,
             provider_externs={"providers.execute": "test-provider"},
@@ -362,14 +337,14 @@ def test_target_230_rechecks_uncalled_effectful_functions_in_linked_modules(
     assert excinfo.value.diagnostics[0].code == "pure_function_has_effect"
 
 
-def test_target_230_rechecks_uncalled_private_functions(tmp_path: Path) -> None:
+def test_current_target_rechecks_uncalled_private_functions(tmp_path: Path) -> None:
     source = tmp_path / "uncalled_private.orc"
     source.write_text(
         "\n".join(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.30")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord Box (value Int))",
                 "  (defproc private ((value Int)) -> Box",
                 "    :effects () :lowering private-workflow (record Box :value value))",
@@ -390,7 +365,7 @@ def test_target_230_rechecks_uncalled_private_functions(tmp_path: Path) -> None:
 
 
 
-def test_target_230_reports_unrepresentable_selected_body_without_clone_crash(
+def test_current_target_reports_unrepresentable_selected_body_without_clone_crash(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "unrepresentable_selected_body.orc"
@@ -399,7 +374,7 @@ def test_target_230_reports_unrepresentable_selected_body_without_clone_crash(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.30")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord Box (value Int))",
                 "  (defworkflow child ((value Int)) -> Box (record Box :value value))",
                 "  (defproc helper ((value Int)) -> Int",
@@ -418,7 +393,7 @@ def test_target_230_reports_unrepresentable_selected_body_without_clone_crash(
     assert excinfo.value.diagnostics[0].code == "pure_call_representation_unsupported"
 
 
-def test_target_230_rejects_effectful_selected_hook_in_pure_function(
+def test_current_target_rejects_effectful_selected_hook_in_pure_function(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "selected_effectful_hook.orc"
@@ -427,7 +402,7 @@ def test_target_230_rejects_effectful_selected_hook_in_pure_function(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.30")',
+                '  (:target-dsl "2.35")',
                 "  (defproc effectful ((value Int)) -> Int",
                 "    :effects ((uses-provider providers.execute)) :lowering inline",
                 "    (provider-result providers.execute",
@@ -446,7 +421,7 @@ def test_target_230_rejects_effectful_selected_hook_in_pure_function(
     with pytest.raises(LispFrontendCompileError) as excinfo:
         compile_stage3_module(
             source,
-            lowering_route="wcc_m4",
+
             validate_shared=True,
             workspace_root=tmp_path,
             provider_externs={"providers.execute": "test-provider"},
@@ -456,7 +431,7 @@ def test_target_230_rejects_effectful_selected_hook_in_pure_function(
     assert excinfo.value.diagnostics[0].code == "pure_function_has_effect"
 
 
-def test_target_230_rejects_private_procedure_in_pure_function(
+def test_current_target_rejects_private_procedure_in_pure_function(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "private_pure_call.orc"
@@ -465,7 +440,7 @@ def test_target_230_rejects_private_procedure_in_pure_function(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.30")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord Box (value Int))",
                 "  (defproc private ((value Int)) -> Box",
                 "    :effects () :lowering private-workflow (record Box :value value))",

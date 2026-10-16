@@ -1,0 +1,6 @@
+(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+  (defmodule drain_context_inputs)
+  (export project-selected-item-payload project-selection-result)
+  (defrecord DrainCtx (state-root Path.state-root) (artifact-root Path.artifact-root) (extra String))
+  (defworkflow project-selected-item-payload ((ctx DrainCtx)) -> String ctx.extra)
+  (defworkflow project-selection-result ((ctx DrainCtx)) -> String ctx.extra))

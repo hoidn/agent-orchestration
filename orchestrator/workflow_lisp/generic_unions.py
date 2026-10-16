@@ -33,7 +33,7 @@ from collections.abc import Callable, Iterable, Mapping
 from .definitions import DefinitionNode, UnionDef
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .spans import SourceSpan
-from .syntax import GENERIC_UNION_MIN_TARGET_DSL_VERSION, target_dsl_supports_generic_unions
+
 from .type_env import (
     TypeRef,
     UnionTypeRef,
@@ -49,31 +49,6 @@ from .type_expressions import (
     parse_type_expression,
     type_expression_application_heads,
 )
-
-
-def application_target_diagnostic(
-    parsed: ParsedTypeExpr,
-    *,
-    authored_name: str,
-    target_dsl_version: str,
-    span: SourceSpan,
-    form_path: tuple[str, ...],
-    expansion_stack: tuple[object, ...] = (),
-) -> LispFrontendDiagnostic | None:
-    """Return the target diagnostic for a type application below target 2.33."""
-
-    if target_dsl_supports_generic_unions(target_dsl_version) or not type_expression_application_heads(parsed):
-        return None
-    return LispFrontendDiagnostic(
-        code="generic_union_requires_dsl_2_33",
-        message=(
-            f"type application `{authored_name}` requires target DSL "
-            f"{GENERIC_UNION_MIN_TARGET_DSL_VERSION} or newer; module targets {target_dsl_version}"
-        ),
-        span=span,
-        form_path=form_path,
-        expansion_stack=expansion_stack,
-    )
 
 
 def is_generic_union_template(type_ref: object) -> bool:
@@ -292,7 +267,7 @@ def type_env_with_type_params(type_env, bindings: Mapping[str, TypeRef]):
     types registered through a view stay in that view.
     """
 
-    if not bindings or not target_dsl_supports_generic_unions(type_env.target_dsl_version or ""):
+    if not bindings:
         return type_env
     views = type_env.__dict__.setdefault("_type_param_views", {})
     key = tuple(sorted((name, repr(type_ref)) for name, type_ref in bindings.items()))

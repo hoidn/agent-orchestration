@@ -11,13 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from orchestrator.workflow_lisp.wcc.route import (
-    DEFAULT_LOWERING_ROUTE,
-    LoweringRoute,
-    lowering_schema_for_route,
-    normalize_lowering_route,
-)
-
 
 ROUTE_READINESS_SCHEMA_VERSION = "workflow_lisp_route_readiness_registry.v1"
 
@@ -268,55 +261,6 @@ def registry_entry_for_path(
     return None
 
 
-def compile_registered_route_case(
-    registry_id: str,
-    *,
-    source_path: Path,
-    repo_root: Path,
-    default_route_check: bool = False,
-    compile_func=None,
-    registry_path: Path | None = None,
-    **compile_kwargs: Any,
-):
-    """Compile a flat registry-covered source using its registered route."""
-
-    registry = load_route_readiness_registry(registry_path or (repo_root / DEFAULT_REGISTRY_RELPATH))
-    entry = next((entry for entry in registry.surfaces if entry.surface_id == registry_id), None)
-    if entry is None:
-        raise AssertionError(f"registry entry `{registry_id}` not found")
-
-    source_relpath = _repo_relative(source_path, repo_root)
-    if source_relpath != entry.path:
-        raise AssertionError(
-            f"registry entry `{registry_id}` points at `{entry.path}`, not `{source_relpath}`"
-        )
-    if entry.lowering_route is None or entry.lowering_schema_version is None:
-        raise AssertionError(f"registry entry `{registry_id}` has no compile route/schema")
-
-    if compile_func is None:
-        from orchestrator.workflow_lisp.compiler import compile_stage3_module
-
-        compile_func = compile_stage3_module
-
-    if default_route_check:
-        normalized = normalize_lowering_route(entry.lowering_route)
-        if normalized is not DEFAULT_LOWERING_ROUTE:
-            raise AssertionError(
-                f"registry entry `{registry_id}` is `{entry.lowering_route}`, not the default route"
-            )
-    else:
-        compile_kwargs["lowering_route"] = entry.lowering_route
-
-    compile_result = compile_func(source_path, **compile_kwargs)
-    observed_schema = _compile_result_lowering_schema(compile_result)
-    if observed_schema != entry.lowering_schema_version:
-        raise AssertionError(
-            f"registry entry `{registry_id}` expects lowering schema "
-            f"{entry.lowering_schema_version}, got {observed_schema}"
-        )
-    return compile_result, entry
-
-
 def _parse_entry(raw_entry: Mapping[str, Any], *, index: int) -> RouteReadinessEntry:
     surface_id = _optional_string(raw_entry, "surface_id")
     path = _optional_string(raw_entry, "path")
@@ -394,10 +338,12 @@ def _validate_entry(entry: RouteReadinessEntry, *, repo_root: Path) -> list[Rout
                 issues.append(_issue("route_readiness_schema_mismatch", entry,
                                      "evaluated entries must omit flat route/schema fields", field=field))
     else:
-        route: LoweringRoute | None = None
+        route: str | None = None
         if entry.lowering_route is not None:
             try:
-                route = normalize_lowering_route(entry.lowering_route)
+                route = entry.lowering_route
+                if route not in {"legacy", "wcc_m1", "wcc_m2", "wcc_m3", "wcc_m4"}:
+                    raise ValueError(route)
             except ValueError:
                 issues.append(
                     _issue(
@@ -427,28 +373,28 @@ def _validate_entry(entry: RouteReadinessEntry, *, repo_root: Path) -> list[Rout
                         field="lowering_schema_version",
                     )
                 )
-            elif entry.lowering_schema_version != lowering_schema_for_route(route):
+            elif entry.lowering_schema_version != (1 if route == "legacy" else 2):
                 issues.append(
                     _issue(
                         "route_readiness_schema_mismatch",
                         entry,
                         (
-                            f"route `{route.value}` requires schema {lowering_schema_for_route(route)}, "
+                            f"route `{route}` requires schema {(1 if route == 'legacy' else 2)}, "
                             f"not {entry.lowering_schema_version}"
                         ),
                         field="lowering_schema_version",
                     )
                 )
-            if entry.route_label == "wcc_default" and route is not DEFAULT_LOWERING_ROUTE:
+            if entry.route_label == "wcc_default" and route != "wcc_m4":
                 issues.append(
                     _issue(
                         "route_readiness_default_route_mismatch",
                         entry,
-                        f"wcc_default entries must use `{DEFAULT_LOWERING_ROUTE.value}`",
+                        f"wcc_default entries must use `wcc_m4`",
                         field="lowering_route",
                     )
                 )
-            if entry.route_label == "legacy_schema1_compat" and route is not LoweringRoute.LEGACY:
+            if entry.route_label == "legacy_schema1_compat" and route != "legacy":
                 issues.append(
                     _issue(
                         "route_readiness_default_route_mismatch",
@@ -926,16 +872,6 @@ def _assignment_names(statement: ast.Assign | ast.AnnAssign) -> set[str]:
         else [statement.target]
     )
     return {target.id for target in targets if isinstance(target, ast.Name)}
-
-
-def _compile_result_lowering_schema(result: object) -> int | None:
-    entry_result = getattr(result, "entry_result", None)
-    if entry_result is not None and isinstance(getattr(entry_result, "lowering_schema_version", None), int):
-        return getattr(entry_result, "lowering_schema_version")
-    value = getattr(result, "lowering_schema_version", None)
-    if isinstance(value, int):
-        return value
-    return None
 
 
 def _issue(

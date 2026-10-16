@@ -7,10 +7,9 @@ import json
 from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
 from orchestrator.workflow.run_ref.ledger import RunRefVisitKey
 from orchestrator.workflow.executable_ir import (
-    StepCommonConfig, TrialStepConfig, TrialArmStepConfig, RunRefStepConfig,
     RunRefBundleCapsuleBinding, derive_unbound_trial_step_config,
 )
-from orchestrator.workflow.trial.config import build_trial_runtime_request, decode_trial_static_config
+from orchestrator.workflow.trial.config import build_trial_runtime_request
 from orchestrator.workflow.trial.contracts import derive_trial_cell_effect_scopes
 from orchestrator.workflow.trial.ledger import (
     TRIAL_EVENT_LEDGER_SCHEMA, TrialLedgerError, load_trial_event_ledger,
@@ -49,25 +48,35 @@ def test_sealed_labels_are_an_exact_opaque_bijection(tmp_path: Path) -> None:
             labels=("opaque-" + "0" * 64,) * 4,
         )
 
-def _captured_trial_config(captured):
-    # Exact static config and bound capsule identities captured at 23eb9c97.
-    static = decode_trial_static_config(captured["static_config_json"].encode())
-    return TrialStepConfig(
-        common=StepCommonConfig(), trial=static,
-        arms=tuple(TrialArmStepConfig(
-            arm_id=arm.arm_id,
-            run_ref=RunRefStepConfig(
-                common=StepCommonConfig(), run_ref=arm.run_ref,
-                capsule_binding=RunRefBundleCapsuleBinding(
-                    capsule_digest=captured["capsule_digests"][arm.arm_id]),
-            ),
-        ) for arm in static.arms),
+def _current_trial_request():
+    from orchestrator.workflow.run_ref.config import ReferenceBinding, RunRefInput
+    from orchestrator.workflow.trial.config import TrialArmStaticConfig, build_trial_static_config
+    from tests.test_workflow_lisp_trial_lowering import _historical_trial_config
+    from tests.test_workflow_run_ref_config import _config
+
+    template = _historical_trial_config()
+    arm = _config(
+        value_descriptor={"kind": "primitive", "name": "String"},
+        inputs=(RunRefInput(name="payload",
+            type_descriptor={"kind": "primitive", "name": "String"},
+            binding=ReferenceBinding("inputs.payload")),),
     )
-
-
-def _historical_trial_request():
-    captured = json.loads((Path(__file__).parent / "fixtures" / "historical_trial_header.json").read_text())
-    config = _captured_trial_config(captured)
+    static = build_trial_static_config(
+        compiler_runtime_identity_digest=template.compiler_runtime_identity_digest,
+        site_digest=template.site_digest,
+        arms=tuple(TrialArmStaticConfig(name, arm) for name in ("direct", "orc")),
+        reps=template.reps, max_concurrency=template.max_concurrency,
+        evaluation=template.evaluation, budget=template.budget,
+        result_descriptor=template.result_descriptor, result_digest=template.result_digest,
+        target_dsl_version="2.35",
+    )
+    unbound = derive_unbound_trial_step_config(static)
+    config = replace(unbound, arms=tuple(
+        replace(item, run_ref=replace(item.run_ref,
+            capsule_binding=RunRefBundleCapsuleBinding(
+                capsule_digest=canonical_sha256({"fixture_capsule": item.arm_id}))))
+        for item in unbound.arms
+    ))
     visit = RunRefVisitKey("parent-run", "root", None, "root.compare", 2)
     request = build_trial_runtime_request(
         step_config=config, visit=visit,
@@ -83,7 +92,7 @@ def _digest(marker: str) -> str:
 def test_trial_runtime_identity_reuses_static_components_and_adds_only_request_facts(
     tmp_path: Path,
 ) -> None:
-    step_config, visit, request = _historical_trial_request()
+    step_config, visit, request = _current_trial_request()
     static = step_config.trial
     changed_input = build_trial_runtime_request(
         step_config=step_config,
@@ -173,7 +182,7 @@ def test_trial_runtime_identity_reuses_static_components_and_adds_only_request_f
 def test_cell_scopes_are_strict_disjoint_children_and_reject_aliases(
     tmp_path: Path,
 ) -> None:
-    _config, _visit, request = _historical_trial_request()
+    _config, _visit, request = _current_trial_request()
     parent = (tmp_path / "parent").resolve()
     parent.mkdir()
     external = (tmp_path / "external").resolve()

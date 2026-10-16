@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule generic_loop_union_cross_module/helper)
   (export LoopResult drain-generic)
   (defunion LoopResult

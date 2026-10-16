@@ -5,6 +5,9 @@ from pathlib import Path
 import pytest
 
 from orchestrator.workflow_lisp.compiler import compile_stage1_module
+from orchestrator.workflow_lisp.compiler_session import CompilerSession
+from orchestrator.workflow_lisp.loop_state import retain_loop_carrier_families
+from orchestrator.workflow_lisp.workflows import WorkflowDef
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import elaborate_expression
 from orchestrator.workflow_lisp.reader import read_sexpr_text
@@ -48,7 +51,7 @@ def _build_type_env(
     tmp_path: Path,
     extra_lines: list[str] | None = None,
     *,
-    target_dsl_version: str = "2.14",
+    target_dsl_version: str = "2.35",
 ) -> FrontendTypeEnvironment:
     path = _write_module(
         tmp_path / "loop_state_types.orc",
@@ -71,6 +74,23 @@ def _build_type_env(
         ],
     )
     return FrontendTypeEnvironment.from_module(compile_stage1_module(path))
+
+
+
+def _owned_expression(syntax: SyntaxNode, *, bound_names: frozenset[str]):
+    session = CompilerSession()
+    owner = WorkflowDef(
+        name="loop-state-test",
+        params=(),
+        return_type_name="WorkflowOutput",
+        body=syntax,
+        span=syntax.span,
+        form_path=syntax.form_path,
+    )
+    retain_loop_carrier_families(
+        "loop_state_types", workflows=(owner,), session_state=session.typecheck,
+    )
+    return elaborate_expression(syntax, bound_names=bound_names), session
 
 
 def test_elaborate_loop_state_seed_expr() -> None:
@@ -152,7 +172,7 @@ def test_expression_traversal_visits_loop_state_children() -> None:
 
 def test_typecheck_loop_state_seed_builds_local_record_type(tmp_path: Path) -> None:
     type_env = _build_type_env(tmp_path)
-    expr = elaborate_expression(
+    expr, session = _owned_expression(
         _expression_syntax(
             '(loop-state (status String "ok") (report WorkReport report-path))'
         ),
@@ -162,6 +182,7 @@ def test_typecheck_loop_state_seed_builds_local_record_type(tmp_path: Path) -> N
     typed = typecheck_expression(
         expr,
         type_env=type_env,
+        compiler_session=session,
         value_env={
             "report-path": type_env.resolve_type(
                 "WorkReport",
@@ -179,7 +200,7 @@ def test_typecheck_loop_state_seed_builds_local_record_type(tmp_path: Path) -> N
 
 def test_typecheck_loop_state_update_preserves_carrier_type(tmp_path: Path) -> None:
     type_env = _build_type_env(tmp_path)
-    expr = elaborate_expression(
+    expr, session = _owned_expression(
         _expression_syntax(
             "(let* ((state (loop-state (status String \"ok\") (report WorkReport report-path))) "
             "       (next (loop-state :like state :status \"revised\"))) "
@@ -191,6 +212,7 @@ def test_typecheck_loop_state_update_preserves_carrier_type(tmp_path: Path) -> N
     typed = typecheck_expression(
         expr,
         type_env=type_env,
+        compiler_session=session,
         value_env={
             "report-path": type_env.resolve_type(
                 "WorkReport",
@@ -208,7 +230,7 @@ def test_typecheck_loop_state_update_preserves_carrier_type(tmp_path: Path) -> N
 
 def test_typecheck_loop_state_rejects_unknown_override_field(tmp_path: Path) -> None:
     type_env = _build_type_env(tmp_path)
-    expr = elaborate_expression(
+    expr, session = _owned_expression(
         _expression_syntax(
             "(let* ((state (loop-state (status String \"ok\") (report WorkReport report-path)))) "
             "  (loop-state :like state :missing \"nope\"))"
@@ -220,6 +242,7 @@ def test_typecheck_loop_state_rejects_unknown_override_field(tmp_path: Path) -> 
         typecheck_expression(
             expr,
             type_env=type_env,
+            compiler_session=session,
             value_env={
                 "report-path": type_env.resolve_type(
                     "WorkReport",
@@ -366,7 +389,7 @@ def test_typecheck_loop_state_rejects_unresolved_type_parameter(tmp_path: Path) 
 
 def test_typecheck_loop_state_accepts_projectable_list_field(tmp_path: Path) -> None:
     type_env = _build_type_env(tmp_path)
-    expr = elaborate_expression(
+    expr, session = _owned_expression(
         _expression_syntax("(loop-state (history List[String] history))"),
         bound_names=frozenset({"history"}),
     )
@@ -374,6 +397,7 @@ def test_typecheck_loop_state_accepts_projectable_list_field(tmp_path: Path) -> 
     typed = typecheck_expression(
         expr,
         type_env=type_env,
+        compiler_session=session,
         value_env={
             "history": type_env.resolve_type(
                 "List[String]",
@@ -402,9 +426,9 @@ def test_typecheck_loop_state_rich_list_preserves_record_and_union_descriptors(
             "    (PENDING (task Task))",
             "    (BLOCKED (reason String)))",
         ],
-        target_dsl_version="2.29",
+        target_dsl_version="2.35",
     )
-    expr = elaborate_expression(
+    expr, session = _owned_expression(
         _expression_syntax(
             "(loop-state (tasks List[Task] tasks) (outcomes List[TaskOutcome] outcomes))"
         ),
@@ -414,6 +438,7 @@ def test_typecheck_loop_state_rich_list_preserves_record_and_union_descriptors(
     typed = typecheck_expression(
         expr,
         type_env=type_env,
+        compiler_session=session,
         value_env={
             "tasks": type_env.resolve_type("List[Task]", span=expr.span, form_path=expr.form_path),
             "outcomes": type_env.resolve_type(

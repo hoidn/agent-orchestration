@@ -179,7 +179,7 @@ def _write_transitive_import_workspace(
     old_producer.parent.mkdir(parents=True)
     old_producer.write_text("""(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.34")
+  (:target-dsl "2.35")
   (defmodule unused/entry)
   (export run)
   (defworkflow run () -> Int 9))
@@ -477,7 +477,7 @@ def test_moduleless_compile_preserves_explicit_entry_selection(
 
 @pytest.mark.parametrize(
     "producer_target",
-    ["2.34", syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION],
+    ["2.35", "2.36"],
 )
 def test_compiled_import_manifest_selects_old_and_evaluated_producers(
     tmp_path: Path, producer_target: str
@@ -1236,7 +1236,7 @@ def test_build_key_uses_the_compiler_retained_source_snapshot(
     assert first.program.digest == second.program.digest
 
 
-@pytest.mark.parametrize("producer_target", ["2.34", syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION])
+@pytest.mark.parametrize("producer_target", ["2.35", "2.36"])
 def test_imported_producer_peek_and_compile_share_a_separate_trace(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, producer_target: str
 ) -> None:

@@ -55,7 +55,6 @@ REQUEST_IDENTITY_FIELDS = (
     "validation_profile",
     "boundary_admission_profile",
     "lint_profile",
-    "lowering_route",
     "provider_externs",
     "prompt_externs",
     "command_boundaries",
@@ -183,7 +182,7 @@ def test_l3_listed_and_unlisted_requests_match_real_evaluated_cli(
     source_root = workspace / "src"
     source_root.mkdir(parents=True)
     for fixture_name in ("application.orc", "library.orc"):
-        (source_root / fixture_name).write_text((L3_ENTRY_SELECTION_ROOT / fixture_name).read_text().replace('"2.15"', '"2.35"'))
+        (source_root / fixture_name).write_text((L3_ENTRY_SELECTION_ROOT / fixture_name).read_text())
     source_path = source_root / source_name
     roots = (source_root, workspace)
     run_command = importlib.import_module("orchestrator.cli.commands.run")
@@ -408,7 +407,6 @@ def test_request_capture_rejects_every_source_root_shape_delta_in_both_direction
         ("validation_profile", "frontend_only"),
         ("boundary_admission_profile", "transportable_child"),
         ("lint_profile", "replacement-lint"),
-        ("lowering_route", "legacy"),
         ("provider_externs", (("replacement-provider", "value"),)),
         ("prompt_externs", (("replacement-prompt", "value"),)),
         ("command_boundaries", (("replacement-command", "value"),)),

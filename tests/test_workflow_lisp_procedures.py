@@ -77,11 +77,10 @@ PROCEDURE_IDENTITY_BASELINES = Path(__file__).parent / "baselines" / "procedure_
 
 
 def compile_stage3_module(*args, **kwargs):
-    kwargs.setdefault("lowering_route", "legacy")
     return _compile_stage3_module(*args, **kwargs)
 
 
-def _compile_procedure_identity_fixture(tmp_path: Path, *, lowering_route: str = "legacy"):
+def _compile_procedure_identity_fixture(tmp_path: Path):
     providers = json.loads(PROCEDURE_IDENTITY_FIXTURE.with_suffix(".providers.json").read_text())
     prompts = json.loads(PROCEDURE_IDENTITY_FIXTURE.with_suffix(".prompts.json").read_text())
     command_payload = json.loads(
@@ -99,7 +98,7 @@ def _compile_procedure_identity_fixture(tmp_path: Path, *, lowering_route: str =
         command_boundaries=commands,
         validate_shared=False,
         workspace_root=tmp_path,
-        lowering_route=lowering_route,
+
     )
 
 
@@ -114,7 +113,7 @@ def _compile(path: Path, *, tmp_path: Path):
                 stable_command=("python", "scripts/run_checks.py"),
             )
         },
-        lowering_route="legacy",
+
         validate_shared=False,
         workspace_root=tmp_path,
     )
@@ -131,7 +130,7 @@ def _compile_validated(path: Path, *, tmp_path: Path):
                 stable_command=("python", "scripts/run_checks.py"),
             )
         },
-        lowering_route="legacy",
+
         validate_shared=True,
         workspace_root=tmp_path,
     )
@@ -157,6 +156,7 @@ def _test_span(path: str) -> SourceSpan:
 
 def _assert_proc_ref_cycle_diagnostics_at_authored_call_sites(
     excinfo: pytest.ExceptionInfo[LispFrontendCompileError],
+    procedure_names: tuple[str, str] = ("loop-helper", "use-runner"),
 ) -> None:
     diagnostics = excinfo.value.diagnostics
 
@@ -169,8 +169,8 @@ def _assert_proc_ref_cycle_diagnostics_at_authored_call_sites(
         ("workflow-lisp", "defproc", "loop-helper"),
         ("workflow-lisp", "defproc", "use-runner"),
     ]
-    assert diagnostics[0].message == "recursive procedure specialization cycle detected for `loop-helper`"
-    assert diagnostics[1].message == "recursive procedure specialization cycle detected for `use-runner`"
+    assert diagnostics[0].message == f"recursive procedure specialization cycle detected for `{procedure_names[0]}`"
+    assert diagnostics[1].message == f"recursive procedure specialization cycle detected for `{procedure_names[1]}`"
     assert all("%proc-ref" not in diagnostic.message for diagnostic in diagnostics)
 
 
@@ -207,7 +207,7 @@ def _elaborate_inline_procedures(return_source: str):
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.15")',
+                    '  (:target-dsl "2.35")',
                     f"  (defproc approved () -> {return_source} :effects () true))",
                 ]
             ),
@@ -384,7 +384,7 @@ def test_elaborate_defproc_parses_structured_where_metadata(tmp_path: Path) -> N
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -424,7 +424,7 @@ def test_elaborate_defproc_rejects_duplicate_type_params(tmp_path: Path) -> None
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defproc carry",
             "    :forall (T T)",
             "    ((value T))",
@@ -448,7 +448,7 @@ def test_elaborate_defproc_rejects_invalid_parametric_clause_order(tmp_path: Pat
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defproc carry",
             "    ((value T))",
             "    :forall (T)",
@@ -472,7 +472,7 @@ def test_elaborate_defproc_parses_has_union_variant_field_requirements(tmp_path:
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -509,7 +509,7 @@ def test_elaborate_defproc_rejects_unknown_where_subject_type_param(tmp_path: Pa
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defproc carry",
             "    :forall (T)",
             "    ((value T))",
@@ -534,7 +534,7 @@ def test_elaborate_defproc_rejects_malformed_where_variant_field_requirements(tm
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -567,7 +567,7 @@ def test_build_procedure_catalog_resolves_type_params_inside_nested_proc_ref_and
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defrecord WorkflowInput",
             "    (report String))",
             "  (defrecord WorkflowOutput",
@@ -605,7 +605,7 @@ def test_build_procedure_catalog_resolves_type_param_refs(tmp_path: Path) -> Non
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defproc identity",
             "    :forall (T)",
             "    ((value T))",
@@ -633,7 +633,7 @@ def test_compile_generic_identity_with_description_only_return_guidance(tmp_path
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.15")',
+            '  (:target-dsl "2.35")',
             "  (defproc identity",
             "    :forall (T)",
             "    ((value T))",
@@ -658,7 +658,7 @@ def test_compile_generic_identity_defers_example_until_type_param_specialization
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.15")',
+            '  (:target-dsl "2.35")',
             "  (defproc identity",
             "    :forall (T)",
             "    ((value T))",
@@ -671,8 +671,8 @@ def test_compile_generic_identity_defers_example_until_type_param_specialization
 
     result = _compile(path, tmp_path=tmp_path)
 
-    definition = result.procedure_catalog.definitions_by_name["identity"]
-    return_type = result.procedure_catalog.signatures_by_name["identity"].return_type_ref
+    definition = result.procedure_catalog.definitions_by_name['entry::identity']
+    return_type = result.procedure_catalog.signatures_by_name['entry::identity'].return_type_ref
     assert type(return_type).__name__ == "TypeParamRef"
     assert definition.return_spec.guidance.example_expr.datum.value is True
 
@@ -683,7 +683,7 @@ def test_generic_specialization_revalidates_deferred_return_guidance_example(tmp
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.15")',
+            '  (:target-dsl "2.35")',
             "  (defproc identity",
             "    :forall (T)",
             "    ((value T))",
@@ -722,7 +722,7 @@ def test_type_param_substitution_rewrites_nested_proc_ref_and_workflow_ref_types
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defrecord WorkflowInput",
             "    (report String))",
             "  (defrecord WorkflowOutput",
@@ -772,7 +772,7 @@ def test_nonempty_where_metadata_is_preserved_when_header_validation_succeeds(tm
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -806,7 +806,7 @@ def test_compile_stage3_specializes_generic_defproc_before_lowering(tmp_path: Pa
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defrecord WorkflowInput",
             "    (report String))",
             "  (defproc apply-runner",
@@ -839,7 +839,7 @@ def test_compile_stage3_specializes_generic_defproc_before_lowering(tmp_path: Pa
     ]
 
     assert len(specialized) == 1
-    assert specialized[0].definition.name.startswith("%proc-ref-call.%parametric_call.apply_runner.")
+    assert specialized[0].definition.name.startswith('%proc-ref-call.%parametric_call.entry.apply_runner.')
     assert set(specialized[0].specialization.proc_ref_bindings) == {"runner"}
     assert specialized[0].signature.type_params == ()
     assert specialized[0].signature.return_type_ref.name == "WorkflowInput"
@@ -851,7 +851,7 @@ def test_compile_stage3_reuses_equivalent_parametric_specializations(tmp_path: P
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defrecord WorkflowInput",
             "    (report String))",
             "  (defproc apply-runner",
@@ -883,7 +883,7 @@ def test_compile_stage3_reuses_equivalent_parametric_specializations(tmp_path: P
         procedure
         for procedure in result.typed_procedures
         if getattr(procedure.specialization, "type_bindings", {})
-        and procedure.specialization.base_name == "apply-runner"
+        and procedure.specialization.base_name == 'entry::apply-runner'
     ]
 
     assert len(specialized) == 1
@@ -895,7 +895,7 @@ def test_compile_stage3_rejects_ambiguous_type_argument_bindings(tmp_path: Path)
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defrecord LeftValue",
             "    (report String))",
             "  (defrecord RightValue",
@@ -928,7 +928,7 @@ def test_compile_stage3_rejects_unbindable_type_parameters(tmp_path: Path) -> No
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defrecord WorkflowInput",
             "    (report String))",
             "  (defproc identity",
@@ -957,7 +957,7 @@ def test_compile_stage3_accepts_is_record_and_has_field_constraints(tmp_path: Pa
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defrecord WorkflowInput",
             "    (report String))",
             "  (defproc apply-runner",
@@ -989,7 +989,7 @@ def test_compile_stage3_accepts_is_record_and_has_field_constraints(tmp_path: Pa
         procedure
         for procedure in result.typed_procedures
         if getattr(procedure.specialization, "type_bindings", {})
-        and procedure.specialization.base_name == "apply-runner"
+        and procedure.specialization.base_name == 'entry::apply-runner'
     )
 
     assert specialized.signature.type_params == ()
@@ -1002,7 +1002,7 @@ def test_compile_stage3_accepts_has_union_variant_with_field_requirements(tmp_pa
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -1050,7 +1050,7 @@ def test_compile_stage3_accepts_has_union_variant_with_field_requirements(tmp_pa
         procedure
         for procedure in result.typed_procedures
         if getattr(procedure.specialization, "type_bindings", {})
-        and procedure.specialization.base_name == "check-approved"
+        and procedure.specialization.base_name == 'entry::check-approved'
     )
 
     assert specialized.signature.type_params == ()
@@ -1063,7 +1063,7 @@ def test_compile_stage3_rejects_unknown_structural_constraint(tmp_path: Path) ->
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defrecord WorkflowInput",
             "    (report String))",
             "  (defproc identity",
@@ -1093,7 +1093,7 @@ def test_compile_stage3_rejects_unsatisfied_has_field_constraint(tmp_path: Path)
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defrecord WorkflowInput",
             "    (status String))",
             "  (defproc identity",
@@ -1128,7 +1128,7 @@ def test_compile_stage3_rejects_unsatisfied_has_union_variant_constraint(tmp_pat
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defunion ReviewResult",
             "    (BLOCKED",
             "      (report String)))",
@@ -1165,7 +1165,7 @@ def test_compile_stage3_rejects_unsatisfied_shared_union_field_constraint(tmp_pa
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defunion ReviewResult",
             "    (APPROVED",
             "      (report String))",
@@ -1275,7 +1275,7 @@ def _has_field_projection_module_lines(*, body_projection: str) -> list[str]:
     return [
         "(workflow-lisp",
         '  (:language "0.1")',
-        '  (:target-dsl "2.14")',
+        '  (:target-dsl "2.35")',
         "  (defrecord Inner",
         "    (marker String))",
         "  (defrecord Ctx",
@@ -1312,7 +1312,7 @@ def test_compile_stage3_accepts_declared_has_field_projection_on_type_param(tmp_
     result = _compile(path, tmp_path=tmp_path)
 
     assert any(
-        getattr(procedure.specialization, "base_name", "") == "read-payload"
+        getattr(procedure.specialization, "base_name", "") == 'entry::read-payload'
         for procedure in result.typed_procedures
     )
 
@@ -1360,7 +1360,7 @@ def test_compile_stage3_accepts_generic_shared_union_field_projection(tmp_path: 
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -1397,7 +1397,7 @@ def test_compile_stage3_accepts_generic_shared_union_field_projection(tmp_path: 
         procedure
         for procedure in result.typed_procedures
         if getattr(procedure.specialization, "type_bindings", {})
-        and procedure.specialization.base_name == "extract-report"
+        and procedure.specialization.base_name == 'entry::extract-report'
     )
 
     assert specialized.signature.type_params == ()
@@ -1411,7 +1411,7 @@ def _compile_constraint_owner_homonym(tmp_path: Path, *, call: str):
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defmodule helper)",
             "  (export Inner Choice Output project check read pick)",
             "  (defrecord Inner",
@@ -1470,7 +1470,7 @@ def _compile_constraint_owner_homonym(tmp_path: Path, *, call: str):
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defmodule entry)",
             "  (import helper :as h)",
             "  (export orchestrate)",
@@ -1506,7 +1506,7 @@ def _compile_constraint_owner_homonym(tmp_path: Path, *, call: str):
                 stable_command=("python", "scripts/run_checks.py"),
             )
         },
-        lowering_route="legacy",
+
         validate_shared=False,
         workspace_root=tmp_path,
     )
@@ -1584,7 +1584,7 @@ def test_compile_stage3_validates_generic_where_workflow_bundle(tmp_path: Path) 
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -1623,7 +1623,7 @@ def test_compile_stage3_validates_generic_where_workflow_bundle(tmp_path: Path) 
         procedure
         for procedure in result.typed_procedures
         if getattr(procedure.specialization, "type_bindings", {})
-        and procedure.specialization.base_name == "apply-checker"
+        and procedure.specialization.base_name == 'entry::apply-checker'
     )
 
     assert specialized.signature.type_params == ()
@@ -1637,7 +1637,7 @@ def test_generic_specialization_substitutes_return_type_and_preserves_guidance(t
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.15")',
+            '  (:target-dsl "2.35")',
             "  (defproc identity",
             "    :forall (T)",
             "    ((value T))",
@@ -1659,7 +1659,7 @@ def test_generic_specialization_substitutes_return_type_and_preserves_guidance(t
         procedure
         for procedure in result.typed_procedures
         if getattr(procedure.specialization, "type_bindings", {})
-        and procedure.specialization.base_name == "identity"
+        and procedure.specialization.base_name == 'entry::identity'
     )
 
     assert specialized.definition.return_spec.type_name == "Bool"
@@ -1673,7 +1673,7 @@ def test_generic_specialization_identity_excludes_return_guidance(tmp_path: Path
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.15")',
+            '  (:target-dsl "2.35")',
             "  (defproc identity",
             "    :forall (T)",
             "    ((value T))",
@@ -1695,11 +1695,11 @@ def test_generic_specialization_identity_excludes_return_guidance(tmp_path: Path
         procedure
         for procedure in result.typed_procedures
         if getattr(procedure.specialization, "type_bindings", {})
-        and procedure.specialization.base_name == "identity"
+        and procedure.specialization.base_name == 'entry::identity'
     )
 
     assert specialized.specialization.specialization_key == parametric_specialization_name(
-        "identity", specialized.specialization.type_bindings
+        'entry::identity', specialized.specialization.type_bindings
     )
 
 
@@ -1711,7 +1711,7 @@ def test_compile_stage3_preserves_effect_visibility_for_constrained_generic_proc
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -1750,7 +1750,7 @@ def test_compile_stage3_preserves_effect_visibility_for_constrained_generic_proc
         procedure
         for procedure in result.typed_procedures
         if getattr(procedure.specialization, "proc_ref_bindings", {})
-        and getattr(procedure.specialization, "base_name", "") == "apply-checker"
+        and getattr(procedure.specialization, "base_name", "") == 'entry::apply-checker'
     )
 
     expected_effect = UsesCommandEffect(subject=("run_checks",))
@@ -1772,7 +1772,7 @@ def test_selected_hook_recomputes_transitive_effects(tmp_path: Path) -> None:
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -1823,16 +1823,16 @@ def test_selected_hook_recomputes_transitive_effects(tmp_path: Path) -> None:
     generic = next(
         procedure
         for procedure in result.typed_procedures
-        if procedure.definition.name == "apply-hook"
+        if procedure.definition.name == 'entry::apply-hook'
     )
     specializations = {
         next(iter(procedure.specialization.proc_ref_bindings.values())).procedure_name: procedure
         for procedure in result.typed_procedures
-        if getattr(procedure.specialization, "base_name", "") == "apply-hook"
+        if getattr(procedure.specialization, "base_name", "") == 'entry::apply-hook'
         and getattr(procedure.specialization, "proc_ref_bindings", {})
     }
-    command = specializations["run-command"]
-    provider = specializations["run-provider"]
+    command = specializations['entry::run-command']
+    provider = specializations['entry::run-provider']
     command_effect = UsesCommandEffect(subject=("run_checks",))
     provider_effect = UsesProviderEffect(subject=("providers", "execute"))
 
@@ -1846,7 +1846,7 @@ def test_selected_hook_recomputes_transitive_effects(tmp_path: Path) -> None:
     command_hook = next(
         procedure
         for procedure in result.typed_procedures
-        if procedure.definition.name == "run-command"
+        if procedure.definition.name == 'entry::run-command'
     )
     stale_generic = replace(
         generic,
@@ -1879,7 +1879,7 @@ def _selected_hook_lowering_module_lines(*, wrapper_lowering: str) -> list[str]:
     return [
         "(workflow-lisp",
         '  (:language "0.1")',
-        '  (:target-dsl "2.14")',
+        '  (:target-dsl "2.35")',
         "  (defpath WorkReport",
         "    :kind relpath",
         '    :under "artifacts/work"',
@@ -1928,7 +1928,7 @@ def test_inline_lowering_carries_resolved_transitive_effects(tmp_path: Path) -> 
     specialized = next(
         procedure
         for procedure in result.typed_procedures
-        if getattr(procedure.specialization, "base_name", "") == "invoke-selected"
+        if getattr(procedure.specialization, "base_name", "") == 'entry::invoke-selected'
         and getattr(procedure.specialization, "proc_ref_bindings", {})
     )
     selected_effect = UsesCommandEffect(subject=("run_checks",))
@@ -1952,7 +1952,7 @@ def test_private_workflow_lowering_carries_resolved_transitive_effects(
     specialized = next(
         procedure
         for procedure in result.typed_procedures
-        if getattr(procedure.specialization, "base_name", "") == "invoke-selected"
+        if getattr(procedure.specialization, "base_name", "") == 'entry::invoke-selected'
         and getattr(procedure.specialization, "proc_ref_bindings", {})
     )
     selected_effect = UsesCommandEffect(subject=("run_checks",))
@@ -1969,7 +1969,7 @@ def test_private_workflow_specialization_revalidates_selected_hook_boundary(
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -2003,7 +2003,7 @@ def test_private_workflow_specialization_revalidates_selected_hook_boundary(
         _compile(path, tmp_path=tmp_path)
 
     _assert_diagnostic_code(excinfo, "proc_private_workflow_boundary_invalid")
-    assert "%proc-ref-call.invoke_selected" in excinfo.value.diagnostics[0].message
+    assert '%proc-ref-call.entry.invoke_selected' in excinfo.value.diagnostics[0].message
 
 
 def test_compile_stage3_rejects_parametric_specialization_cycles(tmp_path: Path) -> None:
@@ -2012,7 +2012,7 @@ def test_compile_stage3_rejects_parametric_specialization_cycles(tmp_path: Path)
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defrecord WorkflowInput",
             "    (report String))",
             "  (defproc loop",
@@ -2041,7 +2041,7 @@ def test_compile_stage3_supports_type_params_nested_inside_proc_ref_signatures(t
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defrecord WorkflowInput",
             "    (report String))",
             "  (defproc apply-runner",
@@ -2071,7 +2071,7 @@ def test_compile_stage3_supports_type_params_nested_inside_proc_ref_signatures(t
         procedure
         for procedure in result.typed_procedures
         if getattr(procedure.specialization, "type_bindings", {})
-        and procedure.specialization.base_name == "apply-runner"
+        and procedure.specialization.base_name == 'entry::apply-runner'
     )
 
     assert specialized.signature.return_type_ref.name == "WorkflowInput"
@@ -2083,7 +2083,7 @@ def test_compile_stage3_specializes_nested_generic_defproc_calls_transitively(tm
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defrecord WorkflowInput",
             "    (report String))",
             "  (defproc invoke-runner",
@@ -2123,10 +2123,10 @@ def test_compile_stage3_specializes_nested_generic_defproc_calls_transitively(tm
         if getattr(procedure.specialization, "type_bindings", {})
     }
 
-    assert set(specialized) == {"invoke-runner", "wrap"}
-    assert specialized["wrap"].typed_body.expr.callee_name == specialized["invoke-runner"].definition.name
-    assert specialized["invoke-runner"].signature.return_type_ref.name == "WorkflowInput"
-    assert specialized["wrap"].signature.return_type_ref.name == "WorkflowInput"
+    assert set(specialized) == {'entry::invoke-runner', 'entry::wrap'}
+    assert specialized['entry::wrap'].typed_body.expr.expansion_stack[0].procedure_name == specialized['entry::invoke-runner'].definition.name
+    assert specialized['entry::invoke-runner'].signature.return_type_ref.name == "WorkflowInput"
+    assert specialized['entry::wrap'].signature.return_type_ref.name == "WorkflowInput"
 
 
 def test_compile_stage3_retypechecks_specialized_generic_body_instead_of_reusing_definition_body(
@@ -2137,7 +2137,7 @@ def test_compile_stage3_retypechecks_specialized_generic_body_instead_of_reusing
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defunion ReviewResult",
             "    (APPROVED",
             "      (status String)",
@@ -2217,7 +2217,7 @@ def _proc_ref_return_match_module_lines(*, where_clauses: list[str]) -> list[str
     return [
         "(workflow-lisp",
         '  (:language "0.1")',
-        '  (:target-dsl "2.14")',
+        '  (:target-dsl "2.35")',
         "  (defrecord SelectorCtx",
         "    (seed String))",
         "  (defunion SelectionResult",
@@ -2433,7 +2433,7 @@ def _proc_ref_discovery_context(tmp_path: Path):
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -2602,13 +2602,19 @@ def _wrap_proc_ref_discovery_expr(case_name: str, nested_expr: LetStarExpr, *, s
 def test_compile_stage3_collects_defproc_catalog_before_body_checking(tmp_path: Path) -> None:
     result = _compile(INLINE_FIXTURE, tmp_path=tmp_path)
 
-    assert tuple(result.procedure_catalog.signatures_by_name) == ("build-checks", "copy-checks")
+    assert tuple(result.procedure_catalog.signatures_by_name) == (
+        "entry::build-checks", "entry::copy-checks", "build-checks", "copy-checks"
+    )
     assert [procedure.definition.name for procedure in result.typed_procedures] == [
-        "build-checks",
-        "copy-checks",
+        "entry::build-checks",
+        "entry::copy-checks",
     ]
-    assert type(result.typed_workflows[0].typed_body.expr).__name__ == "ProcedureCallExpr"
-    assert type(result.typed_procedures[0].typed_body.expr).__name__ == "ProcedureCallExpr"
+    workflow_body = result.typed_workflows[0].typed_body.expr
+    procedure_body = result.typed_procedures[0].typed_body.expr
+    assert isinstance(workflow_body, LetStarExpr)
+    assert workflow_body.expansion_stack[0].procedure_name == "entry::build-checks"
+    assert isinstance(procedure_body, LetStarExpr)
+    assert procedure_body.expansion_stack[0].procedure_name == "entry::copy-checks"
 
 
 def test_elaboration_rejects_unknown_same_file_procedure_call_heads(tmp_path: Path) -> None:
@@ -2618,7 +2624,7 @@ def test_elaboration_rejects_unknown_same_file_procedure_call_heads(tmp_path: Pa
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -2679,7 +2685,7 @@ def test_auto_lowering_stays_inline_when_call_sites_cannot_bind_through_stage3_s
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defrecord Flagged",
             "    (flag Bool))",
             "  (defproc make-flag",
@@ -2757,7 +2763,7 @@ def test_auto_lowering_counts_distinct_same_file_call_sites_not_reachable_paths(
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defrecord Flagged",
             "    (flag Bool))",
             "  (defproc make-flag",
@@ -2844,7 +2850,7 @@ def test_auto_lowering_call_binding_body_stays_inline_outside_iteration_scopes(
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defrecord Payload",
             "    (flag Bool))",
             "  (defworkflow make-payload",
@@ -2927,7 +2933,7 @@ def test_auto_lowering_stays_inline_when_private_workflow_would_only_project_inp
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -3011,7 +3017,7 @@ def test_direct_command_result_procedure_effects_do_not_require_hidden_bundle_wr
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -3035,7 +3041,7 @@ def test_direct_command_result_procedure_effects_do_not_require_hidden_bundle_wr
     )
 
     result = _compile(path, tmp_path=tmp_path)
-    procedure = next(procedure for procedure in result.typed_procedures if procedure.definition.name == "build-checks")
+    procedure = next(procedure for procedure in result.typed_procedures if procedure.definition.name == 'entry::build-checks')
 
     assert procedure.transitive_effect_summary.transitive_effects == frozenset(
         {
@@ -3050,7 +3056,7 @@ def test_procedure_calls_keep_callee_effects_out_of_body_local_direct_effects(tm
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -3080,9 +3086,9 @@ def test_procedure_calls_keep_callee_effects_out_of_body_local_direct_effects(tm
 
     result = _compile(path, tmp_path=tmp_path)
     invoke = next(
-        procedure for procedure in result.typed_procedures if procedure.definition.name == "invoke-checks"
+        procedure for procedure in result.typed_procedures if procedure.definition.name == 'entry::invoke-checks'
     )
-    entry = next(workflow for workflow in result.typed_workflows if workflow.definition.name == "entry")
+    entry = next(workflow for workflow in result.typed_workflows if workflow.definition.name == 'entry::entry')
     expected_effect = UsesCommandEffect(subject=("run_checks",))
 
     assert expected_effect in invoke.transitive_effect_summary.transitive_effects
@@ -3101,7 +3107,7 @@ def test_direct_provider_result_procedure_effects_do_not_require_hidden_bundle_w
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -3126,7 +3132,7 @@ def test_direct_provider_result_procedure_effects_do_not_require_hidden_bundle_w
     )
 
     result = _compile(path, tmp_path=tmp_path)
-    procedure = next(procedure for procedure in result.typed_procedures if procedure.definition.name == "generate-checks")
+    procedure = next(procedure for procedure in result.typed_procedures if procedure.definition.name == 'entry::generate-checks')
 
     assert procedure.transitive_effect_summary.transitive_effects == frozenset(
         {
@@ -3143,7 +3149,7 @@ def test_private_workflow_review_phase_procedure_rejects_review_loop_result_proj
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defmodule procedure_review_phase_private_workflow)",
             "  (import std/phase :only (ReviewDecision ReviewFindings ReviewLoopResult ReviewReportPath review-revise-loop))",
             "  (defpath WorkReport",
@@ -3248,7 +3254,7 @@ def test_private_workflow_call_rejects_review_loop_boundary_before_allocator_reu
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defmodule procedure_review_phase_private_workflow_allocator)",
             "  (import std/phase :only (ReviewDecision ReviewFindings ReviewLoopResult ReviewReportPath review-revise-loop))",
             "  (defpath WorkReport",
@@ -3361,7 +3367,7 @@ def test_procedure_effect_validation_includes_nested_workflow_effects(tmp_path: 
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -3390,11 +3396,11 @@ def test_procedure_effect_validation_includes_nested_workflow_effects(tmp_path: 
     )
 
     result = _compile(path, tmp_path=tmp_path)
-    procedure = next(procedure for procedure in result.typed_procedures if procedure.definition.name == "wrap-checks")
+    procedure = next(procedure for procedure in result.typed_procedures if procedure.definition.name == 'entry::wrap-checks')
 
     assert procedure.transitive_effect_summary.transitive_effects == frozenset(
         {
-            CallsWorkflowEffect(subject=("run-checks",)),
+            CallsWorkflowEffect(subject=('entry::run-checks',)),
             UsesCommandEffect(subject=("run_checks",)),
         }
     )
@@ -3437,7 +3443,7 @@ def test_compile_stage3_imported_generic_loop_state_seed_specializes_completed_f
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defmodule stdlib/types)",
             "  (export ReviewReportPath ReviewFindings)",
             "  (defpath ReviewReportPath",
@@ -3454,7 +3460,7 @@ def test_compile_stage3_imported_generic_loop_state_seed_specializes_completed_f
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defmodule stdlib/loop_state)",
             "  (import stdlib/types :only (ReviewFindings ReviewReportPath))",
             "  (export seed-completed)",
@@ -3480,7 +3486,7 @@ def test_compile_stage3_imported_generic_loop_state_seed_specializes_completed_f
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defmodule entry)",
             "  (import stdlib/types :only (ReviewFindings ReviewReportPath))",
             "  (import stdlib/loop_state :as loop-state :only (seed-completed))",
@@ -3507,7 +3513,7 @@ def test_compile_stage3_imported_generic_loop_state_seed_specializes_completed_f
                 stable_command=("python", "scripts/run_checks.py"),
             )
         },
-        lowering_route="legacy",
+
         validate_shared=False,
         workspace_root=tmp_path,
     )
@@ -3534,7 +3540,7 @@ def test_compile_stage3_imported_generic_loop_state_update_reuses_specialized_ca
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defmodule stdlib/types)",
             "  (export ReviewReportPath ReviewFindings)",
             "  (defpath ReviewReportPath",
@@ -3551,7 +3557,7 @@ def test_compile_stage3_imported_generic_loop_state_update_reuses_specialized_ca
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defmodule stdlib/loop_state)",
             "  (import stdlib/types :only (ReviewFindings ReviewReportPath))",
             "  (export update-completed)",
@@ -3580,7 +3586,7 @@ def test_compile_stage3_imported_generic_loop_state_update_reuses_specialized_ca
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defmodule entry)",
             "  (import stdlib/types :only (ReviewFindings ReviewReportPath))",
             "  (import stdlib/loop_state :as loop-state :only (update-completed))",
@@ -3608,7 +3614,7 @@ def test_compile_stage3_imported_generic_loop_state_update_reuses_specialized_ca
                 stable_command=("python", "scripts/run_checks.py"),
             )
         },
-        lowering_route="legacy",
+
         validate_shared=False,
         workspace_root=tmp_path,
     )
@@ -3635,7 +3641,7 @@ def test_compile_stage3_imported_generic_loop_state_consumer_specializes_without
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defmodule stdlib/types)",
             "  (export WorkReport ReviewReportPath ReviewFindingsJsonPath ReviewFindings BlockerClass ReviewDecision ReviewReportResult ReviewLoopResult)",
             "  (defpath WorkReport",
@@ -3688,7 +3694,7 @@ def test_compile_stage3_imported_generic_loop_state_consumer_specializes_without
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defmodule stdlib/review_loop_consumer)",
             "  (import stdlib/types :only (BlockerClass ReviewDecision ReviewReportPath ReviewFindings ReviewLoopResult))",
             "  (export consume-review-loop)",
@@ -3754,7 +3760,7 @@ def test_compile_stage3_imported_generic_loop_state_consumer_specializes_without
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defmodule entry)",
                 "  (import stdlib/types :only (BlockerClass WorkReport ReviewReportPath ReviewFindingsJsonPath ReviewFindings ReviewDecision ReviewReportResult ReviewLoopResult))",
             "  (import stdlib/review_loop_consumer :as review-loop :only (consume-review-loop))",
@@ -3863,7 +3869,7 @@ def test_compile_stage3_imported_std_phase_review_loop_specialization_keeps_owne
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defmodule helper)",
             "  (import std/phase :only (ReviewDecision ReviewFindings ReviewFindingsJsonPath ReviewLoopResult ReviewReportPath review-revise-loop-proc))",
             "  (export CallCtx CompletedSurface InputsSurface run-review)",
@@ -3929,7 +3935,7 @@ def test_compile_stage3_imported_std_phase_review_loop_specialization_keeps_owne
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defmodule entry)",
             "  (import std/phase :only (ReviewLoopResult))",
             "  (import helper :as helper :only (CallCtx CompletedSurface InputsSurface run-review))",
@@ -3970,7 +3976,7 @@ def test_compile_stage3_imported_std_phase_review_loop_managed_write_root_bundle
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defmodule helper)",
             "  (import std/phase :only (ReviewDecision ReviewFindings ReviewFindingsJsonPath ReviewLoopResult ReviewReportPath review-revise-loop-proc))",
             "  (export CallCtx CompletedSurface InputsSurface run-review)",
@@ -4029,7 +4035,7 @@ def test_compile_stage3_imported_std_phase_review_loop_managed_write_root_bundle
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defmodule entry)",
             "  (import std/phase :only (ReviewLoopResult))",
             "  (import helper :as helper :only (CallCtx CompletedSurface InputsSurface run-review))",
@@ -4068,7 +4074,7 @@ def test_compile_stage3_imported_std_phase_review_loop_multiple_specializations_
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defmodule helper)",
             "  (import std/phase :only (ReviewDecision ReviewFindings ReviewFindingsJsonPath ReviewLoopResult ReviewReportPath review-revise-loop-proc))",
             "  (export CallCtx PlanCompleted PlanInputs ImplCompleted ImplInputs plan-run-review impl-run-review)",
@@ -4170,7 +4176,7 @@ def test_compile_stage3_imported_std_phase_review_loop_multiple_specializations_
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defmodule entry)",
             "  (import std/phase :only (ReviewLoopResult))",
             "  (import helper :as helper :only (CallCtx PlanCompleted PlanInputs ImplCompleted ImplInputs plan-run-review impl-run-review))",
@@ -4217,7 +4223,7 @@ def test_compile_stage3_imported_generic_loop_state_consumer_preserves_custom_sc
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defmodule stdlib/types)",
             "  (export WorkReport ReviewReportPath ReviewFindingsJsonPath CustomFindings ReviewDecision ReviewReportResult ReviewLoopResult)",
             "  (defpath WorkReport",
@@ -4259,7 +4265,7 @@ def test_compile_stage3_imported_generic_loop_state_consumer_preserves_custom_sc
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defmodule stdlib/review_loop_consumer)",
             "  (import stdlib/types :only (ReviewDecision ReviewReportPath CustomFindings ReviewLoopResult))",
             "  (export consume-review-loop)",
@@ -4317,7 +4323,7 @@ def test_compile_stage3_imported_generic_loop_state_consumer_preserves_custom_sc
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defmodule entry)",
             "  (import stdlib/types :only (WorkReport ReviewReportPath ReviewFindingsJsonPath CustomFindings ReviewDecision ReviewReportResult ReviewLoopResult))",
             "  (import stdlib/review_loop_consumer :as review-loop :only (consume-review-loop))",
@@ -4398,7 +4404,7 @@ def test_procedures_can_call_pure_helpers_without_introducing_extra_effects(tmp_
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -4424,7 +4430,7 @@ def test_procedures_can_call_pure_helpers_without_introducing_extra_effects(tmp_
     )
 
     result = _compile(path, tmp_path=tmp_path)
-    procedure = next(procedure for procedure in result.typed_procedures if procedure.definition.name == "wrap-summary")
+    procedure = next(procedure for procedure in result.typed_procedures if procedure.definition.name == 'entry::wrap-summary')
 
     assert procedure.transitive_effect_summary.transitive_effects == frozenset()
 
@@ -4437,7 +4443,7 @@ def test_compile_stage3_elaborates_authored_union_variant_constructor_to_union_v
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -4462,7 +4468,7 @@ def test_compile_stage3_elaborates_authored_union_variant_constructor_to_union_v
     )
 
     result = _compile(path, tmp_path=tmp_path)
-    entry = next(workflow for workflow in result.typed_workflows if workflow.definition.name == "entry")
+    entry = next(workflow for workflow in result.typed_workflows if workflow.definition.name == 'entry::entry')
 
     assert isinstance(entry.typed_body.expr, UnionVariantExpr)
     assert entry.typed_body.expr.type_name == "WorkflowResult"
@@ -4476,7 +4482,7 @@ def test_typecheck_authored_union_variant_constructor_rejects_non_union_target(t
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -4506,7 +4512,7 @@ def test_typecheck_authored_union_variant_constructor_rejects_unknown_variant(tm
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -4539,7 +4545,7 @@ def test_typecheck_authored_union_variant_constructor_rejects_missing_required_f
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -4571,7 +4577,7 @@ def test_typecheck_authored_union_variant_constructor_rejects_unknown_field(tmp_
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -4603,7 +4609,7 @@ def test_typecheck_authored_union_variant_constructor_rejects_duplicate_field(tm
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -4635,7 +4641,7 @@ def test_typecheck_authored_union_variant_constructor_rejects_field_type_mismatc
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -4668,7 +4674,7 @@ def test_compile_stage3_supports_pure_helper_authored_union_variant_constructor(
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -4698,14 +4704,14 @@ def test_compile_stage3_supports_pure_helper_authored_union_variant_constructor(
 
     result = _compile(path, tmp_path=tmp_path)
 
-    assert "entry" in {workflow.definition.name for workflow in result.typed_workflows}
+    assert 'entry::entry' in {workflow.definition.name for workflow in result.typed_workflows}
 
 
 
 def test_compile_stage3_supports_forwarded_workflow_ref_procedure_calls(tmp_path: Path) -> None:
     result = _compile_validated(WORKFLOW_REF_FORWARDING_FIXTURE, tmp_path=tmp_path)
 
-    assert result.typed_procedures[0].definition.name == "invoke-runner"
+    assert result.typed_procedures[0].definition.name == 'entry::invoke-runner'
 
 
 def test_compile_stage3_supports_proc_ref_signature_parameters_and_same_file_literals(
@@ -4716,15 +4722,15 @@ def test_compile_stage3_supports_proc_ref_signature_parameters_and_same_file_lit
 
     result = _compile_validated(PROC_REF_FIXTURE, tmp_path=tmp_path)
     procedure = next(
-        procedure for procedure in result.typed_procedures if procedure.definition.name == "forward-helper"
+        procedure for procedure in result.typed_procedures if procedure.definition.name == 'entry::forward-helper'
     )
-    entry = next(workflow for workflow in result.typed_workflows if workflow.definition.name == "entry")
+    entry = next(workflow for workflow in result.typed_workflows if workflow.definition.name == 'entry::entry')
     call_expr = entry.typed_body.expr
 
     assert isinstance(procedure.signature.params[0][1], ProcRefTypeRef)
     assert isinstance(call_expr, ProcedureCallExpr)
     assert isinstance(call_expr.args[0], ProcRefLiteralExpr)
-    assert call_expr.args[0].target_name == "helper"
+    assert call_expr.args[0].target_name == 'entry::helper'
 
 
 def test_compile_stage3_supports_bind_proc_forwarding_and_lexical_proc_ref_calls(
@@ -4734,9 +4740,9 @@ def test_compile_stage3_supports_bind_proc_forwarding_and_lexical_proc_ref_calls
 
     result = _compile_validated(PROC_REF_BIND_PROC_FIXTURE, tmp_path=tmp_path)
     invoke_runner = next(
-        procedure for procedure in result.typed_procedures if procedure.definition.name == "invoke-runner"
+        procedure for procedure in result.typed_procedures if procedure.definition.name == 'entry::invoke-runner'
     )
-    entry = next(workflow for workflow in result.typed_workflows if workflow.definition.name == "entry")
+    entry = next(workflow for workflow in result.typed_workflows if workflow.definition.name == 'entry::entry')
     entry_body = entry.typed_body.expr
 
     assert isinstance(invoke_runner.typed_body.expr, ProcedureCallExpr)
@@ -4768,7 +4774,8 @@ def test_compile_rejects_let_proc_generated_name_authored_reference(tmp_path: Pa
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(FIXTURES / "invalid" / "let_proc_generated_name_private.orc", tmp_path=tmp_path)
 
-    _assert_diagnostic_code(excinfo, "let_proc_generated_name_private")
+    _assert_diagnostic_code(excinfo, "module_reference_invalid")
+    assert "invalid procedure reference `%let-proc.entry.run-local.fake`" in excinfo.value.diagnostics[0].message
 
 
 def test_let_proc_generated_names_change_when_local_body_changes(tmp_path: Path) -> None:
@@ -4778,7 +4785,7 @@ def test_let_proc_generated_names_change_when_local_body_changes(tmp_path: Path)
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -4831,7 +4838,7 @@ def test_let_proc_generated_names_are_stable_across_workspace_roots(tmp_path: Pa
     lines = [
         "(workflow-lisp",
         '  (:language "0.1")',
-        '  (:target-dsl "2.14")',
+        '  (:target-dsl "2.35")',
         "  (defpath WorkReport",
         "    :kind relpath",
         '    :under "artifacts/work"',
@@ -4884,7 +4891,7 @@ def test_failed_compile_cannot_contaminate_fresh_generated_local_state(
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -5009,7 +5016,7 @@ def test_stage3_preserves_nested_proc_ref_effects_inside_run_provider_phase(tmp_
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -5101,7 +5108,7 @@ def test_compile_rejects_let_proc_name_collision_in_same_scope(tmp_path: Path) -
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -5134,7 +5141,7 @@ def test_compile_rejects_let_proc_return_type_mismatch_with_v1_code(tmp_path: Pa
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -5186,7 +5193,7 @@ def test_compile_rejects_let_proc_scope_escape_wrapped_in_if(tmp_path: Path) -> 
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -5221,7 +5228,7 @@ def test_compile_rejects_let_proc_scope_escape_nested_in_bind_proc_binding(tmp_p
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -5262,7 +5269,7 @@ def test_compile_rejects_let_proc_scope_escape_forwarded_through_proc_return(tmp
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -5304,7 +5311,7 @@ def test_compile_rejects_let_proc_scope_escape_forwarded_through_helper_return(
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -5362,7 +5369,7 @@ def test_compile_stage3_rejects_bind_proc_unknown_keywords(tmp_path: Path) -> No
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -5400,7 +5407,7 @@ def test_compile_stage3_rejects_bind_proc_duplicate_keywords(tmp_path: Path) -> 
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -5439,7 +5446,7 @@ def test_compile_stage3_rejects_nested_bind_proc_duplicate_keywords(tmp_path: Pa
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -5479,7 +5486,7 @@ def test_compile_stage3_rejects_bind_proc_mistyped_bound_values(tmp_path: Path) 
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.14")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -5515,7 +5522,9 @@ def test_compile_stage3_rejects_proc_ref_specialization_cycles(tmp_path: Path) -
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(PROC_REF_SPECIALIZATION_CYCLE_FIXTURE, tmp_path=tmp_path)
 
-    _assert_proc_ref_cycle_diagnostics_at_authored_call_sites(excinfo)
+    _assert_proc_ref_cycle_diagnostics_at_authored_call_sites(
+        excinfo, ("entry::loop-helper", "entry::use-runner")
+    )
 
 
 def test_stage3_effect_inference_rejects_proc_ref_specialization_cycles_before_lowering() -> None:
@@ -5554,7 +5563,7 @@ def test_wcc_anonymous_effect_terminal_pure_op_compiles_cleanly(tmp_path: Path) 
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.15")',
+            '  (:target-dsl "2.35")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -5580,7 +5589,7 @@ def test_wcc_anonymous_effect_terminal_pure_op_compiles_cleanly(tmp_path: Path) 
         path,
         provider_externs={"providers.execute": "test-provider"},
         prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        lowering_route="wcc_m4",
+
         validate_shared=True,
         workspace_root=tmp_path,
     )
@@ -5733,7 +5742,7 @@ def test_stage3_returns_module_resolved_procedure_modes_and_names(tmp_path: Path
             assert procedure.generated_workflow_name is None
 
 
-def test_stage3_resolves_lowering_once_after_specialization_and_effects(
+def test_stage3_resolves_lowering_after_specialization_and_effects(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -5760,10 +5769,9 @@ def test_stage3_resolves_lowering_once_after_specialization_and_effects(
 
     result = _compile_procedure_identity_fixture(tmp_path)
 
-    assert len(resolver_inputs) == 1
-    assert resolver_inputs[0] == tuple(
-        procedure.definition.name for procedure in result.typed_procedures
-    )
+    expected_names = tuple(procedure.definition.name for procedure in result.typed_procedures)
+    assert resolver_inputs
+    assert all(names == expected_names for names in resolver_inputs)
     assert all(
         procedure.resolved_lowering_mode is not ProcedureLoweringMode.AUTO
         for procedure in result.typed_procedures

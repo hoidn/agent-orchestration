@@ -238,7 +238,24 @@ derives solely from the validated `.orc` executable and `state.json`.
     - callee finalization failure with exports suppressed
     - call-frame resume/export state when a run is interrupted mid-call
 
-## Target 2.25 Trial Observability
+<a id="target-225-trial-observability"></a>
+
+## Target 2.25 Trial Observability (Historical)
+
+The detailed trial projection and its report/Markdown/dashboard rendering are
+withdrawn from the current package: no admitted 2.35+ producer or public
+state-reader path supplies the typed authority they require. The rules below
+preserve the historical format contract, not current rendering support.
+
+The CLI retains its state-only historical report: trial rows expose identity,
+kind and status with empty input/output payloads. It does not reconstruct
+detailed budgets, scores, rankings or verdict joins. Dashboard generic raw/debug
+inspection remains a separate read-only surface and does not promise the CLI
+redaction. Raw run state, output suppression, trial configuration/ledger and
+settlement validators, and frozen JSON remain supported only for their actual
+data consumers. None of these readers restores trial execution or supplies
+recovery evidence for another release. See the
+[family disposition](../docs/design/workflow_lisp_executor_retirement.md#trial-observability-disposition).
 
 - A reached target-2.25 trial owns one run/frame/step/visit directory below
   `RUN_ROOT/trials/`. Run-owned ledgers, bounded evidence snapshots, check

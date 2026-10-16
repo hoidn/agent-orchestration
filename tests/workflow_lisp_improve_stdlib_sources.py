@@ -57,7 +57,7 @@ IMPORT_LINE = "  (import std/improve :only (Decision Improvement improve))\n"
 
 ENTRY = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.33")
+  (:target-dsl "2.35")
   (defmodule grt/entry)
 """ + IMPORT_LINE + """  (export run)
   (defrecord Candidate (title String) (score Int))
@@ -88,9 +88,9 @@ ENTRY = """(workflow-lisp
              LIMIT)))
 """
 
-BARE_IMPORT_232 = """(workflow-lisp
+BARE_IMPORT_235 = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.32")
+  (:target-dsl "2.35")
   (defmodule grt/entry)
 """ + IMPORT_LINE + """  (export run)
   (defrecord Out (n Int))
@@ -144,11 +144,11 @@ def wrapped_review_sources(imported: str, probes: dict[str, Path]) -> dict[str, 
     }
 
 
-# Ruling R8: a caller below 2.33 that never writes `Decision[...]` or `Improvement[...]`.
-# Its review hook is the 2.33 `grt/assess`; its match arms are effectful (see I1).
+# Current-target caller that uses the imported union result without naming its type.
+# Its review hook lives in `grt/assess`; its match arms remain effectful (see I1).
 UNNAMED_UNION_CALLER = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "TARGET")
+  (:target-dsl "2.35")
   (defmodule grt/entry)
   (import std/improve :only (improve))
   (import grt/assess :only (Candidate Brief Feedback assess))
@@ -173,9 +173,9 @@ UNNAMED_UNION_CALLER = """(workflow-lisp
 """
 
 
-def unnamed_union_caller_sources(*, seed: str, limit: int, target: str, probes: dict[str, Path]) -> dict[str, str]:
+def unnamed_union_caller_sources(*, seed: str, limit: int, probes: dict[str, Path]) -> dict[str, str]:
     entry = (
-        UNNAMED_UNION_CALLER.replace("TARGET", target)
+        UNNAMED_UNION_CALLER
         .replace("PROBE_REVISE", probes["probe_revise"].as_posix())
         .replace("PROBE_SUMMARIZE", probes["probe_summarize"].as_posix())
         .replace('"SEED"', f'"{seed}"')
@@ -198,13 +198,12 @@ def string_inputs_entry_source(entry: str) -> str:
     )
 
 
-def entry_source(*, seed: str, limit: int, probes: dict[str, Path], target: str = "2.33") -> str:
+def entry_source(*, seed: str, limit: int, probes: dict[str, Path]) -> str:
     return (
         ENTRY.replace("PROBE_REVIEW", probes["probe_review"].as_posix())
         .replace("PROBE_REVISE", probes["probe_revise"].as_posix())
         .replace('"SEED"', f'"{seed}"')
         .replace("LIMIT", str(limit))
-        .replace('(:target-dsl "2.33")', f'(:target-dsl "{target}")')
     )
 
 

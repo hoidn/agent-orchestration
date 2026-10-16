@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule proc_refs/private_entry)
   (import proc_refs/private_helper :as helper)
   (export Output forward entry)

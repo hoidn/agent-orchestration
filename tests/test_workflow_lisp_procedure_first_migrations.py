@@ -3029,17 +3029,6 @@ def _assert_callee_characterization(
     ) in payload["supporting_labels"]
 
 
-@pytest.fixture(scope="module")
-def tracked_plan_compile():
-    return compile_stage3_entrypoint(
-        EXAMPLE,
-        source_roots=(RETIRED_EXAMPLES,),
-        provider_externs=_load_json(MIGRATION_INPUTS / "design_plan_impl_stack.providers.json"),
-        prompt_externs=_load_json(MIGRATION_INPUTS / "design_plan_impl_stack.prompts.json"),
-        command_boundaries=_load_json(MIGRATION_INPUTS / "design_plan_impl_stack.commands.json"),
-        validate_shared=True,
-        workspace_root=REPO_ROOT,
-    )
 
 
 
@@ -3068,51 +3057,16 @@ def tracked_plan_compile():
 
 
 
-def test_tracked_plan_phase_is_explicit_inline_procedure(tracked_plan_compile) -> None:
-    compile_result = tracked_plan_compile.entry_result
-    procedure = next(
-        (
-            procedure
-            for procedure in compile_result.typed_procedures
-            if procedure.definition.name == TRACKED_PLAN
-        ),
-        None,
-    )
-
-    assert procedure is not None, (
-        "tracked-plan-phase remains a defworkflow; expected defproc with requested/resolved "
-        "lowering inline"
-    )
-    assert procedure.signature.requested_lowering_mode.value == "inline"
-    assert procedure.resolved_lowering_mode.value == "inline"
 
 
 
 
-def test_tracked_plan_phase_wrapper_uses_procedure_call(tracked_plan_compile) -> None:
-    compile_result = tracked_plan_compile.entry_result
-    public_workflow = next(
-        workflow
-        for workflow in compile_result.typed_workflows
-        if workflow.definition.name == PUBLIC_ENTRY
-    )
-    expression_nodes = tuple(walk_expr(public_workflow.typed_body.expr))
-    workflow_calls = {
-        node.callee_name for node in expression_nodes if isinstance(node, CallExpr)
-    }
-    procedure_calls = {
-        node.callee_name for node in expression_nodes if isinstance(node, ProcedureCallExpr)
-    }
-
-    assert TRACKED_PLAN in procedure_calls and TRACKED_PLAN not in workflow_calls, (
-        "design-plan-impl-review-stack still uses (call tracked-plan-phase ...); expected "
-        "an ordinary positional procedure call"
-    )
 
 
-def test_tracked_plan_phase_contract_matches_frozen_pre_migration_baseline(
-    tracked_plan_compile,
-) -> None:
+
+
+
+def test_tracked_plan_phase_contract_matches_frozen_pre_migration_baseline() -> None:
     expected = _load_json(BASELINE)
 
     assert expected["schema_version"] == "procedure_first.tracked_plan_phase_contract.v1"

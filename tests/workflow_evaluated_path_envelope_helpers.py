@@ -31,16 +31,16 @@ PARENT_FILES = {"a.txt": b"parent a bytes\n", "b.txt": b"parent b bytes\n",
 INPUTS = {"payload": {"a": "artifacts/a.txt", "b": "artifacts/b.txt", "d": "artifacts/d.txt",
                       "extra": "artifacts/x.txt", "absent": None}}
 
-PATH_MODULE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.24") (defmodule common)
+PATH_MODULE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule common)
   (export WorkPath) (defpath WorkPath :kind relpath :under "artifacts" :must-exist true))'''
 SHAPE_TYPES = '''(defunion Pick (FILE (file WorkPath)) (NONE))
   (defrecord Inputs (a WorkPath) (b WorkPath) (d WorkPath) (extra Optional[WorkPath]) (absent Optional[WorkPath]))
   (defrecord Listed (primary WorkPath) (items List[WorkPath]))
   (defrecord Bundle (primary WorkPath) (items List[WorkPath]) (extra Optional[WorkPath])
     (absent Optional[WorkPath]) (chosen Pick) (skipped Pick))'''
-SHAPE_MODULE = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.24") (defmodule shapes)
+SHAPE_MODULE = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule shapes)
   (import common :only (WorkPath)) (export Inputs Pick Listed Bundle) {SHAPE_TYPES})'''
-SAME_MODULE = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.24") (defmodule common)
+SAME_MODULE = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule common)
   (export WorkPath Inputs Pick Listed Bundle)
   (defpath WorkPath :kind relpath :under "artifacts" :must-exist true) {SHAPE_TYPES})'''
 

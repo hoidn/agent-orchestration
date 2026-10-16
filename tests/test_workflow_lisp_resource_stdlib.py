@@ -329,7 +329,7 @@ def test_typecheck_rejects_resource_transition_adapter_authored_as_raw_command_r
             """
             (workflow-lisp
               (:language "0.1")
-              (:target-dsl "2.14")
+              (:target-dsl "2.35")
               (defpath StateFile
                 :kind relpath
                 :under "state"
@@ -373,7 +373,7 @@ def test_typecheck_rejects_item_ctx_with_non_runctx_run(tmp_path: Path) -> None:
             """
             (workflow-lisp
               (:language "0.1")
-              (:target-dsl "2.14")
+              (:target-dsl "2.35")
               (defenum Queue
                 active
                 in_progress)
@@ -567,7 +567,7 @@ def test_typecheck_rejects_invalid_resource_transition_queue_and_event_symbols(t
             """
             (workflow-lisp
               (:language "0.1")
-              (:target-dsl "2.14")
+              (:target-dsl "2.35")
               (defenum Queue
                 active
                 in_progress)
@@ -639,7 +639,7 @@ def test_typecheck_rejects_resource_transition_with_bool_resource_operand(tmp_pa
             """
             (workflow-lisp
               (:language "0.1")
-              (:target-dsl "2.14")
+              (:target-dsl "2.35")
               (defenum Queue
                 active
                 in_progress)
@@ -722,7 +722,7 @@ def test_typecheck_rejects_finalize_selected_item_with_malformed_phase_results(t
             """
             (workflow-lisp
               (:language "0.1")
-              (:target-dsl "2.14")
+              (:target-dsl "2.35")
               (defenum Queue
                 active
                 in_progress)

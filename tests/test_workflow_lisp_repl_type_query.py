@@ -153,3 +153,19 @@ def test_type_query_accepts_effectful_and_undefined_arithmetic_without_execution
     assert module.type_env._type_refs == type_refs_before
     assert captured.environment is frame_before
     assert dict(captured.environment.bindings) == bindings_before
+
+
+def test_type_query_without_module_context_keeps_literals_and_refuses_calls(loaded_catalog):
+    from dataclasses import replace
+
+    module, _forms, _paths = loaded_catalog
+    module.stage3 = replace(module.stage3, expression_context=None)
+    for expression in ("42", "(+ 1 2)"):
+        typed, captured_types, values = repl_expr.typecheck_repl_expression(expression, module)
+        assert typed.type_ref.name == "Int"
+        assert captured_types == {}
+        assert values["providers.review"].name == "Provider"
+
+    with pytest.raises(repl_expr.ReplRefusal) as error:
+        repl_expr.typecheck_repl_expression("(call missing)", module)
+    assert error.value.code == "repl_module_context_missing"

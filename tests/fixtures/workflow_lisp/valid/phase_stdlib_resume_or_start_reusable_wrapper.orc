@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule phase_stdlib_resume_or_start_reusable_wrapper)
   (import std/phase :only (with-phase))
   (defenum BlockerClass

@@ -89,11 +89,11 @@ def test_provider_reads_follow_alias_and_bound_reference_routes(tmp_path, wrappe
 
 def test_provider_read_uses_transitive_private_proc_reader(tmp_path):
     sources = {
-        "lib/helper.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+        "lib/helper.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
           (defmodule lib/helper) (export R ask) (defrecord R (n Int))
           (defproc ask () -> R :effects ((uses-provider provider)) :lowering private-workflow
             (provider-result provider :prompt prompt :inputs () :returns R)))''',
-        "app/parent.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+        "app/parent.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
           (defmodule app/parent) (import lib/helper :as helper) (export run)
           (defproc invoke ((hook ProcRef[ -> helper.R])) -> helper.R
             :effects () :lowering inline (hook))

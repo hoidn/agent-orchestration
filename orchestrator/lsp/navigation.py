@@ -12,6 +12,11 @@ from orchestrator.workflow_lisp.authored_symbols import (
 from orchestrator.workflow_lisp.compiler import LinkedStage3CompileResult
 from orchestrator.workflow_lisp.effects import render_effect_set
 from orchestrator.workflow_lisp.expression_traversal import walk_expr
+from orchestrator.workflow_lisp.form_registry import (
+    FINITE_SOURCE_ADMISSION_MIN_TARGET_DSL_VERSION,
+    get_form_spec,
+    target_dsl_version_at_least,
+)
 from orchestrator.workflow_lisp.expressions import (
     CallExpr,
     ProcedureCallExpr,
@@ -22,6 +27,7 @@ from orchestrator.workflow_lisp.modules import build_import_scope
 from orchestrator.workflow_lisp.procedures import (
     ProcedureDef,
     ProcedureSignature,
+    procedure_effect_inspection,
 )
 from orchestrator.workflow_lisp.prompts import (
     PromptApplicationExpr,
@@ -32,6 +38,7 @@ from orchestrator.workflow_lisp.syntax import (
     SyntaxIdentifier,
     SyntaxList,
     WorkflowLispSyntaxModule,
+    target_dsl_supports_effect_ceilings,
     ensure_syntax_datum,
 )
 from orchestrator.workflow_lisp.type_env import TypeRef, render_type_ref
@@ -133,6 +140,9 @@ def build_navigation_index(
 
     definition_spans = _definition_spans(compile_result)
     procedure_definitions = _procedure_definitions(compile_result)
+    typed_procedures = {procedure.definition.name: procedure
+        for compiled in compile_result.compiled_results_by_name.values()
+        for procedure in compiled.typed_procedures}
     definition_links: dict[
         tuple[str, str, int, int],
         DefinitionLink,
@@ -227,6 +237,7 @@ def build_navigation_index(
                         label=symbol.name,
                         canonical_target=signature.name,
                         signature=signature,
+                        procedure=typed_procedures.get(signature.name), known_procedures=typed_procedures,
                     )
                 )
             elif symbol.kind == "workflow":
@@ -269,6 +280,7 @@ def build_navigation_index(
                         label=label,
                         canonical_target=binding.canonical_name,
                         signature=signature,
+                        procedure=typed_procedures.get(signature.name), known_procedures=typed_procedures,
                     )
                 )
             for label, binding in import_scope.workflow_bindings.items():
@@ -289,7 +301,22 @@ def build_navigation_index(
                         signature=signature,
                     )
                 )
-        completion_rows.extend(frozen_form_completions)
+        hide_private_forms = target_dsl_version_at_least(
+            compiled.module.target_dsl_version,
+            FINITE_SOURCE_ADMISSION_MIN_TARGET_DSL_VERSION,
+        )
+        completion_rows.extend(
+            completion
+            for completion in frozen_form_completions
+            if not hide_private_forms
+            or not (
+                completion.label.startswith("__")
+                or (
+                    (spec := get_form_spec(completion.label)) is not None
+                    and "compatibility_route_only" in spec.feature_tags
+                )
+            )
+        )
         completions_by_path[module_path] = tuple(
             sorted(
                 completion_rows,
@@ -906,15 +933,19 @@ def _procedure_completion(
     label: str,
     canonical_target: str,
     signature: ProcedureSignature,
+    procedure=None, known_procedures=(),
 ) -> NavigationCompletion:
+    effects = ("; ".join(procedure_effect_inspection(procedure, known_procedures))
+        if procedure is not None and target_dsl_supports_effect_ceilings(
+            procedure.definition.effect_contract_target or "")
+        else f"effects {render_effect_set(signature.declared_effects)}")
     return NavigationCompletion(
         label=label,
         kind="procedure",
         canonical_target=canonical_target,
         detail=(
             f"procedure ({_render_signature_params(signature.params)}) -> "
-            f"{render_type_ref(signature.return_type_ref)} effects "
-            f"{render_effect_set(signature.declared_effects)}"
+            f"{render_type_ref(signature.return_type_ref)} {effects}"
         ),
     )
 

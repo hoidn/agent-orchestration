@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.33")
+  (:target-dsl "2.35")
   (defmodule cx/entry)
   (import cx/lib :only (Tagged keep))
   (import cx/a :only (Item make-a))

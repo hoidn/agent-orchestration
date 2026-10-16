@@ -8,7 +8,7 @@ from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 
 
-FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp" / "modules"
+FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp" / "current235" / "modules"
 VALID_ROOT = (
     FIXTURES / "valid" / "nested_loop_match_continue_carriage" / "nested_loop_match_continue_carriage"
 )
@@ -52,7 +52,7 @@ def _compile_entry_fixture(path: Path, *, source_root: Path, tmp_path: Path):
         command_boundaries={},
         validate_shared=True,
         workspace_root=tmp_path,
-        lowering_route=None,
+
     )
 
 

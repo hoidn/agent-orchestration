@@ -130,7 +130,7 @@ def test_entrypoint_module_graph_threads_one_compiler_session(
         },
         validate_shared=False,
         workspace_root=tmp_path,
-        lowering_route="legacy",
+
     )
     compiler.compile_stage3_entrypoint(
         source_root / "entry.orc",
@@ -143,7 +143,7 @@ def test_entrypoint_module_graph_threads_one_compiler_session(
         },
         validate_shared=False,
         workspace_root=tmp_path,
-        lowering_route="legacy",
+
     )
 
     assert len(seen_sessions) == 6
@@ -181,7 +181,7 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
     state.loop_body_depth = 4
     state.let_proc_depth = 2
     state.guidance_example = True
-    state.target_dsl_version = "2.21"
+    state.target_dsl_version = "2.35"
     state.prompt_catalog = cast("PromptCatalog", object())
     baseline = state.__dict__.copy()
 
@@ -204,7 +204,7 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
         "loop_body_depth": 4,
         "let_proc_depth": 0,
         "guidance_example": False,
-        "target_dsl_version": "2.15",
+        "target_dsl_version": "2.35",
         "prompt_catalog": outer_prompt_catalog,
     }
     inner_expected = {
@@ -217,7 +217,7 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
         "loop_body_depth": 4,
         "let_proc_depth": 0,
         "guidance_example": True,
-        "target_dsl_version": "2.21",
+        "target_dsl_version": "2.35",
         "prompt_catalog": inner_prompt_catalog,
     }
     original_elaborate = expressions._elaborate
@@ -242,7 +242,7 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
                         procedure_name_resolver=inner_procedure_resolver,
                         workflow_name_resolver=inner_workflow_resolver,
                         guidance_example=True,
-                        target_dsl_version="2.21",
+                        target_dsl_version="2.35",
                         prompt_catalog=inner_prompt_catalog,
                         session_state=state,
                     )
@@ -267,7 +267,7 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
         procedure_name_resolver=outer_procedure_resolver,
         workflow_name_resolver=outer_workflow_resolver,
         guidance_example=False,
-        target_dsl_version="2.15",
+        target_dsl_version="2.35",
         prompt_catalog=outer_prompt_catalog,
         session_state=state,
     )
@@ -289,7 +289,7 @@ def test_elaboration_session_covers_all_fields_and_restores_nested_calls(
             procedure_name_resolver=outer_procedure_resolver,
             workflow_name_resolver=outer_workflow_resolver,
             guidance_example=False,
-            target_dsl_version="2.15",
+            target_dsl_version="2.35",
             prompt_catalog=outer_prompt_catalog,
             session_state=state,
         )
@@ -907,7 +907,7 @@ def test_procedure_typecheck_recursion_uses_its_compiler_session_state(
         """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.15")
+  (:target-dsl "2.35")
   (defproc echo
     ((value String))
     -> String
@@ -1078,7 +1078,7 @@ def test_direct_module_sequential_edit_does_not_reuse_loop_carrier_metadata(
         """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.15")
+  (:target-dsl "2.35")
   (defworkflow first () -> String
     (let* ((state (loop-state (value String "first"))))
       state.value)))
@@ -1097,7 +1097,7 @@ def test_direct_module_sequential_edit_does_not_reuse_loop_carrier_metadata(
         f"""\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.15")
+  (:target-dsl "2.35")
   (defworkflow second ((state {old_carrier_name})) -> String "second"))
 """,
     )
@@ -1134,7 +1134,7 @@ def _library_only_source(procedure_name: str) -> str:
     return f"""\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.15")
+  (:target-dsl "2.35")
   (defmodule library_only)
   (export {procedure_name})
   (defproc {procedure_name}
@@ -1150,7 +1150,7 @@ def _multi_export_application_source() -> str:
     return """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.15")
+  (:target-dsl "2.35")
   (defmodule multi_export)
   (export first selected)
   (defworkflow first () -> String "first")

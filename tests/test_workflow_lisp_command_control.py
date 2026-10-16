@@ -89,11 +89,15 @@ def test_untyped_binding_keeps_existing_lexical_type_fact(monkeypatch):
 
 
 @pytest.mark.parametrize("expr", [_literal(True), NameExpr(name="pure", span=SPAN, form_path=())])
-def test_typed_pure_values_have_an_explicit_noncontrol_rule(expr):
+def test_typed_pure_values_have_an_explicit_noncontrol_rule(tmp_path, expr):
     from orchestrator.workflow_lisp.type_env import PrimitiveTypeRef
-    from orchestrator.workflow_lisp.closed.command_templates import expression_control_summary
+    from orchestrator.workflow_lisp.closed.command_templates import ControlFacts, expression_control_summary
+    from tests.test_workflow_lisp_command_scopes import _compile
 
-    assert not expression_control_summary(expr, result_type=PrimitiveTypeRef(name="Bool"), facts=None, local_values={})
+    _, inputs, facts = _compile(tmp_path, "(let* ((pure true)) pure)", returns="Bool")
+    typed = ControlFacts(**facts, workflow_return_types=inputs["workflow_return_types"],
+        procedure_return_types=inputs["procedure_return_types"])
+    assert not expression_control_summary(expr, result_type=PrimitiveTypeRef(name="Bool"), facts=typed, local_values={})
 
 
 
@@ -107,7 +111,7 @@ def test_selected_inline_helper_uses_its_real_lexical_types(tmp_path, monkeypatc
         f'(let* ((shadow {caller_value}) (hook (bind-proc (proc-ref helper) :fixed true))) (hook 1))',
         declarations='(defproc helper ((fixed Bool) (n Int)) -> Result :effects ((uses-command echo)) :lowering inline '
         '(let* ((shadow true) (r (command-result echo :argv ("python" "probe.py" fixed n) :returns Result))) r))')
-    typed = summary.ControlFacts(**facts, closed_program=True,
+    typed = summary.ControlFacts(**facts,
         workflow_return_types=inputs["workflow_return_types"], procedure_return_types=inputs["procedure_return_types"])
     observed = []
     original = summary._closed_binding_type
@@ -135,30 +139,31 @@ def _compile_imported_helper_snapshot(tmp_path, reference, provider):
     leaf_path = tmp_path / "leaf.orc"
     (tmp_path / "prompt.md").write_text("Return the requested Leaf record.")
     leaf_body = '(provider-result providers.execute :prompt prompts.execute :inputs () :returns Leaf)' if provider else '(record Leaf :n 7)'
-    leaf_path.write_text('(workflow-lisp (:language "0.1") (:target-dsl "2.32") '
+    leaf_path.write_text('(workflow-lisp (:language "0.1") (:target-dsl "2.35") '
         '(defmodule leaf) (export get) (defrecord Leaf (n Int)) '
         f'(defworkflow get () -> Leaf {leaf_body}))')
     leaf = compile_stage3_entrypoint(leaf_path, source_roots=(tmp_path,), workspace_root=tmp_path,
         provider_externs={"providers.execute": "selected-provider"},
         prompt_externs={"prompts.execute": "prompt.md"},
-        lowering_route="legacy", validate_shared=True).entry_result.typed_program
+         validate_shared=True).entry_result.typed_program
     leaf = replace(leaf, entry=leaf.workflows["leaf::get"])
     owner_path = tmp_path / "owner.orc"
-    owner_path.write_text('(workflow-lisp (:language "0.1") (:target-dsl "2.32") '
+    owner_path.write_text('(workflow-lisp (:language "0.1") (:target-dsl "2.35") '
         '(defmodule owner) (export get) (defrecord Leaf (n Int)) (defrecord Result (i Int) (s String)) '
         '(defproc helper () -> Result :effects ((calls-workflow dep)) :lowering inline '
         '(let* ((r (call dep)) (shadow true)) (record Result :i r.n :s "owner"))) '
         '(defworkflow get () -> Result (helper)))')
     if reference:
         owner_path.write_text(owner_path.read_text().replace("(let* ((r (call dep))", "(let* ((ref (workflow-ref dep)) (r (call dep))"))
-        owner_path.write_text(owner_path.read_text().replace('"2.32"', '"2.35"'))
         snapshot = compile_typed_program(owner_path, entry_workflow="get", source_roots=(tmp_path,),
             workspace_root=tmp_path, command_boundaries={}, imported_programs={"dep": leaf})
     else:
         owner = compile_stage3_entrypoint(owner_path, source_roots=(tmp_path,), workspace_root=tmp_path,
-            imported_programs={"dep": leaf}, lowering_route="legacy", validate_shared=True)
+            imported_programs={"dep": leaf},  validate_shared=True)
         snapshot = owner.entry_result.typed_program
-    snapshot = replace(snapshot, entry=snapshot.workflows["owner::get"])
+    assert snapshot.producer_lowering_schema == 2
+    snapshot = replace(snapshot, entry=snapshot.workflows["owner::get"],
+        producer_lowering_schema=2 if reference else 1)
     leaf_path.unlink()
     owner_path.unlink()
     return leaf, snapshot
@@ -186,7 +191,7 @@ def _imported_snapshot_control_facts(caller, builder, summary):
                 **caller.module_workflow_signatures[caller.entry_module]},
             definitions_by_name={name: item.definition for name, item in caller.workflows.items()}, imported_bundles_by_name={}),
         workflows_by_name=caller.workflows, procedure_type_envs=caller.procedure_type_envs,
-        workflow_name=entry.definition.name, closed_program=True,
+        workflow_name=entry.definition.name,
         procedure_catalog=ProcedureCatalog(signatures_by_name={name: item.signature for name, item in caller.procedures.items()},
             definitions_by_name={name: item.definition for name, item in caller.procedures.items()}, call_graph={}),
         workflow_return_types=builder._workflow_return_types_for(caller, entry.definition.name),

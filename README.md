@@ -93,8 +93,13 @@ the same source runs against different agents.
 Branching and loops are typed the same way: a reviewer that may approve or
 request changes returns a tagged union, `match` must cover every variant, and
 a loop is bounded with a typed exhaustion outcome. The bundled `std/improve`
-helper packages that review-and-revise loop; see
-[`workflows/examples/improve_experiment_proposal.orc`](workflows/examples/improve_experiment_proposal.orc).
+helper packages that review-and-revise loop; see the maintained target-2.39
+[`workflows/examples/improve_experiment_proposal.orc`](workflows/examples/improve_experiment_proposal.orc)
+and its [complete recipe](docs/lisp_library_reference.md#target-239-local-hooks).
+At 2.39 procedure effects are inferred by default; optional restrictions remain
+checked, and reusable procedures compose inline without an authored lowering
+strategy. The [authoring guide](docs/lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239)
+explains the version boundary.
 
 ## What is checked, and where
 
@@ -103,7 +108,7 @@ helper packages that review-and-revise loop; see
 | The shape of an agent's result | Declared record or union type, rendered as the output contract and validated on return | compile time for the declaration; run time, before any consumer sees the value |
 | Routing on an outcome | Tagged unions; exhaustive `match`; variant fields unreachable without proof | compile time, with a runtime guard in the lowered program |
 | What a procedure may do | Declared or inferred effects: providers used, commands run, paths written; imported procedures carry theirs | compile time |
-| What a shell command may run and read | A command boundary manifest with a closure declaration; nothing undeclared runs | compile time, enforced at run time from target 2.35 |
+| Identity of a command's declared dependencies | A closure declaration binds the bytes of declared implementation files; it does not restrict access to undeclared files or OS resources | declaration checked at compile time; byte evidence checked at run/resume from target 2.35 |
 | Where artifacts may live | Path types with a root and an existence requirement | compile time, and at run time when a result carrying the path is validated |
 | Termination | Bounded loops with a typed exhaustion outcome; no recursion; no first-class procedures | compile time |
 | Pure computation | A closed operator set whose failures are refusals rather than exceptions; compile-time folding must agree with the runtime evaluator on shared golden vectors | both |
@@ -132,7 +137,7 @@ Nothing routes on them.
 - **The compiled artifact is a closed program.** Loops are bounded, there are
   no runtime closures, and the effect vocabulary is fixed, so every effect site
   and its contract is known before a run starts.
-- **Evaluated execution** (targets 2.35 to 2.38): values are computed in a
+- **Evaluated execution** (targets 2.35 to 2.39): values are computed in a
   lexical environment and have no stored copy. An effect is identified by its
   site and the path of activations that reached it, and nothing else. An
   effect runs only when the memo holds no committed result for that identity.
@@ -169,12 +174,18 @@ and the normative [spec index](specs/index.md).
 | | |
 | --- | --- |
 | First commit | 2025-09-14 |
-| Commits on `main` | about 3,200 |
-| Python in `orchestrator/` | about 260k lines |
-| Tests collected | about 16,100 |
+| Commits through the measured snapshot | 3,199 |
+| Python in `orchestrator/` | 226,951 code lines; 257,091 total lines in 443 files |
+| Test source | 572 test modules; 8,328 test function definitions |
 | Core contract versions | DSL v1.1 through v2.38, each with a normative spec and migration rules |
 | Agent CLIs driven | Codex, Claude Code, Gemini CLI, oh-my-pi |
 | Runtime dependencies | `jsonschema`, `PyYAML`; Python 3.11+ and `bash` |
+
+Counts are pinned to `6005b5c1` (2026-10-15), using committed files.
+Python counts use `scc` 4.1.0 with `--no-config --no-gitignore --no-ignore
+--include-ext py`, including the demo package. Test counts use
+`tests/**/test_*.py` and its `test_*` function/async-function definitions;
+they are source counts, not collected parametrized cases or coverage.
 
 Much of the compiler and runtime was built by agent runs driven by this
 runtime: design, plan, implement, and review loops whose plans, reviews, and
@@ -267,6 +278,9 @@ anything. A target the release no longer executes is refused at its header
 with `workflow_execution_target_retired`; check out the release that executes
 it (`git checkout v0.1.0`) and reinstall. Retiring a target bumps the minor
 version, and the previous release stays tagged.
+Current source compilation, typed imports and REPL/LSP analysis also require
+every module to target 2.35 or newer. Old source and saved run data remain
+historical evidence; report/dashboard readers do not restore old compilation.
 [`specs/versioning.md`](specs/versioning.md#version-gating-summary) records
 what each target admits.
 

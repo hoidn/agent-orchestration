@@ -7,10 +7,10 @@ section 2.1); docs/design/workflow_lisp_pure_call_composition.md (a selected
 body is normalized under its defining-module environment before it is
 transplanted).
 
-At target 2.33 a procedure with no effects is inlined with the types its own
+At the current target a procedure with no effects is inlined with the types its own
 module resolves: an applied generic union over its own type parameter, a
 union joined with a sibling generic call, and a type its caller cannot see.
-Targets 2.30 to 2.32 keep their behaviour. Program tests use the public run
+Program tests use the public run
 entry and command-backed effects. Owner checks cover two carried-type cases
 not reached by the public programs tried here.
 """
@@ -82,7 +82,7 @@ CALLS = {
 
 def _install(root: Path, body: str, *, imported: bool, probes: dict[str, Path] | None = None) -> dict[str, Path]:
     entry = (
-        HEADER.replace('"2.33"', '"2.35"')
+        HEADER
         + "  (defmodule grt/entry)\n"
         + ("  (import grt/lib :only (Outcome lift check))\n" if imported else "")
         + "  (export run)\n  (defrecord Cand (title String))\n"
@@ -134,34 +134,6 @@ def test_caller_matches_the_returned_union_with_effectful_arms(
     )
 
 
-@pytest.mark.parametrize("imported", [False, True], ids=["own-module", "imported"])
-@pytest.mark.parametrize("case", sorted(CALLS))
-def test_retargeted_to_2_32_the_program_is_rejected_at_the_generic_union(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-    imported: bool,
-    case: str,
-) -> None:
-    """Control: generic unions start at 2.33, so older targets never reach this inlining."""
-
-    files = _install(tmp_path, _program(CALLS[case][0]), imported=imported)
-    for source in (tmp_path / "grt").glob("*.orc"):
-        source.write_text(source.read_text(encoding="utf-8").replace('"2.33"', '"2.32"').replace('"2.35"', '"2.32"'), encoding="utf-8")
-    monkeypatch.chdir(tmp_path)
-
-    with pytest.raises(LispFrontendCompileError) as caught:
-        compile_stage3_entrypoint(tmp_path / "grt" / "entry.orc", source_roots=(tmp_path,), workspace_root=tmp_path)
-    message = str(caught.value)
-
-    declaring = "lib.orc" if imported else "entry.orc"
-    assert (caught.value.diagnostics[0].code, f"grt/{declaring}:" in message, "[generic_union_requires_dsl_2_33]" in message) == (
-        "generic_union_requires_dsl_2_33",
-        True,
-        True,
-    )
-
-
 # The review's join program: the caller imports `choose` but not `lift`, and
 # `choose` joins a call to `lift` with its own constructor of the same union.
 JOIN_LIB = HEADER + """  (defmodule grt/lib)
@@ -197,7 +169,7 @@ JOIN_ENTRY = HEADER + """  (defmodule grt/entry)
 def test_imported_generic_body_joins_a_sibling_call_with_its_own_constructor(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flag: str, expected: dict[str, str]
 ) -> None:
-    _write_sources(tmp_path, {"grt/lib.orc": JOIN_LIB, "grt/entry.orc": JOIN_ENTRY.replace("FLAG", flag).replace('"2.33"', '"2.35"')})
+    _write_sources(tmp_path, {"grt/lib.orc": JOIN_LIB, "grt/entry.orc": JOIN_ENTRY.replace("FLAG", flag)})
     files = _public_run_files(tmp_path, {})
     monkeypatch.chdir(tmp_path)
 
@@ -246,9 +218,9 @@ HIDDEN_ENTRIES = {
 }
 
 
-def _install_hidden(root: Path, case: str, target: str) -> dict[str, Path]:
-    header = HEADER.replace('"2.33"', f'"{target}"')
-    _write_sources(root, {"grt/lib.orc": header + HIDDEN_LIBS[case], "grt/entry.orc": (header.replace('"2.33"', '"2.35"') if target == "2.33" else header) + HIDDEN_ENTRIES[case]})
+def _install_hidden(root: Path, case: str) -> dict[str, Path]:
+    header = HEADER
+    _write_sources(root, {"grt/lib.orc": header + HIDDEN_LIBS[case], "grt/entry.orc": header + HIDDEN_ENTRIES[case]})
     return _public_run_files(root, {})
 
 
@@ -263,54 +235,12 @@ def _install_hidden(root: Path, case: str, target: str) -> dict[str, Path]:
 def test_inlined_body_constructs_a_type_its_caller_cannot_see(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str, expected: dict[str, str]
 ) -> None:
-    files = _install_hidden(tmp_path, case, "2.33")
+    files = _install_hidden(tmp_path, case)
     monkeypatch.chdir(tmp_path)
 
     result = _public_run(files)
 
     assert (result.exit_code, dict(result.workflow_outputs or {})) == (0, expected)
-
-
-@pytest.mark.parametrize("target", ["2.30", "2.32"])
-def test_before_2_33_the_hidden_type_stays_unknown_in_the_caller(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, target: str
-) -> None:
-    """Control for the 2.33 gate: older targets keep the diagnostic they give at `5c88cd2d`."""
-
-    files = _install_hidden(tmp_path, "non-generic", target)
-    monkeypatch.chdir(tmp_path)
-
-    with pytest.raises(LispFrontendCompileError) as caught:
-        compile_stage3_entrypoint(tmp_path / "grt" / "entry.orc", source_roots=(tmp_path,), workspace_root=tmp_path)
-    message = str(caught.value)
-
-    assert caught.value.diagnostics[0].code == "type_unknown"
-    assert "unknown type `Secret`" in message
-
-
-# At 2.32 the module record `T` is what `(record T ...)` names inside a
-# procedure whose type parameter is also `T`; from 2.33 the parameter shadows it.
-SHADOW_ENTRY = """  (defmodule grt/entry)
-  (export run)
-  (defrecord T (name String))
-  (defrecord Candidate (name String))
-  (defrecord Wrap (value T))
-  (defproc make :forall (T) ((x T)) -> Wrap :effects () :lowering inline
-    (record Wrap :value (record T :name "module")))
-  (defworkflow run () -> Wrap (make (record Candidate :name "c")))
-)
-"""
-
-
-def test_at_2_32_a_type_parameter_does_not_shadow_a_module_record_in_an_inlined_body(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _write_sources(tmp_path, {"grt/entry.orc": HEADER.replace('"2.33"', '"2.32"') + SHADOW_ENTRY})
-    result = compile_stage3_entrypoint(tmp_path / "grt" / "entry.orc", source_roots=(tmp_path,), workspace_root=tmp_path)
-    procedure = next(row for row in result.entry_result.typed_procedures if row.specialization is not None)
-    assert procedure.signature.return_type_ref.name.endswith("Wrap")
-    assert procedure.typed_body.type_ref.field_types["value"].name == "T"
-
 
 
 # `make` builds the hidden `Private` inside the visible `Outer`. The public
@@ -371,7 +301,7 @@ LOOP_ENTRY = """  (defmodule grt/entry)
 def test_imported_loop_programs_return_private_record_values(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, lib: str, entry: str, expected: dict[str, object]
 ) -> None:
-    _write_sources(tmp_path, {"grt/lib.orc": HEADER + lib, "grt/entry.orc": HEADER.replace('"2.33"', '"2.35"') + entry})
+    _write_sources(tmp_path, {"grt/lib.orc": HEADER + lib, "grt/entry.orc": HEADER + entry})
     files = _public_run_files(tmp_path, {})
     monkeypatch.chdir(tmp_path)
 
@@ -402,7 +332,7 @@ TWO_SPECIALIZATIONS = """  (defmodule grt/entry)
 def test_two_specialized_workflows_return_their_values(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ok: str, expected: tuple[str, str]
 ) -> None:
-    _write_sources(tmp_path, {"grt/entry.orc": HEADER.replace('"2.33"', '"2.35"') + TWO_SPECIALIZATIONS})
+    _write_sources(tmp_path, {"grt/entry.orc": HEADER + TWO_SPECIALIZATIONS})
     files = _public_run_files(tmp_path, {})
     (tmp_path / "inputs.json").write_text(f'{{"ok": {ok}}}', encoding="utf-8")
     monkeypatch.chdir(tmp_path)
@@ -437,7 +367,6 @@ def test_equal_source_constructors_with_different_carried_types_are_distinct_key
     assert first != second
     assert len(values) == 2
     assert (values[first], values[second]) == ("first", "second")
-
 
 
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint

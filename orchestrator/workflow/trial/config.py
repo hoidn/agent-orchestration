@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 TRIAL_STATIC_CONFIG_SCHEMA = "trial_static_config.v1"
 TRIAL_RESULT_CONTRACT_SCHEMA = "workflow_lisp.trial_result_contract.v1"
-_DEFAULT_TARGET_DSL_VERSION = "2.25"
+_DEFAULT_TARGET_DSL_VERSION = "2.35"
 _LOWERING_ROUTE = "wcc_m4"
 _LOWERING_SCHEMA_VERSION = 2
 _SHA256_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -47,14 +47,10 @@ _OBSERVATION_INCLUDES = frozenset(
 def _supports_trial(target_dsl_version: str) -> bool:
     """Return whether one currently admitted target enables static trials."""
 
-    from orchestrator.workflow_lisp.syntax import (
-        SUPPORTED_TARGET_DSL_VERSIONS,
-        target_dsl_supports_trial,
-    )
+    from orchestrator.workflow_lisp.syntax import SUPPORTED_TARGET_DSL_VERSIONS
 
     return (
         target_dsl_version in SUPPORTED_TARGET_DSL_VERSIONS
-        and target_dsl_supports_trial(target_dsl_version)
     )
 
 
@@ -252,7 +248,7 @@ class TrialArmStaticConfig:
             raise ValueError("trial arm id must be a non-empty string")
         validate_run_ref_static_config_authority(self.run_ref)
         if not _supports_trial(self.run_ref.target_dsl_version):
-            raise ValueError("trial arm run-ref must target DSL 2.25 or later")
+            raise ValueError("trial arm run-ref must use a supported target DSL version with trial enabled")
 
     @property
     def record(self) -> dict[str, Any]:
@@ -323,7 +319,7 @@ def build_trial_static_config(
     """Build one exact static trial configuration and component identities."""
 
     if not _supports_trial(target_dsl_version):
-        raise ValueError("trial static config requires target DSL 2.25 or later")
+        raise ValueError("trial static config requires a supported target DSL version with trial enabled")
     if (
         not isinstance(compiler_runtime_identity_digest, str)
         or _SHA256_RE.fullmatch(compiler_runtime_identity_digest) is None

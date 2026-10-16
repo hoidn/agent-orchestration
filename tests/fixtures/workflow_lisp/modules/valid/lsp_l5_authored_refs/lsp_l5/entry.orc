@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.20")
+  (:target-dsl "2.35")
   (defmodule lsp_l5/entry)
   (import lsp_l5/definitions :as defs
     :only (WorkReport SharedResult shared))

@@ -16,7 +16,7 @@ from orchestrator.workflow_lisp.phase_stdlib import (
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.workflows import CertifiedAdapterBinding
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
-from orchestrator.workflow_lisp.wcc.route import LoweringRoute
+
 from orchestrator.workflow_lisp.workflow_refs import collision_specialization_name, specialization_name, workflow_ref_binding_identity
 
 
@@ -187,12 +187,12 @@ def test_workflow_ref_specialization_through_owner_seam_compiles_and_validates(t
         command_boundaries=_workflow_ref_command_boundaries(),
         validate_shared=True,
         workspace_root=tmp_path,
-        lowering_route=LoweringRoute.LEGACY,
+
     )
 
 
     assert any(
-        procedure.definition.name == "invoke-runner__spec__runner__echo_helper"
+        procedure.definition.name == "entry::invoke-runner__spec__runner__entry__echo_helper"
         for procedure in result.typed_procedures
     )
 
@@ -212,7 +212,7 @@ def test_stage3_materializes_combined_workflow_and_proc_ref_specialization(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath WorkReport :kind relpath :under \"artifacts/work\" :must-exist true)",
                 "  (defrecord WorkflowInput (report WorkReport))",
                 "  (defrecord WorkflowOutput (report WorkReport))",
@@ -244,7 +244,7 @@ def test_stage3_materializes_combined_workflow_and_proc_ref_specialization(
         command_boundaries=_workflow_ref_command_boundaries(),
         validate_shared=False,
         workspace_root=tmp_path,
-        lowering_route=LoweringRoute.LEGACY,
+
     )
 
     combined = next(
@@ -270,7 +270,7 @@ def test_linked_stage3_materializes_imported_workflow_ref_procedure_specializati
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule demo/types)",
                 "  (export WorkReport WorkflowInput WorkflowOutput)",
                 "  (defpath WorkReport :kind relpath :under \"artifacts/work\" :must-exist true)",
@@ -285,7 +285,7 @@ def test_linked_stage3_materializes_imported_workflow_ref_procedure_specializati
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule demo/procedures)",
                 "  (import demo/types :only (WorkflowInput WorkflowOutput))",
                 "  (export invoke-runner)",
@@ -304,7 +304,7 @@ def test_linked_stage3_materializes_imported_workflow_ref_procedure_specializati
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule demo/entry)",
                 "  (import demo/types :only (WorkflowInput WorkflowOutput))",
                 "  (import demo/procedures :only (invoke-runner))",
@@ -325,7 +325,7 @@ def test_linked_stage3_materializes_imported_workflow_ref_procedure_specializati
         source_roots=(source_root,),
         validate_shared=False,
         workspace_root=tmp_path,
-        lowering_route=LoweringRoute.LEGACY,
+
     )
 
     specialized = next(
@@ -348,7 +348,7 @@ def _write_workflow_ref_key_collision(tmp_path: Path) -> Path:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord WorkflowInput (label String))",
                 "  (defrecord WorkflowOutput (label String))",
                 "  (defworkflow echo-helper",
@@ -417,7 +417,7 @@ def test_stage3_disambiguates_colliding_workflow_ref_specialization_keys(
         path,
         validate_shared=False,
         workspace_root=tmp_path,
-        lowering_route=LoweringRoute.LEGACY,
+
     )
 
     specializations = [
@@ -431,7 +431,7 @@ def test_stage3_disambiguates_colliding_workflow_ref_specialization_keys(
     assert {
         next(iter(procedure.specialization.workflow_ref_bindings.values())).workflow_name
         for procedure in specializations
-    } == {"echo-helper", "echo_helper"}
+    } == {'entry::echo-helper', 'entry::echo_helper'}
 
 
 def test_stage3_fails_closed_if_collision_disambiguator_reuses_a_key(
@@ -449,7 +449,7 @@ def test_stage3_fails_closed_if_collision_disambiguator_reuses_a_key(
             path,
             validate_shared=False,
             workspace_root=tmp_path,
-            lowering_route=LoweringRoute.LEGACY,
+
         )
 
     assert excinfo.value.diagnostics[0].code == "procedure_specialization_key_collision"
@@ -471,7 +471,7 @@ def test_linked_stage3_disambiguates_colliding_canonical_workflow_ref_targets(
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.14")',
+                    '  (:target-dsl "2.35")',
                     f"  (defmodule {module_name})",
                     "  (import demo/types :only (WorkflowInput WorkflowOutput))",
                     f"  (export {workflow_name})",
@@ -488,7 +488,7 @@ def test_linked_stage3_disambiguates_colliding_canonical_workflow_ref_targets(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule demo/types)",
                 "  (export WorkflowInput WorkflowOutput)",
                 "  (defrecord WorkflowInput (label String))",
@@ -502,7 +502,7 @@ def test_linked_stage3_disambiguates_colliding_canonical_workflow_ref_targets(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule demo/procedures)",
                 "  (import demo/types :only (WorkflowInput WorkflowOutput))",
                 "  (export invoke-runner)",
@@ -521,7 +521,7 @@ def test_linked_stage3_disambiguates_colliding_canonical_workflow_ref_targets(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule demo/entry)",
                 "  (import demo/types :only (WorkflowInput WorkflowOutput))",
                 "  (import demo/procedures :only (invoke-runner))",
@@ -544,7 +544,7 @@ def test_linked_stage3_disambiguates_colliding_canonical_workflow_ref_targets(
         source_roots=(source_root,),
         validate_shared=False,
         workspace_root=tmp_path,
-        lowering_route=LoweringRoute.LEGACY,
+
     )
 
     specializations = [
@@ -572,7 +572,7 @@ def test_workflow_ref_imported_module_resolution_compiles_and_validates(tmp_path
         command_boundaries=_workflow_ref_command_boundaries(),
         validate_shared=True,
         workspace_root=tmp_path,
-        lowering_route=LoweringRoute.LEGACY,
+
     )
 
     assert "workflow_refs/imported_helper::echo-helper" in result.entry_result.workflow_catalog.signatures_by_name
@@ -587,7 +587,7 @@ def test_workflow_ref_top_level_param_is_allowed_but_nested_return_transport_is_
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord WorkflowInput",
                 "    (report String))",
                 "  (defrecord WorkflowOutput",
@@ -615,7 +615,7 @@ def test_workflow_ref_top_level_param_is_allowed_but_nested_return_transport_is_
             path,
             validate_shared=False,
             workspace_root=tmp_path,
-            lowering_route=LoweringRoute.LEGACY,
+
         )
 
     _assert_diagnostic_code(excinfo, "workflow_ref_runtime_transport_forbidden")
@@ -642,7 +642,7 @@ def test_workflow_ref_invalid_contracts_raise_targeted_diagnostics(
             command_boundaries=_command_boundaries(),
             validate_shared=False,
             workspace_root=tmp_path,
-            lowering_route=LoweringRoute.LEGACY,
+
         )
 
     _assert_diagnostic_code(excinfo, expected_code)

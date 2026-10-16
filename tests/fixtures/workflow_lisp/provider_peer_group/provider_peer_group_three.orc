@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.17")
+  (:target-dsl "2.35")
   (defmodule provider_peer_group_three)
   (export orchestrate)
   (defrecord TeamResult

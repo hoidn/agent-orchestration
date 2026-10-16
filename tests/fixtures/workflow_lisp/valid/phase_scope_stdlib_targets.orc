@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule phase_scope_stdlib_targets)
   ; Stdlib-route fixture paired with the intrinsic `with-phase` vector in
   ; tests/test_workflow_lisp_phase_stdlib.py.

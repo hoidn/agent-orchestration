@@ -124,7 +124,7 @@ from .workflows import (
     ProviderExtern,
     Stage3CompileResult,
 )
-from .wcc import DEFAULT_LOWERING_ROUTE, LoweringRoute
+
 
 __all__ = [
     "CallExpr",
@@ -239,6 +239,4 @@ __all__ = [
     "render_diagnostics",
     "run_validation_pipeline",
     "typecheck_expression",
-    "DEFAULT_LOWERING_ROUTE",
-    "LoweringRoute",
 ]

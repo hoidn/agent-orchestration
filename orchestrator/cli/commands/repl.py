@@ -30,8 +30,13 @@ from orchestrator.workflow_lisp.diagnostics import (
     LispFrontendCompileError,
     render_diagnostic,
 )
-from orchestrator.workflow_lisp.reader import SourceReadTrace, read_sexpr_text
-from orchestrator.workflow_lisp.effects import render_effect_set
+from orchestrator.workflow_lisp.reader import (
+    SourceReadTrace,
+    read_sexpr_file,
+    read_sexpr_text,
+)
+from orchestrator.workflow_lisp.effects import render_effect_set, unresolved_effect_calls
+from orchestrator.workflow_lisp.syntax import target_dsl_supports_effect_ceilings
 from orchestrator.workflow_lisp.repl_inspect import (
     COVERAGE, EXCLUSIONS, browse_module, inspect_name, source_name,
 )
@@ -116,11 +121,29 @@ def _load_module(
     args: Any,
 ) -> None:
     from orchestrator.cli.commands.evaluated import _request
+    from orchestrator.workflow_lisp.build_manifest_io import _resolve_request
+    from orchestrator.workflow_lisp.syntax import build_syntax_module
 
     source_path = resolve_path_preserving_fd(args.workflow)
+    request = _resolve_request(_request(args, source_path, session.workspace))
+    source_path = request.source_path
     trace = SourceReadTrace()
+    try:
+        build_syntax_module(read_sexpr_file(source_path, source_read_trace=trace))
+    except LispFrontendCompileError as exc:
+        if (
+            session.module is not None
+            and session.module.source_path == source_path
+            and any(
+                diagnostic.code == "target_dsl_unsupported"
+                for diagnostic in exc.diagnostics
+            )
+        ):
+            session.module = None
+            session.captured = None
+        raise
     built: ClosedProgramBuildResult = build_closed_program_bundle(
-        _request(args, source_path, session.workspace),
+        request,
         source_read_trace=trace,
     )
     module = LoadedModule(
@@ -321,7 +344,11 @@ def _dispatch(session: ReplSession, line: str) -> bool:
         elif command == ":type":
             typed, _, _ = typecheck_repl_expression(remainder, session.module, session.captured)
             print(f"type: {render_type_ref(typed.type_ref)}")
-            print(f"effects: {render_effect_set(typed.effect_summary.transitive_effects)}")
+            pending = unresolved_effect_calls(typed.effect_summary, session.module.typed_program.procedures)
+            if target_dsl_supports_effect_ceilings(session.module.typed_program.target) and pending:
+                print(f"effects: incomplete ({', '.join(pending)}); known {render_effect_set(typed.effect_summary.transitive_effects)}")
+            else:
+                print(f"effects: {render_effect_set(typed.effect_summary.transitive_effects)}")
         else:
             try:
                 parsed = read_sexpr_text(remainder, source_path="<repl-command>")

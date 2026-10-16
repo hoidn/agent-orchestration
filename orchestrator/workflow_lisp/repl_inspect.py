@@ -7,6 +7,8 @@ import hashlib
 
 from .diagnostics import LispFrontendCompileError
 from .effects import render_effect_set
+from .procedures import procedure_effect_inspection
+from .syntax import target_dsl_supports_effect_ceilings
 from .repl_expr import LoadedModule, ReplRefusal
 from .syntax import SyntaxList, syntax_resolved_name, syntax_node_datum
 from .type_env import (
@@ -161,7 +163,7 @@ def _heading(module, row):
     return f"{row.kind}: {', '.join(row.names)}\nmodule: {row.module_name or 'builtin'}\nsource: {location}"
 
 
-def _contract_lines(row):
+def _contract_lines(row, known_procedures=()):
     value = row.contract
     if row.kind in {"record", "builtin"} and isinstance(value, RecordTypeRef):
         return [f"{name}: {render_type_ref(ref)}" for name, ref in value.field_types.items()]
@@ -184,7 +186,12 @@ def _contract_lines(row):
         effect = getattr(typed, "transitive_effect_summary", None) or getattr(typed, "effect_summary", None)
         if effect is None and row.kind == "function" and typed is not None:
             effect = typed.typed_body.effect_summary
-        lines.append(f"effects: {render_effect_set(effect.transitive_effects) if effect is not None else 'unavailable'}")
+        if row.kind == "procedure" and typed is not None and target_dsl_supports_effect_ceilings(
+            typed.definition.effect_contract_target or ""
+        ):
+            lines.extend(procedure_effect_inspection(typed, known_procedures))
+        else:
+            lines.append(f"effects: {render_effect_set(effect.transitive_effects) if effect is not None else 'unavailable'}")
         return lines
     if row.kind == "prompt":
         lines = []
@@ -197,7 +204,7 @@ def _contract_lines(row):
 
 
 def inspect_name(module: LoadedModule, name: str) -> str:
-    return "\n\n".join(_heading(module, row) + "\n" + "\n".join(_contract_lines(row)) for row in _matches(module, name))
+    return "\n\n".join(_heading(module, row) + "\n" + "\n".join(_contract_lines(row, module.typed_program.procedures)) for row in _matches(module, name))
 
 
 def browse_module(module: LoadedModule) -> str:

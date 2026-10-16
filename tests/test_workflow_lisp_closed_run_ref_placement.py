@@ -41,7 +41,7 @@ def _placement_source(root, position, locality, *, twice=False, map_shape="singl
     if locality == "imported":
         imports = '(import placement/helper :only (invoke))'
         sources["placement/helper.orc"] = f'''(workflow-lisp
-          (:language "0.1") (:target-dsl "2.34")
+          (:language "0.1") (:target-dsl "2.35")
           (defmodule placement/helper) (export invoke) {helper})'''
         helper = ""
     elif locality == "direct":
@@ -143,7 +143,7 @@ def test_imported_inline_chain_keeps_inner_loop_effect_cardinality(tmp_path, twi
     projected = f'(let* ((child {_path_form(revision)})) child.value)'
     result = projected if twice else 'state.current'
     helper = tmp_path / "placement" / "helper.orc"
-    helper.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+    helper.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
       (defmodule placement/helper) (export invoke)
       (defproc leaf ((payload String)) -> String :effects ((runs-ref run)) :lowering inline
         (loop/recur :max 1 :state (loop-state (current String {projected}))
@@ -238,7 +238,7 @@ def test_placement_projects_actual_typed_child_result(tmp_path, position):
     repository = tmp_path / "repository-typed"
     result_type = {"budget": "Int", "match": "Choice"}[position]
     child_body = {"budget": "count", "match": '(variant Choice YES :value payload)'}[position]
-    child_source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+    child_source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
       (defmodule placement/child) (export run Choice)
       (defunion Choice (YES (value String)))
       (defworkflow run ((payload String) (count Int :default 1)) -> {result_type}
@@ -358,19 +358,20 @@ def test_closed_permission_keeps_pure_and_shape_refusals(tmp_path, locality, pos
     assert caught.value.diagnostics[0].code == _PURE_REFUSALS[position]
 
 
-def test_closed_entry_keeps_imported_old_if_condition_pure(tmp_path):
+def test_closed_entry_allows_imported_effectful_if_condition(tmp_path):
     source, revision = _placement_source(tmp_path, "body", "imported")
     helper = tmp_path / "placement" / "helper.orc"
-    helper.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.24")
+    helper.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
       (defmodule placement/helper) (export invoke)
       (defproc invoke ((payload String)) -> String :effects ((runs-ref run)) :lowering inline
         (if (let* ((child {_path_form(revision)})) true) payload payload)))''')
-    with pytest.raises(LispFrontendCompileError) as caught:
-        build_closed_program_bundle(FrontendBuildRequest(
-            source_path=source, source_roots=(tmp_path,), workspace_root=tmp_path))
-    diagnostic = caught.value.diagnostics[0]
-    assert diagnostic.code == "run_ref_placement_invalid"
-    assert diagnostic.span.start.path == str(helper)
+    built = build_closed_program_bundle(FrontendBuildRequest(
+        source_path=source, source_roots=(tmp_path,), workspace_root=tmp_path))
+    [(identity, node)] = site_nodes(built.program).items()
+    assert node["class"] == "run_ref"
+    restored = ClosedProgram.from_artifact(built.program.artifact())
+    assert restored.digest == built.program.digest
+    assert restored.sites == built.program.sites
 
 
 @pytest.mark.parametrize("position", ["body", "budget", "seed", "match", "map", "exhaustion"])

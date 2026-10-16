@@ -39,7 +39,7 @@ def _compile_entry_fixture(path: Path, *, source_root: Path, tmp_path: Path, val
         command_boundaries={},
         validate_shared=validate_shared,
         workspace_root=tmp_path,
-        lowering_route=None,
+
     )
 
 
@@ -56,7 +56,7 @@ def _compile_module_fixture(
         command_boundaries=command_boundaries or {},
         validate_shared=True,
         workspace_root=tmp_path,
-        lowering_route=None,
+
     )
 
 
@@ -82,7 +82,7 @@ def _compile_module_fixture_frontend_only(path: Path, *, tmp_path: Path):
         },
         validate_shared=False,
         workspace_root=tmp_path,
-        lowering_route=None,
+
     )
 
 
@@ -251,7 +251,7 @@ def test_cross_module_generic_loop_projects_caller_union_fields(tmp_path: Path) 
         },
         validate_shared=True,
         workspace_root=tmp_path,
-        lowering_route=None,
+
     )
     assert result is not None
 

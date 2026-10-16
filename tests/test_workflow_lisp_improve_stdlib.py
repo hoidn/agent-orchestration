@@ -1,4 +1,4 @@
-"""CF-1b Task 5: the `std/improve` library module (target 2.33).
+"""CF-1b Task 5: the `std/improve` library module (target 2.35).
 
 Contract: docs/design/workflow_lisp_composition_first.md sections 3, 4, 5, 7
 and 10; Review Focus items 1, 2 and 5 of
@@ -23,22 +23,21 @@ from pathlib import Path
 import pytest
 
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
-from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.effects import UsesCommandEffect, UsesProviderEffect
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from tests.workflow_evaluated_totality_helpers import _log, _public_run_files, _write_probe, _write_sources
 from tests.workflow_evaluated_totality_helpers import _public_run
 from tests.test_workflow_lisp_generic_unions_runtime import _compile
-from tests.workflow_lisp_improve_stdlib_sources import BARE_IMPORT_232, REVIEW_PROBE, REVISE_PROBE, SUMMARIZE_PROBE, entry_source, inline_entry_source, provider_revise_entry_source, string_inputs_entry_source, unnamed_union_caller_sources
+from tests.workflow_lisp_improve_stdlib_sources import BARE_IMPORT_235, REVIEW_PROBE, REVISE_PROBE, SUMMARIZE_PROBE, entry_source, inline_entry_source, provider_revise_entry_source, string_inputs_entry_source, unnamed_union_caller_sources
 
 
-def _write_project(root: Path, *, seed: str, limit: int, target: str = "2.33", inline: bool = False) -> dict[str, Path]:
+def _write_project(root: Path, *, seed: str, limit: int, inline: bool = False) -> dict[str, Path]:
     root.mkdir(parents=True, exist_ok=True)
     probes = {
         "probe_review": _write_probe(root, "probe_review", REVIEW_PROBE),
         "probe_revise": _write_probe(root, "probe_revise", REVISE_PROBE),
     }
-    entry = entry_source(seed=seed, limit=limit, probes=probes, target=target)
+    entry = entry_source(seed=seed, limit=limit, probes=probes)
     _write_sources(root, {"grt/entry.orc": inline_entry_source(entry) if inline else entry})
     return probes
 
@@ -51,8 +50,6 @@ def _hook_calls(probes: dict[str, Path]) -> tuple[list[str], list[str]]:
 
 
 
-def _line_of(text: str, needle: str) -> int:
-    return next(number for number, line in enumerate(text.splitlines(), start=1) if needle in line)
 
 
 
@@ -67,33 +64,9 @@ def _line_of(text: str, needle: str) -> int:
 
 
 
-
-
-def test_target_232_caller_that_writes_an_applied_union_type_is_rejected(tmp_path: Path) -> None:
-    """The rejection is for writing `Decision[...]` and `Improvement[...]`, not for calling `improve`
-    (Ruling R8; the positive case is the next test). It names `run`, whose return type is applied."""
-
-    probes = _write_project(tmp_path, seed="approve", limit=3, target="2.32")
-    entry = tmp_path / "grt" / "entry.orc"
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile(tmp_path, probes=probes)
-
-    diagnostic = excinfo.value.diagnostics[0]
-    assert (diagnostic.code, Path(diagnostic.span.start.path), diagnostic.span.start.line) == (
-        "generic_union_requires_dsl_2_33",
-        entry,
-        _line_of(entry.read_text(encoding="utf-8"), "(defworkflow run"),
-    )
-
-
-@pytest.mark.parametrize("target", ["2.28", "2.32"])
-def test_caller_below_233_that_writes_no_applied_union_runs_improve_to_exhaustion(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str
+def test_current_target_imported_improve_caller_runs_to_exhaustion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Ruling R8: target admission is per defining module. The caller imports only `improve`, takes
-    its review hook from a 2.33 module, and binds and matches a result whose type it never names."""
-
     probes = {
         name: _write_probe(tmp_path, name, text)
         for name, text in (
@@ -102,13 +75,23 @@ def test_caller_below_233_that_writes_no_applied_union_runs_improve_to_exhaustio
             ("probe_summarize", SUMMARIZE_PROBE),
         )
     }
-    _write_sources(tmp_path, unnamed_union_caller_sources(seed="draft", limit=2, target=target, probes=probes))
+    _write_sources(
+        tmp_path,
+        unnamed_union_caller_sources(
+            seed="draft", limit=2, probes=probes
+        ),
+    )
     monkeypatch.chdir(tmp_path)
 
-    _admit_current_entry(tmp_path, probes)
+    _compile(tmp_path, probes=probes)
     result = _public_run(_public_run_files(tmp_path, probes))
 
-    assert (result.exit_code, dict(result.workflow_outputs), _hook_calls(probes), _log(probes["probe_summarize"])) == (
+    assert (
+        result.exit_code,
+        dict(result.workflow_outputs),
+        _hook_calls(probes),
+        _log(probes["probe_summarize"]),
+    ) == (
         0,
         {"outcome": "EXHAUSTED", "title": "draft+r+r", "score": 2},
         (["draft tidy", "draft+r tidy"], ["draft tidy fb0", "draft+r tidy fb1"]),
@@ -116,31 +99,23 @@ def test_caller_below_233_that_writes_no_applied_union_runs_improve_to_exhaustio
     )
 
 
-
-
 @pytest.mark.parametrize(
     "use",
     ["(d Decision[Out Out])", "(d Improvement[Out Out Out])"],
     ids=["Decision", "Improvement"],
 )
-def test_target_232_use_of_a_std_improve_union_is_rejected_at_the_use(tmp_path: Path, use: str) -> None:
-    source = BARE_IMPORT_232.replace(
+def test_current_target_accepts_each_std_improve_applied_union_type(
+    tmp_path: Path, use: str
+) -> None:
+    source = BARE_IMPORT_235.replace(
         "  (defworkflow run",
         f"  (defproc pick ({use}) -> Out :effects () :lowering inline (record Out :n 1))\n  (defworkflow run",
     )
-    entry = _write_sources(tmp_path, {"grt/entry.orc": source})
+    _write_sources(tmp_path, {"grt/entry.orc": source})
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile(tmp_path)
+    result = _compile(tmp_path)
 
-    diagnostic = excinfo.value.diagnostics[0]
-    line = _line_of(source, use)
-    assert (diagnostic.code, Path(diagnostic.span.start.path), diagnostic.span.start.line, diagnostic.span.start.column) == (
-        "generic_union_requires_dsl_2_33",
-        entry,
-        line,
-        source.splitlines()[line - 1].index(use) + 1,
-    )
+    assert any(procedure.definition.name.endswith("::pick") for procedure in result.entry_result.typed_procedures)
 
 
 def test_specialized_improve_summary_forwards_the_selected_hooks_effects(tmp_path: Path) -> None:
@@ -160,7 +135,7 @@ def test_specialized_improve_summary_forwards_the_selected_hooks_effects(tmp_pat
         },
         validate_shared=True,
         workspace_root=tmp_path,
-        lowering_route=None,
+
     )
     specialized = next(
         procedure
@@ -183,7 +158,7 @@ def test_public_run_returns_the_improvement_through_the_public_entry(
     probes = _write_project(tmp_path, seed="block", limit=3)
     monkeypatch.chdir(tmp_path)
 
-    _admit_current_entry(tmp_path, probes)
+    _compile(tmp_path, probes=probes)
     result = _public_run(_public_run_files(tmp_path, probes))
 
     assert (result.exit_code, dict(result.workflow_outputs), _hook_calls(probes)) == (
@@ -224,18 +199,10 @@ def test_resume_keeps_a_string_workflow_parameter_as_inputs_and_replays_no_commi
 
 
 
-def _admit_current_entry(root, probes):
-    """Keep the original native source/type proof; admit only the public consumer."""
-    _compile(root, probes=probes)
-    entry = root / "grt" / "entry.orc"
-    import re
-    entry.write_text(re.sub(r'(:target-dsl )"[0-9.]+"', r'\1"2.35"', entry.read_text(), count=1))
-
-
 def _exercise_improve_resume(root, probes, monkeypatch, *, inputs=None, goal="tidy"):
     from tests.workflow_evaluated_totality_helpers import pause_public, checked_run
     from tests.test_workflow_evaluated_resume import _resume_cli, _snapshot
-    _admit_current_entry(root, probes)
+    _compile(root, probes=probes)
     files = _public_run_files(root, probes)
     pause_public(files, monkeypatch, inputs)
     authority, snapshot = checked_run(root)

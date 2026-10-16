@@ -140,7 +140,7 @@ def test_reader_rejects_quoted_phase_target_symbol_with_frontend_parse_error() -
 
 def test_build_syntax_module_requires_workflow_lisp_root() -> None:
     parse_tree = read_sexpr_text(
-        '(not-workflow-lisp (:language "0.1") (:target-dsl "2.14"))',
+        '(not-workflow-lisp (:language "0.1") (:target-dsl "2.35"))',
         source_path="invalid_root.orc",
     )
 
@@ -170,7 +170,7 @@ def test_build_syntax_module_assigns_form_paths_to_top_level_forms() -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord ChecksResult",
                 "    (status String)))",
             ]
@@ -181,14 +181,14 @@ def test_build_syntax_module_assigns_form_paths_to_top_level_forms() -> None:
     module = build_syntax_module(parse_tree)
 
     assert module.language_version == "0.1"
-    assert module.target_dsl_version == "2.14"
+    assert module.target_dsl_version == "2.35"
     assert len(module.forms) == 1
     assert module.forms[0].form_path == ("workflow-lisp", "defrecord", "ChecksResult")
 
 
 def test_build_syntax_module_requires_language_header() -> None:
     parse_tree = read_sexpr_text(
-        '(workflow-lisp (:target-dsl "2.14") (defenum Approval APPROVE))',
+        '(workflow-lisp (:target-dsl "2.35") (defenum Approval APPROVE))',
         source_path="missing_language.orc",
     )
 
@@ -202,7 +202,7 @@ def test_build_syntax_module_requires_language_header() -> None:
 
 def test_build_syntax_module_rejects_unknown_header_keyword() -> None:
     parse_tree = read_sexpr_text(
-        '(workflow-lisp (:language "0.1") (:target-dsl "2.14") (:unknown true))',
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.35") (:unknown true))',
         source_path="unknown_header.orc",
     )
 
@@ -212,3 +212,18 @@ def test_build_syntax_module_rejects_unknown_header_keyword() -> None:
     diagnostic = excinfo.value.diagnostics[0]
     assert diagnostic.code == "frontend_parse_error"
     assert "unknown header keyword `:unknown`" in diagnostic.message
+
+
+def test_build_syntax_module_rejects_unallocated_target_dsl() -> None:
+    parse_tree = read_sexpr_text(
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.40"))',
+        source_path="unallocated_target.orc",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        build_syntax_module(parse_tree)
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "target_dsl_unsupported"
+    assert diagnostic.span.start.path == "unallocated_target.orc"
+    assert diagnostic.span.start.line == 1

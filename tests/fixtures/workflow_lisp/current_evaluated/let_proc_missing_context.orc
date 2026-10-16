@@ -1,0 +1,11 @@
+(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+  (defmodule let_proc_missing_context)
+  (import std/phase :only (with-phase))
+  (export run)
+  (defrecord RunCtx (run-id RunId) (state-root Path.state-root) (artifact-root Path.artifact-root))
+  (defrecord PhaseCtx (run RunCtx) (phase-name Symbol) (state-root Path.state-root) (artifact-root Path.artifact-root))
+  (defworkflow leaf ((phase-ctx PhaseCtx) (input String)) -> String (with-phase phase-ctx plan input))
+  (defworkflow run ((input String)) -> String
+    (let-proc (local ((value String)) -> String :captures ()
+                (call leaf :input value))
+      (let* ((runner (proc-ref local))) (runner input)))))

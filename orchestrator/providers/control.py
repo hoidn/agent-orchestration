@@ -159,6 +159,14 @@ class ProviderExecutionControl:
         with self._condition:
             return self._cancellation_reason
 
+    @property
+    def cancellation_grace_deadline(self) -> float | None:
+        """Expose the latched signal clock without changing cancellation policy."""
+        with self._condition:
+            if self._term_attempted_at is None:
+                return None
+            return self._term_attempted_at + self._cancellation_grace_sec
+
     def classify_stdin_broken_pipe(
         self,
         *,

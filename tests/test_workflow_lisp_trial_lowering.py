@@ -372,20 +372,20 @@ def test_trial_static_config_decoder_rejects_noncanonical_and_forged_bytes(
         decode_trial_static_config(b" " + canonical)
 
 
-def test_trial_static_config_decoder_accepts_matching_target_2_26(
+def test_trial_static_config_decoder_accepts_matching_current_target(
     tmp_path: Path,
 ) -> None:
-    """A canonical 2.26 config with matching arm targets decodes round-trip."""
+    """A canonical current config with matching arm targets decodes round-trip."""
 
-    config = _historical_trial_config(target="2.26")
+    config = _historical_trial_config(target="2.36")
 
-    assert config.target_dsl_version == "2.26"
-    assert all(arm.run_ref.target_dsl_version == "2.26" for arm in config.arms)
+    assert config.target_dsl_version == "2.36"
+    assert all(arm.run_ref.target_dsl_version == "2.36" for arm in config.arms)
 
     canonical = encode_trial_static_config(config)
     decoded = decode_trial_static_config(canonical)
     assert decoded == config
-    assert decoded.target_dsl_version == "2.26"
+    assert decoded.target_dsl_version == "2.36"
     assert encode_trial_static_config(decoded) == canonical
 
 
@@ -414,10 +414,10 @@ def test_trial_static_config_decoder_rejects_mixed_parent_and_arm_targets(
     """The decoder requires the parent target to equal every arm target."""
 
     config = _historical_trial_config()
-    assert config.target_dsl_version == "2.25"
+    assert config.target_dsl_version == "2.35"
 
     forged = deepcopy(config.record)
-    forged["target_dsl_version"] = "2.26"
+    forged["target_dsl_version"] = "2.36"
     forged_bytes = json.dumps(
         forged,
         sort_keys=True,
@@ -479,7 +479,7 @@ def _historical_trial_contract():
     return derive_trial_result_contract(generated.result_type, type_env=env)
 
 
-def _historical_trial_config(*, target="2.25"):
+def _historical_trial_config(*, target="2.35"):
     """Exact shared static authority from literal reader inputs; never compile or execute."""
     from tests.test_workflow_run_ref_config import _config
     from orchestrator.workflow.trial.config import TrialArmStaticConfig, build_trial_static_config
@@ -506,6 +506,6 @@ def _historical_trial_wire_graph():
     from tests.test_workflow_lisp_build_artifacts import _historical_surface_template, _synthetic_surface_bundle
     from orchestrator.workflow.persisted_surface import serialize_persisted_workflow_surface_graph
     step = TrialSurfaceStep("Trial", "trial", SurfaceStepKind.TRIAL, trial=_historical_trial_config())
-    graph = _synthetic_surface_bundle(_historical_surface_template(target="2.25"),
+    graph = _synthetic_surface_bundle(_historical_surface_template(target="2.35"),
         "historical::trial", steps=(step,))
     return serialize_persisted_workflow_surface_graph(graph)

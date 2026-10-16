@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule neurips/entry)
   (import neurips/a :only (SharedTargets))
   (import neurips/b :only (SharedTargets))

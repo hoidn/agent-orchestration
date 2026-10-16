@@ -65,18 +65,11 @@ def _item_sites(machine, body, activation, loops):
 
 
 def _items(machine, node, environment, owner, activation, loops, root):
-    source = machine._value(node['source'], environment, owner, activation, loops)
-    if len(source.value) > node['max']:
-        raise machine._error('list_map_effect_cap_exceeded',
-            f"parallel map length {len(source.value)} exceeds limit {node['max']}", node)
+    source = machine._parallel_source(node, environment, owner, activation, loops)
     items, directories = [], {}
     for index, item in enumerate(source.value):
-        value = coerce_evaluated_value(item, node['item_type'], dependencies=source.dependencies)
-        local = environment.extend(node['binder'], value)
-        if 'index' in node:
-            local = local.extend(node['index'], coerce_evaluated_value(index, {'kind': 'primitive', 'name': 'Int'}))
-        workspace = machine._value(node['workspace'], local, owner, activation, loops)
-        workspace = machine._add_dependencies(workspace, source.dependencies)
+        local, workspace = machine._parallel_item(node, environment, owner, activation, loops,
+            index, item, source)
         directory = effect_inputs.resolve_launch_cwd(root, workspace)
         if directory in directories:
             raise machine._error('parallel_workspace_shared',

@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule nested/implementation-phase)
   (import std/phase :only (BlockerClass ReviewDecision ReviewFindings ReviewReportPath review-revise-loop))
   (defpath WorkReport

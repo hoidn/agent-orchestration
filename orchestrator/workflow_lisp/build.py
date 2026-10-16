@@ -39,7 +39,6 @@ from .compiler_session import CompilerSession
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .lints import LINT_PROFILE_DEFAULT
 from .reader import SourceReadRecord, SourceReadTrace, read_sexpr_file
-from .wcc.route import LoweringRoute, normalize_lowering_route
 
 
 if TYPE_CHECKING:
@@ -65,7 +64,6 @@ class FrontendBuildRequest:
     command_boundaries_path: Path | None = None
     workspace_root: Path | None = None
     lint_profile: str = LINT_PROFILE_DEFAULT
-    lowering_route: LoweringRoute | str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,7 +77,7 @@ class FrontendCompileRequestCapture:
     validation_profile: Stage3ValidationProfile
     boundary_admission_profile: WorkflowBoundaryAdmissionProfile
     lint_profile: str
-    lowering_route: LoweringRoute
+
     provider_externs: Mapping[str, str]
     prompt_externs: Mapping[str, object]
     command_boundaries: Mapping[
@@ -153,7 +151,7 @@ class FrontendInitializationConfiguration:
     prompt_externs_path: Path | None
     command_boundaries_path: Path | None
     imported_workflow_bundles_path: Path | None
-    lowering_route: LoweringRoute
+
     provider_externs: Mapping[str, str]
     prompt_externs: Mapping[str, object]
     command_boundary_manifest: Mapping[str, object]
@@ -189,7 +187,6 @@ def load_frontend_initialization_configuration(
     prompt_externs_path: Path | None = None,
     command_boundaries_path: Path | None = None,
     imported_workflow_bundles_path: Path | None = None,
-    lowering_route: LoweringRoute | str | None = None,
 ) -> FrontendInitializationConfiguration:
     """Load one frontend context without requiring or compiling an entry source."""
 
@@ -213,7 +210,7 @@ def load_frontend_initialization_configuration(
         resolve_path_preserving_fd(imported_workflow_bundles_path)
         if imported_workflow_bundles_path is not None else None
     )
-    normalized_lowering_route = normalize_lowering_route(lowering_route)
+
     source_read_trace = SourceReadTrace()
     configuration_read_trace = ConfigurationReadTrace()
 
@@ -241,7 +238,6 @@ def load_frontend_initialization_configuration(
         provider_externs_path=canonical_provider_path,
         prompt_externs_path=canonical_prompt_path,
         command_boundaries_path=canonical_command_path,
-        lowering_route=normalized_lowering_route,
         source_read_trace=source_read_trace,
         configuration_read_trace=configuration_read_trace,
     )
@@ -253,7 +249,6 @@ def load_frontend_initialization_configuration(
         prompt_externs_path=canonical_prompt_path,
         command_boundaries_path=canonical_command_path,
         imported_workflow_bundles_path=canonical_imported_path,
-        lowering_route=normalized_lowering_route,
         provider_externs=_freeze_configuration_mapping(provider_externs),
         prompt_externs=_freeze_configuration_mapping(prompt_externs),
         command_boundary_manifest=_freeze_configuration_mapping(
@@ -349,9 +344,6 @@ def _capture_frontend_compile_request(
                 )
             ),
             lint_profile=resolved_request.lint_profile,
-            lowering_route=normalize_lowering_route(
-                resolved_request.lowering_route
-            ),
             provider_externs=_freeze_configuration_mapping(provider_externs),
             prompt_externs=_freeze_configuration_mapping(prompt_externs),
             command_boundaries=_freeze_command_boundaries(command_boundaries),
@@ -520,7 +512,6 @@ def _build_frontend_bundle_in_memory(
         provider_externs_path=resolved_request.provider_externs_path,
         prompt_externs_path=resolved_request.prompt_externs_path,
         command_boundaries_path=resolved_request.command_boundaries_path,
-        lowering_route=resolved_request.lowering_route,
         source_read_trace=active_source_read_trace,
         configuration_read_trace=configuration_read_trace,
     )
@@ -591,7 +582,6 @@ def _compile_entry(
         ),
         workspace_root=compile_request_capture.workspace_root,
         lint_profile=compile_request_capture.lint_profile,
-        lowering_route=compile_request_capture.lowering_route,
         source_read_trace=active_source_read_trace,
         compiler_session=compiler_session,
     )
@@ -620,7 +610,6 @@ def load_imported_workflow_bundle_manifest(
     provider_externs_path: Path | None = None,
     prompt_externs_path: Path | None = None,
     command_boundaries_path: Path | None = None,
-    lowering_route: LoweringRoute | str | None = None,
     source_read_trace: SourceReadTrace | None = None,
 ) -> tuple[ImportedWorkflowBundleBinding, ...]:
     """Load imported workflow bundles from one explicit manifest file."""
@@ -632,7 +621,6 @@ def load_imported_workflow_bundle_manifest(
         provider_externs_path=provider_externs_path,
         prompt_externs_path=prompt_externs_path,
         command_boundaries_path=command_boundaries_path,
-        lowering_route=lowering_route,
         source_read_trace=source_read_trace,
         configuration_read_trace=ConfigurationReadTrace(),
     )
@@ -742,7 +730,6 @@ def _load_imported_workflow_bundle_manifest(
     provider_externs_path: Path | None = None,
     prompt_externs_path: Path | None = None,
     command_boundaries_path: Path | None = None,
-    lowering_route: LoweringRoute | str | None = None,
     source_read_trace: SourceReadTrace | None,
     configuration_read_trace: ConfigurationReadTrace,
 ) -> tuple[ImportedWorkflowBundleBinding, ...]:
@@ -789,7 +776,6 @@ def _load_imported_workflow_bundle_manifest(
             prompt_externs=prompt_externs,
             command_boundaries=boundaries,
             workspace_root=workspace_root,
-            lowering_route=lowering_route,
             validate_shared=True,
             source_read_trace=trace,
         )

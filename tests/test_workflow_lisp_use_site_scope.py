@@ -1,8 +1,7 @@
-"""Pure bindings and specialization values keep their creation scope.
+"""Pure bindings and specialization values keep their creation scope at 2.35.
 
-Historical header parameters cover typed frontend analysis before the entry is
-executed at target 2.35. Expected values and command order are fixed lexical
-outcomes. Excluded live-provider forms must refuse before any effect executes.
+Expected values and command order are fixed lexical outcomes. Excluded
+live-provider forms must refuse before any effect executes.
 
 Plan: docs/plans/2026-09-29-workflow-lisp-shared-defect-repairs-plan.md, Task 15.
 """
@@ -16,14 +15,14 @@ import pytest
 
 from tests.workflow_evaluated_totality_helpers import _log, _write_probe, _write_sources
 from tests.workflow_evaluated_totality_helpers import public_run
-from tests.test_workflow_lisp_elaborated_prefixes import _analyze_and_select_evaluated_entry, _scope_files
+from tests.test_workflow_lisp_elaborated_prefixes import _scope_files
 from tests.test_workflow_lisp_hoisted_scope import PROBES, _outputs
 from orchestrator.providers.executor import ProviderExecutor
 
 
 MODULE = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "TARGET")
+  (:target-dsl "2.35")
   (defmodule grt/entry)
   (export run)
   (defrecord Pair (left Int) (right Int))
@@ -60,14 +59,14 @@ MODULE = """(workflow-lisp
 
 def _outcome(
     root: Path, monkeypatch: pytest.MonkeyPatch, body: str, *,
-    returns: str, target: str, declarations: str = "",
+    returns: str, declarations: str = "",
     workflow_params: str = "", inputs: dict[str, object] | None = None,
 ):
     """Run `body` through `run_workflow`; return (exit code, outputs, tick log, choose log)."""
 
     root.mkdir(parents=True, exist_ok=True)
     probes = {name: _write_probe(root, name, text) for name, text in PROBES.items()}
-    source = MODULE.replace("TARGET", target).replace("RETURNS", returns).replace("BODY", body)
+    source = MODULE.replace("RETURNS", returns).replace("BODY", body)
     if declarations:
         source = source.replace("  (defworkflow run", declarations + "\n  (defworkflow run")
     if workflow_params:
@@ -81,25 +80,21 @@ def _outcome(
         input_file = root / "inputs.json"
         input_file.write_text(json.dumps(inputs), encoding="utf-8")
     files = _scope_files(root, probes)
-    _analyze_and_select_evaluated_entry(root)
     result = public_run(files, input_file=input_file)
     return result.exit_code, dict(result.workflow_outputs or {}), _log(probes["tick"]), _log(probes["choose"])
 
 
 LOOP = "(loop/recur :max 3 :state (loop-state (n Int 0)) :on-exhausted 0 (fn (state) BODY))"
 
-# Each shape: (returns, body, lexical value, tick log, choose log, oldest accepting
-# target). `v` reads the outer `b`; a later binder of `b` sits between `v` and its
-# use. The base commit returned the captured value (see the task-15 report).
+# Each shape: (returns, body, lexical value, tick log, choose log). `v` reads the outer `b`; a later binder of `b` sits between `v` and its use.
 USE_SITE_SHAPES = {
-    "rebinding-let": ("Int", "(let* ((b 1) (v (+ b 1))) (let* ((b 5)) v))", 2, [], [], "2.15"),
+    "rebinding-let": ("Int", "(let* ((b 1) (v (+ b 1))) (let* ((b 5)) v))", 2, [], []),
     "record-field": (
         "Pair",
         "(let* ((b 1) (v (+ b 1))) (let* ((b 5)) (record Pair :left v :right b)))",
         (2, 5),
         [],
         [],
-        "2.14",
     ),
     # `b` is bound inside the first field; the second field's `b` is hoisted over it.
     "record-field-binding-inside-the-first-field": (
@@ -108,28 +103,23 @@ USE_SITE_SHAPES = {
         (2, 5),
         [],
         [],
-        "2.14",
     ),
-    "condition": ("Int", "(let* ((b 1) (v (= b 1))) (let* ((b 5)) (if v 10 20)))", 10, [], [], "2.15"),
-    "condition-on-the-value": ("Int", "(let* ((b 1) (v (+ b 1))) (let* ((b 5)) (if (= v 6) 1 0)))", 0, [], [], "2.15"),
-    "if-branch": ("Int", "(let* ((b 1) (v (+ b 1))) (if (= b 1) (let* ((b 5)) v) 0))", 2, [], [], "2.15"),
+    "condition": ("Int", "(let* ((b 1) (v (= b 1))) (let* ((b 5)) (if v 10 20)))", 10, [], []),
+    "condition-on-the-value": ("Int", "(let* ((b 1) (v (+ b 1))) (let* ((b 5)) (if (= v 6) 1 0)))", 0, [], []),
+    "if-branch": ("Int", "(let* ((b 1) (v (+ b 1))) (if (= b 1) (let* ((b 5)) v) 0))", 2, [], []),
     "match-arm": (
         "Int",
         "(let* ((b 1) (v (+ b 1))) (match (choose 3) ((YES c) (let* ((b 5)) v)) ((NO c) v)))",
         2,
         [],
         ["3"],
-        "2.15",
     ),
-    # The base commit refused this form in lowering (`pure_expr_operand_type_mismatch`):
-    # `v` read the arm's `b`, a `Choice` payload.
     "match-arm-binder": (
         "Int",
         "(let* ((b 1) (v (+ b 1))) (match (choose 3) ((YES b) v) ((NO c) v)))",
         2,
         [],
         ["3"],
-        "2.15",
     ),
     "loop-body": (
         "Int",
@@ -137,17 +127,13 @@ USE_SITE_SHAPES = {
         2,
         [],
         [],
-        "2.15",
     ),
-    # The base commit refused this form in lowering (`pure_expr_operand_type_mismatch`):
-    # `v` read the loop parameter `state`, a record.
     "loop-parameter": (
         "Int",
         "(let* ((state 1) (v (+ state 1))) " + LOOP.replace("BODY", "(done v)") + ")",
         2,
         [],
         [],
-        "2.15",
     ),
     "loop-body-alias": (
         "Int",
@@ -155,7 +141,6 @@ USE_SITE_SHAPES = {
         1,
         [],
         [],
-        "2.15",
     ),
     "list-map-body": (
         "List[Int]",
@@ -163,19 +148,15 @@ USE_SITE_SHAPES = {
         (9, 10),
         [],
         [],
-        "2.18",
     ),
     # `add-tick` binds `b` to `(tick 5)` and returns `(+ n b)`.
-    "effect-call-argument": ("Int", "(let* ((b 1) (v (+ b 1))) (add-tick v))", 7, ["5"], [], "2.15"),
-    # The base commit failed with a compiler defect (recursion): the argument read the
-    # parameter `n` it was bound to.
+    "effect-call-argument": ("Int", "(let* ((b 1) (v (+ b 1))) (add-tick v))", 7, ["5"], []),
     "effect-call-argument-named-like-the-parameter": (
         "Int",
         "(let* ((n 1) (v (+ n 1))) (add-tick v))",
         7,
         ["5"],
         [],
-        "2.15",
     ),
     "effect-between-definition-and-use": (
         "Int",
@@ -183,7 +164,6 @@ USE_SITE_SHAPES = {
         2,
         ["7", "5"],
         [],
-        "2.15",
     ),
     "effect-result-read-by-the-binding": (
         "Int",
@@ -191,35 +171,26 @@ USE_SITE_SHAPES = {
         2,
         ["1", "5"],
         [],
-        "2.15",
     ),
 }
 
-# Each shape: (returns, body, lexical value, oldest accepting target). The caller binds
-# `x` (and `y`); the callee's parameters have the same names. The oldest targets use the
-# legacy `defun` expansion; from 2.30 the hygienic expansion already gave these values.
+# Each shape: (returns, body, lexical value). Caller bindings shadow the callee's parameter names, including through nested calls.
 DEFUN_SHAPES = {
-    "one-shadowed-parameter": ("Int", "(let* ((x 9)) (select-second 2 x))", 9, "2.15"),
-    "two-shadowed-parameters": ("Pair", "(let* ((x 9) (y 7)) (last-two 2 x y))", (9, 7), "2.14"),
-    "two-crossed-parameters": ("Pair", "(let* ((x 9) (y 7)) (crossed y x))", (7, 9), "2.14"),
-    "nested-defun-call-argument": ("Int", "(let* ((x 9)) (select-second 2 (select-second 3 x)))", 9, "2.15"),
-    "pure-binding-argument": ("Int", "(let* ((x 9) (w (+ x 1))) (select-second 2 w))", 10, "2.15"),
+    "one-shadowed-parameter": ("Int", "(let* ((x 9)) (select-second 2 x))", 9),
+    "two-shadowed-parameters": ("Pair", "(let* ((x 9) (y 7)) (last-two 2 x y))", (9, 7)),
+    "two-crossed-parameters": ("Pair", "(let* ((x 9) (y 7)) (crossed y x))", (7, 9)),
+    "nested-defun-call-argument": ("Int", "(let* ((x 9)) (select-second 2 (select-second 3 x)))", 9),
+    "pure-binding-argument": ("Int", "(let* ((x 9) (w (+ x 1))) (select-second 2 w))", 10),
 }
 
 
-def _cases(shapes: dict) -> list[tuple[str, str]]:
-    """Each shape at its oldest accepting target (the last item of its spec), 2.32 and 2.33."""
-
-    return [(shape, target) for shape, spec in shapes.items() for target in dict.fromkeys((spec[-1], "2.32", "2.33"))]
-
-
-@pytest.mark.parametrize(("shape", "target"), _cases(USE_SITE_SHAPES))
+@pytest.mark.parametrize("shape", list(USE_SITE_SHAPES))
 def test_a_pure_binding_reads_the_scope_of_its_definition(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str, target: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str
 ) -> None:
-    returns, body, value, ticks, chooses, _ = USE_SITE_SHAPES[shape]
+    returns, body, value, ticks, chooses = USE_SITE_SHAPES[shape]
 
-    assert _outcome(tmp_path, monkeypatch, body, returns=returns, target=target) == (
+    assert _outcome(tmp_path, monkeypatch, body, returns=returns) == (
         0,
         _outputs(returns, value),
         ticks,
@@ -227,97 +198,76 @@ def test_a_pure_binding_reads_the_scope_of_its_definition(
     )
 
 
-@pytest.mark.parametrize(("shape", "target"), _cases(DEFUN_SHAPES))
+@pytest.mark.parametrize("shape", list(DEFUN_SHAPES))
 def test_a_defun_argument_is_evaluated_in_the_caller_scope(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str, target: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str
 ) -> None:
-    returns, body, value, _ = DEFUN_SHAPES[shape]
+    returns, body, value = DEFUN_SHAPES[shape]
 
-    assert _outcome(tmp_path, monkeypatch, body, returns=returns, target=target) == (0, _outputs(returns, value), [], [])
+    assert _outcome(tmp_path, monkeypatch, body, returns=returns) == (0, _outputs(returns, value), [], [])
 
 
 BINDS_2 = "(bind-proc (proc-ref add-leading) :leading 2)"
-ALL = ("2.15", "2.29", "2.30", "2.33")
-BELOW_230 = ("2.15", "2.29")
-
-# Each shape: (body, lexical value, tick log, targets). The targets are the oldest
-# accepting target, 2.29, 2.30 and 2.33, less those that refuse the form. The previous
-# head of this task returned the captured value below 2.30 (see the task-15 report,
-# fix round 1); two forms failed there with a compiler defect.
+# Each shape: (body, lexical value, tick log).
 SPECIALIZATION_SHAPES = {
     "bound-value-and-a-caller-name": (
         f"(let* ((leading 9) (v (+ leading 1)) (hook {BINDS_2})) (hook v))",
         12,
         [],
-        ALL,
     ),
-    # Below 2.30 this failed with a compiler defect (recursion).
     "bound-value-that-reads-its-own-name": (
         "(let* ((leading 9) (hook (bind-proc (proc-ref add-leading) :leading (+ leading 1)))) (hook 5))",
         15,
         [],
-        ALL,
     ),
     "bound-value-and-a-body-rebinding": (
         "(let* ((leading 9) (v (+ leading 1)) (hook (bind-proc (proc-ref rebind-leading) :leading 2))) (hook v))",
         110,
         [],
-        ALL,
     ),
     "bound-value-and-an-effect-in-the-body": (
         "(let* ((b 1) (v (+ b 1)) (hook (bind-proc (proc-ref add-leading-tick) :leading 2))) (hook v))",
         9,
         ["5"],
-        ALL,
     ),
-    # Below 2.30 this failed with a compiler defect: the bound procedure reference
-    # `hook` replaced the caller's `hook`, which `v` reads.
     "bound-procedure-reference-named-like-a-caller-name": (
         "(let* ((hook 1) (v (+ hook 1)) (twice (bind-proc (proc-ref apply-int) :hook (proc-ref add-one)))) (twice v))",
         3,
         [],
-        ALL,
     ),
     "captured-value-and-a-parameter": (
         "(let* ((b 1) (v (+ b 1))) (let-proc (f ((b Int)) -> Int :captures (v) v) (apply-int (proc-ref f) 5)))",
         2,
         [],
-        ALL,
     ),
     "captured-value-and-an-applying-procedure-parameter": (
         "(let* ((b 1) (v (+ b 1))) (let-proc (f ((x Int)) -> Int :captures (v) v) (apply-int-to-b (proc-ref f) 5)))",
         2,
         [],
-        ALL,
     ),
     "captured-value-and-a-body-rebinding": (
         "(let* ((b 1) (v (+ b 1))) (let-proc (f ((x Int)) -> Int :captures (v) (let* ((b 7)) (+ v x))) (apply-int (proc-ref f) 5)))",
         7,
         [],
-        BELOW_230,
     ),
 }
 
 
-@pytest.mark.parametrize(
-    ("shape", "target"),
-    [(shape, target) for shape, spec in SPECIALIZATION_SHAPES.items() for target in spec[-1]],
-)
+@pytest.mark.parametrize("shape", list(SPECIALIZATION_SHAPES))
 def test_a_specialization_value_reads_the_scope_of_the_caller(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str, target: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str
 ) -> None:
-    body, value, ticks, _ = SPECIALIZATION_SHAPES[shape]
+    body, value, ticks = SPECIALIZATION_SHAPES[shape]
 
-    assert _outcome(tmp_path, monkeypatch, body, returns="Int", target=target) == (0, {"__result__": value}, ticks, [])
+    assert _outcome(tmp_path, monkeypatch, body, returns="Int") == (0, {"__result__": value}, ticks, [])
 
 
-@pytest.mark.parametrize("target", ALL)
 def test_a_bound_value_keeps_its_scope_across_a_later_binder(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     body = "(let* ((b 1) (hook (bind-proc (proc-ref add-leading) :leading (+ b 1)))) (let* ((b 7)) (hook 5)))"
 
-    assert _outcome(tmp_path, monkeypatch, body, returns="Int", target=target) == (0, {"__result__": 7}, [], [])
+    assert _outcome(tmp_path, monkeypatch, body, returns="Int") == (0, {"__result__": 7}, [], [])
 
 
 PURE_CAPTURE_PROCS = """  (defproc add ((fixed Int) (n Int)) -> Int
@@ -332,28 +282,21 @@ def test_unused_letproc_does_not_steal_a_body_created_capture(
         (let* ((b 100)) (hook 1))))"""
 
     assert _outcome(
-        tmp_path, monkeypatch, body, returns="Int", target="2.29",
+        tmp_path, monkeypatch, body, returns="Int",
         declarations=PURE_CAPTURE_PROCS, workflow_params="((a Int))", inputs={"a": 7},
     ) == (0, {"__result__": 8}, [], [])
 
 
 @pytest.mark.parametrize(
-    ("target", "call"),
+    "call",
     (
-        ("2.30", "(invoke_first (bind-proc (proc-ref add) :fixed a) a)"),
-        ("2.30", "(invoke a (bind-proc (proc-ref add) :fixed a))"),
-        ("2.35", "(invoke_first (bind-proc (proc-ref add) :fixed a) a)"),
-        ("2.35", "(invoke a (bind-proc (proc-ref add) :fixed a))"),
+        "(invoke_first (bind-proc (proc-ref add) :fixed a) a)",
+        "(invoke a (bind-proc (proc-ref add) :fixed a))",
     ),
-    ids=(
-        "target-230-static-argument-first",
-        "target-230-static-argument-last",
-        "target-235-static-argument-first",
-        "target-235-static-argument-last",
-    ),
+    ids=("static-argument-first", "static-argument-last"),
 )
 def test_generic_letproc_static_argument_keeps_its_creation_value(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str, call: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, call: str
 ) -> None:
     declarations = PURE_CAPTURE_PROCS + """
   (defproc invoke :forall (T)
@@ -366,7 +309,7 @@ def test_generic_letproc_static_argument_keeps_its_creation_value(
       {call})"""
 
     assert _outcome(
-        tmp_path, monkeypatch, body, returns="Int", target=target,
+        tmp_path, monkeypatch, body, returns="Int",
         declarations=declarations, workflow_params="((a Int))", inputs={"a": 7},
     ) == (0, {"__result__": 8}, [], [])
 
@@ -383,16 +326,15 @@ def test_match_arm_bound_capture_survives_shadow_and_runs_scrutinee_once(
       ((NO other) 42))"""
 
     assert _outcome(
-        tmp_path, monkeypatch, body, returns="Int", target="2.35",
+        tmp_path, monkeypatch, body, returns="Int",
         declarations=declarations, workflow_params="((a Int))", inputs={"a": 7},
     ) == (0, {"__result__": 101}, [], ["100"])
 
 
 @pytest.mark.parametrize(
-    ("target", "body", "expected"),
+    ("body", "expected"),
     (
         (
-            "2.35",
             """(let* ((state (record Payload :value a))
                        (hook (bind-proc (proc-ref add) :fixed state.value)))
                  (loop/recur :max 1 :state (loop-state (value Int 100))
@@ -400,7 +342,6 @@ def test_match_arm_bound_capture_survives_shadow_and_runs_scrutinee_once(
             8,
         ),
         (
-            "2.35",
             """(loop/recur :max 2 :state (record Payload :value a) :on-exhausted 42
                  (fn (state)
                    (let* ((hook (bind-proc (proc-ref add) :fixed state.value)))
@@ -410,7 +351,6 @@ def test_match_arm_bound_capture_survives_shadow_and_runs_scrutinee_once(
             21,
         ),
         (
-            "2.30",
             """(loop/recur :max 1 :state (record Payload :value a) :on-exhausted 42
                  (fn (state)
                    (let* ((hook (bind-proc (proc-ref add) :fixed state.value)))
@@ -421,24 +361,23 @@ def test_match_arm_bound_capture_survives_shadow_and_runs_scrutinee_once(
     ids=(
         "outer-capture-crosses-loop",
         "capture-is-scoped-to-second-iteration",
-        "inner-loop-capture-uses-target-230-creation-state",
+        "inner-loop-capture-uses-current-target-creation-state",
     ),
 )
 def test_loop_capture_uses_the_intended_scope(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str, body: str, expected: int
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str, expected: int
 ) -> None:
     declarations = PURE_CAPTURE_PROCS + "\n  (defrecord Payload (value Int))"
     assert _outcome(
-        tmp_path, monkeypatch, body, returns="Int", target=target,
+        tmp_path, monkeypatch, body, returns="Int",
         declarations=declarations, workflow_params="((a Int))", inputs={"a": 7},
     ) == (0, {"__result__": expected}, [], [])
 
 
-@pytest.mark.parametrize("target", ["2.30", "2.33"])
-def test_a_captured_effect_result_runs_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str) -> None:
+def test_a_captured_effect_result_runs_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     body = "(let* ((v (tick 1))) (let-proc (f ((x Int)) -> Int :captures (v) v) (apply-int (proc-ref f) 5)))"
 
-    assert _outcome(tmp_path, monkeypatch, body, returns="Int", target=target) == (0, {"__result__": 1}, ["1"], [])
+    assert _outcome(tmp_path, monkeypatch, body, returns="Int") == (0, {"__result__": 1}, ["1"], [])
 
 
 LIVE_PROVIDERS = """(let* ((worker 1) (v (+ worker 1)))
@@ -449,12 +388,11 @@ LIVE_PROVIDERS = """(let* ((worker 1) (v (+ worker 1)))
         v))"""
 
 
-@pytest.mark.parametrize("target", ["2.16", "2.33"])
 def test_live_provider_scope_is_refused_before_any_effect(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, target: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     probes = {name: _write_probe(tmp_path, name, text) for name, text in PROBES.items()}
-    source = MODULE.replace("TARGET", target).replace("RETURNS", "Int").replace("BODY", LIVE_PROVIDERS)
+    source = MODULE.replace("RETURNS", "Int").replace("BODY", LIVE_PROVIDERS)
     for name, path in probes.items():
         source = source.replace(name.upper(), path.as_posix())
     _write_sources(tmp_path, {"grt/entry.orc": source})
@@ -463,10 +401,6 @@ def test_live_provider_scope_is_refused_before_any_effect(
     providers = {"providers.worker": "codex", "providers.supervisor": "supervisor-provider"}
     files["providers"].write_text(json.dumps(providers), encoding="utf-8")
     files["prompts"].write_text(json.dumps({f"prompts.{name}": "prompt.md" for name in ("worker", "supervisor")}), encoding="utf-8")
-    _analyze_and_select_evaluated_entry(
-        tmp_path, provider_externs=providers,
-        prompt_externs={f"prompts.{name}": (tmp_path / "grt" / "prompt.md").as_posix() for name in ("worker", "supervisor")},
-    )
     monkeypatch.setattr(ProviderExecutor, "execute", lambda *_args, **_kwargs: pytest.fail("provider effect ran before refusal"))
     monkeypatch.chdir(tmp_path)
     result = public_run(files)

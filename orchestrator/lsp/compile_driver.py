@@ -828,7 +828,6 @@ class LspCompileDriver:
             command_boundaries_path=paths.command_boundaries_path,
             workspace_root=self.state.workspace_root,
             lint_profile=self.state.options.lint_profile,
-            lowering_route=self.state.options.lowering_route,
         )
 
     def recheck_configuration(self) -> LspStateTransition:
@@ -871,7 +870,6 @@ def initialize_compile_driver(
         prompt_externs_path=paths.prompt_externs_path,
         command_boundaries_path=paths.command_boundaries_path,
         imported_workflow_bundles_path=paths.imported_workflow_bundles_path,
-        lowering_route=state.options.lowering_route,
     )
     _validate_trace_paths_within_roots(
         configuration.source_read_trace.revision_vector,

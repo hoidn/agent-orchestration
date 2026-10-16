@@ -49,7 +49,7 @@ from it, and read
 [Workflow Lisp Runtime-Native Drain Authoring](design/workflow_lisp_runtime_native_drain_authoring.md)
 as a historical checklist for that family's shape. Start current authoring from
 [`improve_experiment_proposal.orc`](../workflows/examples/improve_experiment_proposal.orc)
-at 2.36 for a `std/improve` review loop, or the
+at 2.39 for a `std/improve` review loop, or the
 [complete 2.35 lifecycle recipe](#a-complete-235-recipe-compile-run-resume-report-invalidate).
 [`best_of_n.orc`](../experiments/orc_vs_single_call/workflows/best_of_n.orc) and
 [`reviewed_change.orc`](../experiments/orc_vs_single_call/workflows/reviewed_change.orc)
@@ -104,7 +104,9 @@ document symbols for the ten directly authored module, procedure, workflow,
 enum, path, record, union, schema, resource, and transition kinds. Completion
 preserves separate
 procedure/workflow/form namespaces and renders callable parameters, returns,
-and declared procedure effects from compiler signatures. Save the buffer
+and procedure contracts from compiler signatures. At 2.39, detail separates
+optional authored restrictions from inferred effects and marks unresolved
+generic hooks incomplete. Save the buffer
 before expecting refreshed results. Definition and document symbols remain
 unavailable for dirty, pending, failed, invalidated, or configuration-stale
 documents, and configuration or root drift requires a server restart. L0
@@ -279,7 +281,7 @@ Think in five layers.
 | Effects | What work occurs? | Admitted `provider-result`, `command-result`, calls and path-mode `run-ref` | Effect identity, validated results, memo commits |
 | Runtime substrate | How is it executed? | Usually not hand-authored | Core AST, semantic IR, snapshots, bundles, artifacts |
 
-For evaluated targets 2.35/2.36 and the admitted bounded 2.37/2.38 extensions,
+For evaluated targets 2.35–2.39, within their admitted feature scope,
 the compiler elaborates and checks `.orc` source into a
 closed program; the evaluator computes its values and memoizes its effects.
 The checked `closed_program.json` is execution authority. The memo is effect
@@ -307,8 +309,9 @@ adapter.
 Use the [Capability Status Matrix](capability_status_matrix.md) to distinguish
 implemented, library-provided, designed, future and legacy surfaces. Compiler
 acceptance at an older target does not establish evaluated runtime admission.
-New entry workflows in this guide use 2.35 or 2.36 for ordinary calls, or
-2.38 for bounded [Agent Sessions](#agent-sessions-target-238) and
+Use 2.39 for inference-default [procedure contracts](#procedure-contracts-at-target-239).
+The explicitly versioned 2.35/2.36 recipes retain their original procedure rules;
+2.38 introduces bounded [Agent Sessions](#agent-sessions-target-238) and
 [command-only confined children](#confined-workflow-children-target-238-command-only).
 [Section 2A](#2a-program-shapes-what-runs-today) owns the current shape limits.
 
@@ -358,14 +361,16 @@ route.
 
 ## 2A. Program Shapes: What Runs Today
 
-Author ordinary entry workflows at target **2.35** or **2.36**; use **2.38**
-for bounded [Agent Sessions](#agent-sessions-target-238) or
+Use target **2.39** for the [current procedure authoring contract](#procedure-contracts-at-target-239).
+The **2.35/2.36** recipes below remain valid at their stated targets; **2.38**
+introduces bounded [Agent Sessions](#agent-sessions-target-238) and
 [command-only confined children](#confined-workflow-children-target-238-command-only). These select evaluated
 execution; 2.36 adds the W3 local-hook and graph-selected `std/improve` API
-shown in [Section 13.7](#137-improve). An older module can still be imported
-when its own syntax gates and the evaluated graph's admission rules allow it.
-Executable entries through 2.34 are retired; older typed imports do not select
-an old executor. No run conversion is performed. The
+shown in [Section 13.7](#137-improve). Every source dependency must declare
+target 2.35 or newer, including dependencies supplied as typed programs or
+compiled bundles. Pre-2.35 entry execution is retired; source imports, REPL
+loads and LSP analysis below that floor also refuse. Historical source is
+preserved as evidence; no header or run conversion is performed. The
 [Phase 5 plan](plans/2026-10-07-evaluated-execution-phase-5-plan.md)
 owns bounded 2.37 parallel support and its remaining qualification; it is not
 general copy-safe guidance. Target 2.38 separately admits the bounded
@@ -595,7 +600,7 @@ prints again what it re-evaluates, and readers that replay the program (views,
 
 ### Inspect a run with the Workflow Lisp REPL
 
-For evaluated targets 2.35/2.36, `orchestrator repl` lets you discover a loaded
+For admitted evaluated targets 2.35–2.39, `orchestrator repl` lets you discover a loaded
 module's declarations, inspect their contracts/source, ask for expression types,
 and inspect captured run bindings. From the repository root, use the maintained
 [`plan_review_execute.orc`](../workflows/examples/plan_review_execute.orc) and
@@ -1035,7 +1040,8 @@ A schema is not a workflow. It is reusable contract structure.
 
 Use compiler-owned `Value` only when the useful contract is
 "one transportable JSON value" and consumers do not yet need named fields,
-variants, path constraints, or element guarantees:
+variants, path constraints, or element guarantees. This example uses the
+2.35–2.38 procedure syntax:
 
 ```lisp
 (defproc pass-through ((payload Value)) -> Value
@@ -1116,13 +1122,70 @@ workflow-entry export. Use `defproc` for internal reuse.
 
 Use `defproc` for reusable internal effectful graph behavior.
 
-Current `defproc` syntax requires `:effects`; ordinary authored procedures are
-checked against inferred effects. Generic specialization exceptions mean an
-empty generic clause is not a universal purity promise.
-[Optional effect restrictions](design/workflow_lisp_effect_ledger_simplification.md)
-remain a proposal. Resolved effect-free helpers can compose in expressions,
-with eager once-only arguments and lexical scope; admitted effectful calls use
-the evaluated placement rules in Section 2A.
+#### Procedure contracts at target 2.39
+
+At target **2.39**, omit `:effects` to infer a procedure's transitive effects
+without an authored restriction. Use `:effects ()` when the procedure must
+remain free of tracked effects, including after generic or ProcRef
+specialization. A named clause is a checked upper bound: the inferred effects
+must fit the resolved declared subjects, and unused allowed effects are valid.
+For example, `:effects ((uses-provider providers.review))` permits that provider
+and refuses a substitution with another provider. Omission never means purity.
+
+```lisp
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.39")
+  (defmodule procedure_contracts)
+  (export run)
+
+  (defproc inferred ((value Int)) -> Int
+    (+ value 1))
+
+  (defproc pure-wrapper ((value Int)) -> Int
+    :effects ()
+    (inferred value))
+
+  (defworkflow run ((value Int)) -> Int
+    (pure-wrapper value)))
+```
+
+Do not write `:lowering` on a 2.39 definition: procedures compose inline in
+the caller. To express an intentional call/frame/checkpoint boundary, define
+an ordinary `defworkflow` and invoke it with `call`. An unexported workflow
+can still be selected locally as an entry; its inputs and result must satisfy
+workflow transport rules. Compile-time ProcRef/WorkflowRef values and generic
+parameters cannot be transported across that boundary. Moving an old private
+procedure into a workflow changes definition identity and does not promise
+old fingerprints or cross-version resume.
+
+Imported definitions retain their defining target: 2.35–2.38 procedures keep
+mandatory exact ordinary declarations, specialization exceptions and their
+authored/default lowering policy. A 2.39 caller does not reinterpret those
+contracts, and an older module cannot import a 2.39 definition. The packaged
+stdlib remains at 2.35. Source below 2.35 is refused.
+
+At 2.39, use genuine imported stdlib bindings for `with-phase` and
+`finalize-selected-item`; their bare compatibility heads are refused. Private
+expansion heads are admitted only when introduced by the actual packaged
+`std/phase` or `std/drain` macro template. This preserves genuine imported
+expansion without admitting hand-written private syntax; it does not admit
+excluded state/resource effects to evaluated execution.
+
+The [effect-ledger contract](design/workflow_lisp_effect_ledger_simplification.md)
+and [frontend lowering/source admission](design/workflow_lisp_frontend_specification.md#106-procedure-lowering-policy-resolved)
+own the full rules. REPL `:info` and LSP procedure-completion detail distinguish
+authored restrictions from inferred effects. REPL `:type` reports the expression
+type and inferred effects only; unresolved generic hooks are marked incomplete.
+Evaluated LSP qualification F2 remains
+OPEN_NOT_WAIVED. The [proposal recipe](lisp_library_reference.md#target-239-local-hooks)
+shows an intentional empty restriction and command ceiling; the
+[compact search](lisp_library_reference.md#iterative-search) omits its mirrored
+command ledger.
+
+Resolved effect-free helpers can compose in expressions, with eager once-only
+arguments and lexical scope; admitted effectful calls still follow Section 2A.
+The following illustrative declaration uses the older **2.35–2.38** contract:
 
 ```lisp
 (defproc ensure-approved-plan
@@ -2388,10 +2451,14 @@ owns the target-specific APIs, complete examples, dependencies, operating route
 and composition limits. Choose review/revise versus generating alternatives
 using the [task chooser](lisp_library_reference.md#choose-by-task).
 
-#### Target 2.36 local hooks
+<a id="target-236-local-hooks"></a>
 
-See the [complete local-hook example](lisp_library_reference.md#target-236-local-hooks)
-and its inference/capture limits.
+#### Target 2.39 local hooks
+
+See the [complete local-hook example](lisp_library_reference.md#target-239-local-hooks)
+and its inference/capture limits. The hooks use the W3 API introduced at 2.36;
+the caller uses 2.39 procedure restrictions and imports retained 2.35 library
+definitions.
 
 #### Compile, run and resume the maintained proposal
 

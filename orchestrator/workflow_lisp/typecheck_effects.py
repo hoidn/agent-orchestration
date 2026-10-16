@@ -32,16 +32,7 @@ from .expressions import (
     WithLiveProviderPeersExpr,
     WithLiveProvidersExpr,
 )
-from .syntax import (
-    HUMAN_REPLY_TYPE_NAME,
-    MAX_STATIC_LIVE_PROVIDER_PEERS,
-    PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
-    target_dsl_supports_provider_peer_messaging,
-    target_dsl_supports_provider_supervision,
-    target_dsl_supports_phased_contract_delivery,
-    target_dsl_supports_provider_context_values,
-    target_dsl_uses_evaluated_execution,
-)
+from .syntax import HUMAN_REPLY_TYPE_NAME, MAX_STATIC_LIVE_PROVIDER_PEERS, PROVIDER_STEERING_DIRECTIVE_TYPE_NAME
 from .phase import is_implementation_attempt_result_type
 from .prompts import (
     PromptApplicationExpr,
@@ -153,16 +144,6 @@ def typecheck_with_live_providers_expr(
 ):
     """Type one bounded live-provider group and infer its ownership effect."""
 
-    if not target_dsl_supports_provider_supervision(
-        context.type_env.target_dsl_version
-    ):
-        raise_error(
-            "`with-live-providers` requires target DSL 2.16 or newer",
-            code="provider_supervision_target_dsl_unsupported",
-            span=expr.span,
-            form_path=expr.form_path,
-            expansion_stack=expr.expansion_stack,
-        )
 
     supervisor_binding, worker_binding = _validated_live_provider_roles(expr)
 
@@ -288,19 +269,6 @@ def typecheck_with_live_provider_peers_expr(
 ):
     """Type one static provider peer group and infer its ownership effect."""
 
-    if not target_dsl_supports_provider_peer_messaging(
-        context.type_env.target_dsl_version
-    ):
-        raise_error(
-            (
-                "`with-live-provider-peers` requires target DSL "
-                "2.17 or newer"
-            ),
-            code="provider_peer_messaging_target_dsl_unsupported",
-            span=expr.span,
-            form_path=expr.form_path,
-            expansion_stack=expr.expansion_stack,
-        )
 
     bindings = _validated_live_provider_peer_bindings(expr)
     typed_members = {
@@ -702,20 +670,7 @@ def typecheck_provider_result_expr(
             form_path=expr.session_artifact.form_path,
             expansion_stack=expr.session_artifact.expansion_stack,
         )
-    if (
-        (expr.context_expr is not None or expr.capture_context is not None)
-        and not target_dsl_supports_provider_context_values(
-            context.type_env.target_dsl_version
-        )
-    ):
-        selected = expr.context_expr or expr
-        raise_error(
-            "provider context values require target DSL 2.31",
-            code="provider_context_target_dsl_unsupported",
-            span=selected.span,
-            form_path=selected.form_path,
-            expansion_stack=selected.expansion_stack,
-        )
+
     if expr.capture_context not in {None, "portable"}:
         raise_error(
             "`provider-result :capture-context` must be `:portable`",
@@ -769,22 +724,7 @@ def typecheck_provider_result_expr(
     )
     phased = delivery == "phased"
     if expr.delivery is not None:
-        if not target_dsl_supports_phased_contract_delivery(
-            context.type_env.target_dsl_version
-        ):
-            raise_error(
-                "`provider-result :delivery` requires target DSL 2.23",
-                code="provider_phased_delivery_requires_dsl_2_23",
-                span=expr.delivery.span,
-                form_path=expr.delivery.form_path,
-                expansion_stack=expr.delivery.expansion_stack,
-                phased_delivery_diagnostic=phased_diagnostic(
-                    "target_below_2_23",
-                    canonical_value=context.type_env.target_dsl_version,
-                    primary_owner="delivery_keyword",
-                    primary_span=expr.delivery.span,
-                ),
-            )
+
         if delivery not in {"composed", "phased"}:
             reason = (
                 "delivery_enum_invalid"
@@ -1236,8 +1176,7 @@ def typecheck_provider_bundle_path_expr(
             expansion_stack=expr.expansion_stack,
         )
     target_dsl_version = getattr(context.type_env, "target_dsl_version", None)
-    if target_dsl_uses_evaluated_execution(target_dsl_version):
-        require_evaluated_provider_bundle_path_target(expr, target_type)
+    require_evaluated_provider_bundle_path_target(expr, target_type)
 
     value_expr_env = getattr(context.session_state, "value_expr_env", {})
     source_expr = None
@@ -1391,12 +1330,11 @@ def _validate_command_document_input(name, typed, *, context, expr, code="comman
                     span=expr.span, form_path=expr.form_path, expansion_stack=expr.expansion_stack)
 
 
-def _command_input_types_compatible(expected_type, input_type, *, context):
+def _command_input_types_compatible(expected_type, input_type):
     from .procedure_typecheck import _type_ref_contains_type_param
 
     if (
-        target_dsl_uses_evaluated_execution(context.type_env.target_dsl_version)
-        and _type_ref_contains_type_param(input_type)
+        _type_ref_contains_type_param(input_type)
     ):
         return True
     return type_refs_compatible(expected_type, input_type)
@@ -1433,7 +1371,7 @@ def _validate_command_adapter_fields(expr, binding, *, typed_inputs, context):
             span=expr.span,
             form_path=expr.form_path,
         )
-        if not _command_input_types_compatible(expected_type, typed_input.type_ref, context=context):
+        if not _command_input_types_compatible(expected_type, typed_input.type_ref):
             raise_error(
                 f"`command-result` adapter `{expr.adapter_name}` input `{field_name}` must resolve to `{declared_field.type_name}`",
                 code="type_mismatch",
@@ -1449,22 +1387,6 @@ def _validate_command_adapter_fields(expr, binding, *, typed_inputs, context):
 
 
 def _validate_adapter_input_projectable(*, field_name: str, typed_input, context) -> None:
-    if target_dsl_uses_evaluated_execution(context.type_env.target_dsl_version):
-        _validate_command_document_input(field_name, typed_input, context=context, expr=typed_input.expr,
-                                         code="command_adapter_input_not_projectable")
-        return
-    if isinstance(typed_input.type_ref, PathTypeRef):
-        return
-    if isinstance(typed_input.type_ref, PrimitiveTypeRef) and typed_input.type_ref.name not in {
-        "Json",
-        "Provider",
-        "Prompt",
-    }:
-        return
-    raise_error(
-        f"`command-result` adapter input `{field_name}` cannot lower through `json_object_positional_arg`",
-        code="command_adapter_input_not_projectable",
-        span=typed_input.expr.span,
-        form_path=typed_input.expr.form_path,
-        expansion_stack=typed_input.expr.expansion_stack,
-    )
+    _validate_command_document_input(field_name, typed_input, context=context, expr=typed_input.expr,
+                                     code="command_adapter_input_not_projectable")
+    return

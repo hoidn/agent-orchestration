@@ -5,26 +5,8 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from orchestrator.workflow.pure_expr import validate_pure_expr_payload
-from orchestrator.workflow_lisp.effects import EMPTY_EFFECT_SUMMARY
-from orchestrator.workflow_lisp.expressions import (
-    CompilerListNonemptyHeadExpr,
-    GeneratedRelpathSeedExpr,
-    IfExpr,
-    LetStarExpr,
-    ListExpr,
-    ListMapExpr,
-    LoopStateSeedExpr,
-    LoopStateUpdateExpr,
-    NameExpr,
-    PathJoinUnderExpr,
-    ProviderBundlePathExpr,
-    ResourceTransitionExpr,
-    UnionVariantTagExpr,
-)
 from orchestrator.workflow_lisp.type_env import TypeRef
 from orchestrator.workflow_lisp.wcc import model as w
-from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
-from orchestrator.workflow_lisp.wcc.elaborate import _elaborate_expr_to_body
 
 
 def translate_value(builder: Any, value: Any, d: Any, env: Mapping[str, TypeRef]) -> dict[str, Any]:
@@ -51,6 +33,31 @@ def translate_value(builder: Any, value: Any, d: Any, env: Mapping[str, TypeRef]
             "type": builder.desc(value.metadata.type_ref, d),
             "fields": [[name, translate_value(builder, item, d, env)] for name, item in value.fields],
         }
+    elif isinstance(value, w.WccList):
+        result = {
+            "k": "list",
+            "items": [translate_value(builder, item, d, env) for item in value.items],
+            "type": builder.desc(value.metadata.type_ref, d),
+        }
+    elif isinstance(value, w.WccListMap):
+        source = translate_value(builder, value.source, d, env)
+        body_names = dict(d.names)
+        binder = d.renamer.bind(value.binder_name, authored_label=value.binding_label, env=body_names)
+        body_d = d.with_names(body_names)
+        body_env = {**env, value.binder_name: value.binder_type_ref}
+        body_d, aliases = builder._freeze_bound_capture(body_d, value.binding_identity, binder)
+        result = {"k": "list_map", "binder": binder, "source": source,
+            "body": {"k": "block", "body": _prepend_lets(builder.body(value.body, body_d, body_env), aliases),
+                **builder.provenance(value.body_metadata)},
+            "type": builder.desc(value.metadata.type_ref, d)}
+    elif isinstance(value, w.WccBlock):
+        closed = builder.body(value.body, d.with_names(dict(d.names)), env)
+        result = closed["value"] if closed["k"] == "halt" else {"k": "block", "body": closed}
+    elif isinstance(value, w.WccResultPath):
+        if not isinstance(value.source, w.WccNameAtom):
+            raise TypeError("WCC result path requires a named source binding")
+        result = {"k": "result_path", "n": d.ref(value.source.name, value.source.metadata.binding_identity),
+            "type": builder.desc(value.metadata.type_ref, d)}
     elif isinstance(value, w.WccInject):
         result = {
             "k": "inject",
@@ -67,8 +74,6 @@ def translate_value(builder: Any, value: Any, d: Any, env: Mapping[str, TypeRef]
             "then": _select_arm(builder, value.then_arm, d, env),
             "else": _select_arm(builder, value.else_arm, d, env),
         }
-    elif isinstance(value, w.WccOpaqueFrontendValue):
-        result = _opaque(builder, value, d, env)
     elif isinstance(value, w.WccPhaseTargetAtom):
         raise ValueError(f"phase target {value.target_name!r} escaped WCC elaboration")
     else:
@@ -152,7 +157,12 @@ def _operator(builder: Any, op: w.WccPureOp, d: Any, env: Mapping[str, TypeRef])
             "type": result_type,
         }
     refs = [{"kind": "binding", "name": f"a{index}"} for index in range(len(args))]
-    if op.operator == "record-update":
+    if op.operator == "compiler-list-nonempty-head":
+        expression = {"kind": "list_nonempty_head", "source": refs[0], "element_type": result_type,
+            "compiler_owned": True, "invariant_diagnostic": "list_nonempty_invariant_broken"}
+    elif op.operator == "path/join-under":
+        expression = {"kind": "path_join_under", "path_type": result_type, "child": refs[0]}
+    elif op.operator in {"record-update", "loop-state-update"}:
         expression = {
             "kind": "record_update",
             "record_type": result_type,
@@ -175,215 +185,6 @@ def _payload(expression: dict[str, Any], result_type: dict[str, Any], arg_types:
         "result_type": result_type,
         "bindings": {f"a{index}": {"type": desc} for index, desc in enumerate(arg_types)},
         "expr": expression,
-    }
-
-
-def _opaque(builder: Any, value: w.WccOpaqueFrontendValue, d: Any, env: Mapping[str, TypeRef]) -> dict[str, Any]:
-    if value.normalized_body is not None:
-        closed = builder.body(value.normalized_body, d.with_names(dict(d.names)), env)
-        if closed["k"] == "halt":
-            return closed["value"]
-        return {"k": "block", "body": closed, **builder.provenance(value.metadata)}
-    expr = value.expr
-    if isinstance(expr, UnionVariantTagExpr):
-        result = {"k": "lit", "v": expr.variant_name, "type": builder.desc(value.metadata.type_ref, d)}
-    elif isinstance(expr, LoopStateSeedExpr):
-        result = {
-            "k": "record",
-            "type": builder.desc(value.metadata.type_ref, d),
-            "fields": [
-                [field.name, frontend_value(builder, field.value_expr, d, env)]
-                for field in expr.fields
-            ],
-        }
-    elif isinstance(expr, LoopStateUpdateExpr):
-        names = [name for name, _ in expr.overrides]
-        refs = [{"kind": "binding", "name": f"a{index}"} for index in range(len(names) + 1)]
-        result_type = builder.desc(value.metadata.type_ref, d)
-        result = {
-            "k": "op",
-            "payload": _payload(
-                {
-                    "kind": "record_update",
-                    "record_type": result_type,
-                    "base": refs[0],
-                    "fields": [
-                        {"name": name, "value": reference}
-                        for name, reference in zip(names, refs[1:], strict=True)
-                    ],
-                },
-                result_type,
-                [result_type, *[builder.desc(value.metadata.type_ref.field_types[name], d) for name in names]],
-            ),
-            "args": [
-                frontend_value(builder, expr.base_expr, d, env),
-                *[frontend_value(builder, item, d, env) for _, item in expr.overrides],
-            ],
-        }
-        validate_pure_expr_payload(result["payload"], max_nodes=None)
-    elif isinstance(expr, ListExpr):
-        result = {
-            "k": "list",
-            "items": [frontend_value(builder, item, d, env) for item in expr.items],
-            "type": builder.desc(value.metadata.type_ref, d),
-        }
-    elif isinstance(expr, CompilerListNonemptyHeadExpr):
-        element = builder.desc(expr.element_type_ref, d)
-        result = {
-            "k": "op",
-            "payload": _payload(
-                {
-                    "kind": "list_nonempty_head",
-                    "source": {"kind": "binding", "name": "a0"},
-                    "element_type": element,
-                    "compiler_owned": True,
-                    "invariant_diagnostic": "list_nonempty_invariant_broken",
-                },
-                element,
-                [{"kind": "list", "item": element}],
-            ),
-            "args": [frontend_value(builder, expr.source_expr, d, env)],
-        }
-        validate_pure_expr_payload(result["payload"], max_nodes=None)
-    elif isinstance(expr, ListMapExpr):
-        source = frontend_value(builder, expr.source_expr, d, env)
-        body_env = dict(env)
-        body_env[expr.binder_name] = expr.source_item_type_ref
-        body_names = dict(d.names)
-        binder = d.renamer.bind(expr.binder_name, authored_label=expr.binding_label, env=body_names)
-        body_d = d.with_names(body_names)
-        body = frontend_body(
-            builder,
-            expr.body_expr,
-            body_d,
-            body_env,
-            binding_identity=expr.binding_identity,
-            binder_wire=binder,
-        )
-        result = {
-            "k": "list_map",
-            "binder": binder,
-            "source": source,
-            "body": body,
-            "type": builder.desc(value.metadata.type_ref, d),
-        }
-    elif isinstance(expr, PathJoinUnderExpr):
-        path_desc = builder.desc(expr.path_type_ref or value.metadata.type_ref, d)
-        payload = _payload(
-            {
-                "kind": "path_join_under",
-                "path_type": path_desc,
-                "child": {"kind": "binding", "name": "a0"},
-            },
-            path_desc,
-            [{"kind": "primitive", "name": "String"}],
-        )
-        validate_pure_expr_payload(payload, max_nodes=None)
-        result = {
-            "k": "op",
-            "payload": payload,
-            "args": [frontend_value(builder, expr.child_expr, d, env)],
-        }
-    elif isinstance(expr, IfExpr):
-        result = {
-            "k": "select",
-            "cond": frontend_value(builder, expr.condition_expr, d, env),
-            "then": {"prefix": [], "value": frontend_value(builder, expr.then_expr, d, env)},
-            "else": {"prefix": [], "value": frontend_value(builder, expr.else_expr, d, env)},
-        }
-    elif isinstance(expr, LetStarExpr):
-        result = frontend_value(builder, expr, d, env)
-    elif isinstance(expr, GeneratedRelpathSeedExpr):
-        result = {"k": "lit", "v": expr.literal_path, "type": builder.desc(value.metadata.type_ref, d)}
-    elif isinstance(expr, ProviderBundlePathExpr) and isinstance(expr.source_expr, NameExpr):
-        from ..typecheck_effects import require_evaluated_provider_bundle_path_target
-
-        require_evaluated_provider_bundle_path_target(expr, value.metadata.type_ref)
-        result = {
-            "k": "result_path",
-            "n": d.ref(expr.source_expr.name),
-            "type": builder.desc(value.metadata.type_ref, d),
-        }
-    elif isinstance(expr, ResourceTransitionExpr):
-        raise builder.gap(
-            "resource-transition",
-            "resource transitions are translated by the runtime adapter",
-            expr,
-        )
-    else:
-        raise ValueError(
-            f"retained surface value {type(expr).__name__} has no closed translator"
-        )
-    return {**result, **builder.provenance(value.metadata)}
-
-
-def frontend_value(builder: Any, expr: Any, d: Any, env: Mapping[str, TypeRef]) -> dict[str, Any]:
-    if isinstance(expr, NameExpr):
-        return {"k": "name", "n": d.ref(expr.name), **builder.provenance(expr)}
-    builder.opaque_ordinal += 1
-    scope = w.WccIdentityFactory(
-        owner_name=d.owner,
-        lexical_owner_chain=("closed-opaque", str(builder.opaque_ordinal)),
-        route_schema_version=builder.route_schema_version,
-        closed_program=True,
-    )
-    body = _elaborate_expr_to_body(
-        expr,
-        scope=scope,
-        type_env=d.type_env,
-        value_env=env,
-        workflow_return_types=builder._workflow_return_types_for(d.source_program, d.owner),
-        procedure_return_types=builder.procedure_return_types,
-        effect_summary=EMPTY_EFFECT_SUMMARY,
-        procedure_edges_by_site={},
-        compile_time_bindings={},
-    )
-    normalized = normalize_wcc_body_to_anf(body)
-    builder._prepare_computed_capture_requests(normalized, d, d.source_program)
-    closed = builder.body(normalized, d.with_names(dict(d.names)), env)
-    if closed["k"] == "halt":
-        return closed["value"]
-    return {"k": "block", "body": closed, **builder.provenance(expr)}
-
-
-def frontend_body(
-    builder: Any,
-    expr: Any,
-    d: Any,
-    env: Mapping[str, TypeRef],
-    *,
-    binding_identity: object | None = None,
-    binder_wire: str | None = None,
-) -> dict[str, Any]:
-    builder.opaque_ordinal += 1
-    scope = w.WccIdentityFactory(
-        owner_name=d.owner,
-        lexical_owner_chain=("closed-opaque", str(builder.opaque_ordinal)),
-        route_schema_version=builder.route_schema_version,
-        closed_program=True,
-    )
-    body = _elaborate_expr_to_body(
-        expr,
-        scope=scope,
-        type_env=d.type_env,
-        value_env=env,
-        workflow_return_types=builder._workflow_return_types_for(d.source_program, d.owner),
-        procedure_return_types=builder.procedure_return_types,
-        effect_summary=EMPTY_EFFECT_SUMMARY,
-        procedure_edges_by_site={},
-        compile_time_bindings={},
-    )
-    normalized = normalize_wcc_body_to_anf(body)
-    builder._prepare_computed_capture_requests(normalized, d, d.source_program)
-    d, alias_prefix = builder._freeze_bound_capture(
-        d,
-        binding_identity,
-        binder_wire,
-    )
-    return {
-        "k": "block",
-        "body": _prepend_lets(builder.body(normalized, d, env), alias_prefix),
-        **builder.provenance(expr),
     }
 
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 _SOURCE = """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.28")
+  (:target-dsl "2.35")
   (defmodule union_prompt_e2e)
   (export run)
   (defrecord Details (message String))
@@ -48,7 +48,7 @@ _ACTIVE_DECISIONS = (
 _IMPORTED_HELPER_SOURCE = """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.28")
+  (:target-dsl "2.35")
   (defmodule union_prompt_e2e/helper)
   (export Decision make-decision)
   (defrecord Details (message String))
@@ -70,7 +70,7 @@ _IMPORTED_HELPER_SOURCE = """\
 _IMPORTED_CONSUMER_SOURCE = """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.28")
+  (:target-dsl "2.35")
   (defmodule union_prompt_e2e/consumer)
   (import union_prompt_e2e/helper :only (Decision make-decision))
   (export run)

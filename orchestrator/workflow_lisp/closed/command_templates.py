@@ -14,7 +14,7 @@ from ..expressions import (
     ProviderBundlePathExpr, PureOpExpr, RecordExpr, RecordUpdateExpr, UnionVariantExpr,
 )
 from ..procedures import ProcedureLoweringMode, _procedure_signature_local_type_bindings, procedure_type_env_for
-from ..syntax import target_dsl_supports_generic_unions
+
 from ..procedure_specialization import (
     RUNTIME_REFERENCE, RetainedExpressionFact,
     _build_output_step_local_value, _flatten_boundary_leaf_paths,
@@ -22,8 +22,9 @@ from ..procedure_specialization import (
     inline_procedure_bindings, resolved_surface_proc_ref, select_surface_procedure_call,
     schema1_iteration_private_override_applies,
 )
-from ..type_env import RecordTypeRef, UnionTypeRef, VariantCaseTypeRef
+from ..type_env import RecordTypeRef, TypeRef, UnionTypeRef, VariantCaseTypeRef
 from ..wcc.anf import normalize_wcc_body_to_anf
+from ..wcc.hygiene import _free_names
 from ..wcc import model as w
 from ..wcc.model import (
     WccBody, WccCase, WccHalt, WccIf, WccJoin, WccJump, WccLet,
@@ -31,6 +32,33 @@ from ..wcc.model import (
 )
 from .names import canonical_type_descriptor
 from orchestrator.contracts.closed_program.program import _canonical_json
+
+def prepare_frontend_value(builder: Any, expr: Any, d: Any, env: Mapping[str, TypeRef]):
+    from ..effects import EMPTY_EFFECT_SUMMARY
+    from ..wcc.elaborate import _elaborate_expr_to_body
+
+    builder.opaque_ordinal += 1
+    scope = w.WccIdentityFactory(
+        owner_name=d.owner,
+        lexical_owner_chain=("closed-opaque", str(builder.opaque_ordinal)),
+        route_schema_version=builder.route_schema_version,
+    )
+    body = _elaborate_expr_to_body(
+        expr,
+        scope=scope,
+        type_env=d.type_env,
+        value_env=env,
+        workflow_return_types=builder._workflow_return_types_for(d.source_program, d.owner),
+        procedure_return_types=builder.procedure_return_types,
+        effect_summary=EMPTY_EFFECT_SUMMARY,
+        procedure_edges_by_site={},
+        compile_time_bindings={},
+    )
+    normalized = normalize_wcc_body_to_anf(body)
+    builder._prepare_computed_capture_requests(normalized, d, d.source_program)
+    metadata = replace(normalized.metadata, source_span=expr.span,
+        form_path=expr.form_path, expansion_stack=expr.expansion_stack)
+    return w.WccBlock(metadata=metadata, body=normalized)
 
 
 @dataclass(frozen=True)
@@ -51,7 +79,6 @@ class ControlFacts:
     procedure_catalog: Any = None
     active_procedure_calls: frozenset[str] = frozenset()
     lowered_callees: Mapping[str, Any] = field(default_factory=dict)
-    closed_program: bool = False
     workflow_return_types: Mapping[str, Any] = field(default_factory=dict)
     procedure_return_types: Mapping[str, Any] = field(default_factory=dict)
     procedure_owners: Mapping[str, Any] = field(default_factory=dict)
@@ -65,8 +92,8 @@ def _direct_outputs_available(expr: Any, *, result_type: Any, facts: ControlFact
     return direct_output_leaves_available(
         is_direct_reference(inline_expr_field_value(
             expr, field_path=boundary.source_path[1:], local_values=local_values,
-            bound_record_fields=target_dsl_supports_generic_unions(facts.type_env.target_dsl_version),
-            phase_target_values=facts.phase_target_values, retain_expression_facts=facts.closed_program,
+            bound_record_fields=True,
+            phase_target_values=facts.phase_target_values, retain_expression_facts=True,
         )) for boundary in fields
     )
 
@@ -101,10 +128,9 @@ def _expression_control_fact(expr: Any, *, result_type: Any, facts: ControlFacts
     if isinstance(expr, _CONTROL_EMITTERS):
         return True, ()
     if isinstance(expr, _LEAF_EMITTERS):
-        return False, _leaf_output_names(expr, result_type=result_type,
-            type_env=facts.type_env if facts is not None and facts.closed_program else None)
+        return False, _leaf_output_names(expr, result_type=result_type, type_env=facts.type_env)
     if isinstance(expr, ex.LetStarExpr):
-        if compiler_owned_pure_let(expr, target_dsl_version=facts.type_env.target_dsl_version):
+        if compiler_owned_pure_let(expr):
             return False, _projection_output_names(expr, result_type=result_type, facts=facts)
         return _let_control_fact(expr, result_type=result_type, facts=facts, local_values=local_values)
     from orchestrator.workflow_lisp.procedures import (LowerableProcedureCall)
@@ -118,7 +144,7 @@ def _expression_control_fact(expr: Any, *, result_type: Any, facts: ControlFacts
 
 def _with_phase_facts(expr: Any, *, facts: ControlFacts, local_values: Mapping[str, Any]) -> ControlFacts:
     scope, targets = selected_phase_scope(
-        _resolve_inline_expr_value(expr.ctx_expr, local_values=local_values, retain_expression_facts=facts.closed_program),
+        _resolve_inline_expr_value(expr.ctx_expr, local_values=local_values, retain_expression_facts=True),
         phase_name=expr.phase_name, ctx_expr=expr.ctx_expr, span=expr.span, form_path=expr.form_path,
     )
     return replace(facts, phase_target_values=targets)
@@ -150,7 +176,7 @@ def _projection_output_names(expr: Any, *, result_type: Any, facts: ControlFacts
 
 def _binding_projection_output_names(expr: Any, *, name: str, result_type: Any, facts: ControlFacts) -> tuple[str, ...]:
     from ..contracts import derive_workflow_boundary_fields
-    from ..syntax import target_dsl_supports_pure_call_composition
+
 
     if not isinstance(result_type, (RecordTypeRef, UnionTypeRef)):
         return _projection_output_names(expr, result_type=result_type, facts=facts)
@@ -159,7 +185,7 @@ def _binding_projection_output_names(expr: Any, *, name: str, result_type: Any, 
     )
     aliases = binding_projection_output_aliases(
         boundaries, whole_value=False,
-        pure_call_composition=target_dsl_supports_pure_call_composition(facts.type_env.target_dsl_version),
+        pure_call_composition=True,
     )
     return tuple(aliases if aliases is not None else (boundary.generated_name for boundary in boundaries))
 
@@ -167,13 +193,12 @@ def _binding_projection_output_names(expr: Any, *, name: str, result_type: Any, 
 def _materialized_binding_value(type_ref: Any, *, output_names: tuple[str, ...], facts: ControlFacts) -> Any:
     if not isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
         return RUNTIME_REFERENCE if "return" in output_names else None
-    from ..syntax import target_dsl_supports_rich_loop_values
 
-    preserve_paths = target_dsl_supports_rich_loop_values(facts.type_env.target_dsl_version)
+
     return _build_output_step_local_value(
         {name: RUNTIME_REFERENCE for name in output_names},
-        type_ref=type_ref if preserve_paths else None,
-        type_env=facts.type_env if preserve_paths else None,
+        type_ref=type_ref,
+        type_env=facts.type_env,
     )
 
 
@@ -183,7 +208,7 @@ def _closed_binding_type(expr, *, facts, capture_source=None):
     return binding_type_for_elaboration(
         expr, type_env=facts.type_env, value_env=facts.local_type_bindings,
         workflow_return_types=facts.workflow_return_types, procedure_return_types=facts.procedure_return_types,
-        closed_program=True, capture_source=capture_source,
+        capture_source=capture_source,
     )
 
 
@@ -191,18 +216,17 @@ def _binding_control_fact(expr: Any, *, name: str, facts: ControlFacts, local_va
     from ..procedure_refs import ResolvedProcRefValue
     from ..workflow_refs import ResolvedWorkflowRef, resolve_workflow_ref_expr, workflow_ref_type_from_signature
 
-    if facts.closed_program:
-        reference = _resolve_inline_expr_value(expr, local_values=local_values, retain_expression_facts=facts.closed_program)
-        if isinstance(reference, ex.WorkflowRefLiteralExpr):
-            reference = resolve_workflow_ref_expr(reference, workflow_catalog=facts.workflow_catalog,
-                span=expr.span, form_path=expr.form_path, expansion_stack=expr.expansion_stack,
-                typed_workflows_by_name=facts.workflows_by_name, allow_extern_rebinding=True)
-        if isinstance(reference, ResolvedWorkflowRef):
-            signature = facts.workflow_catalog.signatures_by_name[reference.workflow_name]
-            return False, reference, workflow_ref_type_from_signature(signature)
+    reference = _resolve_inline_expr_value(expr, local_values=local_values, retain_expression_facts=True)
+    if isinstance(reference, ex.WorkflowRefLiteralExpr):
+        reference = resolve_workflow_ref_expr(reference, workflow_catalog=facts.workflow_catalog,
+            span=expr.span, form_path=expr.form_path, expansion_stack=expr.expansion_stack,
+            typed_workflows_by_name=facts.workflows_by_name, allow_extern_rebinding=True)
+    if isinstance(reference, ResolvedWorkflowRef):
+        signature = facts.workflow_catalog.signatures_by_name[reference.workflow_name]
+        return False, reference, workflow_ref_type_from_signature(signature)
 
     if is_inline_let_binding_expr(expr):
-        value = _resolve_inline_expr_value(expr, local_values=local_values, retain_expression_facts=facts.closed_program)
+        value = _resolve_inline_expr_value(expr, local_values=local_values, retain_expression_facts=True)
         if isinstance(expr, (ex.ProcRefLiteralExpr, ex.BindProcExpr)):
             value = resolved_surface_proc_ref(
                 value, typed_procedures=facts.typed_procedures, local_values=local_values,
@@ -222,7 +246,7 @@ def _effectful_binding_control_fact(expr: Any, *, name: str, facts: ControlFacts
         selected = "expression"
     else:
         selected, _ = surface_binding_materialization(
-            expr, resolved_binding=None if isinstance(expr, ex.MatchExpr) else _resolve_inline_expr_value(expr, local_values=local_values, retain_expression_facts=facts.closed_program),
+            expr, resolved_binding=None if isinstance(expr, ex.MatchExpr) else _resolve_inline_expr_value(expr, local_values=local_values, retain_expression_facts=True),
         )
     if selected == "projection":
         control, output_names = False, _binding_projection_output_names(expr, name=name, result_type=type_ref, facts=facts)
@@ -244,7 +268,7 @@ def _suffix_outputs_available(expr: Any, bindings: tuple[Any, ...], *, result_ty
         expr, type_ref=result_type, type_env=facts.type_env, signature=facts.signature,
     )
     return direct_output_leaves_available(is_direct_reference(inline_let_field_value(
-        bindings, body=expr.body, field_path=boundary.source_path[1:], local_values=local_values, retain_expression_facts=facts.closed_program,
+        bindings, body=expr.body, field_path=boundary.source_path[1:], local_values=local_values, retain_expression_facts=True,
     )) for boundary in boundaries)
 
 
@@ -273,15 +297,9 @@ def _procedure_return_types(procedure, *, facts, source_program):
 
     _, return_types = prepare_elaboration_call_types(
         procedure.typed_body, resolved_procedures_by_name=source_program.procedures,
-        procedure_return_types=facts.procedure_return_types, closed_program=True,
+        procedure_return_types=facts.procedure_return_types,
     )
     return return_types
-
-
-def _private_procedure_output_names(expr: Any, *, result_type: Any, closed_program: bool, type_env: Any) -> tuple[str, ...]:
-    if closed_program:
-        return _leaf_output_names(expr, result_type=result_type, type_env=type_env)
-    return tuple(name for name, _ in _flatten_boundary_leaf_paths(result_type, generated_name="return"))
 
 
 def _procedure_control_fact(expr: Any, *, facts: ControlFacts, local_values: Mapping[str, Any]) -> tuple[bool, tuple[str, ...]]:
@@ -303,31 +321,23 @@ def _procedure_control_fact(expr: Any, *, facts: ControlFacts, local_values: Map
         default_type_env=facts.type_env, typed_procedures=facts.typed_procedures,
         procedure_type_envs=facts.procedure_type_envs, workflow_signatures=facts.workflow_catalog.signatures_by_name,
     ):
-        return False, _private_procedure_output_names(
-            expr, result_type=procedure.typed_body.type_ref, closed_program=facts.closed_program,
-            type_env=env,
-        )
+        return False, _leaf_output_names(expr, result_type=procedure.typed_body.type_ref, type_env=env)
     values = inline_procedure_bindings(procedure, caller_values=local_values, actual_values=tuple(
-        _resolve_inline_expr_value(arg, local_values=local_values, retain_expression_facts=facts.closed_program) for arg in args
+        _resolve_inline_expr_value(arg, local_values=local_values, retain_expression_facts=True) for arg in args
     ))
-    owner_returns = facts.workflow_return_types
-    owner_catalog, owner_workflows = facts.workflow_catalog, facts.workflows_by_name
-    if facts.closed_program:
-        from ..closed.frontend import workflow_catalog_for, workflow_return_types_for
+    from ..closed.frontend import workflow_catalog_for, workflow_return_types_for
 
-        _indexed_procedure, source_program = facts.procedure_owners[procedure.definition.name]
-        owner_returns = workflow_return_types_for(source_program, procedure.definition.name,
-            base_return_types=facts.base_workflow_return_types)
-        owner_catalog = workflow_catalog_for(source_program, procedure.definition.name)
-        owner_workflows = source_program.workflows
+    _indexed_procedure, source_program = facts.procedure_owners[procedure.definition.name]
+    owner_returns = workflow_return_types_for(source_program, procedure.definition.name,
+        base_return_types=facts.base_workflow_return_types)
+    owner_catalog = workflow_catalog_for(source_program, procedure.definition.name)
     child = replace(
         facts, type_env=env,
-        local_type_bindings=(_procedure_signature_local_type_bindings(procedure) if facts.closed_program
-            else {**facts.local_type_bindings, **_procedure_signature_local_type_bindings(procedure)}),
+        local_type_bindings=_procedure_signature_local_type_bindings(procedure),
         active_procedure_calls=facts.active_procedure_calls | {procedure.signature.name},
         workflow_return_types=owner_returns,
-        workflow_catalog=owner_catalog, workflows_by_name=owner_workflows,
-        procedure_return_types=(_procedure_return_types(procedure, facts=facts, source_program=source_program) if facts.closed_program else facts.procedure_return_types),
+        workflow_catalog=owner_catalog, workflows_by_name=source_program.workflows,
+        procedure_return_types=_procedure_return_types(procedure, facts=facts, source_program=source_program),
     )
     body = procedure.typed_body
     if isinstance(body.expr, ex.NameExpr) and not isinstance(body.type_ref, (RecordTypeRef, UnionTypeRef)) and _direct_outputs_available(
@@ -462,13 +472,11 @@ def helper_capture_names(expr: Any, *, local_type_bindings: Mapping[str, Any]) -
 def inline_output_boundary_fields(expr: Any, *, type_ref: Any, type_env: Any, signature: Any):
     from dataclasses import replace
     from ..contracts import derive_workflow_boundary_fields, root_workflow_boundary_field
-    from ..syntax import target_dsl_supports_trial
+
     from ..type_env import RecordTypeRef
 
     allow_direct = (
-        type_ref == signature.return_type_ref
-        and isinstance(getattr(signature, "compiler_direct_result_contract_digest", None), str)
-        and target_dsl_supports_trial(type_env.target_dsl_version)
+        (type_ref == signature.return_type_ref) and (isinstance(getattr(signature, "compiler_direct_result_contract_digest", None), str))
     )
     if isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
         return derive_workflow_boundary_fields(
@@ -600,6 +608,8 @@ def _wcc_continuation_binding_demands(
         return merged
 
     def referenced_names(value: object) -> frozenset[str]:
+        if isinstance(value, w.WccListMap):
+            return frozenset(_free_names(value))
         if isinstance(value, WccNameAtom):
             return frozenset((value.name,))
         if isinstance(value, Mapping):
@@ -610,7 +620,8 @@ def _wcc_continuation_binding_demands(
             return frozenset().union(*(referenced_names(item) for item in value))
         if is_dataclass(value):
             return frozenset().union(
-                *(referenced_names(getattr(value, field_info.name)) for field_info in fields(value))
+                *(referenced_names(getattr(value, field_info.name)) for field_info in fields(value)
+                    if field_info.name != "body_metadata")
             )
         return frozenset()
 
@@ -635,8 +646,13 @@ def _wcc_continuation_binding_demands(
     def value_demand(
         value: object,
     ) -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
+        if isinstance(value, w.WccListMap):
+            body = tuple(names - {value.binder_name} for names in body_demand(value.body))
+            return merge(value_demand(value.source), body)
         if isinstance(value, WccPerform):
-            return perform_demand(value)
+            operands = (*value.positional_args, *(item for _, item in value.keyword_args),
+                *w.perform_payload_values(value.perform_kind, value.operation_payload))
+            return merge(perform_demand(value), *(value_demand(item) for item in operands))
         if isinstance(value, (WccLet, WccCase, WccIf, WccJoin, WccRecJoin, WccParallelMap, WccHalt, WccJump, WccLoopContinue, WccLoopDone)):
             return body_demand(value)
         if isinstance(value, Mapping):
@@ -645,7 +661,8 @@ def _wcc_continuation_binding_demands(
             return merge(*(value_demand(item) for item in value))
         if is_dataclass(value):
             return merge(
-                *(value_demand(getattr(value, field_info.name)) for field_info in fields(value))
+                *(value_demand(getattr(value, field_info.name)) for field_info in fields(value)
+                    if field_info.name != "body_metadata")
             )
         return empty
 
@@ -703,15 +720,15 @@ def direct_output_leaves_available(leaf_availability: Iterable[bool]) -> bool:
     return all(leaf_availability)
 
 
-def compiler_owned_pure_let(expr: Any, *, target_dsl_version: str) -> bool:
+def compiler_owned_pure_let(expr: Any) -> bool:
     from ..expression_traversal import walk_expr
-    from ..syntax import ProcedureExpansionFrame, target_dsl_supports_pure_call_composition
+    from ..syntax import ProcedureExpansionFrame
 
-    return (
-        target_dsl_supports_pure_call_composition(target_dsl_version)
-        and any(isinstance(frame, ProcedureExpansionFrame) for node in walk_expr(expr) for frame in node.expansion_stack)
-        and is_pure_projection_expr(expr)
-    )
+    return any(
+        isinstance(frame, ProcedureExpansionFrame)
+        for node in walk_expr(expr)
+        for frame in node.expansion_stack
+    ) and is_pure_projection_expr(expr)
 
 
 _CALL_CHILD_FIELDS = {
@@ -732,10 +749,44 @@ _CALL_CHILD_FIELDS = {
     w.WccRecordAtom: ("fields",),
     w.WccInject: ("fields",),
     w.WccPureOp: ("args",),
-    w.WccOpaqueFrontendValue: ("normalized_body",),
+    w.WccList: ("items",),
+    w.WccListMap: ("source", "body"),
+    w.WccBlock: ("body",),
+    w.WccResultPath: ("source",),
     w.WccProviderSupervision: ("settlement_body",),
     w.WccProviderPeerGroup: ("settlement_body",),
 }
+
+
+def _wcc_semantic_children(node):
+    """Ordinary executable edges, with named rows and sequential arms unwrapped."""
+    if isinstance(node, w.WccCase):
+        yield "subject", node.subject
+        for arm in node.arms:
+            yield "arm", arm
+        return
+    if isinstance(node, w.WccCaseArm):
+        for _formal, root in node.command_scope or ():
+            yield "command_scope", root
+        yield "body", node.body
+        return
+    if isinstance(node, w.WccSelectArm):
+        for binding in node.prefix:
+            if type(binding) is not w.WccLet:
+                raise ValueError("prepared select prefix requires a WCC binding")
+            yield "bound_value", binding.bound_value
+        yield "value", node.value
+        return
+    for field in _CALL_CHILD_FIELDS.get(type(node), ()):
+        value = getattr(node, field)
+        if field in {"fields", "keyword_args"}:
+            for _name, child in value:
+                yield field, child
+        elif field in {"args", "specialization_captures", "positional_args", "state_args", "items"}:
+            for child in value:
+                yield field, child
+        elif value is not None or field not in {"initial_state", "exhaustion", "state"}:
+            yield field, value
 
 
 def _wcc_call_nodes(node, variants=()):
@@ -743,6 +794,8 @@ def _wcc_call_nodes(node, variants=()):
     if isinstance(node, w.WccCase):
         yield from _wcc_call_nodes(node.subject, variants)
         for arm in node.arms:
+            for _formal, root in arm.command_scope or ():
+                yield from _wcc_call_nodes(root, (*variants, arm.variant_name))
             yield from _wcc_call_nodes(arm.body, (*variants, arm.variant_name))
         return
     if isinstance(node, w.WccSelectArm):
@@ -754,8 +807,11 @@ def _wcc_call_nodes(node, variants=()):
         for child in node:
             yield from _wcc_call_nodes(child, variants)
         return
-    for field in _CALL_CHILD_FIELDS.get(type(node), ()):
-        yield from _wcc_call_nodes(getattr(node, field), variants)
+    if isinstance(node, w.WccPerform):
+        for operand in w.perform_payload_values(node.perform_kind, node.operation_payload):
+            yield from _wcc_call_nodes(operand, variants)
+    for _field, child in _wcc_semantic_children(node):
+        yield from _wcc_call_nodes(child, variants)
     if isinstance(node, w.WccCall) or isinstance(node, w.WccPerform) and node.perform_kind == "workflow_call":
         yield node, variants
 
@@ -813,7 +869,7 @@ def _children(node):
         return node
     if is_dataclass(node):
         return (getattr(node, field.name) for field in fields(node)
-            if field.name not in {"metadata", "bound_type_ref", "binding_type_ref", "command_scope"})
+            if field.name not in {"metadata", "body_metadata", "bound_type_ref", "binding_type_ref", "command_scope"})
     return ()
 
 
@@ -1136,12 +1192,10 @@ class CommandScopeContext:
                 iteration_scope=None, workflow_name=f"%composition.{control.workflow_name}"))
 
 
-def _validate_command_scope_inputs(producer_lowering_schema, closed_program,
+def _validate_command_scope_inputs(producer_lowering_schema,
     include_command_plans, source_program, command_bindings):
     if type(producer_lowering_schema) is not int or producer_lowering_schema not in (1, 2):
         raise ValueError("command scope analysis requires the producer's schema 1 or 2")
-    if not closed_program:
-        raise ValueError("command scope analysis requires closed elaboration")
     if include_command_plans and (source_program is None or command_bindings is None):
         raise ValueError("command plans require the exact source and command binding owner")
 
@@ -1156,7 +1210,7 @@ def elaborate_command_scopes(typed_body, *, incoming_command_facts,
     from ..wcc.model import WccIdentityFactory
 
     _validate_command_scope_inputs(
-        producer_lowering_schema, elaboration_inputs.get("closed_program"),
+        producer_lowering_schema,
         include_command_plans, source_program, command_bindings,
     )
     inputs = dict(elaboration_inputs)
@@ -1166,12 +1220,11 @@ def elaborate_command_scopes(typed_body, *, incoming_command_facts,
     prepare_call, verify_calls = _call_preparation_callbacks(neutral, call_declaration_identity, call_preparator)
     edges, returns = prepare_elaboration_call_types(typed_body,
         resolved_procedures_by_name=inputs.get("resolved_procedures_by_name"),
-        procedure_return_types=inputs.get("procedure_return_types"), closed_program=True)
-    facts = replace(incoming_command_facts, closed_program=True,
-        local_type_bindings=dict(inputs["value_env"]),
+        procedure_return_types=inputs.get("procedure_return_types"))
+    facts = replace(incoming_command_facts, local_type_bindings=dict(inputs["value_env"]),
         workflow_return_types=inputs.get("workflow_return_types", {}), procedure_return_types=returns)
     scope = WccIdentityFactory(owner_name=inputs["owner_name"], lexical_owner_chain=("workflow",),
-        route_schema_version=inputs["route_schema_version"], closed_program=True)
+        route_schema_version=inputs["route_schema_version"])
     operands, values = _initial_bindings(typed_body, inputs=inputs, scope=scope,
         facts=facts, procedure_edges=edges, local_values=local_values)
     if command_root_names is not None:

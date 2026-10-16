@@ -107,16 +107,12 @@ def _diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileError]) ->
     return excinfo.value.diagnostics[0].code
 
 
-def test_value_type_is_installed_only_from_target_219() -> None:
-    assert syntax.VALUE_MIN_TARGET_DSL_VERSION == "2.19"
-    assert not syntax.target_dsl_supports_value("2.18")
-    assert syntax.target_dsl_supports_value("2.19")
-    assert "Value" not in prelude_type_names_for_target("2.18")
-    assert "Value" in prelude_type_names_for_target("2.19")
+def test_value_type_is_installed_for_current_source() -> None:
+    assert "Value" in prelude_type_names_for_target("2.35")
 
     module = build_syntax_module(
         read_sexpr_text(
-            _module_source("2.19", "(defrecord Box (payload Value))"),
+            _module_source("2.35", "(defrecord Box (payload Value))"),
             source_path="target_219_value.orc",
         )
     )
@@ -133,29 +129,9 @@ def test_value_type_is_installed_only_from_target_219() -> None:
     ) == VALUE_TYPE
 
 
-@pytest.mark.parametrize("type_name", ("Value", "Optional[Value]"))
-def test_target_218_value_occurrence_reports_version_gate_at_authored_type(
-    tmp_path: Path,
-    type_name: str,
-) -> None:
-    path = _write_module(
-        tmp_path / "target_218_value.orc",
-        "2.18",
-        f"(defworkflow probe ((payload {type_name})) -> Bool true)",
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            path,
-            validate_shared=False,
-            workspace_root=tmp_path,
-        )
-
-    assert _diagnostic_code(excinfo) == "value_type_requires_dsl_2_19"
-    assert excinfo.value.diagnostics[0].span.start.line == 4
 
 
-@pytest.mark.parametrize("target_dsl", ("2.18", "2.19"))
+@pytest.mark.parametrize("target_dsl", ("2.35", "2.36"))
 @pytest.mark.parametrize(
     "definition",
     (
@@ -185,7 +161,7 @@ def test_value_name_is_reserved_against_local_definitions_at_every_target(
     assert _diagnostic_code(excinfo) == "prelude_type_name_reserved"
 
 
-@pytest.mark.parametrize("target_dsl", ("2.18", "2.19"))
+@pytest.mark.parametrize("target_dsl", ("2.35", "2.36"))
 def test_value_name_is_reserved_against_imported_definitions_at_every_target(
     target_dsl: str,
 ) -> None:
@@ -289,7 +265,7 @@ def test_ordinary_typechecking_rejects_value_narrower_flows_in_both_directions(
         ("(match value ((ONLY item) item))", "match_subject_not_union"),
         ("value.field", "record_field_unknown"),
         (
-            "(provider-bundle-path value :as Path.state-root)",
+            "(provider-bundle-path value :as BundlePath)",
             "provider_bundle_path_source_invalid",
         ),
         ("(+ value 1)", "pure_expr_operand_type_mismatch"),
@@ -297,14 +273,21 @@ def test_ordinary_typechecking_rejects_value_narrower_flows_in_both_directions(
     ),
 )
 def test_value_operations_keep_the_existing_operation_owned_diagnostic(
+    tmp_path: Path,
     source: str,
     expected_code: str,
 ) -> None:
-    type_env = _type_environment()
+    type_env = FrontendTypeEnvironment.from_module(compile_stage1_module(
+        _write_module(
+            tmp_path / "value_operation_types.orc",
+            "2.35",
+            '(defpath BundlePath :kind relpath :under ".orchestrate/runs" :must-exist true)',
+        )
+    ))
     expression = elaborate_expression(
         _expression(source),
         bound_names=frozenset({"value"}),
-        target_dsl_version="2.18",
+        target_dsl_version="2.35",
     )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
@@ -442,7 +425,7 @@ def test_value_contract_nested_descriptors_cover_collections_record_and_union() 
     syntax_module = build_syntax_module(
         read_sexpr_text(
             _module_source(
-                "2.19",
+                "2.35",
                 "(defrecord ValueBox (payload Value))",
                 "(defunion ValueChoice (KEEP (payload Value)) (DROP))",
             ),
@@ -538,7 +521,7 @@ def test_value_contract_fingerprint_preserves_literal_value_descriptor() -> None
 def test_value_contract_typechecks_provider_and_command_result_returns() -> None:
     syntax_module = build_syntax_module(
         read_sexpr_text(
-            _module_source("2.19"),
+            _module_source("2.35"),
             source_path="value_effect_return_typecheck.orc",
         )
     )
@@ -576,7 +559,7 @@ def test_value_contract_typechecks_provider_and_command_result_returns() -> None
         expression = elaborate_expression(
             _expression(source),
             bound_names=bound_names,
-            target_dsl_version="2.19",
+            target_dsl_version="2.35",
         )
         typed = typecheck_expression(
             expression,
@@ -594,8 +577,8 @@ def test_value_contract_compiles_inline_procedure_workflow_call_and_public_pass_
 ) -> None:
     path = _write_module(
         tmp_path / "value_pass_through.orc",
-        "2.19",
-        "(defmodule value-pass-through)",
+        "2.35",
+        "(defmodule value_pass_through)",
         "(export entry)",
         (
             "(defproc pass-value ((payload Value)) -> Value "
@@ -612,12 +595,12 @@ def test_value_contract_compiles_inline_procedure_workflow_call_and_public_pass_
         path,
         validate_shared=True,
         workspace_root=tmp_path,
-        lowering_route="wcc_m4",
+
     )
-    entry = result.typed_program.workflows["entry"]
+    entry = result.typed_program.workflows["value_pass_through::entry"]
     assert dict(entry.signature.params)["payload"] == VALUE_TYPE
     assert entry.signature.return_type_ref == VALUE_TYPE
-    assert "child" in result.typed_program.workflows
+    assert "value_pass_through::child" in result.typed_program.workflows
 
 
 

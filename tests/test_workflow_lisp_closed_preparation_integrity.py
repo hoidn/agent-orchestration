@@ -7,6 +7,128 @@ from tests.test_workflow_lisp_closed_command_requests import _prepared_entry
 from tests.test_workflow_lisp_closed_command_transport import _compile, _command
 
 
+@pytest.mark.parametrize("body", [
+    '(invoke (bind-proc (proc-ref helper) :fixed (+ 2 3)) n)',
+    '(let* ((hook (bind-proc (proc-ref helper) :fixed (+ n 1))) (n 100)) (invoke hook 2))',
+    '(invoke (bind-proc (proc-ref forward) :callback (bind-proc (proc-ref helper) :fixed (+ n 1))) 2)',
+])
+def test_completed_capture_requests_emit_without_frontend_reentry(tmp_path, monkeypatch, body):
+    from orchestrator.workflow_lisp.closed import build, command_templates
+    from orchestrator.workflow_lisp.wcc import elaborate, anf
+    from orchestrator.contracts.closed_program.program import ClosedProgram
+
+    declarations = '(defproc helper ((fixed Int) (y Int)) -> Int :effects ((uses-command echo)) :lowering inline '
+    declarations += _command('"${inputs.fixed}-${inputs.y}"') + ')'
+    declarations += '(defproc invoke ((runner ProcRef[Int -> Int]) (y Int)) -> Int :effects () :lowering inline (runner y))'
+    declarations += '(defproc forward ((callback ProcRef[Int -> Int]) (y Int)) -> Int :effects () :lowering inline (callback y))'
+    program = _compile(tmp_path, body, params='(n Int)', declarations=declarations)
+    expected = build.build_closed_program(program)
+    owner = Builder(program)
+    actual_prepare = owner._prepare_command_owner
+    actual_instantiate = owner._instantiate_call_request
+    instantiated = []
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('completed capture preparation reentered the frontend')
+
+    def instantiate(shape, call, context):
+        assert shape.prepared_body is not None and shape.prepared_children is not None
+        instantiated.append(shape)
+        return actual_instantiate(shape, call, context)
+
+    def prepare(callable_def, *args, **kwargs):
+        result = actual_prepare(callable_def, *args, **kwargs)
+        if callable_def is program.entry:
+            monkeypatch.setattr(owner, '_prepare_computed_capture_requests', forbidden)
+            monkeypatch.setattr(owner, '_call_capture_facts', forbidden)
+            monkeypatch.setattr(command_templates, 'prepare_frontend_value', forbidden)
+            monkeypatch.setattr(elaborate, '_elaborate_expr_to_body', forbidden)
+            monkeypatch.setattr(build, 'elaborate_typed_workflow_body', forbidden)
+            monkeypatch.setattr(build, 'normalize_wcc_body_to_anf', forbidden)
+            monkeypatch.setattr(anf, 'normalize_wcc_body_to_anf', forbidden)
+        return result
+
+    monkeypatch.setattr(owner, '_prepare_command_owner', prepare)
+    monkeypatch.setattr(owner, '_instantiate_call_request', instantiate)
+    actual = build._build_with_builder(program, owner)
+    assert instantiated
+    assert any(shape.prepared_children == {} for shape in instantiated)
+    assert actual.artifact() == expected.artifact()
+    assert ClosedProgram.from_artifact(actual.artifact()).artifact() == actual.artifact()
+
+
+@pytest.mark.parametrize('missing', ['body', 'children', 'recipe', 'capture_maps'])
+def test_incomplete_capture_preparation_refuses_without_source_fallback(tmp_path, monkeypatch, missing):
+    from dataclasses import replace
+    from orchestrator.workflow_lisp.closed import build, command_templates
+
+    declarations = '(defproc helper ((fixed Int) (y Int)) -> Int :effects ((uses-command echo)) :lowering inline '
+    declarations += _command('"${inputs.fixed}-${inputs.y}"') + ')'
+    declarations += '(defproc invoke ((runner ProcRef[Int -> Int]) (y Int)) -> Int :effects () :lowering inline (runner y))'
+    program = _compile(tmp_path, '(invoke (bind-proc (proc-ref helper) :fixed (+ n 1)) 2)',
+        params='(n Int)', declarations=declarations)
+    owner = Builder(program)
+    actual_prepare = owner._prepare_command_owner
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('incomplete preparation attempted a source fallback')
+
+    def prepare(callable_def, source, context, **kwargs):
+        body, children = actual_prepare(callable_def, source, context, **kwargs)
+        if callable_def is program.entry:
+            request = next(iter(children.values()))
+            if missing == 'body':
+                request.prepared_body = None
+            elif missing == 'children':
+                request.prepared_children = None
+            elif missing == 'capture_maps':
+                request.computed_capture_sources = None
+            else:
+                context.computed_capture_requests_by_alias = {
+                    alias: tuple(replace(row, prepared_value=None) for row in rows)
+                    for alias, rows in context.computed_capture_requests_by_alias.items()}
+            monkeypatch.setattr(owner, '_command_wcc_body', forbidden)
+            monkeypatch.setattr(command_templates, 'prepare_frontend_value', forbidden)
+        return body, children
+
+    monkeypatch.setattr(owner, '_prepare_command_owner', prepare)
+    with pytest.raises(ValueError, match='prepared body|prepared value recipe|completed capture preparation'):
+        build._build_with_builder(program, owner)
+
+
+@pytest.mark.parametrize('kind', ['procedure', 'workflow'])
+@pytest.mark.parametrize('missing', ['request', 'body', 'children'])
+def test_emission_requires_completed_callable_request(tmp_path, monkeypatch, kind, missing):
+    from orchestrator.workflow_lisp.closed import build
+
+    declarations = ('(defproc helper ((n Int)) -> Int :effects ((uses-command echo)) :lowering inline '
+        + _command('"${inputs.n}"') + ')') if kind == 'procedure' else '(defworkflow helper ((n Int)) -> Int (+ n 1))'
+    body = '(helper n)' if kind == 'procedure' else '(call helper :n n)'
+    program = _compile(tmp_path, body, params='(n Int)', declarations=declarations)
+    owner = Builder(program)
+    actual_install = owner._install_prepared_requests
+
+    def forbidden(*args, **kwargs):
+        pytest.fail('incomplete callable attempted source preparation')
+
+    def install(body, context, children):
+        if missing != 'request':
+            request = next(iter(children.values()))
+            setattr(request, 'prepared_body' if missing == 'body' else 'prepared_children', None)
+        verify = actual_install(body, context, children)
+        if missing == 'request':
+            context.prepared_request = None
+        monkeypatch.setattr(owner, '_call_request', forbidden)
+        monkeypatch.setattr(owner, '_workflow_request', forbidden)
+        monkeypatch.setattr(owner, '_workflow_wcc_body', forbidden)
+        monkeypatch.setattr(owner, '_command_wcc_body', forbidden)
+        return verify
+
+    monkeypatch.setattr(owner, '_install_prepared_requests', install)
+    with pytest.raises(ValueError, match='prepared body|completed prepared request'):
+        build._build_with_builder(program, owner)
+
+
 def _program(tmp_path, prefix="prefix-"):
     declaration = '(defproc helper ((n Int)) -> Int :effects ((uses-command echo)) '
     declaration += ':lowering inline ' + _command('"' + prefix + '${inputs.n}"') + ')'
@@ -59,16 +181,14 @@ def test_same_key_changed_template_fails_at_preparation_completion_before_emissi
     assert first.canonical not in builder.definitions
 
 
-def _opaque_map_body(body, transform):
+def _map_body(body, transform):
     from dataclasses import replace
-    from orchestrator.workflow_lisp.wcc.model import WccLet, WccHalt, WccOpaqueFrontendValue
+    from orchestrator.workflow_lisp.wcc.model import WccLet, WccHalt, WccListMap
 
     if isinstance(body, WccLet):
-        return replace(body, body=_opaque_map_body(body.body, transform))
-    assert isinstance(body, WccHalt) and isinstance(body.result, WccOpaqueFrontendValue)
-    mapping = body.result.expr
-    changed = replace(mapping, body_expr=transform(mapping.body_expr))
-    return replace(body, result=replace(body.result, expr=changed))
+        return replace(body, body=_map_body(body.body, transform))
+    assert isinstance(body, WccHalt) and isinstance(body.result, WccListMap)
+    return replace(body, result=replace(body.result, body=transform(body.result.body)))
 
 
 def _copied_capture_bindings(expr, name):
@@ -81,11 +201,10 @@ def _copied_capture_bindings(expr, name):
 
 def _assert_normalized_capture_source(request, helper):
     from orchestrator.workflow_lisp.expressions import LetStarExpr
-    from orchestrator.workflow_lisp.wcc.model import WccOpaqueFrontendValue
+    from orchestrator.workflow_lisp.wcc.model import WccBlock
     from tests.test_workflow_lisp_command_scopes import _walk
 
-    opaque = [node for node in _walk(request.prepared_body) if isinstance(node, WccOpaqueFrontendValue)]
-    assert any(node.expr is None and node.normalized_body is not None for node in opaque)
+    assert any(isinstance(node, WccBlock) for node in _walk(request.prepared_body))
     assert any(isinstance(node, LetStarExpr) and any(row is not None for row in node.binding_capture_sources)
         for node in _walk(helper.typed_body))
 
@@ -135,10 +254,10 @@ def test_real_retained_frontend_capture_row_cannot_retarget_same_typed_input(tmp
 
 
 @pytest.mark.parametrize('mode', ['match-alpha', 'let-label'])
-def test_retained_frontend_binders_preserve_scope_and_consumed_labels(tmp_path, monkeypatch, mode):
+def test_prepared_map_body_binders_preserve_scope_and_consumed_labels(tmp_path, monkeypatch, mode):
     from dataclasses import replace
-    from orchestrator.workflow_lisp.expression_traversal import map_expr
-    from orchestrator.workflow_lisp.expressions import MatchExpr, LetStarExpr
+    from orchestrator.workflow_lisp.wcc.hygiene import _renamed
+    from orchestrator.workflow_lisp.wcc.model import WccCase, WccLet
 
     stable = '(command-result echo :argv ("python" "probe.py") :returns Int)'
     inner = '(match item ((A a) a.n) ((B b) b.n))' if mode == 'match-alpha' else '(let* ((n 1)) (+ n 1))'
@@ -151,16 +270,15 @@ def test_retained_frontend_binders_preserve_scope_and_consumed_labels(tmp_path, 
 
     def transform(expr):
         if mode == 'match-alpha':
-            assert isinstance(expr, MatchExpr)
+            assert isinstance(expr, WccCase)
             arms = tuple(replace(arm, binding_name=arm.binding_name + '_alpha',
-                body=map_expr(arm.body, lambda name: replace(name, name=arm.binding_name + '_alpha')
-                    if name.name == arm.binding_name else name)) for arm in expr.arms)
+                body=_renamed(arm.body, {arm.binding_name: arm.binding_name + '_alpha'})) for arm in expr.arms)
             return replace(expr, arms=arms)
-        assert isinstance(expr, LetStarExpr) and expr.binding_labels == ('n',)
-        return replace(expr, binding_labels=('changed',))
+        assert isinstance(expr, WccLet) and expr.metadata.binding_label == 'n'
+        return replace(expr, metadata=replace(expr.metadata, binding_label='changed'))
 
     def mutate(body, call, source):
-        return _opaque_map_body(body, transform) if call.definition.name.endswith('helper') else body
+        return _map_body(body, transform) if call.definition.name.endswith('helper') else body
 
     registrations = _registrations(builder)
     _forbid_emission(monkeypatch, builder)
@@ -327,8 +445,10 @@ def test_original_schema_difference_with_same_projected_body_is_accepted(tmp_pat
     path = Path(second.entry.definition.span.start.path)
     result = compile_stage3_module(path, entry_workflow=second.entry.definition.name,
         workspace_root=tmp_path / 'schema1', command_boundaries={'echo': second.command_boundaries['echo']},
-        lowering_route='legacy', validate_shared=False)
-    original = replace(result.typed_program, entry=result.typed_workflows[-1])
+         validate_shared=False)
+    assert result.typed_program.producer_lowering_schema == 2
+    original = replace(result.typed_program, entry=result.typed_workflows[-1],
+        producer_lowering_schema=1)
     assert builder.typed.producer_lowering_schema == 2
     assert original.producer_lowering_schema == 1
     registrations = _registrations(builder)
@@ -394,6 +514,7 @@ def test_reelaborated_literal_roots_keep_their_current_capture_partition(tmp_pat
     from dataclasses import replace
     from orchestrator.workflow_lisp.compiler import compile_stage3_module
     from orchestrator.workflow_lisp.command_boundaries import ExternalToolBinding
+    from orchestrator.workflow_lisp.wcc.model import WccNameAtom, WccLiteralAtom
     from tests.test_workflow_lisp_command_scopes import _compile as compile_scoped
 
     declarations = '(defproc child ((a Int) (b Int)) -> Int :effects ((uses-command echo)) :lowering inline '
@@ -402,10 +523,10 @@ def test_reelaborated_literal_roots_keep_their_current_capture_partition(tmp_pat
     declarations += ':effects ((uses-command echo)) :lowering inline '
     declarations += '(let* ((result (match choice ((A av) (if gate (child a b) 0)) ((B bv) 0)))) result))'
     program, _, _ = compile_scoped(tmp_path, '(let* ((alias 7)) (parent alias alias choice gate))',
-        params='(choice Choice) (gate Bool)', returns='Int', declarations=declarations, schema=1)
+        params='(choice Choice) (gate Bool)', returns='Int', declarations=declarations)
     result = compile_stage3_module(tmp_path / 'entry.orc', entry_workflow='run', workspace_root=tmp_path,
         command_boundaries={'echo': ExternalToolBinding(name='echo', stable_command=('python', 'probe.py'), closure=('probe.py',))},
-        lowering_route='legacy', validate_shared=False)
+         validate_shared=False)
     program = replace(result.typed_program, entry=result.typed_workflows[-1])
     builder, seen = Builder(program), []
     actual = builder._call_request
@@ -413,20 +534,22 @@ def test_reelaborated_literal_roots_keep_their_current_capture_partition(tmp_pat
     def observe(procedure, source, call, context, **kwargs):
         request = actual(procedure, source, call, context, **kwargs)
         if procedure.definition.name.endswith('::child'):
-            roots = dict(kwargs['command_context'].command_roots)
             memo = builder.completed_preparations
             builder.completed_preparations = {}
             try:
                 fresh = actual(procedure, source, call, context, **kwargs)
             finally:
                 builder.completed_preparations = memo
-            seen.append((roots['a'] == roots['b'], request, fresh))
+            assert all(isinstance(arg, (WccNameAtom, WccLiteralAtom)) for arg in call.args)
+            partition = tuple(arg.name if isinstance(arg, WccNameAtom) else arg.value
+                for arg in call.args)
+            seen.append((partition, request, fresh))
         return request
 
     monkeypatch.setattr(builder, '_call_request', observe)
     _forbid_emission(monkeypatch, builder)
     _prepared_entry(program, builder=builder)
-    assert [equal for equal, _, _ in seen] == [False, True]
+    assert [partition for partition, _, _ in seen] == [("a", "b"), (7, 7)]
     for _, cached, fresh in seen:
         assert [row.routes for row in cached.captures] == [row.routes for row in fresh.captures]
         assert cached.key == fresh.key
@@ -496,3 +619,53 @@ def test_compiled_control_parameter_metadata_identity_uses_its_own_namespace(tmp
     else:
         _prepare_other_owner(second, builder, monkeypatch, change)
     assert _registrations(builder) == registrations
+
+
+@pytest.mark.parametrize('mutation', ['name', 'producer', 'phantom-producer', 'signature', 'field-value'])
+def test_reused_carrier_record_keeps_its_local_nominal_and_run_ref_owner(tmp_path, monkeypatch, mutation):
+    from dataclasses import replace
+    from orchestrator.workflow_lisp.closed import preparation_check as check
+    from orchestrator.workflow_lisp.closed.names import CanonicalNameError
+    from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+    from orchestrator.workflow_lisp.type_env import UnionTypeRef
+    from tests.test_workflow_lisp_closed_program_effects import _CARRIER_RUN_REF_SOURCE
+    from tests.workflow_lisp_closed_program_helpers import build
+
+    actual = getattr(check._Comparison, 'WccRecordAtom', check._Comparison.record)
+    seen = []
+
+    def retarget(self, left, right, frame, path):
+        if left.type_name != right.type_name and not seen:
+            seen.append((left, right))
+            if mutation == 'name':
+                left = replace(left, type_name='forged-carrier-name')
+            elif mutation == 'producer':
+                left = replace(left, resolved_type=right.resolved_type)
+            elif mutation == 'phantom-producer':
+                # Keep the local carrier spelling while replacing its concrete producer.
+                foreign = replace(right.resolved_type, name=left.resolved_type.name)
+                left = replace(left, type_name=foreign.name, resolved_type=foreign)
+            elif mutation == 'signature':
+                carrier = left.resolved_type
+                payload = carrier.field_types['payload']
+                assert isinstance(payload, UnionTypeRef) and len(payload.type_args) == 1
+                result = payload.type_args[0]
+                origin, inputs = result.run_ref_origin
+                changed = replace(result, run_ref_origin=(origin, (('forged-input', inputs[0][1]),)))
+                phantom = replace(payload, type_args=(changed,))
+                forged = replace(carrier, field_types={**carrier.field_types, 'payload': phantom})
+                left = replace(left, resolved_type=forged)
+            else:
+                name, value = left.fields[0]
+                left = replace(left, fields=((name, replace(value, name='missing-source')), *left.fields[1:]))
+        return actual(self, left, right, frame, path)
+
+    monkeypatch.setattr(check._Comparison, 'WccRecordAtom', retarget, raising=False)
+    expected = ('canonical identity is missing owner facts'
+        if mutation in {'phantom-producer', 'signature'} else 'contradictory prepared')
+    with pytest.raises(LispFrontendCompileError, match=expected) as exc:
+        build(tmp_path, _CARRIER_RUN_REF_SOURCE, boundaries={}, providers={}, prompts={})
+    diagnostic = exc.value.diagnostics[0]
+    assert diagnostic.code == 'compiler_defect'
+    assert isinstance(diagnostic.cause, CanonicalNameError if mutation in {'phantom-producer', 'signature'} else ValueError)
+    assert len(seen) == 1

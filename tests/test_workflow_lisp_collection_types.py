@@ -293,7 +293,7 @@ def test_compile_stage3_rejects_workflow_ref_transport_nested_inside_collections
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord WorkflowInput",
                 "    (value String))",
                 "  (defrecord WorkflowOutput",
@@ -326,7 +326,7 @@ def test_compile_stage3_rejects_optional_workflow_ref_transport_nested_inside_co
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord WorkflowInput",
                 "    (value String))",
                 "  (defrecord WorkflowOutput",

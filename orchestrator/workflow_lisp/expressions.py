@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import InitVar, dataclass, field
 import math
 import re
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Callable
 
 from orchestrator.workflow.run_ref.contracts import (
@@ -41,9 +41,10 @@ from .diagnostics import (
     build_authored_phased_delivery_diagnostic,
 )
 from .form_registry import (
+    FINITE_SOURCE_ADMISSION_MIN_TARGET_DSL_VERSION,
     FormKind,
     get_form_spec,
-    list_traversal_authored_heads,
+    target_dsl_version_at_least,
 )
 from .phase_stdlib import (
     ProduceOneOfCandidateFieldSpec,
@@ -60,11 +61,9 @@ from .resource_stdlib import FinalizeSelectedItemSpec, ResourceTransitionSpec
 from .result_guidance import ReturnSpec, parse_return_spec
 from .spans import SourceSpan
 from .syntax import (
+    ExpansionFrame,
     ExpansionStack,
-    LIST_TRAVERSAL_MIN_TARGET_DSL_VERSION,
     MAX_STATIC_LIVE_PROVIDER_PEERS,
-    RUN_REF_MIN_TARGET_DSL_VERSION,
-    TRIAL_MIN_TARGET_DSL_VERSION,
     SyntaxBool,
     SyntaxFloat,
     SyntaxIdentifier,
@@ -76,21 +75,39 @@ from .syntax import (
     syntax_head,
     syntax_identifier,
     syntax_node_datum,
-    target_dsl_supports_list_traversal,
-    target_dsl_supports_numeric_surface,
-    target_dsl_supports_prompt_calculus,
-    target_dsl_supports_phased_contract_delivery,
-    target_dsl_supports_provider_context_values,
-    target_dsl_supports_human_input,
-    target_dsl_supports_provider_peer_messaging,
-    target_dsl_supports_run_ref,
-    target_dsl_supports_session_artifact,
-    target_dsl_supports_trial,
-    target_dsl_uses_evaluated_execution,
 )
 
 if TYPE_CHECKING:
     from .type_env import TypeRef
+
+
+_PRIVATE_EXPANSION_FORM_OWNERS = {
+    "__with-phase__": ("std/phase.orc",),
+    "__generated-relpath-seed__": ("std/phase.orc", "std/drain.orc"),
+}
+
+
+def _has_packaged_private_form_origin(head: SyntaxIdentifier) -> bool:
+    owners = _PRIVATE_EXPANSION_FORM_OWNERS.get(head.resolved_name)
+    if owners is None or head.introduced_by_expansion_id is None:
+        return False
+    frame = next(
+        (
+            frame
+            for frame in head.expansion_stack
+            if isinstance(frame, ExpansionFrame)
+            and frame.expansion_id == head.introduced_by_expansion_id
+        ),
+        None,
+    )
+    if frame is None:
+        return False
+    try:
+        origin = Path(frame.definition_span.start.path).resolve()
+        stdlib_root = Path(__file__).resolve().parent / "stdlib_modules"
+        return origin in {(stdlib_root / owner).resolve() for owner in owners}
+    except (OSError, RuntimeError, ValueError):
+        return False
 
 
 @dataclass(frozen=True)
@@ -135,7 +152,6 @@ class EnumMemberExpr:
     @property
     def name(self) -> str:
         return f"{self.enum_name}.{self.member_name}"
-
 
 
 @dataclass(frozen=True)
@@ -227,6 +243,10 @@ class ListExpr:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    item_type_refs: tuple["TypeRef", ...] = field(
+        default=(), repr=False, compare=False, hash=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True},
+    )
 
 
 @dataclass(frozen=True)
@@ -1249,7 +1269,6 @@ ExprNode = (
 )
 
 
-
 _ElaborationRouteHandler = Callable[
     [SyntaxList, tuple[str, ...], frozenset[str], frozenset[str], ElaborationSessionState],
     "ExprNode",
@@ -1436,18 +1455,9 @@ def _elaborate(
             expansion_stack=datum.expansion_stack,
         )
     if isinstance(datum, SyntaxFloat):
-        if session_state.guidance_example or target_dsl_supports_numeric_surface(
-            session_state.target_dsl_version or ""
-        ):
-            return LiteralExpr(
-                value=datum.value,
-                literal_kind="float",
-                span=datum.span,
-                form_path=form_path,
-                expansion_stack=datum.expansion_stack,
-            )
-        _raise_error(
-            "float literals are only supported in `defworkflow` parameter defaults",
+        return LiteralExpr(
+            value=datum.value,
+            literal_kind="float",
             span=datum.span,
             form_path=form_path,
             expansion_stack=datum.expansion_stack,
@@ -1538,32 +1548,33 @@ def _elaborate_list(
         head.resolved_name,
         target_dsl_version=session_state.target_dsl_version,
     )
-    if (
-        form_spec is not None
-        and head.resolved_name in list_traversal_authored_heads()
-        and not target_dsl_supports_list_traversal(
-            session_state.target_dsl_version or ""
-        )
-        and (
-            head.resolved_name in session_state.function_names
-            or head.resolved_name in procedure_names
-            or head.resolved_name in available_names
-        )
+    if target_dsl_version_at_least(
+        session_state.target_dsl_version,
+        FINITE_SOURCE_ADMISSION_MIN_TARGET_DSL_VERSION,
     ):
-        form_spec = None
-    if (
-        head.resolved_name == "with-live-provider-peers"
-        and session_state.target_dsl_version is not None
-        and not target_dsl_supports_provider_peer_messaging(
-            session_state.target_dsl_version
-        )
-        and (
-            head.resolved_name in session_state.function_names
-            or head.resolved_name in procedure_names
-            or head.resolved_name in available_names
-        )
-    ):
-        form_spec = None
+        if head.resolved_name in _PRIVATE_EXPANSION_FORM_OWNERS:
+            if not _has_packaged_private_form_origin(head):
+                _raise_error(
+                    f"private form `{head.display_name}` requires its packaged "
+                    "stdlib macro expansion",
+                    code="private_form_not_admitted",
+                    span=head.span,
+                    form_path=form_path,
+                    expansion_stack=head.expansion_stack,
+                )
+        if (
+            form_spec is not None
+            and "compatibility_route_only" in form_spec.feature_tags
+        ):
+            _raise_error(
+                f"`{head.display_name}` requires its imported stdlib macro at target 2.39 or later",
+                code="stdlib_import_route_required",
+                span=head.span,
+                form_path=form_path,
+                expansion_stack=head.expansion_stack,
+            )
+
+
     if (
         form_spec is None
         and head.resolved_name in {"run-ref", "trial", "agent"}
@@ -2246,14 +2257,7 @@ def _parse_run_ref_syntax_list(
     prompt_catalog: PromptCatalog | None,
     session_state: ElaborationSessionState | None,
 ) -> RunRefExpr:
-    if not target_dsl_supports_run_ref(target_dsl_version):
-        _raise_error(
-            f"`run-ref` requires target DSL {RUN_REF_MIN_TARGET_DSL_VERSION} or newer",
-            code="run_ref_target_dsl_unsupported",
-            span=datum.span,
-            form_path=form_path,
-            expansion_stack=datum.expansion_stack,
-        )
+
 
     sections = _run_ref_sections(
         datum.items[1:],
@@ -3274,14 +3278,7 @@ def _parse_trial_syntax_list(
     prompt_catalog: PromptCatalog | None,
     session_state: ElaborationSessionState | None,
 ) -> TrialExpr:
-    if not target_dsl_supports_trial(target_dsl_version):
-        _raise_error(
-            f"`trial` requires target DSL {TRIAL_MIN_TARGET_DSL_VERSION} or newer",
-            code="trial_target_dsl_unsupported",
-            span=datum.span,
-            form_path=form_path,
-            expansion_stack=datum.expansion_stack,
-        )
+
     sections = _trial_sections(
         datum.items[1:],
         label="`trial`",
@@ -3451,27 +3448,6 @@ def _looks_like_pure_operator_head(name: str) -> bool:
     return name in {"and", "or", "not", "min", "max", "some?", "or-else", "record-update"}
 
 
-def _require_list_traversal_target(
-    datum: SyntaxList,
-    *,
-    session_state: ElaborationSessionState,
-) -> None:
-    if target_dsl_supports_list_traversal(
-        session_state.target_dsl_version or ""
-    ):
-        return
-    _raise_error(
-        (
-            "list traversal and rooted path construction require target DSL "
-            f"{LIST_TRAVERSAL_MIN_TARGET_DSL_VERSION} or newer"
-        ),
-        code="list_traversal_target_dsl_unsupported",
-        span=datum.span,
-        form_path=datum.form_path,
-        expansion_stack=datum.expansion_stack,
-    )
-
-
 def _elaborate_record(
     datum: SyntaxList,
     *,
@@ -3542,8 +3518,7 @@ def _elaborate_pure_op(
     head = syntax_head(datum)
     assert head is not None
     spec = PURE_EXPR_OPERATOR_CATALOG[head.resolved_name]
-    if spec.min_schema_version >= 2:
-        _require_list_traversal_target(datum, session_state=session_state)
+
     return PureOpExpr(
         operator=head.resolved_name,
         args=tuple(
@@ -3570,7 +3545,7 @@ def _elaborate_list_constructor(
     procedure_names: frozenset[str],
     session_state: ElaborationSessionState,
 ) -> ListExpr:
-    _require_list_traversal_target(datum, session_state=session_state)
+
     return ListExpr(
         items=tuple(
             _elaborate(
@@ -3597,7 +3572,7 @@ def _elaborate_list_map(
     procedure_names: frozenset[str],
     session_state: ElaborationSessionState,
 ) -> ListMapExpr:
-    _require_list_traversal_target(datum, session_state=session_state)
+
     if len(datum.items) != 3:
         _raise_error(
             "`list/map` requires one binder list and one pure body",
@@ -3673,7 +3648,7 @@ def _elaborate_list_map_effect(
     procedure_names: frozenset[str],
     session_state: ElaborationSessionState,
 ) -> ListMapEffectExpr:
-    _require_list_traversal_target(datum, session_state=session_state)
+
     parallel_options = None
     if any(
         isinstance(item, SyntaxKeyword) and item.value in {":parallel", ":workspace"}
@@ -3786,7 +3761,7 @@ def _elaborate_path_join_under(
     procedure_names: frozenset[str],
     session_state: ElaborationSessionState,
 ) -> PathJoinUnderExpr:
-    _require_list_traversal_target(datum, session_state=session_state)
+
     if len(datum.items) != 3:
         _raise_error(
             "`path/join-under` requires a path type and one child expression",
@@ -5749,20 +5724,7 @@ def _elaborate_provider_result(
     returns_node = sections.get(":returns")
     context_node = sections.get(":context")
     capture_context_node = sections.get(":capture-context")
-    if (
-        (context_node is not None or capture_context_node is not None)
-        and not target_dsl_supports_provider_context_values(
-            session_state.target_dsl_version or ""
-        )
-    ):
-        selected = context_node if context_node is not None else capture_context_node
-        _raise_error(
-            "provider context values require target DSL 2.31",
-            code="provider_context_target_dsl_unsupported",
-            span=selected.span,
-            form_path=form_path,
-            expansion_stack=selected.expansion_stack,
-        )
+
     capture_context: str | None = None
     if capture_context_node is not None:
         if not (
@@ -5794,11 +5756,7 @@ def _elaborate_provider_result(
         )
         is not None
     ):
-        _require_prompt_calculus_target(
-            prompt_identifier,
-            form_path=form_path,
-            session_state=session_state,
-        )
+
         _raise_error(
             "a prompt declaration must be fully applied in `provider-result :prompt`",
             code="prompt_partial_application_unsupported",
@@ -5824,11 +5782,7 @@ def _elaborate_provider_result(
         )
         is not None
     ):
-        _require_prompt_calculus_target(
-            prompt_proc_ref_target,
-            form_path=form_path,
-            session_state=session_state,
-        )
+
         _raise_error(
             "a prompt declaration cannot be used through `proc-ref`",
             code="prompt_partial_application_unsupported",
@@ -5848,32 +5802,7 @@ def _elaborate_provider_result(
     )
     delivery_node = sections.get(":delivery")
     attempts_node = sections.get(":materialization-attempts")
-    if delivery_node is not None or attempts_node is not None:
-        if not target_dsl_supports_phased_contract_delivery(
-            session_state.target_dsl_version or ""
-        ):
-            selected = (
-                delivery_node
-                if delivery_node is not None
-                else attempts_node
-            )
-            _raise_error(
-                "phased provider delivery requires target DSL 2.23",
-                code="provider_phased_delivery_requires_dsl_2_23",
-                span=selected.span,
-                form_path=form_path,
-                expansion_stack=selected.expansion_stack,
-                phased_delivery_diagnostic=(
-                    build_authored_phased_delivery_diagnostic(
-                        "target_below_2_23",
-                        canonical_value=session_state.target_dsl_version,
-                        source_spans_by_owner={
-                            "delivery_keyword": selected.span,
-                            "provider_application": datum.span,
-                        },
-                    )
-                ),
-            )
+
     delivery_value: str | None = None
     if delivery_node is not None:
         if not isinstance(delivery_node, SyntaxKeyword):
@@ -5914,19 +5843,7 @@ def _elaborate_provider_result(
             )
         delivery_value = delivery_node.value[1:]
     session_artifact_node = sections.get(":session-artifact")
-    if (
-        session_artifact_node is not None
-        and not target_dsl_supports_session_artifact(
-            session_state.target_dsl_version or ""
-        )
-    ):
-        _raise_error(
-            "`:session-artifact` requires target DSL 2.27",
-            code="session_artifact_target_dsl_unsupported",
-            span=session_artifact_node.span,
-            form_path=form_path,
-            expansion_stack=session_artifact_node.expansion_stack,
-        )
+
     session_artifact_symbol: str | None = None
     if session_artifact_node is not None:
         if not (
@@ -6072,11 +5989,7 @@ def _elaborate_provider_result(
             attempts_value = 2
     prompt_application: PromptApplicationExpr | None = None
     if resolved_prompt is not None:
-        _require_prompt_calculus_target(
-            prompt_node,
-            form_path=form_path,
-            session_state=session_state,
-        )
+
         prompt_application = elaborate_prompt_application(
             prompt_node,
             catalog=session_state.prompt_catalog,
@@ -6475,14 +6388,7 @@ def _elaborate_request_input(
 ) -> RequestInputExpr:
     """Elaborate the target-gated single-operand host input form."""
 
-    if not target_dsl_supports_human_input(session_state.target_dsl_version or ""):
-        _raise_error(
-            "`request-input` requires target DSL 2.32",
-            code="human_input_target_dsl_unsupported",
-            span=datum.span,
-            form_path=form_path,
-            expansion_stack=datum.expansion_stack,
-        )
+
     if len(datum.items) != 2:
         _raise_error(
             "`request-input` requires exactly one String question",
@@ -6616,9 +6522,8 @@ def _elaborate_command_result(
     )
 
 
-def _command_document_mode(argv_node, adapter_node, inputs_node, session_state):
-    return (argv_node is not None and inputs_node is not None and adapter_node is None
-            and target_dsl_uses_evaluated_execution(session_state.target_dsl_version or ""))
+def _command_document_mode(argv_node, adapter_node, inputs_node):
+    return ((argv_node is not None) and (inputs_node is not None) and (adapter_node is None))
 
 
 def _validate_command_operand_mode(argv_node, adapter_node, inputs_node, document, *, datum, form_path):
@@ -6630,7 +6535,7 @@ def _validate_command_operand_mode(argv_node, adapter_node, inputs_node, documen
 
 def _command_operands_from_sections(sections, *, datum, form_path, **elaboration):
     argv_node, adapter_node, inputs_node = (sections.get(key) for key in (":argv", ":adapter", ":inputs"))
-    document = _command_document_mode(argv_node, adapter_node, inputs_node, elaboration["session_state"])
+    document = _command_document_mode(argv_node, adapter_node, inputs_node)
     _validate_command_operand_mode(argv_node, adapter_node, inputs_node, document, datum=datum, form_path=form_path)
     if argv_node is None:
         name, inputs = _command_adapter_inputs(adapter_node, inputs_node, datum=datum, form_path=form_path, **elaboration)
@@ -7306,28 +7211,6 @@ def _keyword_sections(
             )
         sections[keyword_node.value] = value_node
     return sections
-
-
-def _require_prompt_calculus_target(
-    node: object,
-    *,
-    form_path: tuple[str, ...],
-    session_state: ElaborationSessionState,
-) -> None:
-    if (
-        isinstance(session_state.target_dsl_version, str)
-        and target_dsl_supports_prompt_calculus(
-            session_state.target_dsl_version
-        )
-    ):
-        return
-    _raise_error(
-        "prompt calculus forms require target DSL 2.20 or later",
-        code="prompt_calculus_requires_dsl_2_20",
-        span=node.span,
-        form_path=form_path,
-        expansion_stack=node.expansion_stack,
-    )
 
 
 def _raise_error(

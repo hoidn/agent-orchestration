@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import pytest
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 import re
 from pathlib import Path
 
@@ -14,33 +17,6 @@ ORC_WORKFLOW = ROOT / "workflows/library/generic_run_watchdog/watchdog.orc"
 PORT_DESIGN = ROOT / "docs/plans/2026-07-18-generic-run-watchdog-orc-port-design.md"
 MIGRATION_INPUTS = ROOT / "workflows/examples/inputs/workflow_lisp_migrations"
 ENTRY_WORKFLOW = "generic_run_watchdog/watchdog::watchdog"
-
-
-
-
-def _compile_watchdog_orc():
-    assert ORC_WORKFLOW.is_file(), f"watchdog Workflow Lisp candidate is absent: {ORC_WORKFLOW}"
-    commands_path = MIGRATION_INPUTS / "generic_run_watchdog.commands.json"
-    return compile_stage3_entrypoint(
-        ORC_WORKFLOW,
-        source_roots=(ROOT / "workflows/library",),
-        entry_workflow=ENTRY_WORKFLOW,
-        provider_externs=json.loads(
-            (MIGRATION_INPUTS / "generic_run_watchdog.providers.json").read_text()
-        ),
-        prompt_externs=json.loads(
-            (MIGRATION_INPUTS / "generic_run_watchdog.prompts.json").read_text()
-        ),
-        command_boundaries=_parse_command_boundaries_manifest(
-            json.loads(commands_path.read_text()),
-            manifest_path=commands_path,
-        ),
-        workspace_root=ROOT,
-        lowering_route="wcc_m4",
-    )
-
-
-
 
 
 
@@ -83,14 +59,11 @@ def _table_after_heading(text: str, heading: str) -> list[dict[str, str]]:
 
 
 
-def test_watchdog_orc_compiles_with_exact_seven_input_four_output_contract() -> None:
-    result = _compile_watchdog_orc()
-
-    assert result.entry_result.module.target_dsl_version == "2.15"
-
-
-
-
+def test_historical_generic_run_watchdog_source_is_preserved_and_refused() -> None:
+    assert hashlib.sha256(ORC_WORKFLOW.read_bytes()).hexdigest() == "af9e136128572b900fcb647796d54de95912b7f847c2e636b407a232515875ef"
+    with pytest.raises(LispFrontendCompileError) as caught:
+        compile_stage3_entrypoint(ORC_WORKFLOW)
+    assert caught.value.diagnostics[0].code == "target_dsl_unsupported"
 
 
 def test_watchdog_orc_prompt_dependency_retry_and_resume_contract() -> None:

@@ -22,7 +22,7 @@ def test_closed_workflow_ref_aliases_remain_compile_time_values(tmp_path, monkey
     program, inputs, facts = _compile(tmp_path,
         '(let* ((original (workflow-ref leaf)) (alias original)) (record Result :i 1 :s "done"))',
         declarations='(defworkflow leaf () -> Result (record Result :i 7 :s "leaf"))')
-    typed = summary.ControlFacts(**facts, closed_program=True,
+    typed = summary.ControlFacts(**facts,
         workflow_return_types=inputs["workflow_return_types"], procedure_return_types=inputs["procedure_return_types"])
     expr = program.entry.typed_body.expr
     _, value, type_ref = summary._binding_control_fact(expr.bindings[0][1],
@@ -94,7 +94,6 @@ def test_command_scope_call_types_use_same_prepared_condition_owner(tmp_path, mo
     observed = []
     original = elaborate._elaboration_procedure_return_types
     def observe(body, edges, returns, **kwargs):
-        assert kwargs['closed_program'] is True
         result = original(body, edges, returns, **kwargs)
         observed.append((_without_scopes(body.expr), dict(edges), result))
         return result
@@ -139,7 +138,7 @@ def test_proof_branch_command_facts_consume_actual_narrowed_environment(tmp_path
     body = '(let* ((choice (variant ImplementationState COMPLETED :execution_report report))) (if (= choice.variant COMPLETED) (let* ((x choice.execution_report)) '
     body += '(command-result echo :argv ("python" "probe.py" x) :returns Result)) (record Result :i 0 :s "no")))'
     program, inputs, facts = _compile(tmp_path, body,
-        params='(report WorkReport)', target='2.26', schema=2, declarations='''
+        params='(report WorkReport)', target='2.35', declarations='''
         (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)
         (defunion ImplementationState (COMPLETED (execution_report WorkReport))
           (BLOCKED (progress_report WorkReport)))''')
@@ -244,7 +243,7 @@ def test_runtime_shadow_removes_erased_reference_before_command_reset(tmp_path, 
 
 
 @pytest.mark.parametrize('nested', ['loop', 'match'])
-def test_nested_command_owners_preserve_names_removed_by_reset(tmp_path, monkeypatch, nested):
+def test_nested_command_owners_preserve_lexical_input_frames(tmp_path, monkeypatch, nested):
     from tests.test_workflow_lisp_command_scopes import _compile, _without_scopes
     from orchestrator.workflow_lisp.closed.command_templates import elaborate_command_scopes, CommandScopeContext
     from orchestrator.workflow_lisp.closed.command_templates import ControlFacts
@@ -261,7 +260,7 @@ def test_nested_command_owners_preserve_names_removed_by_reset(tmp_path, monkeyp
     source = f'(match choice ((A a) (if true {inner} (record Result :i 0 :s "no"))) '
     source += '((B b) (record Result :i 0 :s "b")))'
     program, inputs, facts = _compile(tmp_path, source, params='(choice Choice) (unused Int)',
-        schema=1, target='2.32', declarations='(defrecord State (i Int))')
+        target='2.35', declarations='(defrecord State (i Int))')
     seen = []
     original = CommandScopeContext.bind
     def observe(context, expr, **kwargs):
@@ -271,8 +270,8 @@ def test_nested_command_owners_preserve_names_removed_by_reset(tmp_path, monkeyp
     annotated = elaborate_command_scopes(program.entry.typed_body, **inputs,
         incoming_command_facts=ControlFacts(**facts), producer_lowering_schema=program.producer_lowering_schema)
     assert seen
-    assert all('unused' not in context.control.local_type_bindings for context in seen)
-    assert all('unused' not in context.values and 'unused' not in context.operands for context in seen)
+    assert all(context.control.local_type_bindings['unused'].name == 'Int' for context in seen)
+    assert all('unused' in context.values and 'unused' in context.operands for context in seen)
     neutral = normalize_wcc_body_to_anf(elaborate_typed_workflow_body(program.entry.typed_body, **inputs))
     assert _without_scopes(annotated) == _without_scopes(neutral)
 
@@ -328,7 +327,7 @@ def test_pure_bound_capture_uses_incoming_type_before_same_name_shadow(tmp_path,
         _assert_unwrapped_capture_keeps_its_type(program, inputs, facts)
     captures = _capture_rows(program.entry.typed_body.expr)
     assert captures
-    typed = ControlFacts(**facts, closed_program=True,
+    typed = ControlFacts(**facts,
         workflow_return_types=inputs["workflow_return_types"], procedure_return_types=inputs["procedure_return_types"])
     _assert_capture_binding_uses_incoming_type(program, inputs, typed, captures, binding_type_for_elaboration, summary)
 
@@ -352,7 +351,7 @@ def _assert_capture_binding_uses_incoming_type(program, inputs, typed, captures,
         assert shadow_type != source[1]
         assert binding_type_for_elaboration(expr, type_env=child.type_env, value_env=child.local_type_bindings,
             workflow_return_types=child.workflow_return_types, procedure_return_types=child.procedure_return_types,
-            closed_program=True, capture_source=source) == source[1]
+            capture_source=source) == source[1]
         assert summary._binding_control_fact(expr, name=name, facts=child, local_values={}, capture_source=source)[2] == source[1]
 
 

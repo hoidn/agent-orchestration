@@ -79,7 +79,7 @@ def test_closed_shared_union_projection_preserves_resolved_proof(
     assert restored.digest == closed.digest
 
 
-HELPER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+HELPER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
   (defmodule helper) (export project Output Payload)
   (defrecord Payload (item-id String))
   (defrecord Output (status String))

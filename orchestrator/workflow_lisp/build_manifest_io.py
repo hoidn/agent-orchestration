@@ -149,7 +149,6 @@ def _resolve_request(request: FrontendBuildRequest) -> FrontendBuildRequest:
         if request.command_boundaries_path else None,
         workspace_root=workspace_root,
         lint_profile=request.lint_profile,
-        lowering_route=request.lowering_route,
     )
 
 

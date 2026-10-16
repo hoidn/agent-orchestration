@@ -2,8 +2,6 @@
 
 from .model import (
     WCC_M1_ROUTE_SCHEMA_VERSION,
-    WCC_M2_ROUTE_SCHEMA_VERSION,
-    WCC_M3_ROUTE_SCHEMA_VERSION,
     WCC_M4_ROUTE_SCHEMA_VERSION,
     WccAtom,
     WccBindingValue,
@@ -20,6 +18,10 @@ from .model import (
     WccJump,
     WccLet,
     WccLiteralAtom,
+    WccList,
+    WccListMap,
+    WccBlock,
+    WccResultPath,
     WccLoopContinue,
     WccLoopDone,
     WccLoopRole,
@@ -39,19 +41,11 @@ from .model import (
 )
 from .analysis import WccArmScope, WccJoinSite, WccLoopSite, WccScopeAnalysis, analyze_wcc_body
 from .anf import normalize_wcc_body_to_anf
-from .elaborate import elaborate_typed_workflow, elaborate_typed_workflow_body
-from .route import (
-    DEFAULT_LOWERING_ROUTE,
-    LoweringRoute,
-    normalize_lowering_route,
-)
+from .elaborate import elaborate_typed_workflow_body
+
 
 __all__ = [
-    "DEFAULT_LOWERING_ROUTE",
-    "LoweringRoute",
-    "WCC_M3_ROUTE_SCHEMA_VERSION",
     "WCC_M1_ROUTE_SCHEMA_VERSION",
-    "WCC_M2_ROUTE_SCHEMA_VERSION",
     "WCC_M4_ROUTE_SCHEMA_VERSION",
     "WccAtom",
     "WccBindingValue",
@@ -68,6 +62,10 @@ __all__ = [
     "WccJump",
     "WccLet",
     "WccLiteralAtom",
+    "WccList",
+    "WccListMap",
+    "WccBlock",
+    "WccResultPath",
     "WccLoopContinue",
     "WccLoopDone",
     "WccLoopRole",
@@ -90,7 +88,5 @@ __all__ = [
     "WccScopeAnalysis",
     "analyze_wcc_body",
     "normalize_wcc_body_to_anf",
-    "elaborate_typed_workflow",
     "elaborate_typed_workflow_body",
-    "normalize_lowering_route",
 ]

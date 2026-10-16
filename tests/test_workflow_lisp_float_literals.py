@@ -1,12 +1,10 @@
-"""Decimal literals in expressions: rule N1 of the numeric surface, at target 2.34.
+"""Decimal literals in expressions: rule N1 of the numeric surface, at the current typed target.
 
 Contract: docs/design/workflow_lisp_numeric_surface.md, rule N1 and sections 6 and 7;
 Task 3 of docs/plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md.
 
 Each literal form runs through the public run entry in five positions. A literal that
-does not fit a finite double is refused when the module is read. Target 2.33 keeps
-today's refusals, and no token reads differently at 2.33.
-"""
+does not fit a finite double is refused when the module is read. """
 
 from __future__ import annotations
 
@@ -56,7 +54,7 @@ POSITIONS = {
 }
 
 
-def _source(body: str, *, result: str = "Float", target: str = "2.34") -> str:
+def _source(body: str, *, result: str = "Float", target: str = "2.35") -> str:
     return (
         f'(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "{target}")\n'
         "  (defmodule grt/entry)\n  (export run)\n  (defrecord Wrap (v Float))\n"
@@ -111,22 +109,12 @@ def test_literal_that_is_not_a_finite_double_is_refused_before_elaboration(tmp_p
     assert _refusal(tmp_path, source) == ("float_literal_not_finite", 7, _column_of(source, 7, "1e999"))
 
 
-@pytest.mark.parametrize(
-    ("literal", "code"),
-    [("1.5", "frontend_parse_error"), (".5", "frontend_parse_error"), ("1e5", "name_unknown"), ("2e-3", "name_unknown")],
-)
-def test_target_233_keeps_todays_refusal(tmp_path: Path, literal: str, code: str) -> None:
-    source = _source(f"(let* ((v {literal})) v)", target="2.33")
-
-    assert _refusal(tmp_path, source) == (code, 8, _column_of(source, 8, literal))
 
 
-def test_target_233_keeps_accepting_a_decimal_parameter_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    source = _source("x", target="2.33").replace("(defworkflow run ()", "(defworkflow run ((x Float :default 2.5))")
+def test_decimal_parameter_default_reaches_the_public_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = _source("x", target="2.35").replace("(defworkflow run ()", "(defworkflow run ((x Float :default 2.5))")
     _write_sources(tmp_path, {"grt/entry.orc": source})
-    _compile(tmp_path)  # The original2.33 default remains a native frontend contract.
-    path = tmp_path / "grt" / "entry.orc"
-    path.write_text(source.replace('"2.33"', '"2.35"'))
+    _compile(tmp_path)  # The explicit current default remains a native frontend contract.
     monkeypatch.chdir(tmp_path)
 
     outcome = _public_run(_public_run_files(tmp_path, {}))
@@ -143,20 +131,20 @@ def _read_token(token: str, target: str) -> tuple[type, object]:
     return type(datum), datum.value
 
 
-# token: (how it reads at 2.33, how it reads at 2.34)
+# Token identity under the current numeric reader.
 TOKENS = {
-    "12": ((SyntaxInt, 12), (SyntaxInt, 12)),
-    "-7": ((SyntaxInt, -7), (SyntaxInt, -7)),
-    "1.": ((SyntaxFloat, 1.0), (SyntaxFloat, 1.0)),
-    ".5": ((SyntaxFloat, 0.5), (SyntaxFloat, 0.5)),
-    "-.5": ((SyntaxFloat, -0.5), (SyntaxFloat, -0.5)),
-    "1e5": ((SyntaxIdentifier, "1e5"), (SyntaxFloat, 100000.0)),
-    "1E5": ((SyntaxIdentifier, "1E5"), (SyntaxFloat, 100000.0)),
-    "1.e5": ((SyntaxIdentifier, "1.e5"), (SyntaxFloat, 100000.0)),
-    ".5e1": ((SyntaxIdentifier, ".5e1"), (SyntaxFloat, 5.0)),
-    "-2e-3": ((SyntaxIdentifier, "-2e-3"), (SyntaxFloat, -0.002)),
-    "1e+3": ((SyntaxIdentifier, "1e+3"), (SyntaxFloat, 1000.0)),
-    "1e-400": ((SyntaxIdentifier, "1e-400"), (SyntaxFloat, 0.0)),
+    "12": (SyntaxInt, 12),
+    "-7": (SyntaxInt, -7),
+    "1.": (SyntaxFloat, 1.0),
+    ".5": (SyntaxFloat, 0.5),
+    "-.5": (SyntaxFloat, -0.5),
+    "1e5": (SyntaxFloat, 100000.0),
+    "1E5": (SyntaxFloat, 100000.0),
+    "1.e5": (SyntaxFloat, 100000.0),
+    ".5e1": (SyntaxFloat, 5.0),
+    "-2e-3": (SyntaxFloat, -0.002),
+    "1e+3": (SyntaxFloat, 1000.0),
+    "1e-400": (SyntaxFloat, 0.0),
 }
 # Tokens that read as a symbol at every target.
 SYMBOLS = [
@@ -167,13 +155,13 @@ SYMBOLS = [
 
 
 @pytest.mark.parametrize("token", sorted(TOKENS))
-def test_token_reads_as_before_at_233_and_as_rule_n1_at_234(token: str) -> None:
-    assert (_read_token(token, "2.33"), _read_token(token, "2.34")) == TOKENS[token]
+def test_token_reads_with_current_numeric_semantics(token: str) -> None:
+    assert _read_token(token, "2.35") == TOKENS[token]
 
 
 @pytest.mark.parametrize("token", SYMBOLS)
 def test_token_reads_as_a_symbol_at_every_target(token: str) -> None:
-    assert {_read_token(token, target) for target in ("2.14", "2.33", "2.34")} == {(SyntaxIdentifier, token)}
+    assert {_read_token(token, target) for target in ("2.35", "2.36")} == {(SyntaxIdentifier, token)}
 
 
 @pytest.mark.parametrize("literal", ["1e5", "2.5"], ids=["exponent", "decimal-point"])
@@ -192,17 +180,3 @@ def test_a_macro_template_may_hold_a_decimal_literal(
     outcome = _public_run(_public_run_files(tmp_path, {}))
 
     assert (outcome.exit_code, dict(outcome.workflow_outputs)) == (0, {"__result__": float(literal)})
-
-
-def test_target_233_refuses_a_decimal_literal_from_a_macro_template_as_it_refuses_one_written(tmp_path: Path) -> None:
-    written = _refusal(tmp_path / "written", _source("2.5", target="2.33"))
-    source = (
-        '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.33")\n'
-        "  (defmodule grt/entry)\n  (export run)\n"
-        "  (defmacro emit () 2.5)\n"
-        "  (defworkflow run () -> Float\n    (emit)))\n"
-    )
-
-    from_macro = _refusal(tmp_path / "macro", source)
-
-    assert from_macro[0] == written[0]

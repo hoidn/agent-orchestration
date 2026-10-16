@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.39")
   (defmodule mlevolve_pair/search_compact)
   (export run-search)
 
@@ -26,8 +26,6 @@
 
   (defproc branch-step
     ((state SearchState) (operation String) (branch String)) -> SearchState
-    :effects ((uses-command propose-branch-candidate) (uses-command evaluate-branch-candidate))
-    :lowering inline
     (let* ((current (if (= branch "A") state.a state.b))
            (other (if (= branch "A") state.b state.a))
            (base (if (= operation "repair") state.pending_candidate current))

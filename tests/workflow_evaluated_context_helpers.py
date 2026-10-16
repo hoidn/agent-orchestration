@@ -109,7 +109,7 @@ def prepare_public_producers(root):
     inputs.write_text("{}")
     imports = {}
     for side, increment, effort in (("left", 1, "low"), ("right", 2, "high")):
-        producer = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+        producer = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
           (defmodule {side}/entry) (export get)
           (defworkflow get ((n Int)) -> Int
             (let* ((command-value (command-result shared

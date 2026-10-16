@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule imported_private_helper_local_union/consumer)
   (import imported_private_helper_local_union/helper :only
     (HelperInput PublicDecision run-helper))

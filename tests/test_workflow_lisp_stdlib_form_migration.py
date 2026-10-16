@@ -259,7 +259,6 @@ def _compile_inline_module(
     *,
     module_name: str,
     tmp_path: Path,
-    lowering_route: str | None = None,
     compiler_session: CompilerSession | None = None,
 ):
     module_path = (tmp_path / Path(*module_name.split("/"))).with_suffix(".orc")
@@ -271,7 +270,7 @@ def _compile_inline_module(
         command_boundaries=_command_boundary_environment().bindings_by_name,
         validate_shared=False,
         workspace_root=tmp_path,
-        lowering_route=lowering_route,
+
         compiler_session=compiler_session,
     )
 
@@ -309,7 +308,7 @@ def test_retired_backlog_drain_callable_boundary_is_not_exported(
         _compile_inline_module(
             """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule retired_callable_boundary_import)
   (import std/drain :only (backlog-drain-callable-boundary)))""",
             module_name="retired_callable_boundary_import",

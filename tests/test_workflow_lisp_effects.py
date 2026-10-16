@@ -28,7 +28,7 @@ def _write_effect_module(path: Path, *, effect_kind: str) -> Path:
             f"""
             (workflow-lisp
               (:language "0.1")
-              (:target-dsl "2.14")
+              (:target-dsl "2.35")
               (defrecord Result
                 (ok Bool))
               (defproc sample
@@ -158,7 +158,7 @@ def test_resource_transition_infers_promoted_effects(tmp_path: Path) -> None:
     workflow = next(
         typed_workflow
         for typed_workflow in result.typed_workflows
-        if typed_workflow.definition.name == "move-selected-item"
+        if typed_workflow.definition.name == 'entry::move-selected-item'
     )
 
     assert workflow.effect_summary.transitive_effects == frozenset(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Mapping
-from dataclasses import dataclass, fields, is_dataclass, replace
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -25,6 +25,10 @@ from .model import (
     WccJump,
     WccLet,
     WccLiteralAtom,
+    WccList,
+    WccListMap,
+    WccBlock,
+    WccResultPath,
     WccLoopContinue,
     WccLoopDone,
     WccLoopRole,
@@ -42,6 +46,7 @@ from .model import (
     WccRecordAtom,
     WccSelect,
     WccSelectArm,
+    perform_payload_values,
 )
 
 if TYPE_CHECKING:
@@ -149,13 +154,6 @@ def _normalized_inline_procedure_wcc_body(
         for name, candidate in context.typed_procedures.items()
     }
     route_schema_version = value.metadata.node_id.split(":", 2)[1]
-    closed_context = {}
-    if getattr(context, "closed_program", False):
-        closed_context = {
-            "closed_program": True,
-            "resolved_procedures_by_name": context.typed_procedures,
-            "procedure_type_envs": context.procedure_type_envs,
-        }
     return normalize_wcc_body_to_anf(
         elaborate_typed_workflow_body(
             procedure.typed_body,
@@ -169,7 +167,8 @@ def _normalized_inline_procedure_wcc_body(
             workflow_return_types=workflow_return_types,
             procedure_return_types=procedure_return_types,
             route_schema_version=route_schema_version,
-            **closed_context,
+            resolved_procedures_by_name=context.typed_procedures,
+            procedure_type_envs=context.procedure_type_envs,
         )
     )
 
@@ -380,6 +379,10 @@ def analyze_wcc_body(body: WccBody) -> WccScopeAnalysis:
 
 
 _WCC_VALUE_TYPES = (
+    WccResultPath,
+    WccList,
+    WccListMap,
+    WccBlock,
     WccLiteralAtom,
     WccNameAtom,
     WccFieldAccessAtom,
@@ -815,8 +818,17 @@ def _transitive_local_dependencies(
 
 
 def _referenced_wcc_names(value: object) -> set[str]:
+    if isinstance(value, WccListMap):
+        return (_referenced_wcc_names(value.source)
+            | _free_wcc_names_in_body(value.body, bound_names=frozenset({value.binder_name})))
+    if isinstance(value, WccList):
+        return set().union(*(_referenced_wcc_names(item) for item in value.items))
+    if isinstance(value, WccBlock):
+        return _free_wcc_names_in_body(value.body)
     if isinstance(value, WccNameAtom):
         return {value.name}
+    if isinstance(value, WccResultPath):
+        return _referenced_wcc_names(value.source)
     if isinstance(value, WccFieldAccessAtom):
         return _referenced_wcc_names(value.base)
     if isinstance(value, (WccRecordAtom, WccInject)):
@@ -858,9 +870,8 @@ def _referenced_wcc_names(value: object) -> set[str]:
             for _, arg in value.keyword_args
             for name in _referenced_wcc_names(arg)
         )
-        referenced.update(
-            _referenced_wcc_names_in_payload(value.operation_payload)
-        )
+        referenced.update(name for operand in perform_payload_values(value.perform_kind, value.operation_payload)
+            for name in _referenced_wcc_names(operand))
         return referenced
     if isinstance(value, WccCall):
         referenced = {
@@ -993,33 +1004,27 @@ def _free_wcc_names_in_body(
     return set()
 
 
-def _referenced_wcc_names_in_payload(value: object) -> set[str]:
-    if isinstance(value, _WCC_VALUE_TYPES):
-        return _referenced_wcc_names(value)
-    if isinstance(value, Mapping):
-        return {
-            name
-            for item in value.values()
-            for name in _referenced_wcc_names_in_payload(item)
-        }
-    if isinstance(value, (tuple, list)):
-        return {
-            name
-            for item in value
-            for name in _referenced_wcc_names_in_payload(item)
-        }
-    if is_dataclass(value):
-        return {
-            name
-            for field in fields(value)
-            for name in _referenced_wcc_names_in_payload(
-                getattr(value, field.name)
-            )
-        }
-    return set()
-
-
 def _disqualifying_member_control_metadata(value: object):
+    if isinstance(value, WccListMap):
+        # Typed pure-map local control does not change the member's control spine.
+        return None
+    if isinstance(value, WccResultPath):
+        return _disqualifying_member_control_metadata(value.source)
+    if isinstance(value, WccList):
+        for item in value.items:
+            metadata = _disqualifying_member_control_metadata(item)
+            if metadata is not None:
+                return metadata
+        return None
+    if isinstance(value, WccBlock):
+        body = value.body
+        while isinstance(body, WccLet):
+            metadata = _disqualifying_member_control_metadata(body.bound_value)
+            if metadata is not None:
+                return metadata
+            body = body.body
+        return (_disqualifying_member_control_metadata(body.result)
+            if isinstance(body, WccHalt) else body.metadata)
     if isinstance(value, WccParallelMap):
         return value.metadata
     if (
@@ -1060,9 +1065,11 @@ def _disqualifying_member_control_metadata(value: object):
             metadata = _disqualifying_member_control_metadata(arg)
             if metadata is not None:
                 return metadata
-        return _disqualifying_member_control_in_payload(
-            value.operation_payload
-        )
+        for operand in perform_payload_values(value.perform_kind, value.operation_payload):
+            metadata = _disqualifying_member_control_metadata(operand)
+            if metadata is not None:
+                return metadata
+        return None
     return None
 
 
@@ -1074,31 +1081,6 @@ def _disqualifying_wcc_select_arm_children(
     return tuple(
         let_node.bound_value for let_node in arm.prefix
     ) + (arm.value,)
-
-
-def _disqualifying_member_control_in_payload(value: object):
-    if isinstance(value, _WCC_VALUE_TYPES):
-        return _disqualifying_member_control_metadata(value)
-    if isinstance(value, Mapping):
-        for item in value.values():
-            metadata = _disqualifying_member_control_in_payload(item)
-            if metadata is not None:
-                return metadata
-        return None
-    if isinstance(value, (tuple, list)):
-        for item in value:
-            metadata = _disqualifying_member_control_in_payload(item)
-            if metadata is not None:
-                return metadata
-        return None
-    if is_dataclass(value):
-        for field in fields(value):
-            metadata = _disqualifying_member_control_in_payload(
-                getattr(value, field.name)
-            )
-            if metadata is not None:
-                return metadata
-    return None
 
 
 def _raise_member_ineligible(

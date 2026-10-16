@@ -1,15 +1,4 @@
-"""Task 2 of the shared defect repairs plan: effect inference includes imported procedures.
-
-Contract: docs/plans/2026-09-29-workflow-lisp-shared-defect-repairs-plan.md,
-Task 2 and Review Focus item 1; decision brief
-docs/reports/2026-09-29-workflow-lisp-value-effect-separation-decision-brief.md,
-case a of section 2.1.
-
-From target 2.33 a local procedure that calls an imported effectful procedure
-carries the callee's effects: it must declare them, it is not inlined as if it
-were pure, and a `std/improve` helper specialized with an imported hook lists
-the hook's effects. Targets up to 2.32 keep the result they gave at
-`7984b51e`; each 2.33 source below has a 2.32 control.
+"""Current imported procedures retain command effects through wrappers and hooks.
 
 Effects are command-backed probes that append their argv to `<probe>.log`.
 """
@@ -51,7 +40,7 @@ print(json.dumps(payload))
 
 LIB = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "TARGET")
+  (:target-dsl "2.35")
   (defmodule grt/lib)
   (export Text Verdict check)
   (defrecord Text (text String))
@@ -64,7 +53,7 @@ LIB = """(workflow-lisp
 
 ENTRY = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "TARGET")
+  (:target-dsl "2.35")
   (defmodule grt/entry)
   (import grt/lib :only (Text Verdict check))
   (export run)
@@ -95,24 +84,20 @@ BODIES = {
 CHECK_EFFECT = UsesCommandEffect(subject=("probe_check",))
 
 
-def _wrapper_project(root: Path, *, target: str, effects: str, body: str) -> dict[str, Path]:
+def _wrapper_project(root: Path, *, effects: str, body: str) -> dict[str, Path]:
     probes = {"probe_check": _write_probe(root, "probe_check", CHECK_PROBE)}
     _write_sources(
         root,
         {
-            "grt/lib.orc": LIB.replace("TARGET", target).replace("PROBE_CHECK", probes["probe_check"].as_posix()),
-            "grt/entry.orc": ENTRY.replace("TARGET", target).replace("EFFECTS", effects).replace("BODY", BODIES[body]),
+            "grt/lib.orc": LIB.replace("PROBE_CHECK", probes["probe_check"].as_posix()),
+            "grt/entry.orc": ENTRY.replace("EFFECTS", effects).replace("BODY", BODIES[body]),
         },
     )
     return probes
 
 
 def _run(root: Path, probes: dict[str, Path], monkeypatch: pytest.MonkeyPatch):
-    # Analyze the original caller and producer headers before admitting current execution.
     _compile(root, probes=probes)
-    entry = root / "grt" / "entry.orc"
-    import re
-    entry.write_text(re.sub(r'(:target-dsl )"[0-9.]+"', r'\1"2.35"', entry.read_text(), count=1))
     monkeypatch.chdir(root)
     result = _public_run(_public_run_files(root, probes))
     return result.exit_code, dict(result.workflow_outputs), _log(probes["probe_check"])
@@ -130,11 +115,11 @@ def _wrapper_line(root: Path) -> int:
     return next(number for number, line in enumerate(lines, start=1) if "(defproc check-wrap" in line)
 
 
-# Target 2.33.
+# Current imported-effect semantics.
 
 
 def test_wrapper_of_an_imported_command_carries_the_command_in_its_transitive_summary(tmp_path: Path) -> None:
-    probes = _wrapper_project(tmp_path, target="2.33", effects=DECLARED, body="tail")
+    probes = _wrapper_project(tmp_path, effects=DECLARED, body="tail")
 
     wrapper = next(
         procedure
@@ -151,13 +136,13 @@ def test_wrapper_result_as_match_subject_or_let_binding_returns_the_command_valu
 ) -> None:
     """Both forms return the same value with the same command log."""
 
-    probes = _wrapper_project(tmp_path, target="2.33", effects=DECLARED, body=body)
+    probes = _wrapper_project(tmp_path, effects=DECLARED, body=body)
 
     assert _run(tmp_path, probes, monkeypatch) == (0, {"text": "ok:alpha"}, ["alpha"])
 
 
 def test_wrapper_declaring_no_effects_is_rejected_naming_the_missing_effect(tmp_path: Path) -> None:
-    probes = _wrapper_project(tmp_path, target="2.33", effects=UNDECLARED, body="tail")
+    probes = _wrapper_project(tmp_path, effects=UNDECLARED, body="tail")
 
     code, path, line, message = _rejection(tmp_path, probes)
 
@@ -169,7 +154,7 @@ def test_wrapper_declaring_no_effects_is_rejected_naming_the_missing_effect(tmp_
     )
 
 
-def _improve_project(root: Path, *, target: str) -> dict[str, Path]:
+def _improve_project(root: Path) -> dict[str, Path]:
     probes = {
         name: _write_probe(root, name, text)
         for name, text in (
@@ -178,7 +163,7 @@ def _improve_project(root: Path, *, target: str) -> dict[str, Path]:
             ("probe_summarize", SUMMARIZE_PROBE),
         )
     }
-    _write_sources(root, unnamed_union_caller_sources(seed="draft", limit=2, target=target, probes=probes))
+    _write_sources(root, unnamed_union_caller_sources(seed="draft", limit=2, probes=probes))
     return probes
 
 
@@ -193,42 +178,8 @@ def _specialized_improve_effects(root: Path, probes: dict[str, Path]) -> frozens
 def test_hook_imported_from_another_module_is_in_the_specialized_improve_summary(tmp_path: Path) -> None:
     """`assess` lives in `grt/assess` and reaches `improve` by `proc-ref`."""
 
-    probes = _improve_project(tmp_path, target="2.33")
+    probes = _improve_project(tmp_path)
 
     assert _specialized_improve_effects(tmp_path, probes) == frozenset(
         {UsesCommandEffect(subject=("probe_review",)), UsesCommandEffect(subject=("probe_revise",))}
     )
-
-
-# Target 2.32 controls: each source above, retargeted, gives its result at `7984b51e`.
-
-
-@pytest.mark.parametrize("body", ["tail", "match-subject", "let-binding"])
-def test_target_232_wrapper_declaring_the_imported_command_keeps_the_mismatch_rejection(
-    tmp_path: Path, body: str
-) -> None:
-    probes = _wrapper_project(tmp_path, target="2.32", effects=DECLARED, body=body)
-
-    code, path, line, message = _rejection(tmp_path, probes)
-
-    assert (code, path, line, message.endswith("but inferred ()")) == (
-        "procedure_effect_mismatch",
-        tmp_path / "grt" / "entry.orc",
-        _wrapper_line(tmp_path),
-        True,
-    )
-
-
-def test_target_232_wrapper_declaring_no_effects_still_types(tmp_path: Path) -> None:
-    probes = _wrapper_project(tmp_path, target="2.32", effects=UNDECLARED, body="tail")
-    result = _compile(tmp_path, probes=probes)
-    assert result.entry_result.typed_program.target == "2.32"
-    wrapper = next(row for row in result.entry_result.typed_procedures
-                   if row.definition.name == "grt/entry::check-wrap")
-    assert wrapper.typed_body.type_ref == wrapper.signature.return_type_ref
-
-
-def test_target_232_specialized_improve_summary_keeps_its_result(tmp_path: Path) -> None:
-    probes = _improve_project(tmp_path, target="2.32")
-
-    assert _specialized_improve_effects(tmp_path, probes) == frozenset({UsesCommandEffect(subject=("probe_revise",))})

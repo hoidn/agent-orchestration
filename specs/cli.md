@@ -7,13 +7,19 @@ contract describes the implemented cutoff candidate; [gate R and its
 closeout](../docs/reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md)
 own qualification and delivery, not a published package-version claim.
 
-Only evaluated entries at 2.35/2.36, bounded 2.37 and registered bounded 2.38
-(command-only confined run-ref and bounded agent sessions; see versioning) are executable, with their existing admission and qualification limits ([versioning](versioning.md#version-gating-summary)).
+Only evaluated entries at 2.35/2.36, bounded 2.37, bounded 2.38 (command-only
+confined run-ref and agent sessions), and target 2.39 procedure authoring are
+executable, with their existing admission and qualification limits
+([versioning](versioning.md#version-gating-summary)).
 `compile`, `run` and `run --dry-run` reject entry targets through 2.34 with
 `workflow_execution_target_retired`, exit 2, before build/run publication or
 execution locks. The captured compiled entry is checked again before
-publication. Older headers remain registered for typed analysis, supported
-imports and LSP; they do not enable old entry execution. Evaluated path
+publication. The selected source floor also rejects every pre-2.35 dependency
+header from compilation, typed import, REPL loading/type queries and LSP
+analysis. The syntax/import diagnostic is `target_dsl_unsupported` at the
+unsupported module header; existing public old-entry retirement refusal keeps
+its precedence and exit 2. No automatic header conversion or diagnostic-only
+legacy compiler is available. Evaluated path
 children obey the same entry boundary; retired flat/staged child execution
 has no fallback.
 
@@ -31,7 +37,14 @@ execution and flat `explain`/IR views are selected for retirement; no replacemen
 port is selected. `explain` refuses with `workflow_explain_retired`, exit 2,
 before source/build/export reads or writes; `compile --diagnostics-json`
 remains available for current source validation. Parser/types, admitted closed compilation, REPL/LSP
-inspection and shared provider/read services retain their contracts.
+inspection admit only source graphs at 2.35 or newer. Shared provider/read
+services retain their current consumers. A stale old-target LSP snapshot must
+not supply callables after floor refusal; static recovery is not legacy
+analysis. Imported typed-program/bundle objects must obey the same source-target
+floor rather than bypassing it through a Python or manifest door.
+Current compiler/build calls expose no `lowering_route` selector; retained
+artifact schema fields cannot select historical compilation. LSP evaluated
+semantic qualification remains **OPEN_NOT_WAIVED**, independently of the floor.
 Historical `report`, dashboard and `input get` read retained evidence without
 compiling source or rewriting it. Original run data is preserved. Recovery
 requires the exact complete release/environment qualified for the particular
@@ -220,13 +233,21 @@ Historical grammar only: trial execution is retired. The CLI and
 execution/publication (CLI exit 2), rather than compiling or creating a trial
 run/result. The historical `workflow_trial_run_result.v1` wire remains useful
 for reading retained trial evidence; it does not admit new trials. ES/research
-callers share this retirement, with no evaluated trial port.
+callers share this retirement, with no evaluated trial port. The current CLI
+report keeps state-only trial rows with identity, kind and status and empty
+input/output payloads; detailed trial budgets, score/ranking and verdict-join
+rendering are withdrawn. Dashboard generic raw/debug inspection is separate
+and does not inherit this redaction. The
+[observability contract](observability.md#target-225-trial-observability) owns
+the historical detail format and retained read-only boundary.
 
 ### Evaluated execution (target 2.35)
 
 This contract applies to evaluated entries at 2.35/2.36, the admitted
-bounded 2.37 surface and bounded 2.38 Agent Sessions and command-only confined
-run-ref children. The [confined-command recipe](../docs/lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only)
+bounded 2.37 surface, bounded 2.38 Agent Sessions and command-only confined
+run-ref children, and target-2.39 procedure authoring. The 2.39 source contract
+changes no lifecycle, profile, transport or confinement qualification. See the
+[procedure guide](../docs/lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239). The [confined-command recipe](../docs/lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only)
 records host/image prerequisites; public confined providers remain closed. W3 changes
 authoring, not command/provider IO or the public lifecycle; 2.37 registration
 does not establish full parallel delivery. For Agent Sessions,
@@ -314,7 +335,7 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
     workspace-cleanup obligation retries that cleanup on resume, records the
     outcome and dispatches nothing; a completed run without one keeps the
     no-write rule above
-    ([State](state.md#proposed-run-ref-confined-child-state-target-238)).
+    ([State](state.md#run-ref-confined-child-state-target-238)).
     For a valid completed run, resume exits `0` when no cleanup obligation
     is pending or all known obligations complete. If a cleanup retry leaves
     an obligation pending, resume exits `2` and emits
@@ -546,7 +567,9 @@ no code of its own; `invalidate` prints `[<code>] <detail>`.
 | `effect_rerun` | `resume` retrying an uncommitted attempt | diagnostic | Logged with the earlier attempt ordinals |
 | `parallel_workspace_shared` | a later release | — | Not raised |
 
-### Workflow Lisp REPL (targets 2.35 and 2.36)
+<a id="workflow-lisp-repl-targets-235-and-236"></a>
+
+### Workflow Lisp REPL (targets 2.35–2.39)
 
 `repl` loads an evaluated Workflow Lisp module, inspects its declarations and
 expression types, attaches to a checked run and accepts pure expressions in
@@ -616,13 +639,17 @@ module, and work without running it or attaching a run:
 | `:browse` | Module name, target, selected entry, loaded/reconstructed source label and per-file snapshot revisions, imports/aliases, then visible names grouped by kind. |
 | `:info NAME` | Every matching declaration's kind, accepted spellings, declaring module and source location, followed by its known contract. |
 | `:source NAME` | Every matching exact authored declaration form, labelled with kind, module, path/location and loaded/reconstructed snapshot revision. |
-| `:type EXPR` | Exactly `type: <rendered type>` and `effects: <rendered effect set>` on two stdout lines. Ordinary frontend analysis only; no lowering or evaluation. |
+| `:type EXPR` | Two stdout lines: `type: <rendered type>`, then `effects: <rendered inferred effect set>` when complete. At 2.39 an unresolved generic call instead prints `effects: incomplete (<unresolved names>); known <rendered known effect set>`. Ordinary frontend analysis only; no authored-restriction display, lowering or evaluation. |
 
 Coverage is named types, functions, procedures, workflows, prompts and externs.
 `:info` shows record fields; union type parameters and variants/fields; enum
 members; path kind, `under` constraint and existence requirement; builtin type identity; callable
 parameter/return types and available inferred effects; and prompt slots in
-declaration order with kind, refinement, output role and return type. Externs
+declaration order with kind, refinement, output role and return type. At 2.39,
+procedure `:info` separates `restriction: omitted` or the authored checked
+restriction from `inferred effects`, and reports `effect status: complete` or
+`effect status: incomplete (<unresolved names>)`. This is declaration inspection;
+`:type` reports expression inference without the authored restriction. Externs
 show declared provider/prompt kind and unavailable contract facts; no manifest
 payload, provider arguments, credentials or external prompt-file contents are
 displayed. `:source` on a `defprompt` includes its authored template, rather

@@ -5,6 +5,7 @@ Tests provider registry, template validation, argv/stdin modes, placeholder
 substitution, and error handling.
 """
 
+import ctypes
 import pytest
 import tempfile
 import time
@@ -812,6 +813,308 @@ class TestProviderExecutor:
             os.kill(child_pid, signal.SIGKILL)
             pytest.fail("child process survived managed provider timeout")
 
+    @pytest.mark.skipif(
+        sys.platform != "linux"
+        or not hasattr(os, "fork")
+        or not hasattr(os, "killpg"),
+        reason="requires Linux child reaping and POSIX process groups",
+    )
+    @pytest.mark.parametrize(
+        ("mode", "leader_return_code", "escape_group"),
+        [
+            (mode, code, False)
+            for mode in ("nonstream", "stream", "observed", "session", "transport", "controlled")
+            for code in (None, 0)
+        ] + [
+            ("nonstream", 7, False),
+            ("session", 7, False),
+            ("nonstream", 0, True),
+            ("controlled", 0, True),
+        ],
+    )
+    def test_owned_group_cleanup_settles_all_provider_paths(
+        self,
+        mode: str,
+        leader_return_code: int | None,
+        escape_group: bool,
+    ):
+        """Owned descendants settle; escaped pipes produce bounded cleanup failures."""
+        leader_exits_early = leader_return_code is not None
+        libc = ctypes.CDLL(None, use_errno=True)
+        prior_subreaper = ctypes.c_int()
+        assert libc.prctl(37, ctypes.byref(prior_subreaper), 0, 0, 0) == 0
+        assert libc.prctl(36, 1, 0, 0, 0) == 0
+
+        child_pid_path = self.workspace / "term-resistant-child.pid"
+        process_box = []
+        result_box = {}
+        child_pid = None
+        stop_reaper = threading.Event()
+        child_reaped = threading.Event()
+        reaper_thread = None
+        real_start = self.executor._start_process
+
+        def _start_process(invocation, **kwargs):
+            process = real_start(invocation, **kwargs)
+            process_box.append(process)
+            return process
+
+        script = (
+            "import os, pathlib, signal, time\n"
+            "child = os.fork()\n"
+            "if child == 0:\n"
+            + ("    os.setsid()\n" if escape_group else "")
+            + "    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+            f"    pid_path = pathlib.Path({str(child_pid_path)!r})\n"
+            "    pid_path.with_suffix('.tmp').write_text(str(os.getpid()))\n"
+            "    pid_path.with_suffix('.tmp').replace(pid_path)\n"
+            "    time.sleep(30)\n"
+            + (
+                "    while True:\n"
+                "        time.sleep(30)\n"
+                if leader_exits_early
+                else ""
+            )
+            + (
+                "while True:\n"
+                "    time.sleep(30)\n"
+                if not leader_exits_early
+                else (
+                    "while not pathlib.Path("
+                    f"{str(child_pid_path)!r}"
+                    ").exists():\n"
+                    "    time.sleep(0.01)\n"
+                    f"os._exit({leader_return_code})\n"
+                )
+            )
+        )
+        invocation = ProviderInvocation(
+            command=[sys.executable, "-c", script],
+            input_mode=InputMode.STDIN,
+            prompt="blocked stdin" * 100_000,
+            timeout_sec=1 if leader_exits_early else 0.5,
+            terminate_process_tree=True,
+            session_request=(
+                ProviderSessionRequest(mode=ProviderSessionMode.FRESH)
+                if mode in {"session", "transport"}
+                else None
+            ),
+            metadata_mode=(
+                ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value
+                if mode == "transport" else None
+            ),
+        )
+
+        def _execute():
+            try:
+                result_box["result"] = self.executor.execute(
+                    invocation,
+                    stream_output=mode == "stream",
+                    control=ProviderExecutionControl() if mode == "controlled" else None,
+                    observation_handle=(
+                        _RecordingObservation().handle
+                        if mode == "observed"
+                        else None
+                    ),
+                )
+            except BaseException as exc:  # surfaced by the assertion below
+                result_box["exception"] = exc
+
+        thread = threading.Thread(target=_execute, daemon=True)
+        try:
+            with patch.object(self.executor, "_start_process", side_effect=_start_process), patch.object(
+                ProviderExecutionControl, "_FINALIZATION_TIMEOUT_SEC",
+                0.2 if escape_group else ProviderExecutionControl._FINALIZATION_TIMEOUT_SEC,
+            ):
+                thread.start()
+                deadline = time.monotonic() + 5
+                while not child_pid_path.exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                assert child_pid_path.exists(), "provider descendant did not start"
+                child_pid = int(child_pid_path.read_text(encoding="utf-8"))
+
+                def _reap_descendant():
+                    while not stop_reaper.is_set():
+                        try:
+                            reaped_pid, _ = os.waitpid(child_pid, os.WNOHANG)
+                        except ChildProcessError:
+                            reaped_pid = 0
+                        if reaped_pid == child_pid:
+                            child_reaped.set()
+                            return
+                        stop_reaper.wait(0.01)
+
+                reaper_thread = threading.Thread(
+                    target=_reap_descendant,
+                    name=f"test-reap-provider-child-{child_pid}",
+                    daemon=True,
+                )
+                reaper_thread.start()
+
+                thread.join(timeout=4)
+                assert not thread.is_alive(), (
+                    "ordinary provider cleanup did not finish after the "
+                    "leader exited while an owned child held a captured pipe"
+                )
+                assert "exception" not in result_box
+                result = result_box["result"]
+                if leader_exits_early:
+                    assert result.exit_code == (leader_return_code or 1)
+                    assert result.error is not None
+                    assert result.error["type"] == (
+                        "provider_cancellation_boundary_failed"
+                        if mode == "controlled" else "provider_process_cleanup_failed"
+                    )
+                else:
+                    assert result.exit_code == 124
+                    assert result.error is not None
+                    assert result.error["type"] == "timeout"
+                if escape_group:
+                    assert "did not join" in result.error["message"]
+                    assert not child_reaped.is_set()
+                else:
+                    assert child_reaped.wait(timeout=1), (
+                        "ordinary provider cleanup left its descendant alive"
+                    )
+                try:
+                    os.killpg(process_box[0].pid, 0)
+                except ProcessLookupError:
+                    pass
+                else:
+                    pytest.fail("ordinary provider cleanup left its group populated")
+        finally:
+            if process_box:
+                process = process_box[0]
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    pass
+                thread.join(timeout=3)
+            if child_pid is not None:
+                try:
+                    os.kill(child_pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                child_reaped.wait(timeout=3)
+            stop_reaper.set()
+            if reaper_thread is not None:
+                reaper_thread.join(timeout=3)
+            if child_pid is not None:
+                try:
+                    os.waitpid(child_pid, os.WNOHANG)
+                except ChildProcessError:
+                    pass
+            assert libc.prctl(36, prior_subreaper.value, 0, 0, 0) == 0
+
+    @pytest.mark.parametrize("session", (False, True))
+    def test_owned_early_stdin_close_preserves_success(self, session, capsys):
+        invocation = ProviderInvocation(
+            command=[sys.executable, "-c", "import os; os.close(0); print('ready')"],
+            input_mode=InputMode.STDIN,
+            prompt="ignored" * 100_000,
+            terminate_process_tree=True,
+            session_request=(
+                ProviderSessionRequest(mode=ProviderSessionMode.FRESH) if session else None
+            ),
+        )
+        spool = self.workspace / "no-codec.transport.log"
+        observation = _RecordingObservation()
+        result = self.executor.execute(
+            invocation, stream_output=session,
+            session_runtime={"transport_spool_path": spool},
+            observation_handle=observation.handle,
+        )
+        assert result.exit_code == 0
+        assert result.error is None
+        assert result.classification is None
+        assert result.stdout == (b"" if session else b"ready\n")
+        assert result.raw_stdout == (b"ready\n" if session else None)
+        assert result.normalized_stdout == (b"" if session else None)
+        assert result.provider_session is None
+        assert capsys.readouterr().out == ""
+        assert observation.appended == ([] if session else [b"ready\n"])
+        if session:
+            assert spool.read_bytes() == b"ready\n"
+
+    @pytest.mark.parametrize("mode", ("nonstream", "session"))
+    @pytest.mark.parametrize("failure_stage", ("capture", "setup"))
+    def test_owned_capture_failure_cancels_without_timeout(self, mode, failure_stage):
+        original_capture = self.executor._capture_pipe
+        first_capture = threading.Event()
+        capture_lock = threading.Lock()
+
+        def fail_one_capture(pipe, buffer, **kwargs):
+            with capture_lock:
+                fail = not first_capture.is_set()
+                first_capture.set()
+            if fail:
+                buffer.extend(pipe.readline())
+                raise OSError("injected capture failure")
+            original_capture(pipe, buffer, **kwargs)
+
+        invocation = ProviderInvocation(
+            command=[
+                sys.executable, "-c",
+                "import sys, time; print('ready', flush=True); "
+                "print('ready', file=sys.stderr, flush=True); time.sleep(30)",
+            ],
+            input_mode=InputMode.ARGV,
+            terminate_process_tree=True,
+            session_request=(
+                ProviderSessionRequest(mode=ProviderSessionMode.FRESH)
+                if mode == "session" else None
+            ),
+        )
+        processes = []
+        original_start = self.executor._start_process
+
+        def record_start(invocation, **kwargs):
+            process = original_start(invocation, **kwargs)
+            processes.append(process)
+            return process
+
+        original_run = self.executor._run_bound_controlled_invocation
+        def fail_setup(**kwargs):
+            if failure_stage == "setup":
+                raise RuntimeError("injected capture setup failure")
+            return original_run(**kwargs)
+
+        result_box = {}
+        def execute():
+            result_box["result"] = self.executor.execute(
+                invocation,
+                stream_output=mode == "stream",
+                observation_handle=_RecordingObservation().handle if mode == "observed" else None,
+            )
+
+        thread = threading.Thread(target=execute, daemon=True)
+        try:
+            with patch.object(self.executor, "_capture_pipe", side_effect=fail_one_capture), patch.object(
+                self.executor, "_start_process", side_effect=record_start,
+            ), patch.object(self.executor, "_run_bound_controlled_invocation", side_effect=fail_setup):
+                thread.start()
+                thread.join(timeout=3)
+                assert not thread.is_alive(), "capture failure did not settle the owned invocation"
+            result = result_box["result"]
+            assert result.exit_code != 0
+            assert result.error is not None
+            assert "injected capture" in result.error["message"]
+            assert processes[0].returncode is not None
+            with pytest.raises(ProcessLookupError):
+                os.killpg(processes[0].pid, 0)
+        finally:
+            for process in processes:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.wait(timeout=3)
+            thread.join(timeout=3)
+
     def test_at48_missing_placeholders(self):
         """AT-48: Missing placeholders cause exit 2 with context."""
         # Register a provider with unresolved placeholder
@@ -1310,7 +1613,8 @@ class TestProviderExecutor:
         assert stdout_recorder.getvalue() == b"hello"
         assert stderr_recorder.getvalue() == b"ERR\n"
 
-    def test_session_execution_writes_masked_transport_spool(self):
+    @pytest.mark.parametrize("spool_delay", (0, 0.3))
+    def test_session_execution_writes_masked_transport_spool(self, spool_delay):
         """Session transport is masked and copied to the configured spool path."""
         raw_stdout = (
             '{"type":"session.started","session_id":"sess-123"}\n'
@@ -1329,10 +1633,16 @@ class TestProviderExecutor:
             session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
         )
 
-        result = self.executor.execute(
-            invocation,
-            session_runtime={"transport_spool_path": transport_spool_path},
-        )
+        original_append = self.executor._append_masked_transport
+        def delayed_append(*args):
+            time.sleep(spool_delay)
+            original_append(*args)
+
+        with patch.object(self.executor, "_append_masked_transport", side_effect=delayed_append):
+            result = self.executor.execute(
+                invocation,
+                session_runtime={"transport_spool_path": transport_spool_path},
+            )
 
         assert result.exit_code == 0
         assert transport_spool_path.exists()

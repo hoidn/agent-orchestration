@@ -1,7 +1,7 @@
 """Fixtures for the public artifact handoff tests at 2.35.
 
-The generic run watchdog is installed unchanged apart from its target header and
-command closures (`tests.workflow_evaluated_consumer_sources.install`). Its target is
+The explicit 2.35 watchdog fixture is installed unchanged with command closures
+(`tests.workflow_evaluated_consumer_sources.install`). Its watched target is
 a real evaluated run in a separate workspace, so the copied probe reads evaluated
 authority. `SHIM` answers as `codex` and `claude` and logs every request it receives,
 including the full prompt; the copied probe and publisher log each execution's argv.
@@ -66,7 +66,7 @@ def install_watchdog(root: Path, target_workspace: Path, target: str, provider: 
     inputs = {"target_run_id": target, "target_workspace": str(target_workspace),
               "state_root": "state/watchdog", "evidence_root": EVIDENCE,
               "repair_result_target_path": COMPAT, "repair_provider": provider}
-    frontend = install(root, PROGRAMS["watchdog"], inputs, current=True)
+    frontend = install(root, PROGRAMS["watchdog"], inputs)
     manifest = root / "manifests" / "commands.json"
     boundaries = json.loads(manifest.read_text(encoding="utf-8"))
     boundaries["probe_orchestrator_run"]["closure"].append(PACKAGE)

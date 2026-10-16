@@ -36,7 +36,7 @@ from orchestrator.workflow_lisp.compiler import (
     _builtin_stdlib_source_root,
 )
 from orchestrator.workflow_lisp.lints import LINT_PROFILE_DEFAULT
-from orchestrator.workflow_lisp.wcc.route import normalize_lowering_route
+
 
 
 @dataclass(frozen=True, slots=True)
@@ -3551,7 +3551,6 @@ def test_initialization_freezes_fixed_production_policy_and_optional_configurati
     )
     assert configured.options.validation_profile is Stage3ValidationProfile.SHARED_CALLABLE
     assert configured.options.lint_profile == LINT_PROFILE_DEFAULT
-    assert configured.options.lowering_route is normalize_lowering_route(None)
     with pytest.raises(FrozenInstanceError):
         configured.options.entry_workflows = ()  # type: ignore[misc]
     with pytest.raises(FrozenInstanceError):

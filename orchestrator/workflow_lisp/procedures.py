@@ -13,19 +13,7 @@ from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import EMPTY_EFFECT_SUMMARY, EffectAtom, EffectSummary, parse_effect_clause, render_effect_set
 from .result_guidance import ReturnSpec, parse_return_spec
 from .spans import SourceSpan
-from .syntax import (
-    ExpansionStack,
-    PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
-    SyntaxKeyword,
-    SyntaxList,
-    SyntaxNode,
-    WorkflowLispSyntaxModule,
-    syntax_head,
-    syntax_identifier,
-    syntax_node_datum,
-    syntax_resolved_name,
-    target_dsl_supports_provider_supervision,
-)
+from .syntax import ExpansionStack, PROVIDER_STEERING_DIRECTIVE_TYPE_NAME, SyntaxKeyword, SyntaxList, SyntaxNode, WorkflowLispSyntaxModule, syntax_head, syntax_identifier, syntax_node_datum, syntax_resolved_name, target_dsl_supports_effect_ceilings
 from .type_env import FrontendTypeEnvironment, TypeRef
 
 if TYPE_CHECKING:
@@ -130,7 +118,7 @@ class ProcedureDef:
 
     name: str
     params: tuple[ProcedureParam, ...]
-    declared_effects: frozenset[EffectAtom]
+    declared_effects: frozenset[EffectAtom] | None
     requested_lowering_mode: ProcedureLoweringMode
     body: SyntaxNode
     span: SourceSpan
@@ -139,6 +127,10 @@ class ProcedureDef:
     type_params: tuple[ProcedureTypeParam, ...] = ()
     where_clauses: tuple[ProcedureConstraintSyntax, ...] = ()
     generated_local_procedure: "GeneratedLocalProcedure | None" = None
+    effect_contract_target: str | None = field(default=None, repr=False, compare=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True})
+    effects_clause_span: SourceSpan | None = field(default=None, repr=False, compare=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True})
     return_spec: ReturnSpec | None = field(
         default=None,
         repr=False,
@@ -173,7 +165,7 @@ class ProcedureSignature:
     name: str
     params: tuple[tuple[str, TypeRef], ...]
     return_type_ref: TypeRef
-    declared_effects: frozenset[EffectAtom]
+    declared_effects: frozenset[EffectAtom] | None
     requested_lowering_mode: ProcedureLoweringMode
     span: SourceSpan
     form_path: tuple[str, ...]
@@ -429,10 +421,6 @@ def elaborate_procedure_definitions(module_syntax: WorkflowLispSyntaxModule) -> 
 
     reserved_prelude_type_names = (
         frozenset({PROVIDER_STEERING_DIRECTIVE_TYPE_NAME})
-        if target_dsl_supports_provider_supervision(
-            module_syntax.target_dsl_version
-        )
-        else frozenset()
     )
     definitions: list[ProcedureDef] = []
     for form in module_syntax.forms:
@@ -441,6 +429,7 @@ def elaborate_procedure_definitions(module_syntax: WorkflowLispSyntaxModule) -> 
                 _elaborate_procedure_definition(
                     form,
                     reserved_prelude_type_names=reserved_prelude_type_names,
+                    target_dsl_version=module_syntax.target_dsl_version,
                 )
             )
     return tuple(definitions)
@@ -570,10 +559,50 @@ def with_call_graph(catalog: ProcedureCatalog, call_graph: Mapping[str, frozense
 def validate_procedure_effects(
     *,
     procedure_def: ProcedureDef,
-    declared_effects: frozenset[EffectAtom],
+    declared_effects: frozenset[EffectAtom] | None,
     inferred_effects: frozenset[EffectAtom],
+    specialization=None,
+    procedure_edges=(),
+    parameter_types=(),
+    unresolved_workflow_subjects=(),
+    pending_workflow_boundary=False,
 ) -> None:
-    """Reject a procedure whose declared effects differ from inferred effects."""
+    """Check the authored contract in the definition's version regime."""
+
+    if target_dsl_supports_effect_ceilings(procedure_def.effect_contract_target or ""):
+        if declared_effects is None:
+            return
+        from .effects import CallsWorkflowEffect, substitute_workflow_effects
+        from .type_env import WorkflowRefTypeRef
+
+        selected = getattr(specialization, "workflow_ref_bindings", {})
+        declared_effects = substitute_workflow_effects(declared_effects, selected)
+        uncovered = inferred_effects - declared_effects
+        unresolved = {name for name, ref in parameter_types
+            if isinstance(ref, WorkflowRefTypeRef) and name not in selected}
+        unresolved.update(unresolved_workflow_subjects)
+        permits_workflow = any(isinstance(effect, CallsWorkflowEffect) for effect in declared_effects)
+        if permits_workflow:
+            uncovered = frozenset(effect for effect in uncovered
+                if not (isinstance(effect, CallsWorkflowEffect) and ".".join(effect.subject) in unresolved))
+        if not uncovered and not (pending_workflow_boundary and not permits_workflow):
+            return
+        restriction_span = procedure_def.effects_clause_span or procedure_def.span
+        span = getattr(specialization, "origin_span", None) or restriction_span
+        edges = sorted(procedure_edges, key=lambda edge: (edge.callee_name,
+            edge.span.start.offset if edge.span is not None else -1))
+        raise LispFrontendCompileError((LispFrontendDiagnostic(
+            code="procedure_effect_ceiling_exceeded", phase="typecheck",
+            message=(f"procedure `{procedure_def.name}` restriction {render_effect_set(declared_effects)} "
+                f"does not cover {render_effect_set(uncovered) if uncovered else 'an unresolved workflow boundary'}; "
+                f"resolved definition `{procedure_def.name}`"),
+            span=span,
+            form_path=getattr(specialization, "origin_form_path", procedure_def.form_path),
+            expansion_stack=procedure_def.expansion_stack,
+            notes=(f"authored restriction: {restriction_span.start.path}:{restriction_span.start.line}",
+                *(f"contributing call `{edge.callee_name}` at {edge.span.start.path}:{edge.span.start.line}"
+                    for edge in edges if edge.span is not None)),
+        ),))
 
     if declared_effects == inferred_effects:
         return
@@ -593,13 +622,87 @@ def validate_procedure_effects(
     )
 
 
+def resolve_procedure_effect_restrictions(
+    procedure_defs, *, procedure_catalog, workflow_catalog, workflow_effects_by_name,
+    extern_environment, workflow_name_resolver,
+):
+    """Resolve new authored symbols once in their defining compiler environment."""
+    from .effects import CallsWorkflowEffect, UsesProviderEffect
+    from .type_env import WorkflowRefTypeRef
+    from .workflows import ProviderExtern
+
+    definitions = []
+    signatures = dict(procedure_catalog.signatures_by_name)
+    resolved_definitions = dict(procedure_catalog.definitions_by_name)
+    known_workflows = {*workflow_catalog.signatures_by_name, *workflow_effects_by_name}
+    for definition in procedure_defs:
+        if isinstance(definition, TypedProcedureDef) or not target_dsl_supports_effect_ceilings(
+            definition.effect_contract_target or ""
+        ) or definition.declared_effects is None:
+            definitions.append(definition)
+            continue
+        signature = signatures[definition.name]
+        formals = {name for name, ref in signature.params if isinstance(ref, WorkflowRefTypeRef)}
+        effects = set()
+        for effect in definition.declared_effects:
+            name = ".".join(getattr(effect, "subject", ()))
+            if isinstance(effect, CallsWorkflowEffect) and name not in formals:
+                resolved = name if name in known_workflows else (
+                    workflow_name_resolver(name, definition.effects_clause_span or definition.span,
+                        definition.form_path) if workflow_name_resolver is not None else name)
+                if resolved not in known_workflows:
+                    _raise_invalid_restriction_subject(definition, "workflow", name)
+                canonical = workflow_catalog.signatures_by_name.get(resolved)
+                effect = CallsWorkflowEffect(subject=(canonical.name if canonical is not None else resolved,))
+            elif isinstance(effect, UsesProviderEffect) and not isinstance(
+                extern_environment.bindings_by_name.get(name), ProviderExtern
+            ):
+                _raise_invalid_restriction_subject(definition, "provider", name)
+            effects.add(effect)
+        definition = replace(definition, declared_effects=frozenset(effects))
+        definitions.append(definition)
+        resolved_definitions[definition.name] = definition
+        replacement = replace(signature, declared_effects=definition.declared_effects)
+        for alias, candidate in tuple(signatures.items()):
+            if candidate is signature:
+                signatures[alias] = replacement
+    return tuple(definitions), replace(procedure_catalog, signatures_by_name=signatures,
+        definitions_by_name=resolved_definitions)
+
+
+def _raise_invalid_restriction_subject(definition, kind, name):
+    raise LispFrontendCompileError((LispFrontendDiagnostic(
+        code="procedure_effect_invalid", phase="typecheck", message=f"unknown or wrong-kind {kind} restriction subject `{name}`",
+        span=definition.effects_clause_span or definition.span, form_path=definition.form_path,
+        expansion_stack=definition.expansion_stack,
+    ),))
+
+
+def procedure_effect_inspection(procedure, known_procedures) -> tuple[str, ...]:
+    """Project restriction and inferred facts for the existing editor views."""
+    from .effects import unresolved_effect_calls
+    from .procedure_specialization import unresolved_workflow_ref_calls
+
+    summary = procedure.transitive_effect_summary
+    pending = set(unresolved_effect_calls(summary, known_procedures))
+    pending.update(unresolved_workflow_ref_calls(procedure))
+    restriction = procedure.signature.declared_effects
+    return (
+        f"restriction: {render_effect_set(restriction) if restriction is not None else 'omitted'}",
+        f"inferred effects: {render_effect_set(summary.transitive_effects)}",
+        f"effect status: incomplete ({', '.join(sorted(pending))})" if pending else "effect status: complete",
+    )
+
+
 def _elaborate_procedure_definition(
     form: SyntaxNode,
     *,
     reserved_prelude_type_names: frozenset[str],
+    target_dsl_version: str,
 ) -> ProcedureDef:
     datum = syntax_node_datum(form)
-    if not isinstance(datum, SyntaxList) or len(datum.items) < 7:
+    inferred_contract = target_dsl_supports_effect_ceilings(target_dsl_version)
+    if not isinstance(datum, SyntaxList) or len(datum.items) < (6 if inferred_contract else 7):
         _raise_parse_error(
             "`defproc` requires a name, params, return arrow, return type, `:effects`, and one body",
             span=form.span,
@@ -701,7 +804,7 @@ def _elaborate_procedure_definition(
     sections = list(datum.items[index + 2 :])
     if not sections:
         _raise_missing_effects(form)
-    lowering_mode = ProcedureLoweringMode.AUTO
+    lowering_mode = ProcedureLoweringMode.INLINE if inferred_contract else ProcedureLoweringMode.AUTO
     raw_effects: SyntaxList | None = None
     body_node: object | None = None
     index = 0
@@ -718,6 +821,21 @@ def _elaborate_procedure_definition(
             index += 2
             continue
         if current.value == ":lowering":
+            if inferred_contract:
+                raise LispFrontendCompileError(
+                    (
+                        LispFrontendDiagnostic(
+                            code="proc_lowering_annotation_invalid",
+                            message=(
+                                "target-2.39 `defproc` definitions do not accept an authored "
+                                "`:lowering` clause"
+                            ),
+                            span=current.span,
+                            form_path=form.form_path,
+                            expansion_stack=current.expansion_stack,
+                        ),
+                    )
+                )
             if index + 1 >= len(sections):
                 _raise_invalid_lowering(form)
             lowering_identifier = syntax_identifier(sections[index + 1])
@@ -745,7 +863,7 @@ def _elaborate_procedure_definition(
             form_path=form.form_path,
             expansion_stack=current.expansion_stack,
         )
-    if raw_effects is None:
+    if raw_effects is None and not inferred_contract:
         _raise_missing_effects(form)
     if body_node is None or index != len(sections):
         _raise_parse_error(
@@ -769,7 +887,9 @@ def _elaborate_procedure_definition(
             span=raw_effects.span,
             form_path=form.form_path,
             expansion_stack=raw_effects.expansion_stack,
-        ),
+        ) if raw_effects is not None else None,
+        effect_contract_target=target_dsl_version,
+        effects_clause_span=raw_effects.span if raw_effects is not None else None,
         requested_lowering_mode=lowering_mode,
         body=body,
         span=form.span,

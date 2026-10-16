@@ -110,7 +110,7 @@ def test_old_entry_refuses_before_build_or_run_publication(tmp_path, target, com
     assert tree(tmp_path) == before
 
 
-def test_frontend_executable_build_refuses_but_old_type_analysis_remains(tmp_path):
+def test_frontend_analysis_and_executable_build_refuse_pre_floor_source(tmp_path):
     from orchestrator.workflow_lisp import build
     from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
     from orchestrator.workflow_lisp.compiler import compile_stage1_entrypoint, compile_stage3_entrypoint
@@ -118,12 +118,15 @@ def test_frontend_executable_build_refuses_but_old_type_analysis_remains(tmp_pat
 
     source = tmp_path / "retired.orc"
     source.write_text(PROGRAM.format(target="2.34"))
-    assert compile_stage1_entrypoint(source).entry_module.target_dsl_version == "2.34"
-    analysis = compile_stage3_entrypoint(source)
-    assert analysis.entry_result.typed_program.target == "2.34"
-    assert analysis.entry_result.typed_workflows
-    assert not hasattr(analysis, "validated_bundles_by_name")
-    assert not hasattr(analysis.entry_result, "lowered_workflows")
+    before = tree(tmp_path)
+    for compile_entrypoint in (compile_stage1_entrypoint, compile_stage3_entrypoint):
+        with pytest.raises(LispFrontendCompileError) as caught:
+            compile_entrypoint(source)
+        diagnostic = caught.value.diagnostics[0]
+        assert diagnostic.code == "target_dsl_unsupported"
+        assert diagnostic.span.start.path == str(source)
+        assert diagnostic.span.start.line == 3
+        assert tree(tmp_path) == before
     assert not hasattr(build, "build_frontend_bundle")
     before = tree(tmp_path)
     with pytest.raises(LispFrontendCompileError) as caught:

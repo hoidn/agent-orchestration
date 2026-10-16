@@ -55,13 +55,14 @@ from orchestrator.workflow_lisp.typecheck_effects import typecheck_provider_resu
 from orchestrator.workflow_lisp.workflows import build_extern_environment
 from orchestrator.workflow_lisp.wcc.elaborate import (
     _prebind_effect_argument_matches,
-    elaborate_typed_workflow,
+    elaborate_typed_workflow_body,
 )
 from orchestrator.workflow_lisp.wcc.model import WccIdentityFactory, WccPerform
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_ROOT = REPO_ROOT / "tests/fixtures/workflow_lisp/provider_prompt_dependencies"
+CURRENT_FIXTURE_ROOT = REPO_ROOT / "tests/fixtures/workflow_lisp/current235/provider_prompt_dependencies"
 BASELINE = REPO_ROOT / "tests/baselines/workflow_lisp/provider_prompt_dependencies_keyword_free.json"
 TYPE_FIXTURE = REPO_ROOT / "tests/fixtures/workflow_lisp/valid/type_definitions.orc"
 CONSTANT_SPAN = SourceSpan(
@@ -610,13 +611,13 @@ def test_normalization_prompt_dependencies_rewrites_every_operand_and_preserves_
 
 def test_mixed_prompt_dependency_fixture_preserves_aliases_fields_and_policy() -> None:
     result = compile_stage3_module(
-        (FIXTURE_ROOT / "mixed.orc").relative_to(REPO_ROOT),
+        CURRENT_FIXTURE_ROOT / "mixed.orc",
         entry_workflow="mixed",
         provider_externs=_manifest("providers.json"),
         prompt_externs=_manifest("prompts.json"),
         validate_shared=False,
         workspace_root=REPO_ROOT,
-        lowering_route="legacy",
+
     )
     providers = [
         node
@@ -633,14 +634,14 @@ def test_mixed_prompt_dependency_fixture_preserves_aliases_fields_and_policy() -
 
 def test_loop_carried_relpath_fields_survive_frontend_and_wcc_m4_validation() -> None:
     result = compile_stage3_entrypoint(
-        FIXTURE_ROOT / "procedure_loop.orc",
-        source_roots=(FIXTURE_ROOT.parent,),
+        CURRENT_FIXTURE_ROOT / "procedure_loop.orc",
+        source_roots=(CURRENT_FIXTURE_ROOT.parent,),
         entry_workflow="loop-carried",
         provider_externs=_manifest("providers.json"),
         prompt_externs=_manifest("prompts.json"),
         validate_shared=False,
         workspace_root=REPO_ROOT,
-        lowering_route="legacy",
+
     )
     entry = next(
         workflow
@@ -684,14 +685,14 @@ def test_loop_carried_relpath_fields_survive_frontend_and_wcc_m4_validation() ->
 
 def test_imported_bound_procedure_specialization_preserves_prompt_dependency_contract() -> None:
     result = compile_stage3_entrypoint(
-        FIXTURE_ROOT / "procedure_loop.orc",
-        source_roots=(FIXTURE_ROOT.parent,),
+        CURRENT_FIXTURE_ROOT / "procedure_loop.orc",
+        source_roots=(CURRENT_FIXTURE_ROOT.parent,),
         entry_workflow="procedure-loop",
         provider_externs=_manifest("providers.json"),
         prompt_externs=_manifest("prompts.json"),
         validate_shared=False,
         workspace_root=REPO_ROOT,
-        lowering_route="legacy",
+
     )
     entry_result = result.entry_result
     imported_result = result.compiled_results_by_name["provider_prompt_dependencies/mixed"]
@@ -718,7 +719,7 @@ def test_imported_bound_procedure_specialization_preserves_prompt_dependency_con
         imported,
         value_bindings={"required": imported_call.args[0]},
         remaining_params=(imported.signature.params[1],),
-        workflow_path=FIXTURE_ROOT / "mixed.orc",
+        workflow_path=CURRENT_FIXTURE_ROOT / "mixed.orc",
         type_env=FrontendTypeEnvironment.from_module(imported_result.module),
         typed_procedures_by_name={
             item.definition.name: item
@@ -760,7 +761,6 @@ TASK2_PRODUCTION_PATHS = (
     "orchestrator/workflow_lisp/functions.py",
     "orchestrator/workflow_lisp/procedure_specialization.py",
     "orchestrator/workflow_lisp/workflow_refs.py",
-    "orchestrator/workflow_lisp/wcc/route.py",
 )
 TASK3_PRODUCTION_PATHS = (
     "orchestrator/workflow/prompt_dependency_contract.py",
@@ -886,21 +886,23 @@ def _provider_performs(value: Any) -> tuple[WccPerform, ...]:
 
 def _compile_dependency_fixture(*, route: str, workflow: str = "mixed"):
     return compile_stage3_module(
-        (FIXTURE_ROOT / "mixed.orc").relative_to(REPO_ROOT),
+        CURRENT_FIXTURE_ROOT / "mixed.orc",
         entry_workflow=workflow,
         provider_externs=_manifest("providers.json"),
         prompt_externs=_manifest("prompts.json"),
         validate_shared=False,
         workspace_root=REPO_ROOT,
-        lowering_route=route,
+
     )
 
 
 def test_wcc_prompt_dependency_payload_preserves_rows_policy_and_provenance() -> None:
     result = _compile_dependency_fixture(route="legacy")
     typed_workflow = result.typed_workflows[0]
-    wcc = elaborate_typed_workflow(
-        typed_workflow,
+    wcc = elaborate_typed_workflow_body(
+        typed_workflow.typed_body,
+        owner_name=typed_workflow.definition.name,
+        value_env=dict(typed_workflow.signature.params),
         type_env=FrontendTypeEnvironment.from_module(result.module),
         workflow_return_types={
             typed_workflow.definition.name: typed_workflow.signature.return_type_ref

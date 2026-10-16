@@ -1,4 +1,4 @@
-"""Pure equality guard over two completed, already retained preparations."""
+"""Closure and equality guards over completed, already retained preparations."""
 
 from collections.abc import Mapping
 from dataclasses import fields, is_dataclass
@@ -8,6 +8,292 @@ from ..type_env import TypeRef
 from ..wcc import model as w
 from .command_templates import _call_coordinate, command_call_occurrences
 from .names import _key_type_ref, _run_ref_signatures
+
+
+def _payload_fields(payload, required, optional, label):
+    if not isinstance(payload, Mapping) or set(payload) - required - optional or required - set(payload):
+        raise ValueError(f"prepared executable {label} has missing or unexpected payload fields")
+
+
+def _closed_capture_value(value):
+    """Check the wire/context subset produced for instantiated captures."""
+    from orchestrator.contracts.closed_program.check import _VALUE_KEYS
+    from .build import _canonical_json
+
+    try:
+        _canonical_json(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("prepared capture contains an unclosed operand") from exc
+
+    def operand(node):
+        if not isinstance(node, Mapping) or node.get("k") not in {"name", "field", "record", "lit", "context"}:
+            raise ValueError("prepared capture wire has an unknown executable kind")
+        kind = node["k"]
+        if set(node) - _VALUE_KEYS[kind]:
+            raise ValueError("prepared capture wire has an unexpected executable field")
+        if kind == "name":
+            if not isinstance(node.get("n"), str) or not node["n"]:
+                raise ValueError("prepared capture wire has no name operand")
+        elif kind == "field":
+            if not isinstance(node.get("path"), list) or any(not isinstance(name, str) for name in node["path"]):
+                raise ValueError("prepared capture wire has no field selector")
+            operand(node.get("base"))
+        elif kind == "record":
+            if not isinstance(node.get("type"), Mapping) or not isinstance(node.get("fields"), list):
+                raise ValueError("prepared capture context has no typed fields")
+            for row in node["fields"]:
+                if not isinstance(row, (tuple, list)) or len(row) != 2 or not isinstance(row[0], str):
+                    raise ValueError("prepared capture context has an invalid field")
+                operand(row[1])
+        elif kind == "lit":
+            # A typed Value literal may contain JSON data; its data is not code.
+            if "v" not in node or not isinstance(node.get("type"), Mapping):
+                raise ValueError("prepared capture literal has no typed data")
+        elif node.get("field") != "run-id":
+            raise ValueError("prepared capture context has an unknown field")
+
+    operand(value)
+
+
+def _prepared_declaration_identity(call, source_program, owner_name):
+    from .names import _callable_header, _find_typed_definition
+    from .frontend import resolve_workflow_target
+
+    if isinstance(call, w.WccCall):
+        selected = _find_typed_definition(source_program, "procedure",
+            call.specialized_callee_name or call.callee_name)
+    else:
+        target = resolve_workflow_target(source_program, owner_name, call.target_name)
+        if target is None:
+            _fail("call original declaration owner")
+        _, selected, source_program = target
+    if selected is None:
+        _fail("call original declaration owner")
+    return list(_callable_header(selected, typed=source_program)[:3])
+
+
+def _closed_perform_payload(perform, builder):
+    from .effects import require_closed_perform
+
+    require_closed_perform(builder, perform)
+    kind, payload = perform.perform_kind, perform.operation_payload
+    if kind in {"workflow_call", "agent"}:
+        if payload is not None:
+            raise ValueError("prepared executable effect has an unexpected payload")
+        if kind == "agent" and any(name not in {"model", "effort"} for name, _ in perform.keyword_args):
+            raise ValueError("prepared executable agent policy has an unknown field")
+        return
+    if kind == "run_ref":
+        if type(payload) not in {w.WccRunRefPayload, w.WccRunRefWorkflowPayload}:
+            raise ValueError("prepared executable run-ref has an unknown payload kind")
+        return
+    if kind == "command_result":
+        _payload_fields(payload, {"adapter_name", "adapter_inputs", "return_spec"},
+            {"inputs_present", "operand_order", "argv_transport"}, "command")
+        if payload["adapter_name"] is not None and not isinstance(payload["adapter_name"], str):
+            raise ValueError("prepared executable command adapter name is invalid")
+        if "inputs_present" in payload and type(payload["inputs_present"]) is not bool:
+            raise ValueError("prepared executable command input presence is invalid")
+        if "operand_order" in payload and (not isinstance(payload["operand_order"], tuple)
+                or any(not isinstance(name, str) for name in payload["operand_order"])):
+            raise ValueError("prepared executable command operand order is invalid")
+        for name, _value in payload["adapter_inputs"]:
+            if not isinstance(name, str):
+                raise ValueError("prepared executable command input name is invalid")
+        for plan in payload.get("argv_transport", ()):
+            if not isinstance(plan, Mapping):
+                raise ValueError("prepared executable command transport payload is missing")
+            if plan.get("kind") == "value":
+                _payload_fields(plan, {"kind"}, set(), "command value plan")
+                continue
+            _payload_fields(plan, {"kind", "parts"}, set(), "command template")
+            if plan["kind"] != "template" or not isinstance(plan["parts"], list):
+                raise ValueError("prepared executable command transport has an unknown kind")
+            for part in plan["parts"]:
+                if not isinstance(part, Mapping):
+                    raise ValueError("prepared executable command transport part is missing")
+                part_kind = part.get("kind")
+                if part_kind == "slot":
+                    _payload_fields(part, {"kind", "name", "path", "filters", "value"}, set(), "command slot")
+                    if any(not isinstance(part[field], list) or any(not isinstance(item, str) for item in part[field])
+                            for field in ("name", "path", "filters")):
+                        raise ValueError("prepared executable command slot selector is invalid")
+                    name = part["name"]
+                    if name != ["loop-index"] and (len(name) != 3 or name[0] != "input"):
+                        raise ValueError("prepared executable command slot has an unknown selector")
+                elif part_kind in {"text", "missing"}:
+                    field = "text" if part_kind == "text" else "expression"
+                    _payload_fields(part, {"kind", field}, set(), "command text")
+                    if not isinstance(part[field], str):
+                        raise ValueError("prepared executable command text is invalid")
+                else:
+                    raise ValueError("prepared executable command transport part has an unknown kind")
+        return
+    allowed = {"prompt_application", "prompt_dependencies", "model", "effort", "timeout_sec", "delivery",
+        "session_artifact", "context_expr", "capture_context", "materialization_attempts"}
+    if kind == "agent_turn":
+        allowed.add("agent_origins")
+    _payload_fields(payload, {"return_spec"}, allowed, "provider")
+    application = payload.get("prompt_application")
+    if application is not None:
+        _payload_fields(application, {"template", "fills"}, set(), "prompt application")
+        if not isinstance(application["template"], str) or not isinstance(application["fills"], (tuple, list)):
+            raise ValueError("prepared executable prompt application is invalid")
+        for row in application["fills"]:
+            _payload_fields(row, {"name", "kind", "type_ref", "value", "renderer_id", "output_role", "placeholder_ordinals"},
+                set(), "prompt fill")
+            if (not isinstance(row["name"], str) or row["kind"] not in {"doc", "text", "value", "path"}
+                    or row["type_ref"] is None or row["output_role"] not in {"none", "required_string_file"}
+                    or row["renderer_id"] is not None and not isinstance(row["renderer_id"], str)
+                    or not isinstance(row["placeholder_ordinals"], (tuple, list))
+                    or any(type(index) is not int or index < 0 for index in row["placeholder_ordinals"])):
+                raise ValueError("prepared executable prompt fill has invalid static facts")
+    elif not isinstance(perform.prompt_name, str):
+        raise ValueError("prepared executable provider prompt is missing")
+    dependencies = payload.get("prompt_dependencies")
+    if dependencies is not None:
+        if type(dependencies) is not w.WccPromptDependencyPayload or dependencies.position not in {"append", "prepend"}:
+            raise ValueError("prepared executable prompt dependency payload is invalid")
+        if dependencies.instruction is not None and not isinstance(dependencies.instruction, str):
+            raise ValueError("prepared executable dependency instruction is invalid")
+        for row in dependencies.rows:
+            if type(row) is not w.WccPromptDependencyRow or row.role not in {"required", "optional"} or type(row.authored_index) is not int or row.authored_index < 0:
+                raise ValueError("prepared executable prompt dependency row is invalid")
+    if kind == "agent_turn" and (not isinstance(payload.get("agent_origins"), tuple)
+            or not payload["agent_origins"] or any(not isinstance(name, str) for name in payload["agent_origins"])):
+        raise ValueError("prepared executable agent origins are missing")
+
+
+def assert_closed_preparation(body, children, *, context, builder):
+    """Check the completed entry/request graph, without consulting executable source."""
+    from ..diagnostics import records_defect_provenance
+    from ..expressions import ResourceTransitionExpr
+    from orchestrator.workflow.pure_expr import PURE_EXPR_OPERATOR_CATALOG
+    from .command_templates import _wcc_semantic_children
+
+    value_types = {w.WccLiteralAtom, w.WccNameAtom, w.WccFieldAccessAtom, w.WccRecordAtom,
+        w.WccInject, w.WccPureOp, w.WccSelect, w.WccList, w.WccListMap, w.WccBlock, w.WccResultPath}
+    body_types = {w.WccLet, w.WccCase, w.WccIf, w.WccJoin, w.WccJump, w.WccLoopContinue,
+        w.WccLoopDone, w.WccRecJoin, w.WccParallelMap, w.WccHalt}
+    binding_types = value_types | {w.WccPerform, w.WccCall, w.WccProviderSupervision, w.WccProviderPeerGroup}
+    domains = {"value": value_types, "body": body_types, "binding": binding_types,
+        "arm": {w.WccCaseArm, w.WccSelectArm}, "capture": {w.WccSpecializationCapture}}
+    @records_defect_provenance("closed-program")
+    def operand(node, domain="value", *, children, inventory, seen, variants=()):
+        if type(node) is w.WccOpaqueFrontendValue and isinstance(node.expr, ResourceTransitionExpr):
+            raise builder.gap("resource-transition", "resource transitions are translated by the runtime adapter", node.expr)
+        if type(node) not in domains[domain]:
+            raise ValueError(f"prepared executable {domain} operand has unknown or unclosed shape {type(node).__name__}")
+        coordinate = (id(node), variants)
+        if coordinate in seen:
+            return
+        seen.add(coordinate)
+        if type(node) is w.WccProviderSupervision:
+            raise builder.gap("with-live-providers", "provider supervision has no closed form in this release", node)
+        if type(node) is w.WccProviderPeerGroup:
+            raise builder.gap("with-live-provider-peers", "provider peer groups have no closed form in this release", node)
+        if type(node) not in {w.WccSelectArm, w.WccCaseArm, w.WccSpecializationCapture}:
+            if type(node.metadata) is not w.WccNodeMetadata or node.metadata.type_ref is None:
+                raise ValueError("prepared executable operand has no typed metadata")
+        if type(node) is w.WccLiteralAtom and (type(node.value) not in {str, int, float, bool}
+                or node.literal_kind not in {"string", "int", "float", "bool", "enum", "variant-tag"}):
+            raise ValueError("prepared executable literal has an unknown kind or value")
+        if type(node) is w.WccNameAtom and (not isinstance(node.name, str) or not node.name):
+            raise ValueError("prepared executable name operand is missing")
+        if type(node) is w.WccIf and node.condition_shape is not None:
+            raise ValueError("prepared executable conditional retains a frontend classification")
+        if type(node) is w.WccPureOp:
+            if node.operator in {"record-update", "loop-state-update"}:
+                valid = len(node.args) == len(node.field_names) + 1
+            elif node.operator in {"path/join", "path/join-under", "compiler-list-nonempty-head"}:
+                valid = len(node.args) == (2 if node.operator == "path/join" else 1)
+            else:
+                spec = PURE_EXPR_OPERATOR_CATALOG.get(node.operator)
+                valid = spec is not None and len(node.args) >= spec.min_arity and (spec.max_arity is None or len(node.args) <= spec.max_arity)
+            if not valid:
+                raise ValueError("prepared executable pure operation has an unknown kind or missing operand")
+        if type(node) is w.WccPerform:
+            _closed_perform_payload(node, builder)
+            for child in w.perform_payload_values(node.perform_kind, node.operation_payload):
+                operand(child, children=children, inventory=inventory, seen=seen, variants=variants)
+        for field, child in _wcc_semantic_children(node):
+            domain = ("body" if field in {"body", "then_body", "else_body", "continuation", "exhaustion", "workspace_body", "settlement_body"}
+                else "binding" if field == "bound_value" else "arm" if field in {"arm", "then_arm", "else_arm"}
+                else "capture" if field == "specialization_captures" else "value")
+            child_variants = (*variants, child.variant_name) if type(child) is w.WccCaseArm else variants
+            operand(child, domain, children=children, inventory=inventory, seen=seen, variants=child_variants)
+        if type(node) is w.WccCall or type(node) is w.WccPerform and node.perform_kind == "workflow_call":
+            coordinate = _call_coordinate(node, variants)
+            if coordinate not in inventory:
+                raise ValueError("prepared operand has an unknown executable call")
+            declaration, occurrence = inventory[coordinate]
+            request = children[(_canonical_json(declaration), occurrence)]
+            check_request(request.prepared_body, request.prepared_children, request)
+
+    from .build import _canonical_json
+
+    seen_requests = set()
+
+    def check_request(prepared_body, prepared_children, owner):
+        if id(owner) in seen_requests:
+            return
+        seen_requests.add(id(owner))
+        if prepared_body is None or not isinstance(prepared_children, Mapping):
+            raise ValueError("closed preparation requires a prepared body and child table")
+        if hasattr(owner, "prepared_body") and any(getattr(owner, name) is None for name in (
+                "computed_capture_sources", "computed_capture_requests_by_alias", "reference_capture_aliases")):
+            raise ValueError("call emission requires completed capture preparation")
+        callable_def = getattr(owner, "procedure", None) or getattr(owner, "workflow", None)
+        owner_name = callable_def.definition.name if callable_def is not None else owner.owner
+        inventory = command_call_occurrences(prepared_body,
+            lambda call: _prepared_declaration_identity(call, owner.source_program, owner_name))
+        if set(prepared_children) != {(_canonical_json(declaration), occurrence)
+                for declaration, occurrence in inventory.values()}:
+            raise ValueError("prepared child table does not cover its executable call inventory")
+        operands = {"children": prepared_children, "inventory": inventory, "seen": set()}
+        operand(prepared_body, "body", **operands)
+        for rows in (owner.computed_capture_requests_by_alias or {}).values():
+            for recipe in rows:
+                if recipe.prepared_value is None:
+                    raise ValueError("computed capture has no prepared value recipe")
+                operand(recipe.prepared_value, **operands)
+        for value in getattr(owner, "prepared_closed_values", ()):
+            operand(value, **operands)
+        for value in getattr(owner, "arguments", None) or ():
+            operand(value, **operands)
+        for capture in getattr(owner, "captures", None) or ():
+            value = capture.value
+            if value is None:
+                identity = capture.identity
+                if hasattr(owner, "workflow"):
+                    # Context forwarding retains positions and declared context names,
+                    # rather than an executable expression.
+                    if type(identity) is not int and (not isinstance(identity, tuple)
+                            or not identity or identity[0] not in {"caller-context", "forwarded-context"}):
+                        raise ValueError("prepared workflow capture has no retained context recipe")
+                elif builder._is_command_capture(capture):
+                    operand(identity, **operands)
+                else:
+                    if not isinstance(identity, tuple) or not identity:
+                        raise ValueError("prepared capture has no retained lexical recipe")
+                    kind = identity[0]
+                    if kind == "lexical-capture" and len(identity) == 2:
+                        operand(identity[1], **operands)
+                    elif kind in {"creation-alias", "forwarded-capture"} and len(identity) == 2:
+                        if type(identity[1]) is not (str if kind == "creation-alias" else int):
+                            raise ValueError("prepared capture has an invalid retained lexical recipe")
+                    elif kind in {"creation", "bind-proc"} and len(identity) == 3:
+                        if type(identity[1]) is not int or not isinstance(identity[2], (str, tuple)):
+                            raise ValueError("prepared capture has an invalid retained creation recipe")
+                    else:
+                        raise ValueError("prepared capture has no retained lexical recipe")
+            elif isinstance(value, Mapping):
+                _closed_capture_value(value)
+            else:
+                operand(value, **operands)
+        return inventory
+
+    return check_request(body, children, context)
 
 
 def _fail(path):
@@ -71,40 +357,13 @@ class _Comparison:
         self.owners = tuple(row.source_program for row in requests)
         self.callables = tuple(row.procedure if hasattr(row, "procedure") else row.workflow
             for row in requests)
-        self.contexts = tuple(self.query_context(side) for side in range(2))
         self.inventories = tuple(command_call_occurrences(row.prepared_body,
             lambda call, side=side: self.declaration_identity(call, side))
             for side, row in enumerate(requests))
 
-    def query_context(self, side):
-        request, callable_def = self.requests[side], self.callables[side]
-        source = self.owners[side]
-        types = source.procedure_type_env(callable_def) if hasattr(request, "procedure") else source.workflow_type_env(callable_def.definition.name)
-        context = self.builder.definition_context(canonical=callable_def.definition.name,
-            owner=callable_def.definition.name, source_program=source, type_env=types,
-            node=callable_def.typed_body, params=callable_def.definition.params, callable_def=callable_def)
-        context.captures = request.captures
-        context.procedure_refs = getattr(request, "procedure_refs", {})
-        context.workflow_refs = getattr(request, "workflow_refs", {})
-        return context
-
     def declaration_identity(self, call, side):
-        from .names import _callable_header, _find_typed_definition
-        from .frontend import resolve_workflow_target
-
-        kind = "procedure" if isinstance(call, w.WccCall) else "workflow"
-        name = (call.specialized_callee_name or call.callee_name) if kind == "procedure" else call.target_name
-        owner = self.owners[side]
-        if kind == "workflow":
-            target = resolve_workflow_target(owner, self.callables[side].definition.name, name)
-            if target is None:
-                _fail("call original declaration owner")
-            _, selected, owner = target
-        else:
-            selected = _find_typed_definition(owner, kind, name)
-        if selected is None:
-            _fail("call original declaration owner")
-        return list(_callable_header(selected, typed=owner)[:3])
+        return _prepared_declaration_identity(call, self.owners[side],
+            self.callables[side].definition.name)
 
     def types(self, left, right, path, owners=None):
         from ..loops import LoopControlTypeRef
@@ -277,6 +536,7 @@ class _Comparison:
         self.record(left, right, frame, path, ("bound_name", "body"))
         local = _bind(frame, (left.bound_name, right.bound_name),
             (left.metadata.binding_identity, right.metadata.binding_identity), path)
+        local = self.creation_recipes((left.bound_name, right.bound_name), local, path + ".creations")
         self.walk(left.body, right.body, local, path + ".body")
 
     def WccSelectArm(self, left, right, frame, path):
@@ -287,6 +547,7 @@ class _Comparison:
             self.record(a, b, local, field, ("bound_name", "body"))
             local = _bind(local, (a.bound_name, b.bound_name),
                 (a.metadata.binding_identity, b.metadata.binding_identity), field)
+            local = self.creation_recipes((a.bound_name, b.bound_name), local, field + ".creations")
         self.walk(left.value, right.value, local, path + ".value")
 
     def WccIf(self, left, right, frame, path):
@@ -322,6 +583,30 @@ class _Comparison:
         local = self.parameters(left.params, right.params, local, path + ".params",
             (left.metadata.binding_identity, right.metadata.binding_identity))
         self.walk(left.continuation, right.continuation, local, path + ".continuation")
+
+    def WccRecordAtom(self, left, right, frame, path):
+        if left.type_name == right.type_name:
+            return self.record(left, right, frame, path)
+        from ..type_env import RecordTypeRef
+        from .names import canonical_type_descriptor
+
+        for side, value in enumerate((left, right)):
+            resolved, retained = value.resolved_type, value.metadata.type_ref
+            if not isinstance(resolved, RecordTypeRef) or not isinstance(retained, RecordTypeRef):
+                _fail(path + ".constructor type")
+            _same(value.type_name, resolved.name, path + ".constructor name")
+            _same(resolved.name, retained.name, path + ".constructor owner")
+            owner = self.owners[side]
+            _same(canonical_type_descriptor(resolved, typed=owner),
+                canonical_type_descriptor(retained, typed=owner), path + ".constructor descriptor")
+            self.types(resolved, retained, path + ".constructor type", (owner, owner))
+        self.record(left, right, frame, path, ("type_name",))
+
+    def WccListMap(self, left, right, frame, path):
+        self.record(left, right, frame, path, ("binder_name", "binding_identity", "body"))
+        local = _bind(frame, (left.binder_name, right.binder_name),
+            (left.binding_identity, right.binding_identity), path)
+        self.walk(left.body, right.body, local, path + ".body")
 
     def WccParallelMap(self, left, right, frame, path):
         from .command_templates import command_parallel_index_name
@@ -396,22 +681,47 @@ class _Comparison:
         self.walk(*operands, frame, path + ".args")
         self.walk(left.specialization_captures, right.specialization_captures,
             frame, path + ".captures")
-        self.creation_recipes(left, right, frame, path + ".creations")
+        self.walk(children[0].prepared_closed_values, children[1].prepared_closed_values,
+            frame, path + ".closed operands")
+        self.capture_inputs(children, frame, path + ".capture inputs")
 
-    def creation_facts(self, call, side):
-        source = self.owners[side]
-        return self.builder._prepare_computed_capture_requests(None, self.contexts[side], source,
-            classify_call=call)["creations"]
+    def capture_inputs(self, children, frame, path):
+        for index, (left, right) in enumerate(zip(children[0].captures, children[1].captures, strict=True)):
+            if self.builder._is_command_capture(left):
+                continue
+            values = []
+            for side, capture in enumerate((left, right)):
+                value = capture.value
+                if value is None:
+                    identity = capture.identity
+                    if identity[0] == "lexical-capture":
+                        value = identity[1]
+                    elif identity[0] == "creation-alias":
+                        value = ("name", _reference(identity[1], None, frame, side))
+                    elif identity[0] in {"creation", "bind-proc"}:
+                        formal = identity[2] if identity[0] == "creation" else (identity[2],)
+                        name = self.requests[side].computed_capture_sources[(identity[1], formal)]
+                        value = ("name", _reference(name, None, frame, side))
+                    elif identity[0] == "forwarded-capture":
+                        value = ("capture", identity[1])
+                    else:
+                        _fail(path + ".recipe")
+                values.append(value)
+            self.walk(*values, frame, f"{path}[{index}]")
 
-    def creation_recipes(self, left, right, frame, path):
-        rows = tuple(self.creation_facts(call, side) for side, call in enumerate((left, right)))
+    def creation_recipes(self, names, frame, path):
+        rows = tuple((request.computed_capture_requests_by_alias or {}).get(name, ())
+            for request, name in zip(self.requests, names, strict=True))
         _same(len(rows[0]), len(rows[1]), path + ".length")
+        result = frame
         for index, (a, b) in enumerate(zip(*rows, strict=True)):
             field = f"{path}[{index}]"
-            _same(a[1], b[1], field + ".formal")
-            self.types(a[3], b[3], field + ".type")
-            local = self.creation_aliases((a[4], b[4]), frame, field)
-            self.walk(a[2], b[2], local, field + ".expression")
+            _same(a.formal, b.formal, field + ".formal")
+            self.types(a.type_ref, b.type_ref, field + ".type")
+            local = self.creation_aliases((a.source_aliases, b.source_aliases), result, field)
+            self.walk(a.prepared_value, b.prepared_value, local, field + ".value")
+            result = _bind(result, (a.source_name, b.source_name), (None, None), field)
+        return result
 
     def creation_aliases(self, aliases, frame, path):
         local = _copy_frame(frame)
@@ -525,11 +835,7 @@ class _Comparison:
 
     def WccOpaqueFrontendValue(self, left, right, frame, path):
         self.walk(left.metadata, right.metadata, frame, path + ".metadata")
-        _same(left.normalized_body is None, right.normalized_body is None, path + ".mode")
-        if left.normalized_body is not None:
-            self.walk(left.normalized_body, right.normalized_body, frame, path + ".body")
-        else:
-            self.frontend(left.expr, right.expr, frame, path + ".expr")
+        self.frontend(left.expr, right.expr, frame, path + ".expr")
 
     def frontend(self, left, right, frame, path):
         self.walk(left, right, frame, path)

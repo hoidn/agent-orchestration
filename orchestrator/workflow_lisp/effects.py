@@ -256,6 +256,31 @@ def effect_summary_is_procedure_edge_only(summary: EffectSummary) -> bool:
     )
 
 
+def unresolved_effect_calls(summary: EffectSummary, known_procedures) -> tuple[str, ...]:
+    """Keep unresolved call evidence distinct from a proven empty effect set."""
+    from .procedure_specialization import unresolved_workflow_ref_calls
+
+    edges = set(summary.procedure_edges)
+    for edge in summary.procedure_edges:
+        procedure = known_procedures.get(edge.callee_name)
+        if procedure is not None:
+            edges.update(procedure.transitive_effect_summary.procedure_edges)
+    pending = {edge.callee_name for edge in edges
+        if edge.callee_name not in known_procedures}
+    for edge in edges:
+        procedure = known_procedures.get(edge.callee_name)
+        if procedure is not None:
+            pending.update(unresolved_workflow_ref_calls(procedure))
+    return tuple(sorted(pending))
+
+
+def substitute_workflow_effects(effects, bindings) -> frozenset[EffectAtom]:
+    """Resolve formal WorkflowRef subjects using their selected existing bindings."""
+    return frozenset(CallsWorkflowEffect(subject=(bindings[".".join(effect.subject)].workflow_name,))
+        if isinstance(effect, CallsWorkflowEffect) and ".".join(effect.subject) in bindings else effect
+        for effect in effects)
+
+
 def merge_effect_summaries(*summaries: EffectSummary) -> EffectSummary:
     """Union multiple effect summaries for sequential or nested forms."""
 

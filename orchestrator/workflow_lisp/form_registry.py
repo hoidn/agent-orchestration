@@ -7,6 +7,8 @@ from enum import Enum
 
 from orchestrator.workflow.pure_expr import PURE_EXPR_OPERATOR_CATALOG
 
+FINITE_SOURCE_ADMISSION_MIN_TARGET_DSL_VERSION = "2.39"
+
 
 _LIST_TRAVERSAL_SPECIAL_FORM_NAMES = frozenset(
     {"list", "list/map", "list/map-effect", "path/join-under"}
@@ -218,7 +220,6 @@ _FORM_SPECS = (
             "Prompt declarations are target-2.20 compile-time definitions in "
             "their own namespace."
         ),
-        min_target_dsl_version="2.20",
     ),
     _spec(
         "defmodule",
@@ -289,7 +290,6 @@ _FORM_SPECS = (
             rationale=(
                 "Closed pure operator heads elaborate through the shared pure-expression route."
             ),
-            min_target_dsl_version=operator_spec.min_target_dsl_version,
         )
         for operator_name, operator_spec in PURE_EXPR_OPERATOR_CATALOG.items()
     ),
@@ -395,7 +395,6 @@ _FORM_SPECS = (
         admitted_top_level=False,
         elaboration_route="cond",
         rationale="Target-2.26 cond is a reserved frontend form erased into nested if before WCC.",
-        min_target_dsl_version="2.26",
     ),
     _spec(
         "match",
@@ -587,7 +586,6 @@ _FORM_SPECS = (
         admitted_top_level=False,
         elaboration_route="request_input",
         rationale="Host input elaborates through one fixed compiler path.",
-        min_target_dsl_version="2.32",
     ),
     _spec(
         "run-ref",
@@ -600,7 +598,6 @@ _FORM_SPECS = (
         elaboration_route="run_ref",
         feature_tags=("workspace_pinned_child_run",),
         rationale="Pinned child-run effects elaborate through one closed compiler path.",
-        min_target_dsl_version="2.24",
     ),
     _spec(
         "trial",
@@ -613,7 +610,6 @@ _FORM_SPECS = (
         elaboration_route="trial",
         feature_tags=("bounded_static_trial",),
         rationale="Bounded static trials elaborate through one closed compiler path.",
-        min_target_dsl_version="2.25",
     ),
     _spec(
         "review-revise-loop",
@@ -812,19 +808,26 @@ def _available_at_target(
     spec: FormSpec,
     target_dsl_version: str | None,
 ) -> bool:
-    if spec.min_target_dsl_version is None:
-        return True
+    return spec.min_target_dsl_version is None or target_dsl_version_at_least(
+        target_dsl_version,
+        spec.min_target_dsl_version,
+    )
+
+
+def target_dsl_version_at_least(
+    target_dsl_version: str | None,
+    minimum: str,
+) -> bool:
+    """Compare supported numeric target-version components."""
+
     if target_dsl_version is None:
         return False
     try:
         target = tuple(int(part) for part in target_dsl_version.split("."))
-        minimum = tuple(
-            int(part)
-            for part in spec.min_target_dsl_version.split(".")
-        )
+        minimum_version = tuple(int(part) for part in minimum.split("."))
     except (AttributeError, TypeError, ValueError):
         return False
-    return target >= minimum
+    return target >= minimum_version
 
 
 def get_form_spec(

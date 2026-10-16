@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.33")
+  (:target-dsl "2.35")
   (defmodule gu/entry_alias)
   (import gu/lib :as lib :only (Outcome lib-ok))
   (export entry)

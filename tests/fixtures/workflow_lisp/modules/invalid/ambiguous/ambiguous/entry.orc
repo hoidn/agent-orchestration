@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule ambiguous/entry)
   (import alpha/one :only (Shared))
   (import beta/two :only (Shared))

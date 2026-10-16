@@ -87,12 +87,12 @@ another candidate's. No new fallback or target-conversion flag is introduced.
 | Boundary | Selected behavior |
 | --- | --- |
 | `compile`/`run`/`run --dry-run` of an old executable entry target through 2.34 | Explicit retired-target diagnostic before build/run publication; source is not rewritten |
-| New evaluated entry importing older source modules | Keep supported typed module contracts; an imported module header is not a request to execute the old backend |
+| Source compilation/import/REPL/LSP below 2.35 | Refuse at the source floor; no typed-only compatibility lane or automatic migration. Admitted 2.35–2.38 definitions preserve their semantics when imported by 2.39. |
 | Old persisted execution profile, including `resume --force-restart` and invalidation | Refuse without changing retained run contents; identify the tested retained-release route where one exists |
 | `prompt run` (default/exact/inferred contract or `--scaffold`) and both `prompt import` branches | Retire new executions from the new package; refuse before scaffold/run/session writes or effects, and direct users to the retained complete release/environment |
 | `prompt resume [--in-place]` on an existing linked session | Retain the native TTY bridge, pins, isolation, lineage and continuation publication without compiler/old-executor imports; this mutates native session journals, not retired workflow execution |
 | Existing evaluated entries/profiles at 2.35/2.36/2.37 | Preserve target registration, admitted compiler/read-back and runtime behavior with current limits; retain rebuild/pin checks, memo authority, writer locking, effect recovery and suffix invalidation |
-| Historical `report`/dashboard state | Keep existing read-only access where it can be independent of execution; inability to read a family requires an explicit disposition |
+| Historical `report`/dashboard state | Retain independent raw-state readers. The CLI keeps redacted state-only trial rows; dashboard generic raw/debug inspection is separate. Detailed trial projection/rendering is withdrawn under the [family disposition](#trial-observability-disposition). |
 | Unsupported feature in an evaluated entry | Existing source-located admission refusal; no hidden dispatch to old execution |
 | Public `WorkflowExecutor`, flat lowerer exports, and target-2.25 trial compile-and-run SDK | Retire those executable APIs with named caller dispositions and exact retained-release guidance; preserve supported parser/type/compiler interfaces and shared read contracts where used |
 | `input answer`/`cancel`, workflow watchdog, ES/research trial execution and flat `explain`/IR views | Retire without ports; input settlement and explain refuse before writes (CLI exit 2); keep `input get`, shared probing, REPL/LSP and historical readers |
@@ -102,6 +102,54 @@ another candidate's. No new fallback or target-conversion flag is introduced.
 [State](../../specs/state.md#execution-and-historical-format-scope) and
 [IO](../../specs/io.md) own the cutoff contract. Gate R is accepted; final
 deleted-tree verification and delivery remain tracked in the execution closeout.
+
+<a id="source-floor-235"></a>
+
+### Source floor: 2.35
+
+The current package source contract begins at 2.35. Reject pre-2.35 entries,
+transitive source dependencies, compiler input bundles/typed programs, REPL
+loads and LSP analysis before typed publication or execution. Raw syntax used
+to locate an unsupported header is not a compatibility frontend. Preserve the
+existing old-entry/profile refusal boundary; dependency/tooling refusal uses
+`target_dsl_unsupported` with the actual authored header/import provenance.
+Retain 2.35–2.38 exact-effect/lowering semantics and the separate 2.39 contract.
+
+Migrate the six maintained packaged libraries (`std/context`, `std/phase`,
+`std/drain`, `std/resource`, `std/improve` and `w3/std/improve`) to 2.35 with
+behavioral comparison before enforcing the floor. Keep the existing
+entry-selected improve variants and their 2.35 versus 2.36+ behavior. A library
+migration is not admission of an excluded runtime effect. Source bytes and
+program identities can change; do not rewrite evidence or promise old artifact
+fingerprints/cross-package resume. Current supported artifacts continue using
+their existing checked runtime/read contract without requiring old-source
+analysis; a source rebuild requiring a retired dependency refuses.
+
+The current source API has no `lowering_route` argument, route dispatcher or
+false `CompilerSession.closed_program` mode. Remove exclusive old-source
+feature branches and their forwarding/export plumbing with the migrated tests. Do not
+keep an old parser/typechecker behind a diagnostic, test or import flag.
+Retain provider-region closure and diagnostic validation because current
+provider-group compilation consumes them. Typing-time condition normalization
+and later closed-body preparation remain different current stages; a Boolean
+parameter is not proof of old-version ownership. Shared validators and D3
+transport semantics remain wherever current inputs consume them.
+
+Frozen programs, results, reports, historical route records and run data remain
+unchanged as evidence, outside current compilation. Keep only data readers
+needed by current report/dashboard inspection or compiler-free native-session
+asset verification; they must not reconstruct an old compiler or executable
+route. Unsupported historical formats refuse clearly and identify a qualified
+retained release when one exists. No old artifact conversion, universal
+recovery promise or new pre-2.35 emission is introduced.
+
+The [selected source-floor sequence](../plans/2026-10-15-orc-simplification-roadmap-extension.md#f--pre-235-source-compatibility-retirement)
+owns migration, exclusive deletion, full test-population accounting and delivery.
+This contract supersedes earlier typed-import exceptions in the completed
+executor-retirement record; it does not rewrite that historical evidence.
+Floor completion still requires that sequence's semantic-population accounting
+and independent acceptance. In particular, evaluated LSP F2 remains
+**OPEN_NOT_WAIVED**; source/header refusal is not semantic navigation qualification.
 
 <a id="5-finite-consumer-dispositions"></a>
 
@@ -114,6 +162,8 @@ selected. Keep `_scaffold_files` and the historical 2.27 renderer for determinis
 byte/manifest/link verification by `verify_private_scaffold` and
 `verify_captured_occupant`, which do not compile. Remove the eager compiler
 dependency and remove `compile_check`/`derive_compiled_contract` only once unused.
+This deterministic reconstruction verifies existing native-session assets;
+it does not publish new pre-2.35 source or restore scaffold execution.
 
 The finite inventory records any needed human-input, context/session, trial,
 supervision, peer, phased-provider, adjudication, resource/view or managed-job
@@ -122,6 +172,24 @@ porting. A required unsupported consumer needs a bounded design decision; an
 unused class is retired with its named callers. The frozen inventory and
 selected dispositions govern the support change; they do not authorize
 silently dropping an undiscovered consumer.
+
+### Trial Observability Disposition
+
+Historical target-2.25 detailed trial projection is withdrawn. The old
+`workflow/trial/observability.py` projector, its report caller and Markdown
+rendering, and the unreachable legacy dashboard bundle branch have no admitted
+2.35+ producer/public reader path. Their old-only detail tests and
+exclusive helper retire with those owners; no current-target fixture is
+created to invent a trial authority.
+
+Keep raw persisted-state/header readers, the CLI state-only trial status shell
+with empty input/output, output suppression, trial config/ledger and settlement
+validation used by actual data consumers, and frozen historical JSON. Dashboard
+generic raw/debug inspection remains read-only and does not inherit the CLI
+redaction guarantee. The [observability contract](../../specs/observability.md#target-225-trial-observability)
+scopes the old detail format as history. This read-only disposition supplies no
+trial execution, replay or resumability promise; recovery in another complete
+release/environment requires its own demonstrated evidence under §7.
 
 ## 6. Target Ownership And Deletions
 

@@ -1,9 +1,4 @@
-"""Target 2.33 registration for CF-1b generic unions and `std/improve`.
-
-Registration only: no new forms are admitted here. See
-`docs/plans/2026-09-28-cf1b-composition-first-implementation-plan.md` (Task 1)
-and `specs/versioning.md` (v2.33 additions).
-"""
+"""Current typed target registration and unsupported-header refusal."""
 
 from __future__ import annotations
 
@@ -39,12 +34,10 @@ def _compile_minimal_module(tmp_path: Path, target_dsl_version: str):
         command_boundaries={},
         validate_shared=True,
         workspace_root=tmp_path,
-        lowering_route=None,
+
     )
 
 
-def test_generic_union_minimum_target_is_233() -> None:
-    assert syntax.GENERIC_UNION_MIN_TARGET_DSL_VERSION == "2.33"
 
 
 @pytest.mark.parametrize(
@@ -54,26 +47,20 @@ def test_generic_union_minimum_target_is_233() -> None:
         pytest.param(run_ref_config._SUPPORTED_TARGET_DSL_VERSIONS, id="run-ref-config"),
     ],
 )
-def test_target_233_is_registered(registry) -> None:
-    assert "2.33" in registry
+def test_current_target_235_is_registered(registry) -> None:
+    assert "2.35" in registry
 
 
 
 
-def test_module_targeting_233_compiles_with_no_new_forms(tmp_path: Path) -> None:
-    result = _compile_minimal_module(tmp_path, "2.33")
+def test_module_targeting_235_compiles_with_no_new_forms(tmp_path: Path) -> None:
+    result = _compile_minimal_module(tmp_path, "2.35")
 
-    assert result.typed_program.target == "2.33"
+    assert result.typed_program.target == "2.35"
 
 
-def test_module_targeting_239_is_rejected_as_unsupported(tmp_path: Path) -> None:
+def test_module_targeting_240_is_rejected_as_unsupported(tmp_path: Path) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile_minimal_module(tmp_path, "2.39")
+        _compile_minimal_module(tmp_path, "2.40")
 
     assert excinfo.value.diagnostics[0].code == "target_dsl_unsupported"
-
-
-def test_module_targeting_232_still_compiles(tmp_path: Path) -> None:
-    result = _compile_minimal_module(tmp_path, "2.32")
-
-    assert result.typed_program.target == "2.32"

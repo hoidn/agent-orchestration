@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule backlog_drain_gap_drafter_non_record_payload_invalid)
   (import std/context :only (DrainCtx ItemCtx))
   (import std/resource :only (BlockerClass SelectedItemResult))

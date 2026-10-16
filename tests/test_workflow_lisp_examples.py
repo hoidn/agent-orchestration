@@ -1,11 +1,8 @@
 from pathlib import Path
+import hashlib
 
 import json
 
-from orchestrator.workflow_lisp.compiler import (
-    compile_stage3_entrypoint,
-    compile_stage3_module as _compile_stage3_module,
-)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -54,14 +51,9 @@ DESIGN_DOCS_JUDGMENT_PANEL_SYNTHESIS_PROMPT = (
 )
 
 
-def compile_stage3_module(*args, **kwargs):
-    kwargs.setdefault("lowering_route", "legacy")
-    return _compile_stage3_module(*args, **kwargs)
 
 
-
-
-def test_kiss_backlog_item_orc_compiles_to_typed_phase_stack(tmp_path: Path) -> None:
+def test_kiss_backlog_item_historical_source_preserves_phase_shape(tmp_path: Path) -> None:
     workflow_source = (RETIRED_EXAMPLES / "kiss_backlog_item.orc").read_text(encoding="utf-8")
     assert "(import std/phase :only" in workflow_source
     assert ":review-provider" not in workflow_source
@@ -70,33 +62,7 @@ def test_kiss_backlog_item_orc_compiles_to_typed_phase_stack(tmp_path: Path) -> 
     assert ":fix-prompt" not in workflow_source
     assert ":returns ReviewLoopResult" not in workflow_source
 
-    result = compile_stage3_module(
-        RETIRED_EXAMPLES / "kiss_backlog_item.orc",
-        provider_externs={
-            "providers.plan": "fake-plan",
-            "providers.plan-review": "fake-plan-review",
-            "providers.plan-fix": "fake-plan-fix",
-            "providers.implementation": "fake-implementation",
-            "providers.implementation-review": "fake-implementation-review",
-            "providers.implementation-fix": "fake-implementation-fix",
-        },
-        prompt_externs={
-            "prompts.plan.draft": "workflows/library/prompts/design_plan_impl_stack_v2_call/draft_plan.md",
-            "prompts.plan.review": "workflows/library/prompts/design_plan_impl_stack_v2_call/review_plan.md",
-            "prompts.plan.fix": "workflows/library/prompts/design_plan_impl_stack_v2_call/revise_plan.md",
-            "prompts.implementation.execute": (
-                "workflows/library/prompts/design_plan_impl_stack_v2_call/implement_plan.md"
-            ),
-            "prompts.implementation.review": (
-                "workflows/library/prompts/design_plan_impl_stack_v2_call/review_implementation.md"
-            ),
-            "prompts.implementation.fix": (
-                "workflows/library/prompts/design_plan_impl_stack_v2_call/fix_implementation.md"
-            ),
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
+    assert hashlib.sha256((RETIRED_EXAMPLES / "kiss_backlog_item.orc").read_bytes()).hexdigest() == "8a0c73b37207b759c5c8f012d623b439f1316b95cda562d5d659918cf946d698"
 
 
 
@@ -121,7 +87,7 @@ def test_review_revise_parametric_design_docs_example_remains_one_off_source_sha
     assert "workflow_lisp_compile_time_parametric_specialization.md" in workflow_source
 
 
-def test_review_revise_design_docs_example_validates_with_parameterized_context_docs(tmp_path: Path) -> None:
+def test_review_revise_design_docs_historical_source_preserves_parameterized_context_docs(tmp_path: Path) -> None:
     assert not DESIGN_DOCS_REVIEW_PROMPT.exists()
     assert DESIGN_DOCS_FIX_PROMPT.is_file()
 
@@ -130,87 +96,21 @@ def test_review_revise_design_docs_example_validates_with_parameterized_context_
     assert "workflow_lisp_compile_time_parametric_specialization.md" not in workflow_source
     assert "workflow_lisp_review_revise_stdlib_parametric_integration.md" not in workflow_source
 
-    result = _compile_stage3_module(
-        DESIGN_DOCS_REVIEW_EXAMPLE,
-        provider_externs={
-            "providers.design-docs.review": "codex",
-            "providers.design-docs.fix": "codex",
-        },
-        prompt_externs={
-            "prompts.design-docs.fix": DESIGN_DOCS_FIX_PROMPT.relative_to(REPO_ROOT).as_posix(),
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
-
-    assert result.module.target_dsl_version == "2.23"
-    review_prompt = result.prompt_catalog.resolve("review-design-doc")
-    review_output_slot = next(
-        slot
-        for slot in review_prompt.slots
-        if slot.declaration.name == "review_report_target_path"
-    )
-    assert review_output_slot.declaration.kind.value == "path"
-    assert review_output_slot.declaration.output_role.value == (
-        "required_string_file"
-    )
-    assert review_output_slot.declaration.refinement_type_name == (
-        "ReviewReportTargetPath"
-    )
-    assert review_prompt.declaration.return_spec is not None
-    assert review_prompt.declaration.return_spec.type_name == "ReviewDecision"
+    assert '(review_report_target_path :path :out ReviewReportTargetPath)' in workflow_source
+    assert '-> ReviewDecision' in workflow_source
+    assert hashlib.sha256(DESIGN_DOCS_REVIEW_EXAMPLE.read_bytes()).hexdigest() == "8784501577c4f162f584a2ae17d1644a6bc4ea0c8bfbd18cdb0c1b7fd24a0598"
 
 
 
-def test_review_revise_design_docs_exports_compile_for_same_target_importer(
-    tmp_path: Path,
-) -> None:
-    # The importer's root (tests/fixtures/workflow_lisp) contains
-    # retired_examples/, and the first containing root decides a module's
-    # expected path; compile a copy so each module has one owning root.
-    importer_root = tmp_path / "importer"
-    importer = importer_root / DESIGN_DOCS_EXPORT_IMPORT_FIXTURE.relative_to(
-        WORKFLOW_LISP_FIXTURES
-    )
-    importer.parent.mkdir(parents=True)
-    importer.write_bytes(DESIGN_DOCS_EXPORT_IMPORT_FIXTURE.read_bytes())
-    result = compile_stage3_entrypoint(
-        importer,
-        source_roots=(importer_root, RETIRED_EXAMPLES),
-        provider_externs={
-            "providers.design-docs.review": "codex",
-            "providers.design-docs.fix": "codex",
-        },
-        prompt_externs={
-            "prompts.design-docs.fix": DESIGN_DOCS_FIX_PROMPT.relative_to(
-                REPO_ROOT
-            ).as_posix(),
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m4",
-    )
-
-    imported = result.compiled_results_by_name["review_revise_design_docs"]
-    assert result.entry_result.module.target_dsl_version == "2.23"
-    assert imported.module.target_dsl_version == "2.23"
-    assert tuple(imported.module.exports) == (
-        "review-revise-design-docs",
-        "DesignDocPath",
-        "ReviewReportTargetPath",
-        "WorkReportPath",
-        "review-design-doc",
-    )
-    assert (
-        result.graph.modules_by_name["review_revise_design_docs"].path
-        == DESIGN_DOCS_REVIEW_EXAMPLE
-    )
-    assert FROZEN_DESIGN_DOCS_TARGET_2_21_CONTROL not in {
-        source.path for source in result.graph.modules_by_name.values()
-    }
+def test_review_revise_design_docs_historical_exports_and_importer_are_preserved() -> None:
+    source = DESIGN_DOCS_REVIEW_EXAMPLE.read_text()
+    assert '(export review-revise-design-docs DesignDocPath ReviewReportTargetPath WorkReportPath review-design-doc)' in source
+    importer = DESIGN_DOCS_EXPORT_IMPORT_FIXTURE.read_text()
+    assert '(import review_revise_design_docs :only' in importer
+    assert hashlib.sha256(DESIGN_DOCS_EXPORT_IMPORT_FIXTURE.read_bytes()).hexdigest() == "55c64417dd8de3a02df98aec3b122417e6eb8abf9defe58b8abac08aad56480d"
 
 
-def test_review_revise_design_docs_judgment_panel_compiles_from_current_owner(
+def test_review_revise_design_docs_historical_judgment_panel_keeps_assets_and_lens_contract(
     tmp_path: Path,
 ) -> None:
     providers_path = (
@@ -247,30 +147,4 @@ def test_review_revise_design_docs_judgment_panel_compiles_from_current_owner(
         for lens in lens_ids
     )
 
-    result = compile_stage3_entrypoint(
-        DESIGN_DOCS_JUDGMENT_PANEL_EXAMPLE,
-        source_roots=(RETIRED_EXAMPLES,),
-        entry_workflow=(
-            "review-revise-design-docs-judgment-panel"
-        ),
-        provider_externs=provider_externs,
-        prompt_externs=prompt_externs,
-        validate_shared=True,
-        workspace_root=tmp_path,
-        lowering_route="wcc_m4",
-    )
-
-    imported = result.compiled_results_by_name[
-        "review_revise_design_docs"
-    ]
-    assert result.entry_result.module.target_dsl_version == "2.23"
-    assert imported.module.target_dsl_version == "2.23"
-    assert (
-        result.graph.modules_by_name[
-            "review_revise_design_docs"
-        ].path
-        == DESIGN_DOCS_REVIEW_EXAMPLE
-    )
-    assert FROZEN_DESIGN_DOCS_TARGET_2_21_CONTROL not in {
-        source.path for source in result.graph.modules_by_name.values()
-    }
+    assert hashlib.sha256(DESIGN_DOCS_JUDGMENT_PANEL_EXAMPLE.read_bytes()).hexdigest() == "f119326c7fa45d8ad5ffb60ea4d674395cf6212335b534d37479ae4d7727f8a6"

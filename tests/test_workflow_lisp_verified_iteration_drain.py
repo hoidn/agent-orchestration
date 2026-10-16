@@ -1,4 +1,7 @@
 import json
+import hashlib
+import pytest
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from pathlib import Path
 
 from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
@@ -16,73 +19,12 @@ HISTORY_ROOT = "artifacts/work/verified/ledger-inputs"
 EXTERNAL_LEDGER_EDIT = b"EXTERNAL_LEDGER_EDIT\n"
 
 
-def _compile_verified_orc():
-    assert ORC_WORKFLOW.is_file(), f"verified Workflow Lisp candidate is absent: {ORC_WORKFLOW}"
-    return compile_stage3_entrypoint(
-        ORC_WORKFLOW,
-        source_roots=(LEGACY_ROOT,),
-        entry_workflow=ENTRY_WORKFLOW,
-        provider_externs=json.loads(
-            (MIGRATION_INPUTS / "verified_iteration_drain.providers.json").read_text()
-        ),
-        prompt_externs=json.loads(
-            (MIGRATION_INPUTS / "verified_iteration_drain.prompts.json").read_text()
-        ),
-        command_boundaries=_parse_command_boundaries_manifest(
-            json.loads(
-                (MIGRATION_INPUTS / "verified_iteration_drain.commands.json").read_text()
-            ),
-            manifest_path=MIGRATION_INPUTS / "verified_iteration_drain.commands.json",
-        ),
-        workspace_root=ROOT,
-        lowering_route="wcc_m4",
-    )
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def test_verified_orc_compiles_with_exact_public_contract() -> None:
-    result = _compile_verified_orc()
-
-    assert result.entry_result.module.target_dsl_version == "2.15"
-
-
-
-
-
-
-
-
-
-
-
-
+def test_historical_verified_iteration_drain_source_is_preserved_and_refused() -> None:
+    assert hashlib.sha256(ORC_WORKFLOW.read_bytes()).hexdigest() == "9309aac54ef2fdcf8bbcd044c7f9542b017ccb98284d85b40ed8ca669cfe7f22"
+    with pytest.raises(LispFrontendCompileError) as caught:
+        compile_stage3_entrypoint(ORC_WORKFLOW)
+    assert caught.value.diagnostics[0].code == "target_dsl_unsupported"
 
 
 def test_verified_extern_manifests_bind_existing_assets() -> None:

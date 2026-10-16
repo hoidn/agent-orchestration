@@ -913,7 +913,7 @@ PRODUCER_238 = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
     (let* ((child (run-ref :source (:repo "file:///srv/p.git" :commit "{"a" * 40}")
                     :program (:workflow leaf) :inputs (:n n) :policy {POLICY.replace(":model-only", ":none")})))
       (match child ((COMPLETED c) c.result.value) ((FAILED f) 0)))))'''
-PLAIN_PRODUCER = '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+PLAIN_PRODUCER = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
   (defmodule producer) (export get)
   (defworkflow get ((n Int)) -> Int (+ n 1)))'''
 MAP_DEP = "(let* ((xs (list/map-effect ((x (list 1 2))) :max 2 (call dep :n x)))) 1)"

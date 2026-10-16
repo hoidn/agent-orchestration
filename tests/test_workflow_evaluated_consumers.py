@@ -48,13 +48,13 @@ def _assert_prompt_values(request, *values: str) -> None:
         assert value in request["prompt"], value
 
 
-@pytest.mark.parametrize("source", [
-    "workflows/library/control/direct_task.orc",
-    "workflows/library/verified_iteration_drain/drain.orc",
-    "experiments/mlevolve_pair/search_compact.orc",
+@pytest.mark.parametrize("source,target", [
+    ("workflows/library/control/direct_task.orc", "2.35"),
+    ("workflows/library/verified_iteration_drain/drain.orc", "2.35"),
+    ("experiments/mlevolve_pair/search_compact.orc", "2.39"),
 ])
-def test_retained_canonical_consumers_select_evaluated_execution(source):
-    assert entry_target_dsl_version(ROOT / source) == "2.35"
+def test_retained_canonical_consumers_select_evaluated_execution(source, target):
+    assert entry_target_dsl_version(ROOT / source) == target
 
 
 @pytest.mark.parametrize("answer", [True, False])
@@ -144,15 +144,16 @@ BLOCKED_LAUNCH = {**APPROVED_LAUNCH, "outcome": "blocked", "note": "methods:bloc
 def _w3_consumer(root, monkeypatch, name, plan, inputs, marker):
     install_shims(root.parent / "bin", monkeypatch, plan)
     program = PROGRAMS[name]
-    frontend = install(root, program, inputs, current=False)
-    assert entry_target_dsl_version(root / program.source) == "2.36"
+    frontend = install(root, program, inputs)
+    target = "2.39" if name == "w3_improve" else "2.36"
+    assert entry_target_dsl_version(root / program.source) == target
     route = current_route(root, frontend, marker)
     assert (root / program.source).read_bytes() == (ROOT / program.source).read_bytes()
     summary = json.loads((root / "compile.stdout").read_text())
     build = Path(summary["build_root"])
     restored = ClosedProgram.from_artifact((build / "closed_program.json").read_text())
     manifest = json.loads((build / "manifest.json").read_text())
-    assert restored.tree["target"] == manifest["target"] == "2.36"
+    assert restored.tree["target"] == manifest["target"] == target
     assert restored.digest == summary["program_digest"]
     assert restored.tree["entry"] == f"workflow:{program.entry}"
     header = json.loads((route.authority.run_root / "run.json").read_text())
@@ -169,7 +170,7 @@ def _w3_consumer(root, monkeypatch, name, plan, inputs, marker):
 ])
 def test_public_w3_improve_launcher_consumes_returned_proposal(tmp_path, monkeypatch, verdicts, status, launch):
     source = ROOT / "workflows/examples/improve_experiment_proposal.orc"
-    assert entry_target_dsl_version(source) == "2.36"
+    assert entry_target_dsl_version(source) == "2.39"
     registry = load_route_readiness_registry(ROOT / "docs/workflow_lisp_route_readiness_registry.json")
     entry = registry_entry_for_path(registry, source.relative_to(ROOT).as_posix())
     assert entry.route_label == "evaluated_execution"
@@ -415,7 +416,7 @@ def test_public_best_of_n_runs_four_candidates_in_order(tmp_path, monkeypatch):
               "repos": list(FOUR_CANDIDATES)}
     install_shims(tmp_path / "bin", monkeypatch, plan)
     root = tmp_path / "workspace"
-    frontend = install(root, PROGRAMS["best_of_n"], inputs, current=True)
+    frontend = install(root, PROGRAMS["best_of_n"], inputs)
     for repo in FOUR_CANDIDATES[2:]:
         git(root, "clone", "-q", CANDIDATES[0], repo)
 
@@ -452,7 +453,7 @@ def test_public_best_of_n_select_only_preserves_ordered_accounts(tmp_path, monke
     install_shims(tmp_path / "bin", monkeypatch, plan)
     root = tmp_path / "workspace"
     program = replace(PROGRAMS["best_of_n"], entry="best_of_n::select-only")
-    frontend = install(root, program, inputs, current=True)
+    frontend = install(root, program, inputs)
 
     route = current_route(root, frontend, "best_of_n::select-only")
 

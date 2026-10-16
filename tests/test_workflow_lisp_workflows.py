@@ -10,6 +10,7 @@ from orchestrator.workflow_lisp.compiler import (
     compile_stage1_module,
     compile_stage3_module,
 )
+from orchestrator.workflow_lisp.contracts import derive_workflow_signature_contracts
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import (
@@ -121,7 +122,7 @@ def test_elaborate_workflow_carries_guided_return_spec() -> None:
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.15")',
+                    '  (:target-dsl "2.35")',
                     "  (defworkflow approved ()",
                     '    -> (result Bool :format-hint "JSON boolean." :example true)',
                     "    true))",
@@ -148,7 +149,7 @@ def test_workflow_definition_stores_only_canonical_return_spec() -> None:
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.15")',
+                    '  (:target-dsl "2.35")',
                     "  (defworkflow approved () -> Bool true))",
                 ]
             ),
@@ -238,7 +239,7 @@ def test_build_workflow_catalog_rejects_duplicate_workflow_names() -> None:
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.14")',
+                    '  (:target-dsl "2.35")',
                     "  (defworkflow duplicate",
                     "    ((report_path WorkReport))",
                     "    -> ImplementationSummary",
@@ -273,7 +274,7 @@ def test_typecheck_workflow_definitions_rejects_duplicate_parameter_names() -> N
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.14")',
+                    '  (:target-dsl "2.35")',
                     "  (defworkflow duplicate-param",
                     "    ((report_path WorkReport)",
                     "     (report_path WorkReport))",
@@ -309,7 +310,7 @@ def test_elaborate_workflow_definitions_parses_workflow_param_default_metadata()
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.14")',
+                    '  (:target-dsl "2.35")',
                     "  (defworkflow defaults",
                     "    ((report_path WorkReport :default \"reports/default.md\")",
                     "     (status String))",
@@ -340,7 +341,7 @@ def test_elaborate_workflow_definitions_rejects_unknown_workflow_param_keyword()
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.14")',
+                    '  (:target-dsl "2.35")',
                     "  (defworkflow defaults",
                     "    ((report_path WorkReport :optional true))",
                     "    -> ImplementationSummary",
@@ -367,7 +368,7 @@ def test_elaborate_workflow_definitions_rejects_workflow_param_default_without_v
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.14")',
+                    '  (:target-dsl "2.35")',
                     "  (defworkflow defaults",
                     "    ((report_path WorkReport :default))",
                     "    -> ImplementationSummary",
@@ -485,11 +486,13 @@ def test_compile_stage3_module_exposes_procedure_catalog_without_changing_workfl
         workspace_root=tmp_path,
     )
 
-    assert tuple(result.workflow_catalog.signatures_by_name) == ("orchestrate",)
-    assert tuple(result.procedure_catalog.signatures_by_name) == ("build-checks", "copy-checks")
+    assert tuple(result.workflow_catalog.signatures_by_name) == ("entry::orchestrate", "orchestrate")
+    assert tuple(result.procedure_catalog.signatures_by_name) == (
+        "entry::build-checks", "entry::copy-checks", "build-checks", "copy-checks"
+    )
     assert [procedure.definition.name for procedure in result.typed_procedures] == [
-        "build-checks",
-        "copy-checks",
+        "entry::build-checks",
+        "entry::copy-checks",
     ]
 
 
@@ -572,7 +575,7 @@ def test_build_workflow_catalog_accepts_union_workflow_returns_when_projection_i
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defworkflow provider-attempt",
                 "    ((input ChecksResult)",
                 "     (report_path WorkReport))",
@@ -602,7 +605,7 @@ def test_build_workflow_catalog_normalizes_supported_workflow_param_defaults(tmp
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defenum Status",
                 "    ready",
                 "    blocked)",
@@ -642,14 +645,14 @@ def test_build_workflow_catalog_normalizes_supported_workflow_param_defaults(tmp
     assert defaults["report_path"].normalized_value == "reports/default.md"
 
 
-def test_compile_stage3_module_rejects_float_literals_outside_workflow_param_defaults(tmp_path: Path) -> None:
+def test_compile_stage3_module_accepts_float_literals_in_workflow_body(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "float_literal_body_invalid.orc",
         "\n".join(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord Summary",
                 "    (score Float))",
                 "  (defworkflow defaults",
@@ -660,15 +663,17 @@ def test_compile_stage3_module_rejects_float_literals_outside_workflow_param_def
         ),
     )
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            path,
-            validate_shared=False,
-            workspace_root=tmp_path,
-        )
-
-    _assert_diagnostic_code(excinfo, "frontend_parse_error")
-    assert "only supported in `defworkflow` parameter defaults" in excinfo.value.diagnostics[0].message
+    result = compile_stage3_module(
+        path,
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    [workflow] = result.typed_workflows
+    assert workflow.definition.name == "entry::defaults"
+    assert isinstance(workflow.typed_body.expr, RecordExpr)
+    [(field_name, score)] = workflow.typed_body.expr.fields
+    assert field_name == "score"
+    assert score.value == 0.5
 
 
 def test_build_workflow_catalog_rejects_structured_workflow_param_defaults(tmp_path: Path) -> None:
@@ -678,7 +683,7 @@ def test_build_workflow_catalog_rejects_structured_workflow_param_defaults(tmp_p
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord MultiInput",
                 "    (status String)",
                 "    (report String))",
@@ -712,7 +717,7 @@ def test_build_workflow_catalog_rejects_type_invalid_workflow_param_defaults(tmp
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord Summary",
                 "    (status String))",
                 "  (defworkflow defaults",
@@ -750,14 +755,14 @@ def test_workflow_boundary_accepts_lowerable_collection_typed_params_under_wcc(t
     assert workflow_catalog.signatures_by_name["entry"].params[0][0] == "attempt_ids"
 
 
-def test_workflow_boundary_admits_collection_typed_returns_under_collection_flag(tmp_path: Path) -> None:
+def test_workflow_boundary_admits_collection_typed_returns(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "workflow_boundary_collection_return.orc",
         "\n".join(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord WorkflowOutput",
                 "    (attempt_ids Map[String, Int]))",
                 "  (defworkflow entry",
@@ -772,7 +777,7 @@ def test_workflow_boundary_admits_collection_typed_returns_under_collection_flag
         module,
         elaborate_workflow_definitions(_build_syntax_module(path)),
         FrontendTypeEnvironment.from_module(module),
-        allow_collection_return_boundaries=True,
+
     )
 
     assert (
@@ -781,35 +786,6 @@ def test_workflow_boundary_admits_collection_typed_returns_under_collection_flag
     )
 
 
-def test_workflow_boundary_rejects_collection_typed_returns_without_collection_flag(tmp_path: Path) -> None:
-    path = _write_module(
-        tmp_path / "workflow_boundary_collection_return.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defrecord WorkflowOutput",
-                "    (attempt_ids Map[String, Int]))",
-                "  (defworkflow entry",
-                "    ()",
-                "    -> WorkflowOutput",
-                '    (record WorkflowOutput :attempt_ids "unused")))',
-            ]
-        ),
-    )
-    module = _compile_definition_module(path)
-    workflow_defs = elaborate_workflow_definitions(_build_syntax_module(path))
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        build_workflow_catalog(
-            module,
-            workflow_defs,
-            FrontendTypeEnvironment.from_module(module),
-            allow_collection_return_boundaries=False,
-        )
-
-    _assert_diagnostic_code(excinfo, "workflow_boundary_collection_unsupported")
 
 
 def test_workflow_boundary_rejects_collections_inside_workflow_ref_signatures(tmp_path: Path) -> None:
@@ -819,7 +795,7 @@ def test_workflow_boundary_rejects_collections_inside_workflow_ref_signatures(tm
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord WorkflowOutput",
                 "    (value String))",
                 "  (defworkflow entry",
@@ -859,7 +835,7 @@ def test_build_workflow_catalog_rejects_unsupported_workflow_param_types(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defworkflow summarize",
                 f"    ((value {bad_type})",
                 "     (report_path WorkReport))",
@@ -884,7 +860,7 @@ def test_build_workflow_catalog_rejects_unsupported_workflow_param_types(
         ("Json", "json_surface_unsupported"),
     ],
 )
-def test_build_workflow_catalog_rejects_unsupported_workflow_return_fields(
+def test_workflow_return_contract_rejects_unsupported_fields_after_catalog_admission(
     tmp_path: Path,
     bad_type: str,
     expected_code: str,
@@ -895,7 +871,7 @@ def test_build_workflow_catalog_rejects_unsupported_workflow_return_fields(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -914,7 +890,7 @@ def test_build_workflow_catalog_rejects_unsupported_workflow_return_fields(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defworkflow summarize",
                 "    ((report_path WorkReport))",
                 "    -> InvalidSummary",
@@ -924,8 +900,12 @@ def test_build_workflow_catalog_rejects_unsupported_workflow_return_fields(
     )
     workflow_defs = elaborate_workflow_definitions(_build_syntax_module(workflow_path))
 
+    catalog = build_workflow_catalog(module, workflow_defs, type_env)
+    signature = catalog.signatures_by_name["summarize"]
+    assert signature.return_type_ref.field_types["value"] == PrimitiveTypeRef(name=bad_type)
+
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        build_workflow_catalog(module, workflow_defs, type_env)
+        derive_workflow_signature_contracts(signature, type_env=type_env)
 
     _assert_diagnostic_code(excinfo, expected_code)
 
@@ -939,7 +919,7 @@ def test_typecheck_workflow_definitions_accepts_union_workflow_calls_with_match_
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defworkflow helper",
                 "    ((input ChecksResult)",
                 "     (report_path WorkReport))",
@@ -1047,10 +1027,8 @@ def test_compile_stage3_module_supports_local_and_imported_helpers(tmp_path: Pat
         workspace_root=tmp_path,
     )
 
-    assert local_result.typed_workflows[0].definition.name == "orchestrate"
+    assert local_result.typed_workflows[0].definition.name == 'entry::orchestrate'
     assert imported_result.entry_result.typed_workflows[0].definition.name == "entry::orchestrate"
-
-
 
 
 def test_workflow_ref_bridge_omission_helpers_track_specialized_hidden_bridge_targets() -> None:
@@ -1191,8 +1169,6 @@ def test_workflow_boundary_rejects_macro_emitted_proc_ref_runtime_transport(tmp_
     assert diagnostic.expansion_stack[0].macro_name == "emit-proc-ref-workflow"
 
 
-
-
 def test_workflow_boundary_rejects_proc_ref_record_fields(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "workflow_boundary_proc_ref_record.orc",
@@ -1200,7 +1176,7 @@ def test_workflow_boundary_rejects_proc_ref_record_fields(tmp_path: Path) -> Non
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord WorkflowInput",
                 "    (value String))",
                 "  (defrecord WorkflowOutput",
@@ -1232,7 +1208,7 @@ def test_workflow_boundary_rejects_proc_ref_union_payloads(tmp_path: Path) -> No
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord WorkflowInput",
                 "    (value String))",
                 "  (defrecord WorkflowOutput",
@@ -1301,31 +1277,6 @@ def test_workflow_signature_identity_excludes_publish_metadata() -> None:
     assert not hasattr(publishable_signature, "publication_policy")
 
 
-def test_build_syntax_module_accepts_target_dsl_215_without_rejecting_214() -> None:
-    from orchestrator.workflow_lisp.reader import read_sexpr_text
-
-    def _module_source(target_dsl: str) -> str:
-        return "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                f'  (:target-dsl "{target_dsl}")',
-                "  (defenum Approval",
-                "    APPROVE))",
-            ]
-        )
-
-    v215_module = build_syntax_module(
-        read_sexpr_text(_module_source("2.15"), source_path="target_dsl_215.orc")
-    )
-    v214_module = build_syntax_module(
-        read_sexpr_text(_module_source("2.14"), source_path="target_dsl_214.orc")
-    )
-
-    assert v215_module.target_dsl_version == "2.15"
-    assert v214_module.target_dsl_version == "2.14"
-
-
 def test_build_workflow_catalog_accepts_native_transportable_scalar_returns() -> None:
     fixture = FIXTURES / "valid" / "native_transportable_returns.orc"
     module = _compile_definition_module(fixture)
@@ -1351,7 +1302,7 @@ def _native_collection_return_module(tmp_path: Path, return_type_name: str) -> P
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.15")',
+                '  (:target-dsl "2.35")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -1379,7 +1330,7 @@ def test_build_workflow_catalog_accepts_native_list_return_with_collection_bound
         module,
         workflow_defs,
         type_env,
-        allow_collection_return_boundaries=True,
+
     )
 
     return_type_ref = catalog.signatures_by_name["native-collection-return"].return_type_ref
@@ -1403,45 +1354,6 @@ def test_build_workflow_catalog_accepts_native_collection_root_result_returns_fo
     assert return_type_ref.name == return_type_name
 
 
-def _root_return_workflow_module(
-    tmp_path: Path,
-    *,
-    target_dsl: str,
-    return_type_name: str,
-) -> Path:
-    stem = (
-        return_type_name.replace("[", "_")
-        .replace("]", "")
-        .replace(",", "_")
-        .replace(" ", "")
-        .lower()
-    )
-    return _write_module(
-        tmp_path / f"root_return_{stem}_{target_dsl.replace('.', '_')}.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                f'  (:target-dsl "{target_dsl}")',
-                "  (defenum ReviewDecision",
-                "    APPROVE",
-                "    REVISE)",
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defworkflow native-root-return",
-                "    ((report_path WorkReport))",
-                f"    -> {return_type_name}",
-                "    (provider-result providers.execute",
-                "      :prompt prompts.implementation.execute",
-                "      :inputs (report_path)",
-                f"      :returns {return_type_name})))",
-            ]
-        ),
-    )
-
-
 _ROOT_RETURN_FAMILIES = [
     "Bool",
     "ReviewDecision",
@@ -1450,31 +1362,6 @@ _ROOT_RETURN_FAMILIES = [
     "List[Int]",
     "Map[String, Float]",
 ]
-
-
-@pytest.mark.parametrize("return_type_name", _ROOT_RETURN_FAMILIES)
-def test_v214_workflow_native_return_root_families_require_target_dsl_215(
-    tmp_path: Path,
-    return_type_name: str,
-) -> None:
-    module_path = _root_return_workflow_module(
-        tmp_path,
-        target_dsl="2.14",
-        return_type_name=return_type_name,
-    )
-    module = _compile_definition_module(module_path)
-    type_env = FrontendTypeEnvironment.from_module(module)
-    workflow_defs = elaborate_workflow_definitions(_build_syntax_module(module_path))
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        build_workflow_catalog(module, workflow_defs, type_env)
-
-    _assert_diagnostic_code(excinfo, "workflow_root_return_target_dsl_unsupported")
-    assert '(:target-dsl "2.15")' in excinfo.value.diagnostics[0].message
-
-
-
-
 
 
 def test_derive_workflow_signature_contracts_keeps_record_and_union_return_kinds(
@@ -1488,7 +1375,7 @@ def test_derive_workflow_signature_contracts_keeps_record_and_union_return_kinds
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord Summary",
                 "    (status String))",
                 "  (defunion Decision",

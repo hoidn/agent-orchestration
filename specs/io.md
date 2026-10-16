@@ -101,8 +101,11 @@ and bounded 2.38 (Agent Sessions and command-only confined run-ref children) ret
       workflow input is named in the binding error, before the run exists.
       A bundle is decoded with the non-finite tokens so that the refusal
       names the field, and every non-finite number inside a `value` or nested
-      structural field is refused with the same code. A string in a nested
+      structural field is refused with the same code. In a direct structural
+      record/union contract, including one beneath a container, a string in a
       `Float` position remains a type error (`invalid_transportable_value`).
+      Scalar bundle fields and `optional`/`list`/`map` schemas without a
+      record/union retain their numeric-string parsing and finite-value checks.
       The target is the one of the workflow whose step or input is validated.
       Historically, resume of a 2.34 run with a non-finite saved value refused
       with `float_not_finite`, naming its JSON pointer in `state.json`. The

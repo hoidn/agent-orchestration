@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.33")
+  (:target-dsl "2.35")
   (defmodule guide_shapes/shared_binding)
   (export run)
   (defworkflow run ((a Int) (b Int)) -> Int

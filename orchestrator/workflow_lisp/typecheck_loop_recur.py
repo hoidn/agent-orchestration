@@ -50,7 +50,7 @@ def typecheck_loop_recur_expr(
 
     typed_max = recurse(expr.max_iterations_expr)
     if effect_summary_requires_run_ref_placement_refusal(
-        typed_max.effect_summary, context=context
+        typed_max.effect_summary
     ):
         raise_run_ref_placement_invalid(
             typed_max.expr,
@@ -66,7 +66,7 @@ def typecheck_loop_recur_expr(
         )
     typed_state = recurse(expr.initial_state_expr)
     if effect_summary_requires_run_ref_placement_refusal(
-        typed_state.effect_summary, context=context
+        typed_state.effect_summary
     ):
         raise_run_ref_placement_invalid(
             typed_state.expr,
@@ -101,7 +101,7 @@ def typecheck_loop_recur_expr(
     finally:
         session_state.loop_context.pop()
     if effect_summary_requires_run_ref_placement_refusal(
-        typed_body.effect_summary, context=context
+        typed_body.effect_summary
     ):
         raise_run_ref_placement_invalid(
             typed_body.expr,

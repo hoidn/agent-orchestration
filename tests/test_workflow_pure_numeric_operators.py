@@ -1,12 +1,11 @@
-"""Numeric operators: rules N2 to N5 of the numeric surface, at target 2.34.
+"""Numeric operators: rules N2 to N5 of the numeric surface, at the current typed target.
 
 Contract: docs/design/workflow_lisp_numeric_surface.md, rules N2 to N5 and sections 4,
 6 and 7; Task 6 of docs/plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md.
 
 Operands come from workflow inputs, so the operators run in the generated pure
 projection step. A refusal names its operator and prints its operands; with literal
-operands the same refusal is a compile error at the expression. Target 2.33 keeps
-today's refusals. The fixture of section 4, `branch-score`, gives the double that a
+operands the same refusal is a compile error at the expression. today's refusals. The fixture of section 4, `branch-score`, gives the double that a
 Python reference of the same formula gives.
 """
 
@@ -29,7 +28,7 @@ INT64_MIN = -(2**63)
 EXPR_LINE, EXPR_COLUMN = 8, 5
 
 
-def _source(expr: str, params: dict[str, object], *, result: str, target: str = "2.34") -> str:
+def _source(expr: str, params: dict[str, object], *, result: str, target: str = "2.35") -> str:
     declared = " ".join(f"({name} {'Int' if type(value) is int else 'Float'})" for name, value in params.items())
     return (
         f'(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "{target}")\n'
@@ -212,29 +211,8 @@ def test_float_equality_stays_refused(tmp_path: Path, expr: str) -> None:
     assert (code, position) == ("pure_expr_float_equality_forbidden", (EXPR_LINE, EXPR_COLUMN))
 
 
-NEW_OPERATORS_AT_233 = (
-    "(/ a b)", "(int/div i j)", "(int/mod i j)", "(float/abs a)", "(float/sqrt a)", "(float/log a)",
-    "(int/to-float i)", "(float/floor a)", "(float/round a)",
-)  # fmt: skip
 
 
-@pytest.mark.parametrize(
-    ("expr", "code", "column"),
-    [
-        # An unknown operator is reported at its name, a type mismatch at the application.
-        *((expr, "pure_expr_operator_unsupported", EXPR_COLUMN + 1) for expr in NEW_OPERATORS_AT_233),
-        *(
-            (expr, "pure_expr_operand_type_mismatch", EXPR_COLUMN)
-            for expr in ("(+ a b)", "(- a b)", "(* a b)", "(min a b)", "(max a b)")
-        ),
-    ],
-)
-def test_target_233_keeps_todays_refusals(tmp_path: Path, expr: str, code: str, column: int) -> None:
-    source = _source(expr, FLOATS_AND_INTS, result="Float", target="2.33")
-
-    observed, position, _ = _refusal_at_compile_time(tmp_path, source)
-
-    assert (observed, position) == (code, (EXPR_LINE, column))
 
 
 def branch_score(total: float, visits: int, all_visits: int, weight: float) -> float:

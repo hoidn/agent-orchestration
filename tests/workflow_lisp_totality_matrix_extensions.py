@@ -4,7 +4,7 @@ from __future__ import annotations
 
 _HEADER = '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "{target}")
+  (:target-dsl "2.35")
   (defmodule grt/entry)
   (export run)
 '''
@@ -133,10 +133,10 @@ REGRESSION_CELLS = (
 )
 
 
-def reproducer_sources(name: str, probe: str, target: str = "2.33") -> dict[str, str]:
+def reproducer_sources(name: str, probe: str) -> dict[str, str]:
     """Return one minimal `.orc` source tree, preserving the reported position."""
 
-    source = _HEADER.format(target=target) + _SOURCE[name].format(probe=probe) + ")\n"
+    source = _HEADER + _SOURCE[name].format(probe=probe) + ")\n"
     return {"grt/entry.orc": source}
 
 
@@ -145,14 +145,11 @@ def cells() -> list[tuple[str, str]]:
 
 
 def program(form: str, probe: str) -> dict[str, str]:
-    target_form = form.removeprefix("t234:")
-    name = target_form.removeprefix("repro:")
-    target = "2.34" if form.startswith("t234:") else "2.33"
-    return reproducer_sources(name, probe, target)
+    return reproducer_sources(form.removeprefix("repro:"), probe)
 
 
 def expected(form: str) -> tuple[dict[str, object], list[str]]:
-    name = form.removeprefix("t234:").removeprefix("repro:")
+    name = form.removeprefix("repro:")
     return {
         "if-record-loop": ({"return__n": 4}, ["fetch 2"]),
         "if-list-loop": ({"return__n": 2, "return__parents": [{"n": 2}]}, ["fetch 2"]),

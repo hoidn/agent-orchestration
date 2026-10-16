@@ -1,4 +1,4 @@
-"""`defprompt ... -> <applied generic union>` at target 2.33 (owner decision, shared defect repairs Task 6).
+"""`defprompt ... -> <applied generic union>` at the current typed target (owner decision, shared defect repairs Task 6).
 
 A prompt declaration may name `Decision[Notes Blocker]` as its result. The provider call
 that uses the prompt takes that type as its result contract, so a malformed payload fails
@@ -20,7 +20,7 @@ import pytest
 from orchestrator.cli.commands.run import run_workflow
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
-from tests.test_workflow_lisp_generic_union_provider_results import PRELUDE, _compile, _failed_steps, _install, _Provider
+from tests.test_workflow_lisp_generic_union_provider_results import PRELUDE, _failed_steps, _install, _Provider
 from tests.test_workflow_evaluated_cli import _run_args
 
 PROMPT = """  (defprompt review-prompt
@@ -49,16 +49,12 @@ SOURCE = PRELUDE + PROMPT + """  (defproc review ((draft String)) -> Decision[No
 """
 
 # The applied union appears only in the prompt's `->`, so a rejection names that declaration.
-DECLARATION_ONLY_SOURCE = PRELUDE + PROMPT + """  (defworkflow run ((draft String)) -> Outcome
-    (let* ((decision (provider-result providers.review :prompt (review-prompt :draft draft))))
-      (record Outcome :status "reviewed"))))
-"""
 
 
 def _public_run(root: Path, payload: dict, monkeypatch: pytest.MonkeyPatch):
     """Run through `run_workflow`; return (exit code, state, provider calls, recorded argv)."""
 
-    entry = _install(root, SOURCE, target="2.35")
+    entry = _install(root, SOURCE)
     files = {"source": entry, "source_root": root, "providers": root / "providers.json", "prompts": root / "prompts.json"}
     args = _run_args(files, input_file=root / "inputs.json")
     args.entry_workflow = "gpr_entry::run"
@@ -121,21 +117,3 @@ def test_malformed_payload_fails_at_the_provider_boundary_and_nothing_after_it_r
     assert len(failed) == 1
     assert failed[0]["code"] == "provider_result_invalid"
     assert [row["type"] for row in failed[0]["violations"]] == [violation]
-
-
-
-
-def test_target_232_rejects_an_applied_union_in_a_defprompt_result(tmp_path: Path) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile(tmp_path, DECLARATION_ONLY_SOURCE, target="2.32")
-
-    diagnostic = excinfo.value.diagnostics[0]
-    lines = DECLARATION_ONLY_SOURCE.splitlines()
-    line = next(number for number, text in enumerate(lines, start=1) if "-> Decision[Notes Blocker]" in text)
-    start = diagnostic.span.start
-    assert (diagnostic.code, Path(start.path).name, start.line, start.column) == (
-        "generic_union_requires_dsl_2_33",
-        "gpr_entry.orc",
-        line,
-        lines[line - 1].index("Decision[") + 1,
-    )

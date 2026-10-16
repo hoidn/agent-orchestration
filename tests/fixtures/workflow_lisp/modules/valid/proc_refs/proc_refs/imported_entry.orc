@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule proc_refs/imported_entry)
   (import proc_refs/imported_helper :as helper :only (echo-helper))
   (export Output forward entry)

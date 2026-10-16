@@ -24,12 +24,8 @@ def _machine_api():
 def test_read_back_machine_instantiates_call_sites_inside_loop(tmp_path: Path) -> None:
     source = (
         Path(__file__).parent
-        / "experiments/fixtures/evaluated_execution_spike/arms_in_loop.orc"
+        / "fixtures/workflow_lisp/current_evaluated/arms_in_loop.orc"
     ).read_text(encoding="utf-8")
-    source = source.replace(
-        '(:target-dsl "2.33")',
-        f'(:target-dsl "{syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION}")',
-    )
     compiled = build(
         tmp_path,
         source,
@@ -286,12 +282,9 @@ def test_effect_identity_survives_pure_binding_insertion_and_escapes_authored_na
 ) -> None:
     source_path = (
         Path(__file__).parent
-        / "experiments/fixtures/evaluated_execution_spike/arms_in_loop.orc"
+        / "fixtures/workflow_lisp/current_evaluated/arms_in_loop.orc"
     )
-    source = source_path.read_text(encoding="utf-8").replace(
-        '(:target-dsl "2.33")',
-        f'(:target-dsl "{syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION}")',
-    )
+    source = source_path.read_text(encoding="utf-8")
     refactored = source.replace(
         "(defworkflow run () -> Int\n    (loop/recur",
         "(defworkflow run () -> Int\n    (let* ((seed (+ 0 0))) (loop/recur",

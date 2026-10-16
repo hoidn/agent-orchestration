@@ -124,7 +124,7 @@ def _declared_transition_module_source(*, backend: str = "write_drain_status_ada
             f"""
             (workflow-lisp
               (:language "0.1")
-              (:target-dsl "2.14")
+              (:target-dsl "2.35")
               (defpath StateFile
                 :kind relpath
                 :under "state"
@@ -540,14 +540,14 @@ def test_command_result_adapter_requires_exclusive_adapter_mode() -> None:
 
 
 
-def test_command_result_adapter_non_projectable_input_fails(tmp_path: Path) -> None:
+def test_command_result_adapter_accepts_recursive_record_input(tmp_path: Path) -> None:
     path = tmp_path / "certified_adapter_non_projectable.orc"
     path.write_text(
         "\n".join(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -573,48 +573,51 @@ def test_command_result_adapter_non_projectable_input_fails(tmp_path: Path) -> N
         encoding="utf-8",
     )
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            path,
-            command_boundaries=_parse_command_boundaries_manifest(
-                {
-                    "wrap_result": {
-                        "kind": "certified_adapter",
-                        "stable_command": ["python", "scripts/wrap_result.py"],
-                        "input_contract": {"type": "object"},
-                        "output_type_name": "ImplementationSummary",
-                        "effects": ["structured_result"],
-                        "path_safety": {"kind": "workspace_relpath"},
-                        "source_map_behavior": "step",
-                        "fixture_ids": ["wrap_result_ok"],
-                        "negative_fixture_ids": ["wrap_result_bad"],
-                        "behavior_class": "structured_result",
-                        "input_signature": [
-                            {
-                                "name": "completed",
-                                "type_name": "Wrapper",
-                                "required": True,
-                                "transport_key": "completed",
-                            },
-                            {
-                                "name": "review_report",
-                                "type_name": "WorkReport",
-                                "required": True,
-                                "transport_key": "review_report",
-                            },
-                        ],
-                        "artifact_contracts": ["implementation_summary_report"],
-                        "state_writes": [],
-                        "error_codes": ["wrap_result_invalid_payload"],
-                        "owner_module": "std/phase",
-                        "replacement_path": None,
-                        "invocation_protocol": "json_object_positional_arg",
-                    }
-                },
-                manifest_path=None,
-            ),
-            validate_shared=False,
-            workspace_root=tmp_path,
-        )
+    result = compile_stage3_module(
+        path,
+        command_boundaries=_parse_command_boundaries_manifest(
+            {
+                "wrap_result": {
+                    "kind": "certified_adapter",
+                    "stable_command": ["python", "scripts/wrap_result.py"],
+                    "input_contract": {"type": "object"},
+                    "output_type_name": "ImplementationSummary",
+                    "effects": ["structured_result"],
+                    "path_safety": {"kind": "workspace_relpath"},
+                    "source_map_behavior": "step",
+                    "fixture_ids": ["wrap_result_ok"],
+                    "negative_fixture_ids": ["wrap_result_bad"],
+                    "behavior_class": "structured_result",
+                    "input_signature": [
+                        {
+                            "name": "completed",
+                            "type_name": "Wrapper",
+                            "required": True,
+                            "transport_key": "completed",
+                        },
+                        {
+                            "name": "review_report",
+                            "type_name": "WorkReport",
+                            "required": True,
+                            "transport_key": "review_report",
+                        },
+                    ],
+                    "artifact_contracts": ["implementation_summary_report"],
+                    "state_writes": [],
+                    "error_codes": ["wrap_result_invalid_payload"],
+                    "owner_module": "std/phase",
+                    "replacement_path": None,
+                    "invocation_protocol": "json_object_positional_arg",
+                }
+            },
+            manifest_path=None,
+        ),
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
 
-    assert excinfo.value.diagnostics[0].code == "command_adapter_input_not_projectable"
+    typed = result.typed_workflows[0]
+    assert typed.typed_body.type_ref.name.endswith("ImplementationSummary")
+    completed = dict(typed.signature.params)["completed"]
+    assert completed.name.endswith("Wrapper")
+    assert completed.field_types["payload"].name.endswith("WorkReport")

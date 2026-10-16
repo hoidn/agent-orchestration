@@ -1051,11 +1051,7 @@ def _normalize_composite(
     return tuple(hoisted), _rebuild_with_replacements(expr, replacements)
 
 
-def normalize_expanded_conditions(
-    expr: ExprNode,
-    *,
-    target_dsl_version: str | None,
-) -> ExprNode:
+def normalize_expanded_conditions(expr: ExprNode) -> ExprNode:
     """Fold helper-inserted pure ``and``/``or`` after helper expansion.
 
     The frontend ``if`` typechecker already normalizes authored conditions
@@ -1065,12 +1061,7 @@ def normalize_expanded_conditions(
     ``IfExpr`` and is idempotent (no effect hoisting, no new bindings).
     """
 
-    from .syntax import target_dsl_supports_strict_boolean_control_flow
 
-    if not target_dsl_supports_strict_boolean_control_flow(
-        target_dsl_version or ""
-    ):
-        return expr
     if isinstance(expr, PureOpExpr) and expr.operator in {"and", "or"}:
         # Only fold exact helper-expansion clones (a `HelperExpansionFrame`
         # present in the expansion stack). Authored pure `and`/`or` in a value
@@ -1080,7 +1071,7 @@ def normalize_expanded_conditions(
         if not _is_helper_expanded(expr) or _contains_effect(expr):
             return expr
         normalized_args = tuple(
-            normalize_expanded_conditions(arg, target_dsl_version=target_dsl_version)
+            normalize_expanded_conditions(arg)
             for arg in expr.args
         )
         return fold_pure_short_circuit(
@@ -1090,7 +1081,7 @@ def normalize_expanded_conditions(
         return dataclasses.replace(
             expr,
             args=tuple(
-                normalize_expanded_conditions(arg, target_dsl_version=target_dsl_version)
+                normalize_expanded_conditions(arg)
                 for arg in expr.args
             ),
         )
@@ -1098,7 +1089,6 @@ def normalize_expanded_conditions(
     retained_input = (
         normalize_expanded_conditions(
             expr.condition_normalization_input,
-            target_dsl_version=target_dsl_version,
         )
         if isinstance(expr, LetStarExpr)
         and expr.condition_normalization_input is not None
@@ -1113,7 +1103,7 @@ def normalize_expanded_conditions(
         return expr
     replacements = {
         id(child): normalize_expanded_conditions(
-            child, target_dsl_version=target_dsl_version
+            child
         )
         for child in children
         if isinstance(child, ExprNode)

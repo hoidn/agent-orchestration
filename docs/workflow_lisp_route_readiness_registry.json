@@ -362,7 +362,7 @@
         "tests/test_workflow_evaluated_consumers.py::test_public_w3_improve_launcher_consumes_returned_proposal",
         "tests/test_workflow_lisp_improve_example_e2e.py::test_documented_command_dry_runs_the_example"
       ],
-      "notes": "Preferred current guidance for a bounded target-2.36 std/improve loop with lexical local hooks. A real run requires the workspace launcher documented in the drafting guide. Evaluated execution evidence does not certify LSP snapshots or general parity.",
+      "notes": "Preferred current guidance for a bounded target-2.39 std/improve loop with lexical local hooks, checked purity/command restrictions and retained target-2.35 library definitions. A real run requires the workspace launcher documented in the drafting guide. Evaluated execution evidence does not certify LSP snapshots or general parity.",
       "path": "workflows/examples/improve_experiment_proposal.orc",
       "readiness_label": "leaf_runtime_candidate",
       "route_label": "evaluated_execution",

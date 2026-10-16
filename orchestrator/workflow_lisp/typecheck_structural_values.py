@@ -36,7 +36,7 @@ from .expressions import (
     PureOpExpr,
 )
 from .type_env import ListTypeRef, PathTypeRef, PrimitiveTypeRef, TypeRef
-from .syntax import target_dsl_supports_pure_call_composition
+
 from .typecheck_context import (
     TypecheckContext,
     TypedExpr,
@@ -63,15 +63,11 @@ def _is_transportable_result_type(
 
 def _is_pure_or_provisional_procedure_call(summary, *, context: TypecheckContext) -> bool:
     return summary == EMPTY_EFFECT_SUMMARY or (
-        context.allow_provisional_procedure_calls
-        and target_dsl_supports_pure_call_composition(
-            context.type_env.target_dsl_version
-        )
-        and effect_summary_is_procedure_edge_only(summary)
+        (context.allow_provisional_procedure_calls) and (effect_summary_is_procedure_edge_only(summary))
     )
 
 
-def _check_map_effect_body(expr, *, context):
+def _check_map_effect_body(expr):
     from .conditionals import _is_helper_expanded
     from .expression_traversal import walk_expr
     from .expressions import RunRefExpr, TrialExpr
@@ -81,10 +77,6 @@ def _check_map_effect_body(expr, *, context):
             candidate
             for candidate in walk_expr(expr.body_expr)
             if isinstance(candidate, TrialExpr)
-            or (
-                isinstance(candidate, RunRefExpr)
-                and not context.compiler_session.closed_program
-            )
         ),
         None,
     )
@@ -96,8 +88,7 @@ def _check_map_effect_body(expr, *, context):
     allowed_body_types = (
         ProviderResultExpr, CommandResultExpr, CallExpr, ProcedureCallExpr
     )
-    if context.compiler_session.closed_program:
-        allowed_body_types += (RunRefExpr,)
+    allowed_body_types += (RunRefExpr,)
     if (
         expr.parallel_count is not None
         and expr.binding_identity is not None
@@ -122,10 +113,9 @@ def _check_map_effect_body(expr, *, context):
 
 
 def _register_map_run_ref_types(type_env, *, context):
-    if context.compiler_session.closed_program:
-        from .typecheck_run_ref import register_all_known_run_ref_types
+    from .typecheck_run_ref import register_all_known_run_ref_types
 
-        register_all_known_run_ref_types(type_env, session_state=context.session_state)
+    register_all_known_run_ref_types(type_env, session_state=context.session_state)
 
 
 def typecheck_structural_value_expr(
@@ -185,6 +175,7 @@ def typecheck_structural_value_expr(
             list_type = expected_list
             item_type = expected_list.item_type_ref
             typed_items = ()
+            typed_item_values = ()
         else:
             typed_item_values = tuple(
                 recurse(
@@ -257,6 +248,7 @@ def typecheck_structural_value_expr(
                 expr,
                 items=typed_items,
                 element_type_ref=item_type,
+                item_type_refs=tuple(item.type_ref for item in typed_item_values),
             ),
             type_ref=list_type,
             effect=EMPTY_EFFECT_SUMMARY,
@@ -430,7 +422,7 @@ def typecheck_structural_value_expr(
                 form_path=expr.source_expr.form_path,
                 expansion_stack=expr.source_expr.expansion_stack,
             )
-        _check_map_effect_body(expr, context=context)
+        _check_map_effect_body(expr)
         body_env = {
             **value_env,
             expr.binder_name: typed_source.type_ref.item_type_ref,
@@ -449,7 +441,7 @@ def typecheck_structural_value_expr(
             binding_env=body_binding_env,
         )
         if effect_summary_requires_run_ref_placement_refusal(
-            typed_body.effect_summary, context=context
+            typed_body.effect_summary
         ):
             raise_run_ref_placement_invalid(
                 typed_body.expr,
@@ -742,7 +734,7 @@ def typecheck_structural_value_expr(
                 "provider",
                 "command",
                 "call",
-            ) + (("run_ref",) if context.compiler_session.closed_program else ()),
+            ) + (("run_ref",)),
             effect_cardinality_diagnostic_code=(
                 "list_map_effect_body_unsupported"
             ),

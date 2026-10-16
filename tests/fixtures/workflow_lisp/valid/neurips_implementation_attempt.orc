@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule neurips_implementation_attempt)
   (import std/phase :only (with-phase))
   (defenum BlockerClass

@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule workflow_refs/imported_entry)
   (import workflow_refs/types :only (WorkflowInput WorkflowOutput))
   (import workflow_refs/imported_helper :as helper :only (echo-helper))

@@ -3,53 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from contextvars import ContextVar
 from dataclasses import dataclass, replace
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
-from .form_registry import (
-    admitted_top_level_heads,
-    list_traversal_authored_heads,
-    reserved_macro_names,
-)
+from .form_registry import admitted_top_level_heads, reserved_macro_names
 from .spans import SourceSpan
-from .syntax import (
-    ExpansionFrame,
-    ExpansionStack,
-    SyntaxBool,
-    SyntaxDatum,
-    SyntaxFloat,
-    SyntaxIdentifier,
-    SyntaxInt,
-    SyntaxKeyword,
-    SyntaxList,
-    SyntaxNode,
-    SyntaxString,
-    WorkflowLispSyntaxModule,
-    MAX_STATIC_LIVE_PROVIDER_PEERS,
-    clone_template_syntax,
-    introduced_identifier,
-    syntax_expansion_stack,
-    syntax_head_name,
-    syntax_node_datum,
-    top_level_form_path,
-    target_dsl_supports_list_traversal,
-    target_dsl_supports_provider_peer_messaging,
-)
+from .syntax import ExpansionFrame, ExpansionStack, SyntaxBool, SyntaxDatum, SyntaxFloat, SyntaxIdentifier, SyntaxInt, SyntaxKeyword, SyntaxList, SyntaxNode, SyntaxString, WorkflowLispSyntaxModule, MAX_STATIC_LIVE_PROVIDER_PEERS, clone_template_syntax, introduced_identifier, syntax_expansion_stack, syntax_head_name, syntax_node_datum, top_level_form_path
 
 _RESERVED_MACRO_NAMES = reserved_macro_names()
-
-_PEER_FORM_IS_CORE_DURING_HYGIENE: ContextVar[bool] = ContextVar(
-    "workflow_lisp_peer_form_is_core_during_hygiene",
-    default=True,
-)
-_LIST_TRAVERSAL_FORMS_ARE_CORE_DURING_HYGIENE: ContextVar[bool] = (
-    ContextVar(
-        "workflow_lisp_list_traversal_forms_are_core_during_hygiene",
-        default=True,
-    )
-)
-
 
 @dataclass(frozen=True)
 class MacroDef:
@@ -73,8 +34,6 @@ class MacroCatalog:
 
 @dataclass
 class _ExpansionAllocator:
-    peer_form_is_core: bool
-    list_traversal_forms_are_core: bool
     next_id: int = 1
 
     def allocate(self) -> str:
@@ -103,14 +62,8 @@ def collect_macro_catalog_with_imports(
     reserved_names = reserved_macro_names(
         target_dsl_version=module_syntax.target_dsl_version
     )
-    if not target_dsl_supports_provider_peer_messaging(
-        module_syntax.target_dsl_version
-    ):
-        reserved_names = reserved_names - {"with-live-provider-peers"}
-    if not target_dsl_supports_list_traversal(
-        module_syntax.target_dsl_version
-    ):
-        reserved_names = reserved_names - list_traversal_authored_heads()
+
+
     for imported_name in sorted(imported_names & reserved_names):
         imported_macro = definitions_by_name[imported_name]
         diagnostics.append(
@@ -173,18 +126,7 @@ def expand_module_forms(
 ) -> WorkflowLispSyntaxModule:
     """Expand all non-`defmacro` forms recursively through the macro catalog."""
 
-    allocator = _ExpansionAllocator(
-        peer_form_is_core=(
-            target_dsl_supports_provider_peer_messaging(
-                module_syntax.target_dsl_version
-            )
-        ),
-        list_traversal_forms_are_core=(
-            target_dsl_supports_list_traversal(
-                module_syntax.target_dsl_version
-            )
-        ),
-    )
+    allocator = _ExpansionAllocator()
     expanded_forms: list[SyntaxNode] = []
     for form in module_syntax.forms:
         datum = syntax_node_datum(form)
@@ -361,25 +303,11 @@ def _expand_macro_call(
         frame=frame,
         macro_def=macro_def,
     )
-    peer_form_token = _PEER_FORM_IS_CORE_DURING_HYGIENE.set(
-        allocator.peer_form_is_core
+    hygienic = _apply_hygiene(
+        instantiated,
+        macro_name=macro_def.name,
+        expansion_id=expansion_id,
     )
-    list_traversal_forms_token = (
-        _LIST_TRAVERSAL_FORMS_ARE_CORE_DURING_HYGIENE.set(
-            allocator.list_traversal_forms_are_core
-        )
-    )
-    try:
-        hygienic = _apply_hygiene(
-            instantiated,
-            macro_name=macro_def.name,
-            expansion_id=expansion_id,
-        )
-    finally:
-        _LIST_TRAVERSAL_FORMS_ARE_CORE_DURING_HYGIENE.reset(
-            list_traversal_forms_token
-        )
-        _PEER_FORM_IS_CORE_DURING_HYGIENE.reset(peer_form_token)
     expanded = _expand_datum(
         hygienic,
         catalog=catalog,
@@ -532,20 +460,14 @@ def _apply_hygiene(
             expansion_id=expansion_id,
             env=active_env,
         )
-    if (
-        head_name == "with-live-provider-peers"
-        and _PEER_FORM_IS_CORE_DURING_HYGIENE.get()
-    ):
+    if head_name == "with-live-provider-peers":
         return _hygienic_with_live_provider_peers(
             datum,
             macro_name=macro_name,
             expansion_id=expansion_id,
             env=active_env,
         )
-    if (
-        head_name in {"list/map", "list/map-effect"}
-        and _LIST_TRAVERSAL_FORMS_ARE_CORE_DURING_HYGIENE.get()
-    ):
+    if head_name in {"list/map", "list/map-effect"}:
         return _hygienic_list_binder_form(
             datum,
             expected_length=3 if head_name == "list/map" else 5,

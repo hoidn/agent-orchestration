@@ -1,9 +1,4 @@
-"""Target and helper-locality axes, keeping the matrix's two-string cell API.
-
-Locality moves or substitutes the selected outer helper. For `lookup` and
-`attempt`, its underlying `find`/`check` effect procedure stays the same.
-Classifications below were measured through the public run entry at both targets.
-"""
+"""Current helper-locality axes with captured legacy classification metadata."""
 
 from dataclasses import replace
 
@@ -58,8 +53,7 @@ REPRO_FAILURES = {
 
 
 def axes(name: str) -> tuple[str, str, str]:
-    target = "2.34" if name.startswith("t234:") else "2.33"
-    name = name.removeprefix("t234:")
+    target = "2.35"
     locality, separator, base = name.partition(":")
     if separator and locality in ("inline", "imported"):
         return target, locality, base
@@ -71,8 +65,7 @@ def expanded_cells(forms, positions) -> list[tuple[str, str]]:
     localized = [(f"{locality}:{form}", position) for form in CALL_FORMS
                  for locality in ("inline", "imported") for position in positions]
     return [*base, *localized,
-            *(("t234:" + form, position) for form, position in [*base, *localized]),
-            *(("t234:" + form, position) for form in NUMERIC_FORMS for position in positions)]
+            *((form, position) for form in NUMERIC_FORMS for position in positions)]
 
 
 def form_value(name, forms, probe):
@@ -112,23 +105,19 @@ def additional_sources(name, forms, header, probe):
     return {"grt/helper.orc": source.format(probe=probe)}
 
 
-def retarget(sources, target):
-    return {path: text.replace('(:target-dsl "2.33")', f'(:target-dsl "{target}")')
-            for path, text in sources.items()}
 
 
 def regression_cells(original):
     localized = [(f"{locality}:{form}", position) for form, position in original
                  if form in REGRESSION_HELPERS for locality in ("inline", "imported")]
-    return [*original, *localized,
-            *(("t234:" + form, position) for form, position in [*original, *localized])]
+    return [*original, *localized]
 
 
 def regression_sources(name, probe, render):
     target, locality, base = axes(name)
     sources = render(base, probe)
     if locality == "same-module":
-        return retarget(sources, target)
+        return sources
     source = sources["grt/entry.orc"]
     helper = REGRESSION_HELPERS[base]
     start = source.index("  (defun result" if helper == "result" else f"  (defproc {helper}")
@@ -156,7 +145,7 @@ def regression_sources(name, probe, render):
         sources["grt/helper.orc"] = header + "  (defmodule grt/helper)\n  (export " + exports + ")\n" + definition + ")\n"
         source = source.replace("  (export run)", f"  (import grt/helper :only ({exports}))\n  (export run)")
     sources["grt/entry.orc"] = source
-    return retarget(sources, target)
+    return sources
 
 
 def _reproducer_failure(base, locality, defect_type):

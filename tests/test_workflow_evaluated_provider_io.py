@@ -20,7 +20,7 @@ from orchestrator.workflow_lisp.reader import SourceReadTrace
 CONFIG = {"provider_externs": {"provider": "provider-id"},
           "prompt_externs": {"prompt": {"asset_file": "prompt.md"}},
           "command_boundaries": {}}
-PRODUCER = '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+PRODUCER = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
   (defmodule cp/producer) (export run Box) (defrecord Box (n Int))
   (defworkflow run ((input Box)) -> Box
     (provider-result provider :prompt prompt :inputs (input.n) :returns Box)))'''
@@ -234,11 +234,11 @@ def test_relocation_changes_only_physical_carrier(tmp_path):
 @pytest.mark.parametrize("mode", ("inline", "private-workflow"))
 def test_original_procedure_snapshot_preserves_reader_decision(tmp_path, mode):
     sources = {
-        "lib/helper.orc": f'''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+        "lib/helper.orc": f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
           (defmodule lib/helper) (export R ask) (defrecord R (n Int))
           (defproc ask () -> R :effects ((uses-provider provider)) :lowering {mode}
             (provider-result provider :prompt prompt :inputs () :returns R)))''',
-        "app/parent.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+        "app/parent.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
           (defmodule app/parent) (import lib/helper :as helper) (export run)
           (defworkflow run () -> helper.R (helper.ask)))''',
         "lib/prompt.md": "PRIVATE HELPER\n", "app/prompt.md": "PARENT\n"}
@@ -258,11 +258,11 @@ def test_original_procedure_snapshot_preserves_reader_decision(tmp_path, mode):
 
 def test_private_procedure_reference_uses_selected_typed_program_source(tmp_path):
     sources = {
-        "lib/helper.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+        "lib/helper.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
           (defmodule lib/helper) (export R ask) (defrecord R (n Int))
           (defproc ask () -> R :effects ((uses-provider provider)) :lowering private-workflow
             (provider-result provider :prompt prompt :inputs () :returns R)))''',
-        "app/parent.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+        "app/parent.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
           (defmodule app/parent) (import lib/helper :as helper) (export run)
           (defproc invoke ((hook ProcRef[ -> helper.R])) -> helper.R
             :effects () :lowering inline (hook))
@@ -320,7 +320,7 @@ def test_local_procedure_reference_preserves_reader_after_source_deletion(tmp_pa
 
 def test_direct_typed_import_retains_selected_source_reader(tmp_path):
     root = tmp_path / "producer"
-    path = _write(root / "cp/producer.orc", PRODUCER.replace("2.34", "2.35"))
+    path = _write(root / "cp/producer.orc", PRODUCER)
     producer = compile_typed_program(path, entry_workflow="run", source_roots=(root,), **CONFIG)
     source = _write(tmp_path / "main.orc", '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
       (defmodule main) (export run) (defrecord Box (n Int))
@@ -336,11 +336,11 @@ def test_direct_typed_import_retains_selected_source_reader(tmp_path):
 
 def test_iteration_override_uses_actual_private_reader(tmp_path):
     sources = {
-        "lib/helper.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+        "lib/helper.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
           (defmodule lib/helper) (export R ask) (defrecord R (n Int))
           (defproc ask ((input R)) -> R :effects ((uses-provider provider)) :lowering inline
             (provider-result provider :prompt prompt :inputs (input.n) :returns R)))''',
-        "app/parent.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+        "app/parent.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
           (defmodule app/parent) (import lib/helper :as helper) (export run)
           (defworkflow run ((input helper.R)) -> helper.R
             (loop/recur :max 1 :state input
@@ -436,11 +436,11 @@ def test_capture_remap_preserves_nominal_objects_and_original_facts(tmp_path):
 
 def test_transitive_workflow_uses_current_typed_import(tmp_path):
     sources = {
-        "lib/helper.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+        "lib/helper.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
           (defmodule lib/helper) (export R ask) (defrecord R (n Int))
           (defworkflow ask ((input R)) -> R
             (provider-result provider :prompt prompt :inputs (input.n) :returns R)))''',
-        "app/parent.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+        "app/parent.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
           (defmodule app/parent) (import lib/helper :as helper) (export run)
           (defworkflow run ((input helper.R)) -> helper.R
             (call helper.ask :input input)))''',

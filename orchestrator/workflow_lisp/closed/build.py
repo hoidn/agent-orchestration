@@ -44,6 +44,11 @@ from orchestrator.workflow_lisp.wcc.model import (
     WccInject,
     WccPerform,
     WccNameAtom,
+    WccList,
+    WccListMap,
+    WccBlock,
+    WccResultPath,
+    perform_payload_values,
     WccPureOp,
     WccRecJoin,
     WccParallelMap,
@@ -51,6 +56,7 @@ from orchestrator.workflow_lisp.wcc.model import (
     WccSelect,
     WccProviderSupervision,
     WccProviderPeerGroup,
+    WccValue,
 )
 
 from . import EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
@@ -103,15 +109,10 @@ class CaptureSlot:
 
 
 @dataclass(frozen=True)
-class ComputedCaptureValue:
-    source_name: str
-
-
-@dataclass(frozen=True)
 class ComputedCaptureRequest:
     source_identity: int
     formal: tuple[str, ...]
-    expression: Any
+    prepared_value: WccValue
     type_ref: TypeRef
     source_aliases: Mapping[str, str]
     insertion_alias: str
@@ -145,6 +146,10 @@ class CallableRequest:
     retained_capture_bindings: frozenset[object] = frozenset()
     capture_source_bindings: tuple = field(default=(), compare=False, hash=False, repr=False,
         metadata={"json_omit_always": True, "semantic_identity_omit": True})
+    computed_capture_sources: Mapping | None = None
+    computed_capture_requests_by_alias: Mapping | None = None
+    reference_capture_aliases: Mapping | None = None
+    prepared_closed_values: tuple = ()
 
 
 @dataclass(eq=False)
@@ -267,6 +272,9 @@ class WorkflowRequest:
     io_reader: tuple | None = None
     io_references: Mapping | None = None
     retained_capture_bindings: frozenset[object] = frozenset()
+    computed_capture_sources: Mapping | None = None
+    computed_capture_requests_by_alias: Mapping | None = None
+    reference_capture_aliases: Mapping | None = None
 
 
 def gap_diagnostic(gap: ClosedProgramGap) -> LispFrontendDiagnostic:
@@ -385,6 +393,12 @@ class Builder:
 
     def __init__(self, typed: Any) -> None:
         self.typed = typed
+        from .target import require_supported_typed_program_targets
+
+        require_supported_typed_program_targets(
+            typed,
+            source_path=getattr(typed, "entry_dir", "<typed-program>"),
+        )
         self.route_schema_version = WCC_M4_ROUTE_SCHEMA_VERSION
         self.definitions: dict[str, dict[str, Any]] = {}
         self.definition_keys: dict[str, list[Any]] = {}
@@ -499,7 +513,6 @@ class Builder:
             resolved_procedures_by_name=source_program.procedures,
             procedure_type_envs=source_program.procedure_type_envs,
             route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION,
-            closed_program=True,
         )
         normalized = normalize_wcc_body_to_anf(wcc)
         self._workflow_wcc_cache[cache_key] = normalized
@@ -538,7 +551,7 @@ class Builder:
             resolved_procedures_by_name=procedures,
             procedure_type_envs=source_program.procedure_type_envs,
             route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION,
-            closed_program=True, **preparation)
+            **preparation)
 
     def _command_declaration_identity(self, call, source_program, owner):
         from .names import _callable_header
@@ -577,6 +590,7 @@ class Builder:
             io_routes=self._io_formal_routes(d),
             io_bind=lambda expr, routes: self._io_reference_projection(expr, routes, d),
             **preparation)
+        self._prepare_computed_capture_requests(body, d, source_program)
         return body, prepared
 
     def _io_formal_routes(self, d):
@@ -675,11 +689,14 @@ class Builder:
         self.provider_io = ProviderIOContext(entry, calls, frozenset(program.sites), program.digest).bind(program)
 
     def _install_prepared_requests(self, body, d, children):
-        from .command_templates import _call_coordinate, command_call_occurrences
+        from .command_templates import _call_coordinate
         from .command_interfaces import command_loop_index_binders
+        from .preparation_check import assert_closed_preparation
 
+        if body is None or children is None:
+            raise ValueError("call emission requires a prepared body and child table")
+        inventory = assert_closed_preparation(body, children, context=d, builder=self)
         resolver = lambda call: self._command_declaration_identity(call, d.source_program, d.owner)
-        inventory = command_call_occurrences(body, resolver)
         d.command_indexes = command_loop_index_binders(body,
             child_interfaces={selector: child.command_interface for selector, child in children.items()},
             child_bearings={selector: child.command_bearing for selector, child in children.items()},
@@ -693,6 +710,8 @@ class Builder:
             consumed.add(coordinate)
             declaration, occurrence = inventory[coordinate]
             selected = children[(_canonical_json(declaration), occurrence)]
+            if selected.prepared_body is None or selected.prepared_children is None:
+                raise ValueError("call emission requires a prepared body and child table")
             if isinstance(selected, CallableRequest):
                 return self._instantiate_call_request(selected, call, local)
             return selected
@@ -705,9 +724,14 @@ class Builder:
         return verify
 
     def _instantiate_call_request(self, shape, call, d):
-        procedure, source = self.procedure_owners[call.specialized_callee_name or call.callee_name]
-        _, captures, _, _, _ = self._call_capture_facts(procedure, source, call, d)
+        if shape.prepared_body is None or shape.prepared_children is None:
+            raise ValueError("call emission requires a prepared body and child table")
+        source = shape.source_program
+        # Closed key projection retains its original local-name allocation at each call site.
+        for operand in shape.prepared_closed_values:
+            self.value(operand, d, {})
         ordinary = [row for row in shape.captures if not self._is_command_capture(row)]
+        captures = [self._instantiate_capture(row, d) for row in ordinary]
         if self._capture_key_shapes(ordinary, source) != self._capture_key_shapes(captures, source):
             raise ValueError("prepared call capture shape changed at final instantiation")
         captures.extend(self._instantiate_command_capture(row, d) for row in shape.captures
@@ -716,6 +740,36 @@ class Builder:
         producers = self._argument_producers(shape.procedure, arguments, d)
         return replace(shape, captures=captures, arguments=arguments,
             argument_run_ref_producers=producers)
+
+    def _instantiate_capture(self, shape, d):
+        value, source_name = shape.value, shape.source_name
+        identity = shape.identity
+        if value is None:
+            if not isinstance(identity, tuple) or not identity:
+                raise ValueError("prepared capture has no retained lexical recipe")
+            if identity[0] == "lexical-capture":
+                value = identity[1]
+                source_name = value.name if isinstance(value, WccNameAtom) else None
+                if isinstance(value, WccNameAtom):
+                    value = {"k": "name", "n": d.ref(value.name, value.metadata.binding_identity)}
+            elif identity[0] == "creation-alias":
+                source_name = identity[1]
+            elif identity[0] in {"creation", "bind-proc"}:
+                path = identity[2] if identity[0] == "creation" else (identity[2],)
+                source_name = (d.computed_capture_sources or {}).get((identity[1], path))
+            elif identity[0] == "forwarded-capture":
+                source_name = d.capture_names[identity[1]]
+            if value is None:
+                if source_name is None:
+                    raise ValueError("prepared capture has no retained lexical recipe")
+                if source_name not in d.names:
+                    raise ValueError("prepared capture recipe has no current lexical binding")
+                value = {"k": "name", "n": d.ref(source_name)}
+        producers = self._run_ref_context_for_value(value, d)
+        if not producers and source_name is not None:
+            producers = tuple((d.run_ref_names or {}).get(source_name, ()))
+        return replace(shape, routes=deepcopy(shape.routes), value=value,
+            source_name=source_name, run_ref_producers=producers)
 
     @staticmethod
     def _capture_key_shapes(captures, source):
@@ -775,7 +829,7 @@ class Builder:
             if is_dataclass(node) and not isinstance(node, type):
                 seen.add(id(node))
                 for field in fields(node):
-                    if field.name in {"metadata", "type_ref", "source_span", "form_path", "expansion_stack", "bound_proc_source", "source_binding"}:
+                    if field.name in {"metadata", "body_metadata", "type_ref", "source_span", "form_path", "expansion_stack", "bound_proc_source", "source_binding"}:
                         continue
                     walk(getattr(node, field.name))
 
@@ -925,6 +979,7 @@ class Builder:
             command_bearing=prepared["bearing"],
             retained_capture_bindings=prepared["retained_capture_bindings"],
             workflow=workflow, source_program=source_program,
+            **prepared["capture_preparation"],
         ))
         self.completed_preparations[inputs] = request
         return request
@@ -932,6 +987,7 @@ class Builder:
     def _accept_prepared(self, request):
         from .preparation_check import assert_same_prepared_body
 
+        # Full-graph closure runs at installation, after source-aware diagnostics finish.
         encoded = _canonical_json(request.key)
         previous = self.prepared_by_key.get(encoded)
         if previous is None:
@@ -999,7 +1055,8 @@ class Builder:
             call_declaration_identity=resolver)
         return {"body": body, "children": children, "interface": interface,
             "command_params": params, "bearing": bearing,
-            "retained_capture_bindings": local.capture_binding_identities}
+            "retained_capture_bindings": local.capture_binding_identities,
+            "capture_preparation": self._capture_preparation(local)}
 
     def _workflow_call_occurrences(
         self,
@@ -1014,8 +1071,7 @@ class Builder:
             if target is None:
                 continue
             _caller_signature, workflow, target_program = target
-            key, _canonical = self._callable_key(workflow, target_program)
-            did = key[:3]
+            did = self._command_declaration_identity(perform, source_program, owner)
             encoded = _canonical_json(did)
             occurrence = counts.get(encoded, 0)
             counts[encoded] = occurrence + 1
@@ -1221,8 +1277,10 @@ class Builder:
             WccFieldAccessAtom,
             WccInject,
             WccNameAtom,
-            WccOpaqueFrontendValue,
             WccPureOp,
+            WccList,
+            WccListMap,
+            WccBlock,
             WccRecordAtom,
             WccSelect,
             WccCall,
@@ -1234,13 +1292,14 @@ class Builder:
         seen.add(id(value))
         if isinstance(value, (WccNameAtom, WccLet, WccRecJoin, WccParallelMap)):
             return self._run_ref_context_for_binding(value, d, seen)
+        if isinstance(value, WccResultPath):
+            return self._run_ref_context_for_value(value.source, d, seen=seen)
         if isinstance(value, WccFieldAccessAtom):
             return self._run_ref_context_for_value(value.base, d, seen=seen)
-        if isinstance(value, WccOpaqueFrontendValue):
-            from ..expression_traversal import free_expr_names
+        if isinstance(value, (WccBlock, WccListMap)):
             from ..wcc.hygiene import _free_names
 
-            names = _free_names(value.normalized_body) if value.normalized_body is not None else free_expr_names(value.expr)
+            names = _free_names(value) if isinstance(value, WccListMap) else _free_names(value.body)
             rows = [
                 producer
                 for name in names
@@ -1279,14 +1338,20 @@ class Builder:
                 )
             return tuple(dict.fromkeys(rows))
         children = ()
-        if isinstance(value, (WccRecordAtom, WccInject)):
+        if isinstance(value, WccPerform):
+            children = (*value.positional_args, *(item for _, item in value.keyword_args),
+                *perform_payload_values(value.perform_kind, value.operation_payload))
+        elif isinstance(value, (WccRecordAtom, WccInject)):
             children = tuple(child for _name, child in value.fields)
+        elif isinstance(value, WccList):
+            children = value.items
         elif isinstance(value, WccPureOp):
             children = value.args
         elif isinstance(value, WccSelect):
             children = (
                 value.condition,
-                *(item for arm in (value.then_arm, value.else_arm) for item in (*arm.prefix, arm.value)),
+                *(item for arm in (value.then_arm, value.else_arm)
+                    for item in (*(let.bound_value for let in arm.prefix), arm.value)),
             )
         rows = [
             producer
@@ -1859,11 +1924,10 @@ class Builder:
                             f"computed capture source {source_name!r} is not bound at its creation region"
                         )
                     rewritten[source_name] = names[alias_name]
-                from .values import frontend_value
-
-                expression_value = frontend_value(
-                    self,
-                    request.expression,
+                if request.prepared_value is None:
+                    raise ValueError("computed capture has no prepared value recipe")
+                expression_value = self.value(
+                    request.prepared_value,
                     d.with_names(
                         rewritten,
                         binding_aliases=binding_aliases,
@@ -1878,7 +1942,7 @@ class Builder:
                     env=source_names,
                 )
                 computed_row = {"k": "let", "name": wire_name, "value": expression_value}
-                computed_row.update(self.provenance(request.expression))
+                computed_row.update(self.provenance(request.prepared_value.metadata))
                 lets.append(computed_row)
                 names = source_names
                 types[request.source_name] = request.type_ref
@@ -2048,7 +2112,6 @@ class Builder:
         from .frontend import workflow_catalog_for
 
         context = SimpleNamespace(
-            closed_program=True,
             typed_procedures=d.source_program.procedures,
             workflows_by_name=d.source_program.workflows,
             workflow_catalog=workflow_catalog_for(d.source_program, d.owner),
@@ -2081,7 +2144,6 @@ class Builder:
     def _loop(self, node: WccRecJoin, d: Definition, env: Mapping[str, TypeRef]) -> dict[str, Any]:
         if len(node.params) != 1 or node.initial_state is None:
             raise ValueError("closed loop requires one state parameter and an initial state")
-        self._check_loop_effect_cardinality(node, d)
         descriptor_start = len(self.emitted_descriptors)
         producer_start = len(self.run_ref_producers)
         budget = self.value(node.budget, d, env)
@@ -2283,11 +2345,10 @@ class Builder:
         captures: list[CaptureSlot],
         d: Definition,
         source_program: Any,
-        command_context=None,
-        creation_facts=None,
+        command_context,
+        creation_facts,
+        closed_operands,
     ) -> dict[str, Any]:
-        from ..expression_traversal import free_expr_names
-        from ..expressions import NameExpr
         from ..type_env import WorkflowRefTypeRef
 
         selected = self._selected_ref_procedure(resolved, source_program)
@@ -2313,6 +2374,7 @@ class Builder:
                     source_program=source_program,
                     command_context=command_context,
                     creation_facts=creation_facts,
+                    closed_operands=closed_operands,
                 )}
                 continue
             if isinstance(argument.type_ref, WorkflowRefTypeRef):
@@ -2336,179 +2398,27 @@ class Builder:
             if retained is not None:
                 facts[formal] = {"capture": retained}
                 continue
-            if command_context is not None:
-                prepared = self._prepare_reference_capture(resolved, argument,
-                    path=path, aliases=aliases, captures=captures, d=d,
-                    source_program=source_program, context=command_context,
-                    creation_facts=creation_facts)
-                if prepared is not None:
-                    facts[formal] = {"capture": prepared}
-                    continue
-            local_capture = self._local_capture(resolved, source_program, formal)
-            if local_capture is not None:
-                local_index, capture_name = local_capture
-                route = ["reference", list(path), ["local", local_index]]
-                forwarded = [
-                    index
-                    for index, outer in enumerate(d.captures or ())
-                    if route in outer.routes
-                ]
-                if len(forwarded) > 1:
-                    raise ValueError(f"local capture route {route!r} has competing enclosing values")
-                if forwarded:
-                    outer_index = forwarded[0]
-                    source_name = (d.capture_names or ())[outer_index]
-                    actual = {"k": "name", "n": d.ref(source_name)}
-                    actual_identity = ("forwarded-local", id(d.captures[outer_index]), local_index)
-                else:
-                    binding_identity = getattr(argument, "source_binding_identity", None)
-                    bound_alias = (d.binding_aliases or {}).get(binding_identity)
-                    if bound_alias is not None:
-                        source_name = bound_alias
-                        actual = {"k": "name", "n": d.ref(bound_alias)}
-                        actual_identity = ("local-binding", binding_identity)
-                    else:
-                        if (
-                            binding_identity is not None
-                            and binding_identity in d.capture_binding_identities
-                        ):
-                            raise ValueError(
-                                f"retained local capture binder {binding_identity!r} has no lexical WCC owner"
-                            )
-                        from ..expressions import NameExpr
-
-                        bound_source = (
-                            argument.value_expr.name
-                            if isinstance(argument.value_expr, NameExpr)
-                            else capture_name
-                        )
-                        alias = aliases.get(bound_source)
-                        if alias is not None and isinstance(alias[1], WccNameAtom):
-                            source_name = alias[1].name
-                        else:
-                            source_name = bound_source
-                        actual = {"k": "name", "n": d.ref(source_name)}
-                        actual_identity = ("local", id(resolved), local_index, source_name)
-                index = self._add_capture(
-                    captures,
-                    typed=source_program,
-                    type_ref=argument.type_ref,
-                    route=route,
-                    value=actual,
-                    source_name=source_name,
-                    identity=actual_identity,
-                    run_ref_producers=tuple((d.run_ref_names or {}).get(source_name, ())),
-                )
-                facts[formal] = {"capture": index}
-                continue
-            forwarded = self._instantiate_forwarded_reference_capture(
-                argument, path, captures, d, source_program)
-            if forwarded is not None:
-                facts[formal] = {"capture": forwarded}
-                continue
-            bound_alias = (d.reference_capture_aliases or {}).get(
-                (id(argument.value_expr), formal)
-            )
-            if bound_alias is not None:
-                route = ["reference", list(path), ["parameter", formal]]
-                actual = {"k": "name", "n": d.ref(bound_alias)}
-                index = self._add_capture(
-                    captures,
-                    typed=source_program,
-                    type_ref=argument.type_ref,
-                    route=route,
-                    value=actual,
-                    source_name=bound_alias,
-                    identity=("bind-proc-expression", id(argument.value_expr), formal),
-                    run_ref_producers=tuple((d.run_ref_names or {}).get(bound_alias, ())),
-                )
-                facts[formal] = {"capture": index}
-                continue
-            if isinstance(argument.value_expr, NameExpr):
-                actual = aliases.get(argument.value_expr.name)
-                alias_identity = None
-                if isinstance(actual, tuple) and len(actual) == 2:
-                    argument_index, actual = actual
-                    alias_identity = ("argument", argument_index, id(actual))
-                if actual is None:
-                    # A retained lexical name can be used directly when the
-                    # frontend did not need an alias let for this boundary.
-                    binding_identity = argument.source_binding_identity
-                    wire_name = d.ref(argument.value_expr.name, binding_identity)
-                    actual = {"k": "name", "n": wire_name}
-                    alias_identity = ("lexical-binding", binding_identity) if binding_identity is not None else ("lexical-wire", wire_name)
-                source_name = (
-                    actual.name if isinstance(actual, WccNameAtom)
-                    else argument.value_expr.name
-                )
-                route = ["reference", list(path), ["parameter", formal]]
-                index = self._add_capture(
-                    captures,
-                    typed=source_program,
-                    type_ref=argument.type_ref,
-                    route=route,
-                    value=actual,
-                    source_name=source_name,
-                    identity=alias_identity,
-                    run_ref_producers=self._run_ref_context_for_value(actual, d)
-                    or tuple((d.run_ref_names or {}).get(source_name, ())),
-                )
-                facts[formal] = {"capture": index}
-                continue
-            names = free_expr_names(argument.value_expr)
-            if names:
-                source_name = (d.computed_capture_sources or {}).get(
-                    (id(argument.value_expr), formal)
-                )
-                if source_name is None:
-                    raise ValueError(
-                        f"computed bound procedure argument {formal!r} has no retained creation binding"
-                    )
-                route = ["reference", list(path), ["parameter", formal]]
-                actual = ComputedCaptureValue(source_name)
-                index = self._add_capture(
-                    captures,
-                    typed=source_program,
-                    type_ref=argument.type_ref,
-                    route=route,
-                    value=actual,
-                    source_name=source_name,
-                    identity=("bind-proc-expression", id(argument.value_expr), formal),
-                    run_ref_producers=tuple((d.run_ref_names or {}).get(source_name, ())),
-                )
-                facts[formal] = {"capture": index}
+            prepared = self._prepare_reference_capture(resolved, argument,
+                path=path, aliases=aliases, captures=captures, d=d,
+                source_program=source_program, context=command_context,
+                creation_facts=creation_facts)
+            if prepared is not None:
+                facts[formal] = {"capture": prepared}
                 continue
             from ..conditionals import _contains_effect
 
             if not _contains_effect(argument.value_expr):
-                from .values import frontend_value
+                from .command_templates import prepare_frontend_value
 
-                closed = _strip_provenance(
-                    frontend_value(self, argument.value_expr, d, env={})
-                )
+                operand = prepare_frontend_value(self, argument.value_expr, d, {})
+                closed_operands.append(operand)
+                closed = _strip_provenance(self.value(operand, d, {}))
                 facts[formal] = {"value": closed}
                 continue
             raise ValueError(
                 f"bound procedure argument {formal!r} is neither a checked closed value nor a retained lexical capture"
             )
         return {"bound": facts}
-
-    def _instantiate_forwarded_reference_capture(self, argument, path, captures, d, source_program):
-        from ..expressions import NameExpr
-
-        if not isinstance(argument.value_expr, NameExpr):
-            return None
-        route = ["reference", list(path), ["parameter", argument.name]]
-        outer = self._forwarded_reference_capture(d.captures, route)
-        if outer is None:
-            return None
-        source_name = d.capture_names[outer]
-        actual = {"k": "name", "n": d.ref(source_name)}
-        return self._add_capture(captures, typed=source_program,
-            type_ref=argument.type_ref, route=route, value=actual,
-            source_name=source_name, identity=("forwarded-capture", outer),
-            run_ref_producers=self._run_ref_context_for_value(actual, d)
-            or d.captures[outer].run_ref_producers)
 
     @staticmethod
     def _creation_identity(argument, creation_facts):
@@ -2628,19 +2538,18 @@ class Builder:
             raise ValueError("retained reference capture has competing projected routes")
         return matching[0] if matching else None
 
-    def _call_capture_facts(self, procedure, source_program, call, d, *, command_context=None):
+    def _call_capture_facts(self, procedure, source_program, call, d, *, command_context):
         base, proc_refs, workflow_refs = self._procedure_binding_maps(procedure)
         capture_aliases = self._call_capture_aliases(call)
-        resolved_callee = (command_context.values if command_context is not None
-            else d.procedure_refs or {}).get(call.callee_name)
+        resolved_callee = command_context.values.get(call.callee_name)
 
         creation_facts = self._prepare_computed_capture_requests(None, d, source_program,
-            classify_call=call, resolved_callee=resolved_callee) if command_context is not None else None
+            classify_call=call, resolved_callee=resolved_callee)
 
         lexical = d.procedure_refs is not None and call.callee_name in d.procedure_refs
-        captures = self._reference_invocation_captures(call, d, source_program,
-            instantiate=command_context is None) if lexical else []
+        captures = self._reference_invocation_captures(call, d, source_program) if lexical else []
         ref_facts: dict[str, Any] = {}
+        closed_operands = []
         for argument_index, (formal, _) in enumerate(base.signature.params):
             resolved = proc_refs.get(formal)
             if resolved is None:
@@ -2654,17 +2563,18 @@ class Builder:
                 source_program=source_program,
                 command_context=command_context,
                 creation_facts=creation_facts,
+                closed_operands=closed_operands,
             )
         if lexical:
             closed_values = self._reference_closed_values(procedure, call, d, source_program)
         else:
             closed_values = self._callee_creation_facts(procedure, call, d, source_program,
-                captures, command_context, creation_facts)
+                captures, command_context, creation_facts, closed_operands)
         procedure_view = self._runtime_capture_view(procedure, captures, source_program)
         facts = {"procedure_references": ref_facts, "workflow_references": {
             formal: self._workflow_reference_facts(resolved, source_program, procedure.definition.name)
             for formal, resolved in workflow_refs.items()}, "closed_values": closed_values}
-        return procedure_view, captures, proc_refs, workflow_refs, facts
+        return procedure_view, captures, proc_refs, workflow_refs, facts, tuple(closed_operands)
 
     @staticmethod
     def _reference_closed_values(procedure, call, d, source_program):
@@ -2712,7 +2622,7 @@ class Builder:
                 owners[existing] = owner, rows
         return owners
 
-    def _callee_creation_facts(self, procedure, call, d, source_program, captures, context, creation_facts):
+    def _callee_creation_facts(self, procedure, call, d, source_program, captures, context, creation_facts, closed_operands):
         values = {}
         specialization = procedure.specialization
         if specialization is None:
@@ -2725,11 +2635,11 @@ class Builder:
             for binding in source.bindings:
                 if binding.name in specialization.value_bindings:
                     self._callee_creation_argument(binding, source, aliases, specialization,
-                        d, source_program, captures, values, context, creation_facts)
+                        d, source_program, captures, values, context, creation_facts, closed_operands)
         return values
 
     def _callee_creation_argument(self, binding, source, aliases, specialization,
-        d, source_program, captures, values, context, creation_facts):
+        d, source_program, captures, values, context, creation_facts, closed_operands):
         from ..expression_traversal import free_expr_names
         from ..expressions import LiteralExpr, NameExpr
 
@@ -2747,100 +2657,73 @@ class Builder:
         elif free_expr_names(expression):
             actual, name = self._bound_computed_capture(source, formal, d, context, creation_facts)
         else:
-            from .values import frontend_value
+            from .command_templates import prepare_frontend_value
 
-            values[formal] = {"type": type_ref, "value": _strip_provenance(frontend_value(self, expression, d, env={}))}
+            operand = prepare_frontend_value(self, expression, d, {})
+            closed_operands.append(operand)
+            values[formal] = {"type": type_ref, "value": _strip_provenance(self.value(operand, d, {}))}
             return
         self._add_capture(captures, typed=source_program, type_ref=type_ref,
             route=["parameter", formal], value=actual, source_name=name,
             identity=("bind-proc", id(source), formal),
-            run_ref_producers=() if context is not None else self._run_ref_context_for_value(actual, d))
+            run_ref_producers=())
 
     @staticmethod
     def _bound_name_capture(expression, aliases, d, context):
         selected = aliases.get(expression.name, ())
         if len(selected) > 1:
             raise ValueError("bound procedure capture has competing lexical aliases")
-        if context is not None:
-            actual = selected[0] if selected else context.operands.get(expression.name)
-            if actual is None:
-                raise ValueError("bound procedure capture has no current lexical owner")
-            return None, None
-        actual = selected[0] if selected else {"k": "name", "n": d.ref(expression.name)}
-        return actual, actual.name if isinstance(actual, WccNameAtom) else expression.name
+        actual = selected[0] if selected else context.operands.get(expression.name)
+        if actual is None:
+            raise ValueError("bound procedure capture has no current lexical owner")
+        return actual, actual.name if isinstance(actual, WccNameAtom) else None
 
     @staticmethod
     def _bound_computed_capture(source, formal, d, context, creation_facts):
-        if context is not None:
-            if not any(row[:2] == (id(source), (formal,)) for row in creation_facts["creations"]):
-                raise ValueError("computed procedure capture has no current creation owner")
-            return None, None
-        name = (d.computed_capture_sources or {}).get((id(source), (formal,)))
-        if name is None:
-            raise ValueError("computed procedure capture has no retained creation binding")
-        return ComputedCaptureValue(name), name
+        if not any(row[:2] == (id(source), (formal,)) for row in creation_facts["creations"]):
+            raise ValueError("computed procedure capture has no current creation owner")
+        return None, None
 
     def _call_request(self, procedure: Any, source_program: Any, call: WccCall, d: Definition,
-        *, actual_values=None, command_context=None) -> CallableRequest:
+        *, actual_values, command_context) -> CallableRequest:
         self._require_selected_callable(procedure)
-        procedure_view, captures, proc_refs, workflow_refs, binding_facts = self._call_capture_facts(
+        procedure_view, captures, proc_refs, workflow_refs, binding_facts, closed_operands = self._call_capture_facts(
             procedure, source_program, call, d, command_context=command_context)
-        inputs = None
-        if command_context is not None:
-            inputs = self._preparation_inputs(procedure_view, source_program, captures,
-                binding_facts, actual_values, command_context)
-            cached = self.completed_preparations.get(inputs) or self.completed_preparations.get(
-                (*inputs[:-1], None))
-            if cached is not None:
-                return cached
-        prepared = None
-        if command_context is not None:
-            prepared = self._prepare_command_procedure(procedure_view, source_program,
-                call, d, captures, binding_facts, actual_values, command_context)
-            procedure_view = prepared["procedure"]
-        key = canonical_definition_key(
-            procedure_view,
-            typed=source_program,
-            binding_facts=binding_facts,
-            capture_parameters=captures,
+        inputs = self._preparation_inputs(procedure_view, source_program, captures,
+            binding_facts, actual_values, command_context)
+        cached = self.completed_preparations.get(inputs) or self.completed_preparations.get((*inputs[:-1], None))
+        if cached is not None:
+            return replace(cached, captures=[*self._capture_shapes(captures),
+                *(row for row in cached.captures if self._is_command_capture(row))],
+                prepared_closed_values=closed_operands)
+        prepared = self._prepare_command_procedure(procedure_view, source_program,
+            call, d, captures, binding_facts, actual_values, command_context)
+        procedure_view = prepared["procedure"]
+        key = canonical_definition_key(procedure_view, typed=source_program,
+            binding_facts=binding_facts, capture_parameters=captures,
             residual_signature=self._command_residual_signature(procedure_view, prepared),
-            command_decisions=None if prepared is None else prepared["interface"]["decisions"],
-        )
-        request = self._new_callable_request(procedure_view, source_program, call, d,
-            key, captures, proc_refs, workflow_refs, prepared, command_context)
-        if prepared is not None:
-            request = self._accept_prepared(request)
-            memo_input = inputs if request.command_fact_demand else (*inputs[:-1], None)
-            self.completed_preparations[memo_input] = request
+            command_decisions=prepared["interface"]["decisions"])
+        request = CallableRequest(key=key, canonical=canonical_callee_name(procedure_view, key=key),
+            captures=self._capture_shapes(captures), procedure_refs=proc_refs,
+            procedure_ref_keys={str(row[0]): row[1] for row in key[4]},
+            workflow_refs=workflow_refs, workflow_ref_keys={str(row[0]): row[1] for row in key[5]},
+            procedure=procedure_view, source_program=source_program,
+            prepared_closed_values=closed_operands, **self._prepared_callable_fields(prepared))
+        request = self._accept_prepared(request)
+        memo_input = inputs if request.command_fact_demand else (*inputs[:-1], None)
+        self.completed_preparations[memo_input] = request
         return request
 
-    def _new_callable_request(self, procedure, source_program, call, d, key, captures,
-        proc_refs, workflow_refs, prepared, command_context):
-        arguments = tuple(call.args) if prepared is None else prepared["arguments"]
-        if command_context is None:
-            producers = self._argument_producers(procedure, arguments, d)
-        else:
-            captures = self._capture_shapes(captures)
-            arguments, producers = None, None
-        return CallableRequest(key=key, canonical=canonical_callee_name(procedure, key=key),
-            captures=captures, procedure_refs=proc_refs,
-            procedure_ref_keys={str(row[0]): row[1] for row in key[4]},
-            workflow_refs=workflow_refs,
-            workflow_ref_keys={str(row[0]): row[1] for row in key[5]},
-            procedure=procedure, arguments=arguments, argument_run_ref_producers=producers,
-            source_program=source_program, **self._prepared_callable_fields(call, prepared))
-
     @staticmethod
-    def _prepared_callable_fields(call, prepared):
-        if prepared is None:
-            return {"argument_indices": tuple(range(len(call.args)))}
+    def _prepared_callable_fields(prepared):
         return {"argument_indices": prepared["argument_indices"], "prepared_body": prepared["body"],
             "prepared_children": prepared["children"], "command_interface": prepared["interface"],
             "command_params": prepared["command_params"], "command_fact_demand": prepared["fact_demand"],
             "command_lookup_demand": prepared["lookup_demand"], "command_bearing": prepared["bearing"],
             "projection_type_obligations": prepared["projection_type_obligations"],
             "retained_capture_bindings": prepared["retained_capture_bindings"],
-            "capture_source_bindings": prepared["capture_source_bindings"]}
+            "capture_source_bindings": prepared["capture_source_bindings"],
+            **prepared["capture_preparation"]}
 
     def _preparation_inputs(self, procedure, source, captures, facts, actual_values, context):
         from .names import _key_type_ref, _source_expression_identity
@@ -2930,9 +2813,8 @@ class Builder:
 
     @staticmethod
     def _capture_shapes(captures):
-        return [replace(row, value=None, source_name=None, identity=index,
-            routes=deepcopy(row.routes), run_ref_producers=())
-            for index, row in enumerate(captures)]
+        return [replace(row, routes=deepcopy(row.routes), run_ref_producers=())
+            for row in captures]
 
     def _runtime_capture_names(self, procedure, captures, source_program):
         names = {}
@@ -2956,7 +2838,7 @@ class Builder:
             value_bindings={name: value for name, value in specialization.value_bindings.items()
                 if name not in names}))
 
-    def _reference_invocation_captures(self, call, d, source_program, *, instantiate):
+    def _reference_invocation_captures(self, call, d, source_program):
         resolved = d.procedure_refs[call.callee_name]
         target = d.procedure_ref_keys[call.callee_name]["target"]
         captures = []
@@ -2968,12 +2850,9 @@ class Builder:
                 raise ValueError("reference invocation capture has no unique enclosing route")
             index = matching[0]
             outer = d.captures[index]
-            source_name = d.capture_names[index] if instantiate else None
             captures.append(CaptureSlot(
                 type_ref=self._capture_type_from_reference(resolved, row["routes"][0], source_program),
-                routes=deepcopy(row["routes"]), value={"k": "name", "n": d.ref(source_name)} if instantiate else None,
-                source_name=source_name, identity=index, type_program=source_program,
-                run_ref_producers=outer.run_ref_producers if instantiate else ()))
+                routes=deepcopy(row["routes"]), identity=("forwarded-capture", index), type_program=source_program))
         return captures
 
     @staticmethod
@@ -3157,7 +3036,19 @@ class Builder:
             "fact_demand": inline and demand, "lookup_demand": inline and lookup_demand,
             "bearing": bearing, "projection_type_obligations": obligations,
             "retained_capture_bindings": local.capture_binding_identities,
-            "capture_source_bindings": capture_sources}
+            "capture_source_bindings": capture_sources,
+            "capture_preparation": self._capture_preparation(local)}
+
+    @staticmethod
+    def _capture_preparation(context):
+        return {name: getattr(context, name) for name in ("computed_capture_sources",
+            "computed_capture_requests_by_alias", "reference_capture_aliases")}
+
+    def _install_capture_preparation(self, context, request):
+        for name, value in self._capture_preparation(request).items():
+            if value is None:
+                raise ValueError("call emission requires completed capture preparation")
+            setattr(context, name, value)
 
     def _command_procedure_context(self, procedure, source_program, type_env, captures, binding_facts):
         local = self.definition_context(canonical=procedure.definition.name,
@@ -3312,7 +3203,9 @@ class Builder:
         return f"\0capture:{index}"
 
     def call(self, call: WccCall, d: Definition, env: Mapping[str, TypeRef]) -> dict[str, Any]:
-        request = d.prepared_request(call, d) if d.prepared_request is not None else None
+        if d.prepared_request is None:
+            raise ValueError("procedure emission requires a completed prepared request")
+        request = d.prepared_request(call, d)
         target_name = call.specialized_callee_name or call.callee_name
         target = self.procedure_owners.get(target_name)
         if target is None:
@@ -3320,14 +3213,10 @@ class Builder:
         if target is None:
             raise ValueError(f"WCC procedure call {target_name!r} has no retained typed owner")
         procedure, source_program = target
-        if request is None:
-            request = self._call_request(procedure, source_program, call, d)
         key, canonical = request.key, request.canonical
         args = [
             self._command_capture_argument(row, d, env)
             if any(route[0] in {"command-input", "command-loop-index"} for route in row.routes)
-            else {"k": "name", "n": d.ref(row.value.source_name)}
-            if isinstance(row.value, ComputedCaptureValue)
             else dict(row.value)
             if isinstance(row.value, Mapping)
             else self.value(row.value, d, env)
@@ -3491,8 +3380,10 @@ class Builder:
 
         admitted_import = workflow_import_is_admitted(d.source_program, d.owner,
             target_name, caller_signature, workflow, source_program)
-        target_request = d.prepared_request(perform, d) if d.prepared_request is not None else None
-        key, canonical = (target_request.key, target_request.canonical) if target_request is not None else self._callable_key(workflow, source_program)
+        if d.prepared_request is None:
+            raise ValueError("workflow emission requires a completed prepared request")
+        target_request = d.prepared_request(perform, d)
+        key, canonical = target_request.key, target_request.canonical
         supplied = {name: self.value(value, d, env) for name, value in perform.keyword_args}
         occurrence = (d.context_call_occurrences or {}).get(id(perform))
         forwarded_context: dict[str, tuple[int, CaptureSlot]] = {}
@@ -3577,11 +3468,7 @@ class Builder:
             caller_context_captures = self._workflow_context_captures(
                 caller_signature, workflow, source_program, d, supplied)
             actual_captures = caller_context_captures
-        if target_request is not None:
-            target_request = self._instantiate_workflow_request(target_request, actual_captures, source_program)
-        elif actual_captures:
-            target_request = self._workflow_request(workflow, source_program, actual_captures)
-            key, canonical = target_request.key, target_request.canonical
+        target_request = self._instantiate_workflow_request(target_request, actual_captures, source_program)
 
         if canonical in self.active:
             raise self.gap("call", f"recursive call of {canonical!r}", perform)
@@ -3857,6 +3744,8 @@ class Builder:
         *,
         request: CallableRequest | None = None,
     ) -> None:
+        if request is None or request.prepared_body is None or request.prepared_children is None:
+            raise ValueError("procedure emission requires a prepared body and child table")
         self.active.append(canonical)
         try:
             type_env = source_program.procedure_type_env(procedure)
@@ -3869,7 +3758,7 @@ class Builder:
                 params=procedure.definition.params,
                 callable_def=procedure,
             )
-            capture_slots = list(request.captures) if request is not None else []
+            capture_slots = list(request.captures)
             capture_rows = []
             capture_names = []
             context.command_roots = {}
@@ -3906,20 +3795,18 @@ class Builder:
                             context.command_roots[route[1]] = {"k": "name", "n": wire}
                         else:
                             context.command_index = {"k": "name", "n": wire}
-            if request is not None:
-                aliases = dict(context.binding_aliases or {})
-                slots = {self._capture_source(index): capture for index, capture in enumerate(capture_slots)}
-                for source_name, identity, type_ref in request.capture_source_bindings:
-                    capture = slots.get(source_name)
-                    if identity is None or capture is None or capture.type_ref != type_ref:
-                        raise ValueError("retained capture alias has no exact typed slot")
-                    if identity in aliases and aliases[identity] != source_name:
-                        raise ValueError("retained capture origin has incompatible slots")
-                    aliases[identity] = source_name
-                context.binding_aliases = aliases
+            aliases = dict(context.binding_aliases or {})
+            slots = {self._capture_source(index): capture for index, capture in enumerate(capture_slots)}
+            for source_name, identity, type_ref in request.capture_source_bindings:
+                capture = slots.get(source_name)
+                if identity is None or capture is None or capture.type_ref != type_ref:
+                    raise ValueError("retained capture alias has no exact typed slot")
+                if identity in aliases and aliases[identity] != source_name:
+                    raise ValueError("retained capture origin has incompatible slots")
+                aliases[identity] = source_name
+            context.binding_aliases = aliases
             run_ref_names = dict(context.run_ref_names or {})
-            if request is not None:
-                run_ref_names.update(request.argument_run_ref_producers or {})
+            run_ref_names.update(request.argument_run_ref_producers or {})
             for index, capture in enumerate(capture_slots):
                 if not capture.run_ref_producers:
                     continue
@@ -3936,10 +3823,10 @@ class Builder:
             context.callable_key = key
             context.captures = capture_slots
             context.capture_names = capture_names
-            context.procedure_refs = request.procedure_refs if request is not None else dict(getattr(procedure.specialization, "proc_ref_bindings", {}) or {})
-            context.procedure_ref_keys = request.procedure_ref_keys if request is not None else {}
-            context.workflow_refs = request.workflow_refs if request is not None else dict(getattr(procedure.specialization, "workflow_ref_bindings", {}) or {})
-            context.workflow_ref_keys = request.workflow_ref_keys if request is not None else {}
+            context.procedure_refs = request.procedure_refs
+            context.procedure_ref_keys = request.procedure_ref_keys
+            context.workflow_refs = request.workflow_refs
+            context.workflow_ref_keys = request.workflow_ref_keys
             param_rows, value_env, context.names = self._signature_rows(
                 procedure,
                 context,
@@ -3959,10 +3846,9 @@ class Builder:
                 ),
             )
             param_rows = [*capture_rows, *param_rows]
-            if request is not None:
-                for formal, ref, owner in request.projection_type_obligations:
-                    self.desc(ref, context, typed=owner,
-                        run_ref_producers=(request.argument_run_ref_producers or {}).get(formal, ()))
+            for formal, ref, owner in request.projection_type_obligations:
+                self.desc(ref, context, typed=owner,
+                    run_ref_producers=(request.argument_run_ref_producers or {}).get(formal, ()))
             for source_name, capture in zip(capture_names, capture_slots, strict=True):
                 value_env[source_name] = capture.type_ref
                 for route in capture.routes:
@@ -3970,58 +3856,19 @@ class Builder:
                         value_env[self._command_capture_source(route)] = capture.type_ref
             for index, local_name in local_capture_names.items():
                 value_env[local_name] = capture_slots[index].type_ref
-            captured_formals = {
-                route[1]
-                for capture in capture_slots
-                for route in capture.routes
-                if route[0] == "parameter"
-            }
-            captured_formals.update(local_capture_names.values())
-            specialization = getattr(procedure, "specialization", None)
-            compile_time_bindings: dict[str, Any] = {}
-            if specialization is not None:
-                compile_time_bindings.update(dict(specialization.workflow_ref_bindings))
-                compile_time_bindings.update(dict(specialization.proc_ref_bindings))
-                compile_time_bindings.update(
-                    {
-                        name: value
-                        for name, value in specialization.value_bindings.items()
-                        if name not in captured_formals
-                    }
-                )
-            if request is not None and request.prepared_body is not None:
-                normalized = request.prepared_body
-            else:
-                wcc = elaborate_typed_workflow_body(
-                    procedure.typed_body,
-                    owner_name=procedure.definition.name,
-                    type_env=type_env,
-                    value_env=_procedure_signature_local_type_bindings(procedure),
-                    workflow_return_types=self._workflow_return_types_for(source_program, procedure.definition.name),
-                    procedure_return_types=self.procedure_return_types,
-                    resolved_procedures_by_name=source_program.procedures,
-                    procedure_type_envs=source_program.procedure_type_envs,
-                    route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION,
-                    closed_program=True,
-                    compile_time_bindings=compile_time_bindings,
-                )
-                normalized = normalize_wcc_body_to_anf(wcc)
-            if request is not None:
-                context.capture_binding_identities = request.retained_capture_bindings
-            self._prepare_computed_capture_requests(normalized, context, source_program)
+            normalized = request.prepared_body
+            context.capture_binding_identities = request.retained_capture_bindings
+            self._install_capture_preparation(context, request)
             context, capture_prefix = self._freeze_parameter_captures(
                 context,
                 procedure.typed_body,
                 procedure.definition.params,
             )
-            verify_requests = None
-            if request is not None and request.prepared_children is not None:
-                verify_requests = self._install_prepared_requests(normalized, context, request.prepared_children)
-                context.command_roots.update({name: {"k": "name", "n": param_rows[index][0]}
-                    for name, index in request.command_params or ()})
+            verify_requests = self._install_prepared_requests(normalized, context, request.prepared_children)
+            context.command_roots.update({name: {"k": "name", "n": param_rows[index][0]}
+                for name, index in request.command_params or ()})
             body = self.body(normalized, context, value_env)
-            if verify_requests is not None:
-                verify_requests()
+            verify_requests()
             body = _prepend_lets(body, capture_prefix)
             row = {
                 "key": key,
@@ -4029,7 +3876,7 @@ class Builder:
                 "result": self.desc(procedure.signature.return_type_ref, context),
                 "body": body,
             }
-            if request is not None and request.command_params is not None:
+            if request.command_params is not None:
                 row["command_params"] = request.command_params
             selector = self._configuration_selector(source_program, procedure.definition.name)
             if selector is not None:
@@ -4047,6 +3894,8 @@ class Builder:
         *,
         request: WorkflowRequest | None = None,
     ) -> None:
+        if request is None or request.prepared_body is None or request.prepared_children is None:
+            raise ValueError("workflow emission requires a prepared body and child table")
         self.active.append(canonical)
         try:
             name = workflow.definition.name
@@ -4060,7 +3909,7 @@ class Builder:
                 params=workflow.definition.params,
                 callable_def=workflow,
             )
-            captures = list(request.captures) if request is not None else []
+            captures = list(request.captures)
             capture_rows = []
             capture_names = []
             for index, capture in enumerate(captures):
@@ -4105,28 +3954,21 @@ class Builder:
             context.callable_key = key
             context.captures = captures
             context.capture_names = capture_names
-            normalized = request.prepared_body if request is not None else self._workflow_wcc_body(workflow, source_program)
+            normalized = request.prepared_body
             context.context_call_occurrences = self._workflow_call_occurrences(
-                normalized,
-                source_program,
-                name,
-            )
-            if request is not None:
-                context.capture_binding_identities = request.retained_capture_bindings
-            self._prepare_computed_capture_requests(normalized, context, source_program)
+                normalized, source_program, name)
+            context.capture_binding_identities = request.retained_capture_bindings
+            self._install_capture_preparation(context, request)
             context, capture_prefix = self._freeze_parameter_captures(
                 context,
                 workflow.typed_body,
                 workflow.definition.params,
             )
-            verify_requests = None
-            if request is not None:
-                verify_requests = self._install_prepared_requests(normalized, context, request.prepared_children)
-                context.command_roots = {formal: {"k": "name", "n": param_rows[index][0]}
-                    for formal, index in request.command_params or ()}
+            verify_requests = self._install_prepared_requests(normalized, context, request.prepared_children)
+            context.command_roots = {formal: {"k": "name", "n": param_rows[index][0]}
+                for formal, index in request.command_params or ()}
             body = self.body(normalized, context, value_env)
-            if verify_requests is not None:
-                verify_requests()
+            verify_requests()
             body = _prepend_lets(body, capture_prefix)
             row = {
                 "key": key,
@@ -4134,7 +3976,7 @@ class Builder:
                 "result": self.desc(workflow.signature.return_type_ref, context),
                 "body": body,
             }
-            if request is not None and request.command_params is not None:
+            if request.command_params is not None:
                 row["command_params"] = request.command_params
             selector = self._configuration_selector(source_program, name)
             if selector is not None:
@@ -4162,9 +4004,9 @@ class Builder:
         classify_call: WccCall | None = None,
         resolved_callee=None,
     ):
-        from ..expression_traversal import free_expr_names, walk_expr
-        from ..expressions import BindProcExpr, LetStarExpr, LiteralExpr, NameExpr
-        from ..wcc.model import WccNameAtom, WccOpaqueFrontendValue
+        from ..expression_traversal import free_expr_names
+        from ..expressions import BindProcExpr, LiteralExpr, NameExpr
+        from ..wcc.model import WccNameAtom
 
         by_alias: dict[str, list[ComputedCaptureRequest]] = {
             alias: list(rows)
@@ -4178,18 +4020,8 @@ class Builder:
             for row in rows
         }
         capture_binding_identities: set[object] = set(d.capture_binding_identities)
+        alias_types = {}
         creation_facts = []
-
-        def retain_static_capture_rows(expression: Any) -> None:
-            for node in walk_expr(expression):
-                if not isinstance(node, LetStarExpr):
-                    continue
-                capture_binding_identities.update(
-                    identity
-                    for row in node.binding_capture_sources
-                    if row is not None
-                    for identity in (row[0],)
-                )
 
         def retain_reference_identities(resolved: Any, seen: set[int]) -> None:
             if id(resolved) in seen:
@@ -4251,11 +4083,14 @@ class Builder:
                         )
                     sources[expression_lookup] = previous.source_name
                 return
+            from .command_templates import prepare_frontend_value
+
             source_name = f"\0computed-capture:{len(requests) + 1}"
             request = ComputedCaptureRequest(
                 source_identity=source_identity,
                 formal=formal_path,
-                expression=expression,
+                prepared_value=prepare_frontend_value(self, expression, d,
+                    {name: alias_types[alias] for name, alias in selected_aliases.items()}),
                 type_ref=type_ref,
                 source_aliases=selected_aliases,
                 insertion_alias=tuple(selected_aliases.values())[-1],
@@ -4285,6 +4120,7 @@ class Builder:
                             f"computed capture source {capture.source_name!r} has competing lexical aliases"
                         )
                     aliases[capture.source_name] = capture.value.name
+                    alias_types[capture.value.name] = capture.value.metadata.type_ref
             return aliases
 
         def visit_reference_owner(
@@ -4420,17 +4256,13 @@ class Builder:
                 identity = value.metadata.binding_identity
                 if identity is not None:
                     capture_binding_identities.add(identity)
-            elif isinstance(value, WccOpaqueFrontendValue):
-                if value.normalized_body is not None:
-                    visit(value.normalized_body)
-                else:
-                    retain_static_capture_rows(value.expr)
             elif isinstance(value, WccCall):
                 consider(value)
                 for argument in value.args:
                     visit_value(argument)
             elif isinstance(value, WccPerform):
-                for argument in (*value.positional_args, *(item for _name, item in value.keyword_args)):
+                for argument in (*value.positional_args, *(item for _name, item in value.keyword_args),
+                        *perform_payload_values(value.perform_kind, value.operation_payload, include_transport=False)):
                     visit_value(argument)
             elif isinstance(value, WccSelect):
                 visit_value(value.condition)
@@ -4438,6 +4270,16 @@ class Builder:
                     for prefix in arm.prefix:
                         visit_value(prefix.bound_value)
                     visit_value(arm.value)
+            elif isinstance(value, WccResultPath):
+                visit_value(value.source)
+            elif isinstance(value, WccBlock):
+                visit(value.body)
+            elif isinstance(value, WccListMap):
+                visit_value(value.source)
+                visit(value.body)
+            elif isinstance(value, WccList):
+                for item in value.items:
+                    visit_value(item)
             elif isinstance(value, WccPureOp):
                 for argument in value.args:
                     visit_value(argument)
@@ -4473,6 +4315,7 @@ class Builder:
                 visit(node.workspace_body)
                 visit(node.body)
             elif isinstance(node, WccRecJoin):
+                self._check_loop_effect_cardinality(node, d)
                 visit_value(node.budget)
                 if node.initial_state is not None:
                     visit_value(node.initial_state)
@@ -4725,7 +4568,6 @@ def _build_with_builder(typed: Any, builder: Builder) -> ClosedProgram:
         call_declaration_identity=lambda call: builder._command_declaration_identity(call, typed, entry.definition.name))
     d.command_roots = {name: {"k": "name", "n": params[index][0]}
         for name, index in command_params or ()}
-    builder._prepare_computed_capture_requests(normalized, d, typed)
     d, capture_prefix = builder._freeze_parameter_captures(
         d,
         entry.typed_body,

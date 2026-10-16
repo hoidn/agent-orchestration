@@ -1237,7 +1237,6 @@ def test_discriminant_operator_keeps_its_declared_enum_descriptor_after_source_r
             resolved_procedures_by_name=typed.procedures,
             procedure_type_envs=typed.procedure_type_envs,
             route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION,
-            closed_program=True,
         )
     )
 
@@ -1262,8 +1261,8 @@ def test_retained_nested_match_cannot_read_same_typed_outer_binder(tmp_path, mon
     from dataclasses import replace
     from tests.test_workflow_lisp_closed_command_transport import _compile
     from tests.test_workflow_lisp_closed_command_requests import _prepared_entry
-    from tests.test_workflow_lisp_closed_preparation_integrity import _opaque_map_body, _prepare_other_owner, _registrations, _forbid_emission
-    from orchestrator.workflow_lisp.expressions import MatchExpr
+    from tests.test_workflow_lisp_closed_preparation_integrity import _map_body, _prepare_other_owner, _registrations, _forbid_emission
+    from orchestrator.workflow_lisp.wcc.model import WccCase, WccHalt
 
     declaration = '(defunion Choice (A (n Int)) (B (n Int)))'
     declaration += '(defproc helper ((values List[Choice])) -> List[Int] :effects ((uses-command echo)) :lowering inline '
@@ -1277,18 +1276,20 @@ def test_retained_nested_match_cannot_read_same_typed_outer_binder(tmp_path, mon
     _forbid_emission(monkeypatch, builder)
 
     def retarget(expr):
-        assert isinstance(expr, MatchExpr)
+        assert isinstance(expr, WccCase)
         outer = expr.arms[0]
-        assert isinstance(outer.body, MatchExpr)
+        assert isinstance(outer.body, WccCase)
         inner = outer.body.arms[0]
         assert outer.variant_name == inner.variant_name == 'A'
         assert outer.binding_identity != inner.binding_identity
-        changed = replace(inner.body, base=replace(inner.body.base, name=outer.binding_name))
+        assert isinstance(inner.body, WccHalt)
+        field = inner.body.result
+        changed = replace(inner.body, result=replace(field, base=replace(field.base, name=outer.binding_name)))
         nested = replace(outer.body, arms=(replace(inner, body=changed), outer.body.arms[1]))
         return replace(expr, arms=(replace(outer, body=nested), expr.arms[1]))
 
     def mutate(body, call, source):
-        return _opaque_map_body(body, retarget) if call.definition.name.endswith('helper') else body
+        return _map_body(body, retarget) if call.definition.name.endswith('helper') else body
 
     with pytest.raises(ValueError, match=r'contradictory prepared.*\.base'):
         _prepare_other_owner(second, builder, monkeypatch, mutate)
@@ -1360,22 +1361,22 @@ def _opaque_command_program(tmp_path, argument='"${inputs.root}:${loop.index}"',
     return _compile(tmp_path, body, declarations=declarations, params='(root Int)')
 
 
-def _assert_opaque_body_continuity(program, body, builder):
+def _assert_block_body_continuity(program, body, builder):
     from dataclasses import replace
     from orchestrator.workflow_lisp.build_manifest_io import _json_data
     from orchestrator.workflow_lisp.wcc.hygiene import _free_names, _renamed
-    from orchestrator.workflow_lisp.wcc.model import WccNameAtom, WccOpaqueFrontendValue
+    from orchestrator.workflow_lisp.wcc.model import WccNameAtom, WccBlock
     from tests.test_workflow_lisp_closed_command_transport import (
         _walk_wcc,
     )
 
-    (opaque,) = [node for node in _walk_wcc(body) if isinstance(node, WccOpaqueFrontendValue) and node.normalized_body is not None]
-    assert opaque.expr is None and normalize_wcc_body_to_anf(body) == body
+    (block,) = [node for node in _walk_wcc(body) if isinstance(node, WccBlock)]
+    assert normalize_wcc_body_to_anf(body) == body
     _assert_opaque_planning_continuity(program, builder)
-    state = next(node for node in _walk_wcc(opaque.normalized_body) if isinstance(node, WccNameAtom) and node.name == 'state')
-    renamed = _renamed(opaque, {'state': replace(state, name='retained-state')})
+    state = next(node for node in _walk_wcc(block.body) if isinstance(node, WccNameAtom) and node.name == 'state')
+    renamed = _renamed(block, {'state': replace(state, name='retained-state')})
     assert 'retained-state' in _free_names(renamed) and 'state' not in _free_names(renamed)
-    assert 'normalized_body' not in _json_data(replace(opaque, expr=program.entry.typed_body, normalized_body=None))
+    assert 'expr' not in _json_data(block)
 
 
 def test_opaque_normalized_child_inherits_loop_inputs_and_survives_anf_hygiene(tmp_path):
@@ -1388,7 +1389,7 @@ def test_opaque_normalized_child_inherits_loop_inputs_and_survives_anf_hygiene(t
     (child,) = children.values()
     assert builder.definitions == {} and builder.run_ref_producers == []
     assert len(list(_wcc_call_nodes(body))) == len(children) == 1
-    _assert_opaque_body_continuity(program, body, builder)
+    _assert_block_body_continuity(program, body, builder)
     assert child.command_interface['decisions']
     closed = build_closed_program(program)
     restored = ClosedProgram.from_artifact(closed.artifact())

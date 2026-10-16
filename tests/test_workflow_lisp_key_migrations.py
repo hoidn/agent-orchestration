@@ -47,7 +47,7 @@ LISP_INVALID_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "in
 EXPERIMENT_CTX_FIXTURE = LISP_FIXTURES / "context_generalization_experiment_ctx.orc"
 RUNCTX_ONLY_DRAIN_ENTRY_FIXTURE = LISP_FIXTURES / "context_generalization_runctx_only_drain_entry.orc"
 STD_CONTEXT_IMPORT_FIXTURE = LISP_FIXTURES / "context_generalization_std_context_import.orc"
-ANCHORLESS_STATE_PATH_FIXTURE = LISP_INVALID_FIXTURES / "context_generalization_anchorless_state_path.orc"
+ANCHORLESS_STATE_PATH_FIXTURE = REPO_ROOT / "tests/fixtures/workflow_lisp/current235/invalid/context_generalization_anchorless_state_path.orc"
 ROLELESS_BINDING_FIXTURE = LISP_INVALID_FIXTURES / "context_generalization_roleless_binding.orc"
 TRACKED_PLAN_PILOT_EVIDENCE = (
     REPO_ROOT / "docs" / "plans" / "evidence" / "procedure-first-pilot" / "tracked-plan-phase"
@@ -4434,7 +4434,7 @@ def test_context_generalization_anchorless_state_path_fixture_rejects_low_level_
     with pytest.raises(LispFrontendCompileError) as excinfo:
         compile_stage3_entrypoint(
             ANCHORLESS_STATE_PATH_FIXTURE,
-            source_roots=(LISP_INVALID_FIXTURES,),
+            source_roots=(ANCHORLESS_STATE_PATH_FIXTURE.parent,),
             command_boundaries={
                 "emit_state_root": ExternalToolBinding(
                     name="emit_state_root",

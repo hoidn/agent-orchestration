@@ -170,6 +170,7 @@ def test_schema1_private_override_requires_both_private_checks(
         lambda *a, **k: checks.append("body") or body,
     )
     procedure = SimpleNamespace(
+        definition=SimpleNamespace(effect_contract_target="2.35"),
         resolved_lowering_mode=ProcedureLoweringMode.INLINE,
         typed_body=SimpleNamespace(expr=_literal(True)),
     )

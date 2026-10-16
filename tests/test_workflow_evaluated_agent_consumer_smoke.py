@@ -41,7 +41,7 @@ def _cli(root: Path, *argv: str) -> subprocess.CompletedProcess[str]:
 
 def _setup(tmp_path, monkeypatch, plan=RESULTS, program=PROGRAMS["design_review_execute_agents"]) -> list[str]:
     install_agent_shims(tmp_path / "bin", monkeypatch, codex_home=tmp_path / "codex", claude_home=tmp_path / "claude", plan=plan)
-    return install(tmp_path, program, {"task": "t"}, current=False)
+    return install(tmp_path, program, {"task": "t"})
 
 
 def _plan(tool: str, index: int, mode: str, *, retry: bool) -> dict:
@@ -244,7 +244,7 @@ def test_invalidating_feedback_is_refused_after_revised_committed_but_the_baseli
     refused = _cli(tmp_path / "agents", "invalidate", run_root.name, next(i for i in memo.active_commits if i.endswith("/ feedback")))
     assert refused.returncode == 2 and "invalidate_coordinator_committed" in refused.stderr, refused.stderr
     assert _tree_bytes(run_root) == before
-    baseline = Program("workflows/examples/design_review_execute.orc", "2.35", "design_review_execute::run", "workflows/examples",
+    baseline = Program("workflows/examples/design_review_execute.orc", "design_review_execute::run", "workflows/examples",
                        {"providers": "workflows/examples/inputs/design_review_execute/providers.json"}, prepare=design_docs)
     frontend = _setup(tmp_path / "baseline", monkeypatch, program=baseline)
     assert _cli(tmp_path / "baseline", "run", *frontend, *RUN).returncode == 0

@@ -9,13 +9,12 @@ import pytest
 from orchestrator.workflow_lisp.route_readiness import (
     ROUTE_READINESS_SCHEMA_VERSION,
     RouteReadinessError,
-    compile_registered_route_case,
     discover_required_orc_surfaces,
     load_route_readiness_registry,
     registry_entry_for_path,
     validate_route_readiness_registry,
 )
-from orchestrator.workflow_lisp.wcc.route import DEFAULT_LOWERING_ROUTE
+
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -73,7 +72,7 @@ def _base_entry(**overrides: object) -> dict[str, object]:
         "surface_kind": "test_fixture",
         "route_label": "wcc_default",
         "readiness_label": "leaf_runtime_candidate",
-        "lowering_route": DEFAULT_LOWERING_ROUTE.value,
+        "lowering_route": "wcc_m4",
         "lowering_schema_version": 2,
         "copy_safety": "preferred_current_guidance",
         "evidence": [
@@ -126,17 +125,6 @@ def test_evaluated_registry_rejects_either_flat_field(tmp_path: Path, field, val
     assert any(issue.code == "route_readiness_schema_mismatch" and issue.field == field for issue in issues)
 
 
-def test_evaluated_registry_cannot_invoke_flat_compile_helper(tmp_path: Path) -> None:
-    entry = _base_entry(route_label="evaluated_execution")
-    entry.pop("lowering_route")
-    entry.pop("lowering_schema_version")
-    path = _write_registry(tmp_path, [entry])
-    calls = []
-    with pytest.raises(AssertionError, match="no compile route/schema"):
-        compile_registered_route_case(entry["surface_id"], source_path=REPO_ROOT / entry["path"],
-                                      repo_root=REPO_ROOT, registry_path=path,
-                                      compile_func=lambda *args, **kwargs: calls.append(args))
-    assert calls == []
 
 
 def _evidence_codes(validation) -> set[str]:
@@ -870,54 +858,10 @@ def test_cli_route_readiness_check_invalid_and_malformed_registries(tmp_path: Pa
     assert malformed.returncode == 2
 
 
-def test_compile_registered_route_case_injects_route_and_checks_schema(tmp_path: Path) -> None:
-    calls: list[dict[str, object]] = []
-
-    class Result:
-        lowering_schema_version = 2
-
-    def fake_compile(source_path: Path, **kwargs):
-        calls.append({"source_path": source_path, **kwargs})
-        return Result()
-
-    result, entry = compile_registered_route_case(
-        "tests.fixtures.workflow_lisp.retired_examples.effectful_match_arm_normalization",
-        source_path=REPO_ROOT / "tests/fixtures/workflow_lisp/retired_examples/effectful_match_arm_normalization.orc",
-        repo_root=REPO_ROOT,
-        compile_func=fake_compile,
-        registry_path=_write_registry(tmp_path, [_base_entry()]),
-        workspace_root=tmp_path,
-    )
-
-    assert isinstance(result, Result)
-    assert entry.lowering_route == DEFAULT_LOWERING_ROUTE.value
-    assert calls[0]["lowering_route"] == DEFAULT_LOWERING_ROUTE.value
 
 
-def test_compile_registered_route_case_default_route_does_not_override(tmp_path: Path) -> None:
-    calls: list[dict[str, object]] = []
 
-    class EntryResult:
-        lowering_schema_version = 2
 
-    class Result:
-        entry_result = EntryResult()
-
-    def fake_compile(source_path: Path, **kwargs):
-        calls.append({"source_path": source_path, **kwargs})
-        return Result()
-
-    compile_registered_route_case(
-        "tests.fixtures.workflow_lisp.retired_examples.effectful_match_arm_normalization",
-        source_path=REPO_ROOT / "tests/fixtures/workflow_lisp/retired_examples/effectful_match_arm_normalization.orc",
-        repo_root=REPO_ROOT,
-        default_route_check=True,
-        compile_func=fake_compile,
-        registry_path=_write_registry(tmp_path, [_base_entry()]),
-        workspace_root=tmp_path,
-    )
-
-    assert "lowering_route" not in calls[0]
 
 
 def test_docs_mention_route_readiness_registry_path() -> None:

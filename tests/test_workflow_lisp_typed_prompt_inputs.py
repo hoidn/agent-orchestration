@@ -39,12 +39,6 @@ def _generic_family_profile_catalog():
     )
 
 
-
-
-
-
-
-
 def _initialize_typed_prompt_input_workspace(workspace: Path) -> None:
     (workspace / "docs" / "design").mkdir(parents=True, exist_ok=True)
     (workspace / "docs" / "plans").mkdir(parents=True, exist_ok=True)
@@ -57,8 +51,6 @@ def _initialize_typed_prompt_input_workspace(workspace: Path) -> None:
         "# plan\n",
         encoding="utf-8",
     )
-
-
 
 
 def test_prompt_fragment_renderer_selection_recurses_only_through_admitted_lists() -> None:
@@ -114,15 +106,6 @@ def test_prompt_fragment_renderer_selection_recurses_only_through_admitted_lists
             key_type_ref=PrimitiveTypeRef(name="String"),
             value_type_ref=PrimitiveTypeRef(name="String"),
         ),
-        UnionTypeRef(
-            name="Outcome",
-            definition=UnionDef(
-                name="Outcome",
-                variants=(),
-                span=span,
-            ),
-            variant_field_types={},
-        ),
     )
     assert all(
         module.select_prompt_fragment_renderer(
@@ -171,13 +154,9 @@ def test_union_prompt_inputs_preserve_active_payload(
     assert module.select_prompt_fragment_renderer(
         value_type,
         kind="value",
-        target_dsl_version="2.28",
+
     ) == "canonical-json"
-    assert module.select_prompt_fragment_renderer(
-        value_type,
-        kind="value",
-        target_dsl_version="2.27",
-    ) is None
+
 
     prompt_block, evidence = render_typed_prompt_inputs(
         [
@@ -205,8 +184,6 @@ def test_union_prompt_inputs_preserve_active_payload(
 
     assert json.loads(prompt_block.split("\n", 2)[1]) == [value]
     assert len(evidence) == 1
-
-
 
 
 def test_known_literal_union_and_metadata_skip_preserve_authored_fields() -> None:
@@ -237,23 +214,6 @@ def test_known_literal_union_and_metadata_skip_preserve_authored_fields() -> Non
             },
         }
     )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def test_normalize_typed_prompt_input_entry_canonicalizes_metadata() -> None:
@@ -486,12 +446,6 @@ def test_target_2_22_fragment_trace_reuse_preserves_typed_evidence_schema(
         == "workflow_lisp_typed_prompt_input_evidence.v1"
         for row in evidence
     )
-
-
-
-
-
-
 
 
 def test_render_typed_prompt_inputs_requires_exact_binding_and_evidence_sets() -> None:
@@ -1292,8 +1246,6 @@ def test_build_typed_prompt_input_report_keeps_design_delta_consume_prompt_rows_
     assert report["consumed_artifact_prompt_rows"] == []
 
 
-
-
 def test_runtime_rejects_missing_composer_evidence_before_provider_preparation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1315,16 +1267,7 @@ def test_runtime_rejects_missing_composer_evidence_before_provider_preparation(
         return pytest.fail("provider execution must not be reached")
 
 
-
     assert calls == {"preparations": 0, "executions": 0}
-
-
-
-
-
-
-
-
 
 
 def test_typed_prompt_input_fixture_rows_resolve_via_family_profile_catalog() -> None:

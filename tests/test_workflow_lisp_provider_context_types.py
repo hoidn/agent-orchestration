@@ -57,7 +57,7 @@ def _record_type(name: str) -> RecordTypeRef:
     return RecordTypeRef(
         name=name,
         definition=definition,
-        field_types={"value": _resolve(_type_env("2.30"), "String")},
+        field_types={"value": _resolve(_type_env("2.35"), "String")},
     )
 
 
@@ -76,7 +76,7 @@ def _resolve(
 
 
 def test_contextual_type_round_trips_as_an_ordinary_recursive_descriptor() -> None:
-    type_env = _type_env("2.31")
+    type_env = _type_env("2.35")
 
     contextual = _resolve(type_env, "Contextual[Int]")
 
@@ -95,7 +95,7 @@ def test_contextual_type_round_trips_as_an_ordinary_recursive_descriptor() -> No
 
 
 def test_context_file_change_fixed_type_matches_the_portable_descriptor() -> None:
-    type_env = _type_env("2.31")
+    type_env = _type_env("2.35")
 
     change = _resolve(type_env, "ContextFileChange")
     origin = _resolve(type_env, "ContextOrigin")
@@ -127,7 +127,7 @@ def test_context_file_change_fixed_type_matches_the_portable_descriptor() -> Non
 
 
 def test_context_is_a_whole_ordinary_value_for_pure_field_access() -> None:
-    type_env = _type_env("2.31")
+    type_env = _type_env("2.35")
     context = _resolve(type_env, "Context")
     access = FieldAccessExpr(
         base=NameExpr(name="context", span=SPAN, form_path=FORM_PATH),
@@ -146,7 +146,7 @@ def test_context_is_a_whole_ordinary_value_for_pure_field_access() -> None:
 
 
 def test_contextual_substitution_rebuilds_its_concrete_definition() -> None:
-    type_env = _type_env("2.31")
+    type_env = _type_env("2.35")
     generic = _resolve(type_env, "Contextual[T]", params=frozenset({"T"}))
 
     substituted = substitute_type_params(generic, {"T": _resolve(type_env, "Int")})
@@ -157,7 +157,7 @@ def test_contextual_substitution_rebuilds_its_concrete_definition() -> None:
 
 
 def test_wrapper_only_argument_infers_a_generic_parameter_from_contextual_result() -> None:
-    type_env = _type_env("2.31")
+    type_env = _type_env("2.35")
     bindings = {}
 
     _infer_parametric_type_bindings(
@@ -172,37 +172,12 @@ def test_wrapper_only_argument_infers_a_generic_parameter_from_contextual_result
     assert bindings == {"T": _resolve(type_env, "Int")}
 
 
-def test_context_type_names_remain_unavailable_before_the_unadmitted_target() -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _resolve(_type_env("2.30"), "Context")
-
-    assert excinfo.value.diagnostics[0].code == "type_unknown"
 
 
-@pytest.mark.parametrize("type_name", ("Contextual[Int]", "List[Contextual[Int]]"))
-def test_contextual_is_rejected_before_231_even_when_old_source_defines_context(
-    type_name: str,
-) -> None:
-    type_env = _type_env(
-        "2.30",
-        definitions=(
-            RecordDef(
-                name="Context",
-                fields=(RecordField(name="value", type_name="String", span=SPAN),),
-                span=SPAN,
-            ),
-        ),
-    )
-    assert _resolve(type_env, "Context").definition.span.start.path == "context-types.orc"
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _resolve(type_env, type_name)
-
-    assert excinfo.value.diagnostics[0].code == "contextual_type_requires_dsl_2_31"
 
 
 def test_contextual_inference_preserves_wrapper_result_constraints() -> None:
-    type_env = _type_env("2.31")
+    type_env = _type_env("2.35")
     bindings = {}
     expected = _resolve(type_env, "Contextual[T]", params=frozenset({"T"}))
 
@@ -226,7 +201,7 @@ def test_contextual_inference_preserves_wrapper_result_constraints() -> None:
 
 
 def test_contextual_rejects_the_wrong_concrete_result_type() -> None:
-    type_env = _type_env("2.31")
+    type_env = _type_env("2.35")
 
     with pytest.raises(pytest.fail.Exception):
         _infer_parametric_type_bindings(
@@ -262,7 +237,7 @@ def test_imported_contextual_rebuilds_its_canonical_name_and_definition() -> Non
         fields=(RecordField(name="value", type_name="Int", span=SPAN),),
         span=SPAN,
     )
-    library_env = _type_env("2.31", definitions=(item,))
+    library_env = _type_env("2.35", definitions=(item,))
     wrapped = _resolve(library_env, "Contextual[Item]")
     canonical_item = _canonicalize_nested_imported_type_ref(
         _resolve(library_env, "Item"),
@@ -275,7 +250,7 @@ def test_imported_contextual_rebuilds_its_canonical_name_and_definition() -> Non
         exported_names=frozenset({"Item"}),
     )
     consumer_env = _type_env(
-        "2.31",
+        "2.35",
         imported_type_refs={"library::Item": canonical_item},
     )
 

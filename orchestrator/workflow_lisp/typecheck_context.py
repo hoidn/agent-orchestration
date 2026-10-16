@@ -12,12 +12,7 @@ from orchestrator.workflow.provider_phased_delivery.diagnostics import (
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .compiler_session import CompilerSession, TypecheckSessionState
-from .effects import (
-    EMPTY_EFFECT_SUMMARY,
-    EffectSummary,
-    RunsTrialEffect,
-    effect_summary_contains_runs_ref,
-)
+from .effects import EMPTY_EFFECT_SUMMARY, EffectSummary, RunsTrialEffect
 from .expressions import ExprNode, LiteralExpr
 from .lints import required_lint_diagnostic
 from .loops import LoopControlTypeRef
@@ -101,13 +96,10 @@ class TypecheckContext:
 
 def effect_summary_requires_run_ref_placement_refusal(
     summary: EffectSummary,
-    *,
-    context: TypecheckContext,
 ) -> bool:
     """Keep child-run placement pure except path run-ref in a closed program."""
 
-    if not context.compiler_session.closed_program:
-        return effect_summary_contains_runs_ref(summary)
+
     return any(
         isinstance(effect, RunsTrialEffect)
         for effect in (*summary.direct_effects, *summary.transitive_effects)

@@ -24,7 +24,6 @@ FRONTEND = {
     "prompt_externs": {},
     "command_boundaries": {},
     "validate_shared": False,
-    "lowering_route": "legacy",
 }
 
 DECISION = """  (defunion Decision :forall (F B)
@@ -46,7 +45,7 @@ DECISION = """  (defunion Decision :forall (F B)
 
 def _write(tmp_path: Path, body: str) -> Path:
     path = tmp_path / "module.orc"
-    path.write_text(f'(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.33")\n{body})\n', encoding="utf-8")
+    path.write_text(f'(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.35")\n{body})\n', encoding="utf-8")
     return path
 
 
@@ -273,7 +272,7 @@ def _tags_module(tmp_path: Path, left: str, right: str) -> Path:
     path.write_text(
         f"""(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.33")
+  (:target-dsl "2.35")
   (defmodule t3/tags)
   (import gu/lib :as lib)
   (import cx/a :only (Item))

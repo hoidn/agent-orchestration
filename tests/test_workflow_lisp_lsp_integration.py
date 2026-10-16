@@ -316,7 +316,7 @@ def _library_source(symbol_name: str) -> str:
     return (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.14")\n'
+        '  (:target-dsl "2.35")\n'
         "  (defmodule entry)\n"
         f"  (defproc {symbol_name}\n"
         "    ((value Bool))\n"
@@ -338,7 +338,7 @@ def _stateful_recompile_source(
     return (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.15")\n'
+        '  (:target-dsl "2.35")\n'
         "  (defmodule entry)\n"
         f"  (export {record_name} {helper_name} run)\n"
         f"  (defrecord {record_name} (value String))\n"

@@ -114,7 +114,7 @@ def test_exact_union_optional_and_map_signature_descriptors_are_admissible(
     tuple(row[2] for row in _NESTED_TRANSPORT_BOUNDARIES),
     ids=("list-record", "list-union"),
 )
-def test_nested_structural_signature_admission_is_explicitly_target_gated(
+def test_nested_structural_signature_accepts_current_nested_boundaries(
     descriptor: dict[str, object],
 ) -> None:
     configured_input = RunRefInput(
@@ -138,10 +138,4 @@ def test_nested_structural_signature_admission_is_explicitly_target_gated(
         signature,
         (configured_input,),
         program,
-    ) == ("input_nontransportable:payload", "return_nontransportable")
-    assert path_contracts_module._signature_mismatch_causes(
-        signature,
-        (configured_input,),
-        program,
-        target_dsl_version="2.25",
     ) == ()

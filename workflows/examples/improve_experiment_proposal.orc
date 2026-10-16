@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.36")
+  (:target-dsl "2.39")
   (defmodule improve_experiment_proposal)
   (import std/improve :only (Decision improve))
   (export run-experiment)
@@ -28,7 +28,6 @@
 
   (defproc propose ((brief ExperimentBrief)) -> ExperimentProposal
     :effects ()
-    :lowering inline
     (record ExperimentProposal
       :hypothesis brief.question
       :parameters (list (record Parameter :name "seed" :value 0))))
@@ -38,7 +37,6 @@
     ((proposal ExperimentProposal) (outcome String) (note String))
     -> ExperimentRun
     :effects ((uses-command launch_experiment))
-    :lowering inline
     (command-result launch_experiment
       :argv ("python" "scripts/launch_experiment.py"
              "--outcome" outcome

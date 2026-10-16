@@ -1,20 +1,24 @@
 # Workflow Lisp Library Reference
 
-Status: informative reference for current evaluated targets 2.35 and 2.36.
+Status: informative reference for admitted compositions at evaluated targets 2.35–2.39.
 Use this page to choose a reusable API, an example workflow, or a composition
 pattern for generating, evaluating, selecting and improving candidates. The
 [drafting guide](lisp_workflow_drafting_guide.md) owns general authoring judgment;
 [capability status](capability_status_matrix.md), the linked designs and
 [normative CLI contract](../specs/cli.md) own availability and execution.
 
+Every imported source module must meet the [2.35 source floor](design/workflow_lisp_executor_retirement.md#source-floor-235).
+The packaged libraries use admitted source; frozen earlier specimens remain
+historical data and cannot be imported or analyzed by the current frontend.
+
 ## Choose by task
 
 | Task | Entry | Kind | Current availability |
 | --- | --- | --- | --- |
 | Generate independent code changes, then choose one | [Generate candidates and select](#generate-candidates-and-select) | Example workflow | Canonical 2.35 source; serial, bounded, manually prepared clones |
-| Review and revise one typed candidate | [Review and revise with `std/improve`](#review-and-revise-with-stdimprove) | Library API | 2.35 explicit-input API; 2.36 local-hook API |
+| Review and revise one typed candidate | [Review and revise with `std/improve`](#review-and-revise-with-stdimprove) | Library API | 2.35 explicit-input API; 2.36–2.39 local-hook API, with a maintained 2.39 caller |
 | Score a candidate with a deterministic executable | [Evaluate with an external command](#evaluate-with-an-external-command) | Composition pattern | Typed `command-result` with a declared command boundary at 2.35 |
-| Search across candidates under an evaluation budget | [Iterative search](#iterative-search) | Example workflow | Maintained compact controller at 2.35; application-defined policy |
+| Search across candidates under an evaluation budget | [Iterative search](#iterative-search) | Example workflow | Maintained compact controller at 2.39; application-defined policy |
 | Keep one conversation across review and revise | [`design_review_execute_agents.orc`](../workflows/examples/design_review_execute_agents.orc); [Agent sessions](lisp_workflow_drafting_guide.md#agent-sessions-target-238) | Example workflow | Implemented at 2.38; [deterministic and bounded adapter-smoke evidence](reports/2026-10-14-agent-sessions-pq1a-qualification.md) recorded; acceptance comparison pending |
 
 These entries do different work. Selection compares alternatives; review/revise
@@ -166,7 +170,7 @@ unrestricted clones.
 ## Review and revise with `std/improve`
 
 **Kind:** library API imported from `std/improve`.
-**Availability:** admitted compositions at evaluated targets 2.35 and 2.36;
+**Availability:** the 2.35 explicit-input API and 2.36–2.39 W3 API;
 remaining composition and tooling limits are stated below.
 
 `improve` takes a record candidate and typed review/revise procedure references.
@@ -189,12 +193,14 @@ The entry target chooses one API for the entire **source import graph**:
 | Entry target | Call | Hook signatures |
 | --- | --- | --- |
 | 2.35 | `(improve initial inputs review revise limit)` | `review(S I) -> Decision[F B]`; `revise(S I F) -> S` |
-| 2.36 | `(improve initial review revise limit)` | `review(S) -> Decision[F B]`; `revise(S F) -> S` |
+| 2.36–2.39 | `(improve initial review revise limit)` | `review(S) -> Decision[F B]`; `revise(S F) -> S` |
 
-Every source importer sees that API, even with an older defining-module target.
+Every admitted source importer sees that API, including a defining-module
+target of 2.35 in a 2.36+ entry graph.
 Retargeting requires migrating five-argument source callers; compatible and
 type-only imports remain legal. Complete imported snapshots retain producer
-authority. The selected W3 helper still has source header 2.33. See
+authority. Both packaged improve variants have source header 2.35; the entry
+graph still selects the 2.35 explicit-input or 2.36+ W3 API. See
 [write-once §9](design/workflow_lisp_write_once.md#9-targets-and-compatibility)
 for old module identities, snapshot conflicts and resume guards.
 
@@ -204,11 +210,17 @@ committed-stop/resume/completed-replay evidence with deterministic provider
 shims in `tests/test_workflow_evaluated_consumers.py`. This does not qualify
 arbitrary compositions, package upgrades, all old checkpoints or evaluated LSP.
 
-#### Target 2.36 local hooks
+<a id="target-236-local-hooks"></a>
+
+#### Target 2.39 local hooks
 
 The maintained
 [`improve_experiment_proposal.orc`](../workflows/examples/improve_experiment_proposal.orc)
-uses inferred signatures and lexical captures. Its complete module follows
+targets 2.39 and uses inferred signatures and lexical captures from W3. The
+imported `std/improve` definitions remain at 2.35 with their original contracts.
+`propose` retains an intentional empty restriction; `execute` retains the named
+launch-command ceiling. Neither procedure authors a lowering strategy.
+Its complete module follows
 (source comments omitted). `propose` constructs the initial hypothesis and seed
 parameter; review/revise use configured provider/prompt externs; `execute` hands
 the returned proposal and outcome to the workspace's launcher. The entry takes
@@ -224,7 +236,7 @@ binds the workspace-owned launcher described below.
 ```lisp
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.36")
+  (:target-dsl "2.39")
   (defmodule improve_experiment_proposal)
   (import std/improve :only (Decision improve))
   (export run-experiment)
@@ -241,7 +253,6 @@ binds the workspace-owned launcher described below.
 
   (defproc propose ((brief ExperimentBrief)) -> ExperimentProposal
     :effects ()
-    :lowering inline
     (record ExperimentProposal
       :hypothesis brief.question
       :parameters (list (record Parameter :name "seed" :value 0))))
@@ -250,7 +261,6 @@ binds the workspace-owned launcher described below.
     ((proposal ExperimentProposal) (outcome String) (note String))
     -> ExperimentRun
     :effects ((uses-command launch_experiment))
-    :lowering inline
     (command-result launch_experiment
       :argv ("python" "scripts/launch_experiment.py"
              "--outcome" outcome
@@ -319,7 +329,7 @@ externs; the command manifest supplies the required `closure` declaration.
 Compilation validates that declaration without reading the launcher's bytes;
 dry-run also binds the typed inputs and does not certify command bytes.
 The input file supplies `question`. Compilation uses the maintained entry
-at 2.36 without rewriting its source:
+at 2.39 without rewriting its source:
 
 ```bash
 python -m orchestrator compile workflows/examples/improve_experiment_proposal.orc \
@@ -369,13 +379,14 @@ behavior for both evaluated targets.
 #### Target 2.35 explicit inputs
 
 At 2.35 use the five-argument form with explicit domain inputs and complete
-hook signatures. The preserved
+hook signatures. Current source controls live in
+[`test_workflow_lisp_improve_stdlib.py`](../tests/test_workflow_lisp_improve_stdlib.py),
+including a public compile/run consumer. The preserved
 [`improve_legacy/improve_experiment_proposal.orc`](../tests/fixtures/workflow_lisp/improve_legacy/improve_experiment_proposal.orc)
 has source header 2.33 and is a complete explicit-input source specimen. Its
-entry is retired when launched unchanged; use it to inspect the API, or retarget
-an isolated copy to 2.35 before compiling/running with the same proposal
-manifests and launcher contract above. Its name does not make the five-argument
-API unsupported at 2.35. For bounded evaluated consumer evidence and remaining
+entry and typed imports are retired. Read it only as a historical API specimen;
+changing a header alone is not a supported migration recipe. The five-argument
+API remains supported at 2.35. For bounded evaluated consumer evidence and remaining
 composition limits, see
 [composition-first §11.4](design/workflow_lisp_composition_first.md#114-evaluated-w3-boundaries).
 
@@ -558,7 +569,9 @@ is not a sealed benchmark or evidence of live model quality.
 **Kind:** example workflow with application-defined search policy.
 **Availability:** the maintained
 [`search_compact.orc`](../experiments/mlevolve_pair/search_compact.orc) targets
-2.35 and is the complete runnable source for this entry. It defines every type,
+2.39 and is the complete runnable source for this entry. Its `branch-step`
+procedure omits the mirrored command ledger and authored lowering strategy;
+the compiler infers its command effects. It defines every type,
 `result`, `branch-step`, seed and controller expression; use the whole module.
 The older [`search.orc`](../experiments/mlevolve_pair/search.orc) is historical
 policy evidence whose old-target entry is retired.

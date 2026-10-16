@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule minimal_caller_finalize_selected_item)
   (import std/resource :only (BlockerClass SelectedItemResult WorkReport finalize-selected-item-proc))
   (defunion MinimalPlan

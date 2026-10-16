@@ -1,4 +1,4 @@
-"""CF-1b Task 2: generic union declarations and type applications (target 2.33).
+"""CF-1b Task 2: generic union declarations and type applications (the current typed target).
 
 Contract: `docs/design/workflow_lisp_parametric_type_system.md`, section
 "Proposed CF-1 First-Order Generic Unions". Binding of generic `defproc` type
@@ -33,7 +33,7 @@ OUTCOME = """  (defunion Outcome :forall (T E)
     (ERROR (error E)))"""
 
 
-def _write(tmp_path: Path, body: str, *, target: str = "2.33") -> Path:
+def _write(tmp_path: Path, body: str, *, target: str = "2.35") -> Path:
     path = tmp_path / "module.orc"
     path.write_text(
         f'(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "{target}")\n{body})\n',
@@ -43,7 +43,7 @@ def _write(tmp_path: Path, body: str, *, target: str = "2.33") -> Path:
 
 
 def _options(tmp_path: Path, *, frontend: bool) -> dict[str, object]:
-    """`frontend=True` typechecks on the legacy route without shared validation."""
+    """`frontend=True` skips shared callable validation."""
 
     return {
         "provider_externs": {},
@@ -51,7 +51,6 @@ def _options(tmp_path: Path, *, frontend: bool) -> dict[str, object]:
         "command_boundaries": {},
         "validate_shared": not frontend,
         "workspace_root": tmp_path,
-        "lowering_route": "legacy" if frontend else None,
     }
 
 
@@ -72,7 +71,7 @@ def _line_of(path: Path, needle: str) -> int:
     return next(index for index, line in enumerate(lines, start=1) if needle in line)
 
 
-def _frontend_error(tmp_path: Path, body: str, *, target: str = "2.33") -> LispFrontendDiagnostic:
+def _frontend_error(tmp_path: Path, body: str, *, target: str = "2.35") -> LispFrontendDiagnostic:
     path = _write(tmp_path, body, target=target)
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(path, tmp_path, frontend=True)
@@ -115,8 +114,8 @@ def test_generic_union_declaration_keeps_its_type_parameters(tmp_path: Path) -> 
 def test_concrete_applications_compile_through_shared_validation(tmp_path: Path) -> None:
     result = _compile(FIXTURES / "concrete_outcome.orc", tmp_path)
 
-    assert result.typed_program.target == "2.33"
-    assert "entry" in result.typed_program.workflows
+    assert result.typed_program.target == "2.35"
+    assert "entry::entry" in result.typed_program.workflows
 
 
 def _describe_through_procref(describe_param_type: str) -> str:
@@ -402,39 +401,8 @@ PLAIN = """  (defunion Plain
     (ONLY (value Int)))"""
 
 
-@pytest.mark.parametrize(
-    "body",
-    [
-        pytest.param(f"{OUTCOME}\n{_identity_proc('Outcome[Int String]')}", id="generic-declaration"),
-        pytest.param(f"{PLAIN}\n{_identity_proc('Plain[Int]')}", id="application-in-signature"),
-        pytest.param(
-            f"""{PLAIN}
-  (defproc make
-    ()
-    -> Plain
-    :effects ()
-    (variant Plain[Int] ONLY :value 1))""",
-            id="application-in-constructor",
-        ),
-        pytest.param(
-            f"""{PLAIN}
-  (defrecord Holder
-    (plain Plain[Int]))""",
-            id="application-in-record-field",
-        ),
-    ],
-)
-def test_generic_union_syntax_requires_target_233(tmp_path: Path, body: str) -> None:
-    assert _frontend_error(tmp_path, body, target="2.32").code == "generic_union_requires_dsl_2_33"
 
 
-def test_application_in_record_field_is_rejected_by_definition_only_compile_at_232(tmp_path: Path) -> None:
-    path = _write(tmp_path, f"{PLAIN}\n  (defrecord Holder\n    (plain Plain[Int]))", target="2.32")
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage1_module(path)
-
-    assert _first_diagnostic(excinfo).code == "generic_union_requires_dsl_2_33"
 
 
 # --- module identity --------------------------------------------------------------

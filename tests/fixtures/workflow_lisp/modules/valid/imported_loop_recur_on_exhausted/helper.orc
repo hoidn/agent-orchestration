@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule helper)
   (import types :only (WorkReport LoopSignal LoopState LoopResult))
   (export project-exhausted)

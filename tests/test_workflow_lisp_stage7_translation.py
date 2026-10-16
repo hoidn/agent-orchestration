@@ -8,9 +8,9 @@ from orchestrator.workflow_lisp.workflows import CertifiedAdapterBinding, Extern
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
-VALID_PLAN_GATE_FIXTURE = FIXTURES / "valid" / "neurips_plan_gate_resume.orc"
+VALID_PLAN_GATE_FIXTURE = FIXTURES / "current235" / "valid" / "neurips_plan_gate_resume.orc"
 VALID_SELECTED_ITEM_FIXTURE = FIXTURES / "valid" / "neurips_selected_item.orc"
-INVALID_PLAN_GATE_FIXTURE = FIXTURES / "invalid" / "neurips_plan_gate_resume_contract_invalid.orc"
+INVALID_PLAN_GATE_FIXTURE = FIXTURES / "current235" / "invalid" / "neurips_plan_gate_resume_contract_invalid.orc"
 
 
 
@@ -95,7 +95,6 @@ def _compile(
     *,
     tmp_path: Path,
     validate_shared: bool = False,
-    lowering_route: str | None = None,
 ):
     return compile_stage3_module(
         path,
@@ -110,7 +109,7 @@ def _compile(
         command_boundaries=_command_boundaries().bindings_by_name,
         validate_shared=validate_shared,
         workspace_root=tmp_path,
-        lowering_route=lowering_route,
+
     )
 
 

@@ -73,7 +73,7 @@ def _install_target(root: Path, *, marker: str) -> dict[str, Path]:
 
     root.mkdir()
     probe = _write_probe(root, "probe", TARGET_PROBE)
-    _write_sources(root, {"grt/entry.orc": SEQUENCE.replace("TARGET", "2.33").replace("PROBE", probe.as_posix())})
+    _write_sources(root, {"grt/entry.orc": SEQUENCE.replace("TARGET", "2.35").replace("PROBE", probe.as_posix())})
     probe.with_name(f"check.{marker}").touch()
     return {**_public_run_files(root, {"probe": probe}), "probe": probe}
 

@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.33")
+  (:target-dsl "2.35")
   (defmodule gb/entry_alias)
   (import gb/lib :as lib :only (Decision run-review))
   (export decide)

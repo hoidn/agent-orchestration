@@ -115,7 +115,7 @@ def test_typecheck_loop_recur_resets_variant_proof_each_iteration(tmp_path: Path
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defenum BlockerClass",
                 "    missing_resource",
                 "    unavailable_hardware",
@@ -176,7 +176,7 @@ def test_typecheck_loop_recur_rejects_non_projectable_carried_types(tmp_path: Pa
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord LoopResult",
                 "    (status String))",
                 "  (defworkflow helper",
@@ -209,7 +209,7 @@ def test_typecheck_loop_recur_rejects_proc_ref_state(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord WorkflowInput",
                 "    (value String))",
                 "  (defrecord WorkflowOutput",
@@ -248,7 +248,7 @@ def test_typecheck_loop_recur_rejects_proc_ref_done_results(tmp_path: Path) -> N
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord LoopResult",
                 "    (status String))",
                 "  (defrecord WorkflowInput",
@@ -282,7 +282,7 @@ def test_typecheck_loop_recur_rejects_proc_ref_done_results(tmp_path: Path) -> N
 
 
 def test_typecheck_loop_recur_rich_list_root_union_uses_defining_type_env(tmp_path: Path) -> None:
-    """The target-2.29 loop check receives the defining union environment."""
+    """The target-2.35 loop check receives the defining union environment."""
 
     definitions_path = _write_module(
         tmp_path / "rich_list_root_union_types.orc",
@@ -290,7 +290,7 @@ def test_typecheck_loop_recur_rich_list_root_union_uses_defining_type_env(tmp_pa
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.29")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord Task",
                 "    (task_id String))",
                 "  (defunion TaskOutcome",
@@ -322,31 +322,6 @@ def test_typecheck_loop_recur_rich_list_root_union_uses_defining_type_env(tmp_pa
     )
 
 
-def test_typecheck_loop_recur_rich_list_target_228_reports_descriptor_blocker(
-    tmp_path: Path,
-) -> None:
-    """Target 2.28 retains the pre-rich-loop descriptor refusal."""
-
-    workflow_path = _write_module(
-        tmp_path / "rich_list_target_228_blocker.orc",
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.28")',
-                "  (defrecord Task",
-                "    (task_id String))",
-                "  (defworkflow carry-tasks ((tasks List[Task])) -> List[Task]",
-                "    (loop/recur :max 1 :state tasks",
-                "      (fn (state) (done state)))))",
-            ]
-        ),
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile(workflow_path, tmp_path=tmp_path)
-
-    _assert_diagnostic_code(excinfo, "list_collection_contract_unsupported")
 
 
 
@@ -409,7 +384,7 @@ def test_loop_recur_list_constructor_seed_retains_native_list_type(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.18")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule loop_recur_list_constructor_seed)",
                 "  (export orchestrate)",
                 "  (defworkflow orchestrate () -> List[String]",
@@ -450,7 +425,7 @@ def test_invalid_loop_recur_fn_outside_loop_fixture_fails(tmp_path: Path) -> Non
 def test_typecheck_loop_recur_rich_list_root_record_state_preserves_descriptors(
     tmp_path: Path,
 ) -> None:
-    """Target-2.29 admits complete root record-list descriptors."""
+    """Target-2.35 admits complete root record-list descriptors."""
 
     workflow_path = _write_module(
         tmp_path / "rich_list_root_state.orc",
@@ -458,7 +433,7 @@ def test_typecheck_loop_recur_rich_list_root_record_state_preserves_descriptors(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.29")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord Task",
                 "    (task_id String))",
                 "  (defworkflow carry-tasks ((tasks List[Task])) -> List[Task]",
@@ -471,7 +446,7 @@ def test_typecheck_loop_recur_rich_list_root_record_state_preserves_descriptors(
     result = _compile(workflow_path, tmp_path=tmp_path)
 
     [workflow] = result.typed_workflows
-    assert workflow.definition.name == "carry-tasks"
+    assert workflow.definition.name == 'entry::carry-tasks'
     state_type = workflow.signature.params[0][1]
     assert isinstance(state_type, ListTypeRef)
     assert state_type.item_type_ref.name == "Task"

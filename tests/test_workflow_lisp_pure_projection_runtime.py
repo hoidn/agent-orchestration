@@ -13,7 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 VALID_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "valid"
 PURE_EXPR_LOOP_COUNTER = VALID_FIXTURES / "pure_expr_loop_counter.orc"
 PURE_EXPR_SELECTOR_PROJECTION = VALID_FIXTURES / "pure_expr_selector_action_projection.orc"
-INVALID_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "invalid"
+INVALID_FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "current235" / "invalid"
 
 
 
@@ -106,6 +106,7 @@ def test_compile_strict_pure_projection_boundary_fixture_skips_boundary_lints(
         / "tests"
         / "fixtures"
         / "workflow_lisp"
+        / "current235"
         / "modules"
         / "valid"
         / "pure_projection_boundary_decision_consumer"

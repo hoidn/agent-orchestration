@@ -2,12 +2,12 @@
 
 ## Metadata
 
-- **Status:** implemented current introspection contract at evaluated targets 2.35/2.36
+- **Status:** implemented current introspection contract at admitted evaluated targets 2.35–2.39
 - **Kind:** feature
 - **Owner:** Workflow Lisp frontend and CLI maintainers
 - **Reviewers:** Independent design and implementation reviewers
 - **Created / last material update:** 2026-10-12
-- **Implementation target:** Existing evaluated REPL targets 2.35 and 2.36; no new DSL gate
+- **Implementation target:** admitted evaluated REPL targets 2.35–2.39; 2.39 restriction/inference inspection follows the definition-origin contract
 - **Related:** [REPL design](workflow_lisp_repl.md), [execution plan](../plans/2026-10-12-workflow-lisp-repl-introspection-plan.md)
 
 ## Summary And Scope
@@ -90,12 +90,17 @@ flags. This feature does not load an otherwise unrunnable library by itself.
 | `:browse` | Print module name, source snapshot identity, target, selected entry, imports and aliases; then visible names grouped by kind. Coverage is explicitly labelled: named types, functions, procedures, workflows, prompts and externs. |
 | `:info NAME` | Print every matching module declaration's kind, accepted name(s), declaring module and source location, followed by its contract as below. No value evaluation or prompt rendering. |
 | `:source NAME` | Print a labelled source section for each match: kind, declaring module, path/location and snapshot revision, then the full original declaration form. A `defprompt` includes its authored template. |
-| `:type EXPR` | Print `type: <rendered type>` and `effects: <rendered effect set>` using existing frontend renderers. Read exactly one expression and stop after ordinary typechecking. |
+| `:type EXPR` | Print two lines using existing frontend renderers: `type: <rendered type>`, then `effects: <rendered inferred effect set>` when complete. At 2.39 unresolved generic calls print `effects: incomplete (<unresolved names>); known <rendered known effect set>`. Read exactly one expression and stop after ordinary typechecking; do not display authored restrictions. |
 
 `:info` contracts are: record fields; union variants and their fields; enum
 members; path constraints; primitive type identity; function/procedure/workflow
 parameter and return types plus available inferred effects; prompt fills in
 declaration order with slot kind, refinement and output role, then output type.
+At 2.39, procedure inspection separates the authored restriction (or its
+omission) from inferred effects, and labels unresolved generic dependencies
+incomplete; `:type` reports expression inference only. The
+[CLI contract](../../specs/cli.md#workflow-lisp-repl-targets-235-and-236) owns
+the exact text format.
 Externs show kind, name and known declared contract, never manifest payload,
 provider argv, credentials or the contents of an external prompt file. Unknown
 facts are labelled unavailable; they are not inferred from runtime values.

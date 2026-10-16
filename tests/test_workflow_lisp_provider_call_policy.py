@@ -46,7 +46,7 @@ from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment, Primiti
 from orchestrator.workflow_lisp.typecheck import TypedExpr, typecheck_expression
 from orchestrator.workflow_lisp.typecheck_effects import typecheck_provider_result_expr
 from orchestrator.workflow_lisp.workflows import build_extern_environment
-from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow
+from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
 from orchestrator.workflow_lisp.wcc.model import (
     WccBody,
     WccLet,
@@ -87,7 +87,7 @@ def _compile_keyword_free():
         prompt_externs=_load_manifest("prompts.json"),
         validate_shared=True,
         workspace_root=REPO_ROOT,
-        lowering_route="wcc_m4",
+
     )
 
 
@@ -107,7 +107,7 @@ def _compile_policy_fixture(path: Path, *, route: str = "wcc_m4"):
         prompt_externs=_load_manifest("prompts.json"),
         validate_shared=False,
         workspace_root=REPO_ROOT,
-        lowering_route=route,
+
     )
 
 
@@ -140,7 +140,7 @@ def _elaborated_policy_perform(path: Path = POLICY_FIXTURE) -> WccPerform:
     typed_workflow = next(
         workflow
         for workflow in result.typed_workflows
-        if workflow.definition.name == workflow_name
+        if workflow.definition.name.rsplit("::", 1)[-1] == workflow_name
     )
     type_env = FrontendTypeEnvironment.from_module(result.module)
     workflow_return_types = {
@@ -151,8 +151,10 @@ def _elaborated_policy_perform(path: Path = POLICY_FIXTURE) -> WccPerform:
         procedure.definition.name: procedure.signature.return_type_ref
         for procedure in result.typed_procedures
     }
-    body = elaborate_typed_workflow(
-        typed_workflow,
+    body = elaborate_typed_workflow_body(
+        typed_workflow.typed_body,
+        owner_name=typed_workflow.definition.name,
+        value_env=dict(typed_workflow.signature.params),
         type_env=type_env,
         workflow_return_types=workflow_return_types,
         procedure_return_types=procedure_return_types,
@@ -647,7 +649,7 @@ def test_macro_hygiene_provider_call_policy_uses_keyword_roles_in_reordered_form
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.15")',
+            '  (:target-dsl "2.35")',
             "  (make-policy policy)",
             "  (defmacro make-policy (workflow-name)",
             "    (defworkflow workflow-name",
@@ -727,8 +729,10 @@ def test_wcc_provider_call_policy_payload_preserves_present_operands() -> None:
 def test_wcc_provider_call_policy_payload_preserves_absence() -> None:
     result = _compile_keyword_free()
     typed_workflow = result.typed_workflows[0]
-    body = elaborate_typed_workflow(
-        typed_workflow,
+    body = elaborate_typed_workflow_body(
+        typed_workflow.typed_body,
+        owner_name=typed_workflow.definition.name,
+        value_env=dict(typed_workflow.signature.params),
         type_env=FrontendTypeEnvironment.from_module(result.module),
         workflow_return_types={
             typed_workflow.definition.name: typed_workflow.signature.return_type_ref

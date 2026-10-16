@@ -379,7 +379,7 @@ def test_public_invalidate_refuses_bad_profile_authority_or_journal_without_writ
 
 
 LEGACY_PROGRAM = '''\
-(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+(workflow-lisp (:language "0.1") (:target-dsl "2.35")
   (defmodule invalidate_legacy) (export run)
   (defworkflow run () -> Int
     (command-result prefix :argv ("python" "prefix.py") :returns Int)))

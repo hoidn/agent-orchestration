@@ -90,7 +90,7 @@ def test_source_free_typed_imports_keep_each_original_producer_scope(
         assert len(matches) == 1
         return matches[0]
 
-    for target in ("2.35", "2.34"):
+    for target in ("2.35", "2.36"):
         root = tmp_path / target
         root.mkdir()
         native_by_module = {}
@@ -200,7 +200,7 @@ def test_mixed_schema_typed_imports_keep_each_original_snapshot_after_source_del
     child_path = tmp_path / "cp" / "child.orc"
     child_path.parent.mkdir()
     child_path.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
           (defmodule cp/child) (export run)
           (defworkflow run ((n Int)) -> Int
             (let* ((provider-result (provider-result provider :prompt prompt
@@ -227,14 +227,15 @@ def test_mixed_schema_typed_imports_keep_each_original_snapshot_after_source_del
     (child_binding,) = load_imported_workflow_bundle_manifest(
         child_imports, workspace_root=tmp_path, source_roots=(tmp_path,),
         provider_externs_path=child_providers, prompt_externs_path=child_prompts,
-        command_boundaries_path=child_commands, lowering_route="legacy",
+        command_boundaries_path=child_commands,
     )
-    child_snapshot = child_binding.typed_program
+    assert child_binding.typed_program.producer_lowering_schema == 2
+    child_snapshot = replace(child_binding.typed_program, producer_lowering_schema=1)
     assert child_snapshot.producer_lowering_schema == 1
 
     parent_path = tmp_path / "cp" / "parent.orc"
     parent_path.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
           (defmodule cp/parent) (export run)
           (defworkflow run ((n Int)) -> Int
             (let* ((child-result (call dep :n n))
@@ -259,7 +260,7 @@ def test_mixed_schema_typed_imports_keep_each_original_snapshot_after_source_del
         },
         validate_shared=True,
         workspace_root=tmp_path,
-        lowering_route="wcc_m4",
+
     )
     parent_snapshot = replace(parent_result.entry_result.typed_program,
         entry=parent_result.entry_result.typed_program.workflows["cp/parent::run"])
@@ -332,7 +333,7 @@ def test_evaluated_graph_result_retains_only_typed_products(tmp_path: Path) -> N
         command_boundaries=BOUNDARIES,
         validate_shared=True,
         workspace_root=tmp_path,
-        lowering_route=None,
+
     )
 
     assert result.entry_result.typed_program is not None
@@ -368,7 +369,7 @@ def test_typed_program_retains_procedure_specializations_and_owner_environments(
 def test_evaluated_entry_skips_flat_lowering_for_its_whole_source_graph(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    old_helper = _install(tmp_path, "loop_in_branch", target="2.34")
+    old_helper = _install(tmp_path, "loop_in_branch", target="2.35")
     old_source = old_helper.read_text(encoding="utf-8").replace("(export run)", "(export Box run)")
     old_helper.write_text(old_source, encoding="utf-8")
     entry = tmp_path / "cp" / "entry.orc"
@@ -391,7 +392,7 @@ def test_evaluated_entry_skips_flat_lowering_for_its_whole_source_graph(
         command_boundaries=BOUNDARIES,
         validate_shared=True,
         workspace_root=tmp_path,
-        lowering_route=None,
+
     )
 
     assert all(item.typed_workflows for item in result.compiled_results_by_name.values())
@@ -410,7 +411,7 @@ def test_evaluated_entry_skips_flat_lowering_for_its_whole_source_graph(
 def test_typed_program_keeps_each_module_externs_and_unused_bindings(
     tmp_path: Path,
 ) -> None:
-    old_helper = _install(tmp_path, "loop_in_branch", target="2.34")
+    old_helper = _install(tmp_path, "loop_in_branch", target="2.35")
     old_source = old_helper.read_text(encoding="utf-8").replace(
         "(export run)", "(export Box run)"
     )
@@ -458,167 +459,10 @@ def test_typed_program_keeps_each_module_externs_and_unused_bindings(
 
 
 
-def test_old_entry_cannot_import_an_evaluated_module(tmp_path: Path) -> None:
-    entry = tmp_path / "cp" / "old_entry.orc"
-    callee = tmp_path / "cp" / "new_callee.orc"
-    entry.parent.mkdir(parents=True)
-    entry.write_text(
-        '''(workflow-lisp
-  (:language "0.1")
-  (:target-dsl "2.34")
-  (defmodule cp/old_entry)
-  (import cp/new_callee :only (run))
-  (export start)
-  (defworkflow start () -> Int (call run)))
-''',
-        encoding="utf-8",
-    )
-    callee.write_text(
-        f'''(workflow-lisp
-  (:language "0.1")
-  (:target-dsl "{TARGET}")
-  (defmodule cp/new_callee)
-  (export run)
-  (defworkflow run () -> Int 1))
-''',
-        encoding="utf-8",
-    )
-
-    code, path, line, _column = _error(
-        entry,
-        lambda: compile_stage3_entrypoint(entry, source_roots=(tmp_path,), validate_shared=True),
-    )
-
-    assert (code, path, line) == ("evaluated_execution_target_direction_invalid", entry, 5)
 
 
-def test_old_helper_cannot_call_back_into_the_evaluated_graph(tmp_path: Path) -> None:
-    entry = tmp_path / "cp" / "entry.orc"
-    helper = tmp_path / "cp" / "helper.orc"
-    callee = tmp_path / "cp" / "callee.orc"
-    entry.parent.mkdir(parents=True)
-    entry.write_text(
-        f'''(workflow-lisp
-  (:language "0.1")
-  (:target-dsl "{TARGET}")
-  (defmodule cp/entry)
-  (import cp/helper :only (relay))
-  (export start)
-  (defworkflow start () -> Int (call relay)))
-''',
-        encoding="utf-8",
-    )
-    helper.write_text(
-        '''(workflow-lisp
-  (:language "0.1")
-  (:target-dsl "2.34")
-  (defmodule cp/helper)
-  (import cp/callee :only (run))
-  (export relay)
-  (defworkflow relay () -> Int (call run)))
-''',
-        encoding="utf-8",
-    )
-    callee.write_text(
-        f'''(workflow-lisp
-  (:language "0.1")
-  (:target-dsl "{TARGET}")
-  (defmodule cp/callee)
-  (export run)
-  (defworkflow run () -> Int 1))
-''',
-        encoding="utf-8",
-    )
-
-    code, path, line, _column = _error(
-        entry,
-        lambda: compile_stage3_entrypoint(entry, source_roots=(tmp_path,), validate_shared=True),
-    )
-
-    assert (code, path, line) == ("evaluated_execution_target_direction_invalid", helper, 5)
 
 
-def test_explicit_new_snapshot_is_refused_only_when_an_old_procedure_calls_it(
-    tmp_path: Path,
-) -> None:
-    producer = tmp_path / "producer.orc"
-    producer.write_text(
-        f'''(workflow-lisp
-  (:language "0.1")
-  (:target-dsl "{TARGET}")
-  (defmodule producer)
-  (export get)
-  (defrecord Box (n Int))
-  (defworkflow get ((input Box)) -> Box input))
-''',
-        encoding="utf-8",
-    )
-    typed_producer = compile_typed_program(
-        producer,
-        entry_workflow="get",
-        source_roots=(tmp_path,),
-        command_boundaries={},
-    )
-    helper = tmp_path / "old.orc"
-    helper.write_text(
-        '''
-(workflow-lisp (:language "0.1") (:target-dsl "2.34") (defmodule old)
-  (export Box invoke) (defrecord Box (n Int))
-  (defproc invoke ((runner WorkflowRef[Box -> Box]) (input Box)) -> Box
-    :effects ((calls-workflow runner)) :lowering inline (call runner :input input)))
-''',
-        encoding="utf-8",
-    )
-    main = tmp_path / "main.orc"
-    main.write_text(
-        f'''(workflow-lisp
-  (:language "0.1")
-  (:target-dsl "{TARGET}")
-  (defmodule main)
-  (import old :only (Box invoke))
-  (export run)
-  (defworkflow run ((input Box)) -> Box input))
-''',
-        encoding="utf-8",
-    )
-
-    unused_alias = compile_typed_program(
-        main,
-        entry_workflow="run",
-        source_roots=(tmp_path,),
-        command_boundaries={},
-        imported_programs={"dep": typed_producer},
-    )
-    assert unused_alias.entry.definition.name == "main::run"
-
-    main.write_text(
-        f'''(workflow-lisp
-  (:language "0.1")
-  (:target-dsl "{TARGET}")
-  (defmodule main)
-  (import old :only (Box invoke))
-  (export run)
-  (defworkflow run ((input Box)) -> Box
-    (invoke (workflow-ref dep) input)))
-''',
-        encoding="utf-8",
-    )
-    code, path, line, _column = _error(
-        main,
-        lambda: compile_typed_program(
-            main,
-            entry_workflow="run",
-            source_roots=(tmp_path,),
-            command_boundaries={},
-            imported_programs={"dep": typed_producer},
-        ),
-    )
-
-    assert (code, path, line) == (
-        "evaluated_execution_target_direction_invalid",
-        helper,
-        5,
-    )
 
 
 def test_typechecker_diagnostic_is_unchanged_at_the_new_target(tmp_path: Path) -> None:
@@ -642,14 +486,14 @@ def test_typechecker_diagnostic_is_unchanged_at_the_new_target(tmp_path: Path) -
             lambda: compile_stage3_entrypoint(entry, source_roots=(tmp_path,), validate_shared=True),
         )
 
-    old = compile_at("2.34")
+    old = compile_at("2.35")
     new = compile_at(TARGET)
 
     assert old[0] == new[0] == "type_unknown"
     assert (old[2], old[3]) == (new[2], new[3])
 
 
-def test_typed_entry_refuses_a_pre_evaluated_target_at_its_header(tmp_path: Path) -> None:
+def test_typed_entry_rejects_pre_235_target_at_its_header(tmp_path: Path) -> None:
     entry = _install(tmp_path, "loop_in_branch", target="2.34")
 
     code, path, line, _column = _error(
@@ -662,7 +506,7 @@ def test_typed_entry_refuses_a_pre_evaluated_target_at_its_header(tmp_path: Path
         ),
     )
 
-    assert (code, path, line) == ("workflow_execution_target_retired", entry, 3)
+    assert (code, path, line) == ("target_dsl_unsupported", entry, 3)
 
 
 def test_typed_entry_accepts_short_and_canonical_names_and_a_fixed_standalone_namespace(
@@ -883,7 +727,7 @@ def test_old_entry_keeps_compiling_when_imported_snapshots_conflict(
         producer_path.write_text(
             f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.34")
+  (:target-dsl "2.35")
   (defmodule producer)
   (export get)
   (defworkflow get () -> Int {value}))
@@ -903,7 +747,7 @@ def test_old_entry_keeps_compiling_when_imported_snapshots_conflict(
     parent_path.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.34")
+  (:target-dsl "2.35")
   (defmodule parent)
   (export run)
   (defworkflow run () -> Int (call one)))
@@ -911,16 +755,16 @@ def test_old_entry_keeps_compiling_when_imported_snapshots_conflict(
         encoding="utf-8",
     )
 
-    result = compile_stage3_entrypoint(
-        parent_path,
-        source_roots=(tmp_path,),
-        validate_shared=True,
-        workspace_root=tmp_path,
-        imported_programs={"one": bundles[0], "two": bundles[1]},
-    )
+    with pytest.raises(LispFrontendCompileError) as caught:
+        compile_stage3_entrypoint(
+            parent_path,
+            source_roots=(tmp_path,),
+            validate_shared=True,
+            workspace_root=tmp_path,
+            imported_programs={"one": bundles[0], "two": bundles[1]},
+        )
+    assert caught.value.diagnostics[0].code == "compiled_workflow_snapshot_conflict"
 
-    assert "parent::run" in {workflow.definition.name for workflow in result.entry_result.typed_workflows}
-    assert result.entry_result.typed_program is None
 
 
 @pytest.mark.parametrize(
@@ -1312,7 +1156,7 @@ def test_old_std_improve_snapshot_conflicts_with_selected_w3_source_authority(
 
 
 def test_source_digests_use_consumed_import_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    helper = _install(tmp_path, "loop_in_branch", target="2.34")
+    helper = _install(tmp_path, "loop_in_branch", target="2.35")
     helper_source = helper.read_bytes()
     helper_source_text = helper_source.decode("utf-8").replace("(export run)", "(export Box run)")
     helper.write_text(helper_source_text, encoding="utf-8")
@@ -1501,7 +1345,7 @@ def test_old_source_producer_retains_typed_snapshot_without_flat_bundles(
     entry.parent.mkdir(parents=True)
     source = '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.34")
+  (:target-dsl "2.35")
   (defmodule cp/producer)
   (export get)
   (defproc private-inc ((n Int)) -> Int :effects () :lowering inline (+ n 1))
@@ -1551,7 +1395,7 @@ def test_typed_snapshot_copies_certified_adapter_configuration(
     entry.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.34")
+  (:target-dsl "2.35")
   (defmodule cp/producer)
   (export get)
   (defworkflow get ((n Int)) -> Int n))
@@ -1600,7 +1444,7 @@ def test_typed_program_can_import_an_explicit_source_snapshot(tmp_path: Path) ->
     producer_path.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.34")
+  (:target-dsl "2.35")
   (defmodule cp/producer)
   (export get)
   (defproc private-inc ((n Int)) -> Int :effects () :lowering inline (+ n 1))
@@ -1655,7 +1499,7 @@ def test_evaluated_consumer_keeps_the_selected_typed_producer_contract(
     producer_path.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.34")
+  (:target-dsl "2.35")
   (defmodule cp/producer)
   (export get other)
   (defworkflow get ((n Int)) -> Int n)
@@ -1718,7 +1562,7 @@ def test_typed_snapshot_keeps_its_schema_across_a_direct_import(tmp_path: Path) 
     producer_path.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.34")
+  (:target-dsl "2.35")
   (defmodule cp/producer)
   (export get)
   (defproc private-inc ((n Int)) -> Int :effects () :lowering inline (+ n 1))
@@ -1732,10 +1576,12 @@ def test_typed_snapshot_keeps_its_schema_across_a_direct_import(tmp_path: Path) 
         command_boundaries={},
         validate_shared=True,
         workspace_root=tmp_path,
-        lowering_route="legacy",
+
     )
+    assert producer.entry_result.typed_program.producer_lowering_schema == 2
     producer_snapshot = replace(producer.entry_result.typed_program,
-        entry=producer.entry_result.typed_program.workflows["cp/producer::get"])
+        entry=producer.entry_result.typed_program.workflows["cp/producer::get"],
+        producer_lowering_schema=1)
 
     consumer_path = tmp_path / "cp" / "consumer.orc"
     consumer_path.write_text(
@@ -1780,7 +1626,7 @@ def test_typed_snapshot_keeps_its_schema_across_a_direct_import(tmp_path: Path) 
             )
 
 
-def test_source_manifest_compilation_keeps_the_supplied_legacy_schema(
+def test_source_manifest_compilation_uses_current_schema(
     tmp_path: Path,
 ) -> None:
     producer_path = tmp_path / "src" / "cp" / "producer.orc"
@@ -1788,7 +1634,7 @@ def test_source_manifest_compilation_keeps_the_supplied_legacy_schema(
     producer_path.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.34")
+  (:target-dsl "2.35")
   (defmodule cp/producer)
   (export get)
   (defproc private-inc ((n Int)) -> Int :effects () :lowering inline (+ n 1))
@@ -1808,10 +1654,10 @@ def test_source_manifest_compilation_keeps_the_supplied_legacy_schema(
         manifest_path,
         workspace_root=tmp_path,
         source_roots=(tmp_path / "src",),
-        lowering_route="legacy",
+
     )
 
-    assert binding.typed_program.producer_lowering_schema == 1
+    assert binding.typed_program.producer_lowering_schema == 2
     assert binding.typed_program.entry.definition.name == "cp/producer::get"
 
 
@@ -1859,7 +1705,7 @@ def test_typed_snapshot_contract_survives_deleted_nested_nominal_sources(
     types_path.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.34")
+  (:target-dsl "2.35")
   (defmodule types)
   (export Outer)
   (defrecord Inner (x Int))
@@ -1871,7 +1717,7 @@ def test_typed_snapshot_contract_survives_deleted_nested_nominal_sources(
     producer_path.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.34")
+  (:target-dsl "2.35")
   (defmodule child)
   (import types)
   (export get)
@@ -1919,7 +1765,7 @@ def test_typed_snapshot_contract_survives_deleted_nested_nominal_sources(
     assert retained.field_types["inner"].field_types["x"].name == "Int"
     assert retained.field_types["inner"].name == inner_type.name
     assert Path(retained.field_types["inner"].definition.span.start.path) == types_path
-    assert typed.workflow_type_env("child::get").target_dsl_version == "2.34"
+    assert typed.workflow_type_env("child::get").target_dsl_version == "2.35"
     types_path.unlink()
     producer_path.unlink()
     consumer_path.unlink()
@@ -1944,7 +1790,7 @@ def test_typed_product_preserves_grouped_inputs_and_defaults(tmp_path: Path) -> 
     producer_path.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.34")
+  (:target-dsl "2.35")
   (defmodule producer)
   (export get)
   (defrecord Pair (left Int) (right Int))
@@ -1998,7 +1844,7 @@ def test_typed_product_groups_private_context_by_its_source_formal(
     producer_path.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.34")
+  (:target-dsl "2.35")
   (defmodule producer)
   (import std/phase :only (with-phase))
   (export entry run-phase)
@@ -2086,64 +1932,45 @@ def test_typed_product_groups_private_context_by_its_source_formal(
 
 
 @pytest.mark.parametrize("supply_trace", (True, False))
-@pytest.mark.parametrize(
-    ("lowering_route", "expected_schema"),
-    ((None, 2), ("legacy", 1)),
-)
 def test_standalone_old_source_producer_retains_snapshot_and_passes_trace(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     supply_trace: bool,
-    lowering_route: str | None,
-    expected_schema: int,
 ) -> None:
     entry = tmp_path / "producer.orc"
     source = '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.34")
+  (:target-dsl "2.35")
   (defproc private-inc ((n Int)) -> Int :effects () :lowering inline (+ n 1))
   (defworkflow get ((n Int)) -> Int (private-inc n)))
 '''
     entry.write_text(source, encoding="utf-8")
     supplied_trace = SourceReadTrace() if supply_trace else None
     seen_traces = []
-    original_detector = compiler_module._syntax_module_uses_module_graph
-    original_pipeline = compiler_module._run_stage3_validation_pipeline
-
-    def trace_detector(path: Path, *, source_read_trace: SourceReadTrace | None = None):
-        seen_traces.append(source_read_trace)
-        return original_detector(path, source_read_trace=source_read_trace)
+    original_entrypoint = compiler_module.compile_stage3_entrypoint
 
     def compile_then_delete(*args, **kwargs):
-        result = original_pipeline(*args, **kwargs)
+        seen_traces.append(kwargs["source_read_trace"])
+        result = original_entrypoint(*args, **kwargs)
         entry.unlink()
         return result
 
-    monkeypatch.setattr(
-        compiler_module,
-        "_syntax_module_uses_module_graph",
-        trace_detector,
-    )
-    monkeypatch.setattr(
-        compiler_module,
-        "_run_stage3_validation_pipeline",
-        compile_then_delete,
-    )
+    monkeypatch.setattr(compiler_module, "compile_stage3_entrypoint", compile_then_delete)
     result = compile_stage3_module(
         entry,
         validate_shared=True,
         workspace_root=tmp_path,
-        lowering_route=lowering_route,
+
         source_read_trace=supplied_trace,
     )
 
     snapshot = result.typed_program
     assert isinstance(snapshot, TypedProgram)
-    assert snapshot.producer_lowering_schema == expected_schema
+    assert snapshot.producer_lowering_schema == 2
     assert snapshot.entry is None
-    assert result.module.module_name is None
-    assert "get" in snapshot.workflows
-    assert "private-inc" in snapshot.procedures
+    assert result.module.module_name == "entry"
+    assert "entry::get" in snapshot.workflows
+    assert "entry::private-inc" in snapshot.procedures
     assert len(seen_traces) == 1
     assert isinstance(seen_traces[0], SourceReadTrace)
     if supplied_trace is not None:
@@ -2151,7 +1978,7 @@ def test_standalone_old_source_producer_retains_snapshot_and_passes_trace(
     trace = seen_traces[0]
     assert trace.records
     assert not entry.exists()
-    assert snapshot.source_file_digests["producer"] == hashlib.sha256(
+    assert snapshot.source_file_digests["entry"] == hashlib.sha256(
         source.encode("utf-8")
     ).hexdigest()
 
@@ -2196,7 +2023,7 @@ def test_graph_source_producer_passes_one_trace_through_delegation_and_reads(
     entry.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.34")
+  (:target-dsl "2.35")
   (defmodule cp/entry)
   (import cp/child :only (inc))
   (export run)
@@ -2207,7 +2034,7 @@ def test_graph_source_producer_passes_one_trace_through_delegation_and_reads(
     child.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.34")
+  (:target-dsl "2.35")
   (defmodule cp/child)
   (export inc)
   (defworkflow inc ((n Int)) -> Int (+ n 1)))
@@ -2257,7 +2084,7 @@ def test_graph_source_producer_rejects_conflicting_repeated_reads(
     entry.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.34")
+  (:target-dsl "2.35")
   (defmodule cp/entry)
   (import cp/child :only (inc))
   (export run)
@@ -2268,7 +2095,7 @@ def test_graph_source_producer_rejects_conflicting_repeated_reads(
     child.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.34")
+  (:target-dsl "2.35")
   (defmodule cp/child)
   (export inc)
   (defworkflow inc ((n Int)) -> Int (+ n 1)))
@@ -2313,7 +2140,7 @@ def test_standalone_old_source_compilation_withholds_conflicting_snapshot(
         producer_path.write_text(
             f'''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.34")
+  (:target-dsl "2.35")
   (defmodule producer)
   (export get)
   (defworkflow get () -> Int {value}))
@@ -2335,25 +2162,25 @@ def test_standalone_old_source_compilation_withholds_conflicting_snapshot(
     caller_path.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.34")
+  (:target-dsl "2.35")
   (defmodule caller)
   (export run)
   (defworkflow run () -> Int (call first)))
 ''',
         encoding="utf-8",
     )
-    result = compile_stage3_module(
-        caller_path,
-        imported_programs={
-            "first": producer_bundles[0],
-            "second": producer_bundles[1],
-        },
-        validate_shared=True,
-        workspace_root=tmp_path,
-    )
+    with pytest.raises(LispFrontendCompileError) as caught:
+        compile_stage3_module(
+            caller_path,
+            imported_programs={
+                "first": producer_bundles[0],
+                "second": producer_bundles[1],
+            },
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
+    assert caught.value.diagnostics[0].code == "compiled_workflow_snapshot_conflict"
 
-    assert result.typed_program is None
-    assert "run" in {workflow.definition.name for workflow in result.typed_workflows}
 
 
 def test_imported_private_enum_owners_survive_evaluated_retyping(tmp_path: Path) -> None:
@@ -2365,7 +2192,7 @@ def test_imported_private_enum_owners_survive_evaluated_retyping(tmp_path: Path)
         pure_check = f"{module}-pure-check"
         (tmp_path / "cp" / f"{module}.orc").write_text(
             f'''(workflow-lisp
-  (:language "0.1") (:target-dsl "2.25")
+  (:language "0.1") (:target-dsl "2.35")
   (defmodule cp/{module}) (export {export_name} {pure_check} legacy)
   (defenum Status {values})
   (defrecord Result (status Status))
@@ -2446,7 +2273,7 @@ def test_old_imported_enum_snapshot_keeps_its_owner_after_source_deletion(
 ) -> None:
     producer_path = tmp_path / "producer.orc"
     producer_path.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
           (defmodule producer) (export get)
           (defenum Status DONE BLOCKED)
           (defrecord Result (status Status))
@@ -2507,7 +2334,7 @@ def test_generic_retyped_argument_keeps_generated_path_seed_type(tmp_path: Path)
     helper = tmp_path / "helper.orc"
     helper.write_text(
         '''(workflow-lisp
-  (:language "0.1") (:target-dsl "2.14") (defmodule helper) (export run)
+  (:language "0.1") (:target-dsl "2.35") (defmodule helper) (export run)
   (defpath OutputPath :kind relpath :under "artifacts" :must-exist false)
   (defrecord Result (ok Bool))
   (defproc keep :forall (T) ((value T)) -> T :effects () :lowering inline value)
@@ -2610,39 +2437,10 @@ def test_operator_binding_object_order_is_not_argument_order(tmp_path: Path) -> 
 def test_required_drain_context_stays_an_explicit_entry_input(
     tmp_path: Path, export_name: str
 ) -> None:
-    from tests.workflow_lisp_closed_program_corpus import corpus, prepare
-
-    workflow = next(
-        row
-        for row in corpus()
-        if row.source.as_posix().endswith("lisp_frontend_design_delta/stdlib_payloads.orc")
-        and row.name == export_name
-    )
-    prepared = prepare(workflow, tmp_path)
-    prepared.entry.write_bytes(workflow.source.read_bytes())
-    old = compile_stage3_entrypoint(
-        prepared.entry,
-        entry_workflow=workflow.canonical_name,
-        source_roots=prepared.source_roots,
-        command_boundaries=prepared.commands,
-        provider_externs=prepared.providers,
-        prompt_externs=prepared.prompts,
-        workspace_root=prepared.workspace_root,
-        validate_shared=True,
-    )
-    assert workflow.canonical_name in old.entry_result.typed_program.workflows
-
-    from tests.workflow_lisp_closed_program_corpus import _replace_entry_target
-
-    _replace_entry_target(workflow.source, prepared.entry)
+    source = FIXTURES.parent / "current_evaluated/drain_context_inputs.orc"
     typed = compile_typed_program(
-        prepared.entry,
-        entry_workflow=workflow.canonical_name,
-        source_roots=prepared.source_roots,
-        command_boundaries=prepared.commands,
-        provider_externs=prepared.providers,
-        prompt_externs=prepared.prompts,
-        workspace_root=prepared.workspace_root,
+        source, entry_workflow=export_name, source_roots=(source.parent,),
+        command_boundaries={}, workspace_root=tmp_path,
     )
     assert "ctx" in dict(typed.entry.signature.params)
     program = build_closed_program(typed)
@@ -2738,15 +2536,32 @@ def test_evaluated_provider_bundle_path_root_applies_to_source_and_snapshot_bodi
             assert Path(diagnostic.span.start.path) == source
 
     invalid_root = tmp_path / "invalid"
-    invalid_source = install_producer(invalid_root, "2.14", "state")
+    invalid_source = install_producer(invalid_root, "2.35", ".orchestrate/runs")
     old = compile_stage3_entrypoint(
         invalid_source,
         entry_workflow="producer::entry",
         validate_shared=True,
         **compile_kwargs(invalid_root),
     )
+    from copy import copy
     snapshot = replace(old.entry_result.typed_program,
         entry=old.entry_result.typed_program.workflows["producer::entry"])
+    environments = {}
+    for env in (snapshot.type_env, *snapshot.module_type_envs.values(),
+                *snapshot.workflow_type_envs.values(), *snapshot.procedure_type_envs.values()):
+        if id(env) in environments:
+            continue
+        cloned = copy(env)
+        cloned._type_refs = {
+            name: replace(ref, definition=replace(ref.definition, under="state"))
+                if isinstance(ref, PathTypeRef) and ref.definition.name == "ResultBundle" else ref
+            for name, ref in env._type_refs.items()
+        }
+        environments[id(env)] = cloned
+    snapshot = replace(snapshot, type_env=environments[id(snapshot.type_env)],
+        module_type_envs={name: environments[id(env)] for name, env in snapshot.module_type_envs.items()},
+        workflow_type_envs={name: environments[id(env)] for name, env in snapshot.workflow_type_envs.items()},
+        procedure_type_envs={name: environments[id(env)] for name, env in snapshot.procedure_type_envs.items()})
 
     invalid_source.write_text(producer_source("2.35", "state"), encoding="utf-8")
     assert_code(
@@ -2759,7 +2574,7 @@ def test_evaluated_provider_bundle_path_root_applies_to_source_and_snapshot_bodi
         invalid_source,
     )
 
-    invalid_source.write_text(producer_source("2.14", "state"), encoding="utf-8")
+    invalid_source.write_text(producer_source("2.35", "state"), encoding="utf-8")
     source_consumer = invalid_root / "source-consumer.orc"
     source_consumer.write_text(
         '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
@@ -2767,13 +2582,12 @@ def test_evaluated_provider_bundle_path_root_applies_to_source_and_snapshot_bodi
  (defworkflow run () -> Projection (call entry)))''',
         encoding="utf-8",
     )
-    source_typed = compile_typed_program(
-        source_consumer,
-        entry_workflow="source-consumer::run",
-        **compile_kwargs(invalid_root),
+    assert_code(
+        lambda: compile_typed_program(source_consumer,
+            entry_workflow="source-consumer::run", **compile_kwargs(invalid_root)),
+        "provider_bundle_path_target_invalid", invalid_source,
     )
     invalid_source.unlink()
-    assert_code(lambda: checked(source_typed), "provider_bundle_path_target_invalid", invalid_source)
 
     snapshot_consumer = invalid_root / "snapshot-consumer.orc"
     snapshot_consumer.write_text(
@@ -2825,7 +2639,7 @@ def test_evaluated_provider_bundle_path_root_applies_to_source_and_snapshot_bodi
     assert_code(lambda: consume(snapshot), "provider_bundle_path_target_invalid", invalid_source)
 
     valid_root = tmp_path / "valid"
-    valid_source = install_producer(valid_root, "2.14", ".orchestrate/runs")
+    valid_source = install_producer(valid_root, "2.35", ".orchestrate/runs")
     valid_old = compile_stage3_entrypoint(
         valid_source,
         entry_workflow="producer::entry",
@@ -2844,7 +2658,7 @@ def test_evaluated_provider_bundle_path_root_applies_to_source_and_snapshot_bodi
     )
     assert len(direct.sites) == 1
 
-    valid_source.write_text(producer_source("2.14", ".orchestrate/runs"), encoding="utf-8")
+    valid_source.write_text(producer_source("2.35", ".orchestrate/runs"), encoding="utf-8")
     source_consumer = valid_root / "source-consumer.orc"
     source_consumer.write_text(
         '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
@@ -2942,30 +2756,28 @@ def _assert_mixed_schema_command_owner(definition, effects, command):
 
 
 @pytest.mark.parametrize("standalone", (True, False))
-@pytest.mark.parametrize("lowering_route, schema", ((None, 2), ("legacy", 1)))
 def test_old_typed_producer_import_never_emits_flat_workflows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, standalone: bool,
-    lowering_route: str | None, schema: int,
 ) -> None:
     from orchestrator.workflow_lisp import build
 
     producer = tmp_path / "producer.orc"
     header = "" if standalone else "(defmodule producer) (export get)"
-    producer.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+    producer.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
       {header}
       (defproc inc ((n Int)) -> Int :effects () :lowering inline (+ n 1))
       (defworkflow get ((n Int :default 3)) -> Int (inc n)))''')
     manifest = tmp_path / "imports.json"
     manifest.write_text(json.dumps({"dep": {"kind": "compiled", "path": "producer.orc", "entry_workflow": "get"}}))
     bindings = load_imported_workflow_bundle_manifest(
-        manifest, workspace_root=tmp_path, source_roots=(tmp_path,), lowering_route=lowering_route,
+        manifest, workspace_root=tmp_path, source_roots=(tmp_path,),
     )
     imported = bindings[0].typed_program
-    assert imported.target == "2.34"
-    assert imported.entry_module == "producer"
-    assert imported.entry.definition.name == ("get" if standalone else "producer::get")
-    assert imported.producer_lowering_schema == schema
-    assert imported.source_file_digests["producer"] == hashlib.sha256(producer.read_bytes()).hexdigest()
+    assert imported.target == "2.35"
+    assert imported.entry_module == ("entry" if standalone else "producer")
+    assert imported.entry.definition.name == ("entry::get" if standalone else "producer::get")
+    assert imported.producer_lowering_schema == 2
+    assert imported.source_file_digests["entry" if standalone else "producer"] == hashlib.sha256(producer.read_bytes()).hexdigest()
     consumer = tmp_path / "consumer.orc"
     consumer.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
       (defmodule consumer) (export run)
@@ -2973,17 +2785,17 @@ def test_old_typed_producer_import_never_emits_flat_workflows(
     analysis = build.build_frontend_bundle_in_memory(build.FrontendBuildRequest(
         source_path=consumer, entry_workflow="run", workspace_root=tmp_path,
         source_roots=(tmp_path,), imported_workflow_bundles_path=manifest,
-        lowering_route=lowering_route,
+
     ))
     assert analysis.entry_selection.canonical_name == "consumer::run"
-    assert analysis.compile_result.entry_result.typed_program.imported_programs["dep"].target == "2.34"
+    assert analysis.compile_result.entry_result.typed_program.imported_programs["dep"].target == "2.35"
     assert {producer, consumer} <= {path for path, _ in analysis.source_read_trace.revision_vector}
     assert manifest in dict(analysis.configuration_trace.revision_vector)
     from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
     closed = build_closed_program_bundle(build.FrontendBuildRequest(
         source_path=consumer, entry_workflow="run", workspace_root=tmp_path,
         source_roots=(tmp_path,), imported_workflow_bundles_path=manifest,
-        lowering_route=lowering_route,
+
     ))
-    assert closed.typed_program.imported_programs["dep"].producer_lowering_schema == schema
+    assert closed.typed_program.imported_programs["dep"].producer_lowering_schema == 2
     assert ClosedProgram.from_artifact(closed.program.artifact()).digest == closed.program.digest

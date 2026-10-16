@@ -60,7 +60,7 @@ from .expressions import (
     WithPhaseExpr,
     WorkflowRefLiteralExpr,
 )
-from .syntax import target_dsl_supports_pure_call_composition
+
 from .loops import LoopControlTypeRef
 from .loop_state import typecheck_loop_state_expr as typecheck_loop_state_expr_owner
 from .procedure_refs import (
@@ -129,13 +129,10 @@ from .typecheck_proofs import (
 
 
 def _is_pure_or_provisional_procedure_call(
-    summary: EffectSummary, *, type_env, allow_provisional_procedure_calls: bool
+    summary: EffectSummary, *, allow_provisional_procedure_calls: bool
 ) -> bool:
     return summary == EMPTY_EFFECT_SUMMARY or (
-        allow_provisional_procedure_calls
-        and
-        target_dsl_supports_pure_call_composition(type_env.target_dsl_version)
-        and effect_summary_is_procedure_edge_only(summary)
+        (allow_provisional_procedure_calls) and (effect_summary_is_procedure_edge_only(summary))
     )
 from .type_env import (
     FrontendTypeEnvironment,
@@ -149,10 +146,8 @@ from .type_env import (
 )
 from .workflow_refs import resolve_workflow_ref_name, workflow_ref_type_from_signature
 
-def _kept_continue_state(expr: ContinueExpr, typed_state: TypedExpr, *, context):
-    if context.compiler_session.closed_program:
-        return replace(expr, state_expr=typed_state.expr)
-    return expr
+def _kept_continue_state(expr: ContinueExpr, typed_state: TypedExpr):
+    return replace(expr, state_expr=typed_state.expr)
 
 
 if TYPE_CHECKING:
@@ -389,8 +384,6 @@ def _typecheck(
         try:
             enum_type = (
                 expr.resolved_type
-                if context.compiler_session.closed_program
-                else None
             ) or type_env.resolve_type(
                 expr.enum_name,
                 span=expr.span,
@@ -426,8 +419,6 @@ def _typecheck(
         return _typed(
             expr=(
                 replace(expr, resolved_type=enum_type)
-                if context.compiler_session.closed_program
-                else expr
             ),
             type_ref=enum_type,
             effect=EMPTY_EFFECT_SUMMARY,
@@ -557,7 +548,7 @@ def _typecheck(
                     expansion_stack=binding.value_expr.expansion_stack,
                 )
             source_identity = binding.source_binding_identity
-            if compiler_session.closed_program and isinstance(typed_binding.expr, NameExpr):
+            if isinstance(typed_binding.expr, NameExpr):
                 if source_identity is None:
                     source_identity = binding_env.get(typed_binding.expr.name)
             typed_bindings.append(replace(binding, value_expr=typed_binding.expr,
@@ -676,7 +667,7 @@ def _typecheck(
             )
             if not _is_pure_or_provisional_procedure_call(
                 typed_field.effect_summary,
-                type_env=type_env,
+
                 allow_provisional_procedure_calls=context.allow_provisional_procedure_calls,
             ):
                 _raise_error(
@@ -775,7 +766,7 @@ def _typecheck(
             )
             if not _is_pure_or_provisional_procedure_call(
                 typed_field.effect_summary,
-                type_env=type_env,
+
                 allow_provisional_procedure_calls=context.allow_provisional_procedure_calls,
             ):
                 _raise_error(
@@ -828,7 +819,7 @@ def _typecheck(
                 form_path=expr.state_expr.form_path,
             )
         return _typed(
-            expr=_kept_continue_state(expr, typed_state, context=context),
+            expr=_kept_continue_state(expr, typed_state),
             type_ref=LoopControlTypeRef(
                 state_type_ref=loop_context.state_type_ref,
                 result_type_ref=loop_context.result_type_ref,

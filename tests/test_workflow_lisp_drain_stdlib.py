@@ -9,7 +9,7 @@ from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.reader import read_sexpr_file
 from orchestrator.workflow_lisp.syntax import build_syntax_module
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
-from orchestrator.workflow_lisp.wcc.route import LoweringRoute
+
 from orchestrator.workflow_lisp.workflows import ExternEnvironment
 from orchestrator.workflow_lisp.workflows import (
     CertifiedAdapterBinding,
@@ -129,7 +129,6 @@ def _compile_linked_stdlib_fixture(
     tmp_path: Path,
     validation_profile: str | None = None,
     validate_shared: bool = False,
-    lowering_route: LoweringRoute | None = None,
 ):
     source = path.read_text(encoding="utf-8")
     module_match = re.search(r"\(defmodule\s+([^\s)]+)\)", source)
@@ -143,8 +142,6 @@ def _compile_linked_stdlib_fixture(
         "command_boundaries": _command_boundaries(gap_output_type_name="GapResult").bindings_by_name,
         "workspace_root": tmp_path,
     }
-    if lowering_route is not None:
-        compile_kwargs["lowering_route"] = lowering_route
     if validation_profile is not None:
         compile_kwargs["validation_profile"] = validation_profile
     else:
@@ -200,7 +197,7 @@ def test_workflow_ref_resolution_rejects_gap_drafter_non_record_payload(
         _compile_linked_stdlib_fixture(
             INVALID_GAP_DRAFTER_NON_RECORD_PAYLOAD_FIXTURE,
             tmp_path=tmp_path,
-            lowering_route=LoweringRoute.WCC_M4,
+
             validate_shared=False,
         )
 

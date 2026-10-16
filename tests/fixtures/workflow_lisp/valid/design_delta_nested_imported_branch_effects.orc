@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule nested/imported-branch)
   (import workflow_refs/types :only (WorkReport WorkflowInput WorkflowOutput))
   (import workflow_refs/imported_helper :as helper :only (echo-helper))

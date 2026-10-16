@@ -168,7 +168,7 @@ def test_compile_stage3_rejects_malformed_publish_metadata(tmp_path: Path) -> No
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule entry_publication_policy_invalid)",
                 "  (export entry-publication-policy-invalid)",
                 "  (defunion EntryPublicationResult",
@@ -202,8 +202,8 @@ def test_compile_stage3_entry_publication_fixture_keeps_policy_out_of_signature(
     )
 
     workflow_catalog = result.workflow_catalog
-    signature = workflow_catalog.signatures_by_name["entry-publication-runtime"]
-    workflow_def = workflow_catalog.definitions_by_name["entry-publication-runtime"]
+    signature = workflow_catalog.signatures_by_name["entry_publication_runtime::entry-publication-runtime"]
+    workflow_def = workflow_catalog.definitions_by_name["entry_publication_runtime::entry-publication-runtime"]
 
     assert hasattr(workflow_def, "publication_policy")
     assert getattr(workflow_def, "publication_policy") is not None
@@ -217,7 +217,7 @@ def test_compile_stage3_rejects_publish_on_exported_non_selected_helper(tmp_path
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule entry_publication_selected_entry_only)",
                 "  (export entry helper)",
                 "  (defunion EntryPublicationResult",
