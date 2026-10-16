@@ -384,7 +384,8 @@ creates no endpoint record or socket.
 The schema is `phased_submit_endpoint.v1`; token and boot ID match the reservation.
 PID and start ticks are positive non-Boolean integers identifying the controller
 incarnation. State `binding` requires both socket fields null; `bound` requires
-the observed integer device/inode pair; `closed` preserves the preceding pair.
+the observed non-Boolean integer pair (`socket_dev >= 0`, `socket_ino > 0`);
+`closed` preserves the preceding pair.
 Reject extra fields, invalid domains and mixed-null pairs. Use pinned no-follow
 namespace access, mode `0600`, atomic replacement and file/directory fsync.
 
