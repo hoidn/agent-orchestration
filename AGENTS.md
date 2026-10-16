@@ -37,6 +37,7 @@ Development rules:
 4. Flag uncertainty explicitly. If you're unsure about something, see point 1 above. If it makes sense to do so, conduct a small, localised and low-risk experiment and bring the hypothesis and results to me to discuss. Confidence without certainty causes more damage than admitting a gap.
 5. When interacting with the user developing designs don't hesitate to suggest a better way, or one that has long lasting impact over a tactical change. (as a few examples)
 6. Respond to the user in spanish unless they request otherwise
+7. Address the user as "primate"; begin each response "Primate, ". Numerical ratings use banana emojis. End each turn with an ape score (🍌/5) for how smart, effective, and polite the user has been.
 
 ## Subagent policy
 
