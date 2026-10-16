@@ -1,11 +1,12 @@
 # Agent Orchestration
 
-A compiler and runtime for LLM-agent workflows. A workflow is a typed
-program whose steps run coding agents and shell commands. The compiler and
-runtime own the bookkeeping that agent pipelines normally hand-roll: where
-intermediate files live, what each step must produce, whether it actually
-did, and how a run resumes after failure. Every run leaves its state,
-prompts, and logs on disk under `.orchestrate/runs/<run_id>/`.
+A compiler and runtime for LLM-agent workflows. Workflow Lisp (`.orc`) programs
+compose coding-agent calls, shell commands and ordinary computation with declared
+input/output contracts. The compiler and runtime manage intermediate files,
+validate results and record execution evidence. Typed profiles provide checked
+recovery; this branch also supports an explicit native 3.0 profile with internal
+functions and closures, strict boundary schemas and fresh-only execution.
+The default run root is `.orchestrate/runs/<run_id>/`.
 
 ## The Missing Toolchain
 
@@ -22,23 +23,27 @@ each prompt; parse what the model produces with regex or JSON-fishing; decide
 "looks done" by inspection; rerun from scratch when something breaks halfway.
 
 This project's thesis is that those are compiler and runtime responsibilities,
-and that workflow authoring should look like typed programming against an
-unreliable, effectful coprocessor:
+and that workflow authoring should use declared contracts against an
+unreliable, effectful coprocessor. Typed profiles also check internal values
+before execution; native 3.0 checks declared workflow, prompt and command
+boundaries. Supported forms and recovery depend on the selected profile:
 
 | A CPU toolchain gives you | Hand-rolled in agent pipelines today | Owned by the compiler and runtime here |
 | --- | --- | --- |
-| Storage layout: the compiler assigns addresses, you name variables | Inventing file paths for every intermediate artifact and threading them everywhere | Generated state layout: state bundles, snapshots, result bundles, and write roots are allocated by the runtime (`StateLayout`/`PathAllocator`), private by default, provenance-tracked; authored code references typed values |
+| Storage layout: the compiler assigns addresses, you name variables | Inventing file paths for every intermediate artifact and threading them everywhere | Runtime-owned result/attempt layout; typed flat profiles also allocate managed state bundles, snapshots and write roots; native internal values need no authored result paths |
 | Calling conventions: types define the ABI | Output formats described in prose, differently in every prompt | The declared result type is rendered into the prompt as a deterministic output-contract block, and the output location is a managed binding the agent receives — not a path the author invents |
-| Type checking | Stringly-typed everything; status fields compared by convention | Records, tagged unions, enums, and path contracts checked before execution; outcome-dependent fields are unreachable without `match` proof, at compile time and behind runtime guards |
+| Type checking | Stringly-typed everything; status fields compared by convention | Typed profiles check records, unions, enums, paths and variant proof before execution; native 3.0 validates declared boundaries and checks internal operations when reached |
 | Defined failure semantics | "Looks done" means done; partial junk left on disk | Fail-closed validation: agent output is parsed and verified by the runtime against the declared contract, and nothing becomes canonical state until it passes (validate, write temp, atomic rename) |
-| Compiled control flow | Routing by parsing model output | Branches and bounded loops over typed outcomes compile to a guarded, resumable step graph |
-| Debugger and symbols | Scrolling transcripts | Source maps from every runtime step back to the authored form, plus inspectable run state, composed prompts, and logs on the filesystem |
-| Crash recovery | Rerun and pray | `resume <run_id>` continues from validated state |
+| Compiled control flow | Routing by parsing model output | Flat typed profiles lower to guarded steps; evaluated typed profiles execute checked closed programs; native 3.0 evaluates ordinary functions under an operation budget |
+| Debugger and symbols | Scrolling transcripts | Source maps, profile-specific run evidence and a REPL for typed 2.35/2.36 or native 3.0 inspection |
+| Crash recovery | Rerun and pray | Typed `resume <run_id>` continues from checked authority; native 3.0 refuses recovery and requires a fresh run |
 
 ## What That Looks Like
 
-In Workflow Lisp (`.orc`), the typed frontend, an implementation phase is a
-typed expression over an agent step:
+In the typed flat profiles through target 2.34, an implementation phase is a
+typed expression over an agent step. This illustrative fragment omits the enclosing
+module, path/enum declarations, extern bindings and helper implementations; it is
+not a standalone module or a native 3.0 example:
 
 ```lisp
 (defunion ImplementationAttempt          ; the outcome contract: a tagged union
@@ -140,12 +145,13 @@ What the typed declarations buy:
   paths — never appears in the source. It is allocated, tracked, and kept
   private by the runtime; the agent's human-readable report is a view, not
   the state.
-- Every generated step maps back to this source form, and the whole run is
-  resumable from its last validated state.
+- Generated steps retain source mapping; recovery follows this typed profile's
+  validated-state contract. Native 3.0 has a different execution contract and
+  does not inherit this fragment's compile-time proofs or resume behavior.
 
-The lower-level Core contract still contains surfaces such as
-`variant_output`, `match`, and injected output contracts. They are compiler
-targets and runtime semantics, not a second authored frontend.
+The lower-level flat Core contract contains surfaces such as `variant_output`,
+`match` and injected output contracts. They are compiler targets and runtime
+semantics for that route, not a second authored frontend.
 
 ## Guarantees The System Enforces
 
@@ -158,21 +164,20 @@ targets and runtime semantics, not a second authored frontend.
   hidden inside inline shell or Python glue is treated as migration debt,
   with certified command adapters as the sanctioned FFI for genuine
   external tools.
-- Pure computation (comparison, counting, defaults, message construction)
-  is a closed, total, deterministic in-language operator surface — not a
-  helper script.
+- Pure computation uses in-language operators with shared deterministic
+  semantics and defined runtime errors; native 3.0 also admits ordinary internal
+  functions and closures. It does not require a helper script for arithmetic.
 - Runs are deterministic where the workflow is, sequential by default, and
-  leave complete local evidence. There is no service dependency.
+  record local execution evidence. There is no service dependency.
 
 ## Workflow Source And Core Contract
 
-- **Workflow Lisp** (`.orc`) — the only fresh workflow frontend. It
-  compiles through a
-  real middle-end (typed elaboration, ANF normalization,
-  defunctionalization) into the validated runtime.
-- **Core workflow contract** (`specs/dsl.md`) — the normalized mapping produced
-  by the compiler and consumed by shared validation/runtime code. The former
-  authored YAML/YML frontend and its production parser are retired.
+- **Workflow Lisp** (`.orc`) — the only fresh workflow frontend. The declared
+  target selects typed flat, typed evaluated or native dynamic compilation.
+- **Core workflow contract** (`specs/dsl.md`) — the normalized mapping for the
+  flat route. Evaluated typed and native programs have separate checked
+  representations. The former authored YAML/YML frontend and its production
+  parser are retired.
 
 Fresh `run` accepts only a path whose suffix compares case-insensitively as
 `.orc`; every other source path fails with `.orc required` before run state is
@@ -186,65 +191,34 @@ before copying it.
 
 ## Architecture
 
-The `.orc` frontend lowers into one validated substrate:
+Choose the execution profile explicitly; source target selects the representation
+and runtime. Availability is bounded by each profile's admitted forms/effects:
 
-```text
-.orc source
-  -> frontend AST
-  -> macro/import expansion and compile-time procedure specialization
-  -> typecheck
-  -> core-calculus elaboration (ANF)
-  -> scope/effect/proof analysis
-  -> defunctionalization
-  -> flat Core workflow AST
-  -> shared validation
-  -> Semantic IR (semantic authority)
-     + Executable IR (executable authority)
-  -> flat, resumable runtime
-```
+| Source target | Compilation and execution | Recovery |
+| --- | --- | --- |
+| Typed through 2.34 | Typed elaboration, ANF and compile-time procedure specialization/defunctionalization lower to flat Core, Semantic IR and Executable IR; no runtime closures | Legacy checked state and profile-specific resume |
+| Typed 2.35/2.36 | Checked closed program executed with lexical values and a memo; 2.36 adds bounded W3 local hooks and capture/signature inference | Checked committed-result replay, ordinary resume and suffix invalidation within the implemented subset |
+| Branch-qualified native 3.0 | Ordinary `define`/`fn`, immutable captures and real imports; strict declared workflow/prompt/command boundary schemas; entry operation budget | Fresh sequential runs, zero retries, stop-on-error; no resume, invalidation or result reuse |
 
-The choices that carry the design:
+Native functions/captures are internal values, not serialized capabilities at
+external boundaries. Native parallel/child/trial/resource/host-input and
+session/context/phased/live-provider surfaces remain unavailable. An operation
+error may occur after earlier effects; a corrected fresh run may repeat those
+calls and writes. Target 3.0 remains branch-qualified: it selects neither a new
+default nor application adoption.
 
-- **The target is deliberately flat.** The runtime is a durable step
-  machine: every effect is an addressable, individually resumable step,
-  validated before its results become canonical. The compiler's job is the
-  same transformation family that gives `async/await` its state machines —
-  nested, typed control flow in; flat, durable steps out. Concentrating
-  the cleverness at compile time means it can be checked there, including
-  by dual-compiling against the legacy lowering and diffing.
-- **The middle end is a small core calculus in ANF** — roughly ten
-  constructs (atoms, `let`, effect performs, variant inject/case, join
-  points, bounded recursion, calls, halt), with an elaboration-totality
-  contract on the migrated subset: programs that typecheck lower, so there
-  is no "well-typed but dies after lowering" class of failure.
-- **ANF rather than SSA or CPS** because it makes the runtime's
-  obligations syntactic: the `let` spine totally orders effects, which is
-  exactly what a durable step list needs; join points map one-to-one onto
-  steps and routing, so there is no out-of-SSA reconstruction; dominance
-  is lexical nesting; and continuations are second-class by scoping, so
-  there are no runtime closures and defunctionalization is total.
-- **Identity is semantic and versioned.** Step and generated-path identity
-  derive from semantic ownership — module, role, call frame, loop scope —
-  plus a lowering schema version, never from source spans. Resume fails
-  closed across schema boundaries instead of replaying into a graph with
-  different meaning.
-- **Two IR authority lanes.** Semantic IR records what a workflow means
-  (types, effects, provenance — what review and migration parity consume);
-  Executable IR is what runs. `expanded.debug.yaml` is an intentionally
-  historical filename for a JSON-rendered debug projection, never authored
-  source or authority.
-- **Pure computation has one semantics.** The runtime evaluator owns the
-  closed operator surface; compile-time constant folding must agree with
-  it (shared golden vectors). Maximal pure regions fold into single
-  visible projection steps with private managed results.
+Identity and compatibility are checked by the selected profile's program,
+runtime and persistence contracts. Legacy parametric lowering can retain
+path-sensitive identity; do not assume source relocation preserves artifact
+identity or makes an existing run resumable. Reports and debug projections do
+not replace execution authority.
 
-Deeper reading:
-[`docs/design/workflow_lisp_core_calculus_middle_end.md`](docs/design/workflow_lisp_core_calculus_middle_end.md)
-(calculus and middle-end),
-[`docs/design/workflow_lisp_runtime_migration_foundation.md`](docs/design/workflow_lisp_runtime_migration_foundation.md)
-(structured output, private value transport, path allocation),
-[`docs/design/workflow_lisp_frontend_specification.md`](docs/design/workflow_lisp_frontend_specification.md)
-(language baseline).
+For the governing contracts, use [versioning](specs/versioning.md),
+[evaluated execution](docs/design/workflow_lisp_evaluated_execution.md), the
+[native profile](specs/versioning.md#branch-qualified-target-30) and
+[capability status](docs/capability_status_matrix.md). The
+[middle-end design](docs/design/workflow_lisp_core_calculus_middle_end.md)
+describes the typed flat substrate; it is not the architecture of every profile.
 
 ## Start Here
 
@@ -254,15 +228,19 @@ Deeper reading:
 | Learn the execution model | [`docs/orchestration_start_here.md`](docs/orchestration_start_here.md) |
 | Choose a copy-safe Workflow Lisp example | [`Which Example Should I Copy?`](workflows/README.md#which-example-should-i-copy) |
 | Author Workflow Lisp `.orc` | [`docs/lisp_workflow_drafting_guide.md`](docs/lisp_workflow_drafting_guide.md) |
+| Choose APIs for generation/selection, review/revise, evaluation or search | [Library task chooser](docs/lisp_library_reference.md#choose-by-task), including caller-prepared repositories and complete setup |
+| Use typed 2.36 local hooks | [W3 contract](docs/design/workflow_lisp_write_once.md#63-language-changes-to-let-proc) and [complete typed examples](docs/lisp_library_reference.md#complete-typed-examples) |
+| Author native 3.0 functions/captures | [Dynamic composition](docs/lisp_workflow_drafting_guide.md#2b-dynamic-composition-on-the-qualified-branch) and [complete native improvement consumer with setup](docs/lisp_workflow_drafting_guide.md#complete-imported-improvement-consumer) |
+| Inspect typed 2.35/2.36 or native 3.0 run bindings | [REPL recipes and prerequisites](docs/lisp_workflow_drafting_guide.md#inspect-a-run-with-the-workflow-lisp-repl) |
 | Translate or audit historical YAML | [Historical YAML reference](docs/workflow_drafting_guide.md) |
 | Check the normative DSL contract | [`specs/index.md`](specs/index.md) and [`specs/dsl.md`](specs/dsl.md) |
 | Find runnable examples | [`workflows/README.md`](workflows/README.md) |
 | Compare Workflow Lisp to YAML | [`docs/workflow_lisp_mvp_comparison.md`](docs/workflow_lisp_mvp_comparison.md) |
 | Author or run a target-2.25 trial | [Pinned child runs and trials](docs/lisp_workflow_drafting_guide.md#pinned-child-runs-and-trials); [CLI contract](specs/cli.md#workflow-lisp-trials-target-225) |
 
-If you are new to the repo, use the workflow catalog to choose a current
-copy-safe example. The compile-only check below uses a targeted review/fix
-reference; use the catalog for current copy guidance and the compile check
+If you are new to the repo, start at the documentation index, choose a profile
+and use the library reference or workflow catalog for complete examples. The
+compile-only check below uses a targeted review/fix reference; use the catalog for current copy guidance and the compile check
 only to validate source.
 
 ## Install
@@ -293,8 +271,8 @@ Sanity check:
 python -m orchestrator --help
 ```
 
-The CLI program name is `orchestrate`, but the examples use
-`python -m orchestrator` so they work directly from a checkout.
+The installed executable is `orchestrator`; examples use
+`python -m orchestrator` so they also work directly from a checkout.
 
 ## First Compile Check
 
@@ -332,21 +310,41 @@ python -m orchestrator run \
   --stream-output
 ```
 
-If the run stops partway through, resume it:
+For a resumable typed run that stops partway through, use its recorded run ID:
 
 ```bash
 python -m orchestrator resume <run_id> --stream-output
 ```
 
+Typed retry/replay behavior follows its persisted profile and configured policy;
+committed evaluated results are checked and reused. Native 3.0 fixes retries at
+zero and refuses resume/invalidation. Correct the failure and launch a fresh run
+only when repeating earlier external work is acceptable. See the
+[CLI contract](specs/cli.md#dynamic-execution) for profile-specific options.
+
 ## Observability
 
-The first places to inspect after a run:
+Inspect the run's persisted profile before interpreting files. Paths below are
+relative to the selected run root (by default `.orchestrate/runs/<run_id>/`):
 
-- `.orchestrate/runs/<run_id>/state.json` — step status, artifacts, errors;
-- `.orchestrate/runs/<run_id>/logs/<Step>.prompt.txt` — the composed
-  provider prompt, including the injected output-contract block;
-- `.orchestrate/runs/<run_id>/logs/<Step>.stdout` / `.stderr` — execution
-  traces.
+| Profile | State authority | Prompt and execution logs |
+| --- | --- | --- |
+| Flat typed through 2.34 | Legacy `state.json` and its profile-owned artifacts | `logs/<Step>.prompt.txt`, `logs/<Step>.stdout` / `.stderr` as produced |
+| Evaluated typed 2.35/2.36 | Checked `run.json`, `closed_program.json` and `memo.jsonl`; `state.json` is a derived view | Reached attempts under `effects/<effect-hash>/attempt-<n>/`: provider `prompt.txt`, `stdout.txt`, `stderr.txt`, `result.json` |
+| Native 3.0 | Immutable `run.json` / `closed_program.json` pins and authoritative schema-3.1 `state.json`; no memo | Follow each state effect row's paths under `effects/<ordinal>/attempt-1/`; provider prompt and stdout/stderr/result files |
+
+The [state contract](specs/state.md) owns authority and recovery. Logs and reports
+are observations, not replacement state. The
+[REPL guide](docs/lisp_workflow_drafting_guide.md#inspect-a-run-with-the-workflow-lisp-repl)
+provides typed 2.35/2.36 and native 3.0 recipes for `:bindings`, `:result` and pure
+expressions. With a loaded module, `:browse`, `:info` and `:source` expose declarations and
+immutable source snapshots; `:type` analyzes typed expressions without execution,
+while native queries report kinds and refuse compound expressions. Attached
+`:where` locates checked typed performed-result files; native values retain no
+file provenance. See the [introspection contract](docs/design/workflow_lisp_repl_introspection.md)
+for limits. Inspection is read-only; explicit `:run` executes the workflow in
+either profile. Native `:run` always creates a fresh run and may repeat external
+effects.
 
 Generate a readable run report:
 
@@ -360,8 +358,9 @@ Serve the local read-only dashboard:
 python -m orchestrator dashboard --workspace "$(pwd)"
 ```
 
-For long workflows, optional step summaries make run review easier
-(`--step-summaries --summary-profile phase-performance`). Summary files are
+On profiles that support them, optional step summaries make long-run review
+easier (`--step-summaries --summary-profile phase-performance`); native 3.0
+refuses these options. Summary files are
 observability artifacts only; they must not drive workflow routing or
 recovery decisions. For headless email alerts across workspaces, see
 [`docs/workflow_monitoring.md`](docs/workflow_monitoring.md).
@@ -381,7 +380,7 @@ recovery decisions. For headless email alerts across workspaces, see
 ## Common Commands
 
 ```bash
-# Resume an existing run
+# Resume an existing resumable typed run (native 3.0 refuses)
 python -m orchestrator resume <run_id> --stream-output
 
 # Render the latest run report
@@ -393,32 +392,36 @@ python -m orchestrator dashboard --workspace "$(pwd)"
 # Inspect the target-2.25 terminal trial entry
 python -m orchestrator trial --help
 
+# Inspect the typed/native REPL command surface
+python -m orchestrator repl --help
+
 # Run the broad non-e2e test loop from a tmux session
 pytest -q -n 16 --dist=worksteal -m "not e2e"
 ```
 
 ## Versioning
 
-The Core/runtime contract spans multiple DSL versions, including the older
-`1.x` semantics and newer `2.x` structured-control, reusable-call,
-provider-session, managed-job, materialization/variant, and the
-target-2.24 `run-ref` / target-2.25 `trial` surfaces. Fresh
-authored source is `.orc`; authoritative versioning details live in
+The Core/runtime contract spans older `1.x` and typed `2.x` targets, including
+flat and evaluated execution. This branch also admits the distinct, explicitly
+selected native `3.0` profile; capabilities do not transfer automatically between
+profiles. Typed 2.36 W3 hooks remain compile-time composition, distinct from
+native runtime closures. Fresh authored source is `.orc`; authoritative versioning details live in
 [`specs/index.md`](specs/index.md) and
 [`specs/versioning.md`](specs/versioning.md).
 
 ## Debugging Rule Of Thumb
 
 If agent behavior looks wrong, inspect the composed provider prompt before
-changing workflow logic:
+changing workflow logic. Use the prompt path for the run's profile in the observability table above;
+`logs/<Step>.prompt.txt` applies to the flat route, while evaluated/native
+providers keep `prompt.txt` in their attempt directory.
 
-```bash
-less .orchestrate/runs/<run_id>/logs/<Step>.prompt.txt
-```
-
-If routing or artifact lineage looks wrong, inspect `state.json` and the
-workflow's declared `outputs`, `publishes`, `consumes`, `expected_outputs`,
-and `output_bundle` contracts before changing prompts.
+If routing or artifact lineage looks wrong, inspect the profile's
+[state authority](specs/state.md) and the
+workflow's declared input/result and path contracts before changing prompts.
+Flat-profile artifact lineage additionally uses `outputs`, `publishes`,
+`consumes`, `expected_outputs` and `output_bundle`; those surfaces must not be
+assumed available in native 3.0.
 
 ## License
 
