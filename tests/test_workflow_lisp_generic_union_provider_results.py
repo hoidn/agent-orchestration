@@ -101,7 +101,7 @@ class _Provider:
         prompt = str(kwargs.get("prompt_content", ""))
         invocation = SimpleNamespace(
             provider_name=provider_name, prompt=prompt, prepared_prompt=prompt, prepared_provider_policy=policy,
-            env=dict(kwargs.get("env") or {}), input_mode="stdin",
+            env=dict(kwargs.get("env") or {}), input_mode="stdin", metadata_mode=None,
         )
         return invocation, None
 

@@ -25,10 +25,12 @@ NameResolver: TypeAlias = Callable[
     [str, "SourceSpan", tuple[str, ...]],
     str,
 ]
-LoopCarrierSourceKey: TypeAlias = tuple[str, int, int, tuple[str, ...]]
+LoopCarrierSourceKey: TypeAlias = tuple[
+    str, int, int, tuple[str, ...], tuple[str, ...]
+]
 LoopCarrierExprKey: TypeAlias = (
     LoopCarrierSourceKey
-    | tuple[str, int, int, tuple[str, ...], str]
+    | tuple[str, int, int, tuple[str, ...], tuple[str, ...], str]
 )
 LoopCarrierFieldSignature: TypeAlias = tuple[tuple[str, str], ...]
 LoopCarrierMetadataKey: TypeAlias = (

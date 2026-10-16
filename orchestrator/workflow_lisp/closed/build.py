@@ -2761,7 +2761,9 @@ class Builder:
         return partition
 
     def _preparation_substitutions(self, procedure, facts):
-        closed = {formal: row["value"] for formal, row in facts["closed_values"].items()}
+        closed = {formal: row["value"]
+            if isinstance(row, Mapping) and set(row) == {"type", "value"} else row
+            for formal, row in facts["closed_values"].items()}
         substitutions = getattr(procedure.specialization, "value_bindings", {})
         return {name: ["closed", closed[name]] if name in closed else self._abstract_preparation_value(value)
             for name, value in substitutions.items()}

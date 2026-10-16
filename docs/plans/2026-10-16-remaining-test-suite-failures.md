@@ -67,5 +67,34 @@ The integrated main checkpoint collected 325 cases in the changed test modules;
 its combined compiler, LSP/editor and public CLI check passed 665 cases with only
 the same two loop-carrier failures. Hash comparison confirmed that every file
 outside this checkpoint remained unchanged from the initial snapshot.
-Loop carriers, preparation values, process handling, documentation tests and the
-additional failures from the fresh baseline remain to be repaired and verified.
+
+## Subsequent integrated repairs
+
+Loop-carrier registration now hydrates the retained concrete type, and syntax
+and expression lookup share the declaration path and macro occurrence IDs.
+Semantic family identity remains declaration plus introduction ordinal. The
+independent contract and quality review passed; 218 owner cases and the public
+command-only compile/run smoke passed. All eight original loop-related cases
+also passed on integrated main.
+
+Six test files now match the current provider invocation and file/2 guidance
+contracts: complete invocation doubles, decoded authored annotations, selected
+contract/prompt dataflow checks and two missing helper imports. All 172 affected
+cases passed. The review tightened the Bool guidance oracle to reject an extra
+wrapped overall annotation; the two final guidance cases passed again. These
+snapshot-relative edits preserve the pre-existing provider and consumer work.
+
+Preparation now retains opaque expression facts through the existing normalized
+fact producer and accepts both raw checked Values and exact typed wrappers.
+Independent review passed; the three original failures and 128 related cases
+passed. A further integrated-main run covering use-site scope and both shared
+provider-double callers passed all 70 cases.
+
+This commit checkpoint includes compiler repairs and complete provider invocation
+doubles. The three file/2-dependent test edits remain uncommitted alongside the
+pre-existing file/2 implementation and consumer changes they require.
+The final ten-module check on integrated main passed 310 cases in 7.43 seconds.
+
+Process handling, documentation tests and retired research demo test collection
+remain to be repaired. The final full default suite and completion audit are
+still pending.

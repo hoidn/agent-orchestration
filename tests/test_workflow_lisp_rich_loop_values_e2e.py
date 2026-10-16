@@ -210,7 +210,7 @@ def test_public_run_keeps_provider_tasks_through_imported_loop_update(
                 provider_name=provider_name, model=None, effort=None,
                 timeout_sec=kwargs.get("timeout_sec"), input_mode="stdin",
             ),
-            env=dict(kwargs.get("env") or {}), input_mode="stdin",
+            env=dict(kwargs.get("env") or {}), input_mode="stdin", metadata_mode=None,
         ), None
 
     def execute(_self, invocation, **_kwargs):
@@ -261,7 +261,7 @@ def test_public_run_carries_provider_list_of_unions_through_root_loop(
                 provider_name=provider_name, model=None, effort=None,
                 timeout_sec=kwargs.get("timeout_sec"), input_mode="stdin",
             ),
-            env=dict(kwargs.get("env") or {}), input_mode="stdin",
+            env=dict(kwargs.get("env") or {}), input_mode="stdin", metadata_mode=None,
         ), None
 
     def execute(_self, invocation, **_kwargs):
@@ -318,7 +318,7 @@ def test_public_run_rejects_malformed_provider_list_of_unions(
                 provider_name=provider_name, model=None, effort=None,
                 timeout_sec=kwargs.get("timeout_sec"), input_mode="stdin",
             ),
-            env=dict(kwargs.get("env") or {}), input_mode="stdin",
+            env=dict(kwargs.get("env") or {}), input_mode="stdin", metadata_mode=None,
         ), None
 
     def execute(_self, invocation, **_kwargs):
@@ -379,7 +379,7 @@ def test_public_run_preserves_rich_state_across_two_imported_updates(
                 provider_name=provider_name, model=None, effort=None,
                 timeout_sec=kwargs.get("timeout_sec"), input_mode="stdin",
             ),
-            env=dict(kwargs.get("env") or {}), input_mode="stdin",
+            env=dict(kwargs.get("env") or {}), input_mode="stdin", metadata_mode=None,
         ), None
 
     def execute(_self, invocation, **_kwargs):

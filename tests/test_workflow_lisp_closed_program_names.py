@@ -322,6 +322,106 @@ def test_loop_carriers_keep_expanded_declaration_family_in_canonical_identity(
     assert first[0] != first[1]
 
 
+def test_macro_generated_workflows_keep_separate_loop_carrier_families(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow_lisp.compiler import compile_stage3_module
+
+    path = tmp_path / "cp" / "macro_workflows.orc"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+          (defmodule cp/macro_workflows)
+          (defmacro emit (name)
+            (defworkflow name () -> Int
+              (let* ((state (loop-state (n Int 0)))) state.n)))
+          (emit left)
+          (emit right))''',
+        encoding="utf-8",
+    )
+    typed = compile_stage3_module(
+        path, workspace_root=tmp_path, validate_shared=False
+    ).typed_program
+    metadata = tuple(
+        typed.type_env.session_state.loop_carrier_metadata_by_name.values()
+    )
+    families = sorted(metadata, key=lambda row: row.family[0][-1])
+
+    assert [row.family for row in families] == [
+        (["cp/macro_workflows", "workflow", "left"], 0),
+        (["cp/macro_workflows", "workflow", "right"], 0),
+    ]
+    identities = [
+        canonical_type_identity(row.type_ref, typed=typed) for row in families
+    ]
+    assert identities[0] != identities[1]
+
+
+def test_repeated_macro_loop_state_seeds_keep_distinct_stable_families(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow_lisp.compiler import compile_stage3_module
+    from orchestrator.workflow_lisp.expression_traversal import walk_expr
+    from orchestrator.workflow_lisp.expressions import LoopStateSeedExpr
+    from orchestrator.workflow_lisp.loop_state import _expr_metadata_key
+
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "{TARGET}")
+      (defmodule cp/macro_seeds)
+      (defmacro noop () 0)
+      (defmacro seed () (loop-state (n Int 0)))
+      (defworkflow run () -> Int
+        (let* (PADDING (left (seed)) (right (seed))) (+ left.n right.n))))'''
+
+    def carriers_at(root: Path, *, relocate: bool) -> tuple[list[str], list[str]]:
+        path = root / "cp" / "macro_seeds.orc"
+        path.parent.mkdir(parents=True)
+        body = source.replace("PADDING", "(unused (noop))" if relocate else "")
+        path.write_text(("\n" if relocate else "") + body, encoding="utf-8")
+        typed = compile_stage3_module(
+            path, workspace_root=root, validate_shared=False
+        ).typed_program
+        session_state = typed.type_env.session_state
+        seeds = [
+            node
+            for workflow in typed.workflows.values()
+            for node in walk_expr(workflow.typed_body.expr)
+            if isinstance(node, LoopStateSeedExpr)
+        ]
+        families = []
+        expansion_ids = []
+        for seed in seeds:
+            occurrence_key = _expr_metadata_key(seed)
+            assert (
+                session_state.loop_carrier_families_by_expr_key[occurrence_key]
+                == seed.carrier_family
+            )
+            families.append(seed.carrier_family)
+            expansion_ids.append(occurrence_key[-1][-1])
+        identities = sorted(
+            canonical_type_identity(metadata.type_ref, typed=typed)
+            for metadata in session_state.loop_carrier_metadata_by_name.values()
+        )
+        assert sorted(families, key=lambda family: family[1]) == [
+            (["cp/macro_seeds", "workflow", "run"], 0),
+            (["cp/macro_seeds", "workflow", "run"], 1),
+        ]
+        return identities, expansion_ids
+
+    first_identities, first_expansions = carriers_at(
+        tmp_path / "first", relocate=False
+    )
+    moved_identities, moved_expansions = carriers_at(
+        tmp_path / "elsewhere", relocate=True
+    )
+
+    assert len(first_identities) == 2
+    assert first_identities[0] != first_identities[1]
+    assert first_identities == moved_identities
+    assert len(first_expansions) == len(moved_expansions) == 2
+    assert len(set(first_expansions)) == len(set(moved_expansions)) == 2
+    assert first_expansions != moved_expansions
+
+
 def test_generic_loop_carriers_keep_same_spelled_private_field_owners(
     tmp_path: Path,
 ) -> None:

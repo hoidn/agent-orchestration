@@ -2124,7 +2124,7 @@ def _resolve_inline_expr_value(expr: Any, *, local_values: Mapping[str, Any], re
             field_path=tuple(expr.fields),
             local_values=local_values, retain_expression_facts=retain_expression_facts,
         )
-    return expr
+    return _retained_inline_child(expr) if retain_expression_facts else expr
 
 
 def _resolve_inline_let_bindings(

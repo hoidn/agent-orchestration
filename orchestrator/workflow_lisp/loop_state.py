@@ -6,7 +6,11 @@ from dataclasses import dataclass, field, replace
 from hashlib import sha1, sha256
 import re
 
-from .compiler_session import TypecheckSessionState
+from .compiler_session import (
+    LoopCarrierExprKey,
+    LoopCarrierSourceKey,
+    TypecheckSessionState,
+)
 from .definitions import RecordDef, RecordField
 from .diagnostics import LispFrontendCompileError
 from .effects import EMPTY_EFFECT_SUMMARY, merge_effect_summaries
@@ -14,6 +18,7 @@ from .expressions import LoopStateField, LoopStateSeedExpr, LoopStateUpdateExpr
 from .loops import ensure_loop_projectable_type
 from .spans import SourceSpan
 from .syntax import (
+    ExpansionFrame,
     SyntaxIdentifier,
     SyntaxKeyword,
     SyntaxList,
@@ -119,6 +124,7 @@ def retain_loop_carrier_families(
         owner_did: list[object],
         top_owner_did: list[object],
         ordinal: list[int],
+        form_path: tuple[str, ...],
     ) -> None:
         if not isinstance(datum, SyntaxList) or not datum.items:
             return
@@ -147,6 +153,7 @@ def retain_loop_carrier_families(
                         owner_did=local_did,
                         top_owner_did=top_owner_did,
                         ordinal=[0],
+                        form_path=form_path,
                     )
             # A local procedure body has its own declaration and ordinal
             # namespace; only its continuation belongs to this owner.
@@ -155,6 +162,7 @@ def retain_loop_carrier_families(
                 owner_did=owner_did,
                 top_owner_did=top_owner_did,
                 ordinal=ordinal,
+                form_path=form_path,
             )
             return
 
@@ -166,7 +174,7 @@ def retain_loop_carrier_families(
                 and datum.items[1].value == ":like"
             )
         if introduces_carrier:
-            key = _syntax_metadata_key(datum)
+            key = _syntax_metadata_key(datum, form_path=form_path)
             family = (owner_did, ordinal[0])
             ordinal[0] += 1
             existing = session_state.loop_carrier_families_by_expr_key.get(key)
@@ -182,6 +190,7 @@ def retain_loop_carrier_families(
                 owner_did=owner_did,
                 top_owner_did=top_owner_did,
                 ordinal=ordinal,
+                form_path=form_path,
             )
 
     for kind, definitions in (("procedure", procedures), ("workflow", workflows)):
@@ -192,15 +201,29 @@ def retain_loop_carrier_families(
                 owner_did=declaration,
                 top_owner_did=declaration,
                 ordinal=[0],
+                form_path=definition.body.form_path,
             )
 
 
-def _syntax_metadata_key(datum: SyntaxList) -> tuple[str, int, int, tuple[str, ...]]:
+def _macro_expansion_ids(expansion_stack: tuple[object, ...]) -> tuple[str, ...]:
+    return tuple(
+        frame.expansion_id
+        for frame in expansion_stack
+        if isinstance(frame, ExpansionFrame)
+    )
+
+
+def _syntax_metadata_key(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+) -> LoopCarrierSourceKey:
     return (
         datum.span.start.path,
         datum.span.start.line,
         datum.span.start.column,
-        datum.form_path,
+        form_path,
+        _macro_expansion_ids(datum.expansion_stack),
     )
 
 
@@ -289,7 +312,7 @@ def carrier_metadata_for_expr(
         metadata_rows = [
             (row_key, metadata)
             for outer_key, rows in session_state.loop_carrier_metadata_by_expr_key.items()
-            if outer_key[:4] == source_key
+            if outer_key[: len(source_key)] == source_key
             for row_key, metadata in rows.items()
         ]
     if family is not None:
@@ -832,6 +855,13 @@ def _typecheck_loop_state_seed(
             session_state=context.session_state,
             type_env=context.type_env,
         )
+    register_known_carrier_type(
+        context.type_env,
+        session_state=context.session_state,
+        type_name=generated_name,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
     _register_generated_record_type(
         context.type_env,
         name=generated_name,
@@ -1169,19 +1199,20 @@ def _first_runtime_forbidden_type(type_ref: TypeRef) -> str | None:
     return None
 
 
-def _expr_metadata_key(expr) -> tuple[str, int, int, tuple[str, ...]]:
+def _expr_metadata_key(expr) -> LoopCarrierSourceKey:
     return (
         expr.span.start.path,
         expr.span.start.line,
         expr.span.start.column,
         expr.form_path,
+        _macro_expansion_ids(expr.expansion_stack),
     )
 
 
 def _carrier_metadata_expr_key(
-    source_key: tuple[str, int, int, tuple[str, ...]],
+    source_key: LoopCarrierSourceKey,
     family: tuple[object, int],
-) -> tuple[str, int, int, tuple[str, ...], str]:
+) -> LoopCarrierExprKey:
     from orchestrator.workflow.pure_expr import canonical_json_for_pure_value
 
     token = sha256(canonical_json_for_pure_value(family).encode("utf-8")).hexdigest()
