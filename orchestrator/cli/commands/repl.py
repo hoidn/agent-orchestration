@@ -30,12 +30,18 @@ from orchestrator.workflow_lisp.diagnostics import (
     LispFrontendCompileError,
     render_diagnostic,
 )
-from orchestrator.workflow_lisp.reader import SourceReadTrace
+from orchestrator.workflow_lisp.reader import SourceReadTrace, read_sexpr_text
+from orchestrator.workflow_lisp.effects import render_effect_set
+from orchestrator.workflow_lisp.repl_inspect import (
+    COVERAGE, EXCLUSIONS, browse_module, inspect_name, source_name,
+)
+from orchestrator.workflow_lisp.sexpr import SymbolAtom
 from orchestrator.workflow_lisp.repl_expr import (
     LoadedModule,
     ReplRefusal,
     binding_type_refs,
     evaluate_repl_expression,
+    typecheck_repl_expression,
 )
 from orchestrator.workflow_lisp.type_env import render_type_ref
 from orchestrator.contracts.output_contract import strict_json_loads
@@ -128,7 +134,13 @@ def _load_module(
     native = entry_target_dsl_version(source_path, source_read_trace=trace) == "3.0"
     build = prepare_dynamic_program_bundle if native else build_closed_program_bundle
     built = build(_request(args, source_path, session.workspace), source_read_trace=trace)
-    module = (NativeLoadedModule if native else LoadedModule)(built, source_path, _frontend_argv(args))
+    if native:
+        module = NativeLoadedModule(built, source_path, _frontend_argv(args))
+    else:
+        module = LoadedModule(
+            built, source_path, _frontend_argv(args),
+            source_snapshots=trace.raw_bytes_by_path, source_revisions=trace.revision_vector,
+        )
     session.module = module
     if (
         session.captured is not None
@@ -163,13 +175,17 @@ def _module_for_attachment(
     from orchestrator.cli.commands.evaluated import _resume_build_request
 
     request = _resume_build_request(header, session.workspace)
+    trace = SourceReadTrace()
     built: ClosedProgramBuildResult = prepare_closed_program_bundle(
-        request, source_read_trace=SourceReadTrace()
+        request, source_read_trace=trace
     )
     return LoadedModule(
         built,
         request.source_path,
         _request_frontend_argv(request),
+        source_snapshots=trace.raw_bytes_by_path,
+        source_revisions=trace.revision_vector,
+        source_origin="reconstructed",
     )
 
 
@@ -252,6 +268,35 @@ def _binding_lines(captured: CapturedRun, module: LoadedModule) -> list[str]:
     return lines
 
 
+def _result_file(captured: CapturedRun, name: str | None) -> Path:
+    """The result file a performed binding, or the entry result, was read from."""
+    if name is None:
+        if not (captured.has_result if isinstance(captured, NativeCapturedRun) else captured.result is not None):
+            raise ReplRefusal(
+                "repl_no_result", f"entry has no completed result at position {captured.position}"
+            )
+        value, label = captured.result, "the entry result"
+    else:
+        visible = native_visible_bindings(captured) if isinstance(captured, NativeCapturedRun) else visible_bindings(captured)
+        if name not in visible:
+            raise ReplRefusal("name_unknown", f"`{name}` is not a captured binding")
+        value, label = visible[name], f"`{name}`"
+    if isinstance(captured, NativeCapturedRun):
+        raise ReplRefusal("repl_no_result_file", f"{label} has no retained result-file provenance")
+    locator = value.committed_result_path
+    root = captured.authority.header.get("result_root")
+    if locator is None or root is None or not locator.startswith(f"{root}/"):
+        raise ReplRefusal(
+            "repl_no_result_file", f"{label} was computed, not performed; it has no result file"
+        )
+    relative = locator[len(root) + 1:]
+    path = Path(relative)
+    if (not relative or "\x00" in relative or path.is_absolute()
+            or ".." in path.parts or path.as_posix() != relative):
+        raise ReplRefusal("repl_no_result_file", f"{label} has an invalid result-file locator")
+    return captured.authority.run_root / path
+
+
 def _parse_command(parser: argparse.ArgumentParser, argv: list[str]) -> Any | None:
     stdout, stderr = StringIO(), StringIO()
     try:
@@ -315,7 +360,31 @@ def _dispatch(session: ReplSession, line: str) -> bool:
 
     parts = stripped.split(maxsplit=1)
     command = parts[0]
-    words = shlex.split(parts[1]) if len(parts) == 2 else []
+    remainder = parts[1] if len(parts) == 2 else ""
+    if command in {":browse", ":info", ":source", ":type"}:
+        if session.module is None:
+            raise ReplRefusal("repl_module_required", "load a workflow before module inspection")
+        if isinstance(session.module, NativeLoadedModule):
+            raise ReplRefusal("repl_profile_unsupported", "native module inspection is unavailable")
+        if command == ":browse":
+            if remainder:
+                raise ReplRefusal("repl_command_invalid", ":browse takes no arguments")
+            print(browse_module(session.module))
+        elif command == ":type":
+            typed, _, _ = typecheck_repl_expression(remainder, session.module, session.captured)
+            print(f"type: {render_type_ref(typed.type_ref)}")
+            print(f"effects: {render_effect_set(typed.effect_summary.transitive_effects)}")
+        else:
+            try:
+                parsed = read_sexpr_text(remainder, source_path="<repl-command>")
+            except LispFrontendCompileError:
+                raise ReplRefusal("repl_command_invalid", f"{command} requires exactly one symbol") from None
+            if len(parsed.items) != 1 or not isinstance(parsed.items[0], SymbolAtom):
+                raise ReplRefusal("repl_command_invalid", f"{command} requires exactly one symbol")
+            inspect = inspect_name if command == ":info" else source_name
+            print(inspect(session.module, parsed.items[0].value))
+        return True
+    words = shlex.split(remainder)
     if command == ":quit":
         if words:
             raise ReplRefusal("repl_command_invalid", ":quit takes no arguments")
@@ -329,9 +398,16 @@ def _dispatch(session: ReplSession, line: str) -> bool:
             ":attach RUN_ID               attach to a checked evaluated run\n"
             ":bindings                    list captured lexical bindings and types\n"
             ":result                      show the completed entry result\n"
+            ":where [NAME]                locate a performed result file\n"
+            ":browse                      list visible module declarations\n"
+            ":info NAME                   inspect matching declaration contracts\n"
+            ":source NAME                 show the retained authored declaration\n"
+            ":type EXPR                   analyze expression type and effects\n"
             ":help                        show this help\n"
             ":quit                        exit the REPL\n"
-            "Any other nonempty line is one pure Workflow Lisp expression."
+            "Any other nonempty line is one pure Workflow Lisp expression.\n"
+            f"Inspection coverage: {COVERAGE}.\n"
+            f"Excluded: {EXCLUSIONS}."
         )
         return True
     if command == ":load":
@@ -375,6 +451,13 @@ def _dispatch(session: ReplSession, line: str) -> bool:
         else:
             signature = session.module.typed_program.entry.signature
             _print_value(session.captured.result, signature.return_type_ref)
+        return True
+    if command == ":where":
+        if len(words) > 1:
+            raise ReplRefusal("repl_command_invalid", ":where takes at most one binding name")
+        if session.captured is None or session.module is None:
+            raise ReplRefusal("repl_not_attached", "attach to an evaluated run first")
+        print(_result_file(session.captured, words[0] if words else None))
         return True
     raise ReplRefusal("repl_command_unknown", f"unknown command {command}")
 

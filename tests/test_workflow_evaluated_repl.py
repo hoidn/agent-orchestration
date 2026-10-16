@@ -198,13 +198,14 @@ def test_interrupted_provider_captures_outer_scope_and_effect_identity(tmp_path)
     identity = starts[-1]["identity"]
     before = _snapshot(tmp_path / ".orchestrate")
 
-    repl = _repl(tmp_path, [":bindings", "feedback", ":quit"],
+    repl = _repl(tmp_path, [":bindings", "feedback", ":where", ":quit"],
                  fixture=fixture, run_id=run_root.name)
 
     assert repl.returncode == 0, repl.stderr
     assert set(_binding_names(repl.stdout)) == {"task", "scale", "draft"}
     assert len(_binding_names(repl.stdout)) == 3
     assert f"position: {identity}" in repl.stdout
+    assert "[repl_no_result]" in repl.stderr
     assert "[name_unknown]" in repl.stderr
     assert _snapshot(tmp_path / ".orchestrate") == before
 
@@ -393,3 +394,116 @@ def test_completed_root_loop_captures_done_result_not_seed_halt(tmp_path, seed_b
     assert "state" in _binding_names(repl.stdout)
     if seed_block:
         assert "a" not in _binding_names(repl.stdout)
+
+
+def test_where_prints_the_result_file_of_performed_bindings_only(tmp_path):
+    fixture = _fixture(tmp_path)
+    assert _run(tmp_path, fixture, "task=x", "scale=1.5").returncode == 0
+    run_root = _run_root(tmp_path)
+    before = _snapshot(run_root)
+    requests = (tmp_path / "requests.jsonl").read_bytes()
+    repl = _repl(
+        tmp_path, [":where draft", ":where", ":where task", ":where nobody", ":where a b", ":quit"],
+        run_id=run_root.name,
+    )
+    assert repl.returncode == 0, repl.stderr
+    draft_file, result_file = (Path(line) for line in repl.stdout.splitlines())
+    assert [json.loads(path.read_text()) for path in (draft_file, result_file)] == [PLAN, FEEDBACK]
+    assert {path.parent.parent.parent for path in (draft_file, result_file)} == {run_root / "effects"}
+    assert "[repl_no_result_file]" in repl.stderr
+    assert "[name_unknown]" in repl.stderr
+
+    assert "[repl_command_invalid]" in repl.stderr
+    assert _snapshot(run_root) == before
+    assert (tmp_path / "requests.jsonl").read_bytes() == requests
+
+
+@pytest.mark.parametrize("relative", ["../escape.json", "/escape.json", "effects/../escape.json", "effects//value.json", "effects/./value.json", "\x00.json", ""])
+def test_where_refuses_noncanonical_result_locator(tmp_path, relative):
+    from types import SimpleNamespace
+    from orchestrator.cli.commands.repl import _result_file
+    from orchestrator.workflow_lisp.repl_expr import ReplRefusal
+
+    root = ".orchestrate/runs/fixture"
+    captured = SimpleNamespace(
+        result=SimpleNamespace(committed_result_path=f"{root}/{relative}"),
+        authority=SimpleNamespace(header={"result_root": root}, run_root=tmp_path),
+    )
+    with pytest.raises(ReplRefusal) as error:
+        _result_file(captured, None)
+    assert error.value.code == "repl_no_result_file"
+
+
+def test_public_repl_introspection_smoke(tmp_path):
+    """Inspect a four-provider-call specimen through deterministic local shims."""
+    import hashlib
+    from orchestrator.workflow_lisp.reader import read_sexpr_text
+    from orchestrator.workflow_lisp.sexpr import ListExpr, SymbolAtom
+
+    source_text = r'''(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.35")
+  (defmodule plan_review_execute)
+  (export run)
+
+
+  (defrecord Plan (steps List[String]))
+  (defrecord Feedback (findings List[String]))
+  (defrecord Execution (summary String))
+
+  (defprompt draft-plan (:fills (task :text)) -> Plan
+    "Plan this task as ordered steps, naming the files each step touches. Change no files.\n\nTask: {task}")
+  (defprompt review-plan (:fills (task :text) (steps :value List[String])) -> Feedback
+    "Review this plan: what would make it fail or leave the task's scope? Change nothing.\n\nTask: {task}\nPlan: {steps}")
+  (defprompt revise-plan (:fills (task :text) (steps :value List[String]) (findings :value List[String])) -> Plan
+    "Revise the plan so that every finding is addressed. Change no files.\n\nTask: {task}\nPlan: {steps}\nFindings: {findings}")
+  (defprompt execute-plan (:fills (task :text) (steps :value List[String])) -> Execution
+    "Execute this plan in the current repository.\n\nTask: {task}\nPlan: {steps}")
+
+  (defworkflow run ((task String)) -> Execution
+    (let* ((draft (provider-result providers.claude :model "claude-fable-5-1" :effort "high"
+                    :prompt (draft-plan :task task)))
+           (feedback (provider-result providers.codex
+                       :prompt (review-plan :task task :steps draft.steps)))
+           (revised (provider-result providers.claude :model "claude-fable-5-1" :effort "high"
+                      :prompt (revise-plan :task task :steps draft.steps :findings feedback.findings))))
+      (provider-result providers.codex
+        :prompt (execute-plan :task task :steps revised.steps))))
+)
+'''
+    fixture = _fixture(tmp_path, source_text)
+    source = tmp_path / "plan_review_execute.orc"
+    fixture[0].rename(source)
+    providers, prompts = fixture[1:3]
+    providers.write_text(json.dumps({"providers.claude": "claude_unrestricted_workspace", "providers.codex": "codex"}), encoding="utf-8")
+    prompts.write_text("{}", encoding="utf-8")
+    shutil.copy2(tmp_path / "bin/codex", tmp_path / "bin/claude")
+    fixture = (source, providers, prompts, None)
+    execution = {"summary": "fixture completed"}
+    replies = (PLAN, FEEDBACK, PLAN, execution)
+    run = _run(tmp_path, fixture, "task=fixture inspection smoke", results=replies)
+    assert run.returncode == 0, run.stderr
+    run_root = _run_root(tmp_path)
+    before = _snapshot(tmp_path / ".orchestrate")
+    requests = (tmp_path / "requests.jsonl").read_bytes()
+    with run_writer_lock(run_root):
+        repl = _repl(tmp_path, [":browse", ":info Plan", ":info revise-plan", ":source revise-plan",
+                              ":type revised.steps", ":bindings", ":result", ":quit"],
+                     fixture=fixture, run_id=run_root.name, results=replies)
+    assert repl.returncode == 0, repl.stderr
+    assert "steps: List[String]" in repl.stdout
+    assert "task: text" in repl.stdout and "findings: value" in repl.stdout
+    assert "type: List[String]\neffects: ()" in repl.stdout
+    assert "revised : Plan" in repl.stdout
+    assert _typed_values(repl.stdout) == [(execution, "Execution")]
+    parsed = read_sexpr_text(source.read_text(encoding="utf-8"), source_path=str(source))
+    declaration = next(form for form in parsed.items[0].items if isinstance(form, ListExpr)
+                       and len(form.items) > 1 and isinstance(form.items[0], SymbolAtom)
+                       and form.items[0].value == "defprompt" and isinstance(form.items[1], SymbolAtom)
+                       and form.items[1].value == "revise-plan")
+    expected = source.read_text(encoding="utf-8")[declaration.span.start.offset:declaration.span.end.offset]
+    assert expected in repl.stdout
+    assert f"loaded snapshot: sha256:{hashlib.sha256(source.read_bytes()).hexdigest()}" in repl.stdout
+    assert len(requests.splitlines()) == 4
+    assert _snapshot(tmp_path / ".orchestrate") == before
+    assert (tmp_path / "requests.jsonl").read_bytes() == requests
