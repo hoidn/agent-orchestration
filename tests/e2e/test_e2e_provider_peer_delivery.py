@@ -187,6 +187,15 @@ class _RecordingProductionBackend:
         self.active_calls = 0
         self.maximum_active_calls = 0
 
+    def bind_recoverable(self, reservation, deadline):
+        self._delegate.bind_recoverable(reservation, deadline)
+
+    def validate_reserved_server(self, *args, **kwargs):
+        return self._delegate.validate_reserved_server(*args, **kwargs)
+
+    def close_reserved_server(self, *args, **kwargs):
+        return self._delegate.close_reserved_server(*args, **kwargs)
+
     def _invoke(
         self,
         name: str,

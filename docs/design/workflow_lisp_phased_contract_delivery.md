@@ -334,7 +334,10 @@ Before `server.json` exists, the durable intent, unchanged exclusive namespace
 and lease identities, completed creation command under lease, and full reserved
 session token together authorize guarded cleanup through the same connection.
 This covers server creation before PID observation without inventing a persisted
-PID. Provider-pane creation is prohibited until the server record is durable.
+PID. Recovery records the exact server identity it observes in `server.json`
+before signalling or closing resources, so another interruption after server
+termination still permits the same cleanup to complete on the next resume.
+Provider-pane creation is prohibited until the server record is durable.
 Use `-f /dev/null` and an inert adapter-owned anchor; user tmux configuration
 and an interactive login shell cannot run in the private server. Removing the
 exact bound server closes delayed pane allocation, and revocation prevents a
@@ -411,9 +414,12 @@ This one original absolute monotonic deadline bounds live preparation, lease wai
 command/pre-exec helpers, start, offers, validation/reset/freeze, close/join,
 TERM/KILL, reap, output settlement and pre-commit preparation. Reserve cleanup
 time within the remaining interval; no wrapper or parent death renews it.
-Task delivery and every materialization correction share it; no phase restarts
-the budget. A fresh K4 attempt receives a fresh live budget only after the old
-attempt's separately bounded recovery cleanup completes.
+Existing stricter adapter operation limits still apply: derive each operation's
+deadline once, bounded by the original attempt deadline, and retain it through
+that operation's creation, observation, termination, reap and output settlement.
+Task delivery and every materialization correction share the original attempt
+deadline; no phase restarts the budget. A fresh K4 attempt receives a fresh live
+budget only after the old attempt's separately bounded recovery cleanup completes.
 Preserve existing before/after deadline checks and proof-selected cleanup grammar.
 The evaluator checks the same deadline immediately before its first commit;
 after a valid commit, idempotent settlement is not a renewed provider action

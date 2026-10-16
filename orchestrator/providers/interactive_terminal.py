@@ -6,15 +6,17 @@ from dataclasses import dataclass
 import hashlib
 import math
 import os
+import stat
 from pathlib import Path
-import shlex
 import subprocess
-import tempfile
 import threading
 import time
 from types import MappingProxyType
 from typing import Callable, Mapping, Protocol, Sequence
 import uuid
+
+from . import _interactive_terminal_lifecycle as lifecycle
+from ._interactive_terminal_lifecycle import InteractiveTerminalReservation
 
 from orchestrator._common.validation import (
     is_finite_positive_number,
@@ -52,6 +54,7 @@ _INTERACTIVE_TERMINAL_ERROR_CODES = frozenset(
         "pane_teardown_failed",
         "pane_teardown_incomplete",
         "process_failed",
+        "process_group_not_empty",
         "process_not_live",
         "recorded_exit_status_invalid",
         "recorded_exit_status_unreadable",
@@ -596,6 +599,150 @@ class _TmuxInteractiveTerminalBackend:
     def __init__(self, executable: str = "tmux") -> None:
         self._executable = executable
         self._exit_status_paths: dict[tuple[Path, str], Path] = {}
+        self._reservation: InteractiveTerminalReservation | None = None
+        self._deadline: float | None = None
+
+    def bind_recoverable(self, reservation, deadline):
+        self._reservation = reservation
+        self._deadline = deadline
+
+    def _create(self, kind, socket_path, args, env=None, *, deadline):
+        reservation = self._reservation
+        if reservation is None or socket_path != reservation.path / "tmux.sock":
+            raise InteractiveTerminalError("foreign_handle")
+        try:
+            return lifecycle.run_creating(reservation, kind,
+                [self._executable, "-f", "/dev/null", "-S", str(socket_path), *args],
+                env, deadline)
+        except (TimeoutError, subprocess.TimeoutExpired) as exc:
+            raise InteractiveTerminalError("backend_operation_timeout") from exc
+        except (OSError, lifecycle.OwnershipError) as exc:
+            raise InteractiveTerminalError("pane_start_failed") from exc
+
+    def observe_server(self, reservation, *, deadline):
+        with lifecycle.opened(reservation) as files:
+            observed = self._run(reservation.path / "tmux.sock", "display-message",
+                "-p", "-t", reservation.session + ":anchor", "#{pid}|#{session_name}",
+                timeout_sec=self._remaining(deadline))
+            try:
+                pid_text, session = observed.stdout.decode("ascii").strip().split("|")
+                pid = int(pid_text)
+                token = lifecycle.start_token(pid)
+                if observed.returncode or session != reservation.session or token is None:
+                    raise ValueError("foreign server")
+                info = files.stat("tmux.sock")
+                if not stat.S_ISSOCK(info.st_mode) or info.st_uid != os.getuid():
+                    raise ValueError("foreign socket")
+            except (ValueError, OSError) as exc:
+                raise InteractiveTerminalError("server_start_failed") from exc
+            lifecycle.write(reservation, files, "server.json", {
+                "schema_version":"interactive_terminal_server.v1",
+                "adapter_token":reservation.adapter_token, "boot_id":reservation.boot_id,
+                "server_pid":pid, "server_start_ticks":int(token),
+                "socket_dev":info.st_dev, "socket_ino":info.st_ino})
+
+    def _wait_server_exit(self, server, *, deadline):
+        while True:
+            current = lifecycle.start_token(server["server_pid"])
+            if current is None:
+                return
+            if current != str(server["server_start_ticks"]):
+                raise lifecycle.OwnershipError("server PID reused")
+            time.sleep(min(.01, self._remaining(deadline)))
+
+    def _verify_server_absence(self, reservation, files, server, *, deadline):
+        responding = self._run(reservation.path / "tmux.sock", "list-sessions",
+                               timeout_sec=self._remaining(deadline))
+        if responding.returncode == 0:
+            raise lifecycle.OwnershipError("server still answers")
+        self._wait_server_exit(server, deadline=deadline)
+        lifecycle.validate(reservation, files)
+
+    def validate_reserved_server(self, reservation, files, command, *, deadline):
+        lifecycle.validate(reservation, files)
+        server = lifecycle.record(reservation, files, "server.json")
+        if command is None and (server is not None or lifecycle.record(reservation, files, "client.json") is not None):
+            raise lifecycle.OwnershipError("recorded resources lack creating command")
+        try:
+            socket_info = files.stat("tmux.sock")
+        except FileNotFoundError:
+            socket_info = None
+        if server is not None:
+            current = lifecycle.start_token(server["server_pid"])
+            if current is not None and current != str(server["server_start_ticks"]):
+                raise lifecycle.OwnershipError("server PID reused")
+            if socket_info is None:
+                self._wait_server_exit(server, deadline=deadline)
+                lifecycle.validate(reservation, files)
+                return True
+        elif socket_info is None:
+            if command is not None:
+                raise lifecycle.OwnershipError("unobserved server allocation unresolved")
+            return True
+        if command is None:
+            raise lifecycle.OwnershipError("socket lacks creating command")
+        if not stat.S_ISSOCK(socket_info.st_mode) or socket_info.st_uid != os.getuid():
+            raise lifecycle.OwnershipError("foreign socket")
+        if server is None:
+            # Bind actual observed identity before cleanup so interrupted deletion is repeatable.
+            self.observe_server(reservation, deadline=deadline)
+            server = lifecycle.record(reservation, files, "server.json")
+            if server is None:
+                raise lifecycle.OwnershipError("server observation was not durable")
+        if (socket_info.st_dev, socket_info.st_ino) != (
+                server["socket_dev"], server["socket_ino"]):
+            raise lifecycle.OwnershipError("socket replaced")
+        current = lifecycle.start_token(server["server_pid"])
+        if current is not None and current != str(server["server_start_ticks"]):
+            raise lifecycle.OwnershipError("server PID reused")
+        if current is None:
+            self._verify_server_absence(reservation, files, server, deadline=deadline)
+            return server, socket_info, None
+        condition = "#{==:#{session_name}," + reservation.session + "}"
+        if server is not None:
+            condition = "#{&&:" + condition + ",#{==:#{pid}," + str(server["server_pid"]) + "}}"
+        probe = self._run(reservation.path / "tmux.sock", "if-shell", "-F",
+            "-t", reservation.session + ":anchor", condition,
+            "display-message -p ORC_OWNED", "display-message -p ORC_OWNERSHIP_MISMATCH",
+            timeout_sec=self._remaining(deadline))
+        if probe.returncode or probe.stdout.strip() != b"ORC_OWNED":
+            if b"ORC_OWNERSHIP_MISMATCH" in probe.stdout:
+                raise lifecycle.OwnershipError("server ownership preflight refused")
+            # A bound server can exit between the live PID read and the guard connection.
+            self._verify_server_absence(reservation, files, server, deadline=deadline)
+            return server, socket_info, None
+        return server, socket_info, condition
+
+    def close_reserved_server(self, reservation, files, command, *, deadline):
+        identity = self.validate_reserved_server(reservation, files, command, deadline=deadline)
+        if identity is True:
+            return True
+        server, socket_info, condition = identity
+        lifecycle.validate(reservation, files)
+        if condition is not None:
+            stopped = self._run(reservation.path / "tmux.sock", "if-shell", "-F",
+                "-t", reservation.session + ":anchor", condition, "kill-server",
+                "display-message -p ORC_OWNERSHIP_MISMATCH",
+                timeout_sec=self._remaining(deadline))
+            if b"ORC_OWNERSHIP_MISMATCH" in stopped.stdout:
+                raise lifecycle.OwnershipError("server ownership guard refused")
+            if stopped.returncode:
+                self._verify_server_absence(reservation, files, server, deadline=deadline)
+        self._wait_server_exit(server, deadline=deadline)
+        # A new connection must fail after the guarded kill; session absence alone is insufficient.
+        probe = self._run(reservation.path / "tmux.sock", "list-sessions",
+                          timeout_sec=self._remaining(deadline))
+        if probe.returncode == 0:
+            raise lifecycle.OwnershipError("server still answers")
+        lifecycle.validate(reservation, files)
+        try:
+            after = files.stat("tmux.sock")
+        except FileNotFoundError:
+            return True
+        if (after.st_dev, after.st_ino) != (socket_info.st_dev, socket_info.st_ino):
+            raise lifecycle.OwnershipError("socket replaced after kill")
+        files.unlink("tmux.sock")
+        return True
 
     def _run(
         self,
@@ -642,20 +789,14 @@ class _TmuxInteractiveTerminalBackend:
         env: dict[str, str],
         timeout_sec: float,
     ) -> None:
-        deadline = time.monotonic() + timeout_sec
-        created = self._run(
-            socket_path,
-            "new-session",
-            "-d",
-            "-s",
-            session_name,
-            "-n",
-            "anchor",
-            process_env=dict(env),
-            timeout_sec=self._remaining(deadline),
-        )
+        deadline = min(self._deadline, time.monotonic() + timeout_sec)
+        created = self._create("start_server", socket_path, [
+            "new-session", "-d", "-s", session_name, "-n", "anchor",
+            "/bin/sleep", "2147483647",
+        ], dict(env), deadline=deadline)
         if created.returncode != 0:
             raise InteractiveTerminalError("server_start_failed")
+        self.observe_server(self._reservation, deadline=deadline)
         retained = self._run(
             socket_path,
             "set-window-option",
@@ -665,13 +806,6 @@ class _TmuxInteractiveTerminalBackend:
             timeout_sec=self._remaining(deadline),
         )
         if retained.returncode != 0:
-            try:
-                self.close_server(
-                    socket_path,
-                    timeout_sec=self._remaining(deadline),
-                )
-            except InteractiveTerminalError:
-                pass
             raise InteractiveTerminalError("server_start_failed")
 
     def start_pane(
@@ -684,9 +818,12 @@ class _TmuxInteractiveTerminalBackend:
         exit_status_path: Path,
         timeout_sec: float,
     ) -> str:
-        if exit_status_path.exists():
-            raise InteractiveTerminalError("pane_start_failed")
-        deadline = time.monotonic() + timeout_sec
+        deadline = min(self._deadline, time.monotonic() + timeout_sec)
+        if self._reservation is None or exit_status_path != self._reservation.path / "provider.exit-status":
+            raise InteractiveTerminalError("foreign_handle")
+        with lifecycle.opened(self._reservation) as files:
+            if lifecycle._read(files, "provider.exit-status") is not None:
+                raise InteractiveTerminalError("pane_start_failed")
         args = [
             "new-window",
             "-d",
@@ -714,16 +851,23 @@ class _TmuxInteractiveTerminalBackend:
             str(exit_status_path),
             *tuple(command),
         )
-        args.append("exec " + shlex.join(wrapped_command))
-        completed = self._run(
-            socket_path,
-            *args,
-            timeout_sec=self._remaining(deadline),
-        )
+        if self._reservation is None:
+            raise InteractiveTerminalError("foreign_handle")
+        with lifecycle.opened(self._reservation) as files:
+            if lifecycle.record(self._reservation, files, "server.json") is None:
+                raise InteractiveTerminalError("server_start_failed")
+        guarded_command = lifecycle.helper_argv(self._reservation, "pane", self._deadline) + list(wrapped_command)
+        args.extend(guarded_command)
+        completed = self._create("start_pane", socket_path, args, deadline=deadline)
         target = completed.stdout.decode("utf-8", errors="replace").strip()
         if completed.returncode != 0 or not target:
             raise InteractiveTerminalError("pane_start_failed")
         self._exit_status_paths[(socket_path, target)] = exit_status_path
+        while True:
+            with lifecycle.opened(self._reservation) as files:
+                if lifecycle.record(self._reservation, files, "client.json") is not None:
+                    break
+            time.sleep(min(.01, self._remaining(deadline)))
         if (
             self.pane_process_status(
                 socket_path,
@@ -756,15 +900,16 @@ class _TmuxInteractiveTerminalBackend:
         raw = completed.stdout.decode("utf-8", errors="replace")
         recorded_exit_status: str | None = None
         status_path = self._exit_status_paths.get((socket_path, target))
-        if status_path is not None and status_path.exists():
+        if status_path is not None:
             try:
-                recorded_exit_status = status_path.read_text(
-                    encoding="ascii"
-                )
-            except (OSError, UnicodeError) as exc:
-                raise InteractiveTerminalError(
-                    "recorded_exit_status_unreadable"
-                ) from exc
+                if self._reservation is None or status_path != self._reservation.path / "provider.exit-status":
+                    raise lifecycle.OwnershipError("foreign status path")
+                with lifecycle.opened(self._reservation) as files:
+                    raw_status = lifecycle._read(files, "provider.exit-status")
+                if raw_status is not None:
+                    recorded_exit_status = raw_status.decode("ascii")
+            except (OSError, UnicodeError, lifecycle.OwnershipError) as exc:
+                raise InteractiveTerminalError("recorded_exit_status_unreadable") from exc
         return _parse_tmux_pane_process_status(
             raw,
             recorded_exit_status=recorded_exit_status,
@@ -886,6 +1031,7 @@ class InteractiveTerminalTurnQueueAdapter:
         runtime_root: Path,
         *,
         socket_root: Path | None = None,
+        reservation: InteractiveTerminalReservation | None = None,
         backend: _InteractiveTerminalBackend | None = None,
         monotonic: Callable[[], float] = time.monotonic,
         wait: Callable[[float], None] = time.sleep,
@@ -897,7 +1043,6 @@ class InteractiveTerminalTurnQueueAdapter:
         if not is_finite_positive_number(operation_timeout_sec):
             raise ValueError("operation_timeout_sec must be positive")
         root = Path(runtime_root)
-        token = uuid.uuid4().hex
         if socket_root is None:
             root.mkdir(parents=True, exist_ok=True)
             selected_socket_root = root
@@ -905,34 +1050,21 @@ class InteractiveTerminalTurnQueueAdapter:
             selected_socket_root = Path(socket_root)
         try:
             selected_socket_root = selected_socket_root.resolve(strict=True)
-            socket_path = (
-                selected_socket_root / f"orc-peer-{token}.sock"
-            )
-            socket_path_available = (
-                selected_socket_root.is_dir()
-                and os.access(
-                    selected_socket_root,
-                    os.W_OK | os.X_OK,
-                )
-                and len(os.fsencode(socket_path))
-                <= _MAX_ENCODED_UNIX_SOCKET_PATH_BYTES
-                and not socket_path.exists()
-                and not socket_path.is_symlink()
-            )
-        except (OSError, RuntimeError, TypeError, UnicodeError):
-            socket_path_available = False
-        if not socket_path_available:
-            raise InteractiveTerminalError(
-                "interactive_terminal_socket_path_unavailable"
-            )
+            candidate = selected_socket_root / ("orc-peer-" + "0" * 32) / "tmux.sock"
+            if (not selected_socket_root.is_dir()
+                    or not os.access(selected_socket_root, os.W_OK | os.X_OK)
+                    or len(os.fsencode(candidate)) > _MAX_ENCODED_UNIX_SOCKET_PATH_BYTES):
+                raise OSError("socket path unavailable")
+        except (OSError, RuntimeError, TypeError, UnicodeError) as exc:
+            raise InteractiveTerminalError("interactive_terminal_socket_path_unavailable") from exc
         root.mkdir(parents=True, exist_ok=True)
-        state_directory = Path(
-            tempfile.mkdtemp(prefix="orc-peer-", dir=root)
-        )
-        self._socket_path = socket_path
-        self._exit_status_path = state_directory / "provider.exit-status"
-        self._session_name = f"orc-peer-{token[:12]}"
-        self._adapter_instance_id = token
+        self._transport_root = selected_socket_root
+        if reservation is not None:
+            if reservation.root != selected_socket_root:
+                raise InteractiveTerminalError("foreign_handle")
+            with lifecycle.opened(reservation):
+                pass
+        self._reservation = reservation
         self._backend = backend or _TmuxInteractiveTerminalBackend()
         self._monotonic = monotonic
         self._wait = wait
@@ -944,6 +1076,63 @@ class InteractiveTerminalTurnQueueAdapter:
         self._state = "created"
         self._natural_proof: NaturalShutdownProof | None = None
         self._cleanup_proof: FailedCleanupProof | None = None
+
+    def _ensure_reservation(self) -> InteractiveTerminalReservation:
+        if self._reservation is None:
+            self._reservation = self.reserve_recoverable(self._transport_root)
+        return self._reservation
+
+    @property
+    def _socket_path(self) -> Path:
+        return self._ensure_reservation().path / "tmux.sock"
+
+    @property
+    def _exit_status_path(self) -> Path:
+        return self._ensure_reservation().path / "provider.exit-status"
+
+    @property
+    def _session_name(self) -> str:
+        return self._ensure_reservation().session
+
+    @property
+    def _adapter_instance_id(self) -> str:
+        return self._ensure_reservation().adapter_token
+
+    @staticmethod
+    def reserve_recoverable(root: Path) -> InteractiveTerminalReservation:
+        try:
+            return lifecycle.reserve(root)
+        except (OSError, lifecycle.OwnershipError) as exc:
+            raise InteractiveTerminalError("interactive_terminal_socket_path_unavailable") from exc
+
+    def recover_failed(self, reservation: InteractiveTerminalReservation, *, deadline: float) -> PhasedFailedCleanupEvidence:
+        self._validate_deadline(deadline)
+        server_absent = False
+        try:
+            with lifecycle.opened(reservation) as files:
+                lease = lifecycle.acquire(reservation, files, deadline)
+                try:
+                    command = lifecycle.record(reservation, files, "command.json")
+                    if command is not None and command["state"] != "completed":
+                        raise lifecycle.OwnershipError("unsettled creating command")
+                    lifecycle.write(reservation, files, "revoked", reservation.adapter_token)
+                    client = lifecycle.record(reservation, files, "client.json")
+                    # Refuse foreign transport identities before signalling even our group.
+                    preflight = getattr(self._backend, "validate_reserved_server", None)
+                    close = getattr(self._backend, "close_reserved_server", None)
+                    if preflight is None or close is None:
+                        raise lifecycle.OwnershipError("backend lacks restart ownership")
+                    preflight(reservation, files, command, deadline=deadline)
+                    if client is not None:
+                        lifecycle.stop_group(client, deadline)
+                    server_absent = close(reservation, files, command, deadline=deadline)
+                    lifecycle.remaining(deadline)
+                finally:
+                    os.close(lease)
+            return PhasedFailedCleanupEvidence("failed_cleanup", True, True, True, None)
+        except Exception:
+            return PhasedFailedCleanupEvidence("failed_cleanup", False, server_absent, False,
+                                              "cleanup_backend_error")
 
     def prove_no_backend_allocation(
         self,
@@ -964,6 +1153,7 @@ class InteractiveTerminalTurnQueueAdapter:
         invocation: InteractiveMemberInvocation,
         *,
         deadline: float,
+        reservation: InteractiveTerminalReservation | None = None,
     ) -> InteractiveTerminalStartOutcome:
         if not isinstance(invocation, InteractiveMemberInvocation):
             raise TypeError("invocation must be an InteractiveMemberInvocation")
@@ -971,6 +1161,10 @@ class InteractiveTerminalTurnQueueAdapter:
         with self._lock:
             if self._state != "created":
                 raise InteractiveTerminalError("adapter_already_started")
+            if reservation is not None:
+                with lifecycle.opened(reservation):
+                    pass
+                self._reservation = reservation
             target: str | None = None
             backend_action_started = False
             try:
@@ -978,6 +1172,10 @@ class InteractiveTerminalTurnQueueAdapter:
                     deadline,
                     timeout_code="start_timeout",
                 )
+                self._ensure_reservation()
+                bind = getattr(self._backend, "bind_recoverable", None)
+                if bind is not None:
+                    bind(self._reservation, deadline)
                 backend_action_started = True
                 self._backend.start_server(
                     self._socket_path,
@@ -1258,57 +1456,65 @@ class InteractiveTerminalTurnQueueAdapter:
                     min(self._poll_interval_sec, max(0.0, deadline - now))
                 )
 
-            try:
-                self._backend.close_pane(
-                    self._socket_path,
-                    handle.target,
-                    timeout_sec=self._remaining(
-                        deadline,
-                        timeout_code="natural_shutdown_timeout",
-                    ),
-                )
-                pane_absent = (
-                    self._backend.pane_process_status(
+            if hasattr(self._backend, "close_reserved_server"):
+                with lifecycle.opened(self._reservation) as files:
+                    client = lifecycle.record(self._reservation, files, "client.json")
+                    if client is None or not lifecycle.group_empty(client):
+                        self._state = "failed"
+                        raise InteractiveTerminalError("process_group_not_empty")
+                evidence = self.recover_failed(self._reservation, deadline=deadline)
+                if not evidence.cleanup_complete:
+                    self._state = "failed"
+                    raise InteractiveTerminalError("server_teardown_incomplete")
+            else:
+                try:
+                    self._backend.close_pane(
                         self._socket_path,
                         handle.target,
                         timeout_sec=self._remaining(
                             deadline,
                             timeout_code="natural_shutdown_timeout",
                         ),
-                    ).state
-                    == "missing"
-                )
-                if not pane_absent:
-                    raise InteractiveTerminalError(
-                        "pane_teardown_incomplete"
                     )
-                self._backend.close_server(
-                    self._socket_path,
-                    timeout_sec=self._remaining(
-                        deadline,
-                        timeout_code="natural_shutdown_timeout",
-                    ),
-                )
-                server_absent = not self._backend.server_alive(
-                    self._socket_path,
-                    self._session_name,
-                    timeout_sec=self._remaining(
-                        deadline,
-                        timeout_code="natural_shutdown_timeout",
-                    ),
-                )
-                if not server_absent:
-                    raise InteractiveTerminalError(
-                        "server_teardown_incomplete"
+                    pane_absent = (
+                        self._backend.pane_process_status(
+                            self._socket_path,
+                            handle.target,
+                            timeout_sec=self._remaining(
+                                deadline,
+                                timeout_code="natural_shutdown_timeout",
+                            ),
+                        ).state
+                        == "missing"
                     )
-                self._remove_socket_after_server_absent()
-            except InteractiveTerminalError as exc:
-                self._state = "failed"
-                if exc.code == "backend_operation_timeout":
-                    raise InteractiveTerminalError(
-                        "natural_shutdown_timeout"
-                    ) from exc
-                raise
+                    if not pane_absent:
+                        raise InteractiveTerminalError(
+                            "pane_teardown_incomplete"
+                        )
+                    self._backend.close_server(
+                        self._socket_path,
+                        timeout_sec=self._remaining(deadline, timeout_code="natural_shutdown_timeout"),
+                    )
+                    server_absent = not self._backend.server_alive(
+                        self._socket_path,
+                        self._session_name,
+                        timeout_sec=self._remaining(
+                            deadline,
+                            timeout_code="natural_shutdown_timeout",
+                        ),
+                    )
+                    if not server_absent:
+                        raise InteractiveTerminalError(
+                            "server_teardown_incomplete"
+                        )
+                    self._remove_socket_after_server_absent()
+                except InteractiveTerminalError as exc:
+                    self._state = "failed"
+                    if exc.code == "backend_operation_timeout":
+                        raise InteractiveTerminalError(
+                            "natural_shutdown_timeout"
+                        ) from exc
+                    raise
 
             proof = NaturalShutdownProof(
                 disposition="natural_exit",
@@ -1334,6 +1540,15 @@ class InteractiveTerminalTurnQueueAdapter:
                 return self._cleanup_proof
             if self._natural_proof is not None:
                 raise InteractiveTerminalError("handle_terminal")
+
+            if hasattr(self._backend, "close_reserved_server"):
+                evidence = self.recover_failed(self._reservation, deadline=deadline)
+                proof = FailedCleanupProof("failed_cleanup", handle.handle_id,
+                    evidence.pane_absent, evidence.server_absent,
+                    evidence.cleanup_complete, evidence.error_code)
+                self._cleanup_proof = proof
+                self._state = "terminal"
+                return proof
 
             first_error: str | None = None
             pane_absent = False
@@ -1528,6 +1743,8 @@ class InteractiveTerminalTurnQueueAdapter:
         deadline: float,
         target: str | None,
     ) -> PhasedFailedCleanupEvidence:
+        if hasattr(self._backend, "close_reserved_server"):
+            return self.recover_failed(self._reservation, deadline=deadline)
         pane_absent = False
         server_absent = False
         cleanup_error = False

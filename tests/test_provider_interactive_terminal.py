@@ -1567,9 +1567,9 @@ def test_interactive_adapter_separates_short_socket_from_runtime_artifacts(
         )
 
         assert all(
-            handle.socket_path.parent == socket_root
-            and handle.socket_path.name.startswith("orc-peer-")
-            and handle.socket_path.name.endswith(".sock")
+            handle.socket_path.parent.parent == socket_root
+            and handle.socket_path.parent.name.startswith("orc-peer-")
+            and handle.socket_path.name == "tmux.sock"
             and len(os.fsencode(handle.socket_path)) <= 103
             for handle in handles
         )
@@ -1578,7 +1578,7 @@ def test_interactive_adapter_separates_short_socket_from_runtime_artifacts(
             os.fsencode(runtime_root / handles[0].socket_path.name)
         ) > 103
         assert all(
-            adapter._exit_status_path.is_relative_to(runtime_root)
+            adapter._exit_status_path.parent == adapter._socket_path.parent
             for adapter in adapters
         )
 
@@ -2039,18 +2039,20 @@ def test_tmux_backend_inherits_exact_composed_environment_from_private_server(
 
     with tempfile.TemporaryDirectory(prefix="orc-peer-env-") as root_text:
         root = Path(root_text)
-        socket_path = root / "tmux.sock"
-        status_path = root / "provider.exit-status"
+        reservation = InteractiveTerminalTurnQueueAdapter.reserve_recoverable(root)
+        socket_path = reservation.path / "tmux.sock"
+        status_path = reservation.path / "provider.exit-status"
         observed_path = root / "observed.json"
         release_path = root / "release"
         multiline_argument = "first; 'quoted' value\nsecond line"
         backend = (
             interactive_terminal_module._TmuxInteractiveTerminalBackend()
         )
+        backend.bind_recoverable(reservation, time.monotonic() + 12)
         target: str | None = None
         backend.start_server(
             socket_path,
-            "peer-env",
+            reservation.session,
             env=environment,
             timeout_sec=5.0,
         )
@@ -2077,7 +2079,7 @@ def test_tmux_backend_inherits_exact_composed_environment_from_private_server(
             )
             target = backend.start_pane(
                 socket_path,
-                "peer-env",
+                reservation.session,
                 (sys.executable, "-c", script, multiline_argument),
                 cwd=root,
                 exit_status_path=status_path,

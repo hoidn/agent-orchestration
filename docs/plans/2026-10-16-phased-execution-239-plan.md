@@ -158,24 +158,26 @@ evidence, not production acceptance; the implementation checks below remain open
   closed ledger grammar and revise/version it only where the selected terminal
   integration requires it. Migrate every current test caller; retain historical
   ledger decoding. Do not add a second selectable coordinator mode.
-- [ ] Add adapter tests in `tests/test_provider_interactive_terminal.py` for
+- [x] Add adapter tests in `tests/test_provider_interactive_terminal.py` and
+  `tests/test_provider_interactive_terminal_recovery.py` for
   persisting the exact private transport cleanup identity before backend launch,
   bounded cleanup without the original in-memory handle, absent resources and
   forged/foreign/symlinked ownership records. Reuse the adapter backend operations;
   do not serialize live handles or trust an arbitrary socket/session path.
-- [ ] Exercise both `start_server` and `start_pane` creation leases, parent
+- [x] Exercise both `start_server` and `start_pane` creation leases, parent
   SIGKILL before/after each durable boundary, abnormal helper exit and an
   exhausted original deadline during lease wait, kill/reap or output settlement.
   Delayed pre-exec must recheck deadline/revocation immediately before exec.
   Cover missing server-PID record, delayed socket after failed/timed-out
   creation, replaced namespace/lock/socket and foreign group/server identities.
-  Active/unresolved cleanup must preserve candidate files and block redispatch.
-  Prove natural residual-group failure, including when later cleanup succeeds;
-  run at least one public evaluated resume smoke after integration.
-- [ ] Demonstrate that zero exit follows normal graceful close; timeout, nonzero
+  Prove natural residual-group failure, including when later cleanup succeeds.
+- [ ] After Tasks 3–4 integrate candidate ownership and dispatch, prove that
+  active/unresolved cleanup preserves candidate files and blocks redispatch;
+  run at least one public evaluated resume smoke in Task 5.
+- [x] Demonstrate that zero exit follows normal graceful close; timeout, nonzero
   exit, explicit abort, failed freeze and incomplete cleanup cannot produce a
   prepared success. Validate prestart failure and partial start cleanup too.
-- [ ] Run the changed modules first, then the retained protocol owners:
+- [x] Run the changed modules first, then the retained protocol owners:
 
   ```bash
   pytest -q -n 16 --dist=worksteal tests/test_provider_phased_delivery_coordinator.py tests/test_provider_interactive_terminal.py
@@ -391,8 +393,18 @@ accurate current routing. Ordinary composed behavior remains compatible.
   cases, the phased module **53**, carriage/diagnostics **17**, and changed
   modules collected **64** cases; these selections overlap. Evidence:
   `/tmp/orc-phased-239-evidence/task1-timeout/broad.log` and `broad.exit`.
-- Task 2 adapter lifecycle implementation is in progress: group quiescence
-  and delayed-launch revocation are required in addition to server absence.
-  Tasks 3–7 remain incomplete; runtime dispatch remains unavailable.
+- Task 2 adapter slice complete: durable private reservation/creation leases,
+  pre-exec registration and revocation, exact handle-free recovery, residual
+  group refusal and bounded operations are implemented. Independent contract
+  and quality reviews approved, including corrections for server exit during
+  either ownership-guard connection. Final narrow checks passed **243** cases,
+  the affected broad selector passed **631**, and changed modules collected
+  **249**; these selections overlap. Evidence:
+  `/tmp/orc-phased-239-evidence/task2-adapter/round4-narrow.log`,
+  `round4-broad.log`, exit receipts and `round4-collect.log` beside them.
+  Earlier failing logs remain diagnostic evidence. Adapter tests use real tmux
+  with deterministic local processes; paid provider qualification was not run.
+  The candidate-preservation/redispatch and public resume checks above remain
+  open for Tasks 3–5. Tasks 3–7 remain incomplete; runtime dispatch is unavailable.
 - Live-provider qualification: not selected; deterministic fixtures do not claim
   it and do not establish improved provider task quality.
