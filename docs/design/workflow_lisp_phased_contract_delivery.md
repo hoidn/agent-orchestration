@@ -208,6 +208,12 @@ reconstructed. A present receipt with foreign binding or root replacement
 observed during the operation fails closed, never gets overwritten. This
 claims no preserved file descriptor across process restarts and requires no
 historical directory-inode record for nondestructive committed settlement.
+If the exact attempt directory is absent, validated memo authority also permits
+recreating that directory safely beneath the retained run root under the writer
+lock, then pinning it and writing only the proof-only settled receipt. Checked
+absence before opening is not a directory replacement observed during the
+operation. Unsafe ancestors, symlinks, non-directory paths and permission errors
+remain refusals; no transport or candidate files are recreated.
 Ordinary downstream file-freshness rules remain unchanged.
 
 A committed coordinator cannot be invalidated or superseded (K8). Before

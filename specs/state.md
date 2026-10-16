@@ -950,7 +950,11 @@ defines the closed proof and attempt-receipt fields.
   settled under a no-follow, memo-derived directory pinned for that operation;
   a foreign-bound receipt or root replacement observed during the operation
   fails closed without overwrite. No file descriptor is presumed to survive
-  a process restart. Preserve committed
+  a process restart. After the ordinary input/memo/proof checks, an absent exact
+  attempt directory may be recreated under the retained run root and writer
+  lock, then pinned to write only the settled receipt. Unsafe ancestors,
+  symlinks, non-directory paths and permission errors are not absence; no
+  candidate or transport files are recreated. Preserve committed
   authority if settlement fails. A
   committed phased coordinator cannot be superseded or invalidated (K8).
 - An exact uncommitted interrupted attempt follows generic K4: bound cleanup

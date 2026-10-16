@@ -261,7 +261,10 @@ evidence, not production acceptance; the implementation checks below remain open
   and never send materialization-only continuation after controller restart.
 - [ ] After memo commit but before settlement, reconcile from the inline commit
   proof without reopening candidate/result files or audit sidecars and without
-  provider dispatch, then append `settled`. After
+  provider dispatch, then append `settled`. Cover a missing whole attempt
+  directory: after normal preflight, safely recreate only its memo-derived
+  directory and proof-only settled receipt. Unsafe paths or replacement during
+  the operation refuse without overwrite. After
   settlement, completed resume remains read-only. Preserve input/divergence,
   path, memo and result-integrity guards. Unprovable cleanup leaves the attempt
   pending and prevents a new provider launch; do not silently quarantine it.
