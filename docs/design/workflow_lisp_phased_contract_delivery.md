@@ -208,9 +208,10 @@ reconstructed. A present receipt with foreign binding or root replacement
 observed during the operation fails closed, never gets overwritten. This
 claims no preserved file descriptor across process restarts and requires no
 historical directory-inode record for nondestructive committed settlement.
-If the exact attempt directory is absent, validated memo authority also permits
-recreating that directory safely beneath the retained run root under the writer
-lock, then pinning it and writing only the proof-only settled receipt. Checked
+If the exact attempt directory or its canonical parents are absent, validated
+memo authority also permits recreating those directories safely beneath the
+retained run root under the writer lock, then pinning the attempt directory and
+writing only the proof-only settled receipt. Checked
 absence before opening is not a directory replacement observed during the
 operation. Unsafe ancestors, symlinks, non-directory paths and permission errors
 remain refusals; no transport or candidate files are recreated.
@@ -252,12 +253,16 @@ failed, abandoned or settlement path removes the canonical receipt.
 Recovery assumes that the retained filesystem honors those durability
 guarantees. Under this crash model, a receipt published before dispatch cannot
 disappear through an admitted operation. After authority/memo checks and under
-the run writer lock, confirmed absence of the exact memo-derived attempt
-directory or its canonical receipt therefore classifies that uncommitted
-attempt as not dispatched. Confirm canonical-leaf absence through no-follow
-owners; unsafe paths, permission failures and observed root replacement are
-not absence. A present torn, malformed, nonregular or foreign-bound receipt
-refuses recovery without mutation.
+the run writer lock, checked absence includes the first missing component of
+the fixed memo-derived path strictly below the retained run root: `effects`,
+the identity-hash directory, the attempt directory or its canonical receipt.
+Open existing directories descriptor-relatively without following symlinks;
+classify only `ENOENT` from the immediate child lookup, after revalidating the
+retained root and all opened ancestor identities. This classifies the
+uncommitted attempt as not dispatched. Missing or replaced owners, symlinks,
+non-directory components, permission failures and unsafe or ambiguous path
+operations refuse recovery rather than establish absence. A present torn,
+malformed, nonregular or foreign-bound receipt refuses recovery without mutation.
 
 For this not-dispatched case, preserve existing files and directories, perform
 no transport scan or candidate cleanup, and manufacture no `abandoned` receipt.

@@ -951,8 +951,9 @@ defines the closed proof and attempt-receipt fields.
   a foreign-bound receipt or root replacement observed during the operation
   fails closed without overwrite. No file descriptor is presumed to survive
   a process restart. After the ordinary input/memo/proof checks, an absent exact
-  attempt directory may be recreated under the retained run root and writer
-  lock, then pinned to write only the settled receipt. Unsafe ancestors,
+  attempt directory and its required canonical parents may be recreated under
+  the retained run root and writer lock, then pinned to write only the settled
+  receipt. Unsafe ancestors,
   symlinks, non-directory paths and permission errors are not absence; no
   candidate or transport files are recreated. Preserve committed
   authority if settlement fails. A
@@ -975,9 +976,15 @@ defines the closed proof and attempt-receipt fields.
 - Initial ownership publication uses file fsync, atomic rename and directory
   fsync before backend allocation. All later receipt transitions atomically
   replace the canonical file; no admitted operation removes it. Assuming the
-  filesystem honors that durability, checked no-follow absence of the exact
-  memo-derived attempt directory or canonical receipt classifies the latest
-  uncommitted attempt as not dispatched. Preserve its files, perform no candidate
+  filesystem honors that durability, checked absence of the first missing
+  component of the fixed memo-derived path below the retained run root
+  (`effects`, identity-hash directory, attempt directory or canonical receipt)
+  classifies the latest uncommitted attempt as not dispatched. Open each
+  existing directory descriptor-relatively without following symlinks; accept
+  only `ENOENT` from the immediate child lookup after revalidating the retained
+  root and every opened ancestor identity. Missing or replaced owners and
+  unsafe or ambiguous operations refuse, including errors during identity
+  revalidation. Preserve its files, perform no candidate
   cleanup or transport scan, and invent no abandoned receipt before the next
   ordinal. Unsafe/ambiguous reads and present malformed ownership refuse without
   mutation. External deletion or rollback of previously durable evidence is

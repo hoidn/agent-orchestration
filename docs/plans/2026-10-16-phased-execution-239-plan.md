@@ -259,11 +259,17 @@ evidence, not production acceptance; the implementation checks below remain open
   Before commit, validate and clean only the exact old attempt; allocate a fresh
   ordinal and rerun the whole visit. Never adopt an uncommitted prepared result
   and never send materialization-only continuation after controller restart.
+  Cover absence of `effects`, the identity-hash directory, the attempt directory
+  and its receipt through immediate no-follow child lookups and revalidation
+  of every retained ancestor. Preflight must not create directories; unsafe
+  paths, permission errors or an ancestor replaced before the negative result
+  refuse without allocating a replacement attempt or touching its files.
 - [ ] After memo commit but before settlement, reconcile from the inline commit
   proof without reopening candidate/result files or audit sidecars and without
   provider dispatch, then append `settled`. Cover a missing whole attempt
-  directory: after normal preflight, safely recreate only its memo-derived
-  directory and proof-only settled receipt. Unsafe paths or replacement during
+  directory or canonical parents: after normal preflight, safely recreate only
+  the required memo-derived directories and proof-only settled receipt. Unsafe
+  paths or replacement during
   the operation refuse without overwrite. After
   settlement, completed resume remains read-only. Preserve input/divergence,
   path, memo and result-integrity guards. Unprovable cleanup leaves the attempt
