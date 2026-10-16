@@ -1,6 +1,10 @@
 # E-B3 Plan: Maintained Workflows Against A Single Call On Rung 1
 
-Status: **IN PROGRESS, judge-primary amendment below governs scoring**. Live state is recorded in `agent-orchestration-compare-evidence/eb3/execution-status.json`. Original pre-batch protocol: **APPROVED** (review `review_design_eb3.md`, findings F1–F7 applied; dispositions in
+> **Closed 2026-10-16. This is a captured protocol, not current instructions.** The batch ran once under the
+> judge-primary amendment below. Both claims were not evaluated. Results, deviations and archive:
+> [E-B3 report](../reports/2026-10-16-eb3-orc-versus-single-call-rung1.md). The body below is preserved as frozen.
+
+Status (as executed): **IN PROGRESS, judge-primary amendment below governs scoring**. Live state is recorded in `agent-orchestration-compare-evidence/eb3/execution-status.json`. Original pre-batch protocol: **APPROVED** (review `review_design_eb3.md`, findings F1–F7 applied; dispositions in
 `revision_design_eb3.md`). Runtime and R48 package are built; S1 passed 116 tests, the upstream anchor passed 164/164, and S2 passed with four Opus sessions including its native subagent. The historical pre-batch criterion is:
 [`experiments/compare/criteria/eb3.json`](../../experiments/compare/criteria/eb3.json). Design notes and fact checks:
 `agent-orchestration-compare-evidence/eb3/design_eb3.md`.

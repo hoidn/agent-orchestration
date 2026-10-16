@@ -7,7 +7,8 @@ evaluated route on 2026-10-14 ([E-A](reports/2026-10-14-orc-versus-single-call-e
 [E-B](reports/2026-10-14-design-review-execute-versus-single-call.md),
 [postmortem](reports/2026-10-14-effectiveness-experiments-postmortem.md)), the
 [difficulty calibration](reports/2026-10-14-task-difficulty-calibration.md) and its
-[continuation](reports/2026-10-15-calibration-continuation.md) of 2026-10-15
+[continuation](reports/2026-10-15-calibration-continuation.md) of 2026-10-15, and
+[E-B3](reports/2026-10-16-eb3-orc-versus-single-call-rung1.md) of 2026-10-16
 Audience: workflow authors and reviewers
 Normative contracts: `specs/`
 
@@ -16,8 +17,9 @@ itself. A workflow improves on it only by supplying something the agent cannot
 give itself. This guide records what did and did not, and the authoring
 mistakes that cost runs. On the evaluated route, the two patterns that gained in
 September still gained over their own first or average candidate. Each scored
-less than half a point (of 8) above a single call of the selector's model. No
-comparison has yet been run on a calibration-qualified task.
+less than half a point (of 8) above a single call of the selector's model. The
+one comparison on a calibration-qualified task, [E-B3](reports/2026-10-16-eb3-orc-versus-single-call-rung1.md),
+left both of its claims not evaluated: too few valid runs remained.
 
 The linked historical compiler observations/workarounds describe the original
 pre-2.35 experiment targets. For current 2.35/2.36 admission and execution,
@@ -49,9 +51,9 @@ The measurements below help choose a pattern; they do not define its API.
 | Pattern | Use when | Measured |
 | --- | --- | --- |
 | Generate several candidates, select one | single calls vary in quality and a stronger judge is available | Flat route (2026-09-28): +0.83 and +1.02 over the candidate-group mean, gain in 11 of 12 runs. Evaluated route ([E-A](reports/2026-10-14-orc-versus-single-call-evaluated.md)): +1.02, gain in 4 of 6 runs, one run short of its criterion; +0.33 over single calls |
-| Review and revise with a stronger reviewer | one candidate is expensive, or the change must be corrected rather than replaced | Flat route: +0.58, no run got worse; judges agreed less. Evaluated route (E-A): +0.67, no run worse; the reviewer approved 4 of 6 first patches unchanged. |
+| Review and revise with a stronger reviewer | one candidate is expensive, or the change must be corrected rather than replaced | Flat route: +0.58, no run got worse; judges agreed less. Evaluated route (E-A): +0.67, no run worse; the reviewer approved 4 of 6 first patches unchanged. On a calibration-qualified task ([E-B3](reports/2026-10-16-eb3-orc-versus-single-call-rung1.md)): not evaluated, 2 of 3 valid runs, and the two judges disagreed about the revision gain |
 | Review and revise with the author's model | no benefit was demonstrated in this bounded experiment; validate it on the intended task | Flat route (2026-09-28) only: -0.5 to 0; not rerun on the evaluated route |
-| Plan with one model, review the plan with another, then execute | not established | Not measured on a calibration-qualified task; the [E-B](reports/2026-10-14-design-review-execute-versus-single-call.md) task did not qualify |
+| Plan with one model, review the plan with another, then execute | not established | The [E-B](reports/2026-10-14-design-review-execute-versus-single-call.md) task did not qualify; on a calibration-qualified task, [E-B3](reports/2026-10-16-eb3-orc-versus-single-call-rung1.md) had no valid run (two timeouts, one excluded), so the claim was not evaluated |
 
 Selection leaves candidate patches unchanged, though it can choose a worse
 candidate than the alternative. Revision can damage a selected patch: in one

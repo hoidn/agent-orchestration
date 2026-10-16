@@ -172,6 +172,7 @@ reusing instructions. Plans can contain active obligations as well as history.
 | <a id="task-difficulty-calibration"></a>[Task-Difficulty Calibration](reports/2026-10-14-task-difficulty-calibration.md) | Captured evidence; not a behavioral contract |
 | <a id="calibration-continuation-rung-1s-third-sample"></a>[Calibration Continuation: Rung 1's Third Sample](reports/2026-10-15-calibration-continuation.md) | Captured evidence; not a behavioral contract |
 | <a id="e-b2-historical-not-calibration-qualified"></a>[E-B2: Historical Workflow Comparison And Calibration Limits](reports/2026-10-15-calibrated-orc-versus-single-call.md) | Captured evidence; not a behavioral contract |
+| <a id="e-b3-orc-versus-single-call-rung1"></a>[E-B3: Workflows Versus A Single Call On Calibration Rung 1 (claims not evaluated)](reports/2026-10-16-eb3-orc-versus-single-call-rung1.md) | Captured evidence; not a behavioral contract |
 | <a id="effectiveness-harness-and-experiments-plan"></a>[Effectiveness Harness And Experiments Plan](plans/2026-10-14-effectiveness-harness-and-experiments-plan.md) | Plan or decision record; check current selection |
 | <a id="orc-research-charter"></a>[ORC Research Charter](plans/2026-09-08-orc-research-charter.md) | Plan or decision record; check current selection |
 | <a id="orc-programmability-composition-and-improvement"></a>[ORC Programmability, Composition, And Improvement](design/orc_reuse_introspection_search_experiment.md) | Component contract or target; check admitted scope |
