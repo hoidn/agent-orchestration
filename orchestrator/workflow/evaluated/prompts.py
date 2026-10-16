@@ -24,7 +24,7 @@ from orchestrator.workflow.prompting import (
 )
 from orchestrator.workflow.evaluated.values import EvaluatedValue
 from orchestrator.contracts.closed_program.sites import _effect_value_children
-from orchestrator.workflow_lisp.typed_prompt_inputs import (
+from orchestrator.workflow.typed_prompt_inputs import (
     render_typed_prompt_input_blocks,
 )
 

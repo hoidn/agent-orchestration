@@ -951,7 +951,7 @@ def test_render_typed_prompt_inputs_serializes_runtime_evidence() -> None:
 def test_target_2_22_fragment_trace_reuse_preserves_typed_evidence_schema(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from orchestrator.workflow_lisp import typed_prompt_inputs
+    from orchestrator.workflow import typed_prompt_inputs
     from tests.test_workflow_lisp_prompt_identity_render_trace import (
         _plan,
         _render_target_2_22,

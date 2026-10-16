@@ -333,7 +333,7 @@ class CompilerPromptFragmentRenderedSlot:
             raise ValueError(
                 "compiler_prompt_fragment_contract_invalid: value_source is required"
             )
-        from orchestrator.workflow_lisp.lowering.pure_projection import (
+        from orchestrator.workflow.type_descriptor import (
             validate_compiler_normalized_type_descriptor,
         )
 
@@ -598,7 +598,7 @@ def _validate_compiler_prompt_attempt_binding_plan_row(
             raise ValueError(
                 "prompt_attempt_binding_plan_invalid: refinement is invalid"
             )
-        from orchestrator.workflow_lisp.lowering.pure_projection import (
+        from orchestrator.workflow.type_descriptor import (
             validate_compiler_normalized_type_descriptor,
         )
 

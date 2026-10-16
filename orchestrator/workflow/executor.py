@@ -10237,7 +10237,7 @@ class WorkflowExecutor:
             typed_prompt_input_evidence: list[dict[str, Any]] = []
             if isinstance(typed_prompt_inputs, list) and typed_prompt_inputs:
                 if fragment_contract is not None:
-                    from ..workflow_lisp.typed_prompt_inputs import (
+                    from .typed_prompt_inputs import (
                         render_typed_prompt_inputs,
                     )
 
@@ -10263,7 +10263,7 @@ class WorkflowExecutor:
                             step_id=runtime_step_id or self._step_id(step),
                         )
                     )
-                from ..workflow_lisp.typed_prompt_inputs import (
+                from .typed_prompt_inputs import (
                     validate_typed_prompt_input_composition,
                 )
 
@@ -11691,7 +11691,7 @@ class WorkflowExecutor:
                 typed_prompt_inputs, (list, tuple)
             ) and typed_prompt_inputs:
                 if fragment_owned:
-                    from ..workflow_lisp.typed_prompt_inputs import (
+                    from .typed_prompt_inputs import (
                         render_typed_prompt_inputs,
                         validate_typed_prompt_input_composition,
                     )

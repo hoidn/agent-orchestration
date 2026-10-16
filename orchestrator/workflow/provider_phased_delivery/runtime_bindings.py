@@ -336,7 +336,7 @@ class _WorkflowPhasedProviderAttemptBindings:
         self.prompt_contract_step = contract_step
 
     def _render_fragment_and_cut(self, allocation):
-        from ...workflow_lisp.typed_prompt_inputs import (
+        from ..typed_prompt_inputs import (
             render_typed_prompt_inputs,
             validate_typed_prompt_input_composition,
         )

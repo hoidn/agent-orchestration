@@ -205,6 +205,8 @@ def test_checked_contract_compatibility_imports_keep_owner_identity():
     from orchestrator.workflow_lisp import syntax, type_env
     from orchestrator.workflow_lisp.wcc import route
     from orchestrator.workflow import type_descriptor
+    from orchestrator.workflow import typed_prompt_inputs
+    from orchestrator.workflow_lisp import typed_prompt_inputs as old_typed_prompt_inputs
 
     for owner, legacy, exports in (
         (program, old_program, ('ClosedProgram', 'ClosedProgramInvalid', 'canonical_digest',
@@ -218,9 +220,98 @@ def test_checked_contract_compatibility_imports_keep_owner_identity():
         (targets, syntax, ('SUPPORTED_TARGET_DSL_VERSIONS', 'target_dsl_uses_evaluated_execution',
                            'target_dsl_refuses_non_finite_floats',
                            'target_dsl_supports_nested_structural_transport')),
+        (typed_prompt_inputs, old_typed_prompt_inputs,
+         ('normalize_typed_prompt_input_entry', 'typed_prompt_input_value_digest',
+          'render_typed_prompt_input_blocks', 'render_typed_prompt_inputs',
+          'validate_typed_prompt_input_composition')),
     ):
         for export in exports:
             assert getattr(legacy, export) is getattr(owner, export)
     assert type_env._named_type_basename is type_descriptor._named_type_basename
     for export in ('LOWERING_SCHEMA_LEGACY', 'LOWERING_SCHEMA_WCC', 'DEFAULT_LOWERING_SCHEMA'):
         assert getattr(route, export) is getattr(targets, export)
+
+
+def _prepared_provider_prompt_probe(tmp_path):
+    from orchestrator.workflow_lisp.closed.build import build_closed_program
+    from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
+    from orchestrator.contracts.closed_program.sites import _ast_nodes
+    from orchestrator.workflow.evaluated.provider_io import WorkflowIOReader
+    from orchestrator.workflow.evaluated.providers import resolve_provider_input
+    from orchestrator.workflow.evaluated.values import coerce_evaluated_value
+
+    source = tmp_path / 'prompt_probe.orc'
+    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+      (defmodule prompt_probe) (export run) (defworkflow run ((n Int)) -> Int
+        (provider-result provider :prompt prompt :inputs (n) :returns Int)))''')
+    (tmp_path / 'prompt.md').write_text('Inspect the supplied value.\n')
+    typed = compile_typed_program(source, entry_workflow='run', source_roots=(tmp_path,),
+        workspace_root=tmp_path, command_boundaries={}, provider_externs={'provider': 'codex'},
+        prompt_externs={'prompt': {'asset_file': 'prompt.md'}})
+    program = build_closed_program(typed)
+    artifact = tmp_path / 'prompt_program.json'
+    artifact.write_text(program.artifact())
+    node, = [row for row in _ast_nodes(program.tree['body']) if row.get('k') == 'perform']
+    result = resolve_provider_input(node,
+        (coerce_evaluated_value(7, {'kind': 'primitive', 'name': 'Int'}),),
+        workspace=tmp_path, reader=WorkflowIOReader(source), result_path='result.json',
+        delivery_name='file/2')
+    return source, artifact, dict(result.input_parts)
+
+
+def test_runtime_prompt_rendering_and_input_hashes_without_frontend(tmp_path):
+    source, artifact, input_parts = _prepared_provider_prompt_probe(tmp_path)
+    _run_without_frontend(f"""
+from copy import deepcopy
+from pathlib import Path
+from orchestrator.contracts.closed_program.program import ClosedProgram
+from orchestrator.contracts.closed_program.sites import _ast_nodes
+from orchestrator.workflow.typed_prompt_inputs import (
+    TYPED_PROMPT_INPUT_SCHEMA_VERSION, normalize_typed_prompt_input_entry,
+    render_typed_prompt_inputs, validate_typed_prompt_input_composition,
+)
+from orchestrator.workflow.evaluated.providers import resolve_provider_input
+from orchestrator.workflow.evaluated.provider_io import WorkflowIOReader
+from orchestrator.workflow.evaluated.values import coerce_evaluated_value
+from orchestrator.workflow.prompt_fragment_contract import (
+    CompilerPromptFragmentRenderedSlot, CompilerPromptAttemptBindingPlanRow,
+)
+from orchestrator.workflow.prompt_identity import _validate_normalized_refinement
+
+descriptor = {{'kind': 'primitive', 'name': 'Int'}}
+entry = normalize_typed_prompt_input_entry({{
+    'schema_version': TYPED_PROMPT_INPUT_SCHEMA_VERSION,
+    'binding_name': 'n', 'value_type_name': 'Int', 'source_map_origin_key': 'probe::run',
+    'renderer': {{'renderer_id': 'canonical-json', 'renderer_version': 1,
+                  'accepted_shape': 'any_pure_value'}},
+    'value_source': {{'kind': 'typed_binding_ref', 'ref': 'inputs.n'}}, 'injection_order': 0,
+}})
+block, evidence = render_typed_prompt_inputs([entry], resolved_typed_values={{'n': 7}},
+    workflow_name='probe::run', step_id='provider')
+assert block and len(evidence) == 1
+assert validate_typed_prompt_input_composition([entry], resolved_typed_values={{'n': 7}},
+    evidence=evidence, workflow_name='probe::run', step_id='provider') == evidence
+forged = deepcopy(evidence)
+forged[0]['value_digest'] = 'sha256:' + '0' * 64
+try:
+    validate_typed_prompt_input_composition([entry], resolved_typed_values={{'n': 7}},
+        evidence=forged, workflow_name='probe::run', step_id='provider')
+except ValueError:
+    pass
+else:
+    raise AssertionError('forged typed evidence admitted')
+
+CompilerPromptFragmentRenderedSlot('n', 'value', descriptor, 'canonical-json',
+    {{'kind': 'typed_binding_ref', 'binding': {{'ref': 'inputs.n'}}}}, (0,))
+CompilerPromptAttemptBindingPlanRow(0, 'n', 'value', descriptor, 'none', 'template',
+    {{'kind': 'rendered_slot', 'ordinal': 0}},
+    {{'renderer_id': 'canonical-json', 'renderer_version': 1}})
+_validate_normalized_refinement(descriptor, context='probe')
+
+program = ClosedProgram.from_artifact(Path({str(artifact)!r}).read_text())
+node, = [row for row in _ast_nodes(program.tree['body']) if row.get('k') == 'perform']
+result = resolve_provider_input(node, (coerce_evaluated_value(7, descriptor),),
+    workspace=Path({str(tmp_path)!r}), reader=WorkflowIOReader(Path({str(source)!r})),
+    result_path='result.json', delivery_name='file/2')
+assert dict(result.input_parts) == {input_parts!r}
+""")

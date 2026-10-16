@@ -11,7 +11,7 @@ from typing import Any
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .spans import SourcePosition, SourceSpan
-from .typed_prompt_inputs import normalize_typed_prompt_input_entry
+from orchestrator.workflow.typed_prompt_inputs import normalize_typed_prompt_input_entry
 
 
 FAMILY_PROFILE_SCHEMA_VERSION = "workflow_lisp_family_profile.v1"
