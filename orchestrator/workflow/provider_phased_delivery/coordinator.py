@@ -21,7 +21,6 @@ from orchestrator.providers.interactive_terminal import (
 )
 
 from .bindings import (
-    AtomicSuccessCommitReceipt,
     AttemptAllocation,
     AttemptComposition,
     CandidatePreflight,
@@ -37,7 +36,7 @@ from .bindings import (
     PhasedNaturalShutdownEvidence,
     PhasedProviderAttemptCoordinatorBindings,
     PhasedProviderAttemptFailure,
-    PhasedProviderAttemptSuccess,
+    PhasedProviderAttemptPrepared,
     PreparedSuccessCommit,
     SerializedAttemptEvent,
     StructuredResultValidation,
@@ -286,6 +285,10 @@ class _CoordinatorSession:
         "NOT_STARTED"
     )
     natural_shutdown_proof: PhasedNaturalShutdownEvidence | None = None
+    prepared_outcome: PhasedProviderAttemptPrepared | None = None
+    prepare_started: bool = False
+    settled: bool = False
+    ledger_closed: bool = False
     deadline_probe: tuple[str, str] | None = None
     ledger_channel: Literal["ABSENT", "WRITABLE", "POISONED"] = "ABSENT"
 
@@ -388,6 +391,56 @@ class PhasedProviderAttemptCoordinator:
         except PhasedOperationFailure:
             return False
         return True
+
+    def _close_ledger(self) -> None:
+        session = self._session
+        if session.ledger_closed:
+            return
+        session.ledger_closed = True
+        if session.ledger is None:
+            return
+        try:
+            session.ledger.close()
+        except Exception:
+            session.ledger_channel = "POISONED"
+
+    def close(self) -> None:
+        """Close diagnostic output without changing provider resource state."""
+
+        self._close_ledger()
+
+    def settle(self, prepared: PhasedProviderAttemptPrepared) -> None:
+        """Record best-effort diagnostics after the caller commits the memo."""
+
+        if (
+            type(prepared) is not PhasedProviderAttemptPrepared
+            or prepared is not self._session.prepared_outcome
+        ):
+            raise ValueError("settlement requires this coordinator's outcome")
+        session = self._session
+        if session.settled:
+            return
+        session.settled = True
+        session.lifecycle = PhasedLifecycleState(
+            phase="PUBLISHED",
+            provider_cleanup="NOT_REQUIRED",
+            ingress="COMPLETE",
+            natural_join_proven=True,
+            abort_calls=0,
+        )
+        try:
+            self._safe_append(
+                "publication_succeeded",
+                {
+                    "submission_ordinal": prepared.submission_ordinal,
+                    "commit_status": "authoritative_state_committed",
+                },
+                admit_deadline=False,
+            )
+        except Exception:
+            session.ledger_channel = "POISONED"
+        finally:
+            self._close_ledger()
 
     def _admit_deadline(self, operation: str) -> _DeadlineAdmission:
         session = self._session
@@ -749,8 +802,7 @@ class PhasedProviderAttemptCoordinator:
             failure.first_diagnostic,
             failure.lifecycle,
         )
-        if session.ledger is not None:
-            session.ledger.close()
+        self._close_ledger()
         return failure
 
     def _handoff_active(
@@ -1490,7 +1542,7 @@ class PhasedProviderAttemptCoordinator:
             },
         )
 
-    def _publish(self) -> PhasedProviderAttemptSuccess:
+    def _prepare(self) -> PhasedProviderAttemptPrepared:
         session = self._session
         allocation = session.allocation
         output = session.output
@@ -1602,43 +1654,19 @@ class PhasedProviderAttemptCoordinator:
             raise ValueError(
                 "prepared success commit predecessor is invalid"
             )
-        try:
-            commit = self._bindings.atomic_success_commit(
-                prepared,
-                deadline=composition.deadline,
-            )
-        except PhasedOperationFailure as failure:
-            self._handoff_publication(failure)
-        if (
-            type(commit) is not AtomicSuccessCommitReceipt
-            or commit.evidence_sha256 != evidence.evidence_sha256
-            or commit.frozen_sha256 != frozen.frozen_sha256
-        ):
-            raise ValueError("atomic commit predecessor is invalid")
-        session.lifecycle = PhasedLifecycleState(
-            phase="PUBLISHED",
-            provider_cleanup="NOT_REQUIRED",
-            ingress="COMPLETE",
-            natural_join_proven=True,
-            abort_calls=0,
-        )
-        self._safe_append(
-            "publication_succeeded",
-            {
-                "submission_ordinal": session.submission_ordinal,
-                "commit_status": commit.status,
-            },
-            admit_deadline=True,
-        )
-        return PhasedProviderAttemptSuccess(
-            allocation=allocation,
+        natural = session.natural_shutdown_proof
+        if natural is None:
+            raise RuntimeError("natural shutdown proof is missing")
+        outcome = PhasedProviderAttemptPrepared(
+            prepared=prepared,
             lifecycle=session.lifecycle,
             submission_ordinal=session.submission_ordinal,
             actual_deliveries=deliveries,
-            frozen=frozen,
-            evidence=evidence,
-            commit=commit,
+            natural_shutdown=natural,
+            deadline=composition.deadline,
         )
+        session.prepared_outcome = outcome
+        return outcome
 
     def _handoff_publication(
         self,
@@ -1656,9 +1684,12 @@ class PhasedProviderAttemptCoordinator:
             self._session.lifecycle,
         ) from failure
 
-    def run(
+    def prepare(
         self,
-    ) -> PhasedProviderAttemptSuccess | PhasedProviderAttemptFailure:
+    ) -> PhasedProviderAttemptPrepared | PhasedProviderAttemptFailure:
+        if self._session.prepare_started:
+            raise RuntimeError("a phased provider coordinator prepares once")
+        self._session.prepare_started = True
         allocation = self._bindings.allocate_attempt()
         if type(allocation) is not AttemptAllocation:
             raise TypeError("allocate_attempt must return an exact allocation")
@@ -1716,7 +1747,7 @@ class PhasedProviderAttemptCoordinator:
             self._prepare_and_offer_initial()
             event = self._validate_submission()
             self._close_and_join(event)
-            result = self._publish()
+            result = self._prepare()
         except PhasedOperationFailure as failure:
             handoff = _NeedsTerminalization(
                 failure.diagnostic,
@@ -1725,9 +1756,6 @@ class PhasedProviderAttemptCoordinator:
             return self._terminalize(handoff)
         except _NeedsTerminalization as handoff:
             return self._terminalize(handoff)
-        ledger = self._session.ledger
-        if ledger is not None:
-            ledger.close()
         return result
 
 
