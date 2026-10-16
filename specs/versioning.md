@@ -16,8 +16,8 @@ remain distinct above that floor. The owner-selected
 records implementation and delivery status.
 It admits evaluated entries/profiles at 2.35/2.36, the registered bounded
 2.37 surface, the bounded 2.38 command-only confined run-ref and agent-sessions
-surfaces, and the 2.39 procedure authoring contract with their existing limits,
-not entries through 2.34. The
+surfaces, and the 2.39 procedure authoring and bounded phased-provider contracts
+with their existing limits, not entries through 2.34. The
 [CLI support boundary](cli.md#executable-support-boundary) owns refusal
 codes/exits and precedence. Old entry builds/runs/dry-runs refuse before
 publication; old-profile resume/restart/repair/invalidation refuse without
@@ -1206,9 +1206,28 @@ boundary. The finite private/compatibility-form admission rule is applied after
 macro expansion using actual builtin template provenance. A 2.39 module may
 import definitions from 2.35–2.38 unchanged; a module below 2.39 refuses new definitions.
 
-This target does not change state schema `3.0`, `evaluated_execution.v1`,
-transport/coercion policy, ordinary provider launch defaults or confinement
-qualification. Old artifacts and frozen evidence are not rewritten; source or
+Target 2.39 also admits fragment-backed `provider-result` with
+`:delivery :phased`, a positive `Int` literal `:timeout-sec` and phased-only
+literal `:materialization-attempts` in `1..3` (default `2`, total submissions).
+The defining source must target 2.39; older imported definitions retain refusal.
+The selected provider must explicitly validate
+`interactive_terminal_turn_queue.v1`; there is no composed fallback. One new
+checked coordinator class `provider_phased` uses existing closed-program format
+`workflow-lisp/closed-program/1`, representation `table/1`, with class-specific
+inline proof `evaluated_phased_provider_commit.v1`. Ordinary composed artifact
+and memo shapes retain their meaning. Older readers reject the new class;
+there is no artifact or persisted-profile rewrite. [Providers](providers.md#evaluated-phased-provider-delivery-target-239),
+[State](state.md#evaluated-phased-provider-attempts-target-239) and the
+[accepted design](../docs/design/workflow_lisp_phased_contract_delivery.md#target-239-evaluated-migration)
+own publication, K3 settlement and K4 whole-visit rerun after exact cleanup.
+The [migration plan](../docs/plans/2026-10-16-phased-execution-239-plan.md)
+owns deterministic implementation evidence; paid-provider qualification is
+unselected. Agent-valued/session/capture, parallel phased workers and confined
+phased-provider admission remain excluded.
+
+These additions do not change state schema `3.0`, `evaluated_execution.v1`,
+ordinary provider launch defaults, coercion policy or confinement qualification.
+Old artifacts and frozen evidence are not rewritten; source or
 boundary migration does not promise old fingerprint/checkpoint reuse. Target
 registration is separate from public qualification. Inference-default checked
 restrictions, inferred inspection, caller-owned inline composition and finite
@@ -1270,6 +1289,6 @@ retired. Run-ref still enforces its independent feature restrictions.
 | 2.36 | W3 local hooks and graph-selected `std/improve` | Uses the existing evaluated schemas/profile. Inferred lexical captures, several local bindings and one-site incomplete signatures; four-argument helper selected per source graph, with old-caller migration on retargeting and unchanged snapshot/resume guards. See v2.36 additions and the Phase 4c plan for qualification status. |
 | 2.38 (command path implemented; provider qualification pending) | Workflow Lisp run-ref confined workflow children | Command, recovery and export paths are implemented; public confined providers and native provider qualification remain pending. Agent allocation and turns are excluded from confined children. Named private child entry, `:commit` expression, closed confinement policy, `COMPLETED`/`FAILED` site union, `run_ref_static_config.v2` and `run_ref_confinement.v1`. See the 2.38 paragraph above. |
 | 2.38 | Workflow Lisp agent sessions: `agent` constructor, opaque `Agent`, `provider-result` on an agent as a coordinator `agent_turn` effect | Implemented and additive; 2.35/2.36/2.37 unchanged. Allocation/turn runtime, recovery, C8 guards and views are delivered by [Plan B](../docs/plans/2026-10-14-agent-sessions-implementation-plan-b.md); [PQ-1a evidence](../docs/reports/2026-10-14-agent-sessions-pq1a-qualification.md) records deterministic proofs and bounded adapter smokes, with the acceptance comparison pending. State schema `3.0`, profile `evaluated_execution.v1` unchanged (additive `effect_class` values and class-specific `proof`). |
-| 2.39 | Inferred effects with optional checked restrictions, caller-owned inline defproc composition, explicit workflow boundaries and finite private/compatibility-form admission | Definition-origin compatibility; no runtime/state/transport policy change. The guide and library reference own bounded recipes; evaluated LSP and independent qualification gates remain separate. See the 2.39 paragraph above. |
+| 2.39 | Inferred effects with optional checked restrictions, caller-owned inline defproc composition, explicit workflow boundaries, finite private/compatibility-form admission and bounded fragment-backed phased provider delivery | Definition-origin compatibility; additive `provider_phased` coordinator and inline proof under unchanged closed-program/state/profile versions. Explicit interactive capability, total-submission cap and positive literal timeout required. Deterministic evidence is separate from paid-provider qualification; confinement, LSP and other qualification gates remain separate. See the 2.39 paragraph above. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

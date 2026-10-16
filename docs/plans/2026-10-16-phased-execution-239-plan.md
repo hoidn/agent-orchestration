@@ -342,19 +342,19 @@ evidence, not production acceptance; the implementation checks below remain open
 
 **Role/artifact:** Revision / documentation and normative routing.
 
-- [ ] Update the drafting guide with a minimal 2.39 fragment-backed phased call,
+- [x] Update the drafting guide with a minimal 2.39 fragment-backed phased call,
   literal bounds/default, interactive capability prerequisite, natural-close
   requirement, same-client correction and full-visit crash rerun semantics.
-- [ ] Update `docs/capability_status_matrix.md`, `docs/design/README.md` and
+- [x] Update `docs/capability_status_matrix.md`, `docs/design/README.md` and
   `docs/index.md` to route to the accepted 2.39 contract and this plan. Keep
   historical Q5 records and old fixtures frozen; distinguish deterministic
   implementation from paid live-provider qualification. Update provider result
   delivery guidance where its ordinary-only scope would otherwise be ambiguous.
-- [ ] Add target-2.39 versioning/acceptance entries and current test selectors
+- [x] Add target-2.39 versioning/acceptance entries and current test selectors
   to `tests/README.md`. Search maintained docs for categorical phased-retired
   claims and repair only those contradicted by this selected implementation.
   Preserve unrelated confinement, LSP, roadmap and main delivery-phase gates.
-- [ ] Run the guide's exact compile command against its new fixture and the
+- [x] Run the guide's exact compile command against its new fixture and the
   public smoke from Task 5. Check routing links and inspect documentation diff.
   No prompt-literal tests and no mass rewrite of historical documentation.
 
@@ -362,11 +362,11 @@ evidence, not production acceptance; the implementation checks below remain open
 
 **Role/artifact:** Review / whole-change evidence; coordinator / integration.
 
-- [ ] Inspect the final diff, changed caller census and test results. Independent
+- [x] Inspect the final diff, changed caller census and test results. Independent
   reviewer checks source-free target/import refusal, candidate ownership,
   capability failure, prepared-to-commit and commit-to-settle gaps, exactly one
   publication authority, no ordinary fallback and no old executor route.
-- [ ] Run `pytest --collect-only -q` for every new or renamed test module.
+- [x] Run `pytest --collect-only -q` for every new or renamed test module.
   Reuse valid focused results unless integration changes touched their behavior.
 - [ ] Run the broad/full suite from the worktree root in tmux using the `tmux`
   skill and the required command:
@@ -493,5 +493,21 @@ accurate current routing. Ordinary composed behavior remains compatible.
   receipts. Original failures and successful causal probes remain preserved.
   Task 6 final guidance verification and Task 7 full-suite classification remain
   required; these results do not establish full-suite health or paid qualification.
+- Task 6 complete: thirteen maintained guidance/spec/routing documents describe
+  the implemented deterministic 2.39 lifecycle, its prerequisites and recovery
+  limits. Historical Q5 bodies/fixtures and unrelated qualification gates remain
+  unchanged. An independent architecture reviewer approved the exact thirteen
+  file hashes and full diff; the coordinator verified them. The guide's exact
+  command sequence compiled `main::run` with two sites and passed **42** public
+  cases (exit zero). All **60** added relative links/anchors passed, and the
+  unchanged compiler selector's **53** passing cases remain valid. Evidence:
+  `/tmp/orc-phased-239-evidence/task6-docs/verification_receipt.json`,
+  `doc-hashes.json`, `docs.diff`, `recipe.sh`, `recipe.log` and `recipe.exit`.
+- Task 7 review/collection: independent compliance and quality review found no
+  remaining selected-contract defects in the integrated migration and final
+  Task 5 files. Fresh collection of all five added test modules found **228**
+  cases, exit zero; exact command/result are in
+  `/tmp/orc-phased-239-evidence/task7-full/collect-new-result.json` and
+  `collect-new.log`. The full suite and its baseline comparison remain pending.
 - Live-provider qualification: not selected; deterministic fixtures do not claim
   it and do not establish improved provider task quality.

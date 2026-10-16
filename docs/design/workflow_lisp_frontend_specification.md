@@ -2,7 +2,7 @@
 
 Status: accepted baseline / umbrella frontend contract
 Target substrate: checked closed-program execution at 2.35/2.36 and bounded
-2.37/2.38 extensions and target-2.39 procedure authoring; source/import/tooling
+2.37/2.38 extensions and target-2.39 procedure authoring/phased delivery; source/import/tooling
 admission starts at 2.35; the flat emitter is retired
 Primary purpose: composable, typed, procedural authoring of deterministic workflows  
 Non-purpose: replacing the runtime, weakening validation, or generating brittle YAML-shaped code
@@ -1428,9 +1428,10 @@ for arbitrary provider calls.
 
 ### 8.7.4 Implemented Phased Contract Delivery (Target 2.23)
 
-Historical executable protocol; retained syntax/identity/read schemas only.
-The current package does not admit phased-provider execution or old-profile
-resume. Ordinary admitted composed calls keep their own evaluated contract.
+Historical target-2.23 executable protocol; retained syntax/identity/read
+schemas only. This profile and old-profile resume remain retired. Current
+target-2.39 phased execution follows the [accepted evaluated contract](workflow_lisp_phased_contract_delivery.md#target-239-evaluated-migration);
+ordinary admitted composed calls keep their own evaluated contract.
 
 A direct fragment-backed `provider-result` may select `:delivery :composed` or
 `:delivery :phased`. Omission remains byte-compatible composed delivery.
@@ -2880,9 +2881,10 @@ compatible.
 
 ### 22.9 Implemented Phased Contract Delivery (Target 2.23)
 
-Historical executable protocol; retained syntax/identity/read schemas only.
-The current package does not admit phased-provider execution or old-profile
-resume. Ordinary admitted composed calls keep their own evaluated contract.
+Historical target-2.23 executable protocol; retained syntax/identity/read
+schemas only. This profile and old-profile resume remain retired. Current
+target-2.39 phased execution follows the [accepted evaluated contract](workflow_lisp_phased_contract_delivery.md#target-239-evaluated-migration);
+ordinary admitted composed calls keep their own evaluated contract.
 
 Target 2.23 opens the closed compiler-owned provider call policy with
 `delivery` and `materialization_attempts`. The carrier flows unchanged through

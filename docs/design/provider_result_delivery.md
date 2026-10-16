@@ -29,10 +29,23 @@ integration. The shared `orchestrator/workflow/prompting.py` composer remains
 available; preserving its rendering contract is distinct from admitting flat
 execution. Original qualification results remain in the linked closeout.
 
+## Scope At Target 2.39
+
+This design's delivery-rendering and ordinary replay rules describe composed
+provider calls. For fragment-backed phased calls, the same file renderer supplies
+the generated materialization contract, but that file is a provisional candidate:
+joint validation, natural shutdown and the evaluator's inline-proof memo commit
+precede typed-result publication. The [phased contract](workflow_lisp_phased_contract_delivery.md#target-239-evaluated-migration)
+and [State](../../specs/state.md#evaluated-phased-provider-attempts-target-239)
+own phased commit, settlement and whole-visit recovery. The rendering selector
+and authored phased-delivery policy are separate choices; this design does not
+supply phased admission or its retry policy.
+
 ## Summary
 
-Every provider call on the evaluated route delivers its result through one
-mechanism: a file at the attempt's `result.json`, named to the agent by the
+For the ordinary file transport addressed here, a provider call delivers its
+result through one mechanism: a file at the attempt's `result.json`, named to
+the agent by the
 `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` environment variable and by the contract
 block's `- path:` line. The contract block the runtime appends to the prompt
 does not say so. It opens with "Produce one JSON value", then offers a
@@ -311,7 +324,9 @@ must-exist checks keep their diagnostics.
 
 ## Invariants And Failure Modes
 
-- The file at the attempt's result path is the only result authority; no
+- For ordinary file-delivery calls, the validated file at the attempt's result
+  path supplies the result; the evaluated memo owns committed reuse. Phased
+  candidates follow the separate publication contract above. No file-delivery
   code path reads the result from stdout, stderr or assistant text.
 - The contract block is appended exactly once (`specs/providers.md`).
 - A committed effect is reused on resume if and only if its recorded input
