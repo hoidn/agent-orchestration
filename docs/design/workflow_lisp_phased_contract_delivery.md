@@ -388,9 +388,22 @@ delayed pre-exec helper from launching provider code.
 Complete cleanup requires settled creation commands, the owned group empty,
 and the bound server absent. No candidate cleanup or replacement attempt may
 precede all three. Server termination alone does not prove group emptiness.
+The private backend may request child reaping by sending `SIGCHLD` only to the
+exact bound tmux server, under the existing lease after completed-command and
+namespace/socket/session validation, with a positive matching server start token
+rechecked immediately before signalling. This notification is not proof of group
+absence. During failed cleanup, retain TERM, its bounded grace and any required
+KILL escalation before requesting post-escalation reaping; do not deliberately
+remove the recorded leader before escalation. Continue to require actual group
+absence before closing the server. Failed signalling, ambiguous ownership or a
+group still present at the original deadline cannot authorize candidate cleanup
+or redispatch.
 Natural completion likewise requires successful exit status, naturally empty
 registered group and removal of the inert private server; a residual group
-is a failure even if forced cleanup later succeeds. TERM/KILL cannot produce
+is a failure even if forced cleanup later succeeds. Exit-status publication can
+precede wrapper exit or server reaping: natural join may request the same checked
+server notification and observe group absence within its original deadline,
+without sending TERM/KILL to the provider group. TERM/KILL cannot produce
 natural success. Strengthen the adapter's `proof_complete=True` invariant
 without changing the handle-bound proof shape or its existing five-field
 content-free projection: `disposition`, `return_code`, `pane_absent`,

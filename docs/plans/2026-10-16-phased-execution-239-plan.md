@@ -64,7 +64,7 @@ pre-2.35 source fixtures and historical evidence unchanged.
 | Evaluated binding owner | Create `orchestrator/workflow/evaluated/phased_providers.py`: input resolution/composition, concrete coordinator bindings, candidate IO, receipt/proof, prepared projection, cleanup and settlement/reconciliation |
 | Shared prompt/IO owner | `orchestrator/workflow/evaluated/prompts.py`, `providers.py`, `effect_inputs.py`: one captured dependency snapshot, one canonical cut and existing input/replay guards |
 | Publication and recovery | `orchestrator/workflow/evaluated/effect_execution.py`, `runtime.py`, `memo_reducer.py`, `resume_prefix.py`, `parallel.py`: external prepared outcome, typed memo proof, settle-before-dependent-work and replay inventory. `replay.py` and `memo.py` already consult coordinator classification; change only when tests reveal an omitted obligation |
-| New executable checks | `tests/test_workflow_lisp_phased_239.py`, `tests/test_workflow_evaluated_phased.py`, `tests/test_workflow_evaluated_phased_recovery.py`, `tests/workflow_evaluated_phased_helpers.py`, `tests/fixtures/workflow_lisp/phased_239/main.orc`, `tests/fixtures/providers/fake_phased_interactive.py` |
+| New executable checks | `tests/test_workflow_lisp_phased_239.py`, `tests/test_workflow_evaluated_phased.py`, `tests/test_workflow_evaluated_phased_recovery.py`, `tests/workflow_evaluated_phased_helpers.py`, `tests/fixtures/phased_239/main.orc`, `tests/fixtures/providers/fake_phased_interactive.py` |
 | Current guidance | `docs/lisp_workflow_drafting_guide.md`, `docs/capability_status_matrix.md`, `docs/design/README.md`, `docs/index.md`, `tests/README.md`, `specs/versioning.md`, `specs/acceptance/index.md`: accurate public scope, recipe, selectors and qualification limit |
 
 Paths in a row are an ownership census, not permission for incidental refactoring.
@@ -174,6 +174,15 @@ evidence, not production acceptance; the implementation checks below remain open
 - [ ] After Tasks 3–4 integrate candidate ownership and dispatch, prove that
   active/unresolved cleanup preserves candidate files and blocks redispatch;
   run at least one public evaluated resume smoke in Task 5.
+- [ ] Follow-up from public interruption and natural-exit checks: request child
+  reaping only from the positively identified bound tmux server, retaining actual
+  group-absence proof, original deadlines and group-before-server teardown.
+  Cover natural exit without forced group signals, resistant descendants,
+  foreign identity with no signals, failed reaping with incomplete cleanup and
+  interrupted/idempotent recovery. Re-run both observed public failures before
+  accepting Task 5. Mechanism evidence is in
+  `/tmp/orc-phased-239-evidence/task5-public/sigchld-probe.log`; it is not yet
+  implementation acceptance.
 - [x] Demonstrate that zero exit follows normal graceful close; timeout, nonzero
   exit, explicit abort, failed freeze and incomplete cleanup cannot produce a
   prepared success. Validate prestart failure and partial start cleanup too.
