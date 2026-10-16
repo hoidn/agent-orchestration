@@ -4,7 +4,7 @@ Fresh authored workflows reach this contract through compiled `.orc` source
 only, within the [CLI execution support boundary](cli.md#executable-support-boundary)
 and [evaluated IO admission](io.md#evaluated-command-and-provider-io-target-235).
 The retirement candidate retains shared provider services and typed contracts;
-old session/supervision/peer/phased/adjudicated workflow execution and recovery
+old session/supervision/peer/target-2.23 phased/adjudicated workflow execution and recovery
 descriptions below are historical, not an evaluated port. Native
 `prompt resume [--in-place]` remains a separate compiler-free session continuation.
 The mapping snippets describe validated Core/provider shapes; YAML fences are
@@ -1128,6 +1128,52 @@ schema notation, not authored workflow files.
   ["codex","exec","resume","${SESSION_ID}","--json",...]`, and
   `session_support.turn_boundary_resume: true`. This is an explicit property
   of that template, not a capability inferred from the `codex` name.
+
+## Evaluated Phased Provider Delivery (Target 2.39)
+
+This is the selected target contract, not an implementation or qualification
+claim. The [phased design](../docs/design/workflow_lisp_phased_contract_delivery.md#target-239-evaluated-migration)
+owns architecture and required evidence; historical target-2.23 execution
+remains retired. Evaluated admission adds existing `provider-result` policy
+`:delivery :phased`, with literal `:materialization-attempts` in `1..3`
+(default `2`). It requires a fragment-backed prompt and a generated nonempty
+result-contract suffix. Omitted/explicit composed delivery remains unchanged.
+
+- One `provider_phased` checked effect owns one interactive attempt and one
+  normal typed result. Explicit capability validation requires
+  `interactive_terminal_turn_queue.v1`; absent/malformed capability never
+  selects composed fallback. Agent-valued calls, capture/session publication,
+  isolation/confinement, supervision/peers and reachable parallel-worker
+  phased effects remain excluded.
+- Compose the current evaluated request once. Split exactly at the generated
+  output-contract insertion: task bytes `T1` and separator-inclusive contract
+  bytes `T2` concatenate to canonical `C`. Start one client with the separately
+  framed task, queue its materialization turn, and retry only framed `T2` in
+  that client. The task is offered once per attempt. Total materialization
+  submissions are bounded by the authored cap. Canonical prompt bytes and
+  actual-delivery bytes are separate identities.
+- Preserve the shared phased submit protocol, exact-request idempotence,
+  serialized candidate validation, receipt-flush-before-close ordering,
+  candidate absence/reset/freeze rules and deadline/cleanup proof grammar.
+  Every submit runs expected-output and structured-result validation; neither
+  becomes authoritative independently. Endpoint resources are allocated only
+  after successful provider start. No candidate cleanup may delete an
+  unrelated or pre-existing file.
+- Natural zero-exit shutdown and complete ingress cleanup precede frozen
+  restoration/verification and evaluated preparation. `prepare` never writes
+  parent state or memo. The evaluator validates and commits the typed result
+  with the versioned phased proof, then `settle` finalizes the attempt. After
+  natural shutdown, failure never authorizes another abort of that client.
+- One timeout bounds the live attempt through pre-commit preparation; the
+  evaluator checks it before the first memo commit. Committed settlement and
+  interrupted-attempt cleanup are bounded recovery operations, not permission
+  to continue an expired interactive attempt.
+- New attempts use the evaluated identity, ordinal, exclusive directory,
+  ordinary provider IO/result contracts and environment binding. Recovery is
+  [evaluated at-least-once](state.md#evaluated-phased-provider-attempts-target-239),
+  with exact prior-attempt resource/candidate ownership checked before a fresh
+  attempt. No old state allocator, checkpoint, quarantine, phase-cursor
+  replay or provider transcript becomes execution authority.
 
 ## Direct CLI Integration (details)
 

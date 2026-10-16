@@ -899,6 +899,69 @@ creates or asks a replacement question.
   locator, select the last attempt, or make missing or damaged evidence
   invalidate that completed result.
 
+## Evaluated Phased Provider Attempts (Target 2.39)
+
+This selected target extends only the evaluated persistence profile. It does
+not reopen historical schema-2.1 phased execution. The
+[phased design](../docs/design/workflow_lisp_phased_contract_delivery.md#evaluated-prepare-commit-and-settlement)
+defines the closed proof and attempt-receipt fields.
+
+- `provider_phased` is one coordinator class throughout checked programs,
+  site classification, memo reduction and replay. Its normal evaluated
+  identity, full activation path, input/dependency digest and ordinal are the
+  only attempt identity. Source compilation gates the defining source at
+  2.39; source-free artifact validation gates the closed program's top-level
+  target and exact class shape. Existing `provider` nodes remain composed.
+- `prepare` validates and freezes the full candidate, proves natural shutdown
+  and ingress completion, restores/verifies bytes, then persists the pending
+  coordinator receipt. The evaluator alone writes `committed` with inline
+  `evaluated_phased_provider_commit.v1`; only afterward may the coordinator
+  settle and the evaluator append `settled` (K2).
+- The inline proof binds identity, ordinal, input digest, result path/canonical typed-value digest,
+  exact frozen candidate manifest (with separate raw-byte hashes), canonical prompt digest, actual-delivery
+  seal and natural shutdown proof to that commit. Its closed shape and
+  contextual bindings are validated before settlement or reuse. Cross-run,
+  cross-activation or cross-attempt substitution fails closed. Ordinary
+  descriptor-rooted IO validates bytes before commit; memo-hit settlement
+  does not reopen candidate files or require diagnostic evidence.
+- `phased-attempt.json`, schema `evaluated_phased_provider_attempt.v1`, is the
+  minimal attempt-local operational receipt. It binds candidate-absence
+  ownership and exact private transport reservation durably before backend
+  allocation. Its states are `intent`, `prepared`, `settled`, `abandoned`;
+  prepared/settled retain the same inline proof. The settled variant has only
+  schema version, state and proof; it requires no transport reconstruction.
+  This record owns cleanup,
+  never a workflow result or a phase-resumption cursor. Paths and transport
+  locators are checked against the memo-derived attempt and checked effect
+  before any read, deletion or adapter cleanup.
+- On a committed memo hit, validate the inline proof and idempotently finish
+  settlement (K3), without provider dispatch, candidate reconstruction or
+  phase-ledger reads. Inline proof may reconstruct an absent/torn receipt as
+  settled under a no-follow, memo-derived directory pinned for that operation;
+  a foreign-bound receipt or root replacement observed during the operation
+  fails closed without overwrite. No file descriptor is presumed to survive
+  a process restart. Preserve committed
+  authority if settlement fails. A
+  committed phased coordinator cannot be superseded or invalidated (K8).
+- An exact uncommitted interrupted attempt follows generic K4: bound cleanup
+  to its private namespace, prove the old provider cannot write, clear only
+  its owned provisional candidates, preserve its attempt evidence, emit
+  `provider_attempt_interrupted_rerun`, and allocate the next ordinal. Even a
+  prepared-but-uncommitted result is discarded. No partial task/client/queue
+  state is resumed. Incomplete or ambiguous ownership/cleanup refuses launch;
+  it does not create historical sticky quarantine. The same cleanup rule
+  applies before retrying a latest uncommitted `failed` attempt; a live failure
+  may mark ownership abandoned only after resource and candidate cleanup.
+- Diagnostic phase-ledger loss or truncation alone does not block recovery.
+  Missing/malformed operational ownership is distinct: it may justify no
+  dispatch only where durable ordering proves that; otherwise it fails
+  closed. The adapter must cover the crash window between resource allocation
+  and returning a live handle through its preallocated private reservation.
+- The existing phase ledger remains content-free audit evidence.
+  `publication_succeeded` can be emitted only after memo commit and cannot
+  substitute for it. Old Q3/Q5 reports, functional snapshots and schema-2.1
+  state/checkpoint fields remain historical and are not recovery inputs.
+
 ## Target 2.23 Phased Contract Delivery State And Resume
 
 - Phased delivery remains on state schema `2.1`. Persisted provider
