@@ -339,7 +339,7 @@ def compute_compiler_runtime_identity(
 
         orchestrator_version = __version__
     if lowering_schema is None:
-        from orchestrator.workflow_lisp.wcc.route import DEFAULT_LOWERING_SCHEMA
+        from orchestrator.contracts.closed_program.targets import DEFAULT_LOWERING_SCHEMA
 
         lowering_schema = DEFAULT_LOWERING_SCHEMA
 

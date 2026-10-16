@@ -17,8 +17,8 @@ from orchestrator.workflow.assets import WorkflowAssetResolver
 from orchestrator.workflow.prompting import PromptComposer
 from orchestrator.workflow.evaluated.values import EvaluatedValue
 from orchestrator.workflow.evaluated.provider_io import WorkflowIOReader
-from orchestrator.workflow_lisp.closed.sites import _effect_value_children
-from orchestrator.workflow_lisp.closed.program import strip_provenance
+from orchestrator.contracts.closed_program.sites import _effect_value_children
+from orchestrator.contracts.closed_program.program import strip_provenance
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.providers.executor import ProviderExecutor

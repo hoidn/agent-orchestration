@@ -1286,3 +1286,7 @@ __all__ = [
     "validate_compiler_normalized_type_descriptor",
     "validate_transport_value",
 ]
+
+
+def _named_type_basename(name: str) -> str:
+    return name.rsplit("::", 1)[-1].rsplit("/", 1)[-1]

@@ -8,6 +8,8 @@ from reprlib import recursive_repr
 from dataclasses import field as dataclass_field
 from typing import TYPE_CHECKING
 
+from orchestrator.workflow.type_descriptor import _named_type_basename
+
 from .definitions import (
     EnumDef,
     PathDef,
@@ -1747,10 +1749,6 @@ def _record_refs_are_structural_contexts(expected: RecordTypeRef, actual: Record
 
 def _record_type_basename(type_ref: RecordTypeRef) -> str:
     return type_ref.definition.name.rsplit("::", 1)[-1].rsplit("/", 1)[-1]
-
-
-def _named_type_basename(name: str) -> str:
-    return name.rsplit("::", 1)[-1].rsplit("/", 1)[-1]
 
 
 def _union_name_basename(name: str) -> str:

@@ -17,40 +17,20 @@ import math
 import sys
 
 from orchestrator.workflow.pure_expr import NUMERIC_SURFACE_MIN_TARGET_DSL_VERSION
-from .closed import EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+from orchestrator.contracts.closed_program.targets import (
+    EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION,
+    SUPPORTED_TARGET_DSL_VERSIONS,
+    NESTED_STRUCTURAL_TRANSPORT_MIN_TARGET_DSL_VERSION,
+    FINITE_FLOAT_BOUNDARY_MIN_TARGET_DSL_VERSION,
+    target_dsl_refuses_non_finite_floats,
+    target_dsl_uses_evaluated_execution,
+    target_dsl_supports_nested_structural_transport,
+)
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .reader import exponent_float_literal
 from .sexpr import BoolAtom, FloatAtom, IntAtom, KeywordAtom, ListExpr, SExpr, StringAtom, SymbolAtom
 from .spans import SourceSpan
 
-SUPPORTED_TARGET_DSL_VERSIONS = frozenset(
-    {
-        "2.14",
-        "2.15",
-        "2.16",
-        "2.17",
-        "2.18",
-        "2.19",
-        "2.20",
-        "2.21",
-        "2.22",
-        "2.23",
-        "2.24",
-        "2.25",
-        "2.26",
-        "2.27",
-        "2.28",
-        "2.29",
-        "2.30",
-        "2.31",
-        "2.32",
-        "2.33",
-        "2.34",
-        "2.35",
-        "2.36",
-        "3.0",
-    }
-)
 PROVIDER_STEERING_DIRECTIVE_TYPE_NAME = "ProviderSteeringDirective"
 PROVIDER_SUPERVISION_MIN_TARGET_DSL_VERSION = "2.16"
 PROVIDER_PEER_MESSAGING_MIN_TARGET_DSL_VERSION = "2.17"
@@ -61,7 +41,6 @@ PROMPT_OUTPUT_POSITIONS_MIN_TARGET_DSL_VERSION = "2.21"
 PROMPT_ATTEMPT_IDENTITY_MIN_TARGET_DSL_VERSION = "2.22"
 PHASED_CONTRACT_DELIVERY_MIN_TARGET_DSL_VERSION = "2.23"
 RUN_REF_MIN_TARGET_DSL_VERSION = "2.24"
-NESTED_STRUCTURAL_TRANSPORT_MIN_TARGET_DSL_VERSION = "2.25"
 TRIAL_MIN_TARGET_DSL_VERSION = "2.25"
 STRICT_BOOLEAN_CONTROL_FLOW_MIN_TARGET_DSL_VERSION = "2.26"
 SESSION_ARTIFACT_MIN_TARGET_DSL_VERSION = "2.27"
@@ -71,7 +50,6 @@ PURE_CALL_COMPOSITION_MIN_TARGET_DSL_VERSION = "2.30"
 PROVIDER_CONTEXT_VALUES_MIN_TARGET_DSL_VERSION = "2.31"
 HUMAN_INPUT_MIN_TARGET_DSL_VERSION = "2.32"
 GENERIC_UNION_MIN_TARGET_DSL_VERSION = "2.33"
-FINITE_FLOAT_BOUNDARY_MIN_TARGET_DSL_VERSION = "2.34"
 HUMAN_REPLY_TYPE_NAME = "HumanReply"
 MAX_STATIC_LIVE_PROVIDER_PEERS = 8
 
@@ -171,25 +149,6 @@ def target_dsl_supports_generic_unions(target_dsl_version: str) -> bool:
     return target >= minimum
 
 
-def target_dsl_refuses_non_finite_floats(target_dsl_version: str) -> bool:
-    """Return whether a target refuses a non-finite `Float` where it enters a run."""
-
-    try:
-        target = tuple(int(part) for part in target_dsl_version.split("."))
-        minimum = tuple(
-            int(part)
-            for part in FINITE_FLOAT_BOUNDARY_MIN_TARGET_DSL_VERSION.split(".")
-        )
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return target >= minimum
-
-
-def target_dsl_uses_evaluated_execution(target_dsl_version: str) -> bool:
-    """Return whether a target routes execution through the evaluated runtime."""
-    return target_dsl_version in {"2.35", "2.36"}
-
-
 def target_dsl_is_2_33_or_newer(target_dsl_version: str) -> bool:
     """Return whether a target is 2.33 or newer."""
 
@@ -245,24 +204,6 @@ def target_dsl_supports_value(target_dsl_version: str) -> bool:
         )
         minimum = tuple(
             int(part) for part in VALUE_MIN_TARGET_DSL_VERSION.split(".")
-        )
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return target >= minimum
-
-
-def target_dsl_supports_nested_structural_transport(
-    target_dsl_version: str,
-) -> bool:
-    """Return whether authored nested record/union transport is available."""
-
-    try:
-        target = tuple(int(part) for part in target_dsl_version.split("."))
-        minimum = tuple(
-            int(part)
-            for part in NESTED_STRUCTURAL_TRANSPORT_MIN_TARGET_DSL_VERSION.split(
-                "."
-            )
         )
     except (AttributeError, TypeError, ValueError):
         return False

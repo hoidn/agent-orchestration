@@ -34,13 +34,13 @@ from orchestrator.workflow.type_descriptor import (
     validate_compiler_normalized_type_descriptor,
     validate_transport_value,
 )
-from orchestrator.workflow_lisp.closed.program import (
+from orchestrator.contracts.closed_program.program import (
     _canonical_json,
     canonical_digest,
     logical_asset_base_for_module,
 )
-from orchestrator.workflow_lisp.closed import static_effects
-from orchestrator.workflow_lisp.closed.sites import effect_value_operands
+from orchestrator.contracts.closed_program import static_effects
+from orchestrator.contracts.closed_program.sites import effect_value_operands
 
 
 SCHEMA = "workflow-lisp/dynamic-program/1"

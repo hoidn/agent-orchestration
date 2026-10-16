@@ -1,6 +1,7 @@
 """Shared checked-program services stay independent of source preparation."""
 
 from pathlib import Path
+import json
 import subprocess
 import sys
 import textwrap
@@ -113,3 +114,113 @@ def test_runtime_package_exports_keep_their_original_identity():
             pass
         else:
             raise AssertionError('unknown package export admitted')
+
+
+def test_checked_artifact_admission_and_command_performer_without_frontend(tmp_path):
+    from orchestrator.workflow_lisp.closed.build import build_closed_program
+    from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
+    from orchestrator.workflow_lisp.command_boundaries import ExternalToolBinding
+
+    script = "import os; from pathlib import Path; Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH']).write_text('7')"
+    argv = (sys.executable, '-c', script)
+    source = tmp_path / 'probe.orc'
+    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+      (defmodule probe) (export run) (defworkflow run () -> Int
+        (command-result fetch :argv (''' + ' '.join(json.dumps(value) for value in argv) + ''') :returns Int)))''')
+    typed = compile_typed_program(source, entry_workflow='run', source_roots=(tmp_path,),
+        workspace_root=tmp_path, command_boundaries={
+            'fetch': ExternalToolBinding(name='fetch', stable_command=argv, closure=())})
+    original = build_closed_program(typed)
+    artifact = tmp_path / 'program.json'
+    artifact.write_text(original.artifact())
+    _run_without_frontend(f"""
+from copy import deepcopy
+import json
+from pathlib import Path
+from orchestrator.contracts.closed_program import check, command_check, names, static_effects
+from orchestrator.contracts.closed_program.program import ClosedProgram, ClosedProgramInvalid
+from orchestrator.contracts.closed_program.sites import _ast_nodes
+from orchestrator.workflow.evaluated.commands import perform_command
+from orchestrator.workflow.workspace_files import WorkspaceFiles
+
+artifact = Path({str(artifact)!r}).read_text()
+program = ClosedProgram.from_artifact(artifact)
+assert program.artifact() == artifact
+assert program.digest == {original.digest!r}
+node, = [row for row in _ast_nodes(program.tree['body']) if row.get('k') == 'perform']
+workspace = Path({str(tmp_path)!r})
+attempt = workspace / '.orchestrate' / 'effects' / 'e1'
+attempt.mkdir(parents=True)
+workspace_files, attempt_files = WorkspaceFiles(workspace), WorkspaceFiles(attempt)
+try:
+    value, digest = perform_command(node, {argv!r},
+        attempt_files=attempt_files, workspace_files=workspace_files)
+    assert value.json_value() == 7
+    assert digest == 'sha256:' + __import__('hashlib').sha256(b'7').hexdigest()
+finally:
+    attempt_files.close()
+    workspace_files.close()
+for payload in ('{{"schema":1,"schema":2}}', '{{"n":NaN}}'):
+    try:
+        ClosedProgram.from_artifact(payload)
+    except ClosedProgramInvalid:
+        pass
+    else:
+        raise AssertionError('malformed JSON admitted')
+for target in ('2.34', '3.0'):
+    tree = deepcopy(program.tree)
+    tree['target'] = target
+    try:
+        ClosedProgram.from_artifact(json.dumps(tree))
+    except ClosedProgramInvalid:
+        pass
+    else:
+        raise AssertionError('unsupported evaluated target admitted')
+""")
+
+
+def test_shared_target_facts_preserve_native_dispatch_without_frontend():
+    _run_without_frontend("""
+from orchestrator.contracts.closed_program.targets import (
+    SUPPORTED_TARGET_DSL_VERSIONS, target_dsl_uses_evaluated_execution,
+    target_dsl_refuses_non_finite_floats,
+)
+assert '3.0' in SUPPORTED_TARGET_DSL_VERSIONS
+assert {target for target in SUPPORTED_TARGET_DSL_VERSIONS
+        if target_dsl_uses_evaluated_execution(target)} == {'2.35', '2.36'}
+for target in ('2.34', '3.0', '2.37', 'invalid', None):
+    assert not target_dsl_uses_evaluated_execution(target)
+assert target_dsl_refuses_non_finite_floats('3.0')
+""")
+
+
+def test_checked_contract_compatibility_imports_keep_owner_identity():
+    from orchestrator.contracts.closed_program import (
+        check, command_check, names, program, static_effects, targets,
+    )
+    from orchestrator.workflow_lisp.closed import (
+        check as old_check, command_check as old_command_check,
+        names as old_names, program as old_program, static_effects as old_static_effects,
+    )
+    from orchestrator.workflow_lisp import syntax, type_env
+    from orchestrator.workflow_lisp.wcc import route
+    from orchestrator.workflow import type_descriptor
+
+    for owner, legacy, exports in (
+        (program, old_program, ('ClosedProgram', 'ClosedProgramInvalid', 'canonical_digest',
+                               'program_digest', 'strip_provenance', '_canonical_json',
+                               'logical_asset_base_for_module')),
+        (check, old_check, ('CheckedFormError', 'validate', '_Checker')),
+        (command_check, old_command_check, ('checked_command_interfaces', '_effect_children')),
+        (static_effects, old_static_effects, ('StaticEffectError', '_check_provider_prompt_fill_declarations')),
+        (names, old_names, ('canonical_callee_name_from_key', 'canonical_run_ref_signature',
+                           'key_type_descriptor', 'run_ref_type_dependencies', '_parse_identity')),
+        (targets, syntax, ('SUPPORTED_TARGET_DSL_VERSIONS', 'target_dsl_uses_evaluated_execution',
+                           'target_dsl_refuses_non_finite_floats',
+                           'target_dsl_supports_nested_structural_transport')),
+    ):
+        for export in exports:
+            assert getattr(legacy, export) is getattr(owner, export)
+    assert type_env._named_type_basename is type_descriptor._named_type_basename
+    for export in ('LOWERING_SCHEMA_LEGACY', 'LOWERING_SCHEMA_WCC', 'DEFAULT_LOWERING_SCHEMA'):
+        assert getattr(route, export) is getattr(targets, export)

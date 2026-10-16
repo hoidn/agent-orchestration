@@ -24,7 +24,7 @@ from ..build_manifest_io import (
     _require_build_path_within_workspace,
     _resolve_request,
 )
-from .. import syntax
+from orchestrator.contracts.closed_program.targets import target_dsl_uses_evaluated_execution
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..effects import EffectSummary
 from ..build import _iter_compiled_import_entries
@@ -34,12 +34,12 @@ from .target import entry_target_dsl_version
 from .build import Builder, build_closed_program
 from .effects import require_command_closures
 from .frontend import (
-    ProviderIOContext,
     TypedProgram,
     compile_typed_program,
     compile_typed_program_with_result,
 )
-from .program import ClosedProgram, REPRESENTATION, SCHEMA
+from orchestrator.contracts.closed_program.program import ClosedProgram, REPRESENTATION, SCHEMA
+from orchestrator.workflow.evaluated.provider_io import ProviderIOContext
 
 
 @dataclass(frozen=True)
@@ -266,7 +266,7 @@ def _load_closed_imports(
             )
         except (LispFrontendCompileError, OSError, UnicodeError):
             target = None
-        if target is not None and syntax.target_dsl_uses_evaluated_execution(target):
+        if target is not None and target_dsl_uses_evaluated_execution(target):
             program = compile_typed_program(
                 source_path,
                 entry_workflow=requested_entry,

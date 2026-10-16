@@ -65,12 +65,12 @@ from .names import (
     canonical_type_identity,
     canonical_type_descriptor,
 )
-from .program import (
+from .program import canonical_configuration
+from orchestrator.contracts.closed_program.program import (
     REPRESENTATION,
     SCHEMA,
     ClosedProgram,
     _canonical_json,
-    canonical_configuration,
     logical_asset_base_for_module,
     program_digest,
 )

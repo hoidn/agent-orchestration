@@ -23,7 +23,7 @@ from orchestrator.workflow.prompting import (
     substitute_prompt_template,
 )
 from orchestrator.workflow.evaluated.values import EvaluatedValue
-from orchestrator.workflow_lisp.closed.sites import _effect_value_children
+from orchestrator.contracts.closed_program.sites import _effect_value_children
 from orchestrator.workflow_lisp.typed_prompt_inputs import (
     render_typed_prompt_input_blocks,
 )

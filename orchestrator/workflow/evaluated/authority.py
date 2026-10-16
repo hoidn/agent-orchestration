@@ -20,8 +20,8 @@ from orchestrator.workflow.run_ref.contracts import (
     canonical_json_bytes,
     canonical_sha256,
 )
-from orchestrator.workflow_lisp.closed.program import ClosedProgram, REPRESENTATION
-from orchestrator.workflow_lisp.closed.sites import _ast_nodes
+from orchestrator.contracts.closed_program.program import ClosedProgram, REPRESENTATION
+from orchestrator.contracts.closed_program.sites import _ast_nodes
 from orchestrator.workflow.evaluated.interpreters import (
     pin_command_interpreter,
     validate_command_interpreter_pin_shape,

@@ -6,6 +6,12 @@ from collections.abc import Mapping
 from typing import Any
 from enum import Enum
 
+from orchestrator.contracts.closed_program.targets import (
+    LOWERING_SCHEMA_LEGACY,
+    LOWERING_SCHEMA_WCC,
+    DEFAULT_LOWERING_SCHEMA,
+)
+
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..effects import EMPTY_EFFECT_SUMMARY
 from ..expression_traversal import iter_child_exprs
@@ -69,10 +75,7 @@ class LoweringRoute(str, Enum):
     WCC_M4 = "wcc_m4"
 
 
-LOWERING_SCHEMA_LEGACY = 1
-LOWERING_SCHEMA_WCC = 2
 DEFAULT_LOWERING_ROUTE = LoweringRoute.WCC_M4
-DEFAULT_LOWERING_SCHEMA = LOWERING_SCHEMA_WCC
 WORKFLOW_LISP_CONTEXT_KEY = "workflow_lisp"
 LOWERING_SCHEMA_CONTEXT_KEY = "lowering_schema_version"
 _PURE_WCC_M1_EXPR_TYPES = (

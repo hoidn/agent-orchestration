@@ -6,6 +6,10 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from orchestrator._common.safe_tree import resolve_path_preserving_fd
+from orchestrator.contracts.closed_program.targets import (
+    EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION,
+    target_dsl_uses_evaluated_execution,
+)
 from orchestrator.workflow_lisp import syntax
 from orchestrator.workflow_lisp.diagnostics import (
     LispFrontendCompileError,
@@ -95,7 +99,7 @@ def _evaluated_execution_unavailable_diagnostic_at_span(
         code="evaluated_execution_unavailable",
         message=(
             f"target DSL {target_dsl_version} runs only on the evaluated route "
-            f"(from DSL {syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION}); "
+            f"(from DSL {EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION}); "
             "the flat route cannot execute it"
         ),
         span=target_span,
@@ -123,7 +127,7 @@ def refuse_run_at_evaluated_execution_target(path: Path) -> None:
     except (LispFrontendCompileError, OSError, UnicodeError):
         # This is only an early refusal peek; the regular build owns source diagnostics.
         return
-    if syntax.target_dsl_uses_evaluated_execution(target_dsl_version):
+    if target_dsl_uses_evaluated_execution(target_dsl_version):
         _raise_evaluated_execution_unavailable(target_dsl_version, target_span)
 
 
@@ -134,7 +138,7 @@ def refuse_compiled_target_at_evaluated_execution_target(
 ) -> None:
     """Reject the target parsed by the compiler from its exact source snapshot."""
 
-    if not syntax.target_dsl_uses_evaluated_execution(target_dsl_version):
+    if not target_dsl_uses_evaluated_execution(target_dsl_version):
         return
     try:
         source_bytes = source_bytes_by_path[path]

@@ -14,7 +14,7 @@ from ..build_manifest_io import (
     _load_prompt_extern_mapping, _load_command_boundaries_manifest_payload,
     _parse_command_boundaries_manifest, _resolve_request, _require_build_path_within_workspace,
 )
-from ..closed.program import canonical_digest
+from orchestrator.contracts.closed_program.program import canonical_digest
 from ..diagnostics import LispFrontendCompileError
 from ..reader import SourceReadTrace
 from .program import DynamicProgram
