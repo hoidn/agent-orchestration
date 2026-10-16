@@ -572,13 +572,17 @@ def test_public_native_repl_captures_scope_at_real_interruption_boundary(tmp_pat
         _kill_known_processes(process, control)
         assert process.returncode == -signal.SIGKILL
 
-    repl = _attach_case(case, run_root, ":bindings", ":result", env=_inspection_env(control))
+    repl = _attach_case(case, run_root, ":bindings", ":result", ":where", ":where seed",
+                        ":type seed", ":type (+ seed 1)", env=_inspection_env(control))
     assert repl.returncode == 0, repl.stderr
     names = {line.split(" : ", 1)[0] for line in repl.stdout.splitlines() if " : " in line}
     assert "seed" in names
     assert ("first" in names) is after_first
     assert not {"operand_local", "x"} & names
-    assert "[repl_no_result]" in repl.stderr
+    assert repl.stderr.count("[repl_no_result]") == 2
+    assert "[repl_no_result_file]" in repl.stderr
+    assert "[repl_type_unavailable]" in repl.stderr
+    assert "type: Int\nbasis: observed runtime kind" in repl.stdout
     assert _hashes(run_root) == snapshot
     assert ([event["label"] for event in _events(control)] == (["one"] if after_first else []))
 

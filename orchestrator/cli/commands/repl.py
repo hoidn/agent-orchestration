@@ -55,6 +55,7 @@ from orchestrator.workflow_lisp.dynamic.repl_expr import (
     NativeLoadedModule, evaluate_repl_expression as evaluate_native_expression,
     printable_value, runtime_kind,
 )
+from orchestrator.workflow_lisp.dynamic import repl_inspect as native_inspect
 from orchestrator.workflow_lisp.closed.target import entry_target_dsl_version
 
 
@@ -364,16 +365,18 @@ def _dispatch(session: ReplSession, line: str) -> bool:
     if command in {":browse", ":info", ":source", ":type"}:
         if session.module is None:
             raise ReplRefusal("repl_module_required", "load a workflow before module inspection")
-        if isinstance(session.module, NativeLoadedModule):
-            raise ReplRefusal("repl_profile_unsupported", "native module inspection is unavailable")
+        native = isinstance(session.module, NativeLoadedModule)
         if command == ":browse":
             if remainder:
                 raise ReplRefusal("repl_command_invalid", ":browse takes no arguments")
-            print(browse_module(session.module))
+            print((native_inspect.browse_module if native else browse_module)(session.module))
         elif command == ":type":
-            typed, _, _ = typecheck_repl_expression(remainder, session.module, session.captured)
-            print(f"type: {render_type_ref(typed.type_ref)}")
-            print(f"effects: {render_effect_set(typed.effect_summary.transitive_effects)}")
+            if native:
+                print(native_inspect.type_query(remainder, session.module, session.captured))
+            else:
+                typed, _, _ = typecheck_repl_expression(remainder, session.module, session.captured)
+                print(f"type: {render_type_ref(typed.type_ref)}")
+                print(f"effects: {render_effect_set(typed.effect_summary.transitive_effects)}")
         else:
             try:
                 parsed = read_sexpr_text(remainder, source_path="<repl-command>")
@@ -381,7 +384,10 @@ def _dispatch(session: ReplSession, line: str) -> bool:
                 raise ReplRefusal("repl_command_invalid", f"{command} requires exactly one symbol") from None
             if len(parsed.items) != 1 or not isinstance(parsed.items[0], SymbolAtom):
                 raise ReplRefusal("repl_command_invalid", f"{command} requires exactly one symbol")
-            inspect = inspect_name if command == ":info" else source_name
+            if native:
+                inspect = native_inspect.inspect_name if command == ":info" else native_inspect.source_name
+            else:
+                inspect = inspect_name if command == ":info" else source_name
             print(inspect(session.module, parsed.items[0].value))
         return True
     words = shlex.split(remainder)

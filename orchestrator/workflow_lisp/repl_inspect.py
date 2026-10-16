@@ -220,11 +220,17 @@ def _source_text(module, row):
     if form is None:
         raise ValueError("exact authored declaration unavailable")
     source = _context(module).linked_module_graph.modules_by_name[row.module_name]
+    return checked_source_text(
+        form, source.path, module.source_snapshots.get(source.path),
+        dict(module.source_revisions).get(source.path), _HEADS[row.kind], row.declared_name,
+    )
+
+
+def checked_source_text(form, path, payload, revision, head, declared_name, *, name_atom=None):
+    """Slice an exact declaration only from its revision-checked retained bytes."""
     span = form.span
-    if span.start.path != str(source.path) or span.end.path != str(source.path):
+    if span.start.path != str(path) or span.end.path != str(path):
         raise ValueError("source path identity mismatch")
-    payload = module.source_snapshots.get(source.path)
-    revision = dict(module.source_revisions).get(source.path)
     if payload is None or revision is None:
         raise ValueError("snapshot unavailable")
     if f"sha256:{hashlib.sha256(payload).hexdigest()}" != revision:
@@ -232,14 +238,16 @@ def _source_text(module, row):
     text = payload.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
     if not 0 <= span.start.offset < span.end.offset <= len(text):
         raise ValueError("invalid source span")
-    if span != syntax_node_datum(form).span:
+    datum = syntax_node_datum(form)
+    if span != datum.span:
         raise ValueError("declaration span identity mismatch")
-    for atom, expected in zip(syntax_node_datum(form).items[:2], (_HEADS[row.kind], row.declared_name)):
-        if atom.span.start.path != str(source.path) or atom.span.end.path != str(source.path):
+    name_atom = datum.items[1] if name_atom is None else name_atom
+    for atom, expected in ((datum.items[0], head), (name_atom, declared_name)):
+        if atom.span.start.path != str(path) or atom.span.end.path != str(path):
             raise ValueError("declaration identity path mismatch")
         if not span.start.offset <= atom.span.start.offset < atom.span.end.offset <= span.end.offset:
             raise ValueError("declaration identity outside source span")
-        if text[atom.span.start.offset:atom.span.end.offset] != expected:
+        if syntax_resolved_name(atom) != expected or text[atom.span.start.offset:atom.span.end.offset] != expected:
             raise ValueError("snapshot declaration identity mismatch")
     if text[span.start.offset] != "(" or text[span.end.offset - 1] != ")":
         raise ValueError("source does not contain a complete declaration")
