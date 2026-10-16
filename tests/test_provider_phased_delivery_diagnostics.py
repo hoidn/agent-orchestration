@@ -27,6 +27,7 @@ _EXPECTED_CODE_REASON_PAIRS = {
         "attempts_pairing_invalid",
         "fragment_application_required",
         "contract_suffix_required",
+        "target_below_2_39",
     ),
     "provider_phased_interactive_capability_missing": (
         "interactive_capability_absent",
@@ -162,6 +163,7 @@ _EXPECTED_STATIC_ROWS = (
         "S_FRAGMENT",
     ),
     ("contract_suffix_required", "P_FRAGMENT_NULL", "S_RESULT"),
+    ("target_below_2_39", "P_SCHEMA_EXACT", "S_DELIVERY"),
     ("interactive_capability_absent", "P_ABSENT", "S_TEMPLATE"),
     (
         "interactive_capability_schema_unsupported",
@@ -428,7 +430,7 @@ def test_diagnostic_registry_is_total_unique_and_bijective() -> None:
         for reason in legal_reasons
     }
 
-    assert len(reasons) == 83
+    assert len(reasons) == 84
     assert len(reasons) == len(set(reasons))
     assert set(DIAGNOSTIC_CODE_REASON_PAIRS) == set(
         _EXPECTED_CODE_REASON_PAIRS
@@ -458,7 +460,7 @@ def test_owner_deferred_isolation_row_is_the_exact_registry_subtraction() -> Non
 
     assert "isolation_required_unsupported" not in reasons
     assert "provider_phased_isolation_unsupported" not in codes
-    assert len(STATIC_DIAGNOSTIC_REGISTRY) == 47
+    assert len(STATIC_DIAGNOSTIC_REGISTRY) == 48
     assert len(DEADLINE_OPERATION_REGISTRY) == 18
 
 
@@ -616,12 +618,22 @@ def test_diagnostic_projection_enforces_exact_value_and_static_source_profiles()
         ).reason
         == "target_below_2_23"
     )
+    assert (
+        _diagnostic(
+            "target_below_2_39",
+            "2.38",
+            delivery,
+            (application,),
+        ).reason
+        == "target_below_2_39"
+    )
 
     invalid_values = (
         ("interactive_capability_absent", "arbitrary"),
         ("turn_boundary_messages_not_true", True),
         ("materialization_attempts_exhausted", 99),
         ("target_below_2_23", "not a target"),
+        ("target_below_2_39", "2.39x"),
         ("output_validation_failed", "not_a_q2_violation"),
     )
     sources = {
@@ -656,6 +668,7 @@ def test_diagnostic_projection_enforces_exact_value_and_static_source_profiles()
             ),
         ),
         "target_below_2_23": (delivery, (application,)),
+        "target_below_2_39": (delivery, (application,)),
         "output_validation_failed": (
             _source(
                 kind="runtime_attempt",
@@ -699,6 +712,8 @@ def test_diagnostic_projection_enforces_exact_value_and_static_source_profiles()
         )
     with pytest.raises(ValueError):
         _diagnostic("target_below_2_23", "2.22", delivery, ())
+    with pytest.raises(ValueError):
+        _diagnostic("target_below_2_39", "2.38", delivery, ())
 
 
 def test_carriage_profile_enforces_primary_boundary_and_validated_prefix() -> None:

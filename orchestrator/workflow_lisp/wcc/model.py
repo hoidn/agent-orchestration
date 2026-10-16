@@ -1057,7 +1057,7 @@ def map_perform_payload_values(perform_kind, payload, transform, *, include_tran
     if perform_kind not in {"provider_result", "agent_turn"}:
         return payload
     result = dict(payload)
-    for name in ("model", "effort", "timeout_sec", "delivery"):
+    for name in ("model", "effort", "timeout_sec", "delivery", "materialization_attempts"):
         if payload.get(name) is not None:
             result[name] = transform(payload[name])
     application = payload.get("prompt_application")

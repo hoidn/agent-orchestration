@@ -82,7 +82,7 @@ from orchestrator.contracts.closed_program.program import (
 )
 from .program import canonical_configuration, logical_asset_base_for_module
 from orchestrator.contracts.closed_program.sites import assign_sites
-from .agent_effects import refuse_parallel_agents
+from .agent_effects import refuse_parallel_effects
 from orchestrator.contracts.closed_program.check import validate
 
 
@@ -1727,12 +1727,6 @@ class Builder:
                     return self.gap(
                         "provider-result",
                         "provider context capture is outside the closed provider surface",
-                        node,
-                    )
-                if node.materialization_attempts is not None:
-                    return self.gap(
-                        "provider-result",
-                        "provider materialization attempts are outside the closed provider surface",
                         node,
                     )
             if isinstance(node, LetProcExpr):
@@ -4593,7 +4587,7 @@ def _build_with_builder(typed: Any, builder: Builder) -> ClosedProgram:
     }
     if command_params is not None:
         tree["command_params"] = command_params
-    refuse_parallel_agents(tree)
+    refuse_parallel_effects(tree)
     tree["sites"] = [list(row) for row in assign_sites(tree)]
     builder.finalize_run_refs(tree)
     validate(tree)

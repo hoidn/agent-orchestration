@@ -14,7 +14,7 @@ from orchestrator.workflow_lisp.command_boundaries import (
 )
 from orchestrator.workflow_lisp.contracts import derive_prompt_guided_structured_result_contract
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
-from orchestrator.workflow_lisp.wcc.model import WccPerform
+from orchestrator.workflow_lisp.wcc.model import WccLiteralAtom, WccPerform
 
 
 def _result_contract(
@@ -137,7 +137,14 @@ def require_closed_perform(builder: Any, perform: WccPerform) -> None:
             raise builder.gap("provider-result", "provider session artifacts are outside the closed provider surface", perform)
         if payload.get("context_expr") is not None or payload.get("capture_context") is not None:
             raise builder.gap("provider-result", "provider context capture is outside the closed provider surface", perform)
-        if payload.get("materialization_attempts") is not None:
+        phased = (
+            isinstance(payload.get("delivery"), WccLiteralAtom)
+            and payload["delivery"].literal_kind == "string"
+            and payload["delivery"].value == "phased"
+        )
+        if payload.get("materialization_attempts") is not None and (
+            perform.perform_kind != "provider_result" or not phased
+        ):
             raise builder.gap("provider-result", "provider materialization attempts are outside the closed provider surface", perform)
 
 
@@ -270,6 +277,17 @@ def _translate_provider_result(
     payload = perform.operation_payload
     if not isinstance(payload, Mapping):
         raise ValueError("provider_result WCC payload is missing")
+    phased = (
+        isinstance(payload.get("delivery"), WccLiteralAtom)
+        and payload["delivery"].literal_kind == "string"
+        and payload["delivery"].value == "phased"
+    )
+    if phased and getattr(d.type_env, "target_dsl_version", None) != "2.39":
+        raise builder.gap(
+            "provider-result",
+            "phased provider delivery requires its defining source to target DSL 2.39",
+            perform,
+        )
     owner_config = builder.configuration_for(d.source_program, d.owner)
     provider_row = owner_config["providers"].get(perform.target_name)
     if not isinstance(provider_row, Mapping) or not isinstance(provider_row.get("provider_id"), str):
@@ -277,7 +295,7 @@ def _translate_provider_result(
     core, source_subjects = _provider_effect_core(builder, perform, d, env, perform.positional_args)
     effect = {
         "k": "perform",
-        "class": "provider",
+        "class": "provider_phased" if phased else "provider",
         "result": builder.desc(perform.metadata.type_ref, d),
         "repeat": "rerun",
         "provider": provider_row["provider_id"],
@@ -352,9 +370,10 @@ def _provider_effect_core(builder, perform, d, env, inputs):
     delivery = payload.get("delivery")
     if delivery is not None:
         delivery_value = builder.value(delivery, d, env)
-        if delivery_value.get("v") == "phased":
-            raise builder.gap("provider-result", "phased provider delivery is outside the closed provider surface", perform)
         policy["delivery"] = delivery_value
+    attempts = payload.get("materialization_attempts")
+    if attempts is not None:
+        policy["materialization_attempts"] = builder.value(attempts, d, env)
 
     contract, source_subjects = _result_contract(builder, perform, d)
     core = {"prompt": prompt_payload, "inputs": input_rows, "dependencies": dependencies,

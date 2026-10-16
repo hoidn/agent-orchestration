@@ -35,7 +35,7 @@ def _effect_children(node):
         return [*node["argv"], *slots, *(row[1] for row in node.get("document", []))]
     if node["class"] == "run_ref":
         return [row[1] for row in node["inputs"]]
-    if node["class"] == "provider":
+    if node["class"] in {"provider", "provider_phased"}:
         return _provider_children(node)
     if node["class"] in {"agent", "agent_turn"}:
         return _effect_value_children(node)

@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.39")
   (defmodule phased_contract_delivery)
   (export phased-review)
 

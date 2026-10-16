@@ -61,7 +61,7 @@ class ConfinedRunRefUnavailable(ValueError):
 
 def _performs_provider(value: object) -> bool:
     if isinstance(value, Mapping):
-        if value.get("k") == "perform" and value.get("class") == "provider":
+        if value.get("k") == "perform" and value.get("class") in {"provider", "provider_phased"}:
             return True
         return any(_performs_provider(item) for item in value.values())
     if isinstance(value, list):
