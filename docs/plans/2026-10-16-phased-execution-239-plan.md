@@ -209,6 +209,14 @@ evidence, not production acceptance; the implementation checks below remain open
   only after freeze and natural exit.
   Keep phase ledger, stdout and pane output audit-only. A torn optional ledger
   cannot authorize a result or block otherwise proven cleanup.
+- [ ] Implement the selected [endpoint ownership protocol](../design/workflow_lisp_phased_contract_delivery.md#submit-endpoint-ownership-and-recovery)
+  in the existing endpoint: durable controller identity before bind, observed
+  socket identity before listener/workers and `closed` only after zero survivors.
+  Test pre/post-bind interruption, dead versus live/ambiguous controller identity,
+  replaced namespace/lease/socket, absent/torn record and incomplete join.
+  Recovery admission is read-only; provider cleanup precedes endpoint cleanup,
+  then candidate cleanup. The run lock or failed connection alone proves no
+  endpoint-worker death. Keep the transport receipt schema unchanged.
 - [ ] Test explicit capability absence/malformed data before launch, model/effort
   translation, total deadline across operations, exhausted materializations,
   candidate mutation after submission, receipt/proof mismatch and result digest

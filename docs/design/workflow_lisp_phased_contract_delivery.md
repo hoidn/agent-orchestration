@@ -366,6 +366,68 @@ No global server enumeration, broad process killing, pidfd/ctypes dependency,
 general supervisor or unvalidated `InteractiveMemberHandle` reconstruction is
 selected.
 
+#### Submit Endpoint Ownership And Recovery
+
+The existing `PhasedSubmitEndpoint` owns its listener, workers and fixed
+`submit.json` operational record inside the adapter reservation namespace.
+It remains a controller-thread service. Evaluated bindings supply the validated
+reservation and sequence recovery; they do not implement another endpoint.
+Derive the existing `phased-{nonce}.sock` locator with the full adapter token
+as nonce and the reserved namespace as socket root. Trusted runtime code selects
+the short transport root, never receipt data or authored configuration. Validate
+both encoded socket-path lengths before reservation; the submit path is 91 bytes
+under `/tmp`. Binding derivation remains inert, and candidate preflight failure
+creates no endpoint record or socket.
+
+`submit.json` has exactly `schema_version`, `adapter_token`, `boot_id`,
+`controller_pid`, `controller_start_ticks`, `state`, `socket_dev`, `socket_ino`.
+The schema is `phased_submit_endpoint.v1`; token and boot ID match the reservation.
+PID and start ticks are positive non-Boolean integers identifying the controller
+incarnation. State `binding` requires both socket fields null; `bound` requires
+the observed integer device/inode pair; `closed` preserves the preceding pair.
+Reject extra fields, invalid domains and mixed-null pairs. Use pinned no-follow
+namespace access, mode `0600`, atomic replacement and file/directory fsync.
+
+After provider start, prove the fixed child absent and durably write `binding`
+before bind. Bind through the pinned namespace, retain the observed inode
+immediately, then durably write `bound` before listening or starting workers.
+Record-publication failure does not discard the in-memory observation. Live
+shutdown closes admission and listener, drains requests and joins all workers.
+Unlink only the observed socket through the pinned namespace after checking
+type, UID and device/inode; replacement refuses cleanup. Write `closed` only
+after the existing zero-survivor proof includes path absence. Incomplete joins
+never write `closed`, even if the pathname is already absent.
+
+Recovery requires the run writer lock, but that lock alone does not prove that
+endpoint workers died: incomplete shutdown can precede lock release. Before
+any adapter cleanup, revocation, signalling, unlink or candidate mutation,
+validate the receipt, reservation, endpoint record and fixed child read-only.
+Missing record proves no endpoint dispatch only when the child is also absent.
+A child without a record, malformed/torn record, foreign binding, replaced
+namespace/lease, non-socket child or wrong UID refuses without mutation.
+`closed` requires path absence; an unexpected child is preserved and refused.
+
+For `binding` or `bound`, an exact retained local endpoint may complete ordinary
+shutdown and publish `closed` using its zero-survivor proof. Without that handle,
+require the recorded controller incarnation to be dead: confirmed absence or a
+positively different process-start token proves this; matching or unreadable
+identity refuses. Reuse the existing boot/process identity helpers and never
+signal the controller. Connection failure, pathname absence and lock availability
+alone prove no worker death.
+
+After this admission and endpoint quiescence/death proof, complete adapter
+recovery first. Then reacquire the validated namespace operation lease for
+endpoint cleanup. A present `bound` child must match the recorded inode. For
+`binding`, death may have occurred after bind but before observation became
+durable: the unchanged exclusive namespace, exact fixed child, socket type/UID
+and dead-controller proof authorize removal of that child. Observe and retain
+its inode during cleanup. Revalidate immediately before descriptor-rooted unlink,
+prove absence and durably write `closed`. Recorded or observed identity changes
+always refuse; exclusive namespace ownership does not defeat arbitrary same-UID
+mutation. Only after provider and endpoint cleanup may bindings clear owned
+candidates, write `abandoned` and admit a fresh ordinal. Reuse no old endpoint,
+binding or submission state, and add no field to the transport receipt.
+
 On explicit resume, normal source/input/memo guards classify the exact latest
 uncommitted phased attempt, including a pending start or a failed attempt that
 is being retried. If its memo committed, K3 settles without transport. Otherwise:
