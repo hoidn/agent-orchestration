@@ -180,11 +180,17 @@ these exact fields:
 | --- | --- |
 | `schema_version` | The exact schema above |
 | `identity`, `attempt`, `input_digest` | Exact enclosing evaluated commit identity, positive ordinal and input digest |
-| `result_path`, `result_digest` | Exact enclosing run-relative result locator and ordinary evaluated canonical typed-value digest; the candidate manifest separately hashes raw bundle bytes |
+| `result_path`, `result_digest` | Exact enclosing run-relative result locator and phased coordinator's canonical typed-value digest; the candidate manifest separately hashes raw bundle bytes |
 | `candidate_manifest` | Ordered frozen `provider_phased_candidate_digest_manifest.v1`, including the same structured result and all declared expected outputs |
 | `canonical_prompt_sha256` | Digest of `C`, equal to the reached request input part |
 | `actual_deliveries_sha256` | Seal of ordered successful task/initial/retry turn projections, using existing canonical projection hashing |
 | `natural_shutdown` | Exact content-free natural zero-exit proof: disposition, zero return code, pane/server absence and complete proof |
+
+For `provider_phased`, compute `result_digest` from the validated value with
+`canonical_sha256(value.json_value())`, as the `run_ref` coordinator does.
+The ordinary provider/command result-file digest contract remains unchanged;
+do not copy the raw-byte digest returned by `validate_effect_result` into the
+phased commit proof.
 
 The memo reducer validates closed shape and scalar domains; contextual replay
 binds all identities, paths, input parts, candidate declarations and result
