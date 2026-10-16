@@ -13,8 +13,13 @@ Retired workflow profiles refuse before locks, source loading or mutation,
 regardless of recorded source suffix, terminality or restart/repair flags;
 there is no historical resume fallback. `report` and dashboard remain state-only
 observability for historical runs, without parsing authored YAML or compiling
-source to reconstruct semantics. Registered older headers remain useful for
-typed imports and LSP analysis, not old entry execution.
+source to reconstruct semantics. Source compilation, transitive imports, retained
+typed-program capsules, REPL loading and LSP analysis admit only registered
+targets 2.35–2.39 throughout the dependency graph. Older headers are rejected;
+historical data readers do not reopen source admission. Direct syntax/import
+analysis uses `target_dsl_unsupported`; public CLI old-entry preflight keeps
+`workflow_execution_target_retired` precedence under
+[CLI admission](cli.md#executable-support-boundary).
 
 The schema below defines typed Core contracts and shared validation/services;
 old-only control/effect execution details are historical. A definition here
@@ -22,7 +27,7 @@ does not widen evaluated admission or select a port of an excluded effect.
 YAML-fenced snippets are structural notation, not authored workflow files.
 
 - Top-level workflow keys
-  - `version`: string (registered revisions include bounded `"2.37"` and registered bounded `"2.38"` (command-only confined run-ref and agent sessions; see [qualification](versioning.md#version-gating-summary)); targets 2.35/2.36, bounded 2.37 and registered bounded 2.38 select evaluated execution: public `compile`, `run`, `resume` and `invalidate` operate on the checked closed program with a memo-backed run (see `versioning.md`, v2.35 additions and v2.36 additions, for admission and availability). Target 2.36 adds W3 local hooks and graph-selected `std/improve`. Target 2.34 adds decimal literals in expressions, numeric operators, and refusal of non-finite `Float` values at run boundaries (see `versioning.md`, v2.34 additions); composition-package delivery status is recorded in the [implementation plan](../docs/plans/2026-09-22-value-and-continuation-composition-implementation-plan.md)). Strict gating: unknown fields at a given version -> validation error (exit 2).
+  - `version`: string. Current source admission is exactly `"2.35"`, `"2.36"`, `"2.37"`, `"2.38"`, and `"2.39"`, including every imported module and retained typed-program capsule. These targets select evaluated execution: public `compile`, `run`, `resume` and `invalidate` use the checked closed program and memo-backed run. Target 2.36 adds W3 local hooks and graph-selected `std/improve`; bounded 2.37 parallelism and 2.38 command-only confined run-ref/Agent Sessions retain their qualification limits. Target 2.39 adds inference-default procedure contracts and finite source admission; imported 2.35–2.38 definitions retain their defining contracts. See [versioning](versioning.md#version-gating-summary) for availability and historical feature-introduction gates. Strict gating: unknown fields at a given version -> validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -553,7 +558,8 @@ YAML-fenced snippets are structural notation, not authored workflow files.
   - `for_each` is a block form and cannot be combined with `provider`/`command`/`wait_for`/`assert` on the same step.
   - `goto` targets must reference an existing step name or `_end`. Unknown targets are a validation error (exit code 2) reported at workflow load time.
   - Deprecated `command_override` is not supported and must be rejected by the frontend/shared validator.
-  - Version gating:
+  - Historical feature-introduction gates (these do not override the current
+    2.35–2.39 source/import/tooling boundary or admit retired effects):
     - `depends_on.inject` requires `version: "1.1.1"` or higher.
     - `artifacts`, `publishes`, `consumes`, `inject_consumes`, `consumes_injection_position`, and `prompt_consumes` require `version: "1.2"` or higher.
     - `output_bundle` and `consume_bundle` require `version: "1.3"` or higher.
@@ -565,8 +571,9 @@ YAML-fenced snippets are structural notation, not authored workflow files.
     - `adjudicated_provider` requires `version: "2.11"` or higher.
     - `managed_jobs` requires `version: "2.13"` or higher.
     - `materialize_artifacts`, `pre_snapshot`, `variant_output`, `select_variant_output`, and `requires_variant` require `version: "2.14"` or higher.
-    - `type: value` and `kind: value` require `version: "2.19"` or higher and
-      fail earlier loads with `value_contract_requires_dsl_2_19`.
+    - `type: value` and `kind: value` were introduced at `version: "2.19"`;
+      direct syntax/import analysis rejects pre-2.35 source/imports with
+      `target_dsl_unsupported`, subject to public CLI preflight precedence.
   - authored step `id` plus scoped `self`/`parent` refs require `version: "2.0"` or higher.
   - top-level `inputs`, `outputs`, and `inputs.*` typed refs require `version: "2.1"` or higher.
   - structured `if` / `then` / `else` require `version: "2.2"` or higher.
@@ -648,10 +655,12 @@ YAML-fenced snippets are structural notation, not authored workflow files.
       `compiler_prompt_fragment_contract.v2`. The latter's ordered
       `output_positions[*].expected_output` objects are pair-validated against
       the exact provider `expected_outputs` rows before provider preparation.
-    - Targets below 2.21 reject the `:out` token with
-      `prompt_output_positions_require_dsl_2_21`. A prompt application without
-      `:out` retains the exact target-2.20 v1 identity, carrier, diagnostics,
-      and behavior even when compiled at target 2.21.
+    - Q2 was introduced at target 2.21; the original feature-specific gate is
+      retired. Direct syntax/import analysis rejects pre-2.35 source and imports
+      with `target_dsl_unsupported`, subject to public CLI preflight precedence.
+      At introduction, applications without `:out` retained the target-2.20 v1
+      identity and carrier. Historical payload readers preserve that distinction
+      without admitting old source or old-profile resume.
 
   - Workflow Lisp prompt-attempt identity and diagnostics (target 2.22):
     - Every direct fragment-backed `provider-result` carries the exact pair

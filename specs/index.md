@@ -1,8 +1,19 @@
-# Multi-Agent Orchestration — Master Spec (v1.1 through bounded v2.38)
+# Multi-Agent Orchestration — Master Spec (current targets 2.35–2.39)
 
 Status: Normative master. This index defines scope, versioning, conformance, and the module map with stable links to sub-specs. The DSL version and the state schema version are distinct by design.
 
-- Versioning
+Current admission: source compilation, transitive source imports, retained
+typed-program capsules, REPL loading and LSP analysis accept only registered
+targets 2.35–2.39 throughout the dependency graph. All use evaluated execution;
+individual effects retain their own admission and qualification gates.
+Pre-2.35 source and old-profile resume/invalidation are retired. Historical
+report/dashboard data access does not compile old source. See
+[versioning](versioning.md#executable-support-and-historical-version-gates) and
+[CLI admission](cli.md#executable-support-boundary).
+
+- Version history and current target extensions
+  - The entries below record feature introductions. A historical introduction
+    does not admit its original source target or restore retired effects.
   - DSL: v1.1 baseline; v1.1.1 adds dependency injection; v1.2 adds artifact publish/consume dataflow contracts; v1.3 adds bundled deterministic I/O; v1.4 makes relpath consume preflight pointer-safe (read-only); v1.5-v1.8 add gates, typed predicates, scalar bookkeeping, and cycle guards; v2.0 adds scoped refs and stable internal step identities; v2.1 adds typed workflow signatures; v2.2 adds structured `if/else`; v2.3 adds structured `finally`; v2.5 adds reusable `imports` + inline `call`; v2.6-v2.12 add structured `match`, post-test `repeat_until`, score-aware gates, advisory linting, provider-session resume, adjudicated provider steps, and repeat-until exhaustion outputs; v2.13 adds managed provider jobs; v2.14 adds materialization, snapshot, variant-output, atomic variant-selection, and variant-proof surfaces; v2.15 adds native direct-root returns and typed result guidance; v2.16 adds bounded Workflow Lisp provider supervision; v2.17 adds static Workflow Lisp provider peer groups with recorded turn-boundary messaging; v2.18 adds bounded Workflow Lisp list traversal, mapping, list loop state, and rooted path joining; v2.19 adds exact transportable `Value`; v2.20 adds Workflow Lisp prompt fragments; v2.21 adds prompt output positions; v2.22 adds direct-fragment prompt-attempt identity and diagnostics; v2.23 adds explicit phased contract delivery; v2.24 adds pinned child execution through `run-ref`; v2.25 adds bounded static trials over `run-ref`; v2.26 adds strict Boolean control flow (`if`/`cond`); v2.27 adds opt-in fresh provider session-artifact publication; v2.28 admits whole closed unions in ordinary typed provider inputs and prompt value fills.
   - DSL v2.29 additionally admits already-transportable record/union lists as
     whole loop state and complete state-derived exhaustion results, including
@@ -10,8 +21,8 @@ Status: Normative master. This index defines scope, versioning, conformance, and
     [frontend loop contract](../docs/design/workflow_lisp_frontend_specification.md#131-bounded-loop).
   - DSL v2.30 admits resolved-inline pure-call composition and ordered schema-3
     lexical bindings, preserving selected-hook scope and eager exactly-once
-    arguments. Private/effectful/unrepresentable calls remain excluded; older
-    targets keep their existing pipeline. See the
+    arguments. Private/effectful/unrepresentable calls remain outside that resolved-inline
+    pure subset; the pre-2.30 pipeline is historical. See the
     [frontend contract](../docs/design/workflow_lisp_frontend_specification.md#86-defun).
   - DSL v2.31 admits ordinary portable provider-context values, opt-in capture
     and fresh quoted-history binding. Supported Codex event coverage and atomic
@@ -31,7 +42,8 @@ Status: Normative master. This index defines scope, versioning, conformance, and
     corrections that apply to every target.
   - DSL v2.34 implements decimal literals, numeric operators and finite-value
     checks at boundaries. W3 repetition reduction has its own
-    target-2.36 contract; W1/W2/W4 remain unselected. See
+    target-2.36 contract; W2 optional effects are delivered by EL-1 at 2.39.
+    W1/W4 and further write-once trials remain unselected with their existing gates. See
     [versioning](versioning.md) for target admission and the scoped surface.
   - DSL v2.35 is the evaluated-execution target: public `compile`, `run`,
     `resume` and `invalidate` operate on a checked closed program with a
@@ -61,8 +73,12 @@ Status: Normative master. This index defines scope, versioning, conformance, and
     See the [Agent authoring guide](../docs/lisp_workflow_drafting_guide.md#agent-sessions-target-238)
     and [PQ-1a evidence](../docs/reports/2026-10-14-agent-sessions-pq1a-qualification.md).
     The real-provider acceptance comparison (PQ-1c) has not run and requires separate owner authorization.
-  - State schema: `schema_version: "2.1"` for targets through 2.34; an
-    admitted evaluated run at 2.35/2.36 or bounded 2.37/2.38 publishes `"3.0"`
+  - Target 2.39 adds inference-default procedure contracts, optional checked
+    restrictions, caller-owned composition and finite source admission.
+    Imported 2.35–2.38 definitions retain their original contracts; see the
+    [procedure contract](../docs/design/workflow_lisp_effect_ledger_simplification.md).
+  - State schema: historical runs through 2.34 used `schema_version: "2.1"`;
+    admitted evaluated runs at 2.35–2.39 publish `"3.0"`
     (see [state](state.md)).
 
   - Validation is strict: unknown fields are rejected at the declared DSL `version`.
@@ -116,23 +132,19 @@ Status: Normative master. This index defines scope, versioning, conformance, and
 
 ## Executive Summary
 
-Versioning note: This specification defines the v1.1 baseline and includes later gates, typed predicates, bookkeeping, cycle guards, the v2.0 scoped-ref / stable-ID tranche, the v2.1 workflow-signature tranche, the v2.2-v2.3 structured-control/finalization tranches, the v2.5 reusable-call tranche, the v2.6-v2.8 `match` / `repeat_until` / score-gate tranches, the v2.9 advisory linting tranche, the v2.10 provider-session tranche, the v2.11 adjudicated-provider tranche, the v2.12 repeat-until exhaustion-output tranche, the v2.13 managed-provider-jobs tranche, the v2.14 materialization / snapshot / variant-output tranche, the v2.15 native-return/guidance tranche, the v2.16 provider-supervision tranche, the v2.17 provider-peer-group tranche, the v2.18 bounded-list-traversal tranche, the v2.19 exact-`Value` tranche, the v2.20 prompt-fragment tranche, the v2.21 prompt-output-position tranche, the v2.22 prompt-attempt-identity tranche, the v2.23 phased-contract-delivery tranche, the v2.24 pinned-child-execution tranche, the v2.25 bounded-static-trial tranche, the v2.26 strict-Boolean-control-flow tranche, the v2.27 fresh-session-artifact tranche, the v2.28 whole-union prompt-input tranche, the v2.29 rich-loop-value tranche, the v2.30 resolved-inline pure-call tranche, the v2.31 portable-context tranche, the v2.32 durable host-input tranche, the v2.33 first-order generic-union tranche, the v2.34 numeric-surface tranche, the v2.35 evaluated-execution tranche, the v2.36 W3 tranche, bounded v2.37 parallel map, and bounded v2.38 Agent Sessions and command-only confined run-ref children
-([command recipe](../docs/lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only); public confined providers remain closed). The state schema remains `schema_version: "2.1"` for targets through 2.34; an admitted evaluated run at 2.35/2.36 or bounded 2.37/2.38 publishes schema `"3.0"` derived views from its memo. Workflows written against older DSL versions remain valid, but post-v2.1 runtimes reject resume from pre-v2.1 state unless an explicit upgrader is introduced. The workflow DSL `version:` and the state `schema_version` follow separate version tracks by design. DSL validation is strict: unknown fields are rejected. Workflows that use `depends_on.inject` MUST set `version: "1.1.1"` (or higher), workflows that use dataflow contracts MUST set `version: "1.2"` (or higher), workflows that use bundle contracts MUST set `version: "1.3"` (or higher), workflows that use provider sessions MUST set `version: "2.10"` (or higher), workflows that use adjudicated provider steps MUST set `version: "2.11"` (or higher), workflows that use `repeat_until.on_exhausted` MUST set `version: "2.12"` (or higher), workflows that use `managed_jobs` MUST set `version: "2.13"` (or higher), workflows that use `materialize_artifacts`, `pre_snapshot`, `variant_output`, `select_variant_output`, or `requires_variant` MUST set `version: "2.14"` (or higher), Workflow Lisp native direct-root returns or typed guidance MUST target `2.15` (or higher), `with-live-providers` MUST target `2.16` (or higher), `with-live-provider-peers` MUST target `2.17` (or higher), bounded list constructors/operators/maps, eligible `List[T]` loop state, or `path/join-under` MUST target `2.18` (or higher), `defprompt` MUST target `2.20` (or higher), a prompt output position MUST target `2.21` (or higher), direct-fragment prompt-attempt identity evidence requires target `2.22`, explicit phased contract delivery requires target `2.23`, `run-ref` requires target `2.24`, `trial` requires target `2.25`, strict Boolean `if`/`cond` control flow requires target `2.26`, provider `:session-artifact` publication requires target `2.27`, whole-union prompt consumption requires target `2.28`, rich loop values require target `2.29`, resolved-inline pure-call composition requires target `2.30`, portable provider context requires target `2.31`, durable host input requires target `2.32`, first-order generic unions require target `2.33`, decimal literals and numeric operators require target `2.34`, and evaluated execution, explicit command closures and external-tool `:inputs` documents require target `2.35` (see `dsl.md` and `versioning.md`).
+The runtime evaluates a checked closed program compiled from admitted `.orc`
+source. An append-only effect memo owns execution and resume; `state.json`
+is a schema-3.0 derived view. Workflow DSL targets and persisted state schemas
+are separate version tracks. Unknown fields and unsupported targets reject;
+[versioning](versioning.md) records current admission and historical feature
+gates without restoring retired execution or source compatibility.
 
-This system executes validated workflow bundles compiled from fresh `.orc`
-source, including command and LLM-provider invocations. Most execution is
-deterministic and sequential; v2.16 adds one narrowly bounded two-provider
-supervision overlap, v2.17 adds one statically bounded two-through-eight
-provider peer-group overlap, and v2.25 adds one statically bounded concurrent
-set of E1 child-run trial cells. Each workflow-state/result boundary remains
-atomic. Agents may
-coordinate through filesystem queues (`inbox/`, `processed/`, `failed/`).
-Steps capture outputs as text, line arrays, JSON, or validated structured
-bundles with deterministic control flow and bounded loops. Keep authoring
-surfaces distinct: workflow-boundary `inputs`/`outputs`, runtime dependencies
-(`depends_on`, `consumes`), provider prompt sources (`input_file`,
-`asset_file`, `asset_depends_on`), and artifact storage or lineage
-(`artifacts`, `expected_outputs`, `output_bundle`, `publishes`).
+Commands and supported provider calls compose through typed values, calls,
+conditionals and bounded loops. Parallel mapping is a bounded target-2.37
+extension with separate qualification gates. Historical supervision, peer-group
+and trial nodes do not supply current concurrency. Public confined providers
+remain closed; bounded Agent Sessions and command-only confined children have
+their own [capability limits](../docs/capability_status_matrix.md).
 
 ## Out of Scope
 

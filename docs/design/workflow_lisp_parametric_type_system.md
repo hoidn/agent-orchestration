@@ -6,6 +6,11 @@ Status: current implemented parametric contract (consolidates and supersedes
 Kind: Workflow Lisp language design / implementation architecture
 Created: 2026-07-06
 
+Current source and typed-program imports, REPL loading and LSP analysis require
+target 2.35 or later under [versioning](../../specs/versioning.md). The 2.33
+and 2.34 boundaries below describe feature introduction and preserved evidence;
+they do not admit those source versions today.
+
 Related docs:
 
 - `docs/design/workflow_lisp_frontend_specification.md` (parent language contract)
@@ -307,8 +312,10 @@ not survive as Python-side validation for any migrated form.
   second constraint language.
 - **Exact-shape constraints**: trigger as described under Subset Semantics.
 - **Authored generic `defworkflow`**: deferred; private/generated workflows
-  remain lowering targets for specialized `defproc` bodies. Any future authored
-  surface is sugar over the same specialization substrate.
+  remain lowering targets for specialized `defproc` bodies originating at
+  2.35–2.38. Target-2.39 definitions compose inline; intentional workflow
+  boundaries require concrete transport contracts. Any future authored generic
+  workflow surface needs its own design over the specialization substrate.
 - **Pre-instantiation generic-body checking**: deferred follow-on diagnostics
   work; the tranche contract is instantiate-then-typecheck. Trigger for
   revisiting: generic stdlib definitions or call-site count grows enough that
@@ -500,13 +507,20 @@ concrete unions.
 
 ## Effects of Generic Definitions
 
-A generic definition's declared effects cover its **body's direct effects
-only**. Hook and callee effects belong to the concrete procedures and workflows
-resolved for the caller. The accepted model requires the compiler to retain the
-declaration's direct body effects, then authoritatively typecheck the
-monomorphic specialized body and recompute its **caller-visible transitive
-effect summary** after type-parameter and ProcRef resolution and before
-lowering.
+Internal direct and transitive summaries are distinct from authored contracts.
+The compiler retains a generic declaration’s direct body effects, then
+authoritatively typechecks the monomorphic specialized body and recomputes its
+**caller-visible transitive effect summary** after type-parameter and ProcRef
+resolution and before lowering.
+
+For definition origins 2.35–2.38, authored declarations retain their existing
+direct-body and specialization rules, including when imported by 2.39 callers.
+For origins at 2.39, [EL-1](workflow_lisp_effect_ledger_simplification.md) makes
+`:effects` an optional restriction on fully specialized transitive atom
+identities: omission infers without a restriction, empty requires no tracked
+effects, and a named clause requires the inferred set to be a subset. It does
+not restrict only the body’s direct effects. Procedure-call edges are not
+effect atoms in that restriction; workflow calls remain tracked dependencies.
 
 This semantic model is implemented by the resolved-effect substrate.
 `TypedProcedureDef.direct_effect_summary` retains body-local effect atoms plus
@@ -516,8 +530,10 @@ set after generic and ProcRef specialization and before lowering. Family
 migration remains separately gated by public identity, checkpoint, state,
 publication, and live-consumer compatibility evidence.
 
-Inline lowering remains required for procedure-first migrations and is useful
-structural evidence: the selected hooks' concrete provider, command,
+Caller-owned inline composition remains required for procedure-first migrations:
+authored `:lowering inline` for origins 2.35–2.38, implicit inline with no
+`:lowering` clause for origins at 2.39. It is useful structural evidence:
+the selected hooks’ concrete provider, command,
 transition, child-workflow, and other effects remain visible in the lowered
 artifact. Structural visibility is not a substitute for recomputing the
 summary. Any lowering route that copies a generic definition's pre-resolution

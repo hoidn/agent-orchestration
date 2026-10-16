@@ -36,7 +36,7 @@ Status: W3 is implemented at 2.36; qualification is recorded in the closeout. Ta
 old-artifact/resume/replay and migrated-source refusal have bounded
 compatibility03 acceptance for the final frozen package. The closeout owns final
 Task F qualification, original RED campaigns and retained causal dispositions.
-W0/W1/W2/W4 remain unselected and W5 deferred.
+W2 is delivered by EL-1 at 2.39; W0/W1/W4 remain unselected and W5 deferred.
 The bounded [Phase 4c execution plan](2026-10-07-evaluated-execution-phase-4c-w3-plan.md)
 owns W3 execution and evidence under the parent delivery sequence.
 
@@ -57,8 +57,8 @@ the Phase 6a pilot; Phase 4c delivers Tasks 11–14 after qualification
 and Task 6 target registration; Phase 6b owns broader consumer migration.
 Phase E below is the component's work breakdown for Phase 4c, not another
 top-level phase. Qualification preparation can overlap Phase 3; W3 does not
-gate that phase or require its new syntax in the pilot. W0/W1/W2/W4 remain
-independent. [Design §6](../design/workflow_lisp_write_once.md#6-w3-hooks-see-their-context)
+gate that phase or require its new syntax in the pilot. W0/W1/W4 remain
+independent; W2 now reuses delivered EL-1 at 2.39. [Design §6](../design/workflow_lisp_write_once.md#6-w3-hooks-see-their-context)
 owns the target contract and illustrative before/after; the
 [closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md)
 owns current bounded evidence and final gate status.
@@ -77,12 +77,12 @@ Decisions and remaining scope:
 
 | # | Decision | Recommendation |
 | --- | --- | --- |
-| 1 | Which of the rules W0 to W5 are accepted | W3 is selected, qualified by Task 4 independently of unselected W0/W1/W2/W4; W5 stays deferred |
-| 2 | The target for each selected language change | W3 uses target 2.36 on the evaluated route as Phase 4c. Other repetition rules retain their own unselected target decisions |
+| 1 | Which of the rules W0 to W5 are accepted | W3 is implemented and qualified by its closeout; W2 is delivered through EL-1 at 2.39; W0/W1/W4 stay unselected and W5 deferred |
+| 2 | The target for each selected language change | W3 uses target 2.36 on the evaluated route as Phase 4c; W2 uses delivered EL-1 at 2.39. W1/W4 retain unselected target decisions |
 | 3 | The module that owns declarations shared by a workflow family and unused by the standard library | One module per family under `workflows/library/`, named for the family |
 | 4 | The adoption bar for W3 | Preserve behavior while removing the context-only record/constructor, forwarding parameter and restated hook signatures. Review actual callers and edit locality; line counts are supporting evidence, not a percentage gate |
 | 5 | Where provider defaults are written | The provider externs file |
-| 6 | How the context-free `improve` signature replaces the current API | Select one builtin source API by graph entry target: old entries preserve the old module bytes/path; 2.36 graphs use the no-context variant and migrate old source calls. Preserve complete snapshot authority, conflict checks and old-target build/resume evidence; inventory indirect consumers too |
+| 6 | How the context-free `improve` signature replaces the current API | Select one builtin source API by graph entry target: admitted 2.35 entries use the five-argument variant; 2.36–2.39 use the four-argument variant and migrate old source calls. Both packaged variants have header 2.35; transitive source/capsule imports must meet that floor. Preserve complete snapshot authority, conflict checks and old-target build/resume evidence; inventory indirect consumers too |
 | 7 | Who implements Phase B | The runtime owner, because the change is in provider configuration and shared validation |
 
 Depends on: the
@@ -98,8 +98,10 @@ Delta family.
 
 ## Global Constraints
 
-- Older targets accept and lower exactly what they do at the commit each
-  phase starts from. Evidence is byte identity of every build artifact at one
+- Admitted baseline targets (2.35 and later) retain their defining-contract
+  semantics; pre-2.35 source and typed-capsule imports are rejected. Compare
+  admitted targets to the commit each phase starts from. Evidence is byte
+  identity of every build artifact at one
   fixed path with `PYTHONHASHSEED=0`, with the orchestrator package at one
   fixed path as well. Preserve truthful package/command-closure pins; report
   genuine pin changes separately from fixed-identity equality, as the evaluated
@@ -325,7 +327,8 @@ expected type), `typecheck_structural_values.py` (the empty `(list)`),
    `with-phase` body, as a `done` value, as an `:on-exhausted` value and as a
    `loop-state` field, where a declaration fixes the type. It is still
    rejected with `list_empty_type_context_required` as a `let*` binding.
-2. Write the controls at 2.33: each of those programs is rejected as today.
+2. Establish controls on an admitted baseline target (at least 2.35),
+   recording actual diagnostics rather than relying on retired 2.33 admission.
 3. Implement. A loop takes its expected type from its position and passes it
    to `done` and `:on-exhausted`.
 4. Compile the whole corpus at its own targets: artifacts remain identical.
@@ -357,7 +360,8 @@ expected type), `typecheck_structural_values.py` (the empty `(list)`),
    - a generic procedure whose body writes `(variant V …)`, imported and
      inlined in a module that does not import the union, compiles and runs;
    - `(record :key value)` inside a `trial` section behaves as today.
-2. Write the controls at 2.33: both forms are parse errors, as today.
+2. Establish controls on an admitted baseline target (at least 2.35):
+   verify and record rejection of both proposed forms before implementation.
 3. Implement.
 4. Rewrite `std/improve.orc` with constructors that omit
    `Improvement[S F B]`. Its callers' build artifacts are identical.
@@ -382,24 +386,23 @@ constructor names its type), `docs/orc_workflow_design_lessons.md`,
 
 ## D. Effects Inferred
 
-### Task 10: Plan The Effect Ledger Simplification
+### Task 10: Reuse Delivered Effect Ledger Simplification
 
-- [ ] Complete
-
-The design exists and lists its own prerequisites. This task writes its plan.
-
-**Read:** `docs/design/workflow_lisp_effect_ledger_simplification.md`,
-`docs/reports/2026-09-08-workflow-lisp-effect-tracking-audit.md`, roadmap
-entry EL-1.
-**Create:** `docs/plans/<date>-workflow-lisp-effect-inference-plan.md`.
-
-1. Record the target of decision 2 as the design's target.
-2. Turn each prerequisite of the design (defining-scope resolution of effect
-   subjects, carriage of the restriction's origin, mixed-target linking,
-   editor projection) into a task with its fixture.
-3. Turn each acceptance lane of the design into a closeout item.
+W2’s language contract is delivered by [EL-1 at 2.39](../design/workflow_lisp_effect_ledger_simplification.md),
+with implementation and bounded evidence in the
+[simplification plan](2026-10-15-orc-simplification-roadmap-extension.md#target-239-selected-implementation).
+Do not create another effect-inference plan or reselect its target, subject
+resolution, origin carriage, mixed-target checks or inspection contract.
+Any further repetition-corpus migration or authoring-benefit experiment keeps
+its own selection and evidence gate; language delivery does not qualify it.
 
 ## E. Hooks That Capture Their Context
+
+This section preserves the original completed W3 implementation breakdown.
+Current packaged headers, source/import admission and EL-1 contracts follow
+[Write-once §9](../design/workflow_lisp_write_once.md#9-targets-and-compatibility);
+current qualification and retained limits follow the
+[W3 closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md).
 
 This is the technical breakdown of the parent's Phase 4c. Entry: Phase 3's
 runtime, the Phase 6a caller assessment, and Task 4's grammar, inference,

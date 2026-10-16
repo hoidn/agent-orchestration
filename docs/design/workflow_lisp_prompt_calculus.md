@@ -1,11 +1,14 @@
 # Workflow Lisp Prompt Calculus
 
+Current source/import/tooling admission follows the [source floor](workflow_lisp_executor_retirement.md#source-floor-235).
+Pre-2.35 introduction gates below are historical; data readers remain separate.
+
 - **Status:** accepted and implemented Q1, Q2, and Q3 designs
 - **Kind:** language design — typed, compositional provider prompts
 - **Owner:** Workflow Lisp frontend plus the existing provider prompt pipeline
 - **Selected tranches:** Q1 prompt core, Q2 output positions, and Q3
   prompt-attempt identity/diagnostics are implemented
-- **Minimum targets:** Q1 `(:target-dsl "2.20")`; Q2 additive syntax
+- **Introduction targets:** Q1 `(:target-dsl "2.20")`; Q2 additive syntax
   `(:target-dsl "2.21")`; Q3 evidence/runtime behavior
   `(:target-dsl "2.22")`
 <a id="original-delivery-metadata"></a>
@@ -47,11 +50,12 @@ The first consumer is the review half of
 The fix prompt, review/revise loop, provider policy, result authority,
 retry/resume behavior, and terminal routing remain unchanged.
 
-`defprompt`, a fragment application in `provider-result :prompt`, and every
-Q1-specific slot keyword require target DSL 2.20 or later. At target 2.19 and
-earlier they fail with `prompt_calculus_requires_dsl_2_20`; lower targets do
-not reserve `defprompt` as a general expression or change any extern-backed
-provider call.
+`defprompt`, fragment applications in `provider-result :prompt`, and Q1 slot
+keywords were introduced at target 2.20. All admitted source targets include
+them. Direct syntax/import analysis rejects pre-2.35 source with
+`target_dsl_unsupported`; the original Q1 feature-specific gate is retired.
+Public CLI old-entry preflight retains `workflow_execution_target_retired`
+precedence; see [CLI admission](../../specs/cli.md#executable-support-boundary).
 
 ## Why This Surface Exists
 
@@ -398,7 +402,7 @@ The Q1 refusal set is closed:
 | `prompt_return_redeclaration_forbidden` | fragment-backed call also authors `:returns` | call-site `:returns`; declaration return is related |
 | `prompt_inputs_redeclaration_forbidden` | fragment-backed call also authors `:inputs` | call-site `:inputs`; declaration slots are related |
 | `prompt_dependency_redeclaration_forbidden` | fragment-backed call also authors `:prompt-dependencies` | call-site dependency form; declaration document slots are related |
-| `prompt_calculus_requires_dsl_2_20` | a Q1 declaration, application, or slot keyword is authored below target 2.20 | first Q1-specific form or keyword |
+| `target_dsl_unsupported` | direct syntax/import analysis finds source or a retained typed-program capsule targeting outside 2.35–2.39, including transitive imports | target metadata |
 | `compiled_prompt_fragment_identity_missing` | Semantic IR, Executable IR, or attempt snapshot lacks the digest | provider application/source-map owner |
 | `compiled_prompt_fragment_identity_invalid` | a carried identity is not `sha256:` plus 64 lowercase hex digits or its bound canonical projection is malformed | malformed carrier or bound application |
 | `compiled_prompt_fragment_identity_mismatch` | carried digests disagree | provider application/source-map owner |
@@ -514,7 +518,9 @@ evidence remains in the Q2 implementation plan.
 **Status:** accepted after independent specification rereview
 `Q2_DESIGN_SPEC_REAPPROVED` and independent quality review
 `Q2_DESIGN_QUALITY_APPROVED`, then implemented under the reviewed Q2 plan.
-Q2 is an additive target-2.21 surface.
+Q2 was introduced as an additive target-2.21 surface. The target-specific
+compatibility and refusal examples below record that original contract;
+current source and typed-program imports must meet the 2.35 floor.
 Target-2.20 parsing, compilation, identity bytes, runtime behavior, and resume
 compatibility remain exactly the implemented Q1 behavior above.
 
@@ -542,8 +548,9 @@ The closed slot grammar becomes:
 
 `:out` is a role modifier, not a fifth kind, a type, a renderer, or a
 caller-side keyword. It may occur exactly once, immediately after `:path`, and
-nowhere else. A target-2.20 module or application using it fails with
-`prompt_output_positions_require_dsl_2_21`. The modifier does not make a fill
+nowhere else. The original Q2 gate rejected it at target 2.20; direct
+syntax/import analysis now rejects pre-2.35 modules with `target_dsl_unsupported`.
+The modifier does not make a fill
 optional: every output-position slot remains subject to the ordinary exact
 named-fill discharge rule and placeholder rule.
 
@@ -750,7 +757,7 @@ Q2 adds this closed diagnostic set:
 
 | Code | Refusal | Primary source owner |
 | --- | --- | --- |
-| `prompt_output_positions_require_dsl_2_21` | `:out` appears below target 2.21 | `:out` token |
+| `target_dsl_unsupported` | direct syntax/import analysis finds source or a typed-program import targeting outside the admitted range | target metadata |
 | `prompt_output_position_syntax_invalid` | `:out` is duplicated, misplaced, or followed by an invalid slot tail | offending token or slot declaration |
 | `prompt_output_position_kind_invalid` | `:out` is used with a kind other than `:path` | `:out` token; kind token is related |
 | `prompt_output_position_refinement_invalid` | an explicit refinement is not a workspace `relpath` with `must_exist=false` | refinement; `:out` token is related |
@@ -773,10 +780,9 @@ slot origins; Q2 does not mint duplicate runtime error names.
 
 Precedence extends Q1's order without making Q2 diagnostics unreachable:
 
-1. slot-tail token recognition identifies the presence of `:out`; when it is
-   present below target 2.21, the Q2 target gate wins over legacy Q1
-   tail/refinement rejection;
-2. at target 2.21 or later, Q2 validates modifier multiplicity and placement,
+1. current target admission rejects pre-2.35 source before slot checking;
+   the original Q2-over-Q1 feature-gate precedence below 2.21 is historical;
+2. in admitted source, Q2 validates modifier multiplicity and placement,
    then the `:path` kind requirement;
 3. ordinary Q1 duplicate-slot, kind, refinement, and placeholder checks run on
    the normalized slot, followed by Q2 output-refinement validation;

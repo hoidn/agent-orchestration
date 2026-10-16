@@ -384,6 +384,10 @@ Prioritize inference-default authoring with meaningful optional restrictions and
 inferred inspection over the existing analysis representation. Internal cleanup
 is a separate conditional decision, not the price of obtaining those benefits.
 
+The [agent-authoring plan](2026-10-02-agent-authoring-improvements-plan.md)
+reuses the delivered 2.39 contract as stream D; it does not create a second
+effect-inference implementation. Target 2.35's effect contract stays fixed.
+
 | Step | Bounded work and evidence | Consequence / next decision |
 | --- | --- | --- |
 | EL-1a — resolve contracts and feasibility | Delivered the reviewed 2.39 version boundary, defining-scope subjects, generated omission, definition-origin imports, post-specialization restrictions and inferred/incomplete inspection contract. | The frontend, effect-ledger and versioning owners govern the supported contract; no new analysis representation or runtime was selected. |
@@ -717,6 +721,54 @@ Phase 4 effect ports. The component's Phase E is this same Phase 4c work,
 not a second schedule. Phase 2 order, CF-1c hold and research allocations
 stay unchanged; no executable selector/manifest or active-run state changes.
 
+## AA-1 — Agent Authoring Improvements (Pending, Unselected)
+
+The [agent-authoring plan](2026-10-02-agent-authoring-improvements-plan.md)
+owns four small, independently selectable improvements: a short guide with
+checked examples, actionable diagnostics, bounded outcome simulation using
+the evaluator, and EL-1's optional effect restrictions. Measure success by
+correct programs and the effort to obtain them, not by documentation volume
+or a new tooling framework.
+
+Record a baseline authoring trial before any selected AA-1 improvement lands;
+the owner must first choose the task-selection rule, model and cost budget.
+Guide and diagnostic work can use the latest runnable target. Simulation
+execution needs Phase 3 and is only for evaluated targets; value synthesis
+can be investigated against the Phase 2 artifact after selection. Stream D
+reuses EL-1's delivered 2.39 contract; this separate authoring trial remains
+unselected. None gates or expands 2.35 delivery.
+
+Start with guidance and remedies demonstrated by the trial. Automated edits,
+editor actions and exhaustive branch exploration are not entry requirements.
+Record negative results and remaining coverage gaps. This proposal neither
+selects a live study nor changes R1b or the existing research allocations.
+
+## CE-1 — Checked Program Evaluation (Pending, Unselected)
+
+The [checked-evaluation design](../design/workflow_lisp_checked_program_evaluation.md)
+proposes one operation: compile generated source against parent-declared
+limits, commit the checked program or a rejection, then evaluate accepted
+code with the existing evaluator and memo. Reuse ordinary imports and type
+contracts; do not introduce a scope language, library catalog, promotion
+service, or a second interpreter.
+
+Entry requires owner acceptance, an assigned target after 2.35 and the
+Phase 2–3 substrate. Resolve import authority, resolved effect bounds,
+durable fragment validation and retry/invalidation safety before producing
+an executable implementation plan. EL-1's subject-resolution work can supply
+the bound check; its whole annotation and analysis migration is not a
+prerequisite. AA-1 simulation and a new Python frontend are not prerequisites.
+
+First evidence is a bounded generated program: valid execution, a repairable
+compile rejection, refusal of an out-of-bound effect, and interrupted resume
+without recompilation or repeated committed effects. The design owns the
+remaining correctness checks. Library search, catalogs, promotion and
+separate review/check forms require a demonstrated later need.
+
+Both AA-1 and CE-1 are proposal entries only. No executable manifest or queue
+is added, no active run changes selection, and the current runtime delivery
+order and five research units remain unchanged.
+
 ## Current ES Boundary
 
 **Execution-scope amendment, 2026-10-13:** the selected
@@ -795,6 +847,10 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
   this 3.0 adoption/migration lane. It neither closes broader dynamic-language
   research nor deletes the qualified dynamic branch. No research unit,
   machine-queue activation or main runtime-delivery gate changes.
+- [AA-1](#aa-1--agent-authoring-improvements-pending-unselected) and
+  [CE-1](#ce-1--checked-program-evaluation-pending-unselected) record the
+  simplified authoring and checked-evaluation proposals. Both remain pending
+  and unselected, outside the 2.35 first-release scope.
 - The [P-series](2026-07-30-lsp-frontend-prerequisites-p-series-roadmap.md)
   remains the slated successor after recorded E-program completion or explicit
   owner closure/re-park. No P item is selected or accelerated here.

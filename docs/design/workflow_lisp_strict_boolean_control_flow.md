@@ -1,7 +1,9 @@
 # Workflow Lisp Strict Boolean Control Flow
 
-Execution scope: the 2.26 minimum remains a source/type/import gate. Flat
-closed-member, projection and Executable IR examples are historical backend
+Execution scope: strict Boolean control was introduced at 2.26. Current source,
+transitive imports, retained typed-program capsules, REPL and LSP admit only
+targets 2.35–2.39; see the [source floor](workflow_lisp_executor_retirement.md#source-floor-235).
+Flat closed-member, projection and Executable IR examples are historical backend
 encodings. Current evaluated control must preserve strict `Bool`, selected-arm
 laziness, once-only operands and variant-proof identity without restoring that
 backend or admitting live-provider/peer effects.
@@ -18,7 +20,7 @@ backend or admitting live-provider/peer effects.
   [`workflow_lisp_proof_graph.md`](workflow_lisp_proof_graph.md),
   [`workflow_language_design_principles.md`](workflow_language_design_principles.md),
   [`specs/versioning.md`](../../specs/versioning.md)
-- **Implementation target:** Workflow Lisp target DSL 2.26; state schema 2.1
+- **Original implementation target:** Workflow Lisp target DSL 2.26; state schema 2.1
   and existing Semantic/Executable IR envelope versions remain unchanged
 
 ## Summary
@@ -49,7 +51,7 @@ authored union routing while retaining runtime variant guards. Existing
 
 ## Context And Authority
 
-Current Workflow Lisp already provides the runtime pieces this design composes:
+At introduction, Workflow Lisp already provided the runtime pieces this design composed:
 
 - `if` lowers to structured control with effectful branch subgraphs;
 - effect results can be bound by `let*` and reused by a later condition;
@@ -67,10 +69,10 @@ prove the manually desugared provider-result -> binding -> `if` -> effectful
 branch path, including resume. The missing capability is generic frontend
 normalization and predicate-derived proof, not a new runtime primitive.
 
-This design changes the current frontend rule that an `if` condition must be
-pure and that only `match` creates authored variant proof. The change is gated
-at target DSL 2.26; below 2.26 the frontend specification and capability matrix
-remain the authority for runnable source.
+The original target-2.26 change removed the pure-condition restriction and added
+predicate-derived variant proof alongside `match`. Every currently admitted
+source target includes this contract; pre-2.35 source is rejected before these
+historical feature gates.
 
 ## Problem
 
@@ -222,8 +224,9 @@ The compiler may omit the forced terminal equality after a false provider
 result, but it must still execute the provider once and preserve the `or`
 short-circuit boundary before entering the clause body.
 
-At target 2.26, `cond` is reserved as a frontend form. Targets below 2.26 retain
-their existing name-resolution behavior.
+`cond` is reserved as a frontend form in every admitted source target. Its
+2.26 introduction left earlier name resolution unchanged historically; those
+source targets are no longer admitted.
 
 ### Strict Boolean Rule
 
@@ -300,8 +303,8 @@ boundary. WCC represents that selection as internal
 `WccSelect(condition, then_arm, else_arm)`. Each arm is a
 `WccSelectArm(prefix, value)`: `prefix` is the arm-local linear sequence of
 pure `WccLet` bindings and `value` is the terminal `WccValue`. The two terminal
-values have the same exact static type. Sources below target 2.26 retain the
-current WCC handling of pure `if` values.
+values have the same exact static type. At introduction, source below target
+2.26 retained its prior WCC handling; those source targets are now retired.
 
 `WccSelect` and `WccSelectArm` are compiler IR, not public
 Semantic/Executable IR nodes, runtime execution forms, or state families. WCC
@@ -508,14 +511,14 @@ not a compiler-generated binding name.
 - Pure-expression `kind: "if"` evaluation is selected-branch-only for every
   existing payload because the payload has no target-version field. Existing
   `op: "and"` and `op: "or"` payload evaluation remains unchanged.
-- Source targeting below 2.26 retains current pure/projectable `if` behavior,
+- Historically, source targeting below 2.26 retained pure/projectable `if` behavior,
   WCC closed-member outcomes, pure-op normalization/evaluation, named
   effect/projectability diagnostics, current `match` proof ownership, and
   current `cond` name resolution.
-- Existing `match` source remains valid at and after 2.26. No automatic source
-  rewrite or migration is required.
-- The drafting guide must not recommend the new style until capability evidence
-  marks target 2.26 implemented and copy-safe.
+- `match` remains supported in admitted source. The 2.26 introduction did not
+  require a `match` rewrite; current source still must meet the 2.35 floor.
+- Current authoring and copy safety follow the drafting guide and capability
+  matrix rather than the original target-2.26 delivery gate.
 
 ## Feasibility Boundary
 

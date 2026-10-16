@@ -1372,17 +1372,21 @@ one deterministic brace-placeholder template.
 
 A prompt declaration is importable and exportable, but is not a runtime value,
 procedure, `ProcRef`, provider, or general callable. Its only use is one fully
-applied named application in `provider-result :prompt`. Target 2.19 and earlier
-do not reserve `defprompt` as a general expression; a Q1 declaration,
-application, or slot keyword there fails with
-`prompt_calculus_requires_dsl_2_20`.
+applied named application in `provider-result :prompt`. Q1 was introduced at
+target 2.20; every admitted source target includes it. Direct syntax/import
+analysis rejects pre-2.35 source or typed-program imports with
+`target_dsl_unsupported`, including transitive dependencies. Public CLI old-entry
+preflight retains `workflow_execution_target_retired` precedence; see
+[CLI admission](../../specs/cli.md#executable-support-boundary). The original Q1
+feature gate is retired.
 
 ### 8.7.2 Implemented `:path :out` Slots (Target 2.21)
 
 **Status:** accepted Q2 design after `Q2_DESIGN_SPEC_REAPPROVED` then
 `Q2_DESIGN_QUALITY_APPROVED`, then implemented under the reviewed Q2 plan.
-The additive target-2.21 assumption preserves target-2.20 Q1 source, compiled
-bytes, runtime behavior, and resume semantics unchanged.
+At introduction, the additive target-2.21 change preserved target-2.20 Q1
+source, compiled bytes and runtime behavior. That historical comparison does
+not admit pre-2.35 source/imports or old-profile resume.
 
 Q2 adds exactly one slot spelling:
 
@@ -2679,7 +2683,6 @@ The Q1-specific refusal codes are:
 - `prompt_return_redeclaration_forbidden`,
   `prompt_inputs_redeclaration_forbidden`,
   `prompt_dependency_redeclaration_forbidden`;
-- `prompt_calculus_requires_dsl_2_20`; and
 - `compiled_prompt_fragment_identity_missing`,
   `compiled_prompt_fragment_identity_invalid`,
   `compiled_prompt_fragment_identity_mismatch`.
@@ -2808,7 +2811,6 @@ v1/v2 or projected-contract drift is program drift.
 
 The closed Q2 diagnostics are:
 
-- `prompt_output_positions_require_dsl_2_21`;
 - `prompt_output_position_syntax_invalid`;
 - `prompt_output_position_kind_invalid`;
 - `prompt_output_position_refinement_invalid`;
@@ -2822,9 +2824,9 @@ runtime substitution is required; the compiler may emit it earlier only for
 statically proven literal collisions. Contract mismatch is validated at the
 carrier boundary where the mismatch becomes observable.
 
-Slot-tail recognition first detects `:out`. Below target 2.21 its target gate
-precedes legacy Q1 tail/refinement rejection. At target 2.21 or later, modifier
-multiplicity/placement and the `:path` requirement precede ordinary Q1
+Source target admission precedes slot checking. In admitted targets, slot-tail
+recognition detects `:out`; modifier multiplicity/placement and the `:path`
+requirement precede ordinary Q1
 duplicate-slot, kind, refinement, and placeholder checks on the normalized
 slot, followed by Q2 output-refinement validation. Module resolution then
 precedes application discharge; Q1 fill type/renderer checks precede Q2
@@ -4438,8 +4440,11 @@ artifacts.
 - `Decision[F B]`
 - `Improvement[S F B]`
 - `improve`
-- target-2.33 imported stdlib module for a bounded review/revise loop that
-  returns the candidate together with its outcome
+- introduced at target 2.33; both packaged `std/improve` module variants now
+  declare 2.35 to meet the source floor. Source-graph selection chooses the
+  context-explicit or W3 four-argument API; the maintained 2.39 caller retains
+  imported 2.35 definition contracts (§106). The helper provides a bounded
+  review/revise loop that returns the candidate together with its outcome
 - owns `improve` as ordinary `.orc` composition over generic unions, `ProcRef`
   hooks, and loop state; its contract and limits are in
   [Composition-First Procedures](workflow_lisp_composition_first.md)

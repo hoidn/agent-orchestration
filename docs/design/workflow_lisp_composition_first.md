@@ -1,12 +1,12 @@
 # Workflow Lisp Composition-First Procedures
 
 - **Status:** generic unions and `std/improve` (§§3–6) are implemented at
-  target 2.33, with the effect behavior §7 describes for the period before
-  EL-1; the reference module is
+  their introduction target 2.33; current source admission starts at 2.35.
+  EL-1 procedure contracts are delivered at 2.39; §7 distinguishes definition
+  origins. The reference module is
   [`std/improve.orc`](../../orchestrator/workflow_lisp/stdlib_modules/std/improve.orc)
-  and its rules and known defects are in §11. Not implemented: the EL-1 effect
-  rules that §7 adopts, and the §8 consumer migration. The roadmap owns their
-  entry conditions. W3 at 2.36 is implemented;
+  and its rules and known defects are in §11. The §8 consumer migration
+  remains gated by CF-1c (ON_HOLD); EL-1 delivery does not select it. W3 at 2.36 is implemented;
   qualification evidence is recorded in the Phase 4c closeout; §3 scopes the graph-selected API and §11.4
   records the remaining evaluated composition boundaries.
 - **Kind:** language and standard-library architecture decision
@@ -17,7 +17,7 @@
 - **Roadmap:** [CF-1](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#cf-1--composition-first-procedures-pending-unselected)
   owns selection, ordering, entry conditions, and consequences. Effect
   contracts remain owned by
-  [EL-1](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#el-1--effect-contracts-and-analysis-cleanup-pending-unselected).
+  [EL-1](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#el-1--effect-contracts-and-analysis-cleanup-selected-239).
 - **Type-system delta:** [first-order generic unions](workflow_lisp_parametric_type_system.md#proposed-cf-1-first-order-generic-unions)
   in the parametric type-system design; it owns application, argument
   binding, constructor identity, and diagnostics.
@@ -203,7 +203,9 @@ parameter reaches it, and malformed output fails at the provider boundary
 with the four codes above before any later step runs.
 
 **Hooks.** `review` and `revise` are command- or provider-backed `defproc`s
-with `:lowering inline`, directly or through an adapter. A composite reviewer,
+with caller-owned inline composition, directly or through an adapter:
+explicit `:lowering inline` for origins 2.35–2.38, no `:lowering` clause for
+origins at 2.39. A composite reviewer,
 such as two reviews plus an adjudication, is an ordinary `defproc` with the
 review hook's signature; converting adapters may be nested in it. Hooks may be
 declared in another module and passed with `proc-ref`; from a caller at
@@ -247,19 +249,20 @@ that extension:
 
 ## 7. Effects
 
-Adopt EL-1 unchanged: an omitted clause infers; explicit empty requires no
-tracked effects after hook resolution; explicit nonempty requires a subset with
-provider and command identities preserved. Migrate forwarding helpers to
-omission on the new regime, definition-origin aware.
+EL-1 is delivered at target 2.39: an omitted clause infers; explicit empty
+requires no tracked effects after hook resolution; explicit nonempty requires
+a subset with resolved subject identities preserved. These restrictions attach
+to the definition’s origin, including imported and specialized definitions.
 
-Before EL-1 lands, `improve` has no direct command effect and uses the current
-generic-hook forwarding regime. Its inferred transitive summary includes all
-provider and command effects of the selected domain adapters, including
-findings validation. For a caller at target 2.33 this holds wherever the hooks
-are declared: effect inference includes the effects of imported procedures and
-of hooks passed from another module. For a caller below 2.33 the effects of
-hooks declared in another module are missing from that summary (§11). Neither
-change waits for the other.
+Both packaged `improve` variants originate at 2.35 and retain their existing
+generic-hook forwarding regime, including their authored empty clause and
+lowering policy, even in a 2.39 caller. Their inferred transitive summaries
+include the provider and command effects of selected adapters, including
+findings validation and imported hooks. The selected EL-1 delivery preserves
+all six maintained stdlib modules at 2.35; it does not migrate those libraries
+to 2.39 or select the §8 consumer migration. A later library migration needs
+its own selection and origin-aware review. The below-2.33 behavior in §11 is
+historical evidence, not an admitted source route.
 
 ## 8. Migration
 

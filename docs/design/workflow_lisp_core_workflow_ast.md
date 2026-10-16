@@ -3,7 +3,9 @@
 `orchestrator/workflow/core_ast.py` retains shared dataclasses and validation for
 analysis/imports and read contracts. Current `.orc` entries elaborate through the
 shared typed frontend into a [checked closed program](workflow_lisp_evaluated_execution.md#4-the-closed-program).
-Old-header typed imports do not select a flat executor. The shape below is an
+Source and retained typed-program imports require targets 2.35–2.39 throughout
+the dependency graph; old headers do not retain an analysis/import exception.
+Historical read contracts do not compile source. The shape below is an
 internal model sketch; executable scheduling/persistence belong to the evaluated
 contract and [State](../../specs/state.md).
 

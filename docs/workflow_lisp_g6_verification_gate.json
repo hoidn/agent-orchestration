@@ -14,7 +14,7 @@
     {
       "suite": "tests/test_workflow_lisp_modules.py",
       "scope_class": "tranche_owned_shared",
-      "reason": "Retained import/export and builtin stdlib resolution; old-header typed imports do not select a flat executor."
+      "reason": "Retained import/export and builtin stdlib resolution for admitted 2.35–2.39 source and typed-program graphs; pre-2.35 imports are rejected. Historical data readers do not compile source."
     },
     {
       "suite": "tests/test_workflow_lisp_phase_stdlib.py",

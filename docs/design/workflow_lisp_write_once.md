@@ -2,7 +2,8 @@
 
 ## Metadata
 
-- **Status:** W3 is implemented at target 2.36. Other rules remain unselected proposals.
+- **Status:** W3 is implemented at target 2.36; W2 is delivered by EL-1 at
+  target 2.39. W0/W1/W4 remain unselected proposals and W5 remains deferred.
 - **Kind:** language and standard-library contract, with one authoring rule
   that needs no language change
 - **Owner:** Workflow Lisp frontend
@@ -175,17 +176,20 @@ without change: an omitted `:effects` clause means the inferred set; an
 authored clause is an upper bound that is checked; an explicit empty clause
 asserts no tracked effect, also after specialization.
 
-That document lists what must be decided before implementation: the target,
-name resolution of effect subjects in the defining scope, how the origin of
-an authored restriction is carried through specialization, mixed-target
-linking, and the editor projection of inferred effects. This design proposes
-one shared target for W1, W2 and W4. W3 may be qualified separately; the
-implementation plan owns target selection.
+EL-1 delivers this contract at target 2.39, including defining-scope subject
+resolution, restriction-origin preservation through specialization/imports,
+and compiler-derived inspection. W1 and W4 retain their own unselected
+proposals; W3 is separately implemented at 2.36. No shared future target is
+required to use W2.
 
-`:lowering` is not part of W2. The clause is optional today. Its default,
-`auto`, may choose a private workflow for a procedure with several call
-sites, which changes state and resume namespaces. `:lowering inline` records
-a choice and stays.
+The same 2.39 frontend contract rejects authored `:lowering` and makes new
+procedures caller-owned inline composition. Imported definitions originating
+at 2.35–2.38 retain their mandatory/exact effect rules, specialization
+exceptions, and declared/default lowering policy. At those older origins,
+`:lowering inline` still records caller-owned identity. An intentional boundary
+in new 2.39 source uses `defworkflow` plus `call`, with concrete transportable
+inputs/results; converting an old private procedure creates a new identity
+and does not promise cross-version resume.
 
 Correctness burden removed: a change to a helper's body forces an edit to the
 `:effects` clause of every procedure that calls it, directly or not.
@@ -476,22 +480,26 @@ serve.
 ## 9. Targets And Compatibility
 
 - W0 applies to every target. It changes no language rule.
-- W1, W2 and W4 retain their separate unselected target proposal. W3 is
+- W1 and W4 retain their separate unselected target proposals. W2 uses the
+  delivered 2.39 EL-1 contract and preserves imported 2.35–2.38 semantics. W3 is
   selected for 2.36 on the evaluated route and implemented;
   the [closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md) owns qualification evidence. Existing targets retain their
   admitted syntax and lowering.
 - One `std/improve` API is selected for each **source import graph** by its
-  entry target. Entries through 2.35 keep the current bundled
+  entry target. Admitted entries at 2.35 use the five-argument
   `stdlib_modules/std/improve.orc` bytes and path. At 2.36 (and later supported
   compatible targets), replace only that builtin candidate with the no-context
   `stdlib_modules/w3/std/improve.orc`, using its actual alternate source root.
-  The helper retains syntax header 2.33; syntax admission still follows each
-  defining module. Other imports and user-root ambiguity rules are unchanged;
+  Both packaged variants have source header 2.35 and retain that origin’s
+  effect/lowering rules, including in 2.39 graphs. Syntax admission still
+  follows each defining module. Other imports and user-root ambiguity rules are unchanged;
   do not expose both builtin variants or adopt first-match resolution.
 - Every source module in a new graph sees that one API. Retargeting requires
   migrating any source dependency that still calls five-argument `improve`,
-  with a located migration diagnostic. Older type-only or compatible callers
-  remain legal; do not reject unrelated modules solely for their target.
+  with a located migration diagnostic. Every source module and typed-program
+  capsule in the transitive import closure must meet the 2.35 floor; older
+  type-only source or capsule bytes are not admitted. Among admitted origins,
+  preserve existing compatibility rules.
   Inventory source producers, fixtures and indirect callers as well as `.orc`
   imports. No parallel `improve-v2`, per-importer versions or hidden old-call
   rewriting is part of W3.
@@ -519,7 +527,7 @@ serve.
 | A result-type clause on `loop/recur` | The loop takes its expected type from its position. A loop bound by `let*` writes its constructors in the explicit form |
 | Runtime closures | Owned and excluded by the runtime closures boundary; compile-time capture suffices |
 | Provider options as module-level defaults in the program | Model and effort are deployment choices; a program would have to change to run elsewhere |
-| Removing `:lowering` | It records a choice of state and resume namespace |
+| Erasing an intentional workflow boundary | At 2.39, use explicit `defworkflow` plus `call`; 2.35–2.38 definitions retain authored lowering policy |
 | Replacing `Decision[F B]` by constraints now | No measured caller needs it; section 8.4 |
 
 ## 11. Evidence Requirements

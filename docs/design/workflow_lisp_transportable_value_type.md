@@ -1,12 +1,15 @@
 # Workflow Lisp Transportable `Value` Type
 
-- **Status:** current implemented strict-JSON transport contract; source syntax
-  requires 2.19 or later, independently of executable entry admission
+Current source/import/tooling admission follows the [source floor](workflow_lisp_executor_retirement.md#source-floor-235).
+Pre-2.35 introduction gates below are historical; data readers remain separate.
+
+- **Status:** current implemented strict-JSON transport contract; introduced at
+  2.19 and available in every admitted source target
 - **Review:** `VALUE_DESIGN_SPEC_APPROVED`, then
   `VALUE_DESIGN_QUALITY_APPROVED`
 - **Kind:** language and transport contract
 - **Owner:** Workflow Lisp frontend plus shared output-contract runtime
-- **Target:** DSL `2.19`
+- **Introduction target:** DSL `2.19`
 - **Selected consumer:** the first prompt-calculus tranche, whose unstated
   return type defaults to `Value`
 - **Related authority:**
@@ -52,8 +55,9 @@ boolean as a boolean, and `null` as `null`; there is no authored or hidden
 existing compiler-owned `__result__` artifact name, while Workflow Lisp source
 sees only `Value`.
 
-`value` becomes a public output-contract descriptor at DSL `2.19`. Earlier
-targets reject both the source type and the descriptor. Existing narrower
+`value` became a public output-contract descriptor at DSL `2.19`. Its original
+feature gate rejected earlier targets; current source admission rejects all
+pre-2.35 modules. Existing narrower
 descriptors and their validation are unchanged.
 
 At public workflow boundaries, the corresponding contract kind is
@@ -113,9 +117,12 @@ same-program conversion from `Value` to that type.
 
 ### Availability And Shadowing
 
-`Value` is a compiler-owned prelude type only for target `2.19` and later. A
-local or imported definition may not shadow it. Use on an older target fails
-at the authored type occurrence with `value_type_requires_dsl_2_19`.
+`Value` is a compiler-owned prelude type in every admitted source target. A
+local or imported definition may not shadow it. Its original introduction gate
+was target 2.19; direct syntax/import analysis rejects pre-2.35 source with
+`target_dsl_unsupported` before type checking. Public CLI old-entry preflight
+retains `workflow_execution_target_retired` precedence; see
+[CLI admission](../../specs/cli.md#executable-support-boundary).
 
 `Value` is transportable but is not a capability type, reference type, prompt
 type, procedure type, workflow-reference type, or nominal identity. It does
@@ -210,7 +217,8 @@ existing `ReturnSpec` owner; no parallel guidance owner is added.
 
 ## Compatibility And Failure Boundaries
 
-- DSL `2.18` and earlier behavior is byte-for-byte unchanged.
+- Historical DSL `2.18` and earlier data contracts remain distinct; they do
+  not admit source compilation or old-profile resume.
 - `Json` remains non-transportable.
 - A narrower declaration retains its exact existing validation; `Value` never
   acts as a wildcard during comparison of two concrete declared types.
@@ -226,8 +234,7 @@ The following coded refusals are required:
 
 | Code | Condition |
 | --- | --- |
-| `value_type_requires_dsl_2_19` | Authored `Value` appears before target `2.19`. |
-| `value_contract_requires_dsl_2_19` | Authored or imported `type: value` or `kind: value` appears before DSL `2.19`. |
+| `target_dsl_unsupported` | Direct syntax/import analysis finds source or a retained typed-program capsule targeting outside 2.35–2.39, including transitive imports. |
 | `invalid_transportable_value` | Recursive runtime validation encounters a non-JSON-like value. |
 | `value_guidance_example_unsupported` | `:example` is authored for `Value` before a checked Value-constant surface exists. |
 | existing `type_mismatch` | A `Value` expression is used where a narrower type is required. |
@@ -260,7 +267,8 @@ Implementation must use TDD and cover both directions.
 
 Focused compile-time checks:
 
-- `Value` resolves only at target `2.19+` and cannot be shadowed;
+- `Value` resolves in every admitted source target and cannot be shadowed;
+  pre-2.35 source and typed-program imports reject before type checking;
 - representative narrower scalar, path, record, union, optional, list, and map
   values are not implicitly assignable to `Value`;
 - `Value` is not assignable to those narrower types;
@@ -270,7 +278,8 @@ Focused compile-time checks:
 
 Contract/runtime checks:
 
-- loader accepts `type: value` / `kind: value` only at DSL `2.19+`;
+- current compiled contracts accept `type: value` / `kind: value`; historical
+  data readers retain their own version checks without admitting old source;
 - direct root `null`, boolean, integer, float, string, list, and object values
   validate and persist without an envelope;
 - recursive mixed JSON validates through `List[Value]` and

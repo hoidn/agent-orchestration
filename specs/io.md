@@ -10,6 +10,8 @@ supervision, peers, phased or adjudicated IO do not admit those excluded
 workflow effects. Targets 2.35/2.36 retain current support; registered 2.37
 and bounded 2.38 (Agent Sessions and command-only confined run-ref children) retain only their
 [bounded qualification](versioning.md#version-gating-summary).
+Target 2.39 retains these IO and qualification contracts; its procedure
+authoring changes do not introduce a new result-acceptance profile.
 
 - Input handling
   - `input_file`: read literal contents; no substitution inside file contents.
@@ -383,6 +385,23 @@ Evidence: `tests/test_workflow_evaluated_command_templates.py`,
     [§9.1.2](../docs/design/workflow_lisp_evaluated_execution.md#912-artifact-handoff-within-the-admitted-release):
     declared result paths keep their roots and `must_exist` checks, and an
     attempt's `result.json` does not replace them.
+- Result decoding and structured acceptance
+  - The checked result contract selects decoding and projection. Flattened
+    bundle fields retain leaf parsing: an integer field can decode `"5"` to
+    `5`, and undeclared object fields are not projected into the result.
+    Declared fields belonging only to an inactive union variant are rejected.
+    Direct structural record/union descriptors instead reject numeric strings
+    in numeric positions and reject extra fields, including inside containers.
+    Scalar/list/map leaf schemas retain their documented coercions; the
+    distinction is the descriptor, not merely nesting depth.
+  - Evaluated command and provider result ingestion requires finite floats.
+    Sharing equivalent leaf parsers does not unify JSON budgets, numeric
+    domains, path checks or diagnostics across output decoding, direct
+    transport validation and evaluated-value coercion.
+  - Resume reuses recorded typed values through the memo/replay contract. It
+    does not re-decode their original result files or apply a newly tightened
+    acceptance profile. Existing replay coercion and integrity checks remain
+    required; parser consolidation does not change their acceptance.
 - Command closure enforcement (C2–C4, C7)
   - At run and resume the C2 evidence is resolved live for the reached
     command only: automatic selection of workspace-spelled stable-command

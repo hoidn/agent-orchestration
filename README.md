@@ -5,10 +5,10 @@ replayable programs.
 
 A workflow is a program in Workflow Lisp (`.orc`). Its steps invoke coding
 agents and shell commands. The compiler checks, before anything runs, what
-each step must produce, what it may touch, and how its outcome routes the
-rest of the program. The runtime enforces those contracts on what the agents
-actually produce, commits nothing that fails them, and can resume a run
-from its last committed effect. There is no service: a run is a directory
+each step must produce, which provider and command effects it can invoke, and
+how its outcome routes the rest of the program. The runtime validates what
+the agents produce, commits no result that fails its contract, and can resume
+a run from its last committed effect. There is no service: a run is a directory
 under `.orchestrate/runs/<run_id>/` holding state, composed prompts, logs,
 and the checked program with the source location of every node.
 
@@ -18,15 +18,16 @@ Most agent frameworks check one call at a time. A schema validates what a
 single model call returns, and the host language carries the result to the
 next call. What is not checked is the pipeline: that a later prompt is filled
 only from fields an earlier step is guaranteed to produce, that every outcome
-is handled, that every loop ends, what each step may touch, and what can be
-reused when a run dies halfway. Those obligations live in glue code and
-prompts, and they surface at run time, one failure at a time.
+is handled, that workflow iteration is bounded, which effects a step can
+invoke, and what can be reused when a run dies halfway. Those obligations live
+in glue code and prompts, and they surface at run time, one failure at a time.
 
 Here the pipeline is the program, and the program is checked as a whole
 before it runs. Each step declares the type of its result. The compiler checks
 that every prompt is filled only with values that exist and have the right
-shape, that every outcome is routed somewhere, that every loop ends, and what
-each step may touch. During the run, what the agent actually returns is
+shape, that every outcome is routed somewhere, and that workflow iteration
+is bounded. It also resolves provider and command effects, enforcing authored
+restrictions where present. During the run, what the agent actually returns is
 validated against the same type before any later step can read it; a result
 that fails is never committed, and a run that stops can resume from its last
 committed result.
@@ -107,16 +108,21 @@ explains the version boundary.
 | --- | --- | --- |
 | The shape of an agent's result | Declared record or union type, rendered as the output contract and validated on return | compile time for the declaration; run time, before any consumer sees the value |
 | Routing on an outcome | Tagged unions; exhaustive `match`; variant fields unreachable without proof | compile time, with a runtime guard in the lowered program |
-| What a procedure may do | Declared or inferred effects: providers used, commands run, paths written; imported procedures carry theirs | compile time |
+| Which effects a procedure may invoke | Inferred provider and command identities, checked against the definition's effect contract; imported procedures retain theirs | compile time |
 | Identity of a command's declared dependencies | A closure declaration binds the bytes of declared implementation files; it does not restrict access to undeclared files or OS resources | declaration checked at compile time; byte evidence checked at run/resume from target 2.35 |
-| Where artifacts may live | Path types with a root and an existence requirement | compile time, and at run time when a result carrying the path is validated |
-| Termination | Bounded loops with a typed exhaustion outcome; no recursion; no first-class procedures | compile time |
+| Which artifact paths are accepted | Path types with a root and an existence requirement | compile time, and at run time when a result carrying the path is validated |
+| Bounded workflow iteration | Bounded loops with a typed exhaustion outcome; no unbounded source recursion | compile time |
 | Pure computation | A closed operator set whose failures are refusals rather than exceptions; compile-time folding must agree with the runtime evaluator on shared golden vectors | both |
 | "Done" means done | Validate, write to a temporary location, atomic rename; nothing else becomes canonical state | run time |
 | Resume | Every effect has a semantic identity; a committed result is taken from the memo rather than rerun | run time |
 
 Reports, logs, dashboards, and the agent's own prose summaries are views.
 Nothing routes on them.
+
+Path validation does not confine a provider process or roll back its edits.
+Loop bounds do not impose a timeout on an external call. The
+[provider contract](specs/providers.md) defines process cleanup and
+timeout policy; ordinary provider execution uses the trusted host workspace.
 
 ## Execution model
 
@@ -177,7 +183,7 @@ and the normative [spec index](specs/index.md).
 | Commits through the measured snapshot | 3,199 |
 | Python in `orchestrator/` | 226,951 code lines; 257,091 total lines in 443 files |
 | Test source | 572 test modules; 8,328 test function definitions |
-| Core contract versions | DSL v1.1 through v2.38, each with a normative spec and migration rules |
+| Contract history at the measured snapshot | DSL v1.1 through v2.38; current source admission is described above |
 | Agent CLIs driven | Codex, Claude Code, Gemini CLI, oh-my-pi |
 | Runtime dependencies | `jsonschema`, `PyYAML`; Python 3.11+ and `bash` |
 

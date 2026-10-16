@@ -1,5 +1,8 @@
 # Workflow Lisp Native Transportable Returns And Typed Result Guidance
 
+Current source/import/tooling admission follows the [source floor](workflow_lisp_executor_retirement.md#source-floor-235).
+Pre-2.35 introduction gates below are historical; data readers remain separate.
+
 - **Status:** accepted
 - **Kind:** feature and frontend architecture decision
 - **Owner:** Workflow Lisp frontend
@@ -19,7 +22,7 @@
   - `specs/io.md`
   - `specs/providers.md`
 - **Implementation status:** complete through both independently reviewed
-  implementation waves; DSL v2.15 is public
+  implementation waves; introduced at DSL v2.15, retained in admitted targets
 
 ## Summary
 
@@ -187,8 +190,9 @@ is visible in executable mappings and state.
 DSL v2.15 widens public workflow `outputs` to the same transportable
 leaf/collection schemas already used by frontend-lowered contracts. This is a
 deliberate normative widening, not a compiler-only loader exception. Existing
-DSL versions retain their current authored-YAML restrictions. Workflow Lisp
-sources using root-valued public returns declare `(:target-dsl "2.15")`.
+DSL versions retained their authored-YAML restrictions at introduction. Current
+Workflow Lisp sources using root-valued public returns declare an admitted
+target in 2.35–2.39; the original 2.15 header is historical.
 
 The alternatives are rejected:
 
@@ -859,16 +863,16 @@ the typed value, and consuming it in source-language control flow.
 
 ## Compatibility And Migration
 
-The change is additive for source authoring. Existing record and union programs
-remain valid. Their generated contracts, artifact names, output paths, source
+At introduction, the change was additive for source authoring. Record and
+union source remains valid only within the current admitted target range. Their generated contracts, artifact names, output paths, source
 identities, checkpoint identities, and runtime behavior should remain
 byte-equivalent where deterministic serialization makes that measurable.
 
-The current validator already understands empty JSON pointers, but a v2.14
-runtime does not accept the new DSL version, widened public outputs, or guidance
-schema. Native-return workflows therefore require a v2.15-capable compiler,
-loader, and runtime. Existing v2.14 record/union workflows remain on their
-current contracts and do not acquire new metadata implicitly.
+The original v2.14 runtime could validate empty JSON pointers but could not
+accept the widened public outputs or guidance schema introduced at v2.15.
+Those version comparisons are historical: current authoring and imports use
+targets 2.35–2.39. Retained historical data does not acquire metadata implicitly
+or grant old-profile resume permission.
 
 Build/executable artifact schema versions must be bumped only if persisted IR
 shape actually changes; the implementation plan must audit readers rather than

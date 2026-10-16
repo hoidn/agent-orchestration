@@ -21,7 +21,9 @@ python -m orchestrator run workflows/examples/<workflow>.orc \
 The [executor retirement](../docs/design/workflow_lisp_executor_retirement.md)
 ends executable entries through 2.34. The Design Delta drain and generic run
 watchdog are retired launch surfaces; their sources/reports remain historical.
-Admitted reusable typed imports remain available. The shared watchdog probe may
+Current source and typed-program imports require registered targets 2.35–2.39
+throughout their dependency graph. Pre-2.35 library source is historical and
+cannot be imported. The shared watchdog probe may
 still read a run; it does not launch a watchdog or provide repair execution.
 
 ## Verified-Iteration Drain Launch
@@ -80,8 +82,8 @@ Fresh preferred starting points:
   start with `experiments/orc_vs_single_call/workflows/best_of_n.orc` or
   `reviewed_change.orc`.
 - Do not start from `workflows/library/lisp_frontend_design_delta/drain.orc`:
-  the Design Delta family is deprecated, apart from its reusable library
-  procedures. Its authored YAML family is archived; the historical promotion
+  the Design Delta family and its pre-2.35 library source are retired.
+  Its authored YAML family is archived; the historical promotion
   report remains preserved as evidence of the route decision.
 - Earlier examples targeting 2.14 or 2.23 are retained as test fixtures under
   `tests/fixtures/workflow_lisp/retired_examples/`; release `v0.1.0` runs them.
@@ -125,7 +127,8 @@ registry metadata. Preserved parity reports are frozen historical records.
   targets (2.35 and later); check each catalog entry for required inputs
 - `workflows/templates/`: frozen non-running compatibility-template inventory;
   new template work starts from a registry-approved `.orc` example
-- `workflows/library/`: reusable imported subworkflows used by `call`-based examples
+- `workflows/library/`: reusable admitted imports plus historical source; check
+  each module target and catalog row before importing
 - `workflows/library/prompts/`: repo-owned prompt assets bundled with reusable imported workflows
 - `workflows/examples/prompts/`: prompt files used only by example workflows stored under `workflows/examples/`
 - `prompts/workflows/`: shared prompt trees used by standalone or monolithic workflows
@@ -160,7 +163,7 @@ Resolution rules:
 | Path | Status | DSL | Workflow Name | Purpose |
 | --- | --- | --- | --- | --- |
 | `workflows/library/generic_run_watchdog/watchdog.orc` | Historical reference; executable entry retired | `2.15` | `generic_run_watchdog/watchdog::watchdog` | Retired watchdog entry; shared read-only probing is separate. No current launch; [historical catalog record](../docs/reports/documentation-history/workflows-README-history.md#historical-catalog-entries). |
-| `workflows/library/lisp_frontend_design_delta/drain.orc` | Historical reference; executable entry retired | `2.14` | `lisp_frontend_design_delta/drain::drain` | Retired Design Delta drain; admitted reusable typed imports are separate. No current launch; [historical catalog record](../docs/reports/documentation-history/workflows-README-history.md#historical-catalog-entries). |
+| `workflows/library/lisp_frontend_design_delta/drain.orc` | Historical reference; executable entry retired | `2.14` | `lisp_frontend_design_delta/drain::drain` | Retired Design Delta drain; this 2.14 source is not importable. No current launch; [historical catalog record](../docs/reports/documentation-history/workflows-README-history.md#historical-catalog-entries). |
 | `workflows/library/verified_iteration_drain/drain.orc` | Workflow Lisp production primary; input-required | `2.35` | `verified_iteration_drain/drain::drain` | Evaluated primary with command closures, captured ledger history and public run/resume evidence; use the launch recipe above. |
 | `workflows/examples/improve_experiment_proposal.orc` | Workflow Lisp W3 `std/improve` evidence; input-required | `2.39` | `improve_experiment_proposal::run-experiment` | Drafts a typed proposal, uses inferred local review/revise signatures and lexical context with the four-argument graph-selected helper, and passes the returned proposal to the workspace launcher in every outcome. The caller uses 2.39 checked restrictions and imports 2.35 library definitions; W3 hooks were introduced at 2.36. Bounded public lifecycle evidence uses deterministic provider shims. Compile/dry-run validate manifests and the command closure declaration without certifying launcher bytes. Execution requires configured providers and the workspace-owned `scripts/launch_experiment.py` at that exact path; the example does not supply it; [recipe](../docs/lisp_library_reference.md#review-and-revise-with-stdimprove). |
 | `workflows/examples/plan_review_execute.orc` | Workflow Lisp preferred current guidance; compile evidence | `2.35` | `plan_review_execute::run` | README example: a planner drafts, a reviewer from another model family gives feedback, the planner revises, and the reviewer's model executes the revised plan, as one typed sequence. Compile evidence: `tests/test_workflow_lisp_plan_review_execute_example.py`; public dry run recorded in the [consolidation closeout](../docs/reports/2026-10-12-workflow-lisp-consolidation-closeout.md); no live provider run is recorded. |
@@ -175,9 +178,9 @@ locates modules; it does not grant execution support to historical entries.
 | Path | DSL | Workflow Name | Purpose |
 | --- | --- | --- | --- |
 | `workflows/library/control/direct_task.orc` | `2.35` | `control/direct_task::direct-task` | E0 canonical direct control with typed inputs `task: String`, `model: String`, and `effort: String`, exactly one composed provider boundary, and a direct `Bool` result. `PASS_E0` makes it copy-safe only for this bounded one-call direct-task shape, not for trials, child runs, controllers, report-shaped results, or customized orchestration. |
-| `workflows/library/tracked_design_phase.orc` | `2.14` | `tracked-design-phase` | Historical 2.14 entry; typed/import scope only where admitted. Retained tracked-design prompt/contract reference. |
-| `workflows/library/tracked_plan_phase.orc` | `2.14` | `tracked-plan-phase` | Historical 2.14 entry; typed/import scope only where admitted. Retained tracked-plan prompt/contract reference. |
-| `workflows/library/design_plan_impl_implementation_phase.orc` | `2.14` | `design-plan-impl-implementation-phase` | Historical 2.14 entry; typed/import scope only where admitted. Retained implementation prompt/contract reference. |
+| `workflows/library/tracked_design_phase.orc` | `2.14` | `tracked-design-phase` | Historical 2.14 source; not executable or importable. Retained tracked-design prompt/contract reference; prompt text may be adapted manually. |
+| `workflows/library/tracked_plan_phase.orc` | `2.14` | `tracked-plan-phase` | Historical 2.14 source; not executable or importable. Retained tracked-plan prompt/contract reference; prompt text may be adapted manually. |
+| `workflows/library/design_plan_impl_implementation_phase.orc` | `2.14` | `design-plan-impl-implementation-phase` | Historical 2.14 source; not executable or importable. Retained implementation prompt/contract reference; prompt text may be adapted manually. |
 
 ## Related Docs
 

@@ -33,13 +33,12 @@ publication boundaries. Typed procedures are the normal unit for reusable
 internal behavior. Both use the same typed return model, but they do not have
 the same operational identity.
 
-Procedure lowering is a role-based hybrid. A workflow-to-procedure migration
-uses explicit `:lowering inline` so the retained public workflow owns the
-runtime route. `:lowering private-workflow` is reserved for a private state,
-resume, or debug namespace need recorded in migration evidence. The
-`:lowering auto` mode remains compatible for
-identity-free helpers, but its compiler-selected route is not a persisted
-identity promise.
+Procedure composition follows the definition’s origin. Origins 2.35–2.38
+retain role-based authored lowering: migrations use `:lowering inline`,
+`private-workflow` requires a reviewed private namespace need, and `auto`
+promises no persisted identity. Definitions originating at 2.39 reject
+`:lowering` and compose inline in the caller. A 2.39 caller preserves imported
+2.35–2.38 policy; an intentional new boundary uses `defworkflow` plus `call`.
 
 Procedure composition is statically resolved. Direct body effects and
 caller-visible transitive effects are distinct, and the compiler recomputes
@@ -51,10 +50,10 @@ The resolved-effect substrate implements that split.
 `TypedProcedureDef.direct_effect_summary` retains the body-local effect atoms
 and procedure-call edges, while `transitive_effect_summary` is recomputed over
 the fully materialized monomorphic procedure set after generic and `ProcRef`
-specialization. Stage 3 also owns each procedure's resolved lowering mode and
-generated private-workflow name. Classic and WCC lowering consume those
-compiler-owned resolved effects and lowering decisions rather than deriving
-route-local substitutes.
+specialization. The frontend owns each procedure’s origin-selected lowering
+policy and any retained old-origin private-workflow name. WCC consumes those
+compiler-owned resolved effects and decisions rather than deriving substitutes.
+Classic lowering is historical evidence, not an executable route.
 
 ## Context And Authority
 
@@ -94,8 +93,8 @@ as inline procedure composition has the opposite failure: it can erase an
 external invocation surface, publication contract, checkpoint namespace, or
 operator-visible run identity.
 
-The existing `inline`, `private-workflow`, and `auto` lowering modes also need
-an identity policy. Code cannot claim resume or checkpoint parity while
+The retained 2.35–2.38 `inline`, `private-workflow`, and `auto` lowering modes
+also need an identity policy. Code cannot claim resume or checkpoint parity while
 allowing `auto` to change the persisted route. Generic procedures need a
 matching effect policy: copying a pre-specialization summary while resolving
 effectful ProcRef hooks would hide caller-visible effects.
@@ -157,19 +156,40 @@ must not own semantic behavior or hide effects.
 
 ### Lowering and identity policy
 
+For definitions originating at 2.35–2.38, including imports into a 2.39 caller:
+
 | Mode | Accepted role | Identity contract |
 | --- | --- | --- |
 | `inline` | Default for procedure-first migrations and caller-owned internal composition | Generated execution belongs to the caller's workflow, state layout, source-map expansion stack, and checkpoint route. |
 | `private-workflow` | Internal procedure whose migration contract and evidence identify a separate private state, resume, or debug namespace | The generated boundary is deterministic and private. It is not externally invocable, published, or a substitute for a retained public workflow. The namespace need is evidence in the current slice, not a new source annotation. |
 | `auto` | Identity-free helper for which either lowering has equivalent observable behavior | The compiler may choose either route. The choice is not a stable checkpoint, resume, state-path, or debug identity promise. |
 
-A migration must write `:lowering inline`; it must not rely on the current
-choice made by `auto`. A new `private-workflow` use must identify the private
-namespace obligation and prove its deterministic name, state layout, effect
-summary, source maps, and resume behavior. Reuse count or body size alone does
-not justify a private workflow.
+A migration at those origins must write `:lowering inline`; it must not rely
+on `auto`. A retained `private-workflow` use must identify its namespace
+obligation and prove deterministic identity, state layout, effects, source
+maps and resume behavior. Reuse count or body size alone does not justify it.
+
+For definitions originating at 2.39, no authored `:lowering` clause is admitted:
+procedures and their specializations are caller-owned inline composition.
+Use an ordinary `defworkflow` invoked with `call` for an intentional
+call/frame/checkpoint boundary. Unexported workflows limit imports but can
+still be selected explicitly as local entries. Their runtime inputs/results
+must satisfy concrete workflow transport contracts; generic parameters,
+ProcRef and WorkflowRef cannot become runtime workflow inputs. Bind them to
+concrete definitions or keep a thin procedure calling a concrete workflow.
+Converting an old private procedure to an explicit workflow gives it a new
+definition identity and promises no old fingerprint or cross-version resume.
+The [frontend contract](workflow_lisp_frontend_specification.md#106-procedure-lowering-policy-resolved)
+owns these origin rules.
 
 ### Effects
+
+Authored contracts follow [EL-1](workflow_lisp_effect_ledger_simplification.md):
+2.39-origin restrictions apply to fully specialized transitive effect
+identities (omission infers; empty requires none; named requires a subset).
+Imported 2.35–2.38 definitions retain their existing exactness and
+specialization rules. These source restrictions are distinct from the
+compiler’s internal direct/transitive summary split.
 
 Each procedure has two related summaries:
 
@@ -186,7 +206,8 @@ lowering. Inline and private-workflow lowering consume that recomputed
 evidence, not a substitute for the resolved summary.
 
 The substrate's existence does not authorize a family migration by itself.
-Each adoption still requires explicit lowering, effect visibility through
+Each adoption still requires caller-owned inline composition under its
+definition-origin rules, effect visibility through
 Semantic IR, route-readiness identity, direct owner behavioral evidence,
 identity compatibility, and the family-specific review gates. Frozen parity
 reports may explain a historical promotion decision but do not authorize a
@@ -271,7 +292,9 @@ following are established:
 2. Its signature and returns are expressible as an ordinary typed `defproc`.
 3. Every direct and transitive effect is supported on the selected procedure
    route; ProcRef and child-workflow effects remain visible.
-4. The migrated definition and all migrated calls choose `:lowering inline`.
+4. The migrated definition composes inline: explicit `:lowering inline` for
+   origins 2.35–2.38; no `:lowering` clause for origins at 2.39. Imported
+   definitions preserve their original policy.
 5. Compile and shared validation pass through the production WCC route with no
    consumer-name special case.
 6. Before/after executable comparison proves public inputs/outputs, terminal
@@ -302,11 +325,11 @@ Retain a `defworkflow` when any of these is true:
 - route/readiness and behavioral compatibility cannot be established from
   production-path direct owner evidence.
 
-A unit that needs a private state/resume/debug namespace but no public role may
-become a `defproc :lowering private-workflow`; this is not an exception to the
-public-boundary rules. In the current slice the namespace need is recorded and
-reviewed as migration evidence, not expressed through a new namespace source
-annotation.
+At origins 2.35–2.38, a unit needing a private state/resume/debug namespace
+may retain `defproc :lowering private-workflow`, with reviewed evidence of
+that need. At 2.39 use an explicit concrete `defworkflow` plus `call` instead;
+the transport and new-identity obligations above apply. Neither case permits
+erasing a required public boundary or adds a namespace source annotation.
 
 <a id="feasibility-evidence"></a>
 
@@ -314,9 +337,11 @@ Historical procedure-first feasibility cases and consumer inventory. Current mig
 
 ## Compatibility And Migration
 
-Existing `defworkflow`, `defproc`, and `auto` programs remain valid. The new
-rule constrains adoption and migration claims: identity-sensitive code must
-select an explicit lowering mode, and public wrappers stay workflows.
+Admitted 2.35–2.38 definitions retain existing `defworkflow`, `defproc` and
+`auto` semantics, including in a 2.39 caller; pre-2.35 source is not admitted.
+New 2.39 definitions use implicit inline procedures and explicit workflow
+boundaries. Origin-aware composition and public wrappers remain required
+for adoption and migration claims.
 
 No wrapper record is introduced or removed by this decision. Every
 transportable return type remains valid everywhere already allowed by the
@@ -328,7 +353,8 @@ and does not affect lowering, identity, effects, or migration classification.
 
 The resolved-effect and compiler-owned lowering-decision substrates are
 implemented prerequisites. Procedure-first adoption remains family-gated: the
-pilot and later waves must prove explicit lowering, resolved effect visibility,
+pilot and later waves must prove origin-appropriate inline composition,
+resolved effect visibility,
 Semantic IR and source-map lineage, checkpoint/state compatibility, runtime
 behavior, and the applicable identity-retirement or strict-compatibility path.
 No family may claim procedure-first promotion from this accepted design or the
@@ -341,8 +367,10 @@ Each substrate or family implementation must include:
 
 - type/effect tests proving direct versus recomputed transitive summaries,
   including a specialized generic with effectful ProcRef hooks;
-- lowering tests for explicit `inline`, explicit `private-workflow`, and the
-  rejection or non-promotion of identity-sensitive `auto` use;
+- lowering tests for retained 2.35–2.38 policies, including imports into 2.39,
+  and non-promotion of identity-sensitive `auto` use;
+- 2.39 tests for implicit inline composition, rejection of authored `:lowering`,
+  and concrete explicit workflow boundaries;
 - source-map checks spanning the procedure, ProcRef/specialization form, call
   site, generated nodes, and any private boundary;
 - compiled before/after comparisons for public contracts, effects, artifacts,
@@ -361,9 +389,10 @@ Each substrate or family implementation must include:
   specialization recomputes the latter before lowering.
 - Supported composed effects and their owners are explicit; publication is
   never inferred from a return.
-- Procedure-first migrations require explicit inline lowering; private
-  workflow lowering requires a declared private identity need; `auto` promises
-  no persisted identity.
+- Procedure-first migrations require caller-owned inline composition under
+  definition-origin rules. Retained 2.35–2.38 private lowering needs reviewed
+  identity evidence and `auto` promises no persisted identity; new 2.39
+  boundaries are explicit concrete workflows.
 - WorkflowRef is compile-time/module-link only, matching ProcRef's no-runtime-
   values boundary.
 - The migration test preserves public, artifact, source-map, checkpoint, and

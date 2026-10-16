@@ -8,6 +8,14 @@
 > ownership run in parallel in isolated worktrees, as the Phase 2 waves
 > specify; tasks that share an owner run one implementer at a time.
 
+**Current regime:** The 2.33 implementation steps below preserve the original
+CF planning contract; pre-2.35 source is no longer admitted. Use the
+[current composition design](../design/workflow_lisp_composition_first.md)
+for the graph-selected 2.35/2.36–2.39 helper APIs and origin-aware effects.
+EL-1 is delivered at 2.39 while all six maintained stdlib modules retain
+origin 2.35. CF-1c remains ON_HOLD; neither this historical task sequence nor
+EL-1 delivery selects its consumer migrations.
+
 **Goal:** Deliver the whole composition-first design: value-returning
 procedures through generic unions, the `improve` helper, migration of every
 `review-revise-loop` consumer, and retirement of the displaced declarations.
@@ -99,7 +107,7 @@ to hit. Each is pinned by a test in the task that owns the code.
 | §5 Boundaries: typed feedback, legacy validation | CF-1b Task 5; Tasks 8–11, 13–14 |
 | §5 Boundaries: documents, inputs | Tasks 9–11, 13–14 (path-bearing subjects keep today's semantics) |
 | §6 Language delta | CF-1b Tasks 1–4 |
-| §7 Effects | CF-1b Task 5 (forwarding regime); Task 16 (after EL-1) |
+| §7 Effects | CF-1b Task 5 (retained 2.35 forwarding regime); Task 16 (unselected library follow-up) |
 | §8 Migration | Tasks 8–11, 13–15 |
 | §9 Feasibility obligations | Phase 0; CF-1b Tasks 4–6 |
 | §10 Evidence requirements | CF-1b Tasks 5–6; Tasks 9–12 |
@@ -895,29 +903,23 @@ program identity changes with its source.
 
 EL-1's contract and implementation belong to the
 [effect ledger design](../design/workflow_lisp_effect_ledger_simplification.md)
-and its roadmap section, not to this plan. One task here depends on it.
+and its roadmap section, not to this plan. Its delivered 2.39 contract does
+not automatically select a stdlib migration.
 
-### Task 16: Move The New Modules To Inference-Default Effects
+### Task 16: Review Any Separately Selected Library Migration
 
-**Entry condition:** EL-1b is implemented on `main` at its own target.
+**Status:** unselected follow-up. The earlier instruction to remove the
+forwarding `:effects ()` when EL-1 lands is superseded by the delivered
+origin-aware contract. All six maintained stdlib modules (`std/context`,
+`std/drain`, `std/phase`, `std/resource`, and both `improve` variants) retain
+header 2.35 and their existing effect/lowering semantics in 2.39 callers. The selected EL-1 delivery migrates
+two consumer examples, not those libraries.
 
-**Files:**
-- Modify: `orchestrator/workflow_lisp/stdlib_modules/std/improve.orc`,
-  `orchestrator/workflow_lisp/stdlib_modules/std/review.orc`
-- Test: `tests/test_workflow_lisp_improve_stdlib.py`
-
-- [ ] **Step 1: Write the failing tests:** with the clause omitted, the
-  specialized summary of `improve` still lists the selected adapters'
-  provider and command effects; a caller that declares an explicit nonempty
-  ceiling naming one review provider is rejected when the selected hook uses a
-  different provider.
-- [ ] **Step 2: Run them and confirm they fail.**
-- [ ] **Step 3: Replace** the forwarding `:effects ()` clause on `improve`
-  with omission under the EL-1 regime, keep the explicit
-  `uses-command validate_review_findings_v1` on `validate-findings`, and keep
-  old-target controls.
-- [ ] **Step 4: Run the tests and confirm they pass.**
-- [ ] **Step 5: Commit** by pathspec.
+If the owner later selects a library migration to 2.39, review actual
+restrictions and transport/identity consequences, inventory graph-selected
+callers, and prove specialized effects, old-origin compatibility and the
+library’s behavioral contract. That selection needs its own bounded plan;
+EL-1 completion alone is not its entry permission.
 
 ## Phase 4: Extensions By Named Caller
 

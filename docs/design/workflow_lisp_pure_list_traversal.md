@@ -1,5 +1,8 @@
 # Workflow Lisp Pure List Traversal
 
+Current source/import/tooling admission follows the [source floor](workflow_lisp_executor_retirement.md#source-floor-235).
+Pre-2.35 introduction gates below are historical; data readers remain separate.
+
 - **Status:** implemented at target 2.18; source interstage complete
   (2026-07-25)
 - **Design review:** ordered `LIST_DESIGN_SPEC_APPROVED` then
@@ -7,7 +10,7 @@
 - **Kind:** closed pure-expression surface extension plus one bounded
   effectful binder
 - **Owner:** Workflow Lisp frontend + pure evaluator
-- **Minimum target:** `(:target-dsl "2.18")`
+- **Introduction target:** `(:target-dsl "2.18")`; current source requires 2.35–2.39
 - **Motivating consumer:** runtime-cardinality fan-out — for example, a
   review panel whose ordered lens names are workflow input data, whose
   provider calls each return a review-report path, and whose synthesis call
@@ -57,9 +60,13 @@ rereviews then approved this design.
 
 ## Version and compatibility contract
 
-All new source forms require target DSL 2.18. Lower targets do not reserve
-their names and fail through the existing target/surface diagnostic if the
-forms are used.
+List forms were introduced at target DSL 2.18. That historical feature gate
+does not admit old source; every current module and typed-program import must
+target 2.35–2.39.
+
+The remaining payload/lowering rules in this section describe the original
+flat projection contract. They preserve data-format distinctions, not current
+source or old-profile resume permission.
 
 Pure payload schema behavior is additive and selective:
 
@@ -78,7 +85,8 @@ WCC lowering remains schema 2. Core Workflow AST, Workflow Semantic IR,
 Workflow Executable IR, runtime-plan, source-map, and persisted state schema
 versions do not change: their existing extensible metadata and step shapes
 carry this delta without a new node kind. Existing schema-1 payloads and
-checkpoints remain resumable.
+checkpoints were resumable under that historical profile; current old-profile
+resume is rejected.
 
 ## Collection eligibility
 
@@ -376,8 +384,8 @@ their rules apply.
 
 Implementation follows TDD and must cover both directions:
 
-1. schema-1 payloads and target-2.17 workflows remain byte-identical while
-   2.18 forms emit schema 2 and lower targets reject them;
+1. preserve historical schema-1/2 data distinctions and reject pre-2.35
+   source/imports; the original 2.17/2.18 source comparison is historical;
 2. shared golden vectors exercise evaluator and compile-time folding parity
    for constructor/operator/map/path success and every refusal above;
 3. empty construction succeeds in every enumerated checked context and
@@ -401,13 +409,14 @@ New or renamed test modules run `pytest --collect-only` before execution.
 Focused frontend/evaluator/loop/build/resume selectors precede the existing
 broad suite. No test asserts literal prompt wording.
 
-### Maintained runtime-cardinality proof
+### Historical runtime-cardinality proof
 
-The maintained target-2.18 consumer is
+The original target-2.18 consumer is
 `tests/fixtures/workflow_lisp/valid/list_map_effect_runtime_cardinality_provider.orc`.
-Its focused proof consists of exactly three tests, including two
-deterministic-provider end-to-end tests, in
-`tests/test_workflow_lisp_list_traversal.py`:
+It is no longer admitted source. Its original proof comprised three tests,
+including two deterministic-provider end-to-end tests, recorded in
+`tests/test_workflow_lisp_list_traversal.py`; this is historical evidence, not
+a current runtime recipe:
 
 1. runtime `List[Int]` input binding compiles to qualified per-iteration
    provider checkpoint authority;

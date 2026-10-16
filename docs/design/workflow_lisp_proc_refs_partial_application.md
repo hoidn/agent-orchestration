@@ -58,7 +58,8 @@ source maps remain deterministic.
 
 Macros are insufficient because this is semantic workflow behavior, not just
 syntax rewriting. `WorkflowRef` is too coarse because these abstractions often
-target `defproc` procedures that may lower inline or as private workflows.
+target typed internal `defproc` composition rather than a concrete workflow
+boundary. Lowering follows the definition-origin rules below.
 Runtime first-class procedures are too broad because they would weaken static
 graph identity, effect analysis, source maps, replay, and resume semantics.
 
@@ -215,12 +216,22 @@ analysis can prove it is non-recursive after specialization.
 
 After specialization, lowering sees only ordinary concrete procedure calls.
 
-`defproc :lowering` policy applies after specialization:
+The defining procedure’s origin governs lowering after specialization. For
+admitted origins 2.35–2.38, the retained `defproc :lowering` policy applies:
 
 - `inline` specializes and then inlines the resulting body;
 - `private-workflow` specializes and then emits a hidden private workflow;
 - `auto` may choose inline or private workflow using the existing lowering
   policy.
+
+Definitions originating at 2.39 reject authored `:lowering` and compose inline
+in the caller, including concrete specializations. A 2.39 caller importing a
+2.35–2.38 definition preserves that definition’s policy. An intentional
+workflow/frame/checkpoint boundary uses a concrete `defworkflow` invoked with
+`call`; compile-time ProcRef/WorkflowRef values are not runtime transport.
+Moving an old private procedure to that boundary gives it a new definition
+identity and promises no cross-version resume. See the
+[frontend lowering contract](workflow_lisp_frontend_specification.md#106-procedure-lowering-policy-resolved).
 
 Executable IR, runtime plans, debug YAML projections, run state, and artifact
 bundles must not contain unresolved `ProcRef` values.
@@ -313,7 +324,9 @@ A first implementation must include positive tests proving:
 - `bind-proc` binds a subset of arguments and exposes the correct residual
   signature;
 - a specialized procedure can lower inline;
-- a specialized procedure can lower as a private workflow when policy requires;
+- a specialized procedure originating at 2.35–2.38 retains its private-workflow
+  policy, including when imported by a 2.39 caller;
+- a 2.39-origin specialization composes inline and rejects authored `:lowering`;
 - effect summaries include selected and bound procedure behavior;
 - source-map/explain artifacts expose the original `defproc`, `proc-ref`,
   `bind-proc`, specialization, and lowered nodes;

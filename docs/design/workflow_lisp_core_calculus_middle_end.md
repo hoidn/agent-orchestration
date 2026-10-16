@@ -5,10 +5,10 @@ steps and the step runtime that executed them, targets through 2.34) was
 retired on 2026-10-13 and executable entries through 2.34 are refused; the
 retained middle-end (WCC elaboration, ANF normalization, scope/effect/proof
 analysis) feeds the closed program that the evaluated runtime executes at
-2.35/2.36 (§§10.1, 11.4, 13.5, 15)
+2.35–2.39 (§§10.1, 11.4, 13.5, 15), within each target's admitted effect surface
 Kind: architecture decision / compiler architecture
 Created: 2026-06-09
-Updated: 2026-10-15 (flat route retired; evaluated execution is the only route)
+Updated: 2026-10-16 (source floor and complete executable WCC boundary)
 Execution scope: the [executor retirement design](workflow_lisp_executor_retirement.md)
 and `specs/cli.md` govern executable admission; the
 [retirement retrospective](../reports/2026-10-13-flat-route-retirement-retrospective.md)
@@ -17,8 +17,10 @@ flat-identity part of 11.4, 12, former §13.4 (dual-compile equivalence),
 14.4-14.6 and 17-21 describe the retired flat route and are kept as history.
 The historical dual-compile-equivalence anchor remains below; current §13.4
 instead owns executable command preparation and single-mode WCC body
-preparation (§13.4.2). The selected 2.35 source floor removes exclusive older
-source modes after migration; current normalization-stage consumers remain.
+preparation (§13.4.2). The implemented 2.35 source floor removes exclusive older
+source modes; current normalization-stage consumers remain. Executable WCC
+carries typed values and normalized bodies, and direct WCC-to-closed
+translation does not re-enter frontend elaboration (§13.2).
 Scope: retained typed WCC elaboration, ANF normalization, second-class
 join-point control and scope/effect/proof analysis feeding checked closed-program
 construction. Defunctionalization into flat steps is retired architecture, not

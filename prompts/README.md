@@ -30,8 +30,9 @@ retains the following task and output contracts for explicit manual adaptation:
 | [draft_plan.md](../workflows/library/prompts/design_plan_impl_stack_v2_call/draft_plan.md), [review_plan.md](../workflows/library/prompts/design_plan_impl_stack_v2_call/review_plan.md), [revise_plan.md](../workflows/library/prompts/design_plan_impl_stack_v2_call/revise_plan.md) | Draft, review and revise a plan with an open-findings ledger. | [tracked_plan_phase.orc](../workflows/library/tracked_plan_phase.orc) |
 | [implement_plan.md](../workflows/library/prompts/design_plan_impl_stack_v2_call/implement_plan.md), [review_implementation.md](../workflows/library/prompts/design_plan_impl_stack_v2_call/review_implementation.md), [fix_implementation.md](../workflows/library/prompts/design_plan_impl_stack_v2_call/fix_implementation.md) | Execute an approved plan, review the full target and apply required corrections. | [implementation phase](../workflows/library/design_plan_impl_implementation_phase.orc) |
 
-Those executable entries target 2.14 and are retired; admitted typed imports
-are assessed separately. Existing `design_plan_impl_stack.prompts.json` and
+Those sources target 2.14 and are retired for both execution and typed imports;
+current source and typed-program graphs must use registered targets 2.35–2.39.
+The prompt text remains available for explicit manual adaptation. Existing `design_plan_impl_stack.prompts.json` and
 `kiss_backlog_item/prompts.json` mappings do not establish current entry
 admission. Consumed Artifacts, output pointers, structured findings and
 commit/current-checkout instructions are operational requirements of the text;

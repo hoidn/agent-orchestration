@@ -1,5 +1,8 @@
 # Workflow Lisp Pure-Call Expression Composition
 
+Current source/import/tooling admission follows the [source floor](workflow_lisp_executor_retirement.md#source-floor-235).
+Pre-2.35 introduction gates below are historical; data readers remain separate.
+
 ## Metadata
 
 - **Status:** implemented for the resolved-inline subset at target 2.30
@@ -19,7 +22,8 @@ Package-C verification/review receipts are preserved as historical evidence; the
 
 ## Summary And Current Fallback
 
-At target 2.30, calls to resolved inline effect-free helpers compose as ordinary
+Introduced at target 2.30 and retained in every admitted source target, calls
+to resolved inline effect-free helpers compose as ordinary
 expressions wherever their implementations fit the enclosing pure-expression
 contract. The compiler preserves argument order, once-only evaluation, lexical
 scope and provenance with resolved-call normalization and ordered schema-3
@@ -32,8 +36,9 @@ cannot reduce to supported pure expressions remain excluded.
 
 Before target 2.30, authors used `defun` where it sufficed or an explicit
 `let*` binding where ordinary procedure lowering was supported. Those forms
-remain useful for older targets and calls outside the implemented subset;
-target 2.30 removes that workaround for supported resolved-inline calls.
+remain useful for calls outside the implemented subset. Target 2.30 removed
+that workaround for supported resolved-inline calls; its pre-2.30 source and
+pipeline comparisons below are historical.
 
 ## Context And Authority
 
@@ -273,14 +278,15 @@ Preparation fixtures under
 `tests/fixtures/workflow_lisp/pure_call_composition_preparation/` recorded two
 pre-implementation defects: caller-name capture changed returned values, and an
 unused fallible argument could disappear. Caller-name capture is corrected at
-every target, including `defun` expansion below 2.30. At target 2.30, ordered
-bindings also preserve once-only evaluation for repeated and unused arguments;
-targets below 2.30 retain their characterized substitution behavior. The
+every admitted target. Historically, the correction also covered `defun`
+expansion below 2.30. Target 2.30 added ordered bindings to preserve once-only
+evaluation for repeated and unused arguments; the characterized pre-2.30
+substitution behavior is historical. The
 target-2.30 regression is covered by
 `tests/test_workflow_lisp_pure_call_composition.py::test_target_230_compiles_ordered_bindings_for_repeated_and_unused_arguments`.
 
 At target 2.30, only payloads needing the new node use schema 3. Existing
-schema-1/2 payloads and older-target lowering remain unchanged; validators
+schema-1/2 payloads and pre-2.30 lowering were unchanged at introduction; validators
 reject a `let` in those older payload schemas. The payload and its lexical
 structure participate in the existing deterministic identity/resume contract.
 

@@ -1,12 +1,15 @@
 # Workflow Lisp Numeric Surface
 
+Current source/import/tooling admission follows the [source floor](workflow_lisp_executor_retirement.md#source-floor-235).
+Pre-2.35 introduction gates below are historical; data readers remain separate.
+
 ## Metadata
 
 - **Status:** implemented at target 2.34 (`specs/versioning.md`, v2.34
   additions), except that a refusal at run time points at the generated
   step's pure region, not at the failing application (N4). Literal tests do
-  not cover every position in the totality matrix. Targets through 2.33 keep
-  the pre-surface behaviour summarized in section 2.
+  not cover every position in the totality matrix. Section 2 records the
+  historical pre-surface behaviour through 2.33; those source targets are retired.
 - **Kind:** pure expression surface and boundary contract
 - **Owner:** Workflow Lisp frontend; pure expression catalog
 - **Created:** 2026-09-29
@@ -24,7 +27,8 @@
 
 A workflow before target 2.34 could compare two `Float` values but could not
 compute with them, divide, or write a decimal constant in an expression.
-Target 2.34 now admits the numeric surface below, so supported selection
+The numeric surface was introduced at 2.34 and is available in every admitted
+source target, so supported selection
 policies can perform that arithmetic in the language.
 
 The target implements a closed decimal arithmetic surface with four parts.
@@ -38,8 +42,8 @@ The target implements a closed decimal arithmetic surface with four parts.
 
 ## 2. What Exists
 
-The facts when the design was written. At targets through 2.33 the rows on
-behaviour still hold; the type rules now live once, in the catalog (N8).
+Historical facts when the design was written, before target 2.34. These rows
+do not describe currently admitted source; the type rules live in the catalog (N8).
 
 | Fact | Source |
 | --- | --- |
@@ -174,11 +178,10 @@ waits for a fixture that needs it.
 
 ## 6. Targets And Compatibility
 
-- The rules apply at target 2.34. Targets through 2.33 retain their previous
-  behaviour: they refuse decimal literals in expressions and accept
-  non-finite values at boundaries, as summarized in section 2.
-- The shared pure evaluator preserves historical numeric semantics for typed
-  imports; executable entries use the evaluated route. Old entry targets are retired.
+- The rules were introduced at target 2.34 and apply throughout the current
+  2.35–2.39 source range. Section 2 preserves pre-2.34 behaviour as history.
+- Pre-2.35 source and typed-program imports are rejected. Historical data
+  readers remain separate from source admission and evaluated execution.
 
 ## 7. Evidence Requirements
 
