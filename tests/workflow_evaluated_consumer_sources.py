@@ -1,8 +1,8 @@
 """Maintained consumer programs run on both routes with deterministic stand-ins.
 
-Each program is copied into a fresh workspace at its repository path, unchanged, with
-its checked-in manifests; the 2.35 copy differs only in its target header and in the
-command closure each certified command row declares. `SHIM` is installed as the `codex`
+Each program is copied into a fresh workspace at its repository path with its
+checked-in manifests; legacy-source fixtures preserve the old comparison route,
+while migrated current sources are copied unchanged. `SHIM` is installed as the `codex`
 and `claude` executables on PATH, so every request goes through the real provider
 templates, ProviderExecutor and attempt lifecycle of either route: it answers from a
 scripted plan per executable, writes the files the plan names (report files, edits in
@@ -116,7 +116,7 @@ def _candidates(root: Path) -> None:
 
 @dataclass(frozen=True)
 class Program:
-    """A maintained source, its accepted old target and what its workspace holds."""
+    """A maintained source, its source target, and what its workspace holds."""
 
     source: str
     target: str
@@ -125,6 +125,7 @@ class Program:
     manifests: dict[str, str]
     assets: tuple[str, ...] = ()
     prepare: Callable[[Path], None] = lambda root: None
+    source_fixture: str | None = None
 
 
 PROGRAMS = {
@@ -136,8 +137,9 @@ PROGRAMS = {
         f"{COMPARISON}/reviewed_change.orc", "2.28", "reviewed_change::reviewed-change", COMPARISON,
         {"providers": f"{COMPARISON}/reviewed_change.providers.json"}, prepare=lambda root: _repository(root / "repo")),
     "best_of_n": Program(
-        f"{COMPARISON}/best_of_n.orc", "2.28", "best_of_n::best-of-n", COMPARISON,
-        {"providers": f"{COMPARISON}/best_of_n.providers.json"}, prepare=_candidates),
+        f"{COMPARISON}/best_of_n.orc", "2.35", "best_of_n::best-of-n", COMPARISON,
+        {"providers": f"{COMPARISON}/best_of_n.providers.json"}, prepare=_candidates,
+        source_fixture="tests/fixtures/workflow_lisp/best_of_n_legacy/best_of_n.orc"),
     "watchdog": Program(
         "workflows/library/generic_run_watchdog/watchdog.orc", "2.15", "generic_run_watchdog/watchdog::watchdog",
         "workflows/library", {kind: f"{MIGRATIONS}/generic_run_watchdog.{kind}.json" for kind in FLAGS},
@@ -147,10 +149,10 @@ PROGRAMS = {
 }
 
 
-def _copy(root: Path, relpath: str) -> None:
+def _copy(root: Path, relpath: str, *, source_fixture: str | None = None) -> None:
     """Copy one file to the same path under `root`; a Python script also logs its executions."""
     (root / relpath).parent.mkdir(parents=True, exist_ok=True)
-    text = (ROOT / relpath).read_text(encoding="utf-8")
+    text = (ROOT / (source_fixture or relpath)).read_text(encoding="utf-8")
     if relpath.endswith(".py"):
         assert text.count(FUTURE) == 1
         text = text.replace(FUTURE, FUTURE + EXEC_LOG)
@@ -176,9 +178,10 @@ def install_shims(bin_dir: Path, monkeypatch, plan: dict) -> None:
 
 def install(root: Path, program: Program, inputs: dict, *, current: bool) -> list[str]:
     """Copy the program into `root`; return its workspace-relative frontend arguments."""
-    for relpath in (program.source, *program.assets):
+    _copy(root, program.source, source_fixture=program.source_fixture if not current else None)
+    for relpath in program.assets:
         _copy(root, relpath)
-    if current:
+    if current and program.target != "2.35":
         source, header = root / program.source, f'(:target-dsl "{program.target}")'
         text = source.read_text(encoding="utf-8")
         assert text.count(header) == 1

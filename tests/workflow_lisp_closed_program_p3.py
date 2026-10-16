@@ -80,7 +80,10 @@ def _compile_closed(prepared: Prepared):
 
 def _pair(workflow: Workflow, scratch: Path):
     prepared = prepare(workflow, scratch)
-    original = workflow.source.read_text(encoding="utf-8")
+    flat_source = workflow.source
+    if workflow.key == "experiments/orc_vs_single_call/workflows/best_of_n.orc::best-of-n":
+        flat_source = REPO_ROOT / "tests/fixtures/workflow_lisp/best_of_n_legacy/best_of_n.orc"
+    original = flat_source.read_text(encoding="utf-8")
     assert prepared.entry.read_text(encoding="utf-8") == entry_with_target(
         workflow.source,
         syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION,

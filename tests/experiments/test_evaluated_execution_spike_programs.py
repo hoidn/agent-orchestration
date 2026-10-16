@@ -139,7 +139,10 @@ def _install_real(root: Path, name: str) -> tuple[Path, dict, dict, dict]:
     source, _, inputs_dir, _, _ = REAL[name]
     entry = root / Path(source).name
     root.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(REPO / source, entry)
+    source_path = REPO / source
+    if name == "best-of-n":
+        source_path = REPO / "tests/fixtures/workflow_lisp/best_of_n_legacy/best_of_n.orc"
+    shutil.copy2(source_path, entry)
     if inputs_dir is None:
         providers = json.loads((REPO / source.replace(".orc", ".providers.json")).read_text(encoding="utf-8"))
         return entry, providers, {}, {}

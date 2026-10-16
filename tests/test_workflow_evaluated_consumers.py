@@ -9,6 +9,7 @@ completed without dispatching anything again.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from itertools import chain
 import json
 from pathlib import Path
@@ -16,12 +17,15 @@ import re
 
 import pytest
 
+from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
+from orchestrator.workflow_lisp.closed.target import entry_target_dsl_version
 from tests.test_workflow_evaluated_cli import _run_cli
+from tests.test_workflow_evaluated_invalidate import _cli
 from tests.test_workflow_lisp_improve_example_e2e import APPROVED_LAUNCH, EXHAUSTED_LAUNCH, QUESTION, _params
 from tests.workflow_evaluated_consumer_sources import (
     BUGGY, CANDIDATES, PROGRAMS, SITE, assert_request_lineage, checked_run, compile_current, executions, flat_outputs,
-    git, install, install_shims, jsonl, lineage, missing_edges, old_route, request_view, requests,
+    current_route, git, install, install_shims, jsonl, lineage, missing_edges, old_route, request_view, requests, ROOT,
     resume_to_completion, routes, sha256, stop_after,
 )
 
@@ -177,8 +181,7 @@ def test_public_reviewed_change_keeps_independent_review_order(tmp_path, monkeyp
 # Serial best-of-N --------------------------------------------------------------------
 
 FIXED_ALT = "def add(a, b):\n    return sum((a, b))\n"
-SELECTION = {"winner": CANDIDATES[1], "ranking": [f"{CANDIDATES[1]}: 2 2 2 2", f"{CANDIDATES[0]}: 1 1 1 1"],
-             "report": "artifacts/review/selection.md"}
+SELECTION = json.loads((ROOT / "tests/fixtures/workflow_lisp/best_of_n_legacy/selection.json").read_text())
 BEST_OF_N = {
     "repos": list(CANDIDATES),
     "claude": [{"result": {"summary": "Fix add.", "account": "first candidate"}, "files": {"{repo}/calc.py": FIXED}},
@@ -188,21 +191,34 @@ BEST_OF_N = {
 }
 
 
-def _candidate(root: Path) -> dict:
-    status = {repo: git(root / repo, "status", "--porcelain") for repo in CANDIDATES}
-    return {"status": status, "bases": len({git(root / repo, "rev-parse", "HEAD") for repo in CANDIDATES}),
-            "calc": [(root / repo / "calc.py").read_text(encoding="utf-8") for repo in CANDIDATES]}
+def _candidate(root: Path, repos=CANDIDATES) -> dict:
+    status = {repo: git(root / repo, "status", "--porcelain") for repo in repos}
+    return {"status": status, "bases": len({git(root / repo, "rev-parse", "HEAD") for repo in repos}),
+            "calc": [(root / repo / "calc.py").read_text(encoding="utf-8") for repo in repos]}
 
 
 @pytest.mark.parametrize("marker,paused", [("loop:#1[1]", 1), ("loop:#1[2]", 2)],
                          ids=["after-first-candidate", "after-second-candidate"])
 def test_public_best_of_n_runs_isolated_candidates_serially_then_the_judge(tmp_path, monkeypatch, marker, paused):
+    assert entry_target_dsl_version(ROOT / PROGRAMS["best_of_n"].source) == "2.35"
     inputs = {"task": "Fix add in calc.py so that it returns the sum.", "intent": "add returns a + b",
               "repos": list(CANDIDATES)}
 
     old, new = routes(tmp_path, monkeypatch, "best_of_n", BEST_OF_N, inputs, marker)
 
+    program = PROGRAMS["best_of_n"]
+    dry_run = _cli(new.root, "run", program.source, "--entry-workflow", program.entry,
+                   "--source-root", program.source_root, "--provider-externs-file", "manifests/providers.json",
+                   "--input-file", "inputs.json", "--dry-run")
+    report = _cli(new.root, "report", "--run-id", new.authority.run_root.name,
+                  "--runs-root", str(new.authority.run_root.parent), "--format", "json")
     candidates = [_candidate(route.root) for route in (old, new)]
+    assert (new.root / program.source).read_bytes() == (ROOT / program.source).read_bytes()
+    summary = json.loads((new.root / "compile.stdout").read_text())
+    build = Path(summary["build_root"])
+    closed = ClosedProgram.from_artifact((build / "closed_program.json").read_text())
+    manifest = json.loads((build / "manifest.json").read_text())
+    run_header = json.loads((new.authority.run_root / "run.json").read_text())
     first, second, judge = lineage(new)
     assert set(second) <= {0}  # C9 requires no edge here; the observed edge to the first candidate is reported
     assert {"value": new.value, "requests": [(request["tool"], request["repos"]) for request in new.requests],
@@ -213,8 +229,82 @@ def test_public_best_of_n_runs_isolated_candidates_serially_then_the_judge(tmp_p
         "paused": paused,
         "owners": [("provider", "best_of_n::implement-one")] * 2 + [("provider", "best_of_n::best-of-n")],
         "lineage": [[], [0, 1]], "candidates": [candidates[0]] * 2, "report": True}
+    assert (closed.tree["target"], manifest["target"], run_header["result_persistence_profile"]) == (
+        "2.35", "2.35", "evaluated_execution.v1")
+    assert dry_run.returncode == 0, dry_run.stderr
+    assert report.returncode == 0, report.stderr
+    assert json.loads(report.stdout)["run"]["workflow_outputs"] == new.value
+    assert requests(new.root) == new.requests
     assert candidates[0]["calc"] == [FIXED, FIXED_ALT] and candidates[0]["bases"] == 1
     assert candidates[0]["status"] == {repo: " M calc.py\n" for repo in CANDIDATES}
+
+
+FOUR_CANDIDATES = (*CANDIDATES, "candidates/gamma", "candidates/delta")
+
+
+def test_public_best_of_n_runs_four_candidates_in_order(tmp_path, monkeypatch):
+    assert entry_target_dsl_version(ROOT / PROGRAMS["best_of_n"].source) == "2.35"
+    accounts = [f"candidate-account-{index}" for index in range(4)]
+    selection = {"winner": FOUR_CANDIDATES[-1],
+                 "ranking": [f"{repo}: 2 2 2 2" for repo in reversed(FOUR_CANDIDATES)],
+                 "report": "artifacts/review/selection.md"}
+    plan = {
+        "repos": list(FOUR_CANDIDATES),
+        "claude": [{"result": {"summary": f"Fix {repo}.", "account": account},
+                    "files": {f"{repo}/calc.py": FIXED}}
+                   for repo, account in zip(FOUR_CANDIDATES, accounts, strict=True)],
+        "codex": [{"result": selection, "files": {selection["report"]: "# Selection\n"}}],
+    }
+    inputs = {"task": "Fix add in calc.py so that it returns the sum.", "intent": "add returns a + b",
+              "repos": list(FOUR_CANDIDATES)}
+    install_shims(tmp_path / "bin", monkeypatch, plan)
+    root = tmp_path / "workspace"
+    frontend = install(root, PROGRAMS["best_of_n"], inputs, current=True)
+    for repo in FOUR_CANDIDATES[2:]:
+        git(root, "clone", "-q", CANDIDATES[0], repo)
+
+    route = current_route(root, frontend, "loop:#1[2]")
+
+    judge_prompt = route.requests[-1]["prompt"]
+    dependencies = lineage(route)
+    assert (route.value, [(request["tool"], request["repos"]) for request in route.requests],
+            len(route.paused), _owners(route),
+            [judge_prompt.index(account) for account in accounts],
+            _candidate(root, FOUR_CANDIDATES),
+            (root / selection["report"]).is_file()) == (
+        selection,
+        [("claude", [repo]) for repo in FOUR_CANDIDATES] + [("codex", list(FOUR_CANDIDATES))],
+        2,
+        [("provider", "best_of_n::implement-one")] * 4 + [("provider", "best_of_n::best-of-n")],
+        sorted(judge_prompt.index(account) for account in accounts),
+        {"status": {repo: " M calc.py\n" for repo in FOUR_CANDIDATES}, "bases": 1, "calc": [FIXED] * 4},
+        True,
+    )
+    assert all(set(dependencies[index]) <= set(range(index)) for index in range(4))
+    assert dependencies[-1] == [0, 1, 2, 3]
+    assert set(route.started().values()) == {1}
+
+
+def test_public_best_of_n_select_only_preserves_ordered_accounts(tmp_path, monkeypatch):
+    assert entry_target_dsl_version(ROOT / PROGRAMS["best_of_n"].source) == "2.35"
+    accounts = ["alpha account", "beta account"]
+    inputs = {"intent": "add returns a + b", "repos": list(CANDIDATES), "accounts": accounts}
+    plan = {"repos": list(CANDIDATES),
+            "codex": [{"result": SELECTION, "files": {SELECTION["report"]: "# Selection\n"}}]}
+    install_shims(tmp_path / "bin", monkeypatch, plan)
+    root = tmp_path / "workspace"
+    program = replace(PROGRAMS["best_of_n"], entry="best_of_n::select-only")
+    frontend = install(root, program, inputs, current=True)
+
+    route = current_route(root, frontend, "best_of_n::select-only")
+
+    prompt = route.requests[0]["prompt"]
+    assert (root / program.source).read_bytes() == (ROOT / program.source).read_bytes()
+    assert (route.value, len(route.requests), route.requests[0]["tool"], route.requests[0]["repos"],
+            [prompt.index(account) for account in accounts], _owners(route), lineage(route),
+            (root / SELECTION["report"]).is_file(), set(route.started().values())) == (
+        SELECTION, 1, "codex", list(CANDIDATES), sorted(prompt.index(account) for account in accounts),
+        [("provider", "best_of_n::select-only")], [[]], True, {1})
 
 
 # Generic run watchdog ------------------------------------------------------------------
