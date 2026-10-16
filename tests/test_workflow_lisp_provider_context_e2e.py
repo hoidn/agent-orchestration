@@ -33,7 +33,7 @@ def test_target_231_private_workflow_accepts_an_ordinary_nested_collection_recor
     source.write_text(
         """(workflow-lisp
   (:language \"0.1\")
-  (:target-dsl \"2.31\")
+  (:target-dsl \"2.35\")
   (defmodule ordinary_private)
   (export keep)
   (defunion Choice (ONE (value Int)) (TWO (value Int)))
@@ -53,32 +53,3 @@ def test_target_231_private_workflow_accepts_an_ordinary_nested_collection_recor
 
     (procedure,) = compiled.entry_result.typed_procedures
     assert procedure.resolved_lowering_mode.value == "private-workflow"
-
-
-def test_target_230_private_workflow_keeps_the_legacy_nested_collection_refusal(
-    tmp_path: Path,
-) -> None:
-    source = tmp_path / "ordinary_private_230.orc"
-    source.write_text(
-        """(workflow-lisp
-  (:language \"0.1\")
-  (:target-dsl \"2.30\")
-  (defmodule ordinary_private_230)
-  (export keep)
-  (defunion Choice (ONE (value Int)) (TWO (value Int)))
-  (defrecord Packet (items List[Choice]))
-  (defproc keep ((value Packet)) -> Packet
-    :effects () :lowering private-workflow value))
-""",
-        encoding="utf-8",
-    )
-
-    with pytest.raises(LispFrontendCompileError) as raised:
-        compile_stage3_entrypoint(
-            source,
-            source_roots=(tmp_path,),
-            validate_shared=True,
-            workspace_root=tmp_path,
-        )
-
-    assert raised.value.diagnostics[0].code == "proc_private_workflow_boundary_invalid"

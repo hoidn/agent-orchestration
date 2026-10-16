@@ -39,11 +39,7 @@ REVIEW_LOOP_FIXTURE = (
 
 
 def _review_loop_entry(tmp_path: Path) -> Path:
-    source = REVIEW_LOOP_FIXTURE.read_text(encoding="utf-8").replace(
-        '(:target-dsl "2.14")',
-        f'(:target-dsl "{syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION}")',
-        1,
-    )
+    source = REVIEW_LOOP_FIXTURE.read_text(encoding="utf-8")
     import_form = (
         "  (import std/phase :only "
         "(ReviewDecision ReviewFindings ReviewLoopResult review-revise-loop with-phase))"

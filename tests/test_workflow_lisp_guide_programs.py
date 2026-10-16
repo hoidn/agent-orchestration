@@ -2,8 +2,8 @@
 
 The original 2.29/2.33/2.34 outcomes remain as fixture provenance. Executable
 cases use 2.35 and native values; old lowering defects and payload limits are
-not current admission rules. Older language/type refusals still use typed
-analysis without dispatch or a flat backend.
+not current admission rules. Historical language/type refusals remain provenance data; admitted cases use
+explicit current fixtures.
 """
 
 from __future__ import annotations
@@ -15,14 +15,14 @@ from pathlib import Path
 
 import pytest
 
-from tests.workflow_evaluated_totality_helpers import public_run
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.build_manifest_io import _parse_command_boundaries_manifest
 
+from tests.workflow_evaluated_totality_helpers import public_run
+
 REPO = Path(__file__).resolve().parents[1]
 SHAPES = Path("tests/fixtures/workflow_lisp/guide_shapes")
-HEADER = '(:target-dsl "2.33")'
 
 @dataclass(frozen=True)
 class Runs:
@@ -193,14 +193,12 @@ CASES = {
 }
 
 
-def _install(root: Path, program: str, target: str) -> dict[str, Path]:
+def _install(root: Path, program: str) -> dict[str, Path]:
     shapes = root / SHAPES
     shapes.mkdir(parents=True)
     for name in ("probe.py", "commands.json"):
         shutil.copy2(REPO / SHAPES / name, shapes / name)
-    text = (REPO / SHAPES / f"{program}.orc").read_text(encoding="utf-8")
-    assert text.count(HEADER) == 1, program
-    (shapes / f"{program}.orc").write_text(text.replace(HEADER, f'(:target-dsl "{target}")'), encoding="utf-8")
+    shutil.copy2(REPO / SHAPES / f"{program}.orc", shapes / f"{program}.orc")
     files = {
         "source": shapes / f"{program}.orc",
         "source_root": root / SHAPES.parent,
@@ -253,19 +251,14 @@ EVALUATED.update({
     "on_exhausted_float_defun": Runs(2.5),
     "decimal_arithmetic_zero_visits": FailsAtRunTime("pure_expr_division_by_zero", ()),
 })
-TYPED_REFUSALS = [
-    (case, target, outcome)
-    for case, (_, _, by_target) in CASES.items()
-    for target, outcome in by_target.items()
-    if isinstance(outcome, Refused) and outcome.stage in {"reader", "typecheck"}
-]
+
 
 
 @pytest.mark.parametrize("case", EVALUATED)
 def test_evaluated_program_outcomes(tmp_path, monkeypatch, case):
     program, inputs, _history = CASES[case]
     expected = EVALUATED[case]
-    files = _install(tmp_path, program, "2.35")
+    files = _install(tmp_path, program)
     input_file = tmp_path / "inputs.json"
     input_file.write_text(json.dumps(inputs))
     monkeypatch.chdir(tmp_path)
@@ -283,10 +276,18 @@ def test_evaluated_program_outcomes(tmp_path, monkeypatch, case):
         assert terminal["code"] == expected.code
 
 
-@pytest.mark.parametrize(("case", "target", "expected"), TYPED_REFUSALS,
-                         ids=[f"{case}@{target}" for case, target, _ in TYPED_REFUSALS])
-def test_historical_language_refusal_still_has_authored_location(tmp_path, case, target, expected):
-    files = _install(tmp_path, CASES[case][0], target)
+
+def test_every_fixture_program_has_a_case() -> None:
+    programs = {path.stem for path in (REPO / SHAPES).glob("*.orc")}
+    assert programs == {program for program, _, _ in CASES.values()}
+    # argv record projection is retired; current structured command inputs have
+    # their public coverage in test_workflow_evaluated_input_documents.py.
+    covered = set(EVALUATED) | {"on_exhausted_pure_proc"}
+    assert set(CASES) - covered == {"record_command_input", "record_adapter_input"}
+
+
+def test_current_procedure_exhaustion_refusal_keeps_authored_location(tmp_path):
+    files = _install(tmp_path, "on_exhausted_pure_proc")
     boundaries = _parse_command_boundaries_manifest(
         json.loads(files["commands"].read_text()), manifest_path=files["commands"],
     )
@@ -298,16 +299,7 @@ def test_historical_language_refusal_still_has_authored_location(tmp_path, case,
         )
     diagnostic = refused.value.diagnostics[0]
     assert (diagnostic.code, diagnostic.span.start.line, diagnostic.span.start.column) == (
-        expected.code, expected.line, expected.column,
+        "loop_recur_contract_invalid", 19, 21,
     )
     assert _log(tmp_path) == ()
     assert not (tmp_path / ".orchestrate" / "runs").exists()
-
-
-def test_every_fixture_program_has_a_case() -> None:
-    programs = {path.stem for path in (REPO / SHAPES).glob("*.orc")}
-    assert programs == {program for program, _, _ in CASES.values()}
-    # argv record projection is retired; current structured command inputs have
-    # their public coverage in test_workflow_evaluated_input_documents.py.
-    covered = set(EVALUATED) | {case for case, _, _ in TYPED_REFUSALS}
-    assert set(CASES) - covered == {"record_command_input"}

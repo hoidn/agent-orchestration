@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .spans import SourceSpan
-from .syntax import target_dsl_supports_rich_loop_values
+
 from .type_env import (
     ListTypeRef,
     MapTypeRef,
@@ -111,7 +111,7 @@ def ensure_loop_projectable_type(
 ) -> None:
     """Reject carried loop types that cannot lower across the loop-output surface."""
 
-    projection_type_env = _loop_projection_type_env(type_env)
+    projection_type_env = type_env
 
     if isinstance(type_ref, WorkflowRefTypeRef):
         _raise_loop_error(
@@ -213,18 +213,6 @@ def _contains_type_param_ref(type_ref: TypeRef) -> bool:
     return False
 
 
-def _rich_loop_values_enabled(type_env: Any | None) -> bool:
-    return target_dsl_supports_rich_loop_values(
-        getattr(type_env, "target_dsl_version", "")
-    )
-
-
-def _loop_projection_type_env(type_env: Any | None) -> Any | None:
-    """Keep legacy loop projection independent of richer target type metadata."""
-
-    return type_env if _rich_loop_values_enabled(type_env) else None
-
-
 def project_loop_value(
     type_ref: TypeRef,
     *,
@@ -236,7 +224,7 @@ def project_loop_value(
 ) -> LoopValueProjection:
     """Project one carried loop value onto deterministic flattened names."""
 
-    projection_type_env = _loop_projection_type_env(type_env)
+    projection_type_env = type_env
 
     from .contracts import (
         UnionWorkflowBoundaryProjection,
@@ -254,8 +242,6 @@ def project_loop_value(
             generated_name=prefix,
             source_path=(prefix,),
         )
-        if _rich_loop_values_enabled(type_env)
-        else {}
     )
     if isinstance(type_ref, UnionTypeRef):
         projection = derive_union_workflow_boundary_projection(
@@ -304,7 +290,7 @@ def project_loop_value(
         source_path=(prefix,),
         span=span,
         form_path=form_path,
-        allow_transportable_value=_rich_loop_values_enabled(type_env),
+        allow_transportable_value=True,
         type_env=projection_type_env,
     )
     return LoopValueProjection(

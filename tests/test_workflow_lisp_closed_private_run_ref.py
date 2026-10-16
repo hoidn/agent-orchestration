@@ -35,7 +35,7 @@ def _private_source(root, *, imported=False, generic=False, mode="private-workfl
         start = text.index('(defproc ')
         end = text.index('(defworkflow run ', start)
         helper = parent / 'helper.orc'
-        helper.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+        helper.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
           (defmodule helper) (export invoke) {text[start:end]})''')
         source.write_text(text[:start] + text[end:])
     return parent, source
@@ -70,7 +70,7 @@ def _assert_private_mode_and_owner(typed, imported, generic):
                for procedure in selected)
     if generic:
         assert any(procedure.specialization is not None for procedure in selected)
-    expected_target = "2.34" if imported else "2.35"
+    expected_target = "2.35" if imported else "2.35"
     assert all(typed.procedure_type_env(procedure).target_dsl_version == expected_target
                for procedure in selected)
 
@@ -80,13 +80,3 @@ def test_closed_auto_run_ref_keeps_existing_inline_selection(tmp_path):
     typed = compile_typed_program(source, entry_workflow="run", source_roots=(parent,), workspace_root=parent, command_boundaries={})
     assert all(procedure.resolved_lowering_mode is ProcedureLoweringMode.INLINE
                for procedure in typed.procedures.values())
-
-
-def test_legacy_explicit_private_run_ref_keeps_boundary_diagnostic(tmp_path):
-    parent, source = _private_source(tmp_path, target="2.34")
-    from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
-    with pytest.raises(LispFrontendCompileError) as caught:
-        compile_stage3_entrypoint(source, source_roots=(parent,), workspace_root=parent)
-    diagnostic = caught.value.diagnostics[0]
-    assert diagnostic.code == "proc_private_workflow_boundary_invalid"
-    assert diagnostic.span.start.path == str(source)

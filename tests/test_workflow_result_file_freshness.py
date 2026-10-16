@@ -158,7 +158,7 @@ def effect_kind(request):
     return request.param
 
 
-def _install(root: Path, effect_kind, *, body: str, target: str = "2.33"):
+def _install(root: Path, effect_kind, *, body: str, target: str = "2.35"):
     """Write the program; `body` is "call" (entry path) or "procedure" (promoted call path)."""
 
     effect = effect_kind(root)

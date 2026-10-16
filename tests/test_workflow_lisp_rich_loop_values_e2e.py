@@ -21,7 +21,7 @@ from orchestrator.workflow_lisp.loops import _placeholder_literals
 _HELPER_SOURCE = """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.29")
+  (:target-dsl "2.35")
   (defmodule rich_loop_values/helper)
   (export Task Progress Report advance)
   (defrecord Task (id String))
@@ -39,7 +39,7 @@ _HELPER_SOURCE = """\
 _ENTRY_SOURCE = """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.29")
+  (:target-dsl "2.35")
   (defmodule rich_loop_values/entry)
   (import rich_loop_values/helper :only (Task Progress Report advance))
   (export run)
@@ -100,7 +100,7 @@ _MULTI_ITERATION_ENTRY_SOURCE = _ENTRY_SOURCE.replace(
 _ROOT_LIST_ENTRY_SOURCE = """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.29")
+  (:target-dsl "2.35")
   (defmodule rich_loop_values/entry)
   (import rich_loop_values/helper :only (Task Report))
   (export run)
@@ -127,7 +127,7 @@ _ROOT_LIST_ENTRY_SOURCE = """\
 _ROOT_LIST_UNION_ENTRY_SOURCE = """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.29")
+  (:target-dsl "2.35")
   (defmodule rich_loop_values/entry)
   (import rich_loop_values/helper :only (Task))
   (export run)
@@ -157,7 +157,7 @@ def _write_fixture(
     helper.parent.mkdir()
     helper.write_text(_HELPER_SOURCE, encoding="utf-8")
     source = helper.with_name("entry.orc")
-    source.write_text(entry_source.replace('"2.29"', '"2.35"'), encoding="utf-8")
+    source.write_text(entry_source, encoding="utf-8")
     prompts = helper.parent / "prompts"
     prompts.mkdir()
     (prompts / "seed.md").write_text("seed\n", encoding="utf-8")

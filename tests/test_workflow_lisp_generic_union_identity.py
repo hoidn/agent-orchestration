@@ -31,7 +31,7 @@ def _type_env(tmp_path: Path) -> FrontendTypeEnvironment:
     path.write_text(
         """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.33")
+  (:target-dsl "2.35")
   (defunion Plain
     (ONLY (value Int)))
   (defunion Outcome :forall (T E)
@@ -65,7 +65,7 @@ def test_phantom_arguments_from_different_modules_get_distinct_specializations(t
         command_boundaries={},
         validate_shared=False,
         workspace_root=tmp_path,
-        lowering_route="legacy",
+
     )
     specializations = {
         name

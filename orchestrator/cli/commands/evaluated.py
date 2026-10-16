@@ -312,7 +312,7 @@ def _validate_reserved_pair(args, physical, logical, source, workspace):
         raise ValueError("physical request differs from the effective invocation")
     if not hasattr(args, "logical_input_file"):
         raise ValueError("reserved input-file requires an explicit logical counterpart")
-    for name in ("entry_workflow", "boundary_admission_profile", "lint_profile", "lowering_route", "workspace_root"):
+    for name in ("entry_workflow", "boundary_admission_profile", "lint_profile", "workspace_root"):
         if getattr(physical, name) != getattr(logical, name):
             raise ValueError(f"reserved request option differs: {name}")
     if len(physical.source_roots) != len(logical.source_roots):

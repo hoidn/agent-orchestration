@@ -110,7 +110,7 @@ def _provider(built):
 
 
 def test_direct_bool_provider_guidance_executes_without_wrapper_or_overall_prompt_leak(tmp_path: Path) -> None:
-    source = FIXTURE.read_text().replace('(:target-dsl "2.15")', '(:target-dsl "2.35")')
+    source = FIXTURE.read_text()
     built, arguments, env = _fixture(tmp_path, source,
         module="native_bool_return_guidance", result=True, commands=True)
     provider = _provider(built)

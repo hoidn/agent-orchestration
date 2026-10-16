@@ -64,7 +64,7 @@ SEQUENCE = PRELUDE + """  (defworkflow run () -> Note
 """
 
 
-def _install(root: Path, source: str, *, target: str = "2.33", broken: tuple[str, ...] = ()) -> dict[str, Path]:
+def _install(root: Path, source: str, *, target: str = "2.35", broken: tuple[str, ...] = ()) -> dict[str, Path]:
     probe = _write_probe(root, "probe", PROBE)
     _write_sources(root, {"grt/entry.orc": source.replace("TARGET", target).replace("PROBE", probe.as_posix())})
     for name in broken:

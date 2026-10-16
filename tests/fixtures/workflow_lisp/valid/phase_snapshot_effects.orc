@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule phase_snapshot_effects)
   (import std/phase :only (with-phase))
   (export orchestrate)

@@ -27,10 +27,12 @@ from .model import (
     WccJoin,
     WccLet,
     WccPerform,
+    map_perform_payload_values,
     WccProviderPeerGroup,
     WccProviderSupervision,
     WccRecJoin,
     WccParallelMap,
+    WccListMap,
     WccSelectArm,
 )
 
@@ -38,7 +40,7 @@ from .model import (
 # Binding values whose free names lowering resolves where they are bound (effects,
 # whose results are step outputs); it may resolve any other value where it is used.
 _EFFECTS = (WccPerform, WccCall, WccProviderSupervision, WccProviderPeerGroup)
-_RENAMED_BINDERS = (WccLet, WccCaseArm, WccJoin, WccRecJoin, WccParallelMap)
+_RENAMED_BINDERS = (WccLet, WccCaseArm, WccJoin, WccRecJoin, WccParallelMap, WccListMap)
 
 
 def names_read_where_used(values: Iterable[object], environment: Mapping[str, object]) -> frozenset[str]:
@@ -117,6 +119,13 @@ def _unshadow(
                 retained_fresh=retained_fresh,
             ),
         )
+    if isinstance(node, WccPerform) and node.perform_kind in {"command_result", "provider_result", "agent_turn"}:
+        def visit(value):
+            return _unshadow(value, live, fresh, retained_fresh=retained_fresh)
+
+        return replace(node, positional_args=tuple(visit(value) for value in node.positional_args),
+            keyword_args=tuple((name, visit(value)) for name, value in node.keyword_args),
+            operation_payload=map_perform_payload_values(node.perform_kind, node.operation_payload, visit))
     if isinstance(node, WccSelectArm):
         return _unshadow_select_arm(node, live, fresh, retained_fresh=retained_fresh)
     if isinstance(node, LetStarExpr):
@@ -148,7 +157,7 @@ def _live_in(node: object, field_name: str, live: frozenset[str]) -> frozenset[s
     return live
 
 
-def _rebound(node: WccLet | WccCaseArm | WccJoin | WccRecJoin | WccParallelMap, names: Mapping[str, str]) -> object:
+def _rebound(node: WccLet | WccCaseArm | WccJoin | WccRecJoin | WccParallelMap | WccListMap, names: Mapping[str, str]) -> object:
     """`node` with its binders in `names` renamed, and their references in the fields they scope."""
 
     if not names:
@@ -158,7 +167,7 @@ def _rebound(node: WccLet | WccCaseArm | WccJoin | WccRecJoin | WccParallelMap, 
         changes["bound_name"] = names[node.bound_name]
     elif isinstance(node, WccCaseArm):
         changes["binding_name"] = names[node.binding_name]
-    elif isinstance(node, WccParallelMap):
+    elif isinstance(node, (WccParallelMap, WccListMap)):
         changes["binder_name"] = names[node.binder_name]
     else:
         changes["params"] = tuple(replace(param, name=names.get(param.name, param.name)) for param in node.params)

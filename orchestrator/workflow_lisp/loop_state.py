@@ -739,13 +739,11 @@ def _typecheck_loop_state_seed(
     for field in expr.fields:
         retained_type = field.resolved_type_ref
         if (
-            context.compiler_session.closed_program
-            and retained_type is not None
-            and _first_type_param_ref(
+            (retained_type is not None) and (_first_type_param_ref(
                 retained_type,
                 include_retained_facts=True,
             )
-            is None
+            is None)
         ):
             resolved_type, allows_generic_type_param = retained_type, False
         else:
@@ -765,7 +763,7 @@ def _typecheck_loop_state_seed(
                 span=field.span,
                 form_path=field.form_path,
                 expansion_stack=field.expansion_stack,
-                include_retained_facts=context.compiler_session.closed_program,
+                include_retained_facts=True,
             )
             _ensure_runtime_transport_allowed(
                 resolved_type,
@@ -800,8 +798,6 @@ def _typecheck_loop_state_seed(
                 value_expr=typed_value.expr,
                 resolved_type_ref=(
                     resolved_type
-                    if context.compiler_session.closed_program
-                    else field.resolved_type_ref
                 ),
             )
         )
@@ -816,7 +812,7 @@ def _typecheck_loop_state_seed(
     )
     if family is not None and retained_family is not None and family != retained_family:
         raise RuntimeError("loop-state carrier family disagrees with its retained source occurrence")
-    if family is None and context.compiler_session.closed_program:
+    if family is None:
         raise RuntimeError(
             "typed loop-state carrier has no retained expanded-declaration family"
         )
@@ -824,10 +820,10 @@ def _typecheck_loop_state_seed(
         expr,
         context=context,
         field_signature=field_signature,
-        family=(family if context.compiler_session.closed_program else None),
+        family=(family),
     )
     base_generated_name = generated_name
-    if context.compiler_session.closed_program and family is not None:
+    if family is not None:
         generated_name = _select_closed_carrier_variant_name(
             generated_name,
             family=family,
@@ -861,7 +857,7 @@ def _typecheck_loop_state_seed(
     typed_expr = replace(expr, carrier_family=family)
     metadata_expr_key = (
         _carrier_metadata_expr_key(_expr_metadata_key(expr), family)
-        if family is not None and context.compiler_session.closed_program
+        if family is not None
         else _expr_metadata_key(expr)
     )
     context.session_state.loop_carrier_metadata_by_expr_key.setdefault(

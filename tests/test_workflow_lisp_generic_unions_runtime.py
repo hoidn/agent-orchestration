@@ -36,7 +36,7 @@ def _compile(root: Path, *, probes: dict[str, Path] | None = None, validate_shar
         },
         validate_shared=validate_shared,
         workspace_root=root,
-        lowering_route=None,
+
     )
 
 

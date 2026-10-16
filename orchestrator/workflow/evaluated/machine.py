@@ -154,6 +154,24 @@ class _Machine:
             raise self._error("closed_body_kind", "unsupported body kind 'par-map'", node)
         return handler(self, node, environment, owner, activation, loops)
 
+    def _parallel_source(self, node, environment, owner, activation, loops):
+        source = self._value(node["source"], environment, owner, activation, loops)
+        if len(source.value) > node["max"]:
+            raise self._error("list_map_effect_cap_exceeded",
+                f"parallel map length {len(source.value)} exceeds limit {node['max']}", node)
+        return source
+
+    def _parallel_item(self, node, environment, owner, activation, loops, index, item, source):
+        value = coerce_evaluated_value(item, node["item_type"], dependencies=source.dependencies)
+        local = environment.extend(node["binder"], value)
+        if "index" in node:
+            local = local.extend(
+                node["index"],
+                coerce_evaluated_value(index, {"kind": "primitive", "name": "Int"}),
+            )
+        workspace = self._value(node["workspace"], local, owner, activation, loops)
+        return local, self._add_dependencies(workspace, source.dependencies)
+
     def _let(self, node, environment, owner, activation, loops):
         value = self._bound(node["value"], environment, owner, activation, loops)
         return self._body(

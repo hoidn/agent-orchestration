@@ -30,7 +30,7 @@ def test_public_cli_selects_distinct_import_assets_without_redispatch(tmp_path, 
         producer_root = tmp_path / side
         producer_root.mkdir()
         producer = producer_root / f"{side}.orc"
-        producer.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+        producer.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
           (defmodule {side}/{side}) (export get)
           (defworkflow get () -> Int
             (provider-result providers.review :prompt prompts.base

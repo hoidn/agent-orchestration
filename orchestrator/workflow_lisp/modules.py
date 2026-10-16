@@ -11,14 +11,7 @@ from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .macros import MacroCatalog, MacroDef
 from .reader import SourceReadTrace, read_sexpr_file
 from .spans import SourceSpan
-from .syntax import (
-    PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
-    ImportDirective,
-    ModuleDirective,
-    WorkflowLispSyntaxModule,
-    build_syntax_module,
-    target_dsl_supports_provider_supervision,
-)
+from .syntax import PROVIDER_STEERING_DIRECTIVE_TYPE_NAME, ImportDirective, ModuleDirective, WorkflowLispSyntaxModule, build_syntax_module
 
 
 @dataclass(frozen=True)
@@ -660,10 +653,6 @@ def build_import_scope(
     unqualified_schema_bindings: dict[str, ModuleMemberBinding] = {}
     reserved_prelude_type_names = (
         frozenset({PROVIDER_STEERING_DIRECTIVE_TYPE_NAME})
-        if target_dsl_supports_provider_supervision(
-            module.target_dsl_version
-        )
-        else frozenset()
     )
     for import_directive in module.imports:
         if import_directive.alias in reserved_prelude_type_names:

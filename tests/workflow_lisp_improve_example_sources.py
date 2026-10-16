@@ -16,8 +16,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MAINTAINED_EXAMPLE = REPO_ROOT / "workflows" / "examples" / "improve_experiment_proposal.orc"
-EXAMPLE = REPO_ROOT / "tests/fixtures/workflow_lisp/improve_legacy/improve_experiment_proposal.orc"
-LEGACY_COMMANDS = EXAMPLE.with_name("commands.json")
+EXAMPLE = REPO_ROOT / "tests/fixtures/workflow_lisp/current_examples/improve_experiment_proposal.orc"
+LEGACY_COMMANDS = REPO_ROOT / "tests/fixtures/workflow_lisp/improve_legacy/commands.json"
 EXAMPLE_INPUTS = REPO_ROOT / "workflows" / "examples" / "inputs" / "improve_experiment_proposal"
 EXAMPLE_PROMPTS = REPO_ROOT / "workflows" / "examples" / "prompts" / "workflows" / "improve_experiment_proposal"
 

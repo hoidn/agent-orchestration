@@ -178,7 +178,7 @@ def _write_runtime_default_module(path: Path) -> Path:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',

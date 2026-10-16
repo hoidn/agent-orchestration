@@ -16,7 +16,7 @@ from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.definitions import PathDef
 from orchestrator.workflow_lisp.expression_traversal import free_expr_names, map_expr, iter_child_exprs, stamp_capture_origin
 from orchestrator.workflow_lisp.expressions import LetStarExpr, ListMapEffectExpr, elaborate_expression
-from orchestrator.workflow_lisp.functions import _clone_function_expr, _normalize_expr
+from orchestrator.workflow_lisp.functions import _ExpansionNameAllocator, _clone_function_expr, _normalize_expr
 from orchestrator.workflow_lisp.conditionals import _normalize_list_map
 from orchestrator.workflow_lisp.procedure_typecheck import _semantic_identity
 from orchestrator.workflow_lisp.reader import read_sexpr_text
@@ -43,7 +43,7 @@ def typed(source=FORM, *, target="2.37", values=None, expr=None):
     signature = WorkflowSignature("child", (("value", string),), string, expr.span, expr.form_path)
     return typecheck_expression(
         expr, type_env=env, value_env=values or {"repos": ListTypeRef("List[String]", string)},
-        workflow_catalog=WorkflowCatalog({"child": signature}, {}, {}), compiler_session=CompilerSession(closed_program=True),
+        workflow_catalog=WorkflowCatalog({"child": signature}, {}, {}), compiler_session=CompilerSession(),
     )
 
 
@@ -221,7 +221,7 @@ def test_workspace_normalization_keeps_item_bindings_inside_map():
     assert terminal.name == prefix[0][0]
     assert isinstance(rebuilt.workspace_expr, LetStarExpr)
     assert free_expr_names(rebuilt) == {"repos"}
-    normalized = _normalize_expr(rebuilt, typed_functions_by_name={}, expand_admitted_containers=True)
+    normalized = _normalize_expr(rebuilt, typed_functions_by_name={}, allocator=_ExpansionNameAllocator())
     assert normalized.workspace_expr is not rebuilt.workspace_expr
     assert free_expr_names(normalized) == {"repos"}
 

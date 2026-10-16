@@ -46,11 +46,15 @@ from .model import (
     WccLet,
     WccNameAtom,
     WccNodeMetadata,
+    WccPerform,
+    map_perform_payload_values,
+    perform_payload_values,
     WccProviderPeerGroup,
     WccProviderPeerGroupMember,
     WccProviderSupervision,
     WccRecJoin,
     WccParallelMap,
+    WccListMap,
     WccRunRefPayload,
     WccRunRefWorkflowPayload,
     WccSelectArm,
@@ -81,7 +85,7 @@ def _gather(
         children = (
             getattr(node, field.name)
             for field in dataclass_fields(node)
-            if field.name not in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner", "resolved_type_ref", "bound_proc_source", "source_binding", "capture_origin", "binding_capture_sources"}
+            if field.name not in {"body_metadata", "run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner", "resolved_type_ref", "bound_proc_source", "source_binding", "capture_origin", "binding_capture_sources"}
             and (include_condition_input or field.name != "condition_normalization_input")
         )
     else:
@@ -117,6 +121,7 @@ def _mentioned_names(node: object) -> set[str]:
 # The fields of a WCC node that its own binders scope over, and the names they bind.
 _BINDERS: dict[type, tuple[frozenset[str], Callable[[object], Iterable[str]]]] = {
     WccLet: (frozenset({"body"}), lambda node: (node.bound_name,)),
+    WccListMap: (frozenset({"body"}), lambda node: (node.binder_name,)),
     WccCaseArm: (frozenset({"body", "command_scope"}), lambda node: (node.binding_name,)),
     WccJoin: (frozenset({"continuation"}), lambda node: (param.name for param in node.params)),
     WccParallelMap: (frozenset({"workspace_body", "body"}), lambda node: (node.binder_name,)),
@@ -138,6 +143,10 @@ def _free_names(node: object, bound: frozenset[str] = frozenset()) -> set[str]:
 
     if isinstance(node, WccNameAtom):
         return {node.name} - bound
+    if isinstance(node, WccPerform) and node.perform_kind in {"command_result", "provider_result", "agent_turn"}:
+        operands = (*node.positional_args, *(value for _, value in node.keyword_args),
+            *perform_payload_values(node.perform_kind, node.operation_payload))
+        return set().union(*(_free_names(value, bound) for value in operands))
     if isinstance(node, ExprNode):
         return free_expr_names(node, bound=bound)
     if isinstance(node, WccSelectArm):
@@ -186,6 +195,12 @@ def _renamed(node: object, renamed: Mapping[str, WccNameAtom | str], bound: froz
         return node
     if isinstance(node, WccNameAtom):
         return node if node.name in bound else _renamed_atom(node, renamed.get(node.name, node))
+    if isinstance(node, WccPerform) and node.perform_kind in {"command_result", "provider_result", "agent_turn"}:
+        return replace(node,
+            positional_args=tuple(_renamed(value, renamed, bound) for value in node.positional_args),
+            keyword_args=tuple((name, _renamed(value, renamed, bound)) for name, value in node.keyword_args),
+            operation_payload=map_perform_payload_values(node.perform_kind, node.operation_payload,
+                lambda value: _renamed(value, renamed, bound)))
     if isinstance(node, ExprNode):
         return map_expr(node, lambda name: _renamed_name(name, renamed), bound=bound)
     if isinstance(node, WccSelectArm):
@@ -250,7 +265,7 @@ def _field_changes(node: object, rebuild: Callable[[str, object], object]) -> di
 
     changes = {}
     for field in dataclass_fields(node):
-        if field.init and field.name not in {"run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner", "resolved_type_ref", "bound_proc_source", "source_binding", "capture_origin", "binding_capture_sources"}:
+        if field.init and field.name not in {"body_metadata", "run_ref_metadata", "run_ref_origin", "carrier_family", "owner_union", "discriminant_owner", "resolved_type_ref", "bound_proc_source", "source_binding", "capture_origin", "binding_capture_sources"}:
             old = getattr(node, field.name)
             new = rebuild(field.name, old)
             if new is not old:

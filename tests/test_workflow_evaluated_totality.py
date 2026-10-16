@@ -1,12 +1,11 @@
 """Public target2.35 admission and execution, separate from the historical matrix."""
 
 import json
-from collections import Counter
 
 import pytest
 
 from tests.workflow_evaluated_totality_helpers import assert_source_refusal, cell_refusal, compile_public, exercise, native_cell_value, prepare_cell, prepare_control, prepare_union, public_run
-from tests.workflow_lisp_totality_matrix_sources import KNOWN_DEFECTS, RULES, SKIPPED, cells, expected
+from tests.workflow_lisp_totality_matrix_sources import cells, expected
 from tests.workflow_lisp_totality_matrix_locality import axes
 from tests.test_workflow_lisp_closed_program_compile_cli import _compile
 from tests.workflow_evaluated_totality_helpers import exercise_placement, prepare_placement, prepare_restricted_placement
@@ -15,7 +14,7 @@ from tests.workflow_evaluated_totality_helpers import _write_probe, _write_sourc
 from tests.workflow_evaluated_totality_helpers import public_files
 
 
-PROJECTED = [(form, position) for form, position in cells() if axes(form)[0] == "2.34"]
+PROJECTED = [(form, position) for form, position in cells() if axes(form)[0] == "2.35"]
 ADMITTED = [(form, position) for form, position in PROJECTED if cell_refusal(form, position) is None]
 REFUSED = [(form, position) for form, position in PROJECTED if cell_refusal(form, position) is not None]
 CONTROL_EXPECTED = {
@@ -36,40 +35,23 @@ LEFT = {"variant": "LEFT", "payload": {"n": 7, "label": "á雪"}}
 RIGHT = {"variant": "RIGHT", "count": 9}
 
 
-def _historical_row(form, position):
+def _current_row(form, position):
     target, locality, base = axes(form)
-    classification = "working"
-    for kind, table in (("rule", RULES), ("known defect", KNOWN_DEFECTS), ("skipped", SKIPPED)):
-        if (form, position) in table:
-            classification = kind
-    return {"id": f"{form}/{position}", "target": target, "form": base,
-            "position": position, "locality": locality, "classification": classification}
-
-
-def _projected_row(form, position):
-    historical = _historical_row(form, position)
     refusal = cell_refusal(form, position)
     classification = "type-incompatibility" if refusal == "match_subject_not_union" else "source-rule" if refusal else "admitted"
-    return dict(historical, id=f"2.35/{historical['form']}/{position}/{historical['locality']}",
-                generator_id=historical["id"], historical_classification=historical["classification"],
-                historical_target=historical["target"], target="2.35", classification=classification,
-                helper_target="2.34" if historical["locality"] == "imported" or
-                historical["form"] == "imported-wrapper-call" else None, refusal=refusal)
+    return {"id": f"{target}/{base}/{position}/{locality}", "target": target,
+            "form": base, "position": position, "locality": locality,
+            "classification": classification, "refusal": refusal}
 
 
-def test_projection_keeps_every_historical_shape_and_names_only_source_refusals(tmp_path):
-    historical = [_historical_row(form, position) for form, position in cells()]
-    projected = [_projected_row(form, position) for form, position in PROJECTED]
-    (tmp_path / "historical-census.json").write_text(json.dumps(historical, indent=2))
-    (tmp_path / "entry-235-projection.json").write_text(json.dumps(projected, indent=2))
-    counts = {"historical": dict(Counter(row["classification"] for row in historical)),
-              "projected": dict(Counter(row["classification"] for row in projected))}
-    (tmp_path / "classification-counts.json").write_text(json.dumps(counts, indent=2))
-    assert len(historical) == 530
+def test_current_matrix_preserves_each_shape_and_source_refusal(tmp_path):
+    rows = [_current_row(form, position) for form, position in PROJECTED]
+    (tmp_path / "current-matrix.json").write_text(json.dumps(rows, indent=2))
     assert len(PROJECTED) == 275
     assert len(set(PROJECTED)) == len(PROJECTED)
     assert len(ADMITTED) + len(REFUSED) == len(PROJECTED)
-    assert {row["refusal"] for row in projected} == {
+    assert {row["target"] for row in rows} == {"2.35"}
+    assert {row["refusal"] for row in rows} == {
         None, "match_subject_not_union", "effect_not_permitted", "loop_recur_contract_invalid"}
 
 
@@ -122,7 +104,7 @@ def test_public_control_refuses_pure_context_before_dispatch(tmp_path, case, cod
     assert not (tmp_path / ".orchestrate" / "runs").exists()
 
 
-@pytest.mark.parametrize("imported", [False, True], ids=["same", "imported234"])
+@pytest.mark.parametrize("imported", [False, True], ids=["same", "imported"])
 @pytest.mark.parametrize("choice", [LEFT, RIGHT], ids=["left-record", "right-scalar"])
 @pytest.mark.parametrize("generic", [False, True], ids=["concrete", "applied-generic"])
 def test_public_union_input_keeps_active_fields_nested_values_and_owner(tmp_path, monkeypatch, imported, choice, generic):
@@ -140,7 +122,7 @@ def test_public_union_input_keeps_active_fields_nested_values_and_owner(tmp_path
     assert authority.program.tree["result"]["name"] == name
 
 
-@pytest.mark.parametrize("imported", [False, True], ids=["same", "imported234"])
+@pytest.mark.parametrize("imported", [False, True], ids=["same", "imported"])
 @pytest.mark.parametrize("choice", [
     {"variant": "LEFT"},
     {"variant": "RIGHT", "count": "9"},
@@ -168,21 +150,7 @@ def test_public_union_owner_mismatch_refuses_before_dispatch(tmp_path):
     assert not probe.with_suffix(".log").exists()
 
 
-def test_public_imported_pre215_root_return_keeps_source_target_gate(tmp_path):
-    _write_sources(tmp_path, {
-        "grt/helper.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.14")
-          (defmodule grt/helper) (export echo) (defworkflow echo () -> Int 7))''',
-        "grt/entry.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
-          (defmodule grt/entry) (import grt/helper :as old) (export run)
-          (defworkflow run () -> Int (call old.echo)))''',
-    })
-    files = public_files(tmp_path, _write_probe(tmp_path, "unused", ""), ())
-    result = _compile(files)
-    assert_source_refusal(files, result, "workflow_root_return_target_dsl_unsupported")
-    assert str(tmp_path / "grt/helper.orc") + ":" in result.stderr
-    helper = tmp_path / "grt/helper.orc"
-    helper.write_text(helper.read_text().replace('"2.14"', '"2.15"'))
-    compile_public(files)
+
 
 
 @pytest.mark.parametrize("locality", ["direct", "same", "imported"])
@@ -204,14 +172,14 @@ def test_public_run_ref_pure_and_shape_refusals_precede_child_dispatch(tmp_path,
     assert not files["refs"].exists()
 
 
-@pytest.mark.parametrize("form", ["t234:plain-variant", "t234:generic-variant"])
-@pytest.mark.parametrize("imported", [False, True], ids=["direct", "imported234"])
+@pytest.mark.parametrize("form", ["plain-variant", "generic-variant"])
+@pytest.mark.parametrize("imported", [False, True], ids=["direct", "imported"])
 def test_public_nested_union_return_boundary_keeps_whole_native_value(tmp_path, monkeypatch, form, imported):
     files, probe = prepare_cell(tmp_path, form, "return-boundary")
     if imported:
         source = files["source"]
         helper = source.with_name("helper.orc")
-        helper.write_text(source.read_text().replace('"2.35"', '"2.34"')
+        helper.write_text(source.read_text()
                           .replace("(defmodule grt/entry)", "(defmodule grt/helper)")
                           .replace("(export run)", "(export Carry run)"))
         source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
@@ -223,7 +191,7 @@ def test_public_nested_union_return_boundary_keeps_whole_native_value(tmp_path, 
 
 @pytest.mark.parametrize("form", [
     "repro:nested-effectful-argument",
-    "t234:imported:repro:nested-effectful-argument",
+    "imported:repro:nested-effectful-argument",
     "inline:repro:nested-effectful-argument",
 ])
 def test_public_nested_effect_argument_is_once_only(tmp_path, monkeypatch, form):
@@ -238,4 +206,4 @@ def test_public_nested_effect_argument_is_once_only(tmp_path, monkeypatch, form)
     assert bump.data["depends_on"] == []
     assert fetch.data["depends_on"] == [bump.data["identity"]]
     if "imported" in form:
-        assert '(:target-dsl "2.34")' in (tmp_path / "grt" / "helper.orc").read_text()
+        assert '(:target-dsl "2.35")' in (tmp_path / "grt" / "helper.orc").read_text()

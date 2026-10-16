@@ -21,20 +21,22 @@ from tests.test_workflow_lisp_lsp_stdio import _initialize_request
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+CURRENT_EDITOR_RELPATH = Path("tests/fixtures/workflow_lisp/current_editor")
+CURRENT_EDITOR = REPO_ROOT / CURRENT_EDITOR_RELPATH
 RETIRED_EXAMPLES_RELPATH = Path("tests/fixtures/workflow_lisp/retired_examples")
 RETIRED_EXAMPLES = REPO_ROOT / RETIRED_EXAMPLES_RELPATH
-CYCLE_GUARD_ENTRY = RETIRED_EXAMPLES / "cycle_guard_demo.orc"
+CYCLE_GUARD_ENTRY = CURRENT_EDITOR / "cycle_guard_demo.orc"
 CYCLE_GUARD_COMMANDS = (
     RETIRED_EXAMPLES
     / "inputs"
     / "workflow_lisp_migrations"
     / "cycle_guard_demo.commands.json"
 )
-KISS_BACKLOG_ENTRY = RETIRED_EXAMPLES / "kiss_backlog_item.orc"
+KISS_BACKLOG_ENTRY = CURRENT_EDITOR / "kiss_backlog_item.orc"
 KISS_BACKLOG_INPUTS = RETIRED_EXAMPLES / "inputs" / "kiss_backlog_item"
 KISS_BACKLOG_PROVIDERS = KISS_BACKLOG_INPUTS / "providers.json"
 KISS_BACKLOG_PROMPTS = KISS_BACKLOG_INPUTS / "prompts.json"
-REVIEW_DESIGN_DOCS_ENTRY = RETIRED_EXAMPLES / "review_revise_design_docs.orc"
+REVIEW_DESIGN_DOCS_ENTRY = CURRENT_EDITOR / "review_revise_design_docs.orc"
 REVIEW_DESIGN_DOCS_INPUTS = RETIRED_EXAMPLES / "inputs" / "review_revise_design_docs"
 REVIEW_DESIGN_DOCS_PROVIDERS = REVIEW_DESIGN_DOCS_INPUTS / "providers.json"
 REVIEW_DESIGN_DOCS_PROMPTS = REVIEW_DESIGN_DOCS_INPUTS / "prompts.json"
@@ -85,7 +87,7 @@ def _copy_repository_inputs(
     return workspace, copied_paths
 
 
-def test_real_repository_cycle_guard_editor_session_is_read_only(
+def test_current_cycle_guard_editor_session_is_read_only(
     tmp_path: Path,
 ) -> None:
     workspace, copied_paths = _copy_repository_inputs(
@@ -106,7 +108,7 @@ def test_real_repository_cycle_guard_editor_session_is_read_only(
             workspace=workspace,
             initialization_options={
                 "source_roots": [
-                    str(workspace / RETIRED_EXAMPLES_RELPATH)
+                    str(workspace / CURRENT_EDITOR_RELPATH)
                 ],
                 "entry_workflows": {
                     str(entry_path): "cycle-guard-demo",
@@ -230,7 +232,7 @@ def test_real_repository_l3_mixed_entry_editor_session_is_read_only() -> None:
     assert not (L3_ENTRY_SELECTION_ROOT / ".orchestrate").exists()
 
 
-def test_real_repository_l2_recovery_to_full_is_read_only(
+def test_current_l2_recovery_to_full_is_read_only(
     tmp_path: Path,
 ) -> None:
     configuration_paths = (
@@ -270,7 +272,7 @@ def test_real_repository_l2_recovery_to_full_is_read_only(
             workspace=workspace,
             initialization_options={
                 "source_roots": [
-                    str(workspace / RETIRED_EXAMPLES_RELPATH)
+                    str(workspace / CURRENT_EDITOR_RELPATH)
                 ],
                 "entry_workflows": {
                     str(entry_path): "run-backlog-item",
@@ -299,24 +301,24 @@ def test_real_repository_l2_recovery_to_full_is_read_only(
             "name": "BacklogItemInputs",
             "kind": 23,
             "range": {
-                "start": {"line": 34, "character": 2},
-                "end": {"line": 36, "character": 45},
+                "start": {"line": 6, "character": 2},
+                "end": {"line": 8, "character": 31},
             },
             "selectionRange": {
-                "start": {"line": 34, "character": 13},
-                "end": {"line": 34, "character": 30},
+                "start": {"line": 6, "character": 13},
+                "end": {"line": 6, "character": 30},
             },
         }
         assert symbols_by_name["draft-plan-phase"] == {
             "name": "draft-plan-phase",
             "kind": 12,
             "range": {
-                "start": {"line": 61, "character": 2},
-                "end": {"line": 69, "character": 39},
+                "start": {"line": 11, "character": 2},
+                "end": {"line": 19, "character": 39},
             },
             "selectionRange": {
-                "start": {"line": 61, "character": 11},
-                "end": {"line": 61, "character": 27},
+                "start": {"line": 11, "character": 11},
+                "end": {"line": 11, "character": 27},
             },
         }
         assert symbols_by_name["run-backlog-item"]["kind"] == 12
@@ -332,7 +334,7 @@ def test_real_repository_l2_recovery_to_full_is_read_only(
             method="textDocument/completion",
             params={
                 "textDocument": {"uri": entry_path.as_uri()},
-                "position": {"line": 155, "character": 2},
+                "position": {"line": 27, "character": 2},
             },
         )
         completion_by_label = {
@@ -387,7 +389,7 @@ def test_real_repository_l2_recovery_to_full_is_read_only(
             method="textDocument/definition",
             params={
                 "textDocument": {"uri": entry_path.as_uri()},
-                "position": {"line": 161, "character": 15},
+                "position": {"line": 28, "character": 13},
             },
         )
         assert dirty_definition["result"] is None
@@ -397,7 +399,7 @@ def test_real_repository_l2_recovery_to_full_is_read_only(
             method="textDocument/completion",
             params={
                 "textDocument": {"uri": entry_path.as_uri()},
-                "position": {"line": 155, "character": 2},
+                "position": {"line": 27, "character": 2},
             },
         )
         assert dirty_completion["result"] == {
@@ -428,7 +430,7 @@ def test_real_repository_l2_recovery_to_full_is_read_only(
             method="textDocument/completion",
             params={
                 "textDocument": {"uri": entry_path.as_uri()},
-                "position": {"line": 155, "character": 2},
+                "position": {"line": 27, "character": 2},
             },
             result_predicate=lambda result: result == completion["result"],
             timeout=30.0,
@@ -441,7 +443,7 @@ def test_real_repository_l2_recovery_to_full_is_read_only(
             method="textDocument/definition",
             params={
                 "textDocument": {"uri": entry_path.as_uri()},
-                "position": {"line": 161, "character": 15},
+                "position": {"line": 28, "character": 13},
             },
             result_predicate=lambda result: result is not None,
             timeout=30.0,
@@ -469,7 +471,7 @@ def test_real_repository_l2_recovery_to_full_is_read_only(
     assert _tree_digest(build_root) == build_digest
 
 
-def test_real_repository_l5_authored_reference_navigation_is_read_only(
+def test_current_l5_authored_reference_navigation_is_read_only(
     tmp_path: Path,
 ) -> None:
     configuration_paths = (
@@ -546,15 +548,15 @@ def test_real_repository_l5_authored_reference_navigation_is_read_only(
     expected_prompt_definition = {
         "uri": entry_path.as_uri(),
         "range": {
-            "start": {"line": 72, "character": 2},
-            "end": {"line": 80, "character": 1666},
+            "start": {"line": 7, "character": 2},
+            "end": {"line": 10, "character": 26},
         },
     }
     expected_workflow_definition = {
         "uri": entry_path.as_uri(),
         "range": {
-            "start": {"line": 32, "character": 2},
-            "end": {"line": 39, "character": 48},
+            "start": {"line": 22, "character": 2},
+            "end": {"line": 23, "character": 10},
         },
     }
 
@@ -565,7 +567,7 @@ def test_real_repository_l5_authored_reference_navigation_is_read_only(
             workspace=workspace,
             initialization_options={
                 "source_roots": [
-                    str(workspace / RETIRED_EXAMPLES_RELPATH)
+                    str(workspace / CURRENT_EDITOR_RELPATH)
                 ],
                 "provider_externs_path": str(providers_path),
                 "prompt_externs_path": str(prompts_path),
@@ -592,8 +594,8 @@ def test_real_repository_l5_authored_reference_navigation_is_read_only(
         )
         assert prompt_definition["result"] == expected_prompt_definition
         assert prompt_definition["result"]["range"] != {
-            "start": {"line": 72, "character": 13},
-            "end": {"line": 72, "character": 30},
+            "start": {"line": 7, "character": 13},
+            "end": {"line": 7, "character": 30},
         }
         assert not any(
             item.get("method") == "textDocument/publishDiagnostics"
@@ -653,7 +655,7 @@ def test_watcher_disabled_helper_save_recompiles_clean_importer(
     helper_text = """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.18")
+  (:target-dsl "2.35")
   (defmodule helper)
   (export Shared)
   (defrecord Shared
@@ -662,7 +664,7 @@ def test_watcher_disabled_helper_save_recompiles_clean_importer(
     importer_text = """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.18")
+  (:target-dsl "2.35")
   (defmodule importer)
   (import helper :only (Shared))
   (export Consumer)

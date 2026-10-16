@@ -140,7 +140,7 @@ def test_helper_bodies_use_real_wcc_preparation(tmp_path, kind):
         prepared = elaborate_typed_workflow_body(procedure.typed_body, owner_name=procedure.definition.name,
             type_env=typed.procedure_type_envs[procedure.definition.name], value_env=dict(procedure.signature.params),
             procedure_return_types=builder.procedure_return_types, resolved_procedures_by_name=typed.procedures,
-            closed_program=True)
+            )
         prepared = normalize_wcc_body_to_anf(prepared)
     else:
         helper = next(row for row in typed.workflows.values() if row.definition.name.endswith("::worker"))

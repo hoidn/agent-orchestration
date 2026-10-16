@@ -218,7 +218,7 @@ def test_compile_stage1_rejects_macro_expansions_that_emit_top_level_defmacro(tm
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (emit-generated-macro generated)",
                 "  (defmacro emit-generated-macro (name)",
                 "    (defmacro name ()",
@@ -243,7 +243,7 @@ def test_compile_stage1_allows_macro_emitted_defschema_forms(tmp_path: Path) -> 
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -282,8 +282,8 @@ def test_compile_stage3_module_accepts_macro_emitted_provider_and_command_result
     )
 
     assert [workflow.definition.name for workflow in result.typed_workflows] == [
-        "command_checks",
-        "provider_attempt",
+        "entry::command_checks",
+        "entry::provider_attempt",
     ]
     assert [workflow.name for workflow in elaborate_workflow_definitions(_expanded_module(VALID_ALIAS_FIXTURE)[1])] == [
         "command_checks",
@@ -298,7 +298,7 @@ def test_compile_stage3_allows_caller_authored_effect_spliced_through_macro_alia
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -349,8 +349,8 @@ def test_compile_stage3_allows_caller_authored_effect_spliced_through_macro_alia
     )
 
     assert [workflow.definition.name for workflow in result.typed_workflows] == [
-        "command_checks",
-        "provider_attempt",
+        "entry::command_checks",
+        "entry::provider_attempt",
     ]
 
 
@@ -361,7 +361,7 @@ def test_compile_stage3_allows_macro_introduced_letstar_binding_field_access(tmp
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord Payload",
                 "    (status String))",
                 "  (defrecord Summary",
@@ -393,7 +393,7 @@ def test_compile_stage3_allows_macro_introduced_letstar_binding_field_access(tmp
         workspace_root=tmp_path,
     )
 
-    assert [workflow.definition.name for workflow in result.typed_workflows] == ["summarize"]
+    assert [workflow.definition.name for workflow in result.typed_workflows] == ["entry::summarize"]
 
 
 def test_compile_stage3_entrypoint_rejects_imported_macros_that_introduce_hidden_effects(
@@ -428,7 +428,7 @@ def test_compile_stage3_rejects_macro_introduced_provider_effects_as_macro_hidde
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord ImplementationSummary",
                 "    (report String))",
                 "  (emit-provider-workflow generated)",
@@ -499,7 +499,7 @@ def test_compile_stage3_rejects_macro_emitted_malformed_match_with_owned_diagnos
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -539,7 +539,7 @@ def test_compile_stage3_rejects_macro_emitted_malformed_defworkflow_with_owned_d
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (emit-bad-workflow broken)",
                 "  (defmacro emit-bad-workflow (name)",
                 "    (defworkflow name)))",
@@ -601,7 +601,7 @@ def test_compile_stage1_rejects_defun_as_a_reserved_macro_name(tmp_path: Path) -
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmacro defun ()",
                 "    42))",
             ]
@@ -624,7 +624,7 @@ def test_compile_stage3_module_accepts_macro_emitted_top_level_defun(tmp_path: P
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -655,4 +655,4 @@ def test_compile_stage3_module_accepts_macro_emitted_top_level_defun(tmp_path: P
         workspace_root=tmp_path,
     )
 
-    assert result.typed_workflows[0].definition.name == "orchestrate"
+    assert result.typed_workflows[0].definition.name == "entry::orchestrate"

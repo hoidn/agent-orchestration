@@ -66,11 +66,11 @@ identifiers, explanation surfaces, or executor extraction.
 ## 3. Interface
 
 The five-argument interface below is the legacy source-graph API selected by
-entries through target 2.35. A target-2.36 entry selects the four-argument API
+entries at target 2.35. An entry at 2.36–2.39 selects the four-argument API
 in [`w3/std/improve.orc`](../../orchestrator/workflow_lisp/stdlib_modules/w3/std/improve.orc):
 `improve(initial S, review ProcRef[(S) -> Decision[F B]],
 revise ProcRef[(S F) -> S], limit Int) -> Improvement[S F B]`, with
-`:forall (S F B)` and `S is-record`. The helper keeps source header 2.33;
+`:forall (S F B)` and `S is-record`. Both packaged helper variants use source header 2.35;
 every source importer sees the entry-selected API. Old five-argument source
 callers must migrate on retargeting; complete snapshots retain producer
 authority. [Write-once §9](workflow_lisp_write_once.md#9-targets-and-compatibility)
@@ -449,9 +449,9 @@ Labels are those of the totality matrix, or the case letters of the
 
 ### 11.4 Evaluated W3 boundaries
 
-The maintained target-2.36
+The maintained target-2.39
 [proposal](../../workflows/examples/improve_experiment_proposal.orc) and
-[reviewed-change fixture](../../tests/fixtures/workflow_lisp/w3_consumers/reviewed_change.orc)
+target-2.36 [reviewed-change fixture](../../tests/fixtures/workflow_lisp/w3_consumers/reviewed_change.orc)
 exercise provider-backed local hooks, domain dataflow, outcome pairing,
 round-three guards and committed-stop/resume/replay in
 `tests/test_workflow_evaluated_consumers.py`. This bounded evidence does not

@@ -131,11 +131,7 @@ class TypecheckSessionState:
 class CompilerSession:
     """All mutable state for exactly one public compile attempt."""
 
-    closed_program: bool = field(
-        default=False,
-        repr=False,
-        metadata={"json_omit_always": True, "semantic_identity_omit": True},
-    )
+
     elaboration: ElaborationSessionState = field(
         default_factory=ElaborationSessionState
     )

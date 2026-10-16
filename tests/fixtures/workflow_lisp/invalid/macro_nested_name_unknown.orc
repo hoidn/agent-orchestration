@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defrecord Out
     (value String))
   (emit-record-wrapper broken)

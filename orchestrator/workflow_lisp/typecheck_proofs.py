@@ -5,14 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
-from .conditionals import (
-    CondClauseRewrite,
-    classify_condition_expr,
-    normalize_condition_expr,
-    rewrite_cond_clauses,
-)
+from .conditionals import CondClauseRewrite, normalize_condition_expr, rewrite_cond_clauses
 
-from .effects import EMPTY_EFFECT_SUMMARY, effect_summary_contains_runs_ref, merge_effect_summaries
+from .effects import EMPTY_EFFECT_SUMMARY, merge_effect_summaries
 from .expressions import (
     CondExpr,
     FieldAccessExpr,
@@ -26,7 +21,7 @@ from .expressions import (
 )
 from .loops import LoopControlTypeRef
 from .parametric_constraints import SharedUnionFieldCapability, constraint_field_type_satisfied
-from .syntax import target_dsl_is_2_33_or_newer, target_dsl_supports_strict_boolean_control_flow
+
 from .type_env import (
     DiscriminantTypeRef,
     FrontendTypeEnvironment,
@@ -373,8 +368,7 @@ def _kept_match_subject(expr: MatchExpr, typed_subject_expr, *, context):
         for node in walk_expr(typed_subject_expr)
     ):
         return typed_subject_expr
-    if not target_dsl_is_2_33_or_newer(context.type_env.target_dsl_version or ""):
-        return expr.subject
+
     if any(
         isinstance(node, ProviderResultExpr) and isinstance(node.prompt, PromptApplicationExpr)
         for node in walk_expr(expr.subject)
@@ -415,7 +409,7 @@ def typecheck_match_expr(
 
     typed_subject = recurse(expr.subject)
     if effect_summary_requires_run_ref_placement_refusal(
-        typed_subject.effect_summary, context=context
+        typed_subject.effect_summary
     ):
         raise_run_ref_placement_invalid(
             typed_subject.expr,
@@ -562,44 +556,22 @@ def typecheck_if_expr(
     from dataclasses import replace
 
     typed_condition = recurse(expr.condition_expr)
-    supports_strict = target_dsl_supports_strict_boolean_control_flow(
-        context.type_env.target_dsl_version or ""
-    )
+
     true_proof_facts: dict | None = None
     false_proof_facts: dict | None = None
-    if supports_strict:
-        _require_exact_bool(typed_condition.type_ref, condition_expr=expr.condition_expr)
-        true_env, false_env = analyze_condition(
-            typed_condition.expr,
-            binding_env=context.binding_env,
-            facts=context.proof_scope.facts,
-        )
-        true_proof_facts = dict(true_env) if true_env is not UNREACHABLE else {}
-        false_proof_facts = dict(false_env) if false_env is not UNREACHABLE else {}
-        normalized_condition = normalize_condition_expr(
-            typed_condition.expr,
-            type_ref=typed_condition.type_ref,
-            effect_summary=typed_condition.effect_summary,
-        )
-    else:
-        if effect_summary_contains_runs_ref(typed_condition.effect_summary):
-            raise_run_ref_placement_invalid(
-                typed_condition.expr,
-                reason="is not permitted in an `if` condition",
-                effect_summary=typed_condition.effect_summary,
-            )
-        _require_exact_bool(typed_condition.type_ref, condition_expr=expr.condition_expr)
-        if typed_condition.effect_summary != EMPTY_EFFECT_SUMMARY:
-            raise_error(
-                "`if` condition must be pure",
-                code="if_condition_has_effect",
-                span=expr.condition_expr.span,
-                form_path=expr.condition_expr.form_path,
-            )
-        classify_condition_expr(
-            typed_condition.expr,
-            type_ref=typed_condition.type_ref,
-        )
+    _require_exact_bool(typed_condition.type_ref, condition_expr=expr.condition_expr)
+    true_env, false_env = analyze_condition(
+        typed_condition.expr,
+        binding_env=context.binding_env,
+        facts=context.proof_scope.facts,
+    )
+    true_proof_facts = dict(true_env) if true_env is not UNREACHABLE else {}
+    false_proof_facts = dict(false_env) if false_env is not UNREACHABLE else {}
+    normalized_condition = normalize_condition_expr(
+        typed_condition.expr,
+        type_ref=typed_condition.type_ref,
+        effect_summary=typed_condition.effect_summary,
+    )
     then_proof_scope = (
         ProofScope(facts=true_proof_facts)
         if true_proof_facts is not None
@@ -640,48 +612,33 @@ def typecheck_if_expr(
                 form_path=expr.form_path,
             )
         result_type = typed_then.type_ref
-    if supports_strict:
-        normalized_if = replace(
-            expr,
-            condition_expr=normalized_condition.terminal,
-            then_expr=typed_then.expr,
-            else_expr=typed_else.expr,
-            true_proof_context=true_proof_facts,
-            false_proof_context=false_proof_facts,
-        )
-        if normalized_condition.bindings:
-            result_expr = LetStarExpr(
-                bindings=normalized_condition.bindings,
-                body=normalized_if,
-                span=expr.span,
-                form_path=expr.form_path,
-                expansion_stack=expr.expansion_stack,
-                condition_normalization_input=replace(
-                    normalized_if,
-                    condition_expr=typed_condition.expr,
-                ),
-            )
-        else:
-            result_expr = normalized_if
-        return typed_factory(
-            expr=result_expr,
-            type_ref=result_type,
-            effect=merge_effect_summaries(
-                normalized_condition.effect_summary,
-                typed_then.effect_summary,
-                typed_else.effect_summary,
+    normalized_if = replace(
+        expr,
+        condition_expr=normalized_condition.terminal,
+        then_expr=typed_then.expr,
+        else_expr=typed_else.expr,
+        true_proof_context=true_proof_facts,
+        false_proof_context=false_proof_facts,
+    )
+    if normalized_condition.bindings:
+        result_expr = LetStarExpr(
+            bindings=normalized_condition.bindings,
+            body=normalized_if,
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+            condition_normalization_input=replace(
+                normalized_if,
+                condition_expr=typed_condition.expr,
             ),
         )
+    else:
+        result_expr = normalized_if
     return typed_factory(
-        expr=replace(
-            expr,
-            condition_expr=typed_condition.expr,
-            then_expr=typed_then.expr,
-            else_expr=typed_else.expr,
-        ),
+        expr=result_expr,
         type_ref=result_type,
         effect=merge_effect_summaries(
-            typed_condition.effect_summary,
+            normalized_condition.effect_summary,
             typed_then.effect_summary,
             typed_else.effect_summary,
         ),

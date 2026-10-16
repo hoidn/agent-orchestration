@@ -153,7 +153,8 @@ def test_cached_preparation_still_demands_the_callers_original_binder(tmp_path, 
         previous = tuple(builder.completed_preparations.values())
         result = original(builder, procedure, source, call, context, **kwargs)
         if context.owner == "bound_identity::run":
-            hits.append(any(result is request for request in previous))
+            hits.append(any(result.prepared_body is request.prepared_body
+                and result.prepared_children is request.prepared_children for request in previous))
         return result
 
     monkeypatch.setattr(Builder, "_call_request", observe)

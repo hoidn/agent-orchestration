@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule entry_publication_duplicate_row)
   (export entry-publication-duplicate-row)
   (defunion EntryPublicationResult

@@ -1,12 +1,14 @@
 # MLEvolve-inspired paired search
 
-Status: maintained evaluated 2.35 compact controller with deterministic leaves.
+Status: maintained evaluated 2.39 compact controller with deterministic leaves.
 No live-model, cost, GPU-throughput or broader search-efficacy claim.
 
 ## Current Compact-Controller Recipe
 
 The maintained compact controller in `search_compact.orc` targets evaluated execution
-2.35 and retains the policy, typed trial history and budget described below. Its module path is
+2.39 and retains the policy, typed trial history and budget described below.
+`branch-step` infers its command effects without a mirrored `:effects` ledger
+or an authored lowering strategy. Its module path is
 `mlevolve_pair/search_compact`, so its certified adapter manifest is
 `commands_compact.json` (the `owner_module` metadata matches that module; each
 command declares `leaves.py` as its closure).

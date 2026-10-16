@@ -603,7 +603,6 @@ def test_run_ref_signatures_use_exact_imported_type_origins(tmp_path: Path) -> N
             resolved_procedures_by_name=typed.procedures,
             procedure_type_envs=typed.procedure_type_envs,
             route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION,
-            closed_program=True,
         )
         performs: list[WccPerform] = []
         seen: set[int] = set()
@@ -1105,7 +1104,7 @@ def test_legacy_snapshot_keeps_carrier_family_for_later_closed_import(
     module_header = "(defmodule cp/producer)" if producer_mode == "named" else ""
     export_header = "(export get)" if producer_mode == "named" else ""
     producer_path.write_text(
-        f'''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+        f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
           {module_header} {export_header}
           (defproc carry ((value Int)) -> Int :effects () :lowering inline
             (let* ((state (loop-state (n Int value)))) state.n))
@@ -1128,7 +1127,7 @@ def test_legacy_snapshot_keeps_carrier_family_for_later_closed_import(
             workspace_root=tmp_path,
         )
         producer_snapshot = producer_result.typed_program
-    producer_snapshot = replace(producer_snapshot, entry=producer_snapshot.workflows["cp/producer::get" if producer_mode == "named" else "get"])
+    producer_snapshot = replace(producer_snapshot, entry=producer_snapshot.workflows["cp/producer::get" if producer_mode == "named" else "entry::get"])
     carrier_rows = []
     for procedure in producer_snapshot.procedures.values():
         if getattr(procedure.specialization, "base_name", None) not in {

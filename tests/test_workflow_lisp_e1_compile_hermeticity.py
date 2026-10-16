@@ -39,7 +39,7 @@ def _helper_source(*, implementation: str = "argument") -> str:
     return f"""\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.23")
+  (:target-dsl "2.35")
   (defmodule {_HELPER_MODULE})
   (export Message make-message)
   (defrecord Message
@@ -58,7 +58,7 @@ def _entry_source(*, label: str = "entry-a", invalid: bool = False) -> str:
     return f"""\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.23")
+  (:target-dsl "2.35")
   (defmodule {_ENTRY_MODULE})
   (import {_HELPER_MODULE} :only (Message make-message))
   (export run)

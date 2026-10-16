@@ -19,7 +19,7 @@ from tests.workflow_evaluated_consumer_sources import (
 from tests.workflow_evaluated_totality_helpers import checked_run
 
 
-SCORE = Program("experiments/compare/score.orc", "2.35", "score::score", "experiments/compare",
+SCORE = Program("experiments/compare/score.orc", "score::score", "experiments/compare",
                 {"providers": "experiments/compare/score.providers.json"})
 JUDGE = "claude-opus-5-5"
 CRITERION = "sha256:" + "c" * 64
@@ -52,7 +52,7 @@ def test_score_returns_one_rating_per_clone_per_batch_in_order(tmp_path, monkeyp
     install_shims(tmp_path / "bin", monkeypatch, _plan(inputs, *answers))
     root = tmp_path / "workspace"
 
-    route = current_route(root, install(root, SCORE, inputs, current=True), marker)
+    route = current_route(root, install(root, SCORE, inputs), marker)
 
     run_header = json.loads((route.authority.run_root / "run.json").read_text(encoding="utf-8"))
     assert route.value == answers  # memo terminal value: Score tokens are the JSON strings "S0", "S1", "S2"
@@ -72,7 +72,7 @@ def test_out_of_range_score_fails_the_effect(tmp_path, monkeypatch):
     bad[1]["scope"] = "S3"
     install_shims(tmp_path / "bin", monkeypatch, _plan(inputs, bad, _ratings(inputs["batches"][1], "S2")))
     root = tmp_path / "workspace"
-    frontend = install(root, SCORE, inputs, current=True)
+    frontend = install(root, SCORE, inputs)
 
     ran = _cli(root, "run", *frontend, "--input-file", "inputs.json")
 

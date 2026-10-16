@@ -1,4 +1,4 @@
-"""Generic target-2.25 nested structural transport contracts."""
+"""Nested structural transport contracts for admitted targets."""
 
 from __future__ import annotations
 
@@ -372,12 +372,12 @@ def test_transport_canonical_json_byte_bound_is_inclusive() -> None:
 
 
 
-def _nested_root_provider_source(target: str) -> str:
+def _nested_root_provider_source() -> str:
     return "\n".join(
         (
             "(workflow-lisp",
             '  (:language "0.1")',
-            f'  (:target-dsl "{target}")',
+            '  (:target-dsl "2.35")',
             "  (defmodule nested_root_transport)",
             "  (defrecord Measurement",
             "    (label String)",
@@ -395,21 +395,9 @@ def _nested_root_provider_source(target: str) -> str:
 
 
 
-def test_target_225_native_root_preserves_nested_record_schema(tmp_path) -> None:
-    old_path = tmp_path / "nested_root_224.orc"
-    old_path.write_text(_nested_root_provider_source("2.24"), encoding="utf-8")
-    with pytest.raises(LispFrontendCompileError) as caught:
-        compile_stage3_module(
-            old_path,
-            provider_externs={"providers.execute": "fake"},
-            prompt_externs={"prompts.execute": "prompts/execute.md"},
-            validate_shared=False,
-            workspace_root=tmp_path,
-        )
-    assert caught.value.diagnostics[0].code == "workflow_return_type_invalid"
-
-    new_path = tmp_path / "nested_root_225.orc"
-    new_path.write_text(_nested_root_provider_source("2.25"), encoding="utf-8")
+def test_native_root_accepts_nested_record_result(tmp_path) -> None:
+    new_path = tmp_path / "nested_root_transport.orc"
+    new_path.write_text(_nested_root_provider_source(), encoding="utf-8")
     result = compile_stage3_module(
         new_path,
         provider_externs={"providers.execute": "fake"},

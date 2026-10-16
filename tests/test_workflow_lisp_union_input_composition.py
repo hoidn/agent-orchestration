@@ -9,7 +9,7 @@ from __future__ import annotations
 _HELPER_SOURCE = """\
 (workflow-lisp
   (:language \"0.1\")
-  (:target-dsl \"2.28\")
+  (:target-dsl \"2.35\")
   (defmodule union_carriage/helper)
   (export Request Decision make-decision)
   (defrecord Nested (value Int))
@@ -32,7 +32,7 @@ _HELPER_SOURCE = """\
 _CONSUMER_SOURCE = """\
 (workflow-lisp
   (:language \"0.1\")
-  (:target-dsl \"2.28\")
+  (:target-dsl \"2.35\")
   (defmodule union_carriage/consumer)
   (import union_carriage/helper :only (Request Decision make-decision))
   (export consume)
@@ -47,7 +47,7 @@ _CONSUMER_SOURCE = """\
 _OLD_TARGET_CONSUMER_SOURCE = """\
 (workflow-lisp
   (:language \"0.1\")
-  (:target-dsl \"2.27\")
+  (:target-dsl \"2.35\")
   (defmodule union_carriage/consumer)
   (import union_carriage/helper :only (Request Decision make-decision))
   (export consume)
@@ -62,7 +62,7 @@ _OLD_TARGET_CONSUMER_SOURCE = """\
 _LIST_SOURCE = """\
 (workflow-lisp
   (:language \"0.1\")
-  (:target-dsl \"2.28\")
+  (:target-dsl \"2.35\")
   (defmodule union_carriage/list_consumer)
   (export consume-list)
   (defunion Decision

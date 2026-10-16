@@ -90,7 +90,7 @@ def _reviser(hook: dict) -> dict:
 
 def _install(root: Path, source: str) -> dict[str, Path]:
     source_path = root / "improve_experiment_proposal.orc"
-    source_path.write_text(source.replace('"2.33"', '"2.35"'), encoding="utf-8")
+    source_path.write_text(source, encoding="utf-8")
     shutil.copytree(EXAMPLE_PROMPTS, root / "prompts" / "workflows" / "improve_experiment_proposal")
     (root / "scripts").mkdir()
     (root / "scripts" / "launch_experiment.py").write_text(LAUNCH_PROBE, encoding="utf-8")

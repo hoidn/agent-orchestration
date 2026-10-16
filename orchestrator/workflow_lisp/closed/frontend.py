@@ -625,13 +625,12 @@ def compile_typed_program_with_result(
     source_read_trace: SourceReadTrace | None = None,
 ) -> tuple[TypedProgram, Stage3CompileResult]:
     from .. import compiler
-    from .target import _entry_target_header_from_tree, _raise_retired_execution_target, refuse_compiled_retired_entry_target
+    from .target import _entry_target_header_from_tree, refuse_compiled_retired_entry_target
 
     trace = source_read_trace or SourceReadTrace()
     parse_tree = read_sexpr_file(entry_path, source_read_trace=trace)
     target, target_span = _entry_target_header_from_tree(parse_tree)
-    if not syntax.target_dsl_uses_evaluated_execution(target):
-        _raise_retired_execution_target(target, target_span)
+
     source_syntax = syntax.build_syntax_module(parse_tree)
     result = compiler.compile_stage3_entrypoint(
         entry_path,
@@ -644,7 +643,6 @@ def compile_typed_program_with_result(
         command_boundaries=command_boundaries,
         validate_shared=True,
         workspace_root=workspace_root,
-        lowering_route=None,
         source_read_trace=trace,
         _standalone_entry_namespace=(None if source_syntax.module_name is not None else "entry"),
     )
@@ -855,7 +853,6 @@ def resolve_workflow_target(source_program, owner, target_name, *, workflow_owne
     if caller_signature is None or caller_signature.name == workflow.signature.name:
         caller_signature = workflow.signature
     return caller_signature, workflow, target_program
-
 
 
 def _workflow_import_boundary_signature(source_program, workflow):

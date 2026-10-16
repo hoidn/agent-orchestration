@@ -8,8 +8,7 @@ import pytest
 
 from orchestrator.workflow_lisp.compiler import (
     Stage3ValidationProfile,
-    _run_stage3_validation_pipeline,
-    normalize_lowering_route,
+    compile_stage3_module,
 )
 from orchestrator.workflow_lisp.expression_traversal import walk_expr
 from orchestrator.workflow_lisp.expressions import CallExpr, LetStarExpr, NameExpr, ProcedureCallExpr, elaborate_expression
@@ -127,18 +126,26 @@ def _write_module(path: Path, source: str) -> Path:
 
 
 def _typechecked_workflows(path: Path, *, workspace_root: Path):
-    state, _ = _run_stage3_validation_pipeline(
-        path,
-        provider_externs=None,
-        prompt_externs=None,
-        imported_workflow_bundles=None,
-        command_boundaries=None,
-        validation_profile=Stage3ValidationProfile.FRONTEND_ONLY,
-        workspace_root=workspace_root,
-        lowering_route=normalize_lowering_route("legacy"),
-    )
-    assert state.typed_workflows
-    return state.typed_workflows
+    from orchestrator.workflow_lisp import compiler
+
+    observed = []
+    original = compiler.typecheck_workflow_definitions
+
+    def capture_typed_workflows(*args, **kwargs):
+        result = original(*args, **kwargs)
+        if not observed:
+            observed.extend(result)
+        return result
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(compiler, "typecheck_workflow_definitions", capture_typed_workflows)
+        compile_stage3_module(
+            path,
+            validation_profile=Stage3ValidationProfile.FRONTEND_ONLY,
+            workspace_root=workspace_root,
+        )
+    assert observed
+    return observed
 
 
 def test_parametric_specialization_preserves_the_authored_procedure_head_span(
@@ -147,7 +154,7 @@ def test_parametric_specialization_preserves_the_authored_procedure_head_span(
     source = """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.18")
+  (:target-dsl "2.35")
   (defrecord Payload
     (value String))
   (defproc inspect
@@ -171,7 +178,7 @@ def test_parametric_specialization_preserves_the_authored_procedure_head_span(
     )[0].typed_body.expr
 
     assert isinstance(call, ProcedureCallExpr)
-    assert call.callee_name.startswith("%parametric-call.inspect.")
+    assert call.callee_name.startswith("%parametric-call.entry.inspect.")
     authored_callee_span = getattr(call, "authored_callee_span", None)
     assert authored_callee_span is not None
     start = authored_callee_span.start.offset
@@ -185,7 +192,7 @@ def test_macro_expanded_calls_do_not_claim_direct_authored_callee_provenance(
     source = """\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.18")
+  (:target-dsl "2.35")
   (defrecord Payload
     (value String))
   (defproc make-payload

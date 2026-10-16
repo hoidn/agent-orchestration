@@ -2,7 +2,8 @@
 
 Status: accepted baseline / umbrella frontend contract
 Target substrate: checked closed-program execution at 2.35/2.36 and bounded
-2.37/2.38; executable entries through 2.34 and the flat emitter are retired
+2.37/2.38 extensions and target-2.39 procedure authoring; source/import/tooling
+admission starts at 2.35; the flat emitter is retired
 Primary purpose: composable, typed, procedural authoring of deterministic workflows  
 Non-purpose: replacing the runtime, weakening validation, or generating brittle YAML-shaped code
 
@@ -10,8 +11,10 @@ Execution scope: [executor retirement](workflow_lisp_executor_retirement.md)
 and [CLI](../../specs/cli.md) govern executable admission. Historical lowering,
 IR/source-map emissions and effect descriptions below remain design/type
 history, not available flat builds. Source spans, catalogs and read traces
-remain part of typed diagnostics and LSP. An old imported header never selects
-an old executor.
+remain part of typed diagnostics and LSP for admitted source at 2.35 or newer.
+Every imported module must meet that floor. Pre-2.35 analysis compatibility is
+retired under the [source-floor contract](workflow_lisp_executor_retirement.md#source-floor-235),
+not selected by an old imported header.
 
 Lifecycle note: this document is the parent language contract for Workflow
 Lisp. Focused companion contracts refine current ProcRef, compiler
@@ -34,8 +37,12 @@ The bounded target-2.38 [Agent Sessions extension](workflow_lisp_agent_sessions.
 admits run-local allocation and sequential typed native turns. It does not
 admit the historical context-capture surface below or immutable native snapshots.
 
-Proposed, not current: [effect-ledger simplification](workflow_lisp_effect_ledger_simplification.md)
-owns optional identity-aware effect restrictions and their migration. Current
+Accepted target-2.39 contract: [effect-ledger simplification](workflow_lisp_effect_ledger_simplification.md)
+owns optional identity-aware effect restrictions and their migration.
+Inference-default restrictions, caller-owned inline composition, finite private-form
+admission and inferred inspection use the existing frontend and evaluated runtime.
+The [simplification plan](../plans/2026-10-15-orc-simplification-roadmap-extension.md#target-239-selected-implementation)
+owns bounded consumer acceptance and remaining verification gates. Current
 target-2.30 resolved-inline [pure-call composition](workflow_lisp_pure_call_composition.md)
 is summarized in §8.6 below; it does not change authored effect declarations.
 
@@ -117,8 +124,9 @@ Lisp source
   -> derived report/dashboard views
 ```
 
-Old-header imports and editor analysis stop at the typed/catalog boundary where
-appropriate. They do not emit a flat executable bundle. WCC/schema-2 and schema-1
+Admitted library-only imports and editor analysis stop at the typed/catalog
+boundary where appropriate. Pre-2.35 source imports and analysis refuse.
+Neither path emits a flat executable bundle. WCC/schema-2 and schema-1
 remain historical compiler-owner identities for retained typed decisions;
 old lowerers, flat emitters and historical-run replay are retired.
 
@@ -671,23 +679,16 @@ Recommended file extension:
 .orc
 ```
 
-Every source file begins with a module declaration:
+Every source file uses the admitted workflow wrapper and a module declaration:
 
 ```lisp
-(defmodule neurips.implementation
-  (:language workflow-lisp "0.1")
-  (:target-dsl "2.14")
-
-  (import core)
-  (import std/paths :as path)
-  (import std/phases :as phase)
-  (import neurips/types :as nt)
-
-  (export
-    ImplementationInputs
-    ImplementationProviders
-    ImplementationResult
-    run-implementation-phase))
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.35")
+  (defmodule example.module)
+  (export run)
+  (defworkflow run () -> Int
+    1))
 ```
 
 ### 4.1 Module Responsibilities
@@ -802,6 +803,34 @@ maps; after hygiene rewriting, the introduced helper-result locals behave like
 ordinary typed lexical bindings for downstream field access and constructor
 arguments. The macro does not create variant proof on its own.
 
+### Target-2.39 source admission
+
+For source elaborated under target 2.39, `with-phase` and
+`finalize-selected-item` must resolve through their imported stdlib bindings;
+a residual bare compatibility head is refused instead of entering the old
+literal-name elaborator. The registry/editor projection must not advertise
+that compatibility fallback as a public form.
+
+`__with-phase__` and `__generated-relpath-seed__` are private expansion forms.
+After macro expansion, their head must carry an `introduced_by_expansion_id`
+matching the actual template `ExpansionFrame` from the packaged builtin owner:
+`std/phase.orc` for either form, or `std/drain.orc` for the seed. Validate the
+resolved builtin definition file under the compiler's builtin stdlib root,
+not merely a module name, macro name or nonempty expansion stack. User macros
+that synthesize a private head and caller-supplied private syntax spliced into
+a genuine stdlib macro are refused. A user macro that invokes a genuine
+imported stdlib macro is permitted when that inner builtin template introduces
+the private head. Existing syntax provenance supplies this finite check; no
+new trust registry or public exemption is introduced.
+
+Admitted 2.35–2.38 definitions retain their source regime. The packaged stdlib
+migrates to 2.35 before the source floor; importing it into a 2.39 module keeps
+genuine phase/drain expansions available.
+`phase-target` remains an admitted compiler intrinsic with its existing typed
+and checked-program consumers. Other retained intrinsics are unchanged;
+private-form admission narrowing is not evidence that their implementation
+owners are dead.
+
 ## 7. Types
 
 The frontend has a static type system that maps to workflow contracts and
@@ -865,10 +894,10 @@ object keys, cycles, or other non-JSON leaves fail as
 `invalid_transportable_value`, reporting the first invalid RFC 6901 value
 path. JSON `null` is a present valid value, not a missing bundle or pointer.
 
-Classic and WCC lowering preserve the literal `Value` identity and emit
-equivalent direct-root and public-boundary contracts. Typed/Core/Semantic/
-Executable/build surfaces, state and report projections, checkpoint identity,
-and resume reconstruction retain `Value` without specializing it from runtime
+Typed/WCC preparation and checked-program construction preserve the literal
+`Value` identity and its direct-root/public-boundary contracts. Current
+artifacts, state/report projections, memo identity and resume reconstruction
+retain `Value` without specializing it from runtime
 shape. Resume validates the same declared contract as the original boundary;
 it neither reparses the payload into a narrower type nor re-executes an already
 committed compatible provider boundary.
@@ -1443,7 +1472,7 @@ A `defproc` is the normal unit for reusable internal effectful behavior. It is
 not a public callable workflow boundary merely because another unit calls it
 or because it is exported from a library.
 
-It may lower by:
+For admitted definition origins 2.35–2.38 it may lower by:
 
 - inlining into caller core AST;
 - lowering to a private generated workflow when its migration contract and
@@ -1458,6 +1487,15 @@ evidence in the current slice, not a new source annotation. `:lowering auto` rem
 for identity-free helpers, but the compiler-selected route is not a stable
 checkpoint, resume, state-path, or debug-identity promise. Every choice must
 preserve source maps and effect transparency.
+
+For definitions originating at target 2.39, the `:effects` clause is optional:
+omission infers the transitive summary, explicit empty checks purity after
+specialization, and named restrictions require the inferred effects to fit
+resolved declared subjects. See the
+[effect-ledger contract](workflow_lisp_effect_ledger_simplification.md).
+Authored `:lowering` is rejected; reusable procedures use caller-owned inline
+composition. The explicit workflow-boundary alternative and import rules are
+specified in [§106](#106-procedure-lowering-policy-resolved).
 
 Generic procedures may add a compile-time parameter header and structural
 constraint header before their ordinary argument list. Illustrative shape:
@@ -1979,10 +2017,10 @@ resolved transitive view. Inline structural visibility supports effect
 evidence; it does not replace a truthful summary.
 
 Stage 3 also owns each procedure's resolved lowering mode and generated
-private-workflow name and passes the same resolved procedures to classic and
-WCC lowering. The classic schema-1 iteration-scope inline-to-private override
-remains compatibility behavior only; it cannot support a WCC migration or
-promotion claim. These implemented substrates do not replace family-specific
+private-workflow name and passes the same resolved procedures to WCC
+preparation. Source-selectable classic/schema-1 lowering and its
+iteration-scope inline-to-private override are retired. Definition origins
+2.35–2.38 retain their admitted lowering rules. These implemented substrates do not replace family-specific
 effect, identity, runtime, parity, and review gates.
 
 The compiler verifies:
@@ -2534,13 +2572,11 @@ optional literal UTF-8 string; omission selects the established required or
 optional dependency instruction.
 
 The compiler preserves authored row order and roles through traversal,
-specialization, classic lowering, and WCC/schema 2, then emits ordinary
-`depends_on` data plus a separate typed
-`CompilerPromptDependencyContract` side-table entry keyed by provider-step
-identity. Core, executable, semantic, source-map, persisted, and lexical
-checkpoint surfaces retain their owned views. The typed side table, rather
-than an untyped mapping marker, carries compiler origin and exact-path meaning.
-`runtime_plan` remains topology/checkpoint-only.
+specialization and WCC preparation into the checked provider operation and
+its typed prompt-dependency contract. Compiler origin and exact-path meaning
+remain typed metadata. Historical `depends_on`/provider-step side tables and
+flat Core/Semantic/Executable projections describe their original formats;
+they do not select a current compiler or execution route.
 
 At runtime required and present optional paths are de-duplicated and rendered
 in deterministic canonical workspace-relative path order. One provider attempt
@@ -2738,8 +2774,9 @@ This is a generic correction to the existing owners:
   `orchestrator/workflow_lisp/lowering/effects.py` for slot parsing,
   typechecking, v2 identity, row projection, and provider-step installation.
 
-Classic and WCC must project identical declaration-ordered rows, source-map
-subjects, fragment identity, structured result, and checkpoint inputs.
+Current checked preparation preserves declaration-ordered rows, source
+provenance, fragment identity, structured results and effect identity inputs.
+The historical classic/WCC equality oracle does not restore a flat route.
 Q1-only fragments retain the exact v1 canonical identity projection and digest.
 Q2 fragments use `compiled_prompt_fragment_identity.v2`, adding per-slot
 `output_role` without otherwise changing Q1 ordering or identity fields.
@@ -3555,6 +3592,16 @@ positional/checkpoint replay are removed by the selected retirement. Current
 nested control/loop/stdlib work must preserve admitted typed and evaluated
 contracts, without restoring a compatibility backend.
 
+The [retained WCC closure contract](workflow_lisp_core_calculus_middle_end.md#132-retained-executable-wcc-closure)
+requires source checking and specialization to carry resolved child types,
+nominal/proof ownership and capture-creation facts forward into structured WCC.
+Preparation synthesizes types for its own generated values. Closed translation
+consumes those prepared operands without rebuilding frontend expressions or
+re-inferring source children; the independent artifact checker still verifies
+every claimed type. Semantic closure and exact request inventory are checked
+before emission. This construction contract preserves source admission,
+historical import rules and execution-mode defaults.
+
 Detailed contract:
 [Workflow Lisp Core Calculus And Compiler Middle-End](workflow_lisp_core_calculus_middle_end.md).
 
@@ -3825,13 +3872,12 @@ Checks:
 
 WCC is the current ownership boundary for compiler-lane expressivity. Unsupported
 authoring surfaces should fail during parsing, typechecking, or explicit
-surface validation. Once a program typechecks for the migrated route subset,
+surface validation. Once a program typechecks for the admitted subset,
 failure during WCC elaboration, ANF normalization, scope/effect/proof analysis,
-or defunctionalization is a compiler defect unless the failure depends on a
-runtime-only condition such as live filesystem path safety. A shared-validation
-failure over WCC-generated Core AST is likewise treated as a compiler defect
-unless the shared validator is enforcing a runtime condition the compiler could
-not know.
+or checked closed-program construction is a compiler defect unless the failure
+is an explicitly owned admission refusal or depends on a runtime-only
+condition such as live filesystem path safety. Flat defunctionalization and
+WCC-generated Core AST validation are historical architecture.
 
 - `lowering_no_backend_for_form`
 - `resource_transition_requires_runtime_backend`
@@ -4103,7 +4149,8 @@ builtin helper, but the LSP still terminates with
 compilation. Selection/root/hash/read-trace parity does not establish a
 successful evaluated snapshot, semantic navigation or terminal diagnostic
 parity. Evaluated F2 remains **OPEN_NOT_WAIVED**; the existing F2 acceptance
-contract and legacy checks remain unchanged. L2 may supply its existing frozen
+contract remains unchanged; migrated current-target controls retain its
+semantic obligations. L2 may supply its existing frozen
 static-form recovery response, never stale callables.
 
 ### Accepted L1 Authored Symbol And Completion Compatibility
@@ -4563,7 +4610,8 @@ Frontend rollout and migration records are historical; component contracts below
 
 ## 106. Procedure Lowering Policy (Resolved)
 
-The accepted policy is role-based and author-selectable:
+For admitted definition origins 2.35–2.38, the accepted policy is role-based
+and author-selectable:
 
 ```lisp
 (defproc foo ... :lowering inline ...)
@@ -4576,6 +4624,30 @@ caller-owned identity-sensitive composition. `private-workflow` requires a
 review-evidenced internal state/resume/debug namespace need; the current slice
 adds no namespace source annotation. `auto` remains the compatible
 default for identity-free procedures but promises no stable persisted route.
+
+For definitions originating at target 2.39, `:lowering` is not admitted.
+A `defproc` is caller-owned inline composition, including generated `let-proc`
+helpers and concrete specializations. Select the internal inline policy from
+definition origin; do not run AUTO/private-workflow strategy selection and then
+silently change its result. Imported definitions from 2.35–2.38 keep their declared or
+default strategy and their provider-member/command-boundary behavior.
+
+An intentional call/frame/checkpoint boundary is an ordinary `defworkflow`
+invoked with `call`. Leaving it unexported limits imports; a local workflow can
+still be explicitly selected as the entry. Its concrete runtime inputs and
+result must satisfy existing workflow transport contracts. Compile-time generic
+parameters, ProcRef and WorkflowRef do not become runtime workflow inputs:
+bind them to concrete definitions, or retain a thin defproc which calls the
+concrete workflow. Do not add a private-workflow spelling, compatibility alias,
+new privacy gate or replacement checkpoint mechanism.
+
+Moving an old private procedure to an explicit workflow is a source/target
+migration with a new definition identity. It does not preserve the old private
+artifact fingerprint or promise cross-version resume. Within each admitted
+source/target, existing operation lineage, completed-result reuse and frame
+checks remain. Definitions imported from 2.35–2.38 retain their origin;
+new definitions expanded by macros use the receiving module's target. An
+older module must not import a target-2.39 definition.
 
 ## 107. Resource Transition Backend
 

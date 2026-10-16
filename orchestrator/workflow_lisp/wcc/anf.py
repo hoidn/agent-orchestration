@@ -7,12 +7,14 @@ import json
 from dataclasses import dataclass, replace
 
 from ..diagnostics import records_defect_provenance
+from ..type_env import DiscriminantTypeRef, PathTypeRef
 from .model import (
     WccBody,
     WccCase,
     WccCaseArm,
     WccCall,
     WccFieldAccessAtom,
+    WccHalt,
     WccIdentityFactory,
     WccIf,
     WccInject,
@@ -20,6 +22,10 @@ from .model import (
     WccJump,
     WccLet,
     WccLiteralAtom,
+    WccList,
+    WccListMap,
+    WccBlock,
+    WccResultPath,
     WccLoopContinue,
     WccLoopDone,
     WccNameAtom,
@@ -45,7 +51,20 @@ _WCC_ATOM_TYPES = (
     WccPhaseTargetAtom,
     WccRecordAtom,
     WccOpaqueFrontendValue,
+    WccList,
+    WccListMap,
+    WccBlock,
+    WccResultPath,
 )
+
+
+def _is_atomic_value(value: WccValue) -> bool:
+    # These compiler-owned operators keep the atomicity of their former carriers.
+    if isinstance(value, _WCC_ATOM_TYPES):
+        return True
+    if not isinstance(value, WccPureOp):
+        return False
+    return value.operator in {"compiler-list-nonempty-head", "path/join-under", "loop-state-update"}
 
 
 @dataclass(frozen=True)
@@ -149,7 +168,7 @@ def _normalize_body(body: WccBody) -> WccBody:
             )
             for arm in body.arms
         )
-        if not isinstance(subject, _WCC_ATOM_TYPES):
+        if not _is_atomic_value(subject):
             generated = _generated_pending_let(subject, purpose="case:subject")
             subject = _generated_name_atom(subject.metadata, purpose="case:subject")
             subject_prefix = (*subject_prefix, generated)
@@ -260,7 +279,7 @@ def _normalize_body(body: WccBody) -> WccBody:
             replace(body, result=result, state=state),
         )
     prefix, result = _normalize_value(body.result)
-    if isinstance(result, _WCC_ATOM_TYPES):
+    if _is_atomic_value(result):
         return _wrap_pending_lets(prefix, replace(body, result=result))
     generated = _generated_pending_let(result, purpose="halt")
     halt_atom = _generated_name_atom(result.metadata, purpose="halt")
@@ -292,7 +311,22 @@ def _normalize_binding_value(value) -> tuple[tuple[_PendingLet, ...], object]:
 
 
 def _normalize_value(value: WccValue) -> tuple[tuple[_PendingLet, ...], WccValue]:
-    if isinstance(value, (WccLiteralAtom, WccNameAtom, WccFieldAccessAtom, WccPhaseTargetAtom, WccOpaqueFrontendValue)):
+    if isinstance(value, WccListMap):
+        source = _normalize_body(WccHalt(metadata=value.source.metadata, result=value.source))
+        return (), replace(value,
+            source=source.result if isinstance(source, WccHalt) else WccBlock(metadata=value.source.metadata, body=source),
+            body=_normalize_body(value.body))
+    if isinstance(value, WccBlock):
+        return (), replace(value, body=_normalize_body(value.body))
+    if isinstance(value, WccList):
+        # Each item owns its local prefixes; normalization cannot lift them out.
+        items = []
+        for item in value.items:
+            body = _normalize_body(WccHalt(metadata=item.metadata, result=item))
+            items.append(body.result if isinstance(body, WccHalt) else
+                WccBlock(metadata=item.metadata, body=body))
+        return (), replace(value, items=tuple(items))
+    if isinstance(value, (WccLiteralAtom, WccNameAtom, WccFieldAccessAtom, WccPhaseTargetAtom, WccOpaqueFrontendValue, WccResultPath)):
         return (), value
     if isinstance(value, WccSelect):
         # Non-hoisting value barrier: neither arm is externalized ahead of
@@ -305,7 +339,7 @@ def _normalize_value(value: WccValue) -> tuple[tuple[_PendingLet, ...], WccValue
         for field_name, field_value in value.fields:
             field_prefix, normalized_field = _normalize_value(field_value)
             pending.extend(field_prefix)
-            if not isinstance(normalized_field, _WCC_ATOM_TYPES):
+            if not _is_atomic_value(normalized_field):
                 generated = _generated_pending_let(normalized_field, purpose=f"record:{field_name}")
                 pending.append(generated)
                 normalized_field = _generated_name_atom(normalized_field.metadata, purpose=f"record:{field_name}")
@@ -317,7 +351,7 @@ def _normalize_value(value: WccValue) -> tuple[tuple[_PendingLet, ...], WccValue
         for field_name, field_value in value.fields:
             field_prefix, normalized_field = _normalize_value(field_value)
             pending.extend(field_prefix)
-            if not isinstance(normalized_field, _WCC_ATOM_TYPES):
+            if not _is_atomic_value(normalized_field):
                 generated = _generated_pending_let(normalized_field, purpose=f"inject:{field_name}")
                 pending.append(generated)
                 normalized_field = _generated_name_atom(normalized_field.metadata, purpose=f"inject:{field_name}")
@@ -329,7 +363,7 @@ def _normalize_value(value: WccValue) -> tuple[tuple[_PendingLet, ...], WccValue
         for index, arg in enumerate(value.args):
             arg_prefix, normalized_arg = _normalize_value(arg)
             pending.extend(arg_prefix)
-            if not isinstance(normalized_arg, _WCC_ATOM_TYPES):
+            if not _is_atomic_value(normalized_arg):
                 generated = _generated_pending_let(normalized_arg, purpose=f"pure-op:{value.operator}:{index}")
                 pending.append(generated)
                 normalized_arg = _generated_name_atom(
@@ -402,6 +436,9 @@ def _normalize_call(value: WccCall) -> tuple[tuple[_PendingLet, ...], WccCall]:
 
 
 def _is_atomic_effect_arg(value: WccValue) -> bool:
+    # Nominal compiler literals retain the binding formerly allocated to their carrier.
+    if isinstance(value, WccLiteralAtom) and isinstance(value.metadata.type_ref, (DiscriminantTypeRef, PathTypeRef)):
+        return False
     return isinstance(value, (WccLiteralAtom, WccNameAtom, WccFieldAccessAtom))
 
 

@@ -355,14 +355,30 @@ and updated discovery/selection routing, not just a report saying “abandon.”
 Historical results and pinned ES assets are not deletion targets. This amendment
 selects no removals and does not reopen or cancel independent P/ME/OMP/EL-1 work.
 
-## EL-1 — Effect Contracts And Analysis Cleanup (Pending, Unselected)
+<a id="el-1--effect-contracts-and-analysis-cleanup-pending-unselected"></a>
+<a id="el-1--effect-contracts-and-analysis-cleanup-selected-239"></a>
 
-**Governing proposal:**
+## EL-1 — Effect Contracts And Analysis Cleanup (Delivered: 2.39)
+
+**Governing design:**
 [Effect Ledger Simplification](../design/workflow_lisp_effect_ledger_simplification.md).
-**Status:** pending, unselected; this incorporation assigns no language target,
-implementation plan, or allocation. The
-[audit](../reports/2026-09-08-workflow-lisp-effect-tracking-audit.md)
-provides current-behavior counterexamples, not implementation or utility proof.
+**Status:** EL-1a/b/c delivered at target **2.39** for the selected bounded
+contract and two maintained consumers. [Task 5](2026-10-15-orc-simplification-roadmap-extension.md#target-239-selected-implementation)
+owns implementation, independent acceptance, public lifecycle evidence and
+remaining evidence limits. The ES prelaunch-park hand-back recorded above is
+satisfied. Omission infers effects, empty/named restrictions remain checked,
+and new definitions compose inline without authored lowering; finite private-form
+admission preserves genuine packaged stdlib expansion.
+
+The [2.35 source floor](2026-10-15-orc-simplification-roadmap-extension.md#f--pre-235-source-compatibility-retirement)
+retires pre-2.35 source/import/REPL/LSP compatibility. Six maintained stdlib
+modules use 2.35; admitted definition origins 2.35–2.38 retain their exact
+ordinary declarations, specialization exceptions and lowering semantics.
+Historical data readers do not reopen source admission. EL-1d is cancelled
+for this selection: existing summary consumers remain real, and no named
+maintenance/performance need justifies a representation rewrite. The
+[audit](../reports/2026-09-08-workflow-lisp-effect-tracking-audit.md) remains
+prior-behavior evidence, not an implementation or utility proof.
 
 Prioritize inference-default authoring with meaningful optional restrictions and
 inferred inspection over the existing analysis representation. Internal cleanup
@@ -370,18 +386,18 @@ is a separate conditional decision, not the price of obtaining those benefits.
 
 | Step | Bounded work and evidence | Consequence / next decision |
 | --- | --- | --- |
-| EL-1a — resolve contracts and feasibility | Reuse audit evidence; settle the target/version boundary, defining-scope named subjects, authored versus generated omission, imported contract origin, post-specialization checking, and inferred editor projections. Distinguish an accepted design from remaining compiler feasibility. | Produce a reviewed bounded implementation plan only when its prerequisites are resolved. Revise the contract or language foundation if a real restriction/reuse case cannot be expressed; do not preserve false-empty exemptions or unchecked names merely to pass a fixture. |
-| EL-1b — authoring and inspection vertical slice | Implement omission, checked identity-aware subset/empty clauses, migration of selected forwarding helpers, and resolved-call inspection using existing inference. Exercise ordinary and imported/generic procedures through compile/run/resume, with old-target controls and unchanged runtime evidence. | Record the supported contract and actual limitations. A passing example permits representative adaptation and utility work, not a claim that composition or internal cleanup is complete. |
-| EL-1c — improve or narrow from authoring evidence | Compare dependency addition/removal, provider substitution, imported hook adaptation, and agent-authored revisions under equivalent intentional constraints. Assess source edits, failed compile rounds, coupled changes, diagnosis, and actual effort across the five axes where testable. | Improve recurring resolution, migration, or inspection obstacles. Reconsider type/callable assumptions when implicated; retain useful inference and constraints, but cancel or simplify machinery whose cost is not justified. Untested axes remain untested; no requirement that every axis pass. |
-| EL-1d — optional consumer-led analysis cleanup | Select only for a named maintenance or measured performance problem. Inventory actual consumers; separate located calls from effects where useful; preserve or explicitly version persisted admission facts. Verify same-target decision/identity equivalence only for representation changes. | Delete displaced propagation and temporary comparison paths. If existing summaries are simpler or the gain is absent, cancel this cleanup and retain EL-1b's independent benefit. Do not mandate a fixed footprint, facts-schema change, or permanent dual analysis. |
+| EL-1a — resolve contracts and feasibility | Delivered the reviewed 2.39 version boundary, defining-scope subjects, generated omission, definition-origin imports, post-specialization restrictions and inferred/incomplete inspection contract. | The frontend, effect-ledger and versioning owners govern the supported contract; no new analysis representation or runtime was selected. |
+| EL-1b — authoring and inspection vertical slice | Delivered inferred omission, identity-aware subset/empty checks, origin-aware specialization, REPL/LSP projections, caller-owned inline composition and finite source admission using existing inference. Public compile/run/resume and admitted old-origin controls belong to Task 5. | The procedure guide and capability matrix route to the bounded recipes and evidence. Evaluated LSP F2 remains OPEN_NOT_WAIVED; annotation relief does not establish general composition or utility. |
+| EL-1c — improve or narrow from authoring evidence | Delivered the two selected 2.39 consumer migrations and four local comparisons: dependency addition/removal, provider substitution under a ceiling, and imported hook adaptation. The compact search omits its mirrored command ledger; the proposal retains intentional purity/launch-command restrictions. | The ordinary evaluated runtime, command configuration, policy, schemas and returned values remain. Local compile/dataflow evidence does not measure human/agent productivity, provider quality or broader utility; untested axes remain untested. |
+| EL-1d — optional consumer-led analysis cleanup | Cancelled for this selection; retain the existing EffectSummary consumers for placement, cycles, lowering, inspection and admission serialization. | No fixed-footprint rewrite, new facts schema or permanent dual analysis. A future cleanup requires a concrete maintenance or measured performance need and separate selection. |
 
-**Entry and dependencies:** retain EL-1's existing ES hand-back and separate
-owner-selection conditions. Each selected step needs a bounded scope and finite
-allocation; implementation additionally needs accepted governing/version
-contracts and a reviewed plan. EL-1b follows EL-1a; EL-1c follows a working
-authoring slice. EL-1d depends on its own consumer/equivalence evidence, not on a
-positive result on every axis, and is never a prerequisite for EL-1b or EC-1.
-There is no implementation-ready component plan merely because these rows exist.
+**Entry and dependencies:** the owner selected EL-1a/b/c and target 2.39 after
+the existing ES hand-back. The Task 5 plan bounds two maintained consumers,
+existing compiler/editor owners, four local authoring comparisons, and public
+compile/run/resume controls; it introduces no paid-provider allocation or study
+selector. The delivered sequence preserves reviewed EL-1a → EL-1b → EL-1c
+dependencies. Optional EL-1d is not a prerequisite for EL-1b or EC-1 and is
+cancelled here. No other research allocation or frozen ES package changes.
 
 **Compatibility and closure:** intentionally new syntax gets versioned
 acceptance/rejection tests; internal cleanup gets unchanged-behavior checks.
@@ -596,13 +612,17 @@ the prospective-order authority.
 **Entry and dependencies:** CF-1a is closed. CF-1b needed CF-1a resolved,
 accepted governing/version contracts, and a reviewed plan; it is implemented.
 CF-1c needs a working slice and is on hold under step 4. EL-1 is not a
-prerequisite: before EL-1 lands, `improve` has no direct validator command and
-uses the current generic-hook forwarding regime. Its transitive summary
-includes the selected adapters' provider/command effects. For a caller at
-target 2.33 that holds wherever the hooks are declared; for a caller below
-2.33 the effects of hooks declared in another module are missing from that
-summary. EL-1 later migrates forwarding declarations to omission. EC-1 and PC-1 are
-unaffected. Compiler edits in the
+prerequisite. The original 2.33 evidence used generic-hook forwarding: `improve`
+had no direct validator command, and its transitive summary included selected
+adapters' provider/command effects wherever the hooks were declared. The
+recorded below-2.33 cross-module omission is historical evidence; those source
+targets are outside the current 2.35 floor.
+
+Current [Task 5 routing](2026-10-15-orc-simplification-roadmap-extension.md#target-239-selected-implementation)
+permits new definition origins at 2.39 to omit effect declarations. Imported
+`std/improve` definitions remain at 2.35 with their legacy effect contract and
+forwarding declarations; a 2.39 caller does not reinterpret them. This does not
+select CF-1c or change EC-1/PC-1 gates. Compiler edits in the
 type-environment and specialization owners must be coordinated with any
 concurrent EC-1 or PC-1 work before execution. No research allocation changes.
 
@@ -761,6 +781,20 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
 
 ## Independent Work And Successor
 
+- The [simplification roadmap extension](2026-10-15-orc-simplification-roadmap-extension.md)
+  owns the finite manual engineering delivery: process cleanup, the retained
+  executable WCC boundary, compatible rule consolidation, the 2.35 source-floor
+  retirement and target-2.39 EL-1a/b/c with its two maintained consumer migrations.
+  Its per-lane acceptance and failure accounting remain authoritative. EL-1's
+  ES hand-back and owner/target conditions are satisfied; WCC is not an EL-1
+  prerequisite. EL-1d is cancelled for this selection. Ordinary public-provider
+  confinement is deferred; inherited ordinary environment, authored timeouts and
+  the existing unlimited-execution policy are retained under D2.
+  The bounded [DC-P decision](2026-10-15-orc-simplification-roadmap-extension.md#dynamic-adoption-authority)
+  retains typed W3 for the demonstrated fixed improve/search consumers and stops
+  this 3.0 adoption/migration lane. It neither closes broader dynamic-language
+  research nor deletes the qualified dynamic branch. No research unit,
+  machine-queue activation or main runtime-delivery gate changes.
 - The [P-series](2026-07-30-lsp-frontend-prerequisites-p-series-roadmap.md)
   remains the slated successor after recorded E-program completion or explicit
   owner closure/re-park. No P item is selected or accelerated here.
@@ -771,11 +805,13 @@ R0–R3. A parked study is recorded as parked, not scientifically completed.
 - [OMP-I1](2026-08-14-omp-integration-design-and-roadmap.md) remains complete;
   OMP-I2 remains pending and unselected under its existing named-consumer,
   loading-evidence, and owner-activation conditions. Neither gates this spine.
-- [EL-1](#el-1--effect-contracts-and-analysis-cleanup-pending-unselected) and
-  [EC-1](#ec-1--pure-call-expression-composition-pending-unselected) remain
-  independently pending and unselected. Their sections own bounded steps,
-  dependencies, and improvement/redesign/retirement decisions. Neither gates an
-  E/ES/P exit or changes a research allocation; existing runtime evidence and
+- [EL-1](#el-1--effect-contracts-and-analysis-cleanup-pending-unselected) has
+  delivered the selected bounded 2.39 authoring/inspection/consumer scope;
+  optional EL-1d is cancelled for this selection.
+  [EC-1](#ec-1--pure-call-expression-composition-pending-unselected) remains
+  independently pending and unselected. Their sections retain their own scope,
+  evidence limits and future selection conditions. Neither gates an E/ES/P
+  exit or changes a research allocation; existing runtime evidence and
   frozen-study boundaries remain intact.
 - C1–C3, E2O, the historical execution registry/fragment machinery, and other
   unselected work remain unselected. The completed REC and Q/L programs are

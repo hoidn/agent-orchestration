@@ -10,22 +10,18 @@ Plan: docs/plans/2026-09-29-workflow-lisp-shared-defect-repairs-plan.md, Task 5.
 from __future__ import annotations
 
 import json
-import logging
 from pathlib import Path
 
 import pytest
 
 from tests.workflow_evaluated_totality_helpers import _log, _public_run_files, _write_probe, _write_sources
 from tests.workflow_evaluated_totality_helpers import public_run
-from orchestrator.workflow_lisp.compiler import compile_stage3_module
-from orchestrator.workflow_lisp.command_boundaries import ExternalToolBinding
-from tests.workflow_lisp_closed_program_corpus import entry_with_target
 from tests.workflow_lisp_improve_stdlib_sources import REVIEW_PROBE, REVISE_PROBE, SUMMARIZE_PROBE
 
 
 MODULE = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "TARGET")
+  (:target-dsl "2.35")
   (defmodule grt/entry)
   (export run)
   (defrecord Candidate (title String) (score Int))
@@ -125,11 +121,11 @@ def _loop_body(shape: str, form: str) -> str:
     return LOOP.replace("CONTINUE", CONTINUES[shape][form])
 
 
-def _write_program(root: Path, *, body: str, returns: str, seed: str, target: str = "2.35") -> dict[str, Path]:
+def _write_program(root: Path, *, body: str, returns: str, seed: str) -> dict[str, Path]:
     root.mkdir(parents=True, exist_ok=True)
     probes = {name: _write_probe(root, name, text) for name, text in PROBES}
     source = (
-        MODULE.replace("TARGET", target)
+        MODULE
         .replace("RETURNS", returns)
         .replace("BODY", body)
         .replace("SEED", SEED)
@@ -155,26 +151,9 @@ def _scope_files(root: Path, probes: dict[str, Path]):
     return files
 
 
-def _analyze_and_select_evaluated_entry(root: Path, *, provider_externs=None, prompt_externs=None):
-    """Keep source-profile typing coverage, then execute through the supported entry."""
-    source = root / "grt" / "entry.orc"
-    if '(:target-dsl "2.35")' in source.read_text():
-        return
-    analysis = compile_stage3_module(
-        source, entry_workflow="run", workspace_root=root,
-        provider_externs=provider_externs, prompt_externs=prompt_externs,
-        validate_shared=False,
-        command_boundaries={name: ExternalToolBinding(name=name, stable_command=tuple(row["stable_command"]), closure=tuple(row["closure"]))
-                            for name, row in json.loads((root / "commands.json").read_text()).items()},
-    )
-    assert analysis.typed_program is not None
-    source.write_text(entry_with_target(source, "2.35"), encoding="utf-8")
-
-
 def _run(root: Path, monkeypatch: pytest.MonkeyPatch, probes: dict[str, Path]):
     monkeypatch.chdir(root)
     files = _scope_files(root, probes)
-    _analyze_and_select_evaluated_entry(root)
     result = public_run(files)
     return result.exit_code, dict(result.workflow_outputs or {}), _logs(probes)
 
@@ -271,14 +250,14 @@ def test_loop_with_both_forms_exhausts_like_improve(tmp_path: Path, monkeypatch:
     )
 
 
-# Imported definitions keep their authored profiles under an evaluated entry.
+# Imported current-profile definitions retain scope under an evaluated entry.
 # `refine` is LOOP_MATCH (both repaired forms) as a procedure of `grt/lib`.
 REFINE_HEADER = """(defproc refine ((seed Candidate)) -> Candidate
     :effects ((uses-command probe_review) (uses-command probe_revise))
     :lowering inline"""
 ENTRY = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "ENTRY_TARGET")
+  (:target-dsl "2.35")
   (defmodule grt/entry)
   (import grt/lib :only (Candidate review revise refine))
   (export run)
@@ -292,11 +271,10 @@ REFINED = (
     {"title": "draft+r+r+r", "score": 3},
     (["draft tidy", "draft+r tidy", "draft+r+r tidy"], ["draft tidy fb", "draft+r tidy fb", "draft+r+r tidy fb"], []),
 )
-NOTHING_RAN = (2, {}, ([], [], []))  # a `compiler_defect` diagnostic (Task 13)
 
 
-def _write_cross_target_program(root: Path, *, entry_target: str, lib_target: str, entry_body: str) -> dict[str, Path]:
-    probes = _write_program(root, body=LOOP_MATCH.replace("SEED", "seed"), returns="Candidate", seed="draft", target=lib_target)
+def _write_imported_program(root: Path, *, entry_body: str) -> dict[str, Path]:
+    probes = _write_program(root, body=LOOP_MATCH.replace("SEED", "seed"), returns="Candidate", seed="draft")
     lib = (
         (root / "grt" / "entry.orc")
         .read_text(encoding="utf-8")
@@ -304,36 +282,22 @@ def _write_cross_target_program(root: Path, *, entry_target: str, lib_target: st
         .replace("(export run)", "(export Candidate review revise refine)")
         .replace("(defworkflow run () -> Candidate", REFINE_HEADER)
     )
-    entry = ENTRY.replace("ENTRY_TARGET", entry_target).replace("BODY", entry_body)
+    entry = ENTRY.replace("BODY", entry_body)
     _write_sources(root, {"grt/lib.orc": lib, "grt/entry.orc": entry})
     return probes
 
 
 @pytest.mark.parametrize(
-    ("entry_target", "lib_target", "entry_body", "expected"),
-    [
-        ("2.35", "2.33", CALL_REFINE, REFINED),
-        ("2.35", "2.32", CALL_REFINE, NOTHING_RAN),
-        ("2.35", "2.33", LOOP_MATCH.replace("SEED", DRAFT), REFINED),
-    ],
-    ids=["evaluated-entry-calls-a-2.33-definition", "evaluated-entry-calls-a-2.32-definition", "evaluated-entry-writes-the-forms"],
+    "entry_body",
+    [CALL_REFINE, LOOP_MATCH.replace("SEED", DRAFT)],
+    ids=["calls-imported-definition", "writes-the-forms"],
 )
-def test_the_forms_follow_the_target_of_the_module_that_defines_them(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-    entry_target: str,
-    lib_target: str,
-    entry_body: str,
-    expected: tuple,
+def test_the_forms_keep_source_scope_in_an_imported_definition(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entry_body: str
 ) -> None:
-    probes = _write_cross_target_program(tmp_path, entry_target=entry_target, lib_target=lib_target, entry_body=entry_body)
+    probes = _write_imported_program(tmp_path, entry_body=entry_body)
 
-    with caplog.at_level(logging.ERROR):
-        outcome = _run(tmp_path, monkeypatch, probes)
-
-    assert outcome == expected
-    assert ("[compiler_defect]" in caplog.text) == (expected is NOTHING_RAN)
+    assert _run(tmp_path, monkeypatch, probes) == REFINED
 
 
 def _assert_committed_prefix_resume(root, monkeypatch, probes, expected):
@@ -343,7 +307,6 @@ def _assert_committed_prefix_resume(root, monkeypatch, probes, expected):
     from tests.test_workflow_evaluated_resume import _resume_cli
 
     files = _scope_files(root, probes)
-    _analyze_and_select_evaluated_entry(root)
     monkeypatch.chdir(root)
     committed = pause_public(files, monkeypatch)
     authority, before = checked_run(root)

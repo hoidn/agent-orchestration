@@ -1,0 +1,578 @@
+[
+  {
+    "diagnostics": [
+      {
+        "authority_layer": null,
+        "code": "provider_supervision_member_ineligible",
+        "data": null,
+        "diagnostic_kind": null,
+        "expansion": [],
+        "form_path": [
+          "workflow-lisp",
+          "defworkflow",
+          "orchestrate"
+        ],
+        "internal_cause": null,
+        "message": "every live-provider member procedure must be authored with `:lowering inline` and resolve inline",
+        "notes": [],
+        "phase": "lowering",
+        "severity": null,
+        "span": {
+          "end": {
+            "column": 84,
+            "line": 7,
+            "offset": 386,
+            "path": "$SOURCE"
+          },
+          "start": {
+            "column": 71,
+            "line": 7,
+            "offset": 373,
+            "path": "$SOURCE"
+          }
+        },
+        "validation_pass": null
+      },
+      {
+        "authority_layer": null,
+        "code": "provider_supervision_member_disqualifying_form",
+        "data": null,
+        "diagnostic_kind": null,
+        "expansion": [],
+        "form_path": [
+          "workflow-lisp",
+          "defproc",
+          "auto-worker"
+        ],
+        "internal_cause": null,
+        "message": "specialized member contains this disqualifying form",
+        "notes": [],
+        "phase": "lowering",
+        "severity": null,
+        "span": {
+          "end": {
+            "column": 181,
+            "line": 6,
+            "offset": 302,
+            "path": "$SOURCE"
+          },
+          "start": {
+            "column": 3,
+            "line": 6,
+            "offset": 124,
+            "path": "$SOURCE"
+          }
+        },
+        "validation_pass": null
+      }
+    ],
+    "name": "supervision_auto_member",
+    "prompt_externs": {
+      "prompts.supervisor": "prompts/supervisor.md",
+      "prompts.worker": "prompts/worker.md"
+    },
+    "provider_externs": {
+      "providers.supervisor": "providers-supervisor-id",
+      "providers.worker": "providers-worker-id"
+    },
+    "source": "(workflow-lisp\n  (:language \"0.1\")\n  (:target-dsl \"2.35\")\n  (defmodule cp/supervision_auto_member)\n  (export orchestrate)\n  (defproc auto-worker () -> String :effects ((uses-provider providers.worker)) :lowering auto (provider-result providers.worker :prompt prompts.worker :inputs () :returns String))\n  (defworkflow orchestrate () -> String (with-live-providers ((worker (auto-worker)) (supervisor (provider-result providers.supervisor :prompt prompts.supervisor :inputs () :returns ProviderSteeringDirective) :observes worker)) worker))\n)",
+    "source_sha256": "59662671b6be824191af3b1f5651d614aef325b50bbcbd3c8dce34afd44c9e61",
+    "stage": "build_closed_program"
+  },
+  {
+    "diagnostics": [
+      {
+        "authority_layer": null,
+        "code": "provider_supervision_member_ineligible",
+        "data": null,
+        "diagnostic_kind": null,
+        "expansion": [],
+        "form_path": [
+          "workflow-lisp",
+          "defworkflow",
+          "orchestrate"
+        ],
+        "internal_cause": null,
+        "message": "every live-provider member procedure must be authored with `:lowering inline` and resolve inline",
+        "notes": [],
+        "phase": "lowering",
+        "severity": null,
+        "span": {
+          "end": {
+            "column": 93,
+            "line": 8,
+            "offset": 467,
+            "path": "$SOURCE"
+          },
+          "start": {
+            "column": 77,
+            "line": 8,
+            "offset": 451,
+            "path": "$SOURCE"
+          }
+        },
+        "validation_pass": null
+      },
+      {
+        "authority_layer": null,
+        "code": "provider_supervision_member_disqualifying_form",
+        "data": null,
+        "diagnostic_kind": null,
+        "expansion": [],
+        "form_path": [
+          "workflow-lisp",
+          "defproc",
+          "private-worker"
+        ],
+        "internal_cause": null,
+        "message": "specialized member contains this disqualifying form",
+        "notes": [],
+        "phase": "lowering",
+        "severity": null,
+        "span": {
+          "end": {
+            "column": 208,
+            "line": 7,
+            "offset": 374,
+            "path": "$SOURCE"
+          },
+          "start": {
+            "column": 3,
+            "line": 7,
+            "offset": 169,
+            "path": "$SOURCE"
+          }
+        },
+        "validation_pass": null
+      }
+    ],
+    "name": "supervision_private_member",
+    "prompt_externs": {
+      "prompts.supervisor": "prompts/supervisor.md",
+      "prompts.worker": "prompts/worker.md"
+    },
+    "provider_externs": {
+      "providers.supervisor": "providers-supervisor-id",
+      "providers.worker": "providers-worker-id"
+    },
+    "source": "(workflow-lisp\n  (:language \"0.1\")\n  (:target-dsl \"2.35\")\n  (defmodule cp/supervision_private_member)\n  (export orchestrate)\n  (defrecord WorkerResult (value String))\n  (defproc private-worker () -> WorkerResult :effects ((uses-provider providers.worker)) :lowering private-workflow (provider-result providers.worker :prompt prompts.worker :inputs () :returns WorkerResult))\n  (defworkflow orchestrate () -> WorkerResult (with-live-providers ((worker (private-worker)) (supervisor (provider-result providers.supervisor :prompt prompts.supervisor :inputs () :returns ProviderSteeringDirective) :observes worker)) worker))\n)",
+    "source_sha256": "1dd6b3d332bfce3fca74f36a91bc938424f201b69991fdcaba967628f7d10e75",
+    "stage": "build_closed_program"
+  },
+  {
+    "diagnostics": [
+      {
+        "authority_layer": null,
+        "code": "provider_peer_group_member_ineligible",
+        "data": null,
+        "diagnostic_kind": null,
+        "expansion": [],
+        "form_path": [
+          "workflow-lisp",
+          "defworkflow",
+          "orchestrate"
+        ],
+        "internal_cause": null,
+        "message": "every live-provider member procedure must be authored with `:lowering inline` and resolve inline",
+        "notes": [],
+        "phase": "lowering",
+        "severity": null,
+        "span": {
+          "end": {
+            "column": 89,
+            "line": 7,
+            "offset": 387,
+            "path": "$SOURCE"
+          },
+          "start": {
+            "column": 77,
+            "line": 7,
+            "offset": 375,
+            "path": "$SOURCE"
+          }
+        },
+        "validation_pass": null
+      },
+      {
+        "authority_layer": null,
+        "code": "provider_peer_group_member_disqualifying_form",
+        "data": null,
+        "diagnostic_kind": null,
+        "expansion": [],
+        "form_path": [
+          "workflow-lisp",
+          "defproc",
+          "bad-member"
+        ],
+        "internal_cause": null,
+        "message": "specialized member contains this disqualifying form",
+        "notes": [],
+        "phase": "lowering",
+        "severity": null,
+        "span": {
+          "end": {
+            "column": 183,
+            "line": 6,
+            "offset": 298,
+            "path": "$SOURCE"
+          },
+          "start": {
+            "column": 3,
+            "line": 6,
+            "offset": 118,
+            "path": "$SOURCE"
+          }
+        },
+        "validation_pass": null
+      }
+    ],
+    "name": "peers_auto_member",
+    "prompt_externs": {
+      "prompts.planner": "prompts/planner.md",
+      "prompts.reviewer": "prompts/reviewer.md"
+    },
+    "provider_externs": {
+      "providers.planner": "providers-planner-id",
+      "providers.reviewer": "providers-reviewer-id"
+    },
+    "source": "(workflow-lisp\n  (:language \"0.1\")\n  (:target-dsl \"2.35\")\n  (defmodule cp/peers_auto_member)\n  (export orchestrate)\n  (defproc bad-member () -> String :effects ((uses-provider providers.planner)) :lowering auto (provider-result providers.planner :prompt prompts.planner :inputs () :returns String))\n  (defworkflow orchestrate () -> String (with-live-provider-peers ((planner (bad-member)) (reviewer (provider-result providers.reviewer :prompt prompts.reviewer :inputs () :returns String))) planner))\n)",
+    "source_sha256": "c627075b04523b8d1baa92493ebcb5dc449a4d376b3683dff7b802789a6a58f4",
+    "stage": "build_closed_program"
+  },
+  {
+    "diagnostics": [
+      {
+        "authority_layer": null,
+        "code": "provider_peer_group_member_ineligible",
+        "data": null,
+        "diagnostic_kind": null,
+        "expansion": [],
+        "form_path": [
+          "workflow-lisp",
+          "defworkflow",
+          "orchestrate"
+        ],
+        "internal_cause": null,
+        "message": "every live-provider member procedure must be authored with `:lowering inline` and resolve inline",
+        "notes": [],
+        "phase": "lowering",
+        "severity": null,
+        "span": {
+          "end": {
+            "column": 99,
+            "line": 8,
+            "offset": 470,
+            "path": "$SOURCE"
+          },
+          "start": {
+            "column": 83,
+            "line": 8,
+            "offset": 454,
+            "path": "$SOURCE"
+          }
+        },
+        "validation_pass": null
+      },
+      {
+        "authority_layer": null,
+        "code": "provider_peer_group_member_disqualifying_form",
+        "data": null,
+        "diagnostic_kind": null,
+        "expansion": [],
+        "form_path": [
+          "workflow-lisp",
+          "defproc",
+          "private-member"
+        ],
+        "internal_cause": null,
+        "message": "specialized member contains this disqualifying form",
+        "notes": [],
+        "phase": "lowering",
+        "severity": null,
+        "span": {
+          "end": {
+            "column": 211,
+            "line": 7,
+            "offset": 371,
+            "path": "$SOURCE"
+          },
+          "start": {
+            "column": 3,
+            "line": 7,
+            "offset": 163,
+            "path": "$SOURCE"
+          }
+        },
+        "validation_pass": null
+      }
+    ],
+    "name": "peers_private_member",
+    "prompt_externs": {
+      "prompts.builder": "prompts/builder.md",
+      "prompts.planner": "prompts/planner.md",
+      "prompts.reviewer": "prompts/reviewer.md"
+    },
+    "provider_externs": {
+      "providers.builder": "providers-builder-id",
+      "providers.planner": "providers-planner-id",
+      "providers.reviewer": "providers-reviewer-id"
+    },
+    "source": "(workflow-lisp\n  (:language \"0.1\")\n  (:target-dsl \"2.35\")\n  (defmodule cp/peers_private_member)\n  (export orchestrate)\n  (defrecord WorkerResult (value String))\n  (defproc private-member () -> WorkerResult :effects ((uses-provider providers.planner)) :lowering private-workflow (provider-result providers.planner :prompt prompts.planner :inputs () :returns WorkerResult))\n  (defworkflow orchestrate () -> WorkerResult (with-live-provider-peers ((planner (private-member)) (reviewer (provider-result providers.reviewer :prompt prompts.reviewer :inputs () :returns String)) (builder (provider-result providers.builder :prompt prompts.builder :inputs () :returns String))) planner))\n)",
+    "source_sha256": "6731050922aea65cb89d9b87ce2dab580b6b15ab079b0225e6c0335c7d7de527",
+    "stage": "build_closed_program"
+  },
+  {
+    "diagnostics": [
+      {
+        "authority_layer": null,
+        "code": "provider_supervision_member_ineligible",
+        "data": null,
+        "diagnostic_kind": null,
+        "expansion": [],
+        "form_path": [
+          "workflow-lisp",
+          "defworkflow",
+          "orchestrate"
+        ],
+        "internal_cause": null,
+        "message": "every live-provider member procedure must be authored with `:lowering inline` and resolve inline",
+        "notes": [],
+        "phase": "lowering",
+        "severity": null,
+        "span": {
+          "end": {
+            "column": 84,
+            "line": 8,
+            "offset": 650,
+            "path": "$SOURCE"
+          },
+          "start": {
+            "column": 71,
+            "line": 8,
+            "offset": 637,
+            "path": "$SOURCE"
+          }
+        },
+        "validation_pass": null
+      },
+      {
+        "authority_layer": null,
+        "code": "provider_supervision_member_disqualifying_form",
+        "data": null,
+        "diagnostic_kind": null,
+        "expansion": [],
+        "form_path": [
+          "workflow-lisp",
+          "defproc",
+          "auto-worker"
+        ],
+        "internal_cause": null,
+        "message": "specialized member contains this disqualifying form",
+        "notes": [],
+        "phase": "lowering",
+        "severity": null,
+        "span": {
+          "end": {
+            "column": 181,
+            "line": 6,
+            "offset": 316,
+            "path": "$SOURCE"
+          },
+          "start": {
+            "column": 3,
+            "line": 6,
+            "offset": 138,
+            "path": "$SOURCE"
+          }
+        },
+        "validation_pass": null
+      }
+    ],
+    "name": "supervision_competing_member_failures",
+    "prompt_externs": {
+      "prompts.supervisor": "prompts/supervisor.md",
+      "prompts.worker": "prompts/worker.md"
+    },
+    "provider_externs": {
+      "providers.supervisor": "providers-supervisor-id",
+      "providers.worker": "providers-worker-id"
+    },
+    "source": "(workflow-lisp\n  (:language \"0.1\")\n  (:target-dsl \"2.35\")\n  (defmodule cp/supervision_competing_member_failures)\n  (export orchestrate)\n  (defproc auto-worker () -> String :effects ((uses-provider providers.worker)) :lowering auto (provider-result providers.worker :prompt prompts.worker :inputs () :returns String))\n  (defproc private-supervisor () -> ProviderSteeringDirective :effects ((uses-provider providers.supervisor)) :lowering private-workflow (provider-result providers.supervisor :prompt prompts.supervisor :inputs () :returns ProviderSteeringDirective))\n  (defworkflow orchestrate () -> String (with-live-providers ((worker (auto-worker)) (supervisor (private-supervisor) :observes worker)) worker))\n)",
+    "source_sha256": "b0228e964f4a1d403b05ddccb27fc72abb17025b2bdc3c96440cd8ded617bf0d",
+    "stage": "build_closed_program"
+  },
+  {
+    "diagnostics": [
+      {
+        "authority_layer": null,
+        "code": "provider_peer_group_member_ineligible",
+        "data": null,
+        "diagnostic_kind": null,
+        "expansion": [],
+        "form_path": [
+          "workflow-lisp",
+          "defworkflow",
+          "orchestrate"
+        ],
+        "internal_cause": null,
+        "message": "every live-provider member procedure must be authored with `:lowering inline` and resolve inline",
+        "notes": [],
+        "phase": "lowering",
+        "severity": null,
+        "span": {
+          "end": {
+            "column": 91,
+            "line": 9,
+            "offset": 669,
+            "path": "$SOURCE"
+          },
+          "start": {
+            "column": 77,
+            "line": 9,
+            "offset": 655,
+            "path": "$SOURCE"
+          }
+        },
+        "validation_pass": null
+      },
+      {
+        "authority_layer": null,
+        "code": "provider_peer_group_member_disqualifying_form",
+        "data": null,
+        "diagnostic_kind": null,
+        "expansion": [],
+        "form_path": [
+          "workflow-lisp",
+          "defproc",
+          "auto-planner"
+        ],
+        "internal_cause": null,
+        "message": "specialized member contains this disqualifying form",
+        "notes": [],
+        "phase": "lowering",
+        "severity": null,
+        "span": {
+          "end": {
+            "column": 185,
+            "line": 6,
+            "offset": 314,
+            "path": "$SOURCE"
+          },
+          "start": {
+            "column": 3,
+            "line": 6,
+            "offset": 132,
+            "path": "$SOURCE"
+          }
+        },
+        "validation_pass": null
+      }
+    ],
+    "name": "peers_competing_member_failures",
+    "prompt_externs": {
+      "prompts.builder": "prompts/builder.md",
+      "prompts.planner": "prompts/planner.md",
+      "prompts.reviewer": "prompts/reviewer.md"
+    },
+    "provider_externs": {
+      "providers.builder": "providers-builder-id",
+      "providers.planner": "providers-planner-id",
+      "providers.reviewer": "providers-reviewer-id"
+    },
+    "source": "(workflow-lisp\n  (:language \"0.1\")\n  (:target-dsl \"2.35\")\n  (defmodule cp/peers_competing_member_failures)\n  (export orchestrate)\n  (defproc auto-planner () -> String :effects ((uses-provider providers.planner)) :lowering auto (provider-result providers.planner :prompt prompts.planner :inputs () :returns String))\n  (defrecord ReviewerResult (value String))\n  (defproc private-reviewer () -> ReviewerResult :effects ((uses-provider providers.reviewer)) :lowering private-workflow (provider-result providers.reviewer :prompt prompts.reviewer :inputs () :returns ReviewerResult))\n  (defworkflow orchestrate () -> String (with-live-provider-peers ((planner (auto-planner)) (reviewer (private-reviewer)) (builder (provider-result providers.builder :prompt prompts.builder :inputs () :returns String))) planner))\n)",
+    "source_sha256": "3fec8aff36e1afe0094fb4fee6dbdeb1f76e220120586229d4cb1b32c77d328f",
+    "stage": "build_closed_program"
+  },
+  {
+    "diagnostics": [
+      {
+        "authority_layer": "frontend",
+        "code": "procedure_call_unknown",
+        "data": null,
+        "diagnostic_kind": "validation",
+        "expansion": [],
+        "form_path": [
+          "workflow-lisp",
+          "defworkflow",
+          "orchestrate"
+        ],
+        "internal_cause": null,
+        "message": "unknown same-file procedure callee `supervisor`",
+        "notes": [],
+        "phase": "read",
+        "severity": null,
+        "span": {
+          "end": {
+            "column": 82,
+            "line": 6,
+            "offset": 209,
+            "path": "$SOURCE"
+          },
+          "start": {
+            "column": 72,
+            "line": 6,
+            "offset": 199,
+            "path": "$SOURCE"
+          }
+        },
+        "validation_pass": "parse"
+      }
+    ],
+    "name": "supervision_sibling_typecheck",
+    "prompt_externs": {
+      "prompts.supervisor": "prompts/supervisor.md"
+    },
+    "provider_externs": {
+      "providers.supervisor": "providers-supervisor-id"
+    },
+    "source": "(workflow-lisp\n  (:language \"0.1\")\n  (:target-dsl \"2.35\")\n  (defmodule cp/supervision_sibling_typecheck)\n  (export orchestrate)\n  (defworkflow orchestrate () -> String (with-live-providers ((worker (supervisor)) (supervisor (provider-result providers.supervisor :prompt prompts.supervisor :inputs () :returns ProviderSteeringDirective) :observes worker)) worker))\n)",
+    "source_sha256": "f0864900c7c87a422447927a045dfca0093fa6a86fb15ae45b2d52bb03090ad1",
+    "stage": "compile_typed_program"
+  },
+  {
+    "diagnostics": [
+      {
+        "authority_layer": "frontend",
+        "code": "name_unknown",
+        "data": null,
+        "diagnostic_kind": "validation",
+        "expansion": [],
+        "form_path": [
+          "workflow-lisp",
+          "defworkflow",
+          "orchestrate"
+        ],
+        "internal_cause": null,
+        "message": "unknown name `reviewer`",
+        "notes": [],
+        "phase": "typecheck",
+        "severity": null,
+        "span": {
+          "end": {
+            "column": 85,
+            "line": 6,
+            "offset": 206,
+            "path": "$SOURCE"
+          },
+          "start": {
+            "column": 77,
+            "line": 6,
+            "offset": 198,
+            "path": "$SOURCE"
+          }
+        },
+        "validation_pass": "type"
+      }
+    ],
+    "name": "peers_sibling_typecheck",
+    "prompt_externs": {
+      "prompts.reviewer": "prompts/reviewer.md"
+    },
+    "provider_externs": {
+      "providers.reviewer": "providers-reviewer-id"
+    },
+    "source": "(workflow-lisp\n  (:language \"0.1\")\n  (:target-dsl \"2.35\")\n  (defmodule cp/peers_sibling_typecheck)\n  (export orchestrate)\n  (defworkflow orchestrate () -> String (with-live-provider-peers ((planner reviewer) (reviewer (provider-result providers.reviewer :prompt prompts.reviewer :inputs () :returns String))) planner))\n)",
+    "source_sha256": "860767bd8c2cc775a856ed0c0ab4434a9bdfa3eeef777f3bf2cf4c1424b54d90",
+    "stage": "compile_typed_program"
+  }
+]

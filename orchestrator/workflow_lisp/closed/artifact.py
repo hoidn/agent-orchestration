@@ -153,17 +153,38 @@ def _prepare_closed_program_bundle(
         configuration_trace=configuration_trace,
     )
     trace = source_read_trace or SourceReadTrace()
-    typed, stage3 = compile_typed_program_with_result(
-        resolved.source_path,
-        entry_workflow=resolved.entry_workflow,
-        source_roots=resolved.source_roots,
-        command_boundaries=command_boundaries,
-        provider_externs=provider_externs,
-        prompt_externs=prompt_externs,
-        imported_programs=programs_by_binding,
-        workspace_root=resolved.workspace_root,
-        source_read_trace=trace,
-    )
+    try:
+        typed, stage3 = compile_typed_program_with_result(
+            resolved.source_path,
+            entry_workflow=resolved.entry_workflow,
+            source_roots=resolved.source_roots,
+            command_boundaries=command_boundaries,
+            provider_externs=provider_externs,
+            prompt_externs=prompt_externs,
+            imported_programs=programs_by_binding,
+            workspace_root=resolved.workspace_root,
+            source_read_trace=trace,
+        )
+    except LispFrontendCompileError as exc:
+        if any(
+            diagnostic.code == "target_dsl_unsupported"
+            for diagnostic in exc.diagnostics
+        ):
+            source_bytes = trace.raw_bytes_by_path.get(resolved.source_path)
+            if source_bytes is not None:
+                from .target import refuse_retired_entry_target_from_bytes
+
+                try:
+                    refuse_retired_entry_target_from_bytes(
+                        resolved.source_path, source_bytes
+                    )
+                except LispFrontendCompileError as admission_error:
+                    if any(
+                        diagnostic.code == "workflow_execution_target_retired"
+                        for diagnostic in admission_error.diagnostics
+                    ):
+                        raise
+        raise
     builder = Builder(typed)
     _require_program_closures(
         typed, builder=builder, manifest_path=resolved.command_boundaries_path
@@ -269,7 +290,6 @@ def _load_closed_imports(
         provider_externs_path=request.provider_externs_path,
         prompt_externs_path=request.prompt_externs_path,
         command_boundaries_path=request.command_boundaries_path,
-        lowering_route=request.lowering_route,
         source_read_trace=None,
         configuration_read_trace=configuration_trace,
     )

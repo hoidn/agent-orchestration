@@ -202,7 +202,7 @@ def _config(
     inputs=None,
     source: SourceRequest | None = None,
     return_refinement=_AUTO_RETURN_REFINEMENT,
-    target_dsl_version: str = "2.24",
+    target_dsl_version: str = "2.35",
 ):
     descriptor, result_digest = _result_contract(value_descriptor)
     program = (
@@ -245,17 +245,14 @@ def test_target_225_nested_result_descriptor_round_trips_explicitly() -> None:
         },
     }
 
-    with pytest.raises(ValueError, match="not transportable"):
-        _config(value_descriptor=nested_value)
-
     config = _config(
         value_descriptor=nested_value,
-        target_dsl_version="2.25",
+        target_dsl_version="2.35",
     )
     decoded = decode_run_ref_static_config(encode_run_ref_static_config(config))
 
     assert decoded == config
-    assert decoded.target_dsl_version == "2.25"
+    assert decoded.target_dsl_version == "2.35"
     assert decoded.record["result_descriptor"]["envelope"]["fields"][0][
         "type"
     ] == nested_value
@@ -472,7 +469,7 @@ def test_static_config_exact_wire_and_round_trip_are_canonical() -> None:
 
     assert config.record == {
         "schema_version": RUN_REF_STATIC_CONFIG_SCHEMA,
-        "target_dsl_version": "2.24",
+        "target_dsl_version": "2.35",
         "lowering_route": "wcc_m4",
         "lowering_schema_version": 2,
         "compiler_runtime_identity_digest": COMPILER_IDENTITY,
@@ -821,7 +818,7 @@ def test_neutral_primitive_transportability_matches_compiler_decision() -> None:
         "Prompt",
     )
     type_refs = {name: PrimitiveTypeRef(name) for name in names}
-    type_env = FrontendTypeEnvironment(type_refs, target_dsl_version="2.24")
+    type_env = FrontendTypeEnvironment(type_refs, target_dsl_version="2.35")
 
     for name, type_ref in type_refs.items():
         descriptor = compiler_normalized_type_descriptor(
@@ -888,7 +885,7 @@ def test_every_root_wire_field_is_config_digest_bearing() -> None:
     base = _config()
     replacements = {
         "schema_version": "run_ref_static_config.v2",
-        "target_dsl_version": "2.25",
+        "target_dsl_version": "2.36",
         "lowering_route": "other",
         "lowering_schema_version": 3,
         "compiler_runtime_identity_digest": "sha256:" + "d" * 64,
@@ -1013,7 +1010,7 @@ from orchestrator.workflow_lisp.typecheck_run_ref import compiler_run_ref_fixed_
 
 primitive_names = ("String", "Int", "Bool", "Value", "RunId")
 primitives = {name: PrimitiveTypeRef(name) for name in primitive_names}
-type_env = FrontendTypeEnvironment(primitives, target_dsl_version="2.24")
+type_env = FrontendTypeEnvironment(primitives, target_dsl_version="2.35")
 fixed = dict(compiler_run_ref_fixed_types(type_env))
 position = SourcePosition(
     path="<prelude:dependency-probe>", line=1, column=1, offset=0
@@ -1380,3 +1377,31 @@ def test_tampered_request_is_refused_even_with_a_recomputed_digest(field) -> Non
 def test_request_refuses_invalid_operands(commit, inputs) -> None:
     with pytest.raises(ValueError):
         _request(commit=commit, inputs=inputs)
+
+
+@pytest.mark.parametrize("constructor", ("input", "path", "record"))
+def test_low_level_nested_transport_requires_explicit_policy(constructor):
+    from orchestrator.workflow.run_ref.config import _program_from_record
+
+    nested = {
+        "kind": "list",
+        "item": {"kind": "record", "name": "Payload", "fields": [
+            {"name": "n", "type": {"kind": "primitive", "name": "Int"}},
+        ]},
+    }
+    def make(**policy):
+        if constructor == "input":
+            return RunRefInput(name="payload", type_descriptor=nested,
+                binding=ReferenceBinding("inputs.payload"), **policy).type_descriptor
+        if constructor == "path":
+            return PathProgram(path="entry.orc", entry_name="run",
+                return_refinement=nested, **policy).return_refinement
+        record = {"mode": "path", "path": "entry.orc", "entry_name": "run",
+            "environment": "deterministic-effect-free", "return_refinement": nested}
+        return _program_from_record(record, **policy).return_refinement
+
+    with pytest.raises(ValueError, match="transportable"):
+        make()
+    with pytest.raises(ValueError, match="transportable"):
+        make(allow_nested_structures=False)
+    assert make(allow_nested_structures=True) == nested

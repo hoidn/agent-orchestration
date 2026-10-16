@@ -29,7 +29,7 @@ from .reader import SourceReadTrace
 
 if TYPE_CHECKING:
     from .type_env import FrontendTypeEnvironment, TypeRef
-from .syntax import target_dsl_supports_pure_call_composition
+
 
 _LEXICAL_LOCAL_BINDING = object()
 
@@ -853,57 +853,32 @@ def _payload_expr_impl(
     from .type_env import ListTypeRef
 
     if isinstance(expr, LetStarExpr):
-        if target_dsl_supports_pure_call_composition(
-            getattr(type_env, "target_dsl_version", "") or ""
-        ):
-            child_bindings = dict(lexical_bindings)
-            child_types = dict(lexical_types)
-            payload_bindings: list[dict[str, Any]] = []
-            for binding_name, binding_expr in expr.bindings:
-                value_node, binding_type = _payload_expr(
-                    binding_expr,
-                    type_env=type_env, source_read_trace=source_read_trace,
-                    lexical_bindings=child_bindings,
-                    lexical_types=child_types,
-                    diagnostic_sources=diagnostic_sources,
-                    diagnostic_root_id=diagnostic_root_id,
-                )
-                payload_bindings.append(
-                    {
-                        "name": binding_name,
-                        "type": _type_descriptor(
-                            binding_type,
-                            type_env=type_env,
-                            source_read_trace=source_read_trace,
-                        ),
-                        "value": value_node,
-                    }
-                )
-                child_bindings[binding_name] = _LEXICAL_LOCAL_BINDING
-                child_types[binding_name] = binding_type
-            body_node, body_type = _payload_expr(
-                expr.body,
+        child_bindings = dict(lexical_bindings)
+        child_types = dict(lexical_types)
+        payload_bindings: list[dict[str, Any]] = []
+        for binding_name, binding_expr in expr.bindings:
+            value_node, binding_type = _payload_expr(
+                binding_expr,
                 type_env=type_env, source_read_trace=source_read_trace,
                 lexical_bindings=child_bindings,
                 lexical_types=child_types,
                 diagnostic_sources=diagnostic_sources,
                 diagnostic_root_id=diagnostic_root_id,
             )
-            return {
-                "kind": "let",
-                "bindings": payload_bindings,
-                "body": body_node,
-            }, body_type
-        child_bindings = dict(lexical_bindings)
-        child_types = dict(lexical_types)
-        for binding_name, binding_expr in expr.bindings:
-            child_bindings[binding_name] = binding_expr
-            child_types[binding_name] = _infer_expr_type(
-                binding_expr,
-                type_env=type_env, source_read_trace=source_read_trace,
-                lexical_types=child_types,
+            payload_bindings.append(
+                {
+                    "name": binding_name,
+                    "type": _type_descriptor(
+                        binding_type,
+                        type_env=type_env,
+                        source_read_trace=source_read_trace,
+                    ),
+                    "value": value_node,
+                }
             )
-        return _payload_expr(
+            child_bindings[binding_name] = _LEXICAL_LOCAL_BINDING
+            child_types[binding_name] = binding_type
+        body_node, body_type = _payload_expr(
             expr.body,
             type_env=type_env, source_read_trace=source_read_trace,
             lexical_bindings=child_bindings,
@@ -911,6 +886,11 @@ def _payload_expr_impl(
             diagnostic_sources=diagnostic_sources,
             diagnostic_root_id=diagnostic_root_id,
         )
+        return {
+            "kind": "let",
+            "bindings": payload_bindings,
+            "body": body_node,
+        }, body_type
     if isinstance(expr, NameExpr):
         if expr.name in lexical_bindings:
             if lexical_bindings[expr.name] is _LEXICAL_LOCAL_BINDING:
@@ -1331,16 +1311,14 @@ def _infer_expr_type(
         catalog_type = catalog_operator_result_type(operator, arg_types)
         if catalog_type is not None:
             return catalog_type
-        if operator in {"=", "!=", "and", "or", "not", "some?"}:
+        if operator in {"=", "!=", "some?"}:
             return PrimitiveTypeRef(name="Bool")
         if operator == "or-else":
             if isinstance(arg_types[0], OptionalTypeRef):
                 return arg_types[0].item_type_ref
             return PrimitiveTypeRef(name="Int")
-        if operator in {"string/concat", "symbol/name"}:
+        if operator == "string/concat":
             return PrimitiveTypeRef(name="String")
-        if operator == "string/empty?":
-            return PrimitiveTypeRef(name="Bool")
         if operator == "list/empty?":
             return PrimitiveTypeRef(name="Bool")
         if operator == "list/head":

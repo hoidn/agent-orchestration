@@ -8,6 +8,10 @@ F2 remains **OPEN_NOT_WAIVED**. L2 may return its frozen static-form recovery
 response, never stale callables. Use the [setup guide](../workflow_lisp_language_server_setup.md)
 for supported editor use.
 
+The source-floor migration retains current-target navigation obligations;
+known navigation failures remain represented in its verification population.
+Header refusal or successful source selection does not waive those failures.
+
 - **Status:** current tooling contract through L0–L5; L6 remains an unselected
   accepted utility design.
 - **Kind:** feature / developer tooling architecture decision
@@ -33,6 +37,14 @@ Review receipts, implementation history and original qualification notes are
 the availability boundary above remains current.
 
 ## Summary
+
+The selected [source floor](workflow_lisp_executor_retirement.md#source-floor-235)
+is 2.35 for every source dependency. Old module headers receive the shared
+unsupported-target diagnostic; no legacy analysis, import fallback or stale
+callable snapshot survives the refusal. Current evaluated inspection and
+no-effect guarantees remain. Source migration does not qualify an otherwise
+unsupported editor/runtime capability.
+
 
 `.orc` authors can now use an **LSP (Language Server Protocol) server for
 `.orc`**: a
@@ -516,12 +528,11 @@ LSP messages.
   compile-entry path and passes it to the shared in-memory core, which resolves
   context paths and invokes the production loaders before compilation.
 - V1 `initializationOptions` **must not expose** `lint_profile` or
-  `lowering_route`. The server fixes both to the exact production defaults
-  used by unchanged `run --dry-run`, then records their normalized values in
-  the F2 parity tuple. `validation_profile` is likewise fixed to
-  `SHARED_CALLABLE`. Non-default editor lint/lowering configuration is
-  deferred; adding it requires one shared CLI/workspace-configuration design,
-  not LSP-only options.
+  `lowering_route`. Lint uses the exact production default of `run --dry-run`;
+  `lowering_route` is a removed compiler argument, not a configurable default.
+  Validation and boundary admission normalize to `SHARED_CALLABLE` in the F2
+  parity tuple. Non-default editor lint configuration requires shared
+  CLI/workspace authority, not LSP-only options.
 - Every source uses the one initialized `workspace_root`. F2 compares it with
   the unchanged CLI launched with that root as its working directory; a CLI
   invocation from a different working workspace is not a parity peer.
@@ -590,8 +601,9 @@ LSP messages.
 - Library-only analysis with `entry_workflow=null` returns typed catalogs without
   selection. Selected analysis returns the same typed result with entry selection;
   neither manufactures `LoadedWorkflowBundle`, flat IR, source-map artifacts,
-  prospective flat build paths or a runtime plan. Older-header analysis/imports
-  remain admitted independently of executable-target admission.
+  prospective flat build paths or a runtime plan. Every source and typed
+  imported dependency must target 2.35 or newer; old-header analysis/imports
+  refuse before catalog publication and invalidate callable snapshots.
 - Persistent executable builds use the checked closed-program route. The LSP
   never creates or mutates `.orchestrate/build`. Source spans/catalogs and exact
   raw-byte source/configuration traces still govern diagnostics, navigation,
@@ -768,15 +780,14 @@ selection and input binding:
 5. `validation_profile=SHARED_CALLABLE`;
 6. normalized `lint_profile`, fixed to unchanged `run --dry-run`'s production
    default;
-7. normalized `lowering_route`, fixed to unchanged `run --dry-run`'s
-   production default;
+7. normalized `boundary_admission_profile=SHARED_CALLABLE`;
 8. the provider-extern bundle loaded through the production loader;
 9. the prompt-extern bundle loaded through the production loader;
 10. the command-boundary bundle loaded through the production loader; and
 11. the imported-workflow bundle loaded through the production loader.
 
 Parity first requires exact equality of that tuple, including source-root
-order, the two fixed normalized defaults, and normalized loaded bundle values.
+order, both admission profiles, the lint default and normalized loaded bundle values.
 File-path spelling or the absence of an option is not accepted as a proxy for
 bundle/default equality. The parity CLI must be launched from the same
 workspace root as the LSP source and receive the same ordered explicit
@@ -878,6 +889,14 @@ categories:
 | document symbols | `defmodule`, `defproc`, `defworkflow` definitions in the requested document | exactly those symbols and authored spans |
 | completion | visible local/imported procedure names, visible local/imported workflow names, and form heads from the compiler registry | exactly that set, deterministically ordered |
 | any other node, identifier, definition kind, field, variant, type, macro head, erased/expanded/generated-owner/specialized-owner `proc-ref`, extern, or position | unsupported | null / no item |
+
+For target-2.39 procedure contracts, procedure-completion detail distinguishes
+an authored restriction/absence from the compiler-derived inferred summary,
+and marks unresolved generic dependencies incomplete. It must not label a
+permitted ceiling as the procedure's actual effect set. This uses the existing
+compiled typed owner and completion response; no new hover request or
+span-to-type service is introduced. Form completion follows the versioned
+source-admission registry, including private/compatibility-form exclusions.
 
 Every definition edge is one immutable five-field row:
 
@@ -1112,7 +1131,8 @@ Invariants that must hold after implementation:
    nominal-type filtering.
 8. **Editor compile policy is fixed.** V1 uses
    `validation_profile=SHARED_CALLABLE` and the unchanged dry-run CLI's
-   production-default normalized lint profile and lowering route;
+   production-default normalized lint profile and
+   `boundary_admission_profile=SHARED_CALLABLE`;
    `initializationOptions` cannot override them. Initialization yields exactly
    one immutable canonical `workspace_root`; every client entry and explicit
    source root is contained by it; and every trace-read `.orc` path is under
@@ -1214,7 +1234,7 @@ Failure behavior:
   structured diagnostic tuple. Codes-only parity is not sufficient evidence.
 - Shared-core evidence compares normalized typed requests, selected entries,
   compile catalogs, imported bindings and exact source/configuration traces.
-  Older-header imported analysis remains read-only. Filesystem before/after
+  Pre-floor imported analysis refuses without publishing callables. Filesystem before/after
   checks prove zero writes; no flat-bundle/source-map parity is required.
 - Freshness evidence mutates raw bytes without LSP notifications and proves
   that the accepted vector hashes the exact `raw_bytes` whose strictly decoded
@@ -1448,7 +1468,8 @@ target. The complete list is sorted by:
 
 where `kind_rank` is `procedure`, then `workflow`, then `form`.
 
-Completion detail is a deterministic view of existing compiler signatures:
+For definition origins 2.35–2.38, completion detail is a deterministic view
+of existing compiler signatures:
 
 ```text
 procedure (<name>: <render_type_ref>, ...) -> <render_type_ref> effects <render_effect_set>
@@ -1460,7 +1481,10 @@ Zero parameters render as `()`. Procedure details use
 `ProcedureSignature.params`, `ProcedureSignature.return_type_ref`, and
 `ProcedureSignature.declared_effects`, rendered only through
 `render_type_ref` and `render_effect_set`. They do not use direct or transitive
-inferred effect summaries. Workflow details use only
+inferred effect summaries for those origins. At 2.39, use the authored
+restriction and inferred-summary distinction specified above, including
+incomplete generic dependencies, through the same detail renderer.
+Workflow details use only
 `WorkflowSignature.params` and `WorkflowSignature.return_type_ref`; L1 does not
 infer or display workflow effects. Form rows have no invented signature.
 Procedure and workflow protocol kinds remain `CompletionItemKind.Function`;
@@ -1499,8 +1523,10 @@ Acceptance requires both-direction evidence for:
 - local labels and every compiler-admitted qualified, canonical-module, and
   `:only` import-scope key, with exact deterministic ordering;
 - zero-, one-, and multiple-parameter procedure/workflow details, nested
-  resolved types, empty/nonempty declared procedure effects, and proof that
-  inferred/transitive effects do not enter detail;
+  resolved types, empty/nonempty declared procedure effects at definition
+  origins 2.35–2.38 with inferred/transitive effects excluded from those details;
+  distinct authored-restriction/inferred-summary presentation and incomplete
+  generic dependencies at 2.39;
 - unchanged current-success, dirty, pending, invalidated, failed, stale,
   closed, and unassociated response behavior; and
 - one repository-real stdio LSP check in addition to compiler-projection,
@@ -1732,7 +1758,7 @@ The closed presentation table is:
 | L1 symbol kind | Required retained fact | Plain-text `presentation` |
 | --- | --- | --- |
 | `module` | the already cross-checked compiled module identity | `module <name>` |
-| `procedure` | exactly one matching local `ProcedureSignature` | the existing L1 procedure completion detail, including compiler-rendered parameter/return types and declared effects |
+| `procedure` | exactly one matching local `ProcedureSignature` | the existing versioned L1 procedure completion detail, including compiler-rendered parameter/return types and the definition-origin effect presentation |
 | `workflow` | exactly one matching local `WorkflowSignature` | the existing L1 workflow completion detail, including compiler-rendered parameter/return types |
 | `enum` | the already cross-checked `EnumDef` header | `enum <name>` |
 | `path` | the already cross-checked `PathDef` header | `path <name>` |
@@ -1744,8 +1770,9 @@ The closed presentation table is:
 
 Procedure/workflow presentation must call the same pure L1 detail renderer as
 completion; it may not copy or fork that renderer. Types use only
-`render_type_ref`, and procedure effects use only `render_effect_set` over
-the declared effects, exactly as L1. Resource and transition type names are
+`render_type_ref`, and procedure effects follow the same definition-origin
+rules as L1: declared effects for 2.35–2.38, restriction versus inference for
+2.39. Resource and transition type names are
 the retained declared names; the server does not resolve, narrow, or infer a
 different type. The other header rows identify an authored declared kind and
 name only. They do not expand enum values, path policy, record/schema fields,
@@ -2082,8 +2109,9 @@ independently selectable, and free of false-invalid grammar claims.
 
 L6a acceptance requires both-direction evidence for all ten L1 symbol kinds;
 exact first/last in-token and outside-token bounds; zero/one/many callable
-parameters; nested resolved types; declared procedure effects with inferred
-effects excluded; resource/transition declared-type headers; exact local,
+parameters; nested resolved types; declared procedure effects at 2.35–2.38
+without substituting inferred effects, plus distinct restriction/inference and
+incomplete-generic presentation at 2.39; resource/transition declared-type headers; exact local,
 alias-qualified, canonical-module-qualified, and `:only` procedure/workflow
 call anchors; retained proc-ref anchors; prompt-application/macro/unsupported
 reference negatives; duplicate, overlapping, and conflicting projection rows;
@@ -2325,8 +2353,8 @@ not evidence that any L6 capability ships.
   field, form path, or expansion-frame order must fail; message/note wording
   changes must not. The positive CLI launches from the same workspace with the
   same explicit context flags. Supplying `lint_profile` or `lowering_route` in
-  `initializationOptions` is rejected, and the captured tuple still contains
-  the exact normalized production defaults.
+  `initializationOptions` is rejected. The capture contains the exact lint and
+  admission defaults and has no lowering-route field.
 - **Compile tier:** a spy/import guard proves the server invokes exactly one
   full Stage-3 compile through the shared core for each accepted
   clean-open/save generation and never imports/calls Stage 1 or starts a
@@ -2391,8 +2419,8 @@ production compiler.
 - F1's positive four-module library-only Stage-3 result enforced; F2's exact
   request and diagnostic tuples proven in both directions; F3's accepted
   1.87-second result recorded.
-- F2 fixes validation to `SHARED_CALLABLE`, lint/lowering to the unchanged
-  production defaults, and workspace-root parity to a CLI launched from that
+- F2 fixes validation/boundary admission to `SHARED_CALLABLE`, lint to the
+  production default, and workspace-root parity to a CLI launched from that
   one canonical workspace; every client entry/explicit source root is
   contained by it, every trace-read `.orc` path is under it or the exact
   compiler-owned builtin stdlib root, caller source roots are exactly the

@@ -78,6 +78,14 @@ value = {"item": sys.argv[2], "data": Path(sys.argv[1]).read_text(),
 result_path.write_text(json.dumps(value))
 '''
 
+PARALLEL_INDEX_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+  (defmodule parallel/index-cli) (export run)
+  (defworkflow run () -> List[Int]
+    (list/map-effect ((repo (list "alpha" "beta"))) :max 2 :parallel 2
+      :workspace (string/concat repo "/work")
+      (command-result fetch :argv ("python" SCRIPT repo "${loop.index}") :returns Int))))
+'''
+
 PROVIDER_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
   (defmodule main) (export run)
   (defpath Findings :kind relpath :under "artifacts/work" :must-exist true)
@@ -158,6 +166,48 @@ def _write_adapter_fixture(workspace):
         work.mkdir(parents=True)
         (work / "carrier.json").write_text("not the outer carrier")
         (work / "findings.json").write_text("not valid findings")
+
+
+def test_public_parallel_item_index_reaches_command_and_completed_resume_reuses_results(tmp_path):
+    source = tmp_path / "parallel" / "index-cli.orc"
+    source.parent.mkdir(parents=True)
+    probe = tmp_path / "index_probe.py"
+    probe.write_text('''import json, os, sys
+from pathlib import Path
+item, index = sys.argv[1], int(sys.argv[2])
+with (Path.cwd() / "index.jsonl").open("a", encoding="utf-8") as log:
+    log.write(json.dumps({"item": item, "index": index}) + "\\n")
+Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(str(index))
+''')
+    source.write_text(PARALLEL_INDEX_SOURCE.replace("SCRIPT", json.dumps(str(probe))))
+    for item in ("alpha", "beta"):
+        (tmp_path / item / "work").mkdir(parents=True)
+    boundaries = tmp_path / "commands.json"
+    boundaries.write_text(json.dumps({"fetch": {
+        "stable_command": ["python", str(probe)], "closure": []
+    }}))
+
+    result = _run_cli(tmp_path, str(source), "--command-boundaries-file", str(boundaries))
+
+    assert result.returncode == 0, result.stderr
+    run_root = _run_root(tmp_path / ".orchestrate" / "runs")
+    authority = load_run_authority(run_root)
+    snapshot = read_memo(authority.memo_path, site_classes(authority.program))
+    assert snapshot.terminal.data["value"] == [0, 1]
+    logs = {item: tmp_path / item / "work" / "index.jsonl" for item in ("alpha", "beta")}
+    assert {
+        item: [json.loads(row) for row in path.read_text().splitlines()]
+        for item, path in logs.items()
+    } == {
+        "alpha": [{"item": "alpha", "index": 0}],
+        "beta": [{"item": "beta", "index": 1}],
+    }
+    before = {item: path.read_bytes() for item, path in logs.items()}
+
+    resumed = _resume_cli(tmp_path, run_root.name)
+
+    assert resumed.returncode == 0, resumed.stderr
+    assert {item: path.read_bytes() for item, path in logs.items()} == before
 
 
 @pytest.mark.parametrize("script_mode", ["absolute", "relative"])

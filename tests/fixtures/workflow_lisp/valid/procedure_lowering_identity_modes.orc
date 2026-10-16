@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.15")
+  (:target-dsl "2.35")
   (defmodule procedure_lowering_identity_modes)
   (export orchestrate)
   (defpath WorkReport

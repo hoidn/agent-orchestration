@@ -29,7 +29,6 @@ INT64_MIN = -(2**63)
 INT64_MAX = 2**63 - 1
 # The first Workflow Lisp target with decimal literals in expressions and the
 # numeric operators (docs/design/workflow_lisp_numeric_surface.md).
-NUMERIC_SURFACE_MIN_TARGET_DSL_VERSION = "2.34"
 
 _PURE_EXPR_SCHEMA_1_NODE_KINDS = frozenset(
     {
@@ -63,24 +62,12 @@ PURE_EXPR_NODE_KINDS_BY_SCHEMA = MappingProxyType(
         3: _PURE_EXPR_SCHEMA_3_NODE_KINDS,
     }
 )
-_LIST_OPERATOR_NAMES = frozenset(
-    {
-        "list/empty?",
-        "list/head",
-        "list/rest",
-        "list/append",
-        "list/length",
-    }
-)
-
-
 @dataclass(frozen=True)
 class PureOperatorSignature:
     """Every operand has primitive type `operand`; the result has primitive type `result`."""
 
     operand: str
     result: str
-    min_target_dsl_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -91,9 +78,7 @@ class PureOperatorSpec:
     frontend check, the static typing of payloads and the evaluator (rule N8 of
     docs/design/workflow_lisp_numeric_surface.md). Its `evaluate` maps the
     operand values to the result; `evaluate_pure_operator` then refuses an Int
-    outside 64 bits and a Float that is not finite. A `min_target_dsl_version`
-    gates the operator, or one signature, in Workflow Lisp only: the runtime
-    evaluates every payload the compiler emits.
+    outside 64 bits and a Float that is not finite.
     """
 
     name: str
@@ -101,7 +86,6 @@ class PureOperatorSpec:
     min_arity: int
     max_arity: int | None = None
     min_schema_version: int = 1
-    min_target_dsl_version: str | None = None
     signatures: tuple[PureOperatorSignature, ...] = ()
     evaluate: Callable[[Sequence[Any]], Any] | None = field(default=None, compare=False, repr=False)
 
@@ -147,12 +131,14 @@ def _to_int(convert: Callable[[float], int]) -> Callable[[Sequence[Any]], int]:
 
 _INT_TO_INT = PureOperatorSignature(operand="Int", result="Int")
 _FLOAT_TO_FLOAT = PureOperatorSignature(operand="Float", result="Float")
-_INT_OR_FLOAT_FROM_234 = (
+_BOOL_TO_BOOL = PureOperatorSignature(operand="Bool", result="Bool")
+_STRING_TO_BOOL = PureOperatorSignature(operand="String", result="Bool")
+_SYMBOL_TO_STRING = PureOperatorSignature(operand="Symbol", result="String")
+_INT_OR_FLOAT = (
     _INT_TO_INT,
     PureOperatorSignature(
         operand="Float",
         result="Float",
-        min_target_dsl_version=NUMERIC_SURFACE_MIN_TARGET_DSL_VERSION,
     ),
 )
 _ORDERING = (
@@ -180,14 +166,12 @@ def _numeric(
     group: str = "arithmetic",
     min_arity: int = 2,
     max_arity: int | None = 2,
-    min_target_dsl_version: str | None = NUMERIC_SURFACE_MIN_TARGET_DSL_VERSION,
 ) -> PureOperatorSpec:
     return PureOperatorSpec(
         name=name,
         group=group,
         min_arity=min_arity,
         max_arity=max_arity,
-        min_target_dsl_version=min_target_dsl_version,
         signatures=signatures,
         evaluate=evaluate,
     )
@@ -201,19 +185,32 @@ PURE_EXPR_OPERATOR_CATALOG = MappingProxyType(
         "<=": _ordering("<=", _operator.le),
         ">": _ordering(">", _operator.gt),
         ">=": _ordering(">=", _operator.ge),
-        "and": PureOperatorSpec(name="and", group="boolean", min_arity=2),
-        "or": PureOperatorSpec(name="or", group="boolean", min_arity=2),
-        "not": PureOperatorSpec(name="not", group="boolean", min_arity=1, max_arity=1),
-        "+": _numeric("+", _fold(_operator.add), _INT_OR_FLOAT_FROM_234, max_arity=None, min_target_dsl_version=None),
-        "-": _numeric(
-            "-", lambda values: values[0] - values[1], _INT_OR_FLOAT_FROM_234, min_target_dsl_version=None
+        "and": PureOperatorSpec(
+            name="and", group="boolean", min_arity=2, signatures=(_BOOL_TO_BOOL,), evaluate=all
         ),
-        "*": _numeric("*", _fold(_operator.mul), _INT_OR_FLOAT_FROM_234, max_arity=None, min_target_dsl_version=None),
-        "min": _numeric("min", min, _INT_OR_FLOAT_FROM_234, max_arity=None, min_target_dsl_version=None),
-        "max": _numeric("max", max, _INT_OR_FLOAT_FROM_234, max_arity=None, min_target_dsl_version=None),
+        "or": PureOperatorSpec(
+            name="or", group="boolean", min_arity=2, signatures=(_BOOL_TO_BOOL,), evaluate=any
+        ),
+        "not": PureOperatorSpec(
+            name="not", group="boolean", min_arity=1, max_arity=1,
+            signatures=(_BOOL_TO_BOOL,), evaluate=lambda values: not values[0],
+        ),
+        "+": _numeric("+", _fold(_operator.add), _INT_OR_FLOAT, max_arity=None),
+        "-": _numeric(
+            "-", lambda values: values[0] - values[1], _INT_OR_FLOAT
+        ),
+        "*": _numeric("*", _fold(_operator.mul), _INT_OR_FLOAT, max_arity=None),
+        "min": _numeric("min", min, _INT_OR_FLOAT, max_arity=None),
+        "max": _numeric("max", max, _INT_OR_FLOAT, max_arity=None),
         "string/concat": PureOperatorSpec(name="string/concat", group="string", min_arity=2),
-        "string/empty?": PureOperatorSpec(name="string/empty?", group="string", min_arity=1, max_arity=1),
-        "symbol/name": PureOperatorSpec(name="symbol/name", group="string", min_arity=1, max_arity=1),
+        "string/empty?": PureOperatorSpec(
+            name="string/empty?", group="string", min_arity=1, max_arity=1,
+            signatures=(_STRING_TO_BOOL,), evaluate=lambda values: values[0] == "",
+        ),
+        "symbol/name": PureOperatorSpec(
+            name="symbol/name", group="string", min_arity=1, max_arity=1,
+            signatures=(_SYMBOL_TO_STRING,), evaluate=lambda values: values[0],
+        ),
         "some?": PureOperatorSpec(name="some?", group="option", min_arity=1, max_arity=1),
         "or-else": PureOperatorSpec(name="or-else", group="option", min_arity=2, max_arity=2),
         "record-update": PureOperatorSpec(name="record-update", group="record", min_arity=2),
@@ -257,7 +254,6 @@ PURE_EXPR_OPERATOR_CATALOG = MappingProxyType(
             group="observation",
             min_arity=1,
             max_arity=1,
-            min_target_dsl_version="2.35",
         ),
         "/": _numeric("/", lambda values: _nonzero_divisor(values)[0] / values[1], (_FLOAT_TO_FLOAT,)),
         "int/div": _numeric("int/div", lambda values: _nonzero_divisor(values)[0] // values[1], (_INT_TO_INT,)),
@@ -1702,15 +1698,6 @@ def _derive_static_operator_type(
             )
         return _bool_type()
 
-    if operator in {"and", "or"}:
-        for arg_type in arg_types:
-            _require_primitive(arg_type, "Bool", operator=operator)
-        return _bool_type()
-
-    if operator == "not":
-        _require_primitive(arg_types[0], "Bool", operator=operator)
-        return _bool_type()
-
     if operator == "string/concat":
         for arg_type in arg_types:
             if _is_path_type(arg_type):
@@ -1719,14 +1706,6 @@ def _derive_static_operator_type(
                     "path string concatenation is forbidden",
                 )
             _require_primitive(arg_type, "String", operator=operator)
-        return _string_type()
-
-    if operator == "string/empty?":
-        _require_primitive(arg_types[0], "String", operator=operator)
-        return _bool_type()
-
-    if operator == "symbol/name":
-        _require_primitive(arg_types[0], "Symbol", operator=operator)
         return _string_type()
 
     if operator == "some?":
@@ -1754,7 +1733,7 @@ def _derive_static_operator_type(
         )
         return item_type
 
-    if operator in _LIST_OPERATOR_NAMES:
+    if spec is not None and spec.group == "list":
         list_type = arg_types[0]
         if _descriptor_kind(list_type) != "list":
             _raise(
@@ -2193,65 +2172,26 @@ def evaluate_pure_operator(
             )
         return _bool_type(), (left_value == right_value if operator == "=" else left_value != right_value)
 
-    if operator == "and":
-        for arg_type in arg_types:
-            _require_primitive(arg_type, "Bool", operator=operator)
-        return _bool_type(), all(arg_values)
-
-    if operator == "or":
-        for arg_type in arg_types:
-            _require_primitive(arg_type, "Bool", operator=operator)
-        return _bool_type(), any(arg_values)
-
-    if operator == "not":
-        _require_primitive(arg_types[0], "Bool", operator=operator)
-        return _bool_type(), not arg_values[0]
-
     if operator == "string/concat":
-        for arg_type in arg_types:
-            if _is_path_type(arg_type):
-                _raise("pure_expr_path_string_concat_forbidden", "path string concatenation is forbidden")
-            _require_primitive(arg_type, "String", operator=operator)
-        return _string_type(), "".join(arg_values)
+        return _derive_static_operator_type(operator, arg_types), "".join(arg_values)
 
-    if operator == "string/empty?":
-        _require_primitive(arg_types[0], "String", operator=operator)
-        return _bool_type(), arg_values[0] == ""
+    if spec is not None and spec.group == "option":
+        result_type = _derive_static_operator_type(operator, arg_types)
+        if operator == "some?":
+            return result_type, arg_values[0] is not None
+        if operator == "or-else":
+            return result_type, arg_values[0] if arg_values[0] is not None else arg_values[1]
 
-    if operator == "symbol/name":
-        _require_primitive(arg_types[0], "Symbol", operator=operator)
-        return _string_type(), arg_values[0]
-
-    if operator == "some?":
-        if _descriptor_kind(arg_types[0]) != "optional":
-            _raise("pure_expr_operand_type_mismatch", "`some?` requires an Optional operand")
-        return _bool_type(), arg_values[0] is not None
-
-    if operator == "or-else":
-        optional_type = arg_types[0]
-        fallback_type = arg_types[1]
-        if _descriptor_kind(optional_type) != "optional":
-            _raise("pure_expr_operand_type_mismatch", "`or-else` requires an Optional first operand")
-        item_type = optional_type["item"]
-        if not _descriptors_match(item_type, fallback_type):
-            _raise("pure_expr_operand_type_mismatch", "`or-else` fallback type must match the optional item type")
-        return item_type, arg_values[0] if arg_values[0] is not None else arg_values[1]
-
-    if operator in _LIST_OPERATOR_NAMES:
+    if spec is not None and spec.group == "list":
+        result_type = _derive_static_operator_type(operator, arg_types)
         list_type = arg_types[0]
-        if _descriptor_kind(list_type) != "list":
-            _raise(
-                "pure_expr_operand_type_mismatch",
-                f"operator `{operator}` requires a List operand",
-                metadata={"observed_type": list_type},
-            )
         item_type = list_type["item"]
         source = arg_values[0]
         if operator == "list/empty?":
-            return _bool_type(), not source
+            return result_type, not source
         if operator == "list/head":
             return (
-                {"kind": "optional", "item": item_type},
+                result_type,
                 (
                     None
                     if not source
@@ -2263,7 +2203,7 @@ def evaluate_pure_operator(
                 ),
             )
         if operator == "list/rest":
-            return list_type, [
+            return result_type, [
                 _coerce_value(
                     item,
                     item_type,
@@ -2272,17 +2212,7 @@ def evaluate_pure_operator(
                 for item in source[1:]
             ]
         if operator == "list/append":
-            appended_type = arg_types[1]
-            if not _descriptors_match(appended_type, item_type):
-                _raise(
-                    "pure_expr_operand_type_mismatch",
-                    "operator `list/append` item type must match the list element type",
-                    metadata={
-                        "item_type": appended_type,
-                        "element_type": item_type,
-                    },
-                )
-            return list_type, [
+            return result_type, [
                 *(
                     _coerce_value(
                         item,
@@ -2297,7 +2227,7 @@ def evaluate_pure_operator(
                     context="list/append item",
                 ),
             ]
-        return _int_type(), _checked_int(len(source))
+        return result_type, _checked_int(len(source))
 
     _raise(
         "pure_expr_operator_unsupported",
@@ -2573,47 +2503,27 @@ def _checked_number(value: Any) -> Any:
 def pure_operator_signature(
     operator: str,
     operand_types: Sequence[str | None],
-    *,
-    target_dsl_version: str | None = None,
 ) -> PureOperatorSignature | None:
     """Return the signature under which a catalog operator accepts these operand types.
 
-    `operand_types` holds primitive type names, None for any other type. With a
-    `target_dsl_version`, only the signatures that Workflow Lisp target admits
-    count; the runtime passes none and accepts every signature.
+    `operand_types` holds primitive type names, None for any other type.
     """
 
     spec = PURE_EXPR_OPERATOR_CATALOG.get(operator)
     for signature in spec.signatures if spec is not None else ():
-        if target_dsl_version is not None and not _target_admits(
-            target_dsl_version, signature.min_target_dsl_version
-        ):
-            continue
         if all(name == signature.operand for name in operand_types):
             return signature
     return None
 
 
-def pure_operator_operands_text(operator: str, *, target_dsl_version: str | None = None) -> str:
+def pure_operator_operands_text(operator: str) -> str:
     """Name the operand types a catalog operator accepts, as its refusals print them."""
 
     operands = [
         signature.operand
         for signature in PURE_EXPR_OPERATOR_CATALOG[operator].signatures
-        if target_dsl_version is None
-        or _target_admits(target_dsl_version, signature.min_target_dsl_version)
     ]
     return operands[0] if len(operands) == 1 else "matching " + " or ".join(operands)
-
-
-def _target_admits(target_dsl_version: str, minimum: str | None) -> bool:
-    if minimum is None:
-        return True
-    try:
-        target = tuple(int(part) for part in target_dsl_version.split("."))
-    except ValueError:
-        return False
-    return target >= tuple(int(part) for part in minimum.split("."))
 
 
 def _require_signature(
@@ -2626,6 +2536,14 @@ def _require_signature(
     ]
     signature = pure_operator_signature(spec.name, names)
     if signature is None:
+        if (
+            spec.group in {"boolean", "string"}
+            and len({item.operand for item in spec.signatures}) == 1
+        ):
+            # Keep observed_type metadata used by pure_fault fingerprints.
+            operand = spec.signatures[0].operand
+            for descriptor in arg_types:
+                _require_primitive(descriptor, operand, operator=spec.name)
         _raise(
             "pure_expr_operand_type_mismatch",
             f"operator `{spec.name}` requires {pure_operator_operands_text(spec.name)} operands",

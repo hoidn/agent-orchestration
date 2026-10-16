@@ -16,349 +16,18 @@ from dataclasses import dataclass, replace
 import math
 import sys
 
-from orchestrator.workflow.pure_expr import NUMERIC_SURFACE_MIN_TARGET_DSL_VERSION
-from orchestrator.contracts.closed_program.targets import (
-    AGENT_SESSIONS_MIN_TARGET_DSL_VERSION,
-    EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION,
-    FINITE_FLOAT_BOUNDARY_MIN_TARGET_DSL_VERSION,
-    NESTED_STRUCTURAL_TRANSPORT_MIN_TARGET_DSL_VERSION,
-    PARALLEL_MAP_MIN_TARGET_DSL_VERSION,
-    SUPPORTED_TARGET_DSL_VERSIONS,
-    target_dsl_refuses_non_finite_floats,
-    target_dsl_supports_agent_sessions,
-    target_dsl_supports_nested_structural_transport,
-    target_dsl_supports_parallel_map,
-    target_dsl_uses_evaluated_execution,
-)
+
+from orchestrator.contracts.closed_program.targets import AGENT_SESSIONS_MIN_TARGET_DSL_VERSION, EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION, PARALLEL_MAP_MIN_TARGET_DSL_VERSION, SUPPORTED_TARGET_DSL_VERSIONS, target_dsl_supports_agent_sessions, target_dsl_supports_effect_ceilings, target_dsl_supports_parallel_map, target_dsl_uses_evaluated_execution
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .reader import exponent_float_literal
 from .sexpr import BoolAtom, FloatAtom, IntAtom, KeywordAtom, ListExpr, SExpr, StringAtom, SymbolAtom
 from .spans import SourceSpan
 
 PROVIDER_STEERING_DIRECTIVE_TYPE_NAME = "ProviderSteeringDirective"
-PROVIDER_SUPERVISION_MIN_TARGET_DSL_VERSION = "2.16"
-PROVIDER_PEER_MESSAGING_MIN_TARGET_DSL_VERSION = "2.17"
-LIST_TRAVERSAL_MIN_TARGET_DSL_VERSION = "2.18"
-VALUE_MIN_TARGET_DSL_VERSION = "2.19"
-PROMPT_CALCULUS_MIN_TARGET_DSL_VERSION = "2.20"
-PROMPT_OUTPUT_POSITIONS_MIN_TARGET_DSL_VERSION = "2.21"
-PROMPT_ATTEMPT_IDENTITY_MIN_TARGET_DSL_VERSION = "2.22"
-PHASED_CONTRACT_DELIVERY_MIN_TARGET_DSL_VERSION = "2.23"
-RUN_REF_MIN_TARGET_DSL_VERSION = "2.24"
-TRIAL_MIN_TARGET_DSL_VERSION = "2.25"
-STRICT_BOOLEAN_CONTROL_FLOW_MIN_TARGET_DSL_VERSION = "2.26"
-SESSION_ARTIFACT_MIN_TARGET_DSL_VERSION = "2.27"
-UNION_PROMPT_INPUT_MIN_TARGET_DSL_VERSION = "2.28"
-RICH_LOOP_VALUES_MIN_TARGET_DSL_VERSION = "2.29"
-PURE_CALL_COMPOSITION_MIN_TARGET_DSL_VERSION = "2.30"
-PROVIDER_CONTEXT_VALUES_MIN_TARGET_DSL_VERSION = "2.31"
-HUMAN_INPUT_MIN_TARGET_DSL_VERSION = "2.32"
-GENERIC_UNION_MIN_TARGET_DSL_VERSION = "2.33"
+
+
 HUMAN_REPLY_TYPE_NAME = "HumanReply"
 MAX_STATIC_LIVE_PROVIDER_PEERS = 8
-
-
-def target_dsl_supports_provider_supervision(target_dsl_version: str) -> bool:
-    """Return whether a validated target includes the live-supervision surface."""
-
-    try:
-        target = tuple(int(part) for part in target_dsl_version.split("."))
-        minimum = tuple(
-            int(part)
-            for part in PROVIDER_SUPERVISION_MIN_TARGET_DSL_VERSION.split(".")
-        )
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return target >= minimum
-
-
-def target_dsl_supports_session_artifact(target_dsl_version: str) -> bool:
-    """Return whether a validated target admits the `:session-artifact` clause."""
-
-    try:
-        target = tuple(int(part) for part in target_dsl_version.split("."))
-        minimum = tuple(
-            int(part)
-            for part in SESSION_ARTIFACT_MIN_TARGET_DSL_VERSION.split(".")
-        )
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return target >= minimum
-
-
-def target_dsl_supports_union_prompt_input(target_dsl_version: str) -> bool:
-    """Return whether a target admits whole tagged values in prompt inputs."""
-
-    try:
-        target = tuple(int(part) for part in target_dsl_version.split("."))
-        minimum = tuple(
-            int(part)
-            for part in UNION_PROMPT_INPUT_MIN_TARGET_DSL_VERSION.split(".")
-        )
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return target >= minimum
-
-
-def target_dsl_supports_pure_call_composition(target_dsl_version: str) -> bool:
-    """Return whether a target admits resolved inline pure procedure calls."""
-
-    try:
-        target = tuple(int(part) for part in target_dsl_version.split("."))
-        minimum = tuple(
-            int(part) for part in PURE_CALL_COMPOSITION_MIN_TARGET_DSL_VERSION.split(".")
-        )
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return target >= minimum
-
-
-def target_dsl_supports_provider_context_values(target_dsl_version: str) -> bool:
-    """Return whether a target has the provider-context value prelude."""
-
-    try:
-        target = tuple(int(part) for part in target_dsl_version.split("."))
-        minimum = tuple(
-            int(part)
-            for part in PROVIDER_CONTEXT_VALUES_MIN_TARGET_DSL_VERSION.split(".")
-        )
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return target >= minimum
-
-
-def target_dsl_supports_human_input(target_dsl_version: str) -> bool:
-    """Return whether a target has the reserved host-input expression surface."""
-
-    try:
-        target = tuple(int(part) for part in target_dsl_version.split("."))
-        minimum = tuple(
-            int(part) for part in HUMAN_INPUT_MIN_TARGET_DSL_VERSION.split(".")
-        )
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return target >= minimum
-
-
-def target_dsl_supports_generic_unions(target_dsl_version: str) -> bool:
-    """Return whether a target admits `defunion :forall` and type applications."""
-
-    try:
-        target = tuple(int(part) for part in target_dsl_version.split("."))
-        minimum = tuple(
-            int(part) for part in GENERIC_UNION_MIN_TARGET_DSL_VERSION.split(".")
-        )
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return target >= minimum
-
-
-def target_dsl_is_2_33_or_newer(target_dsl_version: str) -> bool:
-    """Return whether a target is 2.33 or newer."""
-
-    try:
-        target = tuple(int(part) for part in target_dsl_version.split("."))
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return target >= (2, 33)
-
-
-def target_dsl_supports_provider_peer_messaging(
-    target_dsl_version: str,
-) -> bool:
-    """Return whether a validated target includes static provider peers."""
-
-    try:
-        target = tuple(
-            int(part) for part in target_dsl_version.split(".")
-        )
-        minimum = tuple(
-            int(part)
-            for part in (
-                PROVIDER_PEER_MESSAGING_MIN_TARGET_DSL_VERSION.split(".")
-            )
-        )
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return target >= minimum
-
-
-def target_dsl_supports_list_traversal(target_dsl_version: str) -> bool:
-    """Return whether a validated target includes pure list traversal."""
-
-    try:
-        target = tuple(
-            int(part) for part in target_dsl_version.split(".")
-        )
-        minimum = tuple(
-            int(part)
-            for part in LIST_TRAVERSAL_MIN_TARGET_DSL_VERSION.split(".")
-        )
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return target >= minimum
-
-
-def target_dsl_supports_value(target_dsl_version: str) -> bool:
-    """Return whether a validated target includes transportable ``Value``."""
-
-    try:
-        target = tuple(
-            int(part) for part in target_dsl_version.split(".")
-        )
-        minimum = tuple(
-            int(part) for part in VALUE_MIN_TARGET_DSL_VERSION.split(".")
-        )
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return target >= minimum
-
-
-def target_dsl_supports_rich_loop_values(target_dsl_version: str) -> bool:
-    """Return whether complete rich loop-value descriptors are available."""
-
-    try:
-        target = tuple(int(part) for part in target_dsl_version.split("."))
-        minimum = tuple(
-            int(part)
-            for part in RICH_LOOP_VALUES_MIN_TARGET_DSL_VERSION.split(".")
-        )
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return target >= minimum
-
-
-def target_dsl_supports_prompt_calculus(
-    target_dsl_version: str,
-) -> bool:
-    """Return whether a validated target includes prompt declarations."""
-
-    try:
-        target = tuple(
-            int(part) for part in target_dsl_version.split(".")
-        )
-        minimum = tuple(
-            int(part)
-            for part in PROMPT_CALCULUS_MIN_TARGET_DSL_VERSION.split(".")
-        )
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return target >= minimum
-
-
-def target_dsl_supports_prompt_output_positions(
-    target_dsl_version: str,
-) -> bool:
-    """Return whether a validated target includes prompt output positions."""
-
-    try:
-        target = tuple(
-            int(part) for part in target_dsl_version.split(".")
-        )
-        minimum = tuple(
-            int(part)
-            for part in PROMPT_OUTPUT_POSITIONS_MIN_TARGET_DSL_VERSION.split(".")
-        )
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return target >= minimum
-
-
-def target_dsl_supports_prompt_attempt_identity(
-    target_dsl_version: str,
-) -> bool:
-    """Return whether a validated target includes Q3 attempt identity."""
-
-    try:
-        target = tuple(
-            int(part) for part in target_dsl_version.split(".")
-        )
-        minimum = tuple(
-            int(part)
-            for part in PROMPT_ATTEMPT_IDENTITY_MIN_TARGET_DSL_VERSION.split(
-                "."
-            )
-        )
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return target >= minimum
-
-
-def target_dsl_supports_phased_contract_delivery(
-    target_dsl_version: str,
-) -> bool:
-    """Return whether a validated target includes phased contract delivery."""
-
-    try:
-        target = tuple(
-            int(part) for part in target_dsl_version.split(".")
-        )
-        minimum = tuple(
-            int(part)
-            for part in (
-                PHASED_CONTRACT_DELIVERY_MIN_TARGET_DSL_VERSION.split(".")
-            )
-        )
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return target >= minimum
-
-
-def target_dsl_supports_run_ref(target_dsl_version: str) -> bool:
-    """Return whether a validated target includes pinned child runs."""
-
-    try:
-        target = tuple(int(part) for part in target_dsl_version.split("."))
-        minimum = tuple(
-            int(part) for part in RUN_REF_MIN_TARGET_DSL_VERSION.split(".")
-        )
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return target >= minimum
-
-
-def target_dsl_supports_trial(target_dsl_version: str) -> bool:
-    """Return whether a validated target includes bounded static trials."""
-
-    try:
-        target = tuple(int(part) for part in target_dsl_version.split("."))
-        minimum = tuple(
-            int(part) for part in TRIAL_MIN_TARGET_DSL_VERSION.split(".")
-        )
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return target >= minimum
-
-
-def target_dsl_supports_numeric_surface(target_dsl_version: str) -> bool:
-    """Return whether a target admits decimal literals in expressions and the numeric operators."""
-
-    try:
-        target = tuple(int(part) for part in target_dsl_version.split("."))
-        minimum = tuple(
-            int(part) for part in NUMERIC_SURFACE_MIN_TARGET_DSL_VERSION.split(".")
-        )
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return target >= minimum
-
-
-def target_dsl_supports_strict_boolean_control_flow(
-    target_dsl_version: str,
-) -> bool:
-    """Return whether a validated target includes strict Boolean `if`/`cond`."""
-
-    try:
-        target = tuple(int(part) for part in target_dsl_version.split("."))
-        minimum = tuple(
-            int(part)
-            for part in STRICT_BOOLEAN_CONTROL_FLOW_MIN_TARGET_DSL_VERSION.split(
-                "."
-            )
-        )
-    except (AttributeError, TypeError, ValueError):
-        return False
-    return target >= minimum
 
 
 @dataclass(frozen=True)
@@ -574,6 +243,7 @@ def build_syntax_module(parse_tree: ListExpr) -> WorkflowLispSyntaxModule:
         _raise_error("expected top-level `workflow-lisp` root form", span=root.span)
 
     header_values: dict[str, str] = {}
+    unsupported_target: tuple[str, SourceSpan] | None = None
     forms: list[SyntaxNode] = []
     module_directive: ModuleDirective | None = None
     import_directives: list[ImportDirective] = []
@@ -594,12 +264,12 @@ def build_syntax_module(parse_tree: ListExpr) -> WorkflowLispSyntaxModule:
                     span=value.span,
                     code="language_version_unsupported",
                 )
-            if keyword.value == ":target-dsl" and value.value not in SUPPORTED_TARGET_DSL_VERSIONS:
-                _raise_error(
-                    f"unsupported target DSL `{value.value}`",
-                    span=value.span,
-                    code="target_dsl_unsupported",
-                )
+            if (
+                keyword.value == ":target-dsl"
+                and value.value not in SUPPORTED_TARGET_DSL_VERSIONS
+                and unsupported_target is None
+            ):
+                unsupported_target = value.value, value.span
             continue
         syntax_node = _build_top_level_syntax_node(item, module_path)
         datum = syntax_node_datum(syntax_node)
@@ -656,8 +326,14 @@ def build_syntax_module(parse_tree: ListExpr) -> WorkflowLispSyntaxModule:
             span=root.span,
             code="module_declaration_missing",
         )
-    if target_dsl_supports_numeric_surface(header_values[":target-dsl"]):
-        forms = [replace(node, datum=_admit_decimal_literals(node.datum)) for node in forms]
+    if unsupported_target is not None:
+        target, span = unsupported_target
+        _raise_error(
+            f"unsupported target DSL `{target}`",
+            span=span,
+            code="target_dsl_unsupported",
+        )
+    forms = [replace(node, datum=_admit_decimal_literals(node.datum)) for node in forms]
     return WorkflowLispSyntaxModule(
         language_version=header_values[":language"],
         target_dsl_version=header_values[":target-dsl"],

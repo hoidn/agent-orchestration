@@ -24,8 +24,8 @@ from .source import SourceRequest, canonical_source_request, source_request_from
 
 RUN_REF_STATIC_CONFIG_SCHEMA = "run_ref_static_config.v1"
 RUN_REF_BUNDLE_CAPSULE_BINDING_SCHEMA = "run_ref_bundle_capsule_binding.v1"
-_DEFAULT_TARGET_DSL_VERSION = "2.24"
-_SUPPORTED_TARGET_DSL_VERSIONS = frozenset({"2.24", "2.25", "2.26", "2.27", "2.28", "2.29", "2.30", "2.31", "2.32", "2.33", "2.34", "2.35", "2.36", "2.37", "2.38"})
+_DEFAULT_TARGET_DSL_VERSION = "2.35"
+_SUPPORTED_TARGET_DSL_VERSIONS = frozenset({"2.35", "2.36", "2.37", "2.38", "2.39"})
 _LOWERING_ROUTE = "wcc_m4"
 _LOWERING_SCHEMA_VERSION = 2
 _PATH_ENVIRONMENT = "deterministic-effect-free"
@@ -38,16 +38,6 @@ _STATIC_NAME_RE = re.compile(
 _REFERENCE_RE = re.compile(
     r"[A-Za-z_][A-Za-z0-9_-]*(?:\.[A-Za-z_][A-Za-z0-9_-]*)*\Z"
 )
-
-
-def _supports_nested_structural_transport(target_dsl_version: str) -> bool:
-    """Return whether one validated target admits nested record/union transport."""
-
-    from orchestrator.contracts.closed_program.targets import (
-        target_dsl_supports_nested_structural_transport,
-    )
-
-    return target_dsl_supports_nested_structural_transport(target_dsl_version)
 
 
 @dataclass(frozen=True)
@@ -466,9 +456,7 @@ def build_run_ref_static_config(
         or target_dsl_version not in _SUPPORTED_TARGET_DSL_VERSIONS
     ):
         raise ValueError("run-ref target DSL version is unsupported")
-    allow_nested_structures = _supports_nested_structural_transport(
-        target_dsl_version
-    )
+
     generated_result_type = f"RunRefResult${site_digest[:16]}"
     if not isinstance(source, SourceRequest):
         raise TypeError("run-ref source must be a SourceRequest")
@@ -484,7 +472,7 @@ def build_run_ref_static_config(
     for row in inputs:
         if not is_transportable_type_descriptor(
             row.type_descriptor,
-            allow_nested_structures=allow_nested_structures,
+            allow_nested_structures=True,
         ):
             raise ValueError(
                 "run-ref input type descriptor is not transportable for target"
@@ -492,7 +480,7 @@ def build_run_ref_static_config(
     if isinstance(program, PathProgram) and program.return_refinement is not None:
         if not is_transportable_type_descriptor(
             program.return_refinement,
-            allow_nested_structures=allow_nested_structures,
+            allow_nested_structures=True,
         ):
             raise ValueError(
                 "run-ref path return refinement is not transportable for target"
@@ -501,7 +489,7 @@ def build_run_ref_static_config(
         result_descriptor,
         expected_generated_name=generated_result_type,
         expected_digest=result_digest,
-        allow_nested_structures=allow_nested_structures,
+        allow_nested_structures=True,
     )
     if isinstance(program, PathProgram):
         value_descriptor = result_descriptor["envelope"]["fields"][0]["type"]
@@ -608,9 +596,7 @@ def decode_run_ref_static_config(payload: bytes) -> RunRefStaticConfig:
         or row["target_dsl_version"] not in _SUPPORTED_TARGET_DSL_VERSIONS
     ):
         raise ValueError("run-ref static config target_dsl_version is invalid")
-    allow_nested_structures = _supports_nested_structural_transport(
-        row["target_dsl_version"]
-    )
+
     fixed = (
         ("schema_version", RUN_REF_STATIC_CONFIG_SCHEMA),
         ("lowering_route", _LOWERING_ROUTE),
@@ -636,7 +622,7 @@ def decode_run_ref_static_config(payload: bytes) -> RunRefStaticConfig:
                     input_row["binding"],
                     context=f"run-ref input[{index}].binding",
                 ),
-                allow_nested_structures=allow_nested_structures,
+                allow_nested_structures=True,
             )
         )
     if not isinstance(row["generated_result_type"], str):
@@ -647,7 +633,7 @@ def decode_run_ref_static_config(payload: bytes) -> RunRefStaticConfig:
         source=source_request_from_dict(row["source"]),
         program=_program_from_record(
             row["program"],
-            allow_nested_structures=allow_nested_structures,
+            allow_nested_structures=True,
         ),
         inputs=tuple(inputs),
         result_descriptor=row["result_descriptor"],

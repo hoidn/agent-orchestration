@@ -24,9 +24,6 @@ BODY = '''(let* ((draft (provider-result providers.plan :prompt prompts.base
            (feedback (provider-result providers.review :prompt prompts.base
                     :inputs (task) :model "chosen-model" :effort "low" :returns Feedback)))
       (print feedback))'''
-EARLY = '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
-  (defmodule main) (export run)
-  (defworkflow run ((task String)) -> String (print task)))'''
 BAD = '{"findings":"not a list"}'
 LINES = ['["one","two"]', '{"findings":[]}']
 PROPAGATION = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
@@ -73,10 +70,6 @@ def test_a_resumed_attempt_prints_replayed_and_new_values_once(tmp_path):
     assert len((tmp_path / "requests.jsonl").read_text().splitlines()) == 3
 
 
-def test_print_is_refused_before_target_2_35(tmp_path):
-    result = _run(tmp_path, _fixture(tmp_path, EARLY), "task=x")
-    assert result.returncode != 0
-    assert "print" in result.stderr
 
 
 def test_readers_replay_the_program_without_printing(tmp_path):

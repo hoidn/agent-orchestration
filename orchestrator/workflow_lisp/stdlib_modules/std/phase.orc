@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule std/phase)
   (import std/context :only (PhaseCtx))
   ; Keep the helper proc exported until imported macro expansion can resolve a

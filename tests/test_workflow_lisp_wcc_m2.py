@@ -9,7 +9,7 @@ from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment, PrimitiveTypeRef
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
-from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow
+from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
 from orchestrator.workflow_lisp.wcc.model import (
     WccCall,
     WccHalt,
@@ -21,16 +21,14 @@ from orchestrator.workflow_lisp.wcc.model import (
     WccPerform,
     WccRecordAtom,
 )
-from orchestrator.workflow_lisp.wcc.route import LoweringRoute, normalize_lowering_route
+
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp"
 VALID_FIXTURES = FIXTURES / "valid"
 MODULE_FIXTURES = FIXTURES / "modules" / "valid"
-CHARACTERIZATION_FIXTURES = FIXTURES / "characterization" / "sources"
-
-
+CHARACTERIZATION_FIXTURES = FIXTURES / "current_wcc"
 
 
 def _compile_fixture(path: Path, *, tmp_path: Path):
@@ -57,7 +55,7 @@ def _compile_fixture(path: Path, *, tmp_path: Path):
         workspace_root=tmp_path,
         **compile_kwargs,
     )
-    type_env = FrontendTypeEnvironment.from_module(result.module)
+    type_env = result.typed_program.module_type_envs[result.typed_program.entry_module]
     workflows = {workflow.definition.name: workflow for workflow in result.typed_workflows}
     workflow_return_types = {
         workflow.definition.name: workflow.signature.return_type_ref
@@ -70,8 +68,6 @@ def _compile_fixture(path: Path, *, tmp_path: Path):
     return type_env, workflows, workflow_return_types, procedure_return_types
 
 
-
-
 def _write_with_phase_provider_fixture(tmp_path: Path) -> Path:
     fixture = tmp_path / "with_phase_provider_result.orc"
     fixture.write_text(
@@ -79,7 +75,7 @@ def _write_with_phase_provider_fixture(tmp_path: Path) -> Path:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -122,9 +118,7 @@ def _write_with_phase_provider_fixture(tmp_path: Path) -> Path:
 
 
 
-@pytest.mark.parametrize("route_value", ("wcc_m2", LoweringRoute.WCC_M2))
-def test_normalize_lowering_route_accepts_wcc_m2(route_value: str | LoweringRoute) -> None:
-    assert normalize_lowering_route(route_value) is LoweringRoute.WCC_M2
+
 
 
 def test_wcc_model_instantiates_effectful_nodes_with_stable_metadata() -> None:
@@ -185,8 +179,10 @@ def test_elaborate_preserves_effect_summaries_on_perform_nodes(tmp_path: Path) -
         tmp_path=tmp_path,
     )
 
-    command_body = elaborate_typed_workflow(
-        workflows["command-checks"],
+    command_body = elaborate_typed_workflow_body(
+        workflows["entry::command-checks"].typed_body,
+        owner_name=workflows["entry::command-checks"].definition.name,
+        value_env=dict(workflows["entry::command-checks"].signature.params),
         type_env=type_env,
         workflow_return_types=workflow_return_types,
         procedure_return_types=procedure_return_types,
@@ -194,13 +190,15 @@ def test_elaborate_preserves_effect_summaries_on_perform_nodes(tmp_path: Path) -
     assert isinstance(command_body, WccLet)
     assert isinstance(command_body.bound_value, WccPerform)
     assert command_body.bound_value.perform_kind == "command_result"
-    assert command_body.bound_value.metadata.effect_summary == workflows["command-checks"].effect_summary
+    assert command_body.bound_value.metadata.effect_summary == workflows["entry::command-checks"].effect_summary
     assert isinstance(command_body.body, WccHalt)
     assert isinstance(command_body.body.result, WccNameAtom)
     assert command_body.body.result.name == command_body.bound_name
 
-    provider_body = elaborate_typed_workflow(
-        workflows["provider-attempt"],
+    provider_body = elaborate_typed_workflow_body(
+        workflows["entry::provider-attempt"].typed_body,
+        owner_name=workflows["entry::provider-attempt"].definition.name,
+        value_env=dict(workflows["entry::provider-attempt"].signature.params),
         type_env=type_env,
         workflow_return_types=workflow_return_types,
         procedure_return_types=procedure_return_types,
@@ -210,10 +208,12 @@ def test_elaborate_preserves_effect_summaries_on_perform_nodes(tmp_path: Path) -
     assert provider_body.bound_value.perform_kind == "provider_result"
     assert provider_body.bound_value.target_name == "providers.execute"
     assert provider_body.bound_value.prompt_name == "prompts.implementation.execute"
-    assert provider_body.bound_value.metadata.effect_summary == workflows["provider-attempt"].effect_summary
+    assert provider_body.bound_value.metadata.effect_summary == workflows["entry::provider-attempt"].effect_summary
 
-    orchestrate_body = elaborate_typed_workflow(
-        workflows["orchestrate"],
+    orchestrate_body = elaborate_typed_workflow_body(
+        workflows["entry::orchestrate"].typed_body,
+        owner_name=workflows["entry::orchestrate"].definition.name,
+        value_env=dict(workflows["entry::orchestrate"].signature.params),
         type_env=type_env,
         workflow_return_types=workflow_return_types,
         procedure_return_types=procedure_return_types,
@@ -222,11 +222,11 @@ def test_elaborate_preserves_effect_summaries_on_perform_nodes(tmp_path: Path) -
     assert isinstance(orchestrate_body.bound_value, WccPerform)
     assert orchestrate_body.bound_name == "checks"
     assert orchestrate_body.bound_value.perform_kind == "workflow_call"
-    assert orchestrate_body.bound_value.target_name == "command-checks"
+    assert orchestrate_body.bound_value.target_name == "entry::command-checks"
     assert isinstance(orchestrate_body.body, WccLet)
     assert isinstance(orchestrate_body.body.bound_value, WccPerform)
     assert orchestrate_body.body.bound_value.perform_kind == "workflow_call"
-    assert orchestrate_body.body.bound_value.target_name == "provider-attempt"
+    assert orchestrate_body.body.bound_value.target_name == "entry::provider-attempt"
 
 
 def test_elaborate_preserves_specialized_procedure_identity_on_wcc_call(tmp_path: Path) -> None:
@@ -235,21 +235,26 @@ def test_elaborate_preserves_specialized_procedure_identity_on_wcc_call(tmp_path
         tmp_path=tmp_path,
     )
 
-    body = elaborate_typed_workflow(
-        workflows["entry"],
+    body = elaborate_typed_workflow_body(
+        workflows["entry::entry"].typed_body,
+        owner_name=workflows["entry::entry"].definition.name,
+        value_env=dict(workflows["entry::entry"].signature.params),
         type_env=type_env,
         workflow_return_types=workflow_return_types,
         procedure_return_types=procedure_return_types,
     )
 
-    assert isinstance(body, WccLet)
-    assert isinstance(body.bound_value, WccCall)
-    assert body.bound_value.callee_name == "forward-runner"
-    assert body.bound_value.specialized_callee_name.startswith("%proc-ref-call.forward_runner.")
-    assert len(body.bound_value.args) == 1
-    assert isinstance(body.bound_value.args[0], WccNameAtom)
-    assert body.bound_value.args[0].name == "input"
-    assert body.bound_value.metadata.effect_summary == workflows["entry"].effect_summary
+    lets = []
+    while isinstance(body, WccLet):
+        lets.append(body)
+        body = body.body
+    call = next(let.bound_value for let in lets if isinstance(let.bound_value, WccCall))
+    assert call.callee_name == "entry::forward-runner"
+    assert call.specialized_callee_name.startswith("%proc-ref-call.entry.forward_runner.")
+    assert len(call.args) == 1
+    assert isinstance(call.args[0], WccNameAtom)
+    assert call.args[0].name == "input"
+    assert call.metadata.effect_summary == workflows["entry::entry"].effect_summary
 
 
 def test_elaborate_preserves_with_phase_lowering_context_on_supported_effect_body(tmp_path: Path) -> None:
@@ -267,15 +272,17 @@ def test_elaborate_preserves_with_phase_lowering_context_on_supported_effect_bod
         validate_shared=False,
         workspace_root=tmp_path / "workspace",
     )
-    type_env = FrontendTypeEnvironment.from_module(result.module)
+    type_env = result.typed_program.module_type_envs[result.typed_program.entry_module]
     workflow = next(iter(result.typed_workflows))
     workflow_return_types = {
         item.definition.name: item.signature.return_type_ref
         for item in result.typed_workflows
     }
 
-    body = elaborate_typed_workflow(
-        workflow,
+    body = elaborate_typed_workflow_body(
+        workflow.typed_body,
+        owner_name=workflow.definition.name,
+        value_env=dict(workflow.signature.params),
         type_env=type_env,
         workflow_return_types=workflow_return_types,
         procedure_return_types={},
@@ -404,7 +411,7 @@ def test_wcc_m2_route_compiles_positive_fixtures(
         },
         validate_shared=False,
         workspace_root=tmp_path,
-        lowering_route="wcc_m2",
+
     )
 
     assert result.typed_workflows

@@ -22,11 +22,7 @@ from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .phase_stdlib import ReusableArtifactRequirement
 from .result_guidance import ResultGuidance, normalized_result_guidance_payload
 from .spans import SourceSpan
-from .syntax import (
-    target_dsl_supports_nested_structural_transport,
-    target_dsl_supports_rich_loop_values,
-    target_dsl_supports_trial,
-)
+
 from .type_env import (
     ListTypeRef,
     MapTypeRef,
@@ -164,7 +160,6 @@ def is_transportable_result_type(
     target = target_dsl_version or getattr(type_env, "target_dsl_version", None)
     allow_nested_structures = (
         isinstance(target, str)
-        and target_dsl_supports_nested_structural_transport(target)
     )
     try:
         _structured_result_field_definition(
@@ -321,7 +316,6 @@ def _derive_structured_result_contract(
     target_dsl_version = getattr(type_env, "target_dsl_version", None)
     allow_nested_structures = (
         isinstance(target_dsl_version, str)
-        and target_dsl_supports_nested_structural_transport(target_dsl_version)
     )
     root_guidance = (
         normalized_result_guidance_payload(
@@ -493,10 +487,7 @@ def derive_workflow_signature_contracts(
     if isinstance(direct_result_digest, str):
         from .trial_result_contract import derive_trial_result_contract
 
-        if not target_dsl_supports_trial(
-            getattr(type_env, "target_dsl_version", None)
-        ):
-            raise ValueError("compiler direct result requires target DSL 2.25")
+
         contract = derive_trial_result_contract(
             signature.return_type_ref,
             type_env=type_env,
@@ -831,13 +822,9 @@ def derive_union_workflow_boundary_projection(
             "allowed": [variant.name for variant in type_ref.definition.variants],
         },
     )
-    structural_segments = target_dsl_supports_rich_loop_values(
-        getattr(type_env, "target_dsl_version", "")
-    )
+
     source_segments = (
         _structured_field_source_segments
-        if structural_segments
-        else _legacy_structured_field_source_segments
     )
     shared_fields = tuple(
         FlattenedContractField(
@@ -887,14 +874,6 @@ def _structured_field_source_segments(field: Mapping[str, Any]) -> tuple[str, ..
     if isinstance(name, str) and name:
         return (name,)
     raise TypeError("structured result field requires a name or JSON pointer")
-
-
-def _legacy_structured_field_source_segments(field: Mapping[str, Any]) -> tuple[str, ...]:
-    """Preserve the historical flattened-name source path below rich loops."""
-    name = field.get("name")
-    if isinstance(name, str) and name:
-        return (name,)
-    raise TypeError("structured result field requires a name")
 
 
 def derive_reusable_state_contract_metadata(
@@ -1107,9 +1086,6 @@ def root_workflow_boundary_field(
             type_env=type_env,
             allow_nested_structures=(
                 isinstance(getattr(type_env, "target_dsl_version", None), str)
-                and target_dsl_supports_nested_structural_transport(
-                    type_env.target_dsl_version
-                )
             ),
         )
     )
@@ -1278,9 +1254,6 @@ def _flatten_workflow_boundary_fields(
                         getattr(type_env, "target_dsl_version", None),
                         str,
                     )
-                    and target_dsl_supports_nested_structural_transport(
-                        type_env.target_dsl_version
-                    )
                 ),
             )
         )
@@ -1396,9 +1369,6 @@ def _field_contract_definition(
                 isinstance(
                     getattr(type_env, "target_dsl_version", None),
                     str,
-                )
-                and target_dsl_supports_nested_structural_transport(
-                    type_env.target_dsl_version
                 )
             ),
         )
@@ -1731,9 +1701,6 @@ def _flatten_structured_result_field(
             type_env=type_env,
             allow_nested_structures=(
                 isinstance(getattr(type_env, "target_dsl_version", None), str)
-                and target_dsl_supports_nested_structural_transport(
-                    type_env.target_dsl_version
-                )
             ),
             descriptor_projector=descriptor_projector,
         ),

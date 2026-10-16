@@ -1,4 +1,4 @@
-"""Historical flat direct-control proof; current public evidence lives in evaluated consumers."""
+"""Current direct-control prompt and provider boundary contract."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from orchestrator.workflow_lisp.type_env import PrimitiveTypeRef
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LIBRARY_ROOT = ROOT / "tests/fixtures/workflow_lisp/direct_task_legacy"
+LIBRARY_ROOT = ROOT / "tests/fixtures/workflow_lisp/current_examples"
 SOURCE = LIBRARY_ROOT / "control/direct_task.orc"
 ENTRY = "control/direct_task::direct-task"
 ORDINARY_SOURCE = (
@@ -44,11 +44,11 @@ def test_direct_task_is_one_composed_provider_boundary() -> None:
         command_boundaries={},
         validate_shared=True,
         workspace_root=ROOT,
-        lowering_route="wcc_m4",
+
     )
 
     compiled = result.entry_result
-    assert compiled.module.target_dsl_version == "2.23"
+    assert compiled.module.target_dsl_version == "2.35"
     assert compiled.module.module_name == "control/direct_task"
     assert compiled.module.exports == ("direct-task",)
     assert compiled.module.definitions == ()

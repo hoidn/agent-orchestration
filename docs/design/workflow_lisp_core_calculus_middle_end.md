@@ -13,8 +13,12 @@ Execution scope: the [executor retirement design](workflow_lisp_executor_retirem
 and `specs/cli.md` govern executable admission; the
 [retirement retrospective](../reports/2026-10-13-flat-route-retirement-retrospective.md)
 records which modules were deleted and which were kept. Sections 11.3, the
-flat-identity part of 11.4, 12, 13.4, 14.4-14.6 and 17-21 describe the
-retired flat route and are kept as history.
+flat-identity part of 11.4, 12, former §13.4 (dual-compile equivalence),
+14.4-14.6 and 17-21 describe the retired flat route and are kept as history.
+The historical dual-compile-equivalence anchor remains below; current §13.4
+instead owns executable command preparation and single-mode WCC body
+preparation (§13.4.2). The selected 2.35 source floor removes exclusive older
+source modes after migration; current normalization-stage consumers remain.
 Scope: retained typed WCC elaboration, ANF normalization, second-class
 join-point control and scope/effect/proof analysis feeding checked closed-program
 construction. Defunctionalization into flat steps is retired architecture, not
@@ -107,6 +111,34 @@ The original problem, flattening decision and post-foundation delivery ownership
 <a id="126-tranche-m5-route-flip-and-lowerer-deletion"></a>
 
 The remaining flat dependency architecture, environment-to-state mapping, rollout/equivalence policy and acceptance inventory are historical. Current calculus/typed analysis/identity/diagnostic rules follow below. See the [preserved record](../reports/documentation-history/workflow_lisp_core_calculus_middle_end-history.md#4-authority-and-dependency-direction).
+
+### Source floor and retained stages
+
+The [2.35 source floor](workflow_lisp_executor_retirement.md#source-floor-235)
+retires old-source/import/editor compatibility and source-selectable legacy
+lowering routes. The current compiler has one admitted source mode:
+`CompilerSession` has no `closed_program` selector, and public compiler/build
+requests have no `lowering_route` argument. Exclusive old feature branches and
+route exports are removed. Preserve current provider closure/diagnostic validation and the two
+real condition-processing stages. Historical route/schema data may be read
+only for a named current inspection consumer, without selecting a compiler
+route. This supersedes the earlier old-import rationale for retaining modes;
+the completed §13.4 behavior and identity requirements remain.
+
+### Target-2.39 procedure ownership
+
+The [frontend lowering contract](workflow_lisp_frontend_specification.md#106-procedure-lowering-policy-resolved)
+selects caller-owned inline composition for definitions originating at target
+2.39. The frontend selects inline policy before legacy AUTO/private-workflow
+classification, including procedure bodies with loops. WCC consumes that resolved
+policy and inferred effect summary; authored ceilings do not select lowering.
+Existing ordinary `defworkflow`/`call` carries
+an intentional runtime boundary. Admitted 2.35–2.38 imported procedure origins retain
+AUTO/private-workflow behavior and existing diagnostic validation. This source
+version change does not weaken the completed executable body/command contracts
+in §13.4, shared typechecking modes, closure validation, or checked-program
+source/capture identity. It introduces no second elaborator or runtime.
+
 
 ## Current Ownership And Invariants
 
@@ -286,6 +318,345 @@ recursive? and budget, for rec-join
 live_in / live_out binding sets (filled by analysis)
 ```
 
+<a id="132-retained-executable-wcc-closure-target"></a>
+### 13.2 Retained executable WCC closure
+
+Retained admitted executable forms cross the WCC-to-closed boundary as
+structured typed values and completed callable requests. Source-aware
+preparation owns expression elaboration, ANF and capture recipes; direct
+translation consumes the completed graph without executable frontend source.
+The frontend and evaluated designs own source admission, target numbers,
+artifact schemas and execution-mode defaults. This boundary changes none of
+those contracts. Implementation evidence and remaining independent lanes live
+in the [simplification plan](../plans/2026-10-15-orc-simplification-roadmap-extension.md#task-2--close-the-retained-executable-wcc-boundary).
+
+#### One preparation direction
+
+```text
+checked source + resolved imports/specializations
+  -> source-aware WCC preparation and ANF
+  -> complete typed WCC bodies and existing prepared callable requests
+  -> direct closed translation, sites, canonicalization
+  -> independent source-free artifact checker
+```
+
+Preparation owns all expression elaboration, lexical capture materialization
+and ANF. It completes the selected entry and every reachable specialized
+definition before their WCC-to-closed translation. The translator consumes
+resolved typed operands; it never reconstructs a frontend expression, calls
+the frontend elaborator, normalizes a freshly reconstructed body or infers a
+source child's type. The boundary is a compiler phase, not an assertion that
+every helper physically under `closed/` is already a backend helper.
+
+Existing `CallableRequest`/workflow preparation records carry mandatory
+`prepared_body`/`prepared_children` facts for retained execution. Missing
+preparation refuses; `closed/build.py` has no lazy callee elaboration fallback.
+The existing command-scope preparation owns its neutral and annotated passes;
+their equality check remains mandatory without another pass. Initial
+workflow/procedure elaboration belongs to these preparation owners.
+There is no second typed IR, serialized WCC format, alternate executable
+backend or new prepared-program service.
+
+The existing preparation traversal also owns specialized loop-effect
+cardinality checks: following an inline callee for that check may elaborate
+source, so it must finish before emission. Keep the same defining catalogs,
+cycle detection and located cardinality diagnostics. Selected-callable source
+refusals likewise run during preparation; later call-occurrence inventories
+use retained declaration identities rather than inspecting source again.
+
+Source spans, expansion stacks, nominal type declarations, frozen child
+capsules and original definition identities may remain for their existing
+diagnostic, import and key contracts. A source object is not executable merely
+because it is reachable through metadata. Conversely, placing an operand in a
+field marked nonserializable does not exempt it: any expression read to decide
+a value, capture, argument, condition or effect during translation is an
+executable dependency and must be replaced by its prepared facts.
+
+#### Minimal values and owners
+
+The existing value union includes four structured internal value shapes;
+these add no control construct or public syntax form. Every shape carries
+`WccNodeMetadata`, exact result type and provenance. Fields below are semantic
+edges unless identified as lexical/proof facts.
+
+| Source family | Prepared WCC shape | Direct closed form |
+| --- | --- | --- |
+| `ListExpr` | `WccList(metadata, items: tuple[WccValue, ...])` | Existing `list`; recursively translate prepared items |
+| A value-local normalized body, including expansion-owned pure `let*` | `WccBlock(metadata, body: WccBody)` | Translate body in a copied lexical environment with the halt-unwrapping/`block` rule |
+| Accepted named `ProviderBundlePathExpr` | `WccResultPath(metadata, source: WccNameAtom)` | Existing `result_path`; source binding identity and exact bundle path type are retained facts |
+| Pure `ListMapExpr` | `WccListMap(metadata, source: WccValue, binder_name, binder_type_ref, body: WccBody, body_metadata: WccNodeMetadata, binding_label, binding_identity)` | Existing `list_map`; source is outside the binder and body is inside it |
+
+Other families use the existing nodes:
+
+- A union variant tag is a `WccLiteralAtom` whose type is the resolved
+  `DiscriminantTypeRef`. Retain `owner_union`, applied generic owner and exact
+  permitted variants. Neither the payload's `UnionTypeRef` nor `String` is a
+  substitute. Generated relpath seeds are literals with their resolved nominal
+  `PathTypeRef`, literal path and existing provenance.
+- A loop-state seed is a `WccRecordAtom` with ordered typed fields and its
+  existing compiler-owned state type. A loop-state update uses the existing
+  `WccPureOp` with internal tag `loop-state-update`, base first and overrides
+  in source order. ANF keeps this operation atomic as its former carrier was;
+  ordinary `record-update` remains non-atomic even on the same state type.
+  Both tags emit the existing `record_update` payload with unchanged metadata
+  identities. Preparation selects the tag from the expression family, never
+  from type-name spelling, provenance or proof metadata. The extra internal
+  tag preserves the ANF distinction without a new node, metadata flag, public operator or artifact schema.
+- Rooted path join and compiler nonempty-list head use `WccPureOp` with their
+  typed operands and dedicated direct-translation cases. Their internal
+  operation tags are not new public pure operators. Path join retains the
+  resolved path descriptor and one `String` child; head retains the exact
+  element type, list source type, compiler-owned proof and existing
+  `list_nonempty_invariant_broken` diagnostic. The translator emits the
+  existing checked payload shapes rather than introducing runtime operations.
+
+`WccBlock` retains value-local scope: list children with local bindings or
+ANF temporaries become closed blocks. Elaborate and normalize each
+child in its original local scope during preparation, then retain either its
+halt value or a block according to the existing closed representation. Do not
+hoist those local prefixes around the containing list. Expansion-owned pure
+`let*` uses the same structured block value.
+
+For lists, map sources, path children and state fields, source order and the
+current nesting of local value blocks are preserved. A block executes once
+where its value is demanded; a `WccSelect` arm remains lazy and only its own
+prefix executes. A map source executes once, and its body once per element in
+order. Preserve the existing unconditional closed `block` wrapper around a
+map body, including a body containing only `halt`; the value-block
+halt-unwrapping rule does not apply there. Retain `body_metadata` from the
+original body expression's provenance and resolved result item type during
+preparation; emit the wrapper's provenance from this static fact, not an
+executable child. Keep the normalized body's own metadata unchanged: its
+first binding can have a different span. This requires one metadata field,
+not another block node or a wrapper flag. `WccSelectArm.prefix` is a sequential
+scope: each prefix value and the
+terminal value are visited once; its retained `WccLet.body` links are not a
+second path. ANF may recurse inside a block or map body during preparation but
+must not lift work across these boundaries.
+
+The source-aware producer retains bundle-path admission facts using the
+existing target guard before making `WccResultPath`; unsupported forms keep
+their existing located refusal. The translator must still reject malformed
+WCC facts as compiler defects rather than reconstruct source to repair them.
+
+#### Resolved facts and generated facts
+
+Typechecking owns source expression types, proof contexts and resolved
+declaration identities. Carry those facts on existing typed expression nodes
+or their existing typed owner. List checking retains an ordered
+`item_type_refs` tuple on `ListExpr`, excluded from source semantic identity,
+and specialization carries those facts forward. Do not create a parallel
+expression graph or recover all child types from the parent's type.
+
+Specialization substitutes concrete type arguments and preserves nominal
+declaration ownership. A copied type fact is valid only for that specialized
+expression and its lexical environment. Preserve existing `resolved_type`,
+map item types, path types, loop field types and bound-parameter types where
+they remain exact; regenerate invalidated facts at specialization, not in the
+closed translator. Imported admitted definitions use their retained owner
+and original type environment, not the entry module's spelling of a type.
+
+New ANF references, let-bound intermediates, map binders and loop-state
+constructors get types where they are created. A generated name takes its
+producer's result type; `WccLet.bound_type_ref` is that result, while the let's
+body metadata describes the continuation. A list constructor's result is
+`List[T]`; its children carry their own resolved types. A map binder gets the
+source item type and the body has the result item type. A tag keeps its
+discriminant proof and a path keeps its nominal root contract. Removing
+duplicate source inference never removes independent checking of these
+claimed facts.
+
+#### Captures and bound procedure arguments
+
+WCC preparation owns the creation region of each `bind-proc` value. Reuse
+existing binding identities, specialization capture routes and creation-owner
+keys; never key semantics only by a reused source name or runtime value. The
+completed operand on a call is a typed WCC value or a reference to a typed
+creation binding. Compile-time procedure/workflow references remain resolved
+references, not runtime closures.
+
+The source-facing part of computed-capture preparation runs in the existing
+callable preparation phase. Each `ComputedCaptureRequest` retains a typed
+`prepared_value: WccValue`, its source aliases and insertion alias. Preparation
+resolves free-name aliases and retains existing materialization at the same
+creation region, after all required sources dominate it and before its first
+use. Keep existing alias order, runtime evaluation counts and canonical
+generated binding allocation. An already materialized capture is computed once
+per creation, including a creation in a lazy arm or map body; it must not move
+to call time or outside that branch/iteration.
+
+The [evaluated capture contract](workflow_lisp_evaluated_execution.md#4-the-closed-program)
+requires evaluation once at the binding's lexical scope before forwarding.
+An unmaterialized computed-list capture forwarded to repeated calls is a
+known defect: its additions are re-evaluated per call. Explicit materialization
+computes the list once. The migration preserves this observed multiplicity;
+it does not establish the required once-only semantics for that defective
+case. Repair requires a separate behavior and artifact-compatibility
+disposition, recorded in the simplification plan.
+
+For already closed bound arguments, prepare their literal/operator/block
+value with an empty runtime environment and retain the resolved formal type.
+`_reference_facts` and `_callee_creation_argument` translate that prepared
+value directly. For captured arguments, retain the selected binding identity
+and prepared capture route. Retain exact nested ProcRef formal paths and
+forwarded capture ownership; a direct and a reference call of the same bound
+value retain the same creation owner and existing materialization, while
+distinct creations remain distinct. No source expression left in
+`bound_proc_source` or `source_binding` may supply missing executable facts after preparation; source identity/provenance alone
+may remain.
+
+WCC substitution and capture analysis traverse structured values and respect
+block, select-arm, map and loop binders. Retained executable `WccIf` uses its
+typed `condition` and branch proof contexts; `condition_shape` is `None`. Pure
+conditionals in admitted imported definitions also prepare structured values.
+`wcc/historical.py` retains reverse substitution for opaque resource-transition
+values encountered during provider-region refusal preparation. No WCC
+condition-classification projection is produced. Tests inspect the actual
+typed condition and branch behavior.
+The preparation equality guard must continue comparing the typed condition
+and all executable operands; this change does not weaken that guard.
+
+For `WccRecordAtom`, differing `type_name` strings are redundant only when
+each side's `resolved_type` and `metadata.type_ref` are record types, and
+`type_name == resolved_type.name == metadata.type_ref.name` locally.
+In that side's owning program,
+`resolved_type` and `metadata.type_ref` must have both equal unprojected
+canonical descriptors and equal existing owner-aware key-type projections.
+The first preserves concrete RunRef producers, including phantom arguments;
+the second preserves retained signatures. Only then omit the cross-side name
+string comparison; keep the existing comparisons of metadata, resolved types
+and ordered field operands. Equal name strings retain their existing handling.
+This adds a local consistency check, not a name-prefix exception or a new
+type-identity rule.
+
+#### Effect payload operands
+
+`WccPerform.operation_payload` also contains executable edges. Extending only
+`positional_args` and `keyword_args` cannot establish closure. Keep the
+existing per-effect payload mappings; their explicit edge contract is:
+
+| Admitted owner | Additional executable fields | Static facts retained separately |
+| --- | --- | --- |
+| Command (`closed/effects.py`) | `adapter_inputs[*][1]`; `argv_transport[*].parts[*].value` for every `slot` part | Adapter name, input/document presence and order, transport slot selector, literal template parts, return guidance and command declaration |
+| Provider and agent turn (`closed/effects.py`, `closed/agent_effects.py`) | Every prepared prompt fill value; `model`, `effort`, `timeout_sec`, `delivery` when present; `prompt_dependencies.rows[*].value` | Resolved prompt slot facts, dependency role/order/position/instruction, return guidance, provider/agent origin identities |
+| Agent allocation | No extra payload operands; policies remain `keyword_args` | Resolved provider identity |
+| Admitted run reference | No extra payload operands; dynamic inputs remain `keyword_args` | Validated `WccRunRefPayload`/`WccRunRefWorkflowPayload`, descriptors, policy and frozen child-source ownership |
+| Workflow call | No extra payload operands; arguments remain `keyword_args` | Resolved callable/preparation identity and existing configuration facts |
+
+Preparation retains a mapping under the existing
+`prompt_application` key containing template text and ordered fill rows with
+`name`, slot kind, exact `type_ref`, `value: WccValue`, selected renderer,
+output role and placeholder ordinals. Derive those static fields from the
+resolved declaration at the source-aware producer; preserve existing prompt
+identity facts in their current identity owner. `closed/effects.py` consumes
+these rows directly, with no `PromptApplicationExpr`/`PromptFill` import or
+frontend expression access. This is an internal prepared payload; the closed
+prompt representation is unchanged.
+
+The payload walker dispatches by admitted effect kind and known payload field,
+then follows the listed WCC operands recursively, including input-slot values
+used for command-root routing/provenance. It validates known static fields
+instead of descending into declarations as executable code. Unsupported
+context/session/materialization payloads retain their existing admission
+refusals. Unknown payload kinds, unexpected fields or raw expressions in an
+operand position fail closure; they are never silently treated as metadata.
+ANF, substitution, capture/demand scans and preparation equality must cover
+these same operands while preserving current ordering and block boundaries.
+Payload traversal is inspection, not permission to evaluate a duplicated
+transport descriptor or hoist its value again. These rules apply to occurrences
+inside payloads and ordinary value positions.
+
+#### Semantic boundary and independent checks
+
+The explicit semantic-child inventory in
+`closed/command_templates.py::_wcc_semantic_children` covers list items, block
+bodies, result-path sources, map sources/bodies and case/select arms. The
+closure check also visits prepared capture/bound-argument values. Case-arm `command_scope` values are executable
+operands in the arm's binder scope. ANF, substitution, scope, demand/capture
+analysis and preparation equality preserve the same binder boundaries and
+per-effect payload edges.
+
+`closed/preparation_check.py::assert_closed_preparation` checks the completed
+entry and reachable request graph before body emission. Every request must
+have its body, child table and capture recipes. It rejects opaque/raw operands,
+unknown executable kinds or fields, and missing or extraneous call occurrences.
+The prepared child table must exactly cover the callable inventory; emission
+must then consume that inventory exactly once. This is closure/inventory
+validation, not a duplicate typechecker.
+
+Instantiated captures may use the existing closed wire subset `name`, `field`,
+`record`, `lit` and `context`. `_closed_capture_value` uses the artifact
+checker's existing `_VALUE_KEYS` and recursively checks executable operands;
+`context` is restricted to `run-id`. Typed `lit.v` contains JSON data, so a
+mapping inside that literal is data rather than another executable node.
+Missing required operands and unknown kinds/fields fail before emission.
+
+Source spans, nominal declarations and frozen child capsules are metadata,
+not executable children; each admitted child entry has its own preparation
+boundary. `WccOpaqueFrontendValue` remains in the shared union for resource-
+transition refusal, but cannot cross an admitted executable edge. Static call/import checks
+supplement semantic closure; global grep-zero or removal of a Python union
+member is not its criterion.
+
+The independent checker under `contracts/closed_program/` remains source-free.
+It checks descriptor/operand agreement, binding scope, capture routes, calls,
+site bijections and output contracts from the artifact alone. It may reuse
+data representations and canonical descriptor rules, but neither trusts a
+WCC validation verdict nor consults frontend source or elaborator state.
+Negative tests mutate valid artifacts, including nested child and capture
+types, and require rejection on readback.
+
+<a id="finite-implementation-cuts-and-compatibility-evidence"></a>
+#### Artifact identity and compatibility
+
+The [simplification plan](../plans/2026-10-15-orc-simplification-roadmap-extension.md#task-2--close-the-retained-executable-wcc-boundary)
+owns the completed implementation cuts and their verification evidence.
+Source-mode retirement has its own finite consumer disposition. Current
+source compilation uses the sole admitted closed behavior; closure does not
+introduce a selector or change retained normalization-stage semantics.
+
+Preserve canonical closed trees, digests, definition/capture keys, perform
+sites, call frames, diagnostics and target guards for existing accepted
+programs at the same target with identity inputs held fixed. Preserve authored
+labels and existing generated-name allocation; WCC wrappers do not enter
+persisted identity. Compare representative
+pre/post canonical artifacts as well as sites: a semantic-equivalence test
+alone does not prove resumable identity. An unavoidable artifact change with
+those inputs held fixed needs the state/versioning owner's explicit
+compatibility decision before it can replace this preservation contract.
+
+Run-ref artifacts embed a compiler/runtime identity that hashes package bytes;
+production edits can therefore change that input. Preserve authentic pre/post
+artifacts and report their pin differences as mismatches. A separate internal
+compilation control may supply both compilers the same
+`VerifiedCompilerRuntimeIdentity`, computed from one retained physical package
+fixture and the same interpreter/version/schema inputs. Compare its complete
+artifact bytes, including pins, without normalization. A passing control proves
+byte equality for those fixed inputs, not authentic-package byte equality or
+cross-package resume compatibility. Normal identity computation and admission
+refusals remain unchanged; no public override is added. This follows the
+[existing identity-evidence contract](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md#global-constraints).
+
+Primary existing regression owners are
+`test_workflow_lisp_closed_program_{elaboration,build,names,check,sites,artifact}.py`,
+the WCC/ANF and conditional/hygiene owners, imported/generic procedure tests,
+`test_workflow_evaluated_totality.py` and public evaluated identity/resume tests.
+Use actual same-target fixtures, including admitted 2.35+ entries consuming
+current-target typed imports. A structural test freezes completed preparation,
+disables frontend elaboration/ANF/reverse-conversion entrypoints and translates
+it successfully; negative cases inject an opaque/raw child separately into a
+list, capture, prompt fill, dependency, policy operand, command input and
+transport slot, and also reject an unknown payload field. Source
+removal alone is insufficient because typed frontend objects may still exist
+in memory.
+
+Provider-region reverse reconstruction remains isolated in `wcc/historical.py`
+for the retained opaque `ResourceTransitionExpr` refusal path. WCC condition
+classification has no surviving producer. Resource transitions retain their
+admission refusal. Admitted imported pure `IfExpr` is structured
+when prepared for execution. None of these dispositions admits an excluded
+effect or permits executable source re-entry.
+
 ### 13.3 Diagnostics contract
 
 All language-boundary rejection happens at or before typecheck:
@@ -313,8 +684,119 @@ have codes of their own: `compiler_defect_hoisted_binding_rename` and
 `compiler_defect_constructor_type_dropped`; `compiler_defect_loop_control_value`
 and the replay-index code `pure_result_replay_unavailable` were retired with
 the flat route. Located diagnostics raised under other codes, such as
-`workflow_return_not_exportable`, `wcc_lowering_route_unsupported` and
+`workflow_return_not_exportable` and
 `workflow_signature_mismatch`, keep their codes and do not say so.
+
+<a id="134-executable-only-command-preparation-target"></a>
+### 13.4 Executable-only command preparation
+
+`closed/command_templates.py::elaborate_command_scopes` is a dedicated
+executable entry using the single-mode WCC body preparator. `ControlFacts` is
+constructed in production by `closed/build.py::_command_wcc_body` and carries
+no execution-mode flag. Shared typing consumes the sole admitted closed-source
+facts; it exposes no false-source compatibility mode.
+
+Command binding and procedure-control analysis uses exact binding facts,
+callee-local signature types, the callee's defining/import-owner catalogs and
+return types, and declared private/inline boundary behavior. Missing owner
+facts are an internal error; caller types and fabricated empty catalogs are
+not fallbacks. Private procedure outputs use their declared leaf boundaries;
+there is no flattened historical output alternative in this family.
+
+The specialized loop-effect scan's
+`wcc/analysis.py::_normalized_inline_procedure_wcc_body` uses supplied resolved
+procedures/type environments and explicit closed elaboration. Its context has
+no `closed_program` flag or false-mode fallback. Existing cycle detection,
+cardinality checks and context data retain their owners. This source-aware
+scan runs during preparation; §13.2 forbids source elaboration during direct
+translation.
+
+Current module/import/LSP processing uses the shared admitted compiler.
+An imported 2.35+ typed module supplies its original nominal/source owner;
+pre-floor modules refuse before catalog publication. The command preparator's
+neutral and annotated passes remain distinct facts. Source origins 2.35–2.38
+retain their declared/default lowering and exact-effect rules; target 2.39
+has its separately gated authoring contract. Command preparation itself
+changes no persisted identity or effect admission.
+
+The command-control/scope/capture/transport and closed names/elaboration tests
+cover real typed owners, capture shadowing, private/inline scopes and transport,
+specialized-loop cardinality, admitted imported-owner views, negative unknown
+operations and retained LSP/CLI behavior. Same-target artifacts and public
+compile/run/resume controls verify the boundary with the rest of preparation.
+The source floor also removes exclusive old-source modes;
+§13.4.2 owns the single-mode body-preparation boundary.
+
+#### 13.4.1 Mode-independent type-fact inference
+
+`wcc/elaborate.py::_infer_expr_type` and `binding_type_for_elaboration` infer
+facts without an execution-mode parameter. They preserve capture-source type
+precedence, lexical environments, resolved child facts, failures and return
+types. The typecheck and later condition-preparation stages retain distinct
+semantic consumers; this helper pair needs no mode forwarding or replacement context.
+
+Command-capture shadowing, direct WCC inference, primitive agreement and the
+affected command/elaboration tests cover these facts alongside the artifact
+and public lifecycle controls above. The separate
+`result_guidance.py::_infer_expr_type` is a different function family.
+
+#### 13.4.2 WCC body specialization and historical-consumer boundary
+
+`wcc/elaborate.py::elaborate_typed_workflow_body` is the single executable
+body-preparation entry. It and `prepare_elaboration_call_types` have no mode
+parameter; `WccIdentityFactory` carries no `closed_program` field or child-scope
+propagation. Builder, command-preparation, specialized-loop and provider-member
+recursion callers use this same entry. There is no `elaborate_typed_workflow`
+convenience function/export, copied pass or historical body-generation route.
+
+The retained source-analysis contract is the shared typed compiler and its
+catalogs/provenance. The [frontend baseline](workflow_lisp_frontend_specification.md)
+and [LSP contract](workflow_lisp_language_server.md#shared-read-only-build-core-and-imported-bundles)
+retain admitted typed analysis independently of WCC body construction.
+Historical schema metadata remains data for named readers, not a route
+selector; admitted typed imports keep their original nominal/source owners.
+Both command-preparation passes, capture recipes, cycle/cardinality
+checks and exact source/command-owner validation remain mandatory. The command
+validator checks those facts without a mode argument. Calls from this WCC owner
+to shared typing use the sole admitted source semantics.
+
+Provider-group closure and validation remain live refusal consumers.
+`close_wcc_provider_supervision_members`, the peer-group forwarder and
+`_inline_provider_procedure_call` prepare members through the same executable
+entry. Eligibility checks, capture substitution, member traversal order and
+validation preserve source-level diagnostics and which error wins. The final
+builder refusal of supervision and peer groups does not make this earlier
+work unobservable or admit execution of either group kind.
+
+Compare complete ordered public diagnostic records, including code, source
+span, form path, expansion stack, phase, data and cause type/message where
+present. A generic earlier `closed_program_gap` cannot replace member-specific
+diagnostics. Existing compiler defects are observed compatibility limits,
+not desired diagnostics or permission to repair them within mode removal.
+Raw internal tracebacks preserve evidence; changing package paths, source
+lines and traceback formatting is distinct from changing authored diagnostics
+or their causes.
+
+The shared WCC union still admits opaque resource-transition values so
+provider-region substitution and source-located refusal can operate.
+`wcc/historical.py` retains their reverse helper; it does not feed admitted
+closed translation. Closure-helper retirement requires proof that its refusal
+consumers are gone. Shared substitution, capture, type, ANF and identity
+helpers retain their live callers. `wcc/route.py` and source-selectable route
+exports are removed; retained schema fields are validated data for their
+current readers. Internal mode
+removal changes no public syntax, target, artifact schema or effect admission.
+Artifact compatibility remains subject to the compiler-package identity
+boundary in §13.2.
+
+Workflow return boundaries, private-procedure eligibility, union-call
+compatibility, run-reference placement and typed capture/enum facts use the
+current closed-source behavior directly. In `conditionals.py`, the typecheck-proofs caller uses ordinary
+condition normalization even for evaluated typing; later
+`prepare_closed_condition_expr` restores retained inputs and applies the
+closed loop-order, nested-loop and bound-capture rules. Removing those real
+distinctions requires a separate equivalent normalization/admission design,
+not a default flip or retirement of old WCC shapes.
 
 
 ## Current Integration And Verification Boundary

@@ -45,7 +45,7 @@ def test_corpus_materializes_declared_workspace_launcher_without_changing_closur
     assert binding.closure == ("scripts/launch_experiment.py",)
     assert (prepared.workspace_root / binding.closure[0]).read_text() == LAUNCH_PROBE
     assert "command:launch_experiment:compile-only-script-stand-in" in prepared.synthetic
-    assert target_dsl_version(prepared.entry) == "2.36"
+    assert target_dsl_version(prepared.entry) == "2.39"
 
 
 def test_corpus_workspace_launcher_does_not_admit_unknown_extra_closure(tmp_path):
@@ -63,67 +63,63 @@ def test_corpus_workspace_launcher_does_not_admit_unknown_extra_closure(tmp_path
 
 
 EXPECTED = {
-    "experiments/mlevolve_pair/probes/malformed_result.orc::run": Built(1),
-    "experiments/mlevolve_pair/probes/missing_bundle.orc::run": Built(1),
-    "experiments/mlevolve_pair/search.orc::run-search": Built(12),
+    'experiments/mlevolve_pair/probes/malformed_result.orc::run': Refused("workflow_execution_target_retired"),
+    'experiments/mlevolve_pair/probes/missing_bundle.orc::run': Refused("workflow_execution_target_retired"),
+    'experiments/mlevolve_pair/search.orc::run-search': Refused("workflow_execution_target_retired"),
     "experiments/mlevolve_pair/search_compact.orc::run-search": Built(6),
-    "experiments/orc_vs_single_call/task/bug_report/reviewed_change.orc::reviewed-change": Built(4),
+    'experiments/orc_vs_single_call/task/bug_report/reviewed_change.orc::reviewed-change': Refused("workflow_execution_target_retired"),
     "experiments/orc_vs_single_call/workflows/best_of_n.orc::best-of-n": Built(2),
     "experiments/orc_vs_single_call/workflows/best_of_n.orc::select-only": Built(1),
     "experiments/orc_vs_single_call/workflows/reviewed_change.orc::reviewed-change": Built(4),
-    "tests/fixtures/workflow_lisp/retired_examples/cycle_guard_demo.orc::cycle-guard-demo": Built(1),
-    "tests/fixtures/workflow_lisp/retired_examples/examples/design_plan_impl_review_stack_v2_call.orc::design-plan-impl-review-stack": Built(6),
-    "tests/fixtures/workflow_lisp/retired_examples/effectful_let_star_normalization.orc::run-effectful-let-star-normalization": Built(4),
-    "tests/fixtures/workflow_lisp/retired_examples/effectful_match_arm_normalization.orc::run-effectful-match-arm-normalization": Built(3),
+    'tests/fixtures/workflow_lisp/retired_examples/cycle_guard_demo.orc::cycle-guard-demo': Refused("workflow_execution_target_retired"),
+    'tests/fixtures/workflow_lisp/retired_examples/examples/design_plan_impl_review_stack_v2_call.orc::design-plan-impl-review-stack': Refused("workflow_execution_target_retired"),
+    'tests/fixtures/workflow_lisp/retired_examples/effectful_let_star_normalization.orc::run-effectful-let-star-normalization': Refused("workflow_execution_target_retired"),
+    'tests/fixtures/workflow_lisp/retired_examples/effectful_match_arm_normalization.orc::run-effectful-match-arm-normalization': Refused("workflow_execution_target_retired"),
     "workflows/examples/improve_experiment_proposal.orc::run-experiment": Built(5),
-    "tests/fixtures/workflow_lisp/retired_examples/kiss_backlog_item.orc::run-backlog-item": Built(12),
+    'tests/fixtures/workflow_lisp/retired_examples/kiss_backlog_item.orc::run-backlog-item': Refused("workflow_execution_target_retired"),
     "workflows/examples/plan_review_execute.orc::run": Built(4),
     "workflows/examples/design_review_execute.orc::run": Built(4),
     "workflows/examples/design_review_execute_agents.orc::run": Built(6),
-    "tests/fixtures/workflow_lisp/retired_examples/review_revise_design_docs.orc::review-revise-design-docs": Refused("workflow_signature_mismatch"),
-    "tests/fixtures/workflow_lisp/retired_examples/review_revise_design_docs_judgment_panel.orc::review-revise-design-docs-judgment-panel": Built(2),
-    "tests/fixtures/workflow_lisp/retired_examples/review_revise_parametric_design_docs.orc::review-revise-parametric-design-docs": Refused("macro_arity_error"),
-    "tests/fixtures/workflow_lisp/retired_examples/same_file_record_call_binding.orc::run-same-file-record-call-binding": Built(1),
-    "tests/fixtures/workflow_lisp/retired_examples/with_phase_composed_binding.orc::run-with-phase-composed-binding": Built(1),
-    "workflows/experiments/qa_placement_effectiveness/qa_placement_arms.orc::design-qa": Built(4),
-    "workflows/experiments/qa_placement_effectiveness/qa_placement_arms.orc::direct": Built(1),
-    "workflows/experiments/qa_placement_effectiveness/qa_placement_arms.orc::product-qa": Built(3),
-    "workflows/experiments/qa_placement_effectiveness/qa_placement_arms.orc::rich": Built(6),
-    "workflows/experiments/qa_placement_effectiveness/qa_placement_trial.orc::compare": Refused("evaluated_execution_target_direction_invalid"),
+    'tests/fixtures/workflow_lisp/retired_examples/review_revise_design_docs.orc::review-revise-design-docs': Refused("workflow_execution_target_retired"),
+    'tests/fixtures/workflow_lisp/retired_examples/review_revise_design_docs_judgment_panel.orc::review-revise-design-docs-judgment-panel': Refused("workflow_execution_target_retired"),
+    'tests/fixtures/workflow_lisp/retired_examples/review_revise_parametric_design_docs.orc::review-revise-parametric-design-docs': Refused("workflow_execution_target_retired"),
+    'tests/fixtures/workflow_lisp/retired_examples/same_file_record_call_binding.orc::run-same-file-record-call-binding': Refused("workflow_execution_target_retired"),
+    'tests/fixtures/workflow_lisp/retired_examples/with_phase_composed_binding.orc::run-with-phase-composed-binding': Refused("workflow_execution_target_retired"),
+    'workflows/experiments/qa_placement_effectiveness/qa_placement_arms.orc::design-qa': Refused("workflow_execution_target_retired"),
+    'workflows/experiments/qa_placement_effectiveness/qa_placement_arms.orc::direct': Refused("workflow_execution_target_retired"),
+    'workflows/experiments/qa_placement_effectiveness/qa_placement_arms.orc::product-qa': Refused("workflow_execution_target_retired"),
+    'workflows/experiments/qa_placement_effectiveness/qa_placement_arms.orc::rich': Refused("workflow_execution_target_retired"),
+    'workflows/experiments/qa_placement_effectiveness/qa_placement_trial.orc::compare': Refused("workflow_execution_target_retired"),
     "workflows/library/control/direct_task.orc::direct-task": Built(1),
-    "workflows/library/design_plan_impl_implementation_phase.orc::design-plan-impl-implementation-phase": Built(2),
-    "workflows/library/generic_run_watchdog/watchdog.orc::watchdog": Built(5),
-    "workflows/library/lisp_frontend_design_delta/bootstrap.orc::project-work-item-inputs": Built(0),
-    "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc::draft-design-gap-architecture": Built(1),
-    "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc::draft-design-gap-architecture-stdlib": Built(1),
-    "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc::project-design-gap-architecture-targets": Built(0),
-    "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc::project-design-gap-architecture-targets-stdlib": Built(0),
-    "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc::validate-design-gap-architecture": Gap("materialize-view"),
-    "workflows/library/lisp_frontend_design_delta/design_gap_architect.orc::validate-design-gap-architecture-stdlib": Gap("materialize-view"),
-    "workflows/library/lisp_frontend_design_delta/drain.orc::drain": Refused("provider_bundle_path_target_invalid"),
-    "workflows/library/lisp_frontend_design_delta/implementation_phase.orc::implementation-phase": Gap("materialize-view"),
-    "workflows/library/lisp_frontend_design_delta/plan_phase.orc::run-plan-phase": Gap("materialize-view"),
-    "workflows/library/lisp_frontend_design_delta/projections.orc::classify-work-item-terminal": Built(0),
-    "workflows/library/lisp_frontend_design_delta/projections.orc::project-selector-action": Built(0),
-    "workflows/library/lisp_frontend_design_delta/runtime_transition_fixture.orc::run-runtime-transition-fixture": Gap("resource-transition"),
-    "workflows/library/lisp_frontend_design_delta/runtime_view_fixture.orc::run-summary-view": Gap("resource-transition"),
-    "workflows/library/lisp_frontend_design_delta/selector.orc::select-next-work": Refused("provider_bundle_path_target_invalid"),
-    "workflows/library/lisp_frontend_design_delta/stdlib_payloads.orc::project-selected-item-payload": Built(0),
-    "workflows/library/lisp_frontend_design_delta/stdlib_payloads.orc::project-selection-result": Built(0),
-    "workflows/library/lisp_frontend_design_delta/transitions.orc::apply-drain-status-transition": Gap("resource-transition"),
-    "workflows/library/lisp_frontend_design_delta/transitions.orc::emit-drain-status-transition-audit": Gap("resource-transition"),
-    "workflows/library/lisp_frontend_design_delta/work_item.orc::classify-blocked-implementation-recovery": Built(1),
-    "workflows/library/lisp_frontend_design_delta/work_item.orc::run-work-item": Gap("materialize-view"),
-    "workflows/library/tracked_design_phase.orc::tracked-design-phase": Built(2),
-    "workflows/library/tracked_plan_phase.orc::tracked-plan-phase": Built(2),
+    'workflows/library/design_plan_impl_implementation_phase.orc::design-plan-impl-implementation-phase': Refused("workflow_execution_target_retired"),
+    'workflows/library/generic_run_watchdog/watchdog.orc::watchdog': Refused("workflow_execution_target_retired"),
+    'workflows/library/lisp_frontend_design_delta/bootstrap.orc::project-work-item-inputs': Refused("workflow_execution_target_retired"),
+    'workflows/library/lisp_frontend_design_delta/design_gap_architect.orc::draft-design-gap-architecture': Refused("workflow_execution_target_retired"),
+    'workflows/library/lisp_frontend_design_delta/design_gap_architect.orc::draft-design-gap-architecture-stdlib': Refused("workflow_execution_target_retired"),
+    'workflows/library/lisp_frontend_design_delta/design_gap_architect.orc::project-design-gap-architecture-targets': Refused("workflow_execution_target_retired"),
+    'workflows/library/lisp_frontend_design_delta/design_gap_architect.orc::project-design-gap-architecture-targets-stdlib': Refused("workflow_execution_target_retired"),
+    'workflows/library/lisp_frontend_design_delta/design_gap_architect.orc::validate-design-gap-architecture': Refused("workflow_execution_target_retired"),
+    'workflows/library/lisp_frontend_design_delta/design_gap_architect.orc::validate-design-gap-architecture-stdlib': Refused("workflow_execution_target_retired"),
+    'workflows/library/lisp_frontend_design_delta/drain.orc::drain': Refused("workflow_execution_target_retired"),
+    'workflows/library/lisp_frontend_design_delta/implementation_phase.orc::implementation-phase': Refused("workflow_execution_target_retired"),
+    'workflows/library/lisp_frontend_design_delta/plan_phase.orc::run-plan-phase': Refused("workflow_execution_target_retired"),
+    'workflows/library/lisp_frontend_design_delta/projections.orc::classify-work-item-terminal': Refused("workflow_execution_target_retired"),
+    'workflows/library/lisp_frontend_design_delta/projections.orc::project-selector-action': Refused("workflow_execution_target_retired"),
+    'workflows/library/lisp_frontend_design_delta/runtime_transition_fixture.orc::run-runtime-transition-fixture': Refused("workflow_execution_target_retired"),
+    'workflows/library/lisp_frontend_design_delta/runtime_view_fixture.orc::run-summary-view': Refused("workflow_execution_target_retired"),
+    'workflows/library/lisp_frontend_design_delta/selector.orc::select-next-work': Refused("workflow_execution_target_retired"),
+    'workflows/library/lisp_frontend_design_delta/stdlib_payloads.orc::project-selected-item-payload': Refused("workflow_execution_target_retired"),
+    'workflows/library/lisp_frontend_design_delta/stdlib_payloads.orc::project-selection-result': Refused("workflow_execution_target_retired"),
+    'workflows/library/lisp_frontend_design_delta/transitions.orc::apply-drain-status-transition': Refused("workflow_execution_target_retired"),
+    'workflows/library/lisp_frontend_design_delta/transitions.orc::emit-drain-status-transition-audit': Refused("workflow_execution_target_retired"),
+    'workflows/library/lisp_frontend_design_delta/work_item.orc::classify-blocked-implementation-recovery': Refused("workflow_execution_target_retired"),
+    'workflows/library/lisp_frontend_design_delta/work_item.orc::run-work-item': Refused("workflow_execution_target_retired"),
+    'workflows/library/tracked_design_phase.orc::tracked-design-phase': Refused("workflow_execution_target_retired"),
+    'workflows/library/tracked_plan_phase.orc::tracked-plan-phase': Refused("workflow_execution_target_retired"),
     "workflows/library/verified_iteration_drain/drain.orc::drain": Built(9),
 }
 
-EXPECTED_PARTITION = {
-    "Built": 40,
-    "Gap": 9,
-    "Refused": 5,
-}
+EXPECTED_PARTITION = {'Refused': 44, 'Built': 10}
 
 
 _CONTROL_ROUTES = ("direct", "same_module", "imported_old_source")
@@ -248,7 +244,7 @@ def _control_sources(case: str, route: str) -> tuple[dict[str, str], str]:
     result_type, body, extra = specification[:3]
     target = syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
     entry_header = f'(workflow-lisp (:language "0.1") (:target-dsl "{target}") (defmodule cp/probe)'
-    old_header = '(workflow-lisp (:language "0.1") (:target-dsl "2.34") (defmodule cp/old)'
+    old_header = '(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule cp/old)'
     if route == "direct":
         text = f'''{entry_header} (export run)
 {_control_procedures()}
@@ -505,12 +501,7 @@ def _assert_control_edge(
         raise AssertionError(f"no assertions declared for control case {case}")
 
 
-ORIGINAL_TARGET_FLAT_OUTCOMES = {
-    "tests/fixtures/workflow_lisp/retired_examples/review_revise_design_docs.orc::review-revise-design-docs": Refused("workflow_signature_mismatch"),
-    "tests/fixtures/workflow_lisp/retired_examples/review_revise_parametric_design_docs.orc::review-revise-parametric-design-docs": Refused("macro_arity_error"),
-    "workflows/library/lisp_frontend_design_delta/drain.orc::drain": "passed",
-    "workflows/library/lisp_frontend_design_delta/selector.orc::select-next-work": "passed",
-}
+
 
 
 def _certified_adapter_source(target: str, invocation: str) -> str:
@@ -542,7 +533,7 @@ def test_certified_adapter_preserves_its_authored_invocation_mode(
     source = source_root / "cp" / "certified_argv.orc"
     source.parent.mkdir()
     old_source = source
-    old_source.write_text(_certified_adapter_source("2.34", invocation), encoding="utf-8")
+    old_source.write_text(_certified_adapter_source("2.35", invocation), encoding="utf-8")
     old_build = compile_stage3_entrypoint(
         old_source,
         source_roots=(source_root,),
@@ -681,7 +672,7 @@ print(json.dumps(request, sort_keys=True))
         else "(items_path items)"
     )
     source.write_text(
-        f'''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+        f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
           (defmodule cp/signature_document) (export run)
           (defpath ReviewFindingsJsonPath :kind relpath :under "artifacts/work" :must-exist true)
           (defrecord ReviewFindings (items_path ReviewFindingsJsonPath))
@@ -699,10 +690,6 @@ print(json.dumps(request, sort_keys=True))
         validate_shared=True,
     )
     assert "cp/signature_document::run" in old.entry_result.typed_program.workflows
-    source.write_text(
-        source.read_text(encoding="utf-8").replace('"2.34"', f'"{TARGET}"'),
-        encoding="utf-8",
-    )
     typed = compile_typed_program(
         source,
         entry_workflow="cp/signature_document::run",
@@ -771,8 +758,11 @@ def test_every_shipped_workflow_has_a_pinned_closed_outcome(
         assert f"form={actual.form}" in diagnostic.notes
         assert diagnostic.span.start.line > 0
     elif isinstance(actual, Refused):
-        assert result.prepared is not None
         assert diagnostic is not None and diagnostic.code == actual.code
+        if actual.code == "workflow_execution_target_retired":
+            assert result.prepared is None
+        else:
+            assert result.prepared is not None
     assert actual == EXPECTED[workflow.key], (
         f"pinned outcome mismatch for {workflow.key}: expected {EXPECTED[workflow.key]!r}, "
         f"got {actual!r}; diagnostic={diagnostic!r}"
@@ -787,7 +777,9 @@ def _phase_reference_targets(row):
 
 
 def test_phase_reference_variants_keep_their_exact_call_owners(tmp_path):
-    (workflow,) = [row for row in corpus() if row.key == 'tests/fixtures/workflow_lisp/retired_examples/kiss_backlog_item.orc::run-backlog-item']
+    from tests.workflow_lisp_closed_program_corpus import Workflow, REPO_ROOT
+    source = REPO_ROOT / "tests/fixtures/workflow_lisp/current_evaluated/phase_reference_owners.orc"
+    workflow = Workflow(source, source.parent, "phase_reference_owners", "run")
     result = try_build(workflow, tmp_path)
     assert result.program is not None
     tree = result.program.tree
@@ -932,7 +924,7 @@ def test_unsupported_control_placements_remain_source_refusals(
     assert exc_info.value.diagnostics[0].code == expected_code
 
 
-@pytest.mark.parametrize("producer_target", ("2.34", TARGET))
+@pytest.mark.parametrize("producer_target", ("2.35", "2.36"))
 def test_prepared_import_manifest_uses_shared_old_and_evaluated_producer_routing(
     tmp_path: Path, producer_target: str
 ) -> None:
@@ -949,7 +941,7 @@ def test_prepared_import_manifest_uses_shared_old_and_evaluated_producer_routing
     )
     entry = source_root / "consumer.orc"
     entry.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
       (defmodule consumer) (export run)
       (defworkflow run ((value Int)) -> Int (call dep :value value)))''',
         encoding="utf-8",

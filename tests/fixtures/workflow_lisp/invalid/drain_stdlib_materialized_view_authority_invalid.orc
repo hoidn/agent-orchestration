@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule drain_stdlib_materialized_view_authority_invalid)
   (import std/context :only (DrainCtx ItemCtx))
   (import std/resource :only (SelectedItemResult))

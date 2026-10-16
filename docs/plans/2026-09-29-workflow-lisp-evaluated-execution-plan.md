@@ -434,6 +434,31 @@ Other repetition rules and the
 [effect-ledger workstream](2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#el-1--effect-contracts-and-analysis-cleanup-pending-unselected)
 remain separately scoped. None becomes a prerequisite for Phases 2–3.
 
+<a id="proposed-simplification-extension"></a>
+
+### Selected Simplification Extension
+
+The [simplification roadmap extension](2026-10-15-orc-simplification-roadmap-extension.md)
+owns the finite manual delivery and per-lane acceptance for Tasks 0/1,
+the full retained executable WCC boundary, compatible rule consolidation,
+pre-2.35 source/import/tooling retirement and the bounded target-2.39 EL-1a/b/c
+contract with two maintained consumer migrations. EL-1's ES hand-back and
+owner/target conditions are satisfied; optional EL-1d is cancelled for this
+selection. D2 retains inherited ordinary launch/environment, authored timeouts
+and existing unlimited-execution policy. D3 preserves acceptance and replay
+compatibility for admitted existing targets/profiles; the source-floor cut
+preserves 2.35–2.38 definition-origin semantics and historical data readers.
+
+The bounded [DC-P decision](2026-10-15-orc-simplification-roadmap-extension.md#dynamic-adoption-authority)
+retains typed W3 for the demonstrated fixed improve/search consumers and stops
+this 3.0 adoption/migration lane. It does not close broader dynamic-language
+research or select a 2.35→3.0 migration, and is distinct from this plan's Phase 6b.
+Target 2.39 changes frontend authoring and finite source admission without a new
+runtime/profile/state schema. These deliveries do not change main Phase 5,
+Phase 6b or Phase 7 status, existing phase acceptance criteria, or the separate
+confinement qualification gate. No machine queue is activated; final evidence,
+per-lane acceptance and failure accounting belong to the extension.
+
 ### Phase 2: The Closed Program
 
 All eleven compiler/documentation tasks and the reviewed compatibility and

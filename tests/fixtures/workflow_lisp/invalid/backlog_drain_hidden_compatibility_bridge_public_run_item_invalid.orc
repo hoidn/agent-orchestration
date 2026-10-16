@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule backlog_drain_hidden_compatibility_bridge_public_run_item_invalid)
   (import std/context :only (DrainCtx ItemCtx))
   (import std/resource :only (BlockerClass SelectedItemResult StateExisting))

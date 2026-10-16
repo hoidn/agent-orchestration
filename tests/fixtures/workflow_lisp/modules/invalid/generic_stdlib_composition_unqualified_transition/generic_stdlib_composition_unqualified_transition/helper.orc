@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule generic_stdlib_composition_unqualified_transition/helper)
   (export OutcomeRequest OutcomeResult SummaryPath SummaryValue emit-run-outcome)
   (defpath SummaryPath

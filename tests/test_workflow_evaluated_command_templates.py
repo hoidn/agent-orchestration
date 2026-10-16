@@ -88,7 +88,7 @@ def test_public_templates_keep_legacy_literals_and_runtime_strings_as_data(tmp_p
     _assert_two_public_resumes(tmp_path, tmp_path / "argv.jsonl")
 
 
-SURFACE_232_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.32")
+SURFACE_COMPOSITION_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
 (defmodule r12/entry) (export run)
 (defrecord Result (seen String))
 (defunion Choice (A) (B))
@@ -106,11 +106,11 @@ SURFACE_232_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.32")
 '''
 
 
-def test_public_target_232_surface_composition_retarget_keeps_exact_legacy_argv(tmp_path: Path) -> None:
+def test_public_surface_composition_keeps_exact_argv(tmp_path: Path) -> None:
     workspace = tmp_path / "surface232-retargeted"
     source = workspace / "src" / "r12" / "entry.orc"
     source.parent.mkdir(parents=True)
-    retargeted = SURFACE_232_SOURCE.replace('(:target-dsl "2.32")', '(:target-dsl "2.35")')
+    retargeted = SURFACE_COMPOSITION_SOURCE
     source.write_text(retargeted, encoding="utf-8")
     assert source.read_text(encoding="utf-8") == retargeted
     _write_probe(workspace, return_kind="record")
@@ -137,7 +137,7 @@ def test_public_target_232_surface_composition_retarget_keeps_exact_legacy_argv(
     )
 
 
-WCC_234_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+GUARDED_COMPOSITION_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
 (defmodule r12/entry) (export run)
 (defrecord Result (seen String)) (defunion Choice (A) (B))
 (defproc helper ((state_root String)) -> Result
@@ -159,7 +159,7 @@ def test_public_default_wcc_guarded_composition_uses_selected_arm(tmp_path: Path
     source = workspace / "src" / "r12" / "entry.orc"
     source.parent.mkdir(parents=True)
     source.write_text(
-        WCC_234_SOURCE.replace('(:target-dsl "2.34")', '(:target-dsl "2.35")'),
+        GUARDED_COMPOSITION_SOURCE,
         encoding="utf-8",
     )
     _write_probe(workspace, return_kind="record")
@@ -320,7 +320,7 @@ def test_public_certified_document_is_delivered_and_included_in_input_digest(tmp
     fixture = Path(__file__).parent / "fixtures/workflow_lisp/valid/certified_adapter_call.orc"
     source.write_text(
         fixture.read_text(encoding="utf-8").replace(
-            '(:target-dsl "2.14")',
+            '(:target-dsl "2.35")',
             '(:target-dsl "2.35")\n  (defmodule r12/entry) (export normalize-summary)',
         ),
         encoding="utf-8",

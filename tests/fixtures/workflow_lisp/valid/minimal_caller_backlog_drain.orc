@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule minimal_caller_backlog_drain)
   (import std/context :only (RunCtx))
   (import std/drain :only (DrainResult backlog-drain-proc settle-drain-terminal))

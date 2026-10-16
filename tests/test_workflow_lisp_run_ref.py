@@ -22,6 +22,7 @@ from orchestrator.workflow.surface_ast import (
     WorkflowProvenance,
 )
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.effects import RunsRefEffect
 from orchestrator.workflow_lisp.compiler_session import CompilerSession, ElaborationSessionState
 from orchestrator.workflow_lisp.definitions import (
     PathDef,
@@ -94,7 +95,7 @@ def _type_env(*extra_types) -> FrontendTypeEnvironment:
     refs.update({type_ref.name: type_ref for type_ref in extra_types})
     return FrontendTypeEnvironment(
         refs,
-        target_dsl_version="2.24",
+        target_dsl_version="2.35",
         nominal_descriptor_names_by_definition_id={
             id(type_ref.definition): type_ref.name
             for type_ref in extra_types
@@ -131,7 +132,7 @@ def _mode_one_expr(*, inputs=(), source_path="run_ref_expression.orc") -> RunRef
             module_path=source_path,
             form_path=FORM_PATH,
         ),
-        target_dsl_version="2.24",
+        target_dsl_version="2.35",
     )
     return replace(expr, inputs=tuple(inputs))
 
@@ -149,20 +150,12 @@ def _mode_one_source() -> str:
     )
 
 
-def test_run_ref_rejects_target_223() -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        parse_run_ref_expression(
-            _expression(_mode_one_source()),
-            target_dsl_version="2.23",
-        )
-
-    assert excinfo.value.diagnostics[0].code == "run_ref_target_dsl_unsupported"
 
 
-def test_run_ref_target_224_elaborates_frozen_mode_one_carriers() -> None:
+def test_run_ref_current_source_elaborates_frozen_mode_one_carriers() -> None:
     expr = parse_run_ref_expression(
         _expression(_mode_one_source()),
-        target_dsl_version="2.24",
+        target_dsl_version="2.35",
     )
 
     assert expr == RunRefExpr(
@@ -180,7 +173,7 @@ def test_run_ref_target_224_elaborates_frozen_mode_one_carriers() -> None:
         expr.inputs = ()
 
 
-def test_run_ref_target_224_elaborates_mode_two_with_return(
+def test_run_ref_current_source_elaborates_mode_two_with_return(
     tmp_path,
 ) -> None:
     source = "\n".join(
@@ -197,7 +190,7 @@ def test_run_ref_target_224_elaborates_mode_two_with_return(
 
     expr = parse_run_ref_expression(
         _expression(source),
-        target_dsl_version="2.24",
+        target_dsl_version="2.35",
     )
 
     assert expr.source == RunRefSource(
@@ -229,7 +222,7 @@ def test_run_ref_mode_one_elaborates_inputs_setup_and_traversal() -> None:
 
     expr = parse_run_ref_expression(
         _expression(source),
-        target_dsl_version="2.24",
+        target_dsl_version="2.35",
         bound_names=frozenset({"task"}),
     )
 
@@ -278,13 +271,13 @@ def test_run_ref_inputs_preserve_visible_callable_context_without_state_leak(
     )
     session_state = ElaborationSessionState(
         function_names=frozenset({"original"}),
-        target_dsl_version="2.19",
+        target_dsl_version="2.35",
         guidance_example=True,
     )
 
     expr = parse_run_ref_expression(
         _expression(source),
-        target_dsl_version="2.24",
+        target_dsl_version="2.35",
         bound_names=frozenset({"task"}),
         function_names=(
             frozenset({"normalize"})
@@ -310,7 +303,7 @@ def test_run_ref_inputs_preserve_visible_callable_context_without_state_leak(
         ),
     )
     assert session_state.function_names == frozenset({"original"})
-    assert session_state.target_dsl_version == "2.19"
+    assert session_state.target_dsl_version == "2.35"
     assert session_state.guidance_example is True
 
 
@@ -324,12 +317,12 @@ def test_run_ref_bundle_uses_workflow_resolver_without_session_leak() -> None:
 
     session_state = ElaborationSessionState(
         workflow_name_resolver=resolve_workflow,
-        target_dsl_version="2.19",
+        target_dsl_version="2.35",
     )
 
     expr = parse_run_ref_expression(
         _expression(source),
-        target_dsl_version="2.24",
+        target_dsl_version="2.35",
         session_state=session_state,
     )
 
@@ -342,7 +335,7 @@ def test_run_ref_bundle_uses_workflow_resolver_without_session_leak() -> None:
     assert authored_span.start.column == source.index("local-alias") + 1
     assert resolver_form_path == FORM_PATH
     assert session_state.workflow_name_resolver is resolve_workflow
-    assert session_state.target_dsl_version == "2.19"
+    assert session_state.target_dsl_version == "2.35"
 
 
 def test_run_ref_mode_two_without_returns_defers_default() -> None:
@@ -359,7 +352,7 @@ def test_run_ref_mode_two_without_returns_defers_default() -> None:
 
     expr = parse_run_ref_expression(
         _expression(source),
-        target_dsl_version="2.24",
+        target_dsl_version="2.35",
     )
 
     assert isinstance(expr.program, RunRefPathProgram)
@@ -378,7 +371,7 @@ def test_run_ref_repository_locator_normalization_is_clone_root_independent(
     expressions = tuple(
         parse_run_ref_expression(
             _expression(_mode_one_source().replace("file:///workspace", locator)),
-            target_dsl_version="2.24",
+            target_dsl_version="2.35",
         )
         for locator in spellings
     )
@@ -392,7 +385,7 @@ def test_run_ref_invalid_repository_locator_is_literal_diagnostic() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         parse_run_ref_expression(
             _expression(source),
-            target_dsl_version="2.24",
+            target_dsl_version="2.35",
         )
 
     diagnostic = excinfo.value.diagnostics[0]
@@ -466,7 +459,7 @@ def test_run_ref_nested_shape_and_mode_restrictions(
     with pytest.raises(LispFrontendCompileError) as excinfo:
         parse_run_ref_expression(
             _expression(source),
-            target_dsl_version="2.24",
+            target_dsl_version="2.35",
         )
 
     assert excinfo.value.diagnostics[0].code == expected_code
@@ -492,7 +485,7 @@ def test_run_ref_setup_static_policy_failures_are_literal_diagnostics(
     with pytest.raises(LispFrontendCompileError) as excinfo:
         parse_run_ref_expression(
             _expression(source),
-            target_dsl_version="2.24",
+            target_dsl_version="2.35",
         )
 
     assert excinfo.value.diagnostics[0].code == "run_ref_literal_required"
@@ -618,7 +611,7 @@ def test_run_ref_invalid_sha_or_program_path_is_literal_diagnostic(
     with pytest.raises(LispFrontendCompileError) as excinfo:
         parse_run_ref_expression(
             _expression(source),
-            target_dsl_version="2.24",
+            target_dsl_version="2.35",
         )
 
     diagnostic = excinfo.value.diagnostics[0]
@@ -646,7 +639,7 @@ def test_run_ref_structural_errors_use_closed_shape_diagnostic(source: str) -> N
     with pytest.raises(LispFrontendCompileError) as excinfo:
         parse_run_ref_expression(
             _expression(source),
-            target_dsl_version="2.24",
+            target_dsl_version="2.35",
         )
 
     assert excinfo.value.diagnostics[0].code == "run_ref_shape_invalid"
@@ -656,7 +649,7 @@ def test_run_ref_workflow_program_below_target_238_is_unavailable() -> None:
     source = _mode_one_source().replace("(:bundle child)", "(:workflow child)")
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        parse_run_ref_expression(_expression(source), target_dsl_version="2.24")
+        parse_run_ref_expression(_expression(source), target_dsl_version="2.35")
 
     assert excinfo.value.diagnostics[0].code == "run_ref_child_target_unavailable"
 
@@ -688,7 +681,7 @@ def test_run_ref_nonliteral_static_fields_use_closed_literal_diagnostic(
     with pytest.raises(LispFrontendCompileError) as excinfo:
         parse_run_ref_expression(
             _expression(source),
-            target_dsl_version="2.24",
+            target_dsl_version="2.35",
         )
 
     assert excinfo.value.diagnostics[0].code == "run_ref_literal_required"
@@ -706,42 +699,22 @@ def test_run_ref_program_discriminator_uses_closed_mode_diagnostic(
     with pytest.raises(LispFrontendCompileError) as excinfo:
         parse_run_ref_expression(
             _expression(source),
-            target_dsl_version="2.24",
+            target_dsl_version="2.35",
         )
 
     assert excinfo.value.diagnostics[0].code == "run_ref_program_mode_invalid"
 
 
-def test_run_ref_parser_is_registered_only_for_target_224() -> None:
-    assert get_form_spec("run-ref", target_dsl_version="2.23") is None
-    spec = get_form_spec("run-ref", target_dsl_version="2.24")
+def test_run_ref_parser_is_registered_for_current_source() -> None:
+    spec = get_form_spec("run-ref", target_dsl_version="2.35")
     assert spec is not None
     assert spec.kind.value == "core_effect"
     assert spec.elaboration_route == "run_ref"
     assert RunRefExpr in get_args(ExprNode)
 
 
-def test_public_elaboration_uses_closed_run_ref_target_diagnostic() -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        elaborate_expression(
-            _expression(_mode_one_source()),
-            bound_names=frozenset(),
-            target_dsl_version="2.23",
-        )
-
-    assert excinfo.value.diagnostics[0].code == "run_ref_target_dsl_unsupported"
 
 
-def test_pre_224_same_named_procedure_remains_backward_compatible() -> None:
-    expr = elaborate_expression(
-        _expression('(run-ref "legacy")'),
-        bound_names=frozenset(),
-        procedure_names=frozenset({"run-ref"}),
-        target_dsl_version="2.23",
-    )
-
-    assert isinstance(expr, ProcedureCallExpr)
-    assert expr.callee_name == "run-ref"
 
 
 def _transportable_types(span):
@@ -1642,16 +1615,10 @@ def _assert_run_ref_placement_diagnostic(excinfo, *, owner) -> None:
     "owner",
     ("if", "match", "loop-max", "loop-body", "list-source", "list-body"),
 )
-def test_run_ref_restricted_placements_precede_generic_shape_diagnostics(
-    owner: str,
+def test_run_ref_closed_positions_keep_shape_and_purity_diagnostics(
+    tmp_path: Path, owner: str,
 ) -> None:
     run_ref = _mode_one_expr()
-    literal_list = ListExpr(
-        items=(LiteralExpr("item", "string", run_ref.span, FORM_PATH),),
-        element_type_ref=None,
-        span=run_ref.span,
-        form_path=FORM_PATH,
-    )
     if owner == "if":
         expr = IfExpr(
             run_ref,
@@ -1689,9 +1656,8 @@ def test_run_ref_restricted_placements_precede_generic_shape_diagnostics(
             "item", run_ref, 1, run_ref, None, None, run_ref.span, FORM_PATH
         )
     else:
-        expr = ListMapEffectExpr(
-            "item", literal_list, 1, run_ref, None, None, run_ref.span, FORM_PATH
-        )
+        _assert_current_map_run_ref(tmp_path, locality="direct")
+        return
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
         typecheck_expression(
@@ -1701,39 +1667,41 @@ def test_run_ref_restricted_placements_precede_generic_shape_diagnostics(
             workflow_catalog=_catalog(run_ref),
         )
 
-    _assert_run_ref_placement_diagnostic(excinfo, owner=run_ref)
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == {
+        "if": "if_condition_not_bool",
+        "match": "match_subject_not_union",
+        "loop-max": "loop_recur_max_invalid",
+        "loop-body": "loop_recur_missing_done",
+        "list-source": "run_ref_placement_invalid",
+    }[owner]
+    expected_owner = expr if owner == "loop-body" else run_ref
+    assert diagnostic.span == expected_owner.span
+    assert diagnostic.form_path == expected_owner.form_path
+    assert diagnostic.expansion_stack == expected_owner.expansion_stack
 
 
-def test_transitive_run_ref_in_list_map_effect_body_uses_placement_diagnostic() -> None:
-    run_ref = _mode_one_expr()
-    procedure_catalog, procedure_effects = _run_ref_procedure_context(run_ref)
-    call = ProcedureCallExpr("wrapper", (), run_ref.span, FORM_PATH)
-    expr = ListMapEffectExpr(
-        binder_name="item",
-        source_expr=ListExpr(
-            items=(LiteralExpr("item", "string", run_ref.span, FORM_PATH),),
-            element_type_ref=None,
-            span=run_ref.span,
-            form_path=FORM_PATH,
-        ),
-        max_iterations=1,
-        body_expr=call,
-        source_item_type_ref=None,
-        result_item_type_ref=None,
-        span=run_ref.span,
-        form_path=FORM_PATH,
-    )
+def _assert_current_map_run_ref(tmp_path: Path, *, locality: str) -> None:
+    from orchestrator.workflow_lisp.build import FrontendBuildRequest
+    from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
+    from orchestrator.contracts.closed_program.program import ClosedProgram
+    from orchestrator.workflow.evaluated.machine import site_nodes
+    from tests.test_workflow_lisp_closed_run_ref_placement import _placement_source
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        typecheck_expression(
-            expr,
-            type_env=_type_env(),
-            value_env={},
-            procedure_catalog=procedure_catalog,
-            procedure_effects_by_name=procedure_effects,
-        )
+    source, _ = _placement_source(tmp_path, "map", locality)
+    assert '(:target-dsl "2.35")' in source.read_text()
+    built = build_closed_program_bundle(FrontendBuildRequest(
+        source_path=source, source_roots=(tmp_path,), workspace_root=tmp_path))
+    [(identity, node)] = site_nodes(built.program).items()
+    assert node["class"] == "run_ref"
+    restored = ClosedProgram.from_artifact(built.program.artifact())
+    assert restored.digest == built.program.digest
+    assert restored.tree == built.program.tree
+    assert restored.sites == built.program.sites
 
-    _assert_run_ref_placement_diagnostic(excinfo, owner=call)
+
+def test_transitive_run_ref_in_list_map_effect_body_keeps_current_carrier(tmp_path: Path) -> None:
+    _assert_current_map_run_ref(tmp_path, locality="same")
 
 
 def test_transitive_run_ref_in_pure_function_precedes_generic_purity_diagnostic() -> None:
@@ -1764,44 +1732,26 @@ def test_transitive_run_ref_in_pure_function_precedes_generic_purity_diagnostic(
     _assert_run_ref_placement_diagnostic(excinfo, owner=call)
 
 
-def test_non_run_ref_procedure_keeps_generic_pure_function_diagnostic() -> None:
-    from orchestrator.workflow_lisp.effects import UsesCommandEffect
-    from orchestrator.workflow_lisp.functions import (
-        FunctionDef,
-        _validate_pure_function_expr,
-    )
+def test_non_run_ref_procedure_keeps_public_pure_function_diagnostic(tmp_path: Path) -> None:
+    from orchestrator.workflow_lisp.compiler import compile_stage3_module
+    from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
-    run_ref = _mode_one_expr()
-    procedure_catalog, _ = _run_ref_procedure_context(run_ref)
-    signature = procedure_catalog.signatures_by_name["wrapper"]
-    procedure_catalog = replace(
-        procedure_catalog,
-        signatures_by_name={
-            "wrapper": replace(
-                signature,
-                declared_effects=frozenset(
-                    {UsesCommandEffect(subject=("shell",))}
-                ),
-            )
-        },
-    )
-    function_def = FunctionDef(
-        name="pure_helper",
-        params=(),
-        body=_expression('"unused"'),
-        span=run_ref.span,
-        form_path=FORM_PATH,
-        return_type_name="String",
-    )
-
+    source = tmp_path / "command_purity.orc"
+    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+      (defrecord Note (text String))
+      (defproc wrapper () -> Note :effects ((uses-command shell)) :lowering inline
+        (command-result shell :argv ("true") :returns Note))
+      (defun pure-helper () -> Note (wrapper))
+      (defworkflow run () -> Note (pure-helper)))''')
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        _validate_pure_function_expr(
-            ProcedureCallExpr("wrapper", (), run_ref.span, FORM_PATH),
-            function_def=function_def,
-            procedure_catalog=procedure_catalog,
-        )
+        compile_stage3_module(source, workspace_root=tmp_path,
+            command_boundaries={"shell": ExternalToolBinding(name="shell", stable_command=("true",))})
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "pure_function_has_effect"
+    assert Path(diagnostic.span.start.path) == source
+    assert (diagnostic.span.start.line, diagnostic.span.start.column) == (6, 35)
+    assert diagnostic.expansion_stack
 
-    assert excinfo.value.diagnostics[0].code == "pure_function_has_effect"
 
 
 @pytest.mark.parametrize(
@@ -1814,7 +1764,7 @@ def test_non_run_ref_procedure_keeps_generic_pure_function_diagnostic() -> None:
         ("loop-exhaustion", PrimitiveTypeRef("String")),
     ),
 )
-def test_transitive_run_ref_restricted_placements_use_exact_diagnostic(
+def test_transitive_run_ref_closed_positions_keep_effects_and_pure_refusals(
     owner: str,
     return_type,
 ) -> None:
@@ -1875,6 +1825,18 @@ def test_transitive_run_ref_restricted_placements_use_exact_diagnostic(
             on_exhausted_result_expr=call,
         )
 
+    if owner in {"if", "loop-max", "loop-state"}:
+        typed = typecheck_expression(
+            expr,
+            type_env=_type_env(),
+            value_env={},
+            procedure_catalog=procedure_catalog,
+            procedure_effects_by_name=procedure_effects,
+        )
+        assert typed.type_ref == PrimitiveTypeRef("String")
+        assert any(isinstance(effect, RunsRefEffect) for effect in typed.effect_summary.transitive_effects)
+        return
+
     with pytest.raises(LispFrontendCompileError) as excinfo:
         typecheck_expression(
             expr,
@@ -1884,10 +1846,17 @@ def test_transitive_run_ref_restricted_placements_use_exact_diagnostic(
             procedure_effects_by_name=procedure_effects,
         )
 
-    _assert_run_ref_placement_diagnostic(excinfo, owner=call)
+    if owner == "loop-body":
+        diagnostic = excinfo.value.diagnostics[0]
+        assert diagnostic.code == "loop_recur_missing_done"
+        assert diagnostic.span == expr.span
+        assert diagnostic.form_path == expr.form_path
+        assert diagnostic.expansion_stack == expr.expansion_stack
+    else:
+        _assert_run_ref_placement_diagnostic(excinfo, owner=call)
 
 
-def test_transitive_run_ref_match_discriminant_precedes_union_shape_diagnostic() -> None:
+def test_transitive_run_ref_match_keeps_union_exhaustiveness_diagnostic() -> None:
     run_ref = _mode_one_expr()
     union_type = _transportable_types(run_ref.span)[2]
     procedure_catalog, procedure_effects = _run_ref_procedure_context(
@@ -1905,7 +1874,11 @@ def test_transitive_run_ref_match_discriminant_precedes_union_shape_diagnostic()
             procedure_effects_by_name=procedure_effects,
         )
 
-    _assert_run_ref_placement_diagnostic(excinfo, owner=call)
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "union_match_non_exhaustive"
+    assert diagnostic.span == run_ref.span
+    assert diagnostic.form_path == FORM_PATH
+    assert diagnostic.expansion_stack == run_ref.expansion_stack
 
 
 def test_transitive_run_ref_in_list_map_effect_source_is_rejected() -> None:
@@ -2075,7 +2048,7 @@ def _mode_two_expr(*, returns_type_name=None, inputs=()) -> RunRefExpr:
         )
     )
     expr = parse_run_ref_expression(
-        _expression(source), target_dsl_version="2.24"
+        _expression(source), target_dsl_version="2.35"
     )
     return replace(expr, returns_type_name=returns_type_name, inputs=tuple(inputs))
 
@@ -2947,7 +2920,7 @@ def _surface_run_ref_config(
 def _surface_mapping_with_run_ref(
     config: RunRefStaticConfig,
     *,
-    version: str = "2.24",
+    version: str = "2.35",
     nested: bool = False,
 ) -> dict[str, object]:
     run_ref_step = {
@@ -3046,7 +3019,7 @@ def test_direct_surface_run_ref_rejects_noncanonical_target_components(
         )
 
 
-@pytest.mark.parametrize("version", ("2.24", "2.25", "2.24.0", "3.0"))
+@pytest.mark.parametrize("version", ("2.35", "2.36", "2.35.0", "3.0"))
 def test_direct_surface_run_ref_accepts_canonical_target_2_24_or_later(
     version: str,
 ) -> None:
@@ -3260,7 +3233,7 @@ def test_run_ref_core_json_revalidates_config_authority() -> None:
         core_ast_module.workflow_core_ast_to_json(core)
 
 
-def _executable_run_ref_workflow(*, version: str = "2.24"):
+def _executable_run_ref_workflow(*, version: str = "2.35"):
     config = _surface_run_ref_config()
     provenance = WorkflowProvenance(Path("/tmp/historical-run-ref.orc"), Path("/tmp"))
     node = executable_ir_module.LeafExecutableNode(
@@ -3343,7 +3316,7 @@ def test_run_ref_executable_requires_canonical_target_2_24_or_later(
         )
 
 
-@pytest.mark.parametrize("version", ("2.24", "2.25", "2.24.0"))
+@pytest.mark.parametrize("version", ("2.35", "2.36", "2.35.0"))
 def test_run_ref_executable_accepts_canonical_target_2_24_or_later(
     version: str,
 ) -> None:

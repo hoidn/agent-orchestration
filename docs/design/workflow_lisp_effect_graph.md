@@ -4,13 +4,17 @@ Status: current-checkout component contract
 Depends on: `docs/design/workflow_lisp_semantic_workflow_ir.md`,
 `docs/design/workflow_command_adapter_contract.md`
 
-Proposed changes are owned by
+Versioned authoring rules are owned by
 [effect-ledger simplification](workflow_lisp_effect_ledger_simplification.md)
 (inference-default optional restrictions and consumer-led metadata cleanup) and
 [pure-call composition](workflow_lisp_pure_call_composition.md)
 (implemented resolved-inline semantic-effects versus expression-representation
-subset). This note selects no optional effect-ledger proposal. Current source
-retains declaration rules and the pure-call component owns its admitted positions.
+subset). At definition origins 2.35–2.38, retain exact ordinary declarations
+and specialization exceptions. At 2.39, inference-default restrictions and
+inspection use the same summaries as caller-owned inline composition. The
+[frontend](workflow_lisp_frontend_specification.md#106-procedure-lowering-policy-resolved)
+owns source admission and lowering; the pure-call component owns its
+admitted expression positions independently of annotation relief.
 
 ## Purpose
 
@@ -65,18 +69,26 @@ effect hierarchy.
   Its selected monomorphic specialization contributes the chosen hook's
   effects after resolution.
 
-Current declaration validation is narrower than a universal contract claim:
-ordinary authored procedures require an exact declared/inferred match;
+For admitted definition origins 2.35–2.38, declaration validation is narrower
+than a universal contract claim: ordinary authored procedures require an exact
+declared/inferred match;
 specializations and generated names are exempted by the current compiler.
 An empty clause on an unresolved generic is therefore not proof that every
-selected call is pure. The proposed target defines a migration, not a silent
-reinterpretation of those definitions.
+selected call is pure. For definitions originating at target 2.39, omission means inference without an
+authored restriction, explicit empty requires no inferred effects, and named
+clauses are resolved upper bounds checked after concrete specialization and
+the final fixed point. Generated helpers without a restriction are unconstrained;
+unresolved generic hooks are incomplete, never proven empty. The
+[effect-ledger contract](workflow_lisp_effect_ledger_simplification.md) owns
+subject identity, origin carriage and inspection. Older imported definitions
+retain their regime. The shared summary and runtime effect evidence do not change.
 
 Inline lowering expands the resolved procedure into its owning workflow. The
 owner-visible carrier is the enclosing `TypedWorkflowDef.effect_summary`,
 which already contains the resolved call summary; there is no separately
 authoritative inline `CompositionFragment.effect_summary`. For
-`:lowering private-workflow`, the generated private `TypedWorkflowDef` carries
+admitted 2.35–2.38 `:lowering private-workflow`, the generated private
+`TypedWorkflowDef` carries
 the procedure's resolved transitive summary directly. These carriers feed
 frontend analysis and lowering. Semantic IR reconstructs concrete operation
 entries and provenance from lowered operations and source metadata; it is not a
@@ -118,7 +130,7 @@ or provider call is invalid.
 Effect validation responsibilities (implemented scope follows the procedure
 views above and current frontend tests):
 
-- ordinary authored declarations equal inferred effects; the broader coverage
+- at targets 2.35–2.38, ordinary authored declarations equal inferred effects; the broader coverage
   direction does not override current specialization exceptions or make clauses
   optional
 - disallowed effects are rejected in pure contexts

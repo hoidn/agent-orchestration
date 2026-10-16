@@ -44,7 +44,6 @@ PRODUCTION_REQUEST_CAPTURE_FIELDS = (
     "validation_profile",
     "boundary_admission_profile",
     "lint_profile",
-    "lowering_route",
     "provider_externs",
     "prompt_externs",
     "command_boundaries",
@@ -115,7 +114,7 @@ def _write_imported_catalog_fixture(tmp_path: Path) -> tuple[Path, Path]:
     (module_root / "shared.orc").write_text(
         """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.18")
+  (:target-dsl "2.35")
   (defmodule catalog/shared)
   (export Result shared)
   (defrecord Result
@@ -131,7 +130,7 @@ def _write_imported_catalog_fixture(tmp_path: Path) -> tuple[Path, Path]:
     (module_root / "entry.orc").write_text(
         """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.18")
+  (:target-dsl "2.35")
   (defmodule catalog/entry)
   (import catalog/shared :only (Result shared))
   (export selected sibling)
@@ -188,7 +187,6 @@ def _assert_exact_production_request_capture(
         validation_profile,
         boundary_admission_profile,
         request.lint_profile,
-        configuration.lowering_route,
         configuration.provider_externs,
         configuration.prompt_externs,
         configuration.command_boundaries,
@@ -251,7 +249,7 @@ def test_production_request_capture_is_exact_ordered_and_immutable_after_loaders
         prompt_externs_path=request.prompt_externs_path,
         command_boundaries_path=request.command_boundaries_path,
         imported_workflow_bundles_path=request.imported_workflow_bundles_path,
-        lowering_route=request.lowering_route,
+
     )
 
     result = build.build_frontend_bundle_in_memory(request)
@@ -289,7 +287,7 @@ def test_same_production_request_capture_is_retained_on_success_and_language_err
         prompt_externs_path=request.prompt_externs_path,
         command_boundaries_path=request.command_boundaries_path,
         imported_workflow_bundles_path=None,
-        lowering_route=request.lowering_route,
+
     )
     success = build.build_frontend_bundle_in_memory(request)
     expected_capture = success.compile_request_capture
@@ -580,7 +578,7 @@ def test_recursive_library_only_import_error_retains_source_diagnostic_without_w
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule child))",
                 "",
             )
@@ -872,7 +870,6 @@ def test_initialization_configuration_without_optional_paths_is_frozen_and_read_
     assert configuration.prompt_externs_path is None
     assert configuration.command_boundaries_path is None
     assert configuration.imported_workflow_bundles_path is None
-    assert configuration.lowering_route is build.LoweringRoute.WCC_M4
     assert configuration.provider_externs == {}
     assert configuration.prompt_externs == {}
     assert configuration.command_boundary_manifest == {}
@@ -899,8 +896,7 @@ def test_initialization_configuration_without_optional_paths_is_frozen_and_read_
         "prompt_externs_path",
         "command_boundaries_path",
         "imported_workflow_bundles_path",
-        "lowering_route",
-    )
+        )
 
 
 def test_initialization_configuration_uses_production_loaders_and_shared_recursive_traces(

@@ -37,7 +37,7 @@ def _module_source(module_name: str, *, imported_module: str | None = None) -> b
     return (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.18")\n'
+        '  (:target-dsl "2.35")\n'
         f"  (defmodule {module_name})\n"
         f"{import_form}"
         "  (export Result)\n"
@@ -50,7 +50,7 @@ def _invalid_export_module_source(module_name: str) -> bytes:
     return (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.18")\n'
+        '  (:target-dsl "2.35")\n'
         f"  (defmodule {module_name})\n"
         "  (export MissingDefinition))\n"
     ).encode("utf-8")
@@ -67,7 +67,7 @@ def _compile_library_entry(
         source_roots=(source_root,),
         validation_profile="frontend_only",
         workspace_root=source_root.parent,
-        lowering_route="legacy",
+
         source_read_trace=source_read_trace,
     )
 
@@ -76,7 +76,7 @@ def _workflow_module_source(module_name: str) -> bytes:
     return (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.18")\n'
+        '  (:target-dsl "2.35")\n'
         f"  (defmodule {module_name})\n"
         "  (export entry Result)\n"
         "  (defpath Report\n"
@@ -97,7 +97,7 @@ def _single_file_workflow_source() -> bytes:
     return (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.18")\n'
+        '  (:target-dsl "2.35")\n'
         "  (defpath Report\n"
         "    :kind relpath\n"
         '    :under "artifacts/reports"\n'
@@ -116,7 +116,7 @@ def _wcc_effect_workflow_source() -> bytes:
     return (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.18")\n'
+        '  (:target-dsl "2.35")\n'
         "  (defpath Report\n"
         "    :kind relpath\n"
         '    :under "artifacts/reports"\n'
@@ -140,7 +140,7 @@ def _nominal_guidance_workflow_source() -> bytes:
     return (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.18")\n'
+        '  (:target-dsl "2.35")\n'
         "  (defmodule nominal_guidance)\n"
         "  (export entry Decision)\n"
         "  (defrecord Decision\n"
@@ -164,7 +164,7 @@ def test_read_sexpr_file_reads_once_and_retains_exact_and_parser_views(
     payload = (
         b"(workflow-lisp\r\n"
         b'  (:language "0.1")\r\n'
-        b'  (:target-dsl "2.18"))\r\n'
+        b'  (:target-dsl "2.35"))\r\n'
     )
     calls: list[Path] = []
 
@@ -210,7 +210,7 @@ def test_read_sexpr_file_preserves_legacy_universal_newline_ast_and_spans(
         (
             b"(workflow-lisp",
             b'  (:language "0.1")',
-            b'  (:target-dsl "2.18"))',
+            b'  (:target-dsl "2.35"))',
             b"",
         )
     )
@@ -238,7 +238,7 @@ def test_read_sexpr_file_preserves_legacy_universal_newline_diagnostics(
         (
             b"(workflow-lisp",
             b'  (:language "0.1")',
-            b'  (:target-dsl "2.18")',
+            b'  (:target-dsl "2.35")',
             b"",
         )
     )
@@ -720,7 +720,7 @@ def test_stage3_entrypoint_traces_every_orc_read_without_using_read_text(
         entry_workflow="entry",
         workspace_root=tmp_path,
         validation_profile="frontend_only",
-        lowering_route="legacy",
+
         source_read_trace=trace,
     )
 
@@ -754,11 +754,11 @@ def test_stage3_single_file_traces_lowering_source_rereads(
         entry_workflow="entry",
         workspace_root=tmp_path,
         validation_profile="frontend_only",
-        lowering_route="legacy",
+
         source_read_trace=trace,
     )
 
-    assert result.typed_workflows[0].definition.name == "entry"
+    assert result.typed_workflows[0].definition.name == "entry::entry"
     assert len(physical_orc_reads) >= 3
     assert tuple(record.canonical_path for record in trace.records) == tuple(
         physical_orc_reads
@@ -799,8 +799,8 @@ def test_stage3_default_wcc_analysis_traces_source_reads(
     )
 
     assert {workflow.definition.name for workflow in result.typed_workflows} == {
-        "entry",
-        "helper",
+        "entry::entry",
+        "entry::helper",
     }
     assert len(physical_orc_reads) >= 3
     assert tuple(record.canonical_path for record in trace.records) == tuple(

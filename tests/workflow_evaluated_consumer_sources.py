@@ -1,8 +1,8 @@
-"""Evaluated consumer programs and historical source fixtures with deterministic stand-ins.
+"""Admitted consumer sources and fixtures with deterministic stand-ins.
 
-Each program is copied into a fresh workspace at its repository path with its
-checked-in manifests; legacy-source fixtures preserve historical source witnesses,
-while migrated current sources are copied unchanged. `SHIM` is installed as the `codex`
+Each admitted program is copied unchanged into a fresh workspace at its repository
+path with its checked-in manifests; source fixtures keep recovery cases independent
+of later changes to maintained workflows. `SHIM` is installed as the `codex`
 and `claude` executables on PATH, so every request goes through the real provider
 templates, ProviderExecutor and evaluated attempt lifecycle: it answers from a
 scripted plan per executable, writes the files the plan names (report files, edits in
@@ -122,10 +122,9 @@ def _candidates(root: Path) -> None:
 
 @dataclass(frozen=True)
 class Program:
-    """A maintained source, its source target, and what its workspace holds."""
+    """An admitted source, its workspace path, and the assets its workspace holds."""
 
     source: str
-    target: str
     entry: str
     source_root: str
     manifests: dict[str, str]
@@ -136,38 +135,37 @@ class Program:
 
 PROGRAMS = {
     "improve": Program(
-        "workflows/examples/improve_experiment_proposal.orc", "2.33", "improve_experiment_proposal::run-experiment",
+        "workflows/examples/improve_experiment_proposal.orc", "improve_experiment_proposal::run-experiment",
         "workflows/examples", {kind: f"{IMPROVE_INPUTS}/{kind}.json" for kind in FLAGS},
         (f"{IMPROVE_PROMPTS}/review.md", f"{IMPROVE_PROMPTS}/revise.md"), _launcher,
-        "tests/fixtures/workflow_lisp/improve_legacy/improve_experiment_proposal.orc"),
+        "tests/fixtures/workflow_lisp/current_examples/improve_experiment_proposal.orc"),
     "reviewed_change": Program(
-        f"{COMPARISON}/reviewed_change.orc", "2.35", "reviewed_change::reviewed-change", COMPARISON,
-        {"providers": f"{COMPARISON}/reviewed_change.providers.json"}, prepare=lambda root: _repository(root / "repo"),
-        source_fixture="tests/fixtures/workflow_lisp/reviewed_change_legacy/reviewed_change.orc"),
+        f"{COMPARISON}/reviewed_change.orc", "reviewed_change::reviewed-change", COMPARISON,
+        {"providers": f"{COMPARISON}/reviewed_change.providers.json"}, prepare=lambda root: _repository(root / "repo")),
     "best_of_n": Program(
-        f"{COMPARISON}/best_of_n.orc", "2.35", "best_of_n::best-of-n", COMPARISON,
-        {"providers": f"{COMPARISON}/best_of_n.providers.json"}, prepare=_candidates,
-        source_fixture="tests/fixtures/workflow_lisp/best_of_n_legacy/best_of_n.orc"),
+        f"{COMPARISON}/best_of_n.orc", "best_of_n::best-of-n", COMPARISON,
+        {"providers": f"{COMPARISON}/best_of_n.providers.json"}, prepare=_candidates),
     "watchdog": Program(
-        "workflows/library/generic_run_watchdog/watchdog.orc", "2.15", "generic_run_watchdog/watchdog::watchdog",
+        "workflows/library/generic_run_watchdog/watchdog.orc", "generic_run_watchdog/watchdog::watchdog",
         "workflows/library", {kind: f"{MIGRATIONS}/generic_run_watchdog.{kind}.json" for kind in FLAGS},
         ("workflows/library/scripts/probe_orchestrator_run.py",
          "workflows/library/scripts/publish_run_watchdog_result.py",
-         "workflows/library/prompts/generic_run_watchdog/repair_run_failure.md")),
+         "workflows/library/prompts/generic_run_watchdog/repair_run_failure.md"),
+        source_fixture="tests/fixtures/workflow_lisp/current_examples/generic_run_watchdog/watchdog.orc"),
 }
 
 PROGRAMS["improve"].manifests["commands"] = "tests/fixtures/workflow_lisp/improve_legacy/commands.json"
 PROGRAMS["w3_improve"] = Program(
-    "workflows/examples/improve_experiment_proposal.orc", "2.36", "improve_experiment_proposal::run-experiment",
+    "workflows/examples/improve_experiment_proposal.orc", "improve_experiment_proposal::run-experiment",
     "workflows/examples", {kind: f"{IMPROVE_INPUTS}/{kind}.json" for kind in FLAGS},
     (f"{IMPROVE_PROMPTS}/review.md", f"{IMPROVE_PROMPTS}/revise.md"), _launcher)
 PROGRAMS["w3_reviewed_change"] = Program(
-    "tests/fixtures/workflow_lisp/w3_consumers/reviewed_change.orc", "2.36", "reviewed_change::reviewed-change",
+    "tests/fixtures/workflow_lisp/w3_consumers/reviewed_change.orc", "reviewed_change::reviewed-change",
     "tests/fixtures/workflow_lisp/w3_consumers", {"providers": f"{COMPARISON}/reviewed_change.providers.json"},
     prepare=lambda root: _repository(root / "repo"))
-# Target 2.38 (Agent Sessions): install with `current=False`, which copies the source unchanged (no 2.35 rewrite).
+# Target 2.38 Agent Sessions use their maintained source unchanged.
 PROGRAMS["design_review_execute_agents"] = Program(
-    "workflows/examples/design_review_execute_agents.orc", "2.38", "design_review_execute_agents::run",
+    "workflows/examples/design_review_execute_agents.orc", "design_review_execute_agents::run",
     "workflows/examples", {"providers": "workflows/examples/inputs/design_review_execute_agents/providers.json"},
     prepare=design_docs)
 
@@ -191,23 +189,17 @@ def install_shims(bin_dir: Path, monkeypatch, plan: dict) -> None:
     monkeypatch.setenv("CONSUMER_SHIM_PLAN", json.dumps(plan))
 
 
-def install(root: Path, program: Program, inputs: dict, *, current: bool) -> list[str]:
+def install(root: Path, program: Program, inputs: dict) -> list[str]:
     """Copy the program into `root`; return its workspace-relative frontend arguments."""
-    source_fixture = program.source_fixture if not current or program.target != "2.35" else None
-    _copy(root, program.source, source_fixture=source_fixture)
+    _copy(root, program.source, source_fixture=program.source_fixture)
     for relpath in program.assets:
         _copy(root, relpath)
-    if current and program.target != "2.35":
-        source, header = root / program.source, f'(:target-dsl "{program.target}")'
-        text = source.read_text(encoding="utf-8")
-        assert text.count(header) == 1
-        source.write_text(text.replace(header, '(:target-dsl "2.35")'), encoding="utf-8")
     frontend = [program.source, "--entry-workflow", program.entry, "--source-root", program.source_root]
     (root / "manifests").mkdir(parents=True)
     for kind, relpath in program.manifests.items():
         rows = json.loads((ROOT / relpath).read_text(encoding="utf-8"))
-        for row in rows.values() if current and kind == "commands" else ():
-            row["closure"] = [row["stable_command"][1]]
+        for row in rows.values() if kind == "commands" else ():
+            row.setdefault("closure", [row["stable_command"][1]])
         (root / "manifests" / f"{kind}.json").write_text(json.dumps(rows), encoding="utf-8")
         frontend += [FLAGS[kind], f"manifests/{kind}.json"]
     (root / "inputs.json").write_text(json.dumps(inputs), encoding="utf-8")
@@ -365,7 +357,7 @@ def run_consumer(root: Path, monkeypatch, name: str, plan: dict, inputs: dict, m
     """Run the retained source, stop at a commit and verify once-only resume and provider lineage."""
     install_shims(root / "bin", monkeypatch, plan)
     program = PROGRAMS[name]
-    route = current_route(root / "new", install(root / "new", program, inputs, current=True), marker)
+    route = current_route(root / "new", install(root / "new", program, inputs), marker)
     assert set(route.started().values()) == {1}
     assert_request_lineage(route)
     return route

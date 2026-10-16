@@ -21,7 +21,6 @@ from tests.test_workflow_evaluated_command_lifecycle import _InterruptedRun
 from tests.test_workflow_evaluated_resume import _resume_cli, _snapshot
 from tests.test_workflow_lisp_closed_program_compile_cli import _compile
 from tests.test_workflow_evaluated_cli import _run_args, _run_argv
-from tests.workflow_lisp_closed_program_corpus import entry_with_target
 from tests.workflow_lisp_totality_matrix_sources import COMMANDS, FORMS, PROBE, program
 from tests.workflow_lisp_totality_matrix_locality import axes, form_value
 from tests.test_workflow_lisp_closed_program_corpus import _CONTROL_COMMANDS, _control_sources
@@ -94,7 +93,6 @@ def prepare_cell(root, form, position):
     probe = _write_probe(root, "probe", PROBE)
     sources = program(form, position, probe.as_posix())
     source = _write_sources(root, sources)
-    source.write_text(entry_with_target(source, "2.35"))
     if cell_refusal(form, position) == "match_subject_not_union":
         source.write_text(source.read_text().replace(" None)", " ((HIT item) 7))"))
     return public_files(root, probe), probe
@@ -135,7 +133,7 @@ def prepare_union(root, imported, inputs, *, generic=False):
     type_name = "Choice[Payload]" if generic else "Choice"
     imports = ""
     if imported:
-        sources["grt/helper.orc"] = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+        sources["grt/helper.orc"] = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
           (defmodule grt/helper) (export Choice Payload echo) {declarations} {helper})'''
         imports = '(import grt/helper :as old)'
         helper = ''

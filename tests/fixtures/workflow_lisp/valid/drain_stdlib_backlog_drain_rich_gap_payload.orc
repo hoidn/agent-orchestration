@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule drain_stdlib_backlog_drain_rich_gap_payload)
   ; Generic stdlib fixture proving imported backlog-drain carries a richer
   ; typed GAP payload across the fixed gap-drafter boundary.

@@ -45,8 +45,8 @@ def _between(document: str, start: str, end: str) -> str:
     return document[start_index : document.index(end, start_index)]
 
 
-@pytest.mark.parametrize("target", ("2.24", "2.25"))
-def test_ordinary_targets_through_2_25_compile_without_trial_behavior(
+@pytest.mark.parametrize("target", ("2.35", "2.36"))
+def test_ordinary_current_targets_compile_without_trial_behavior(
     tmp_path: Path,
     target: str,
 ) -> None:
@@ -55,22 +55,10 @@ def test_ordinary_targets_through_2_25_compile_without_trial_behavior(
     assert result.entry_result.module.target_dsl_version == target
 
 
-def test_target_2_26_is_admitted(tmp_path: Path) -> None:
-    result = _compile(tmp_path, "2.26")
-
-    assert result.entry_result.module.target_dsl_version == "2.26"
 
 
-def test_target_2_27_is_admitted(tmp_path: Path) -> None:
-    result = _compile(tmp_path, "2.27")
-
-    assert result.entry_result.module.target_dsl_version == "2.27"
 
 
-def test_target_2_28_is_admitted(tmp_path: Path) -> None:
-    result = _compile(tmp_path, "2.28")
-
-    assert result.entry_result.module.target_dsl_version == "2.28"
 
 
 
@@ -114,7 +102,7 @@ def test_trial_config_rejects_mixed_parent_and_arm_targets(tmp_path: Path) -> No
             budget=static.budget,
             result_descriptor=static.result_descriptor,
             result_digest=static.result_digest,
-            target_dsl_version="2.26",
+            target_dsl_version="2.36",
         )
 
 def test_dsl_and_version_specs_define_only_the_bounded_static_trial() -> None:

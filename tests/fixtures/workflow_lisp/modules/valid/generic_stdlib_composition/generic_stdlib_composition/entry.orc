@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule generic_stdlib_composition/entry)
   (import generic_stdlib_composition/helper :only (OutcomeState OutcomeRequest OutcomeTransitionResult OutcomeAudit OutcomeResult SummaryPath SummaryValue run-generic emit-run-outcome emit-inline-run-outcome))
   (export run-outcome run-outcome-wrapped run-outcome-inline)

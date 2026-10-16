@@ -1,7 +1,6 @@
-"""Bindings in expression prefixes keep their lexical scope.
+"""Bindings in expression prefixes keep their lexical scope at 2.35.
 
-Each historical source profile is typechecked before the entry is executed at
-2.35. Effect payloads use a command probe that records the received JSON;
+Effect payloads use a command probe that records the received JSON;
 materialize-view execution and generated lowering names have been retired.
 
 Plan: docs/plans/2026-09-29-workflow-lisp-shared-defect-repairs-plan.md, Task 5.
@@ -17,7 +16,7 @@ import pytest
 from tests.test_workflow_lisp_elaborated_prefixes import CAPTURE_PROBE, _logs, _run, _write_program
 from tests.workflow_evaluated_totality_helpers import _write_probe
 from tests.workflow_evaluated_totality_helpers import public_run
-from tests.test_workflow_lisp_elaborated_prefixes import _analyze_and_select_evaluated_entry, _scope_files
+from tests.test_workflow_lisp_elaborated_prefixes import _scope_files
 
 
 OUTER = '(record Candidate :title "outer" :score 7)'
@@ -91,18 +90,6 @@ def test_a_hoisted_binding_does_not_capture_a_name_of_the_enclosing_scope(
     assert _run(tmp_path, monkeypatch, probes) == SCOPE_EXPECTED[shape]
 
 
-@pytest.mark.parametrize("target", ["2.26", "2.32"])
-@pytest.mark.parametrize("shape", ["if-condition", "let-binding-value"])
-def test_older_targets_give_a_hoisted_binding_its_source_scope(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shape: str, target: str
-) -> None:
-    """The base commit returned the hoisted `note` (`draft+r`) here; the correction applies at every target."""
-
-    probes = _write_program(tmp_path, body=SCOPE_FORMS[shape]["direct"], returns="Summary", seed="draft", target=target)
-
-    assert _run(tmp_path, monkeypatch, probes) == SCOPE_EXPECTED[shape]
-
-
 # A loop whose state keeps a record the workflow receives as input `ALT`.
 COLLISION_LOOP = """(loop/recur :max 4
       :state (loop-state (current Candidate SEED) (other Candidate SEED))
@@ -132,7 +119,6 @@ def _run_with_inputs(
     input_file.write_text(json.dumps(inputs), encoding="utf-8")
     monkeypatch.chdir(root)
     files = _scope_files(root, probes)
-    _analyze_and_select_evaluated_entry(root)
     result = public_run(files, input_file=input_file)
     return result.exit_code, dict(result.workflow_outputs or {}), _logs(probes)
 

@@ -46,7 +46,7 @@ def write_trial_workflow_source(
     workflow_path.write_text(
         """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.15")
+  (:target-dsl "2.35")
   (defmodule trial_workflow)
   (export staged)
   (defworkflow staged

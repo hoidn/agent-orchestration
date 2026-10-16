@@ -26,7 +26,6 @@ def select_prompt_fragment_renderer(
     type_ref: object,
     *,
     kind: str,
-    target_dsl_version: str | None = None,
 ) -> str | None:
     """Select the closed Q1 fragment renderer without widening authored inputs."""
 
@@ -37,7 +36,7 @@ def select_prompt_fragment_renderer(
         RecordTypeRef,
         UnionTypeRef,
     )
-    from .syntax import target_dsl_supports_union_prompt_input
+
 
     if kind == "path":
         return "posix-path-line" if isinstance(type_ref, PathTypeRef) else None
@@ -57,7 +56,7 @@ def select_prompt_fragment_renderer(
         if isinstance(candidate, (PathTypeRef, RecordTypeRef)):
             return True
         if isinstance(candidate, UnionTypeRef):
-            return target_dsl_supports_union_prompt_input(target_dsl_version)
+            return True
         if isinstance(candidate, ListTypeRef):
             return canonical_json_admissible(candidate.item_type_ref)
         return False

@@ -1264,7 +1264,7 @@ def test_frame_clean_document_lifecycle_and_watcher_publication(
     source_path = workspace / "entry.orc"
     broken_text = "(workflow-lisp"
     valid_text = (
-        '(workflow-lisp (:language "0.1") (:target-dsl "2.14") '
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.35") '
         "(defmodule entry))\n"
     )
     source_path.write_text(broken_text, encoding="utf-8")

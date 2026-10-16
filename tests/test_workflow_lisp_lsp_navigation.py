@@ -75,7 +75,7 @@ L5_PRIVATE_ROOT = (
 L5_AMBIGUOUS_ROOT = (
     FIXTURES / "modules" / "invalid" / "ambiguous"
 )
-REVIEW_REVISE_DESIGN_DOCS = FIXTURES / "retired_examples" / "review_revise_design_docs.orc"
+REVIEW_REVISE_DESIGN_DOCS = FIXTURES / "current_editor" / "review_revise_design_docs.orc"
 STDLIB_CALLER = FIXTURES / "valid" / "minimal_caller_finalize_selected_item.orc"
 
 
@@ -250,7 +250,7 @@ def callable_result() -> LinkedStage3CompileResult:
         },
         validation_profile=Stage3ValidationProfile.SHARED_CALLABLE,
         workspace_root=Path.cwd().resolve(),
-        lowering_route="legacy",
+
     )
 
 
@@ -274,7 +274,7 @@ def l1_symbols_result() -> LinkedStage3CompileResult:
         source_roots=(L1_SYMBOLS_ROOT.resolve(),),
         validate_shared=False,
         workspace_root=L1_SYMBOLS_ROOT.resolve(),
-        lowering_route="legacy",
+
     )
 
 
@@ -288,7 +288,7 @@ def l5_authored_refs_result() -> LinkedStage3CompileResult:
         command_boundaries={},
         validate_shared=False,
         workspace_root=L5_AUTHORED_REFS_ROOT.resolve(),
-        lowering_route="legacy",
+
     )
 
 
@@ -1330,7 +1330,7 @@ def test_macro_consumed_proc_refs_and_macro_heads_have_no_l5_rows() -> None:
         command_boundaries={},
         validate_shared=False,
         workspace_root=Path.cwd().resolve(),
-        lowering_route="legacy",
+
     )
     source = source_path.read_text(encoding="utf-8")
     index = _build_index(result)
@@ -1787,7 +1787,7 @@ def test_definition_resolves_a_direct_local_procedure_call(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule local)",
                 "  (export run)",
                 "  (defpath WorkReport",
@@ -1816,7 +1816,7 @@ def test_definition_resolves_a_direct_local_procedure_call(
         command_boundaries={},
         validation_profile=Stage3ValidationProfile.SHARED_CALLABLE,
         workspace_root=tmp_path,
-        lowering_route="legacy",
+
     )
 
     assert _definition_at(
@@ -1842,7 +1842,7 @@ def test_same_raw_callable_names_resolve_by_canonical_compiler_identity(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule demo/types)",
                 "  (export WorkReport ChecksResult)",
                 "  (defpath WorkReport",
@@ -1862,7 +1862,7 @@ def test_same_raw_callable_names_resolve_by_canonical_compiler_identity(
                 (
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.14")',
+                    '  (:target-dsl "2.35")',
                     f"  (defmodule demo/{module_name})",
                     "  (import demo/types :only (WorkReport ChecksResult))",
                     "  (export same)",
@@ -1882,7 +1882,7 @@ def test_same_raw_callable_names_resolve_by_canonical_compiler_identity(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule demo/entry)",
                 "  (import demo/types :only (WorkReport ChecksResult))",
                 "  (import demo/a :as a)",
@@ -1903,7 +1903,7 @@ def test_same_raw_callable_names_resolve_by_canonical_compiler_identity(
         command_boundaries={},
         validation_profile=Stage3ValidationProfile.SHARED_CALLABLE,
         workspace_root=tmp_path,
-        lowering_route="legacy",
+
     )
 
     assert _definition_at(
@@ -1937,7 +1937,7 @@ def test_same_canonical_name_resolves_in_distinct_callable_namespaces(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule same-name)",
                 "  (defpath WorkReport",
                 "    :kind relpath",
@@ -1970,7 +1970,7 @@ def test_same_canonical_name_resolves_in_distinct_callable_namespaces(
         command_boundaries={},
         validation_profile=Stage3ValidationProfile.SHARED_CALLABLE,
         workspace_root=tmp_path,
-        lowering_route="legacy",
+
     )
     compiled = result.compiled_results_by_name["same-name"]
     calls = {
@@ -2278,7 +2278,7 @@ def test_completion_preserves_same_label_procedure_workflow_and_form_rows(
         source_roots=(root,),
         validate_shared=False,
         workspace_root=root,
-        lowering_route="legacy",
+
     )
     rows = tuple(
         item
@@ -2573,7 +2573,7 @@ def _compile_driver_for_callable_root(
             },
             validation_profile=Stage3ValidationProfile.SHARED_CALLABLE,
             workspace_root=root,
-            lowering_route="legacy",
+
             source_read_trace=source_read_trace,
         )
         return SimpleNamespace(
@@ -2617,7 +2617,7 @@ def _compile_driver_for_l1_symbols_root(
             source_roots=(root,),
             validate_shared=False,
             workspace_root=root,
-            lowering_route="legacy",
+
             source_read_trace=source_read_trace,
         )
         return SimpleNamespace(
@@ -2667,7 +2667,7 @@ def _compile_driver_for_l5_root(
                 command_boundaries={},
                 validate_shared=False,
                 workspace_root=root,
-                lowering_route="legacy",
+
                 source_read_trace=source_read_trace,
             )
         except LispFrontendCompileError as error:
@@ -2860,7 +2860,7 @@ def test_l5_private_and_ambiguous_imports_fail_through_compiler_authority(
             command_boundaries={},
             validate_shared=False,
             workspace_root=root,
-            lowering_route="legacy",
+
         )
     assert diagnostic_code in {
         diagnostic.code for diagnostic in excinfo.value.diagnostics
@@ -3972,7 +3972,7 @@ def test_notification_free_configuration_drift_emits_one_restart_notice(
     text = (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.14"))\n'
+        '  (:target-dsl "2.35"))\n'
     )
     entry_path.write_text(text, encoding="utf-8")
     provider_path = root / "providers.json"

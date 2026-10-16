@@ -106,15 +106,9 @@ def require_command_closures(
     raise LispFrontendCompileError(tuple(diagnostics))
 
 
-def translate_perform(builder: Any, perform: WccPerform, d: Any, env: Mapping[str, Any]) -> dict[str, Any]:
-    if perform.perform_kind == "provider_result":
-        return _translate_provider_result(builder, perform, d, env)
-    if perform.perform_kind == "run_ref":
-        return _translate_run_ref(builder, perform, d, env)
-    if perform.perform_kind in {"agent", "agent_turn"}:
-        from .agent_effects import translate_agent_perform
-        return translate_agent_perform(builder, perform, d, env)
-    if perform.perform_kind != "command_result":
+def require_closed_perform(builder: Any, perform: WccPerform) -> None:
+    """Keep located source-surface refusals ahead of semantic closure and emission."""
+    if perform.perform_kind not in {"command_result", "provider_result", "agent", "agent_turn", "run_ref", "workflow_call"}:
         forms = {
             "provider_result": "provider-result",
             "run_ref": "run-ref",
@@ -137,7 +131,25 @@ def translate_perform(builder: Any, perform: WccPerform, d: Any, env: Mapping[st
             f"effect kind {perform.perform_kind!r} has no closed form in this task",
             perform,
         )
+    if perform.perform_kind in {"provider_result", "agent_turn"} and isinstance(perform.operation_payload, Mapping):
+        payload = perform.operation_payload
+        if payload.get("session_artifact") is not None:
+            raise builder.gap("provider-result", "provider session artifacts are outside the closed provider surface", perform)
+        if payload.get("context_expr") is not None or payload.get("capture_context") is not None:
+            raise builder.gap("provider-result", "provider context capture is outside the closed provider surface", perform)
+        if payload.get("materialization_attempts") is not None:
+            raise builder.gap("provider-result", "provider materialization attempts are outside the closed provider surface", perform)
 
+
+def translate_perform(builder: Any, perform: WccPerform, d: Any, env: Mapping[str, Any]) -> dict[str, Any]:
+    require_closed_perform(builder, perform)
+    if perform.perform_kind == "provider_result":
+        return _translate_provider_result(builder, perform, d, env)
+    if perform.perform_kind == "run_ref":
+        return _translate_run_ref(builder, perform, d, env)
+    if perform.perform_kind in {"agent", "agent_turn"}:
+        from .agent_effects import translate_agent_perform
+        return translate_agent_perform(builder, perform, d, env)
     return _translate_command_result(builder, perform, d, env)
 
 
@@ -258,13 +270,6 @@ def _translate_provider_result(
     payload = perform.operation_payload
     if not isinstance(payload, Mapping):
         raise ValueError("provider_result WCC payload is missing")
-    if payload.get("session_artifact") is not None:
-        raise builder.gap("provider-result", "provider session artifacts are outside the closed provider surface", perform)
-    if payload.get("context_expr") is not None or payload.get("capture_context") is not None:
-        raise builder.gap("provider-result", "provider context capture is outside the closed provider surface", perform)
-    if payload.get("materialization_attempts") is not None:
-        raise builder.gap("provider-result", "provider materialization attempts are outside the closed provider surface", perform)
-
     owner_config = builder.configuration_for(d.source_program, d.owner)
     provider_row = owner_config["providers"].get(perform.target_name)
     if not isinstance(provider_row, Mapping) or not isinstance(provider_row.get("provider_id"), str):
@@ -289,10 +294,8 @@ def _translate_provider_result(
 def _provider_effect_core(builder, perform, d, env, inputs):
     """Project prompt, inputs, dependencies, policy and contract shared by provider and agent turns."""
 
-    from orchestrator.workflow_lisp.prompts import PromptApplicationExpr
     from orchestrator.workflow_lisp.type_env import PathTypeRef
     from orchestrator.workflow_lisp.typed_prompt_inputs import select_prompt_fragment_renderer
-    from orchestrator.workflow.prompt_fragment_contract import _RENDERERS_BY_KIND
     from orchestrator.workflow.view_renderer import ViewRendererError, resolve_default_view_renderer
 
     payload = perform.operation_payload
@@ -303,38 +306,13 @@ def _provider_effect_core(builder, perform, d, env, inputs):
         if not isinstance(prompt, Mapping):
             raise ValueError(f"prompt extern {perform.prompt_name!r} is missing from its owner")
         prompt_payload = dict(prompt)
-    elif isinstance(prompt_application, PromptApplicationExpr):
-        declaration = prompt_application.prompt.declaration
-        placeholder_names = declaration.template.placeholder_names
-        fills = []
-        for slot, fill in zip(
-            prompt_application.prompt.slots,
-            prompt_application.fills,
-            strict=True,
-        ):
-            kind = slot.declaration.kind.value
-            type_ref = fill.static_type_ref
-            if type_ref is None:
-                raise ValueError(f"prompt fill {fill.name!r} has no retained type")
-            value = builder.value(fill.value_expr, d, env)
-            renderer_id = None if kind == "doc" else _RENDERERS_BY_KIND.get(kind)
-            if fill.renderer_id is not None and kind not in {"doc", "text"}:
-                renderer_id = fill.renderer_id
-            output_role = slot.declaration.output_role.value
-            fills.append(
-                {
-                    "name": fill.name,
-                    "kind": kind,
-                    "type": builder.desc(type_ref, d),
-                    "value": value,
-                    "renderer_id": renderer_id,
-                    "output_role": output_role,
-                    "placeholder_ordinals": [
-                        index for index, name in enumerate(placeholder_names) if name == fill.name
-                    ],
-                }
-            )
-        prompt_payload = {"template": declaration.template.text, "fills": fills}
+    elif isinstance(prompt_application, Mapping):
+        prompt_payload = {"template": prompt_application["template"], "fills": [
+            {"name": row["name"], "kind": row["kind"], "type": builder.desc(row["type_ref"], d),
+             "value": builder.value(row["value"], d, env), "renderer_id": row["renderer_id"],
+             "output_role": row["output_role"], "placeholder_ordinals": list(row["placeholder_ordinals"])}
+            for row in prompt_application["fills"]
+        ]}
     else:
         raise ValueError("provider prompt application has no retained semantic owner")
     dependencies = _closed_prompt_dependencies(
@@ -354,7 +332,7 @@ def _provider_effect_core(builder, perform, d, env, inputs):
             else select_prompt_fragment_renderer(
                 type_ref,
                 kind="value",
-                target_dsl_version=getattr(d.type_env, "target_dsl_version", None),
+
             )
         )
         if renderer_id is None:

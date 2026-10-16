@@ -26,22 +26,7 @@ from .result_guidance import (
     validate_result_guidance_example,
 )
 from .spans import SourceSpan
-from .syntax import (
-    ExpansionStack,
-    SyntaxKeyword,
-    SyntaxList,
-    SyntaxNode,
-    SyntaxString,
-    WorkflowLispSyntaxModule,
-    syntax_expansion_stack,
-    syntax_head,
-    syntax_head_name,
-    syntax_identifier,
-    syntax_node_datum,
-    target_dsl_supports_prompt_calculus,
-    target_dsl_supports_prompt_attempt_identity,
-    target_dsl_supports_prompt_output_positions,
-)
+from .syntax import ExpansionStack, SyntaxKeyword, SyntaxList, SyntaxNode, SyntaxString, WorkflowLispSyntaxModule, syntax_expansion_stack, syntax_head, syntax_head_name, syntax_identifier, syntax_node_datum
 
 
 _PLACEHOLDER_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*\Z")
@@ -234,7 +219,7 @@ def build_prompt_catalog(
                 resolved_slot.refinement_type_ref is not None
                 and not _refinement_is_admissible(
                     resolved_slot,
-                    target_dsl_version=getattr(type_env, "target_dsl_version", None),
+
                 )
             ):
                 _raise_prompt_error(
@@ -471,7 +456,7 @@ def typecheck_prompt_application(
             slot,
             typed.type_ref,
             fill=fill,
-            target_dsl_version=getattr(type_env, "target_dsl_version", None),
+
         )
         if (
             slot.refinement_type_ref is not None
@@ -529,15 +514,12 @@ def typecheck_prompt_application(
     identity = _identity_for_projection(projection)
     identity_version = None
     binding_plan = None
-    if target_dsl_supports_prompt_attempt_identity(
-        getattr(type_env, "target_dsl_version", "")
-    ):
-        identity_version = PROMPT_ATTEMPT_IDENTITY_VERSION
-        binding_plan = _compiler_prompt_attempt_binding_plan(
-            application.prompt,
-            tuple(typed_fills),
-            type_env=type_env,
-        )
+    identity_version = PROMPT_ATTEMPT_IDENTITY_VERSION
+    binding_plan = _compiler_prompt_attempt_binding_plan(
+        application.prompt,
+        tuple(typed_fills),
+        type_env=type_env,
+    )
     return (
         replace(
             application,
@@ -650,8 +632,6 @@ def _is_workspace_output_relpath(type_ref: object) -> bool:
 
 def _refinement_is_admissible(
     slot: ResolvedPromptSlot,
-    *,
-    target_dsl_version: str | None,
 ) -> bool:
     from .type_env import PathTypeRef
     from .typed_prompt_inputs import select_prompt_fragment_renderer
@@ -672,7 +652,7 @@ def _refinement_is_admissible(
             and select_prompt_fragment_renderer(
                 type_ref,
                 kind="path",
-                target_dsl_version=target_dsl_version,
+
             )
             == "posix-path-line"
         )
@@ -680,7 +660,7 @@ def _refinement_is_admissible(
         select_prompt_fragment_renderer(
             type_ref,
             kind="value",
-            target_dsl_version=target_dsl_version,
+
         )
         == "canonical-json"
     )
@@ -691,7 +671,6 @@ def _renderer_for_fill(
     type_ref: object,
     *,
     fill: PromptFill,
-    target_dsl_version: str | None,
 ) -> str:
     from .type_env import PathTypeRef, PrimitiveTypeRef
     from .typed_prompt_inputs import select_prompt_fragment_renderer
@@ -722,7 +701,7 @@ def _renderer_for_fill(
     renderer_id = select_prompt_fragment_renderer(
         type_ref,
         kind=kind.value,
-        target_dsl_version=target_dsl_version,
+
     )
     if renderer_id is None:
         _raise_prompt_error(
@@ -899,21 +878,12 @@ def elaborate_prompt_definitions(
         datum = syntax_node_datum(form)
         if syntax_head_name(datum) != "defprompt":
             continue
-        if not target_dsl_supports_prompt_calculus(
-            module.target_dsl_version
-        ):
-            head = syntax_head(datum)
-            _raise_prompt_error(
-                "prompt_calculus_requires_dsl_2_20",
-                "`defprompt` requires target DSL 2.20 or later",
-                node=head if head is not None else form,
-                form_path=form.form_path,
-            )
+
         definitions.append(
             _elaborate_prompt_definition(
                 form,
                 datum,
-                target_dsl_version=module.target_dsl_version,
+
             )
         )
     return tuple(definitions)
@@ -922,8 +892,6 @@ def elaborate_prompt_definitions(
 def _elaborate_prompt_definition(
     form: SyntaxNode,
     datum: object,
-    *,
-    target_dsl_version: str,
 ) -> PromptDef:
     if not isinstance(datum, SyntaxList) or len(datum.items) < 4:
         _raise_prompt_error(
@@ -943,7 +911,7 @@ def _elaborate_prompt_definition(
     slots = _parse_slots(
         datum.items[2],
         form=form,
-        target_dsl_version=target_dsl_version,
+
     )
     tail = datum.items[3:]
     if len(tail) == 1:
@@ -1021,7 +989,6 @@ def _prevalidate_output_slot_phases(
     raw_slots: tuple[object, ...],
     *,
     form: SyntaxNode,
-    target_dsl_version: str,
 ) -> dict[int, SyntaxKeyword]:
     """Run definition-wide Q2 target, syntax, then kind phases."""
 
@@ -1031,16 +998,6 @@ def _prevalidate_output_slot_phases(
         if (nodes := _output_role_nodes(raw_slot))
     }
 
-    if not target_dsl_supports_prompt_output_positions(target_dsl_version):
-        for raw_slot in raw_slots:
-            nodes = output_nodes_by_slot.get(id(raw_slot), ())
-            if nodes:
-                _raise_prompt_error(
-                    "prompt_output_positions_require_dsl_2_21",
-                    "`:out` prompt slots require target DSL 2.21 or later",
-                    node=nodes[0],
-                    form_path=form.form_path,
-                )
 
     output_role_node_by_slot: dict[int, SyntaxKeyword] = {}
     for raw_slot in raw_slots:
@@ -1100,7 +1057,6 @@ def _parse_slots(
     node: object,
     *,
     form: SyntaxNode,
-    target_dsl_version: str,
 ) -> tuple[PromptSlot, ...]:
     if (
         not isinstance(node, SyntaxList)
@@ -1118,7 +1074,7 @@ def _parse_slots(
     output_role_node_by_slot = _prevalidate_output_slot_phases(
         raw_slots,
         form=form,
-        target_dsl_version=target_dsl_version,
+
     )
     slots: list[PromptSlot] = []
     seen: set[str] = set()

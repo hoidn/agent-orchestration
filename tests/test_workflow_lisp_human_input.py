@@ -33,7 +33,7 @@ def _type_env(span) -> FrontendTypeEnvironment:
     return FrontendTypeEnvironment.from_module(
         WorkflowLispModule(
             language_version="0.1",
-            target_dsl_version="2.32",
+            target_dsl_version="2.35",
             module_name=None,
             imports=(),
             exports=(),
@@ -49,8 +49,8 @@ def _write_module(path: Path, body: str) -> Path:
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.32")',
-                "  (defmodule human_input_frontend)",
+                '  (:target-dsl "2.35")',
+                f"  (defmodule {path.stem})",
                 "  (export ask)",
                 body,
                 ")",
@@ -65,7 +65,7 @@ def _write_module(path: Path, body: str) -> Path:
 def _compile(path: Path, *, workspace: Path, **kwargs):
     return compile_stage3_module(
         path,
-        lowering_route="wcc_m4",
+
         workspace_root=workspace,
         **kwargs,
     )
@@ -75,7 +75,7 @@ def test_request_input_types_as_fixed_reply_and_infers_host_effect() -> None:
     expr = elaborate_expression(
         _expression('(request-input "unused-question")'),
         bound_names=frozenset(),
-        target_dsl_version="2.32",
+        target_dsl_version="2.35",
     )
 
     typed = typecheck_expression(expr, type_env=_type_env(expr.span), value_env={})
@@ -84,22 +84,13 @@ def test_request_input_types_as_fixed_reply_and_infers_host_effect() -> None:
     assert typed.effect_summary.direct_effects == frozenset({HostInputEffect()})
 
 
-def test_request_input_rejects_an_old_target_before_typechecking() -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        elaborate_expression(
-            _expression('(request-input "unused-question")'),
-            bound_names=frozenset(),
-            target_dsl_version="2.31",
-        )
-
-    assert excinfo.value.diagnostics
 
 
 def test_request_input_requires_a_string_question() -> None:
     expr = elaborate_expression(
         _expression("(request-input false)"),
         bound_names=frozenset(),
-        target_dsl_version="2.32",
+        target_dsl_version="2.35",
     )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:

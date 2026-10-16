@@ -247,7 +247,7 @@ def test_public_fresh_shared_path_input_refuses_before_dispatch(tmp_path, monkey
 
 def _ordinary_union_sources(*, unprojected=False):
     declarations = '(defunion Inner (A (a String)) (B (b String)))'
-    helper = '''(workflow-lisp (:language "0.1") (:target-dsl "2.34")
+    helper = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
       (defmodule helper) (export Inner Output project consume)
       (defrecord Output (status String)) DECLARATIONS
       (defproc project :forall (T) ((value T))

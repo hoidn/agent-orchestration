@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+from dataclasses import asdict
+import json
 import re
 from pathlib import Path
 
@@ -51,45 +53,6 @@ def _build_source_free(typed):
         closed.digest,
     )
     return closed
-
-
-def _upgrade_gap_fixture(source: str, entry: str, relative: str) -> str:
-    source, replaced = re.subn(
-        r'\(:target-dsl "[^"]+"\)',
-        f'(:target-dsl "{TARGET}")',
-        source,
-        count=1,
-    )
-    assert replaced == 1, relative
-    if "(defmodule " not in source:
-        target = re.search(r"^  \(:target-dsl [^\n]*\)\s*$", source, re.M)
-        assert target is not None, relative
-        source = source[:target.end()] + f"  (defmodule {Path(relative).stem})\n" + source[target.end():]
-    if not re.search(rf"\(export[^)]*\b{re.escape(entry)}\b", source):
-        imports = list(re.finditer(r"^  \(import [^\n]*\)\s*$", source, re.M))
-        if imports:
-            at = imports[-1].end()
-        else:
-            target = re.search(r"^  \(:target-dsl [^\n]*\)\s*$", source, re.M)
-            assert target is not None, relative
-            at = target.end()
-        source = source[:at] + f"  (export {entry})\n" + source[at:]
-    if relative == "valid/resource_stdlib_finalize_selected_item.orc":
-        source = source.replace(
-            "     (selected SelectedItem))\n    -> SelectedItemResult",
-            "     (selected SelectedItem)\n"
-            "     (queue-transition ResourceTransitionResult))\n    -> SelectedItemResult",
-            1,
-        )
-        source, replaced = re.subn(
-            r"\(let\* \(\(queue-transition\n.*?:event SELECTED\)\)\n\s+\(roadmap",
-            "(let* ((roadmap",
-            source,
-            count=1,
-            flags=re.S,
-        )
-        assert replaced == 1, relative
-    return source
 
 
 def _compile_gap_fixture(path: Path, entry: str, root: Path, source: str):
@@ -824,24 +787,20 @@ def test_each_selected_effect_outside_the_release_is_a_located_gap(
     from tests.test_workflow_lisp_trial import _trial_source
 
     fixture_cases = (
-        ("materialize-view", "valid/materialize_view_runtime.orc", "orchestrate"),
-        ("resource-transition", "valid/resource_transition_effects.orc", "move-selected-item"),
-        ("run-provider-phase", "valid/phase_stdlib_run_provider_phase.orc", "run-provider-phase-demo"),
-        ("produce-one-of", "valid/phase_stdlib_run_provider_phase.orc", "produce-one-of-demo"),
-        ("resume-or-start", "valid/phase_stdlib_resume_or_start.orc", "resume-record-phase"),
-        ("finalize-selected-item", "valid/resource_stdlib_finalize_selected_item.orc", "run-selected-item"),
-        ("with-live-providers", "provider_supervision/provider_supervision_continue.orc", "orchestrate"),
-        ("with-live-provider-peers", "provider_peer_group/provider_peer_group_three.orc", "orchestrate"),
-        ("provider-result", "session_artifact/root.orc", "run"),
+        ("materialize-view", "materialize-view/materialize_view_runtime.orc", "orchestrate"),
+        ("resource-transition", "resource-transition/resource_transition_effects.orc", "move-selected-item"),
+        ("run-provider-phase", "run-provider-phase/phase_stdlib_run_provider_phase.orc", "run-provider-phase-demo"),
+        ("produce-one-of", "produce-one-of/phase_stdlib_run_provider_phase.orc", "produce-one-of-demo"),
+        ("resume-or-start", "resume-or-start/phase_stdlib_resume_or_start.orc", "resume-record-phase"),
+        ("finalize-selected-item", "finalize-selected-item/resource_stdlib_finalize_selected_item.orc", "run-selected-item"),
+        ("with-live-providers", "with-live-providers/provider_supervision_continue.orc", "orchestrate"),
+        ("with-live-provider-peers", "with-live-provider-peers/provider_peer_group_three.orc", "orchestrate"),
+        ("provider-result", "provider-result/root.orc", "run"),
     )
     cases = []
-    fixture_root = Path(__file__).parent / "fixtures" / "workflow_lisp"
+    fixture_root = Path(__file__).parent / "fixtures/workflow_lisp/current_effect_gaps"
     for form, relative, entry in fixture_cases:
-        source = _upgrade_gap_fixture(
-            (fixture_root / relative).read_text(encoding="utf-8"),
-            entry,
-            relative,
-        )
+        source = (fixture_root / relative).read_text(encoding="utf-8")
         cases.append((form, form, entry, source))
 
     trial_source = f'''(workflow-lisp
@@ -1702,3 +1661,49 @@ def _assert_repeated_mixed_reference_bindings(closed):
     calls = [node for node in _ast_nodes(closed.tree['body']) if node['k'] == 'call']
     assert len(calls) == 2
     assert calls[0]['callee'] == calls[1]['callee']
+
+
+_PROVIDER_MEMBER_DIAGNOSTICS = json.loads(
+    (Path(__file__).parent / "fixtures/workflow_lisp/closed_program/provider_member_diagnostics.json")
+    .read_text(encoding="utf-8")
+)
+
+
+@pytest.mark.parametrize("case", _PROVIDER_MEMBER_DIAGNOSTICS, ids=lambda case: case["name"])
+def test_public_provider_member_refusals_preserve_order_and_provenance(tmp_path: Path, case) -> None:
+    path = install(tmp_path, case["source"])
+    for relative in case["prompt_externs"].values():
+        prompt = tmp_path / relative
+        prompt.parent.mkdir(parents=True, exist_ok=True)
+        prompt.write_text("bounded probe prompt fixture\n", encoding="utf-8")
+    stage = "compile_typed_program"
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typed = compile_typed_program(
+            path, entry_workflow="orchestrate", source_roots=(tmp_path,),
+            workspace_root=tmp_path, command_boundaries={},
+            provider_externs=case["provider_externs"], prompt_externs=case["prompt_externs"],
+        )
+        stage = "build_closed_program"
+        build_closed_program(typed)
+    assert stage == case["stage"]
+    actual = []
+    for diagnostic in excinfo.value.diagnostics:
+        record = {name: getattr(diagnostic, name, None) for name in (
+            "code", "message", "phase", "data", "diagnostic_kind", "severity",
+            "validation_pass", "authority_layer",
+        )}
+        cause = getattr(diagnostic, "cause", None)
+        record.update(
+            span=asdict(diagnostic.span), form_path=list(diagnostic.form_path),
+            expansion=list(diagnostic.expansion_stack), notes=list(diagnostic.notes),
+            internal_cause=None if cause is None else {
+                "type": type(cause).__name__, "message": str(cause),
+            },
+        )
+        actual.append(record)
+    expected = json.loads(json.dumps(case["diagnostics"]))
+    for record in expected:
+        for position in record["span"].values():
+            assert position["path"] == "$SOURCE"
+            position["path"] = str(path)
+    assert actual == expected

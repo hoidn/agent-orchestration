@@ -98,7 +98,7 @@ def _write_module(path: Path, source: str) -> Path:
     return path
 
 
-@pytest.mark.parametrize("target_dsl", ("2.15", "2.16"))
+@pytest.mark.parametrize("target_dsl", ("2.35", "2.36"))
 def test_target_dsl_version_accepts_provider_supervision_version(
     target_dsl: str,
 ) -> None:
@@ -114,8 +114,8 @@ def test_target_dsl_version_accepts_provider_supervision_version(
 
 
 
-def test_target_216_installs_exact_provider_steering_directive_union() -> None:
-    type_env = _type_environment("2.16")
+def test_current_target_installs_exact_provider_steering_directive_union() -> None:
+    type_env = _type_environment("2.35")
     probe = _expression('"probe"')
 
     directive = type_env.resolve_type(
@@ -154,22 +154,11 @@ def test_target_216_installs_exact_provider_steering_directive_union() -> None:
     assert directive.variant_field_types["STEER"]["guidance"].name == "String"
 
 
-def test_target_below_216_does_not_install_provider_steering_directive() -> None:
-    type_env = _type_environment("2.15")
-    probe = _expression('"probe"')
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        type_env.resolve_type(
-            "ProviderSteeringDirective",
-            span=probe.span,
-            form_path=probe.form_path,
-        )
-
-    assert excinfo.value.diagnostics[0].code == "type_unknown"
 
 
 def test_provider_steering_directive_uses_ordinary_union_type_operations() -> None:
-    type_env = _type_environment("2.16")
+    type_env = _type_environment("2.35")
     probe = _expression('"probe"')
     directive = type_env.resolve_type(
         "ProviderSteeringDirective",
@@ -204,7 +193,7 @@ def test_provider_steering_directive_uses_ordinary_union_type_operations() -> No
 
 
 def test_provider_steering_directive_uses_ordinary_variant_and_match_typing() -> None:
-    type_env = _type_environment("2.16")
+    type_env = _type_environment("2.35")
     probe = _expression('"probe"')
     directive = type_env.resolve_type(
         "ProviderSteeringDirective",
@@ -264,7 +253,7 @@ def test_provider_steering_directive_uses_ordinary_variant_and_match_typing() ->
 
 
 def test_provider_steering_directive_derives_exact_variant_output_contract() -> None:
-    type_env = _type_environment("2.16")
+    type_env = _type_environment("2.35")
     probe = _expression('"probe"')
     directive = type_env.resolve_type(
         "ProviderSteeringDirective",
@@ -328,13 +317,13 @@ def test_provider_steering_directive_derives_exact_variant_output_contract() -> 
         "(defunion ProviderSteeringDirective (OLD))",
     ),
 )
-def test_target_216_rejects_authored_directive_type_shadowing(
+def test_current_target_rejects_authored_directive_type_shadowing(
     tmp_path: Path,
     authored_form: str,
 ) -> None:
     path = _write_module(
         tmp_path / "authored-shadow.orc",
-        _module_source("2.16", authored_form),
+        _module_source("2.35", authored_form),
     )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
@@ -343,13 +332,13 @@ def test_target_216_rejects_authored_directive_type_shadowing(
     assert excinfo.value.diagnostics[0].code == "prelude_type_name_reserved"
 
 
-def test_target_216_rejects_authored_directive_schema_shadowing(
+def test_current_target_rejects_authored_directive_schema_shadowing(
     tmp_path: Path,
 ) -> None:
     path = _write_module(
         tmp_path / "schema-shadow.orc",
         _module_source(
-            "2.16",
+            "2.35",
             "(defschema ProviderSteeringDirective (value String))",
         ),
     )
@@ -360,11 +349,11 @@ def test_target_216_rejects_authored_directive_schema_shadowing(
     assert excinfo.value.diagnostics[0].code == "prelude_type_name_reserved"
 
 
-def test_target_216_type_environment_rejects_bypassed_local_shadow() -> None:
+def test_current_target_type_environment_rejects_bypassed_local_shadow() -> None:
     syntax_module = build_syntax_module(
         read_sexpr_text(
             _module_source(
-                "2.16",
+                "2.35",
                 "(defunion ProviderSteeringDirective (LEGACY))",
             ),
             source_path="bypassed_local_shadow.orc",
@@ -380,10 +369,10 @@ def test_target_216_type_environment_rejects_bypassed_local_shadow() -> None:
     assert excinfo.value.diagnostics[0].code == "prelude_type_name_reserved"
 
 
-def test_target_216_type_environment_rejects_bypassed_import_shadow() -> None:
+def test_current_target_type_environment_rejects_bypassed_import_shadow() -> None:
     syntax_module = build_syntax_module(
         read_sexpr_text(
-            _module_source("2.16"),
+            _module_source("2.35"),
             source_path="bypassed_import_shadow.orc",
         )
     )
@@ -404,30 +393,14 @@ def test_target_216_type_environment_rejects_bypassed_import_shadow() -> None:
     assert excinfo.value.diagnostics[0].code == "prelude_type_name_reserved"
 
 
-def test_target_below_216_keeps_authored_directive_type_meaning() -> None:
-    type_env = _type_environment(
-        "2.15",
-        "(defunion ProviderSteeringDirective (LEGACY))",
-    )
-    probe = _expression('"probe"')
-
-    directive = type_env.resolve_type(
-        "ProviderSteeringDirective",
-        span=probe.span,
-        form_path=probe.form_path,
-    )
-
-    assert isinstance(directive, UnionTypeRef)
-    assert [variant.name for variant in directive.definition.variants] == [
-        "LEGACY"
-    ]
 
 
-def test_target_216_rejects_directive_type_parameter_shadowing() -> None:
+
+def test_current_target_rejects_directive_type_parameter_shadowing() -> None:
     syntax_module = build_syntax_module(
         read_sexpr_text(
             _module_source(
-                "2.16",
+                "2.35",
                 "(defproc identity "
                 ":forall (ProviderSteeringDirective) "
                 "((value ProviderSteeringDirective)) "
@@ -444,31 +417,14 @@ def test_target_216_rejects_directive_type_parameter_shadowing() -> None:
     assert excinfo.value.diagnostics[0].code == "prelude_type_name_reserved"
 
 
-def test_target_below_216_keeps_directive_type_parameter_available() -> None:
-    syntax_module = build_syntax_module(
-        read_sexpr_text(
-            _module_source(
-                "2.15",
-                "(defproc identity "
-                ":forall (ProviderSteeringDirective) "
-                "((value ProviderSteeringDirective)) "
-                "-> ProviderSteeringDirective "
-                ":effects () :lowering inline value)",
-            ),
-            source_path="legacy_type_parameter.orc",
-        )
-    )
 
-    definitions = elaborate_procedure_definitions(syntax_module)
-
-    assert definitions[0].type_params[0].name == "ProviderSteeringDirective"
 
 
 def _write_import_shadow_graph(
     tmp_path: Path,
     *,
     entry_import: str,
-    support_target: str = "2.16",
+    support_target: str = "2.35",
     support_forms: tuple[str, ...] = ("(defenum External VALUE)",),
     support_exports: str = "External",
 ) -> Path:
@@ -485,14 +441,14 @@ def _write_import_shadow_graph(
     return _write_module(
         source_root / "entry.orc",
         _module_source(
-            "2.16",
+            "2.35",
             "(defmodule entry)",
             entry_import,
         ),
     )
 
 
-def test_target_216_rejects_directive_import_alias_shadowing(
+def test_current_target_rejects_directive_import_alias_shadowing(
     tmp_path: Path,
 ) -> None:
     entry = _write_import_shadow_graph(
@@ -508,7 +464,7 @@ def test_target_216_rejects_directive_import_alias_shadowing(
     assert excinfo.value.diagnostics[0].code == "prelude_type_name_reserved"
 
 
-def test_target_216_rejects_unqualified_directive_import_shadowing(
+def test_current_target_rejects_unqualified_directive_import_shadowing(
     tmp_path: Path,
 ) -> None:
     entry = _write_import_shadow_graph(
@@ -516,7 +472,7 @@ def test_target_216_rejects_unqualified_directive_import_shadowing(
         entry_import=(
             "(import support :only (ProviderSteeringDirective))"
         ),
-        support_target="2.15",
+        support_target="2.35",
         support_forms=(
             "(defunion ProviderSteeringDirective (LEGACY))",
         ),
@@ -529,7 +485,7 @@ def test_target_216_rejects_unqualified_directive_import_shadowing(
     assert excinfo.value.diagnostics[0].code == "prelude_type_name_reserved"
 
 
-def test_target_216_allows_non_type_import_with_reserved_spelling(
+def test_current_target_allows_non_type_import_with_reserved_spelling(
     tmp_path: Path,
 ) -> None:
     entry = _write_import_shadow_graph(
@@ -723,7 +679,7 @@ def test_live_providers_macro_hygiene_renames_binders_edge_and_body_together() -
     syntax_module = build_syntax_module(
         read_sexpr_text(
             _module_source(
-                "2.16",
+                "2.35",
                 "(defmacro define-live (name) "
                 "(defworkflow name () -> String "
                 "(with-live-providers "
@@ -761,7 +717,7 @@ def test_live_providers_form_head_is_reserved_against_macro_shadowing(
     path = _write_module(
         tmp_path / "live-provider-macro-shadow.orc",
         _module_source(
-            "2.16",
+            "2.35",
             "(defmacro with-live-providers (value) value)",
         ),
     )
@@ -811,7 +767,7 @@ def test_public_wcc_route_projects_live_provider_group_as_one_executable_node(
     tmp_path: Path,
 ) -> None:
     source = _module_source(
-        "2.16",
+        "2.35",
         (
             "(defworkflow orchestrate () -> String "
             "(with-live-providers "
@@ -878,7 +834,7 @@ def test_public_wcc_route_requires_explicit_positive_member_timeout(
     expected_code: str,
 ) -> None:
     source = _module_source(
-        "2.16",
+        "2.35",
         (
             "(defworkflow orchestrate ((delay Int)) -> String "
             "(with-live-providers "
@@ -944,12 +900,12 @@ def _elaborate_live_provider_group(
 
 
 def test_type_environment_retains_target_dsl_for_feature_gates() -> None:
-    assert _type_environment("2.15").target_dsl_version == "2.15"
-    assert _type_environment("2.16").target_dsl_version == "2.16"
+    assert _type_environment("2.35").target_dsl_version == "2.35"
+    assert _type_environment("2.36").target_dsl_version == "2.36"
 
 
 def test_live_providers_type_and_effect_summary_preserve_member_authority() -> None:
-    type_env = _type_environment("2.16")
+    type_env = _type_environment("2.35")
     expr = _elaborate_live_provider_group(
         "(with-live-providers "
         "((worker "
@@ -991,7 +947,7 @@ def test_live_providers_type_and_effect_summary_preserve_member_authority() -> N
 
 def test_live_providers_accepts_transportable_non_string_worker_and_binds_both_members() -> None:
     type_env = _type_environment(
-        "2.16",
+        "2.35",
         (
             "(defrecord Supervised "
             "(work Bool) "
@@ -1018,29 +974,10 @@ def test_live_providers_accepts_transportable_non_string_worker_and_binds_both_m
     assert typed.type_ref.definition.name == "Supervised"
 
 
-def test_live_providers_target_215_rejects_known_form_at_type_gate() -> None:
-    type_env = _type_environment("2.15")
-    expr = _elaborate_live_provider_group(
-        "(with-live-providers "
-        '((worker "work") '
-        '(supervisor "monitor" :observes worker)) '
-        "worker)"
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        typecheck_expression(
-            expr,
-            type_env=type_env,
-            value_env={},
-        )
-
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "provider_supervision_target_dsl_unsupported"
-    assert diagnostic.span == expr.span
 
 
 def test_live_provider_members_do_not_see_sibling_bindings() -> None:
-    type_env = _type_environment("2.16")
+    type_env = _type_environment("2.35")
     expr = _elaborate_live_provider_group(
         "(with-live-providers "
         "((supervisor "
@@ -1073,7 +1010,7 @@ def test_live_provider_type_boundary_rejects_malformed_transformed_ast(
     malformation: str,
     expected_diagnostic: str,
 ) -> None:
-    type_env = _type_environment("2.16")
+    type_env = _type_environment("2.35")
     expr = _elaborate_live_provider_group(
         "(with-live-providers "
         "((worker worker_value) "
@@ -1123,7 +1060,7 @@ def test_live_provider_type_boundary_rejects_malformed_transformed_ast(
 
 
 def test_live_providers_requires_exact_full_directive_for_supervisor() -> None:
-    type_env = _type_environment("2.16")
+    type_env = _type_environment("2.35")
     probe = _expression('"probe"')
     directive = type_env.resolve_type(
         "ProviderSteeringDirective",
@@ -1164,7 +1101,7 @@ def test_live_providers_requires_exact_full_directive_for_supervisor() -> None:
 
 
 def test_live_providers_rejects_nontransportable_worker_type() -> None:
-    type_env = _type_environment("2.16")
+    type_env = _type_environment("2.35")
     expr = _elaborate_live_provider_group(
         "(with-live-providers "
         "((worker opaque) "
@@ -1189,7 +1126,7 @@ def test_live_providers_rejects_nontransportable_worker_type() -> None:
 
 
 def test_live_providers_rejects_effectful_settlement_body() -> None:
-    type_env = _type_environment("2.16")
+    type_env = _type_environment("2.35")
     expr = _elaborate_live_provider_group(
         "(with-live-providers "
         "((worker worker_value) "
@@ -1221,7 +1158,7 @@ def test_live_providers_rejects_effect_free_procedure_edge_in_settlement() -> No
     syntax_module = build_syntax_module(
         read_sexpr_text(
             _module_source(
-                "2.16",
+                "2.35",
                 (
                     "(defproc settle () -> String "
                     ':effects () :lowering inline "done")'
@@ -1276,7 +1213,7 @@ def _typed_identity_function():
     syntax_module = build_syntax_module(
         read_sexpr_text(
             _module_source(
-                "2.16",
+                "2.35",
                 "(defun identity ((value String)) -> String value)",
             ),
             source_path="live_provider_function_normalization.orc",
@@ -1350,7 +1287,7 @@ def test_live_providers_rejects_pure_helper_position_with_public_diagnostic() ->
     syntax_module = build_syntax_module(
         read_sexpr_text(
             _module_source(
-                "2.16",
+                "2.35",
                 (
                     "(defun invalid-helper () -> String "
                     "(with-live-providers "
@@ -1393,7 +1330,7 @@ def _typed_live_provider_wcc_context(
     tmp_path: Path,
     *forms: str,
 ):
-    source = _module_source("2.16", *forms)
+    source = _module_source("2.35", *forms)
     path = _write_module(
         tmp_path / "live_provider_wcc_probe.orc",
         source,
@@ -1461,8 +1398,10 @@ def _typed_live_provider_wcc_context(
 
 
 def _elaborate_live_provider_wcc(context):
-    body = wcc_elaborate_module.elaborate_typed_workflow(
-        context["typed_workflow"],
+    body = wcc_elaborate_module.elaborate_typed_workflow_body(
+        context["typed_workflow"].typed_body,
+        owner_name=context["typed_workflow"].definition.name,
+        value_env=dict(context["typed_workflow"].signature.params),
         type_env=context["type_env"],
         workflow_return_types=context["workflow_return_types"],
         procedure_return_types=context["procedure_return_types"],
@@ -1534,8 +1473,10 @@ def test_wcc_elaborates_direct_live_provider_members_as_two_closed_regions(
         ),
     )
 
-    body = wcc_elaborate_module.elaborate_typed_workflow(
-        context["typed_workflow"],
+    body = wcc_elaborate_module.elaborate_typed_workflow_body(
+        context["typed_workflow"].typed_body,
+        owner_name=context["typed_workflow"].definition.name,
+        value_env=dict(context["typed_workflow"].signature.params),
         type_env=context["type_env"],
         workflow_return_types=context["workflow_return_types"],
         procedure_return_types=context["procedure_return_types"],
@@ -1621,8 +1562,10 @@ def test_wcc_closes_nested_explicit_inline_live_provider_members(
             "worker))"
         ),
     )
-    closed_body = wcc_elaborate_module.elaborate_typed_workflow(
-        context["typed_workflow"],
+    closed_body = wcc_elaborate_module.elaborate_typed_workflow_body(
+        context["typed_workflow"].typed_body,
+        owner_name=context["typed_workflow"].definition.name,
+        value_env=dict(context["typed_workflow"].signature.params),
         type_env=context["type_env"],
         workflow_return_types=context["workflow_return_types"],
         procedure_return_types=context["procedure_return_types"],
@@ -1780,8 +1723,10 @@ def test_wcc_erases_direct_proc_ref_argument_before_closing_member(
         ),
     )
 
-    body = wcc_elaborate_module.elaborate_typed_workflow(
-        context["typed_workflow"],
+    body = wcc_elaborate_module.elaborate_typed_workflow_body(
+        context["typed_workflow"].typed_body,
+        owner_name=context["typed_workflow"].definition.name,
+        value_env=dict(context["typed_workflow"].signature.params),
         type_env=context["type_env"],
         workflow_return_types=context["workflow_return_types"],
         procedure_return_types=context["procedure_return_types"],
@@ -1834,8 +1779,10 @@ def test_wcc_closes_direct_member_call_through_outer_bind_proc(
         ),
     )
 
-    body = wcc_elaborate_module.elaborate_typed_workflow(
-        context["typed_workflow"],
+    body = wcc_elaborate_module.elaborate_typed_workflow_body(
+        context["typed_workflow"].typed_body,
+        owner_name=context["typed_workflow"].definition.name,
+        value_env=dict(context["typed_workflow"].signature.params),
         type_env=context["type_env"],
         workflow_return_types=context["workflow_return_types"],
         procedure_return_types=context["procedure_return_types"],
@@ -1891,8 +1838,10 @@ def test_wcc_retains_value_specialization_argument_to_nested_procedure(
         ),
     )
 
-    body = wcc_elaborate_module.elaborate_typed_workflow(
-        context["typed_workflow"],
+    body = wcc_elaborate_module.elaborate_typed_workflow_body(
+        context["typed_workflow"].typed_body,
+        owner_name=context["typed_workflow"].definition.name,
+        value_env=dict(context["typed_workflow"].signature.params),
         type_env=context["type_env"],
         workflow_return_types=context["workflow_return_types"],
         procedure_return_types=context["procedure_return_types"],
@@ -1965,8 +1914,10 @@ def test_wcc_substitutes_nested_value_capture_from_outer_inline_call(
         ),
     )
 
-    body = wcc_elaborate_module.elaborate_typed_workflow(
-        context["typed_workflow"],
+    body = wcc_elaborate_module.elaborate_typed_workflow_body(
+        context["typed_workflow"].typed_body,
+        owner_name=context["typed_workflow"].definition.name,
+        value_env=dict(context["typed_workflow"].signature.params),
         type_env=context["type_env"],
         workflow_return_types=context["workflow_return_types"],
         procedure_return_types=context["procedure_return_types"],
@@ -2027,8 +1978,10 @@ def test_wcc_value_capture_is_alpha_safe_against_residual_parameter(
         ),
     )
 
-    body = wcc_elaborate_module.elaborate_typed_workflow(
-        context["typed_workflow"],
+    body = wcc_elaborate_module.elaborate_typed_workflow_body(
+        context["typed_workflow"].typed_body,
+        owner_name=context["typed_workflow"].definition.name,
+        value_env=dict(context["typed_workflow"].signature.params),
         type_env=context["type_env"],
         workflow_return_types=context["workflow_return_types"],
         procedure_return_types=context["procedure_return_types"],
@@ -2103,8 +2056,10 @@ def test_wcc_substitutes_workflow_input_capture_from_bound_proc(
         ),
     )
 
-    body = wcc_elaborate_module.elaborate_typed_workflow(
-        context["typed_workflow"],
+    body = wcc_elaborate_module.elaborate_typed_workflow_body(
+        context["typed_workflow"].typed_body,
+        owner_name=context["typed_workflow"].definition.name,
+        value_env=dict(context["typed_workflow"].signature.params),
         type_env=context["type_env"],
         workflow_return_types=context["workflow_return_types"],
         procedure_return_types=context["procedure_return_types"],
@@ -2194,8 +2149,10 @@ def test_wcc_preserves_direct_bind_proc_argument_capture_identity(
         ),
     )
 
-    body = wcc_elaborate_module.elaborate_typed_workflow(
-        context["typed_workflow"],
+    body = wcc_elaborate_module.elaborate_typed_workflow_body(
+        context["typed_workflow"].typed_body,
+        owner_name=context["typed_workflow"].definition.name,
+        value_env=dict(context["typed_workflow"].signature.params),
         type_env=context["type_env"],
         workflow_return_types=context["workflow_return_types"],
         procedure_return_types=context["procedure_return_types"],
@@ -2266,8 +2223,10 @@ def test_wcc_inherits_sequential_bind_proc_capture_identities_through_alias(
         ),
     )
 
-    body = wcc_elaborate_module.elaborate_typed_workflow(
-        context["typed_workflow"],
+    body = wcc_elaborate_module.elaborate_typed_workflow_body(
+        context["typed_workflow"].typed_body,
+        owner_name=context["typed_workflow"].definition.name,
+        value_env=dict(context["typed_workflow"].signature.params),
         type_env=context["type_env"],
         workflow_return_types=context["workflow_return_types"],
         procedure_return_types=context["procedure_return_types"],
@@ -2345,8 +2304,10 @@ def test_wcc_runtime_shadow_masks_outer_compile_time_proc_ref(
         ),
     )
 
-    body = wcc_elaborate_module.elaborate_typed_workflow(
-        context["typed_workflow"],
+    body = wcc_elaborate_module.elaborate_typed_workflow_body(
+        context["typed_workflow"].typed_body,
+        owner_name=context["typed_workflow"].definition.name,
+        value_env=dict(context["typed_workflow"].signature.params),
         type_env=context["type_env"],
         workflow_return_types=context["workflow_return_types"],
         procedure_return_types=context["procedure_return_types"],
@@ -2427,8 +2388,10 @@ def test_wcc_routes_same_target_captures_by_proc_ref_parameter(
         ),
     )
 
-    body = wcc_elaborate_module.elaborate_typed_workflow(
-        context["typed_workflow"],
+    body = wcc_elaborate_module.elaborate_typed_workflow_body(
+        context["typed_workflow"].typed_body,
+        owner_name=context["typed_workflow"].definition.name,
+        value_env=dict(context["typed_workflow"].signature.params),
         type_env=context["type_env"],
         workflow_return_types=context["workflow_return_types"],
         procedure_return_types=context["procedure_return_types"],
@@ -2507,8 +2470,10 @@ def test_wcc_forwards_bound_proc_alias_with_capture_identity(
         ),
     )
 
-    body = wcc_elaborate_module.elaborate_typed_workflow(
-        context["typed_workflow"],
+    body = wcc_elaborate_module.elaborate_typed_workflow_body(
+        context["typed_workflow"].typed_body,
+        owner_name=context["typed_workflow"].definition.name,
+        value_env=dict(context["typed_workflow"].signature.params),
         type_env=context["type_env"],
         workflow_return_types=context["workflow_return_types"],
         procedure_return_types=context["procedure_return_types"],
@@ -2586,8 +2551,10 @@ def test_wcc_forwards_proc_ref_alias_inside_inlined_callee(
         ),
     )
 
-    body = wcc_elaborate_module.elaborate_typed_workflow(
-        context["typed_workflow"],
+    body = wcc_elaborate_module.elaborate_typed_workflow_body(
+        context["typed_workflow"].typed_body,
+        owner_name=context["typed_workflow"].definition.name,
+        value_env=dict(context["typed_workflow"].signature.params),
         type_env=context["type_env"],
         workflow_return_types=context["workflow_return_types"],
         procedure_return_types=context["procedure_return_types"],
@@ -2669,8 +2636,10 @@ def test_wcc_local_proc_ref_shadow_masks_deferred_capture_owner(
         ),
     )
 
-    body = wcc_elaborate_module.elaborate_typed_workflow(
-        context["typed_workflow"],
+    body = wcc_elaborate_module.elaborate_typed_workflow_body(
+        context["typed_workflow"].typed_body,
+        owner_name=context["typed_workflow"].definition.name,
+        value_env=dict(context["typed_workflow"].signature.params),
         type_env=context["type_env"],
         workflow_return_types=context["workflow_return_types"],
         procedure_return_types=context["procedure_return_types"],
@@ -2754,8 +2723,10 @@ def test_wcc_erases_let_bound_proc_ref_literal_alias(
         ),
     )
 
-    body = wcc_elaborate_module.elaborate_typed_workflow(
-        context["typed_workflow"],
+    body = wcc_elaborate_module.elaborate_typed_workflow_body(
+        context["typed_workflow"].typed_body,
+        owner_name=context["typed_workflow"].definition.name,
+        value_env=dict(context["typed_workflow"].signature.params),
         type_env=context["type_env"],
         workflow_return_types=context["workflow_return_types"],
         procedure_return_types=context["procedure_return_types"],
@@ -2808,8 +2779,10 @@ def test_wcc_bound_proc_capture_keeps_bind_site_identity_when_shadowed(
         ),
     )
 
-    body = wcc_elaborate_module.elaborate_typed_workflow(
-        context["typed_workflow"],
+    body = wcc_elaborate_module.elaborate_typed_workflow_body(
+        context["typed_workflow"].typed_body,
+        owner_name=context["typed_workflow"].definition.name,
+        value_env=dict(context["typed_workflow"].signature.params),
         type_env=context["type_env"],
         workflow_return_types=context["workflow_return_types"],
         procedure_return_types=context["procedure_return_types"],
@@ -2908,8 +2881,10 @@ def test_wcc_reduces_literal_condition_in_value_specialization(
         ),
     )
 
-    body = wcc_elaborate_module.elaborate_typed_workflow(
-        context["typed_workflow"],
+    body = wcc_elaborate_module.elaborate_typed_workflow_body(
+        context["typed_workflow"].typed_body,
+        owner_name=context["typed_workflow"].definition.name,
+        value_env=dict(context["typed_workflow"].signature.params),
         type_env=context["type_env"],
         workflow_return_types=context["workflow_return_types"],
         procedure_return_types=context["procedure_return_types"],
@@ -2931,7 +2906,51 @@ def test_wcc_reduces_literal_condition_in_value_specialization(
     assert "WccOpaqueFrontendValue" not in repr(worker.normalized_body)
 
 
-def test_wcc_rejects_unresolved_condition_in_value_specialization(
+def _assert_public_member_callback_defect(context, call_source):
+    from tests.workflow_lisp_closed_program_helpers import TARGET, build
+
+    root = context["path"].parent / "evaluated"
+    source = context["source"].replace(
+        '(:target-dsl "2.35")',
+        f'(:target-dsl "{TARGET}")\n  (defmodule provider_condition)\n  (export orchestrate)',
+    )
+    prompts = {f"prompts.{name}": f"prompts/{name}.md" for name in ("worker", "supervisor")}
+    for relative in prompts.values():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("fixture prompt", encoding="utf-8")
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        build(root, source, entry_workflow="orchestrate", boundaries={},
+            providers={f"providers.{name}": name for name in ("worker", "supervisor")},
+            prompts=prompts)
+    diagnostic, = excinfo.value.diagnostics
+    assert diagnostic.code == "compiler_defect"
+    assert diagnostic.phase == "lowering"
+    assert diagnostic.form_path == ("workflow-lisp", "defworkflow", "orchestrate")
+    assert diagnostic.expansion_stack == ()
+    assert getattr(diagnostic, "data", None) is None
+    assert isinstance(diagnostic.cause, ValueError)
+    assert str(diagnostic.cause) == "command call callback is unknown or repeated"
+    assert Path(diagnostic.span.start.path).read_text(encoding="utf-8")[
+        diagnostic.span.start.offset:diagnostic.span.end.offset
+    ] == call_source
+
+
+def _assert_structured_member_select(context, group, condition_source):
+    worker = next(member for member in group.members if member.binding_name == "worker")
+    bindings = _linear_wcc_lets(worker.normalized_body)
+    selected = next(binding for binding in bindings if isinstance(binding.bound_value, wcc_model.WccSelect))
+    value = selected.bound_value
+    assert isinstance(value.condition, (wcc_model.WccLiteralAtom, wcc_model.WccNameAtom))
+    assert isinstance(value.then_arm.value, wcc_model.WccLiteralAtom)
+    assert isinstance(value.else_arm.value, wcc_model.WccLiteralAtom)
+    span = value.metadata.source_span
+    assert context["source"][span.start.offset:span.end.offset] == condition_source
+    assert any(isinstance(binding.bound_value, wcc_model.WccPerform) for binding in bindings)
+    return selected, bindings
+
+
+def test_wcc_prepares_unresolved_condition_in_value_specialization(
     tmp_path: Path,
 ) -> None:
     context = _typed_live_provider_wcc_context(
@@ -2960,28 +2979,34 @@ def test_wcc_rejects_unresolved_condition_in_value_specialization(
         ),
     )
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        wcc_elaborate_module.elaborate_typed_workflow(
-            context["typed_workflow"],
-            type_env=context["type_env"],
-            workflow_return_types=context["workflow_return_types"],
-            procedure_return_types=context["procedure_return_types"],
-            resolved_procedures_by_name=context[
-                "resolved_procedures_by_name"
-            ],
-            procedure_type_envs=context["procedure_type_envs"],
-            route_schema_version=wcc_model.WCC_M4_ROUTE_SCHEMA_VERSION,
+    body = wcc_elaborate_module.elaborate_typed_workflow_body(
+        context["typed_workflow"].typed_body,
+        owner_name=context["typed_workflow"].definition.name,
+        value_env=dict(context["typed_workflow"].signature.params),
+        type_env=context["type_env"],
+        workflow_return_types=context["workflow_return_types"],
+        procedure_return_types=context["procedure_return_types"],
+        resolved_procedures_by_name=context[
+            "resolved_procedures_by_name"
+        ],
+        procedure_type_envs=context["procedure_type_envs"],
+        route_schema_version=wcc_model.WCC_M4_ROUTE_SCHEMA_VERSION,
         )
-
-    diagnostics = excinfo.value.diagnostics
-    assert [diagnostic.code for diagnostic in diagnostics] == [
-        "provider_supervision_member_ineligible",
-        "provider_supervision_member_disqualifying_form",
-    ]
-    assert _diagnostic_source(context, diagnostics[0]) == "(bound-worker)"
-    assert _diagnostic_source(context, diagnostics[1]).startswith(
-        '(if flag "selected" "other")'
-    )
+    root_bindings = _linear_wcc_lets(body)
+    captured = next(binding for binding in root_bindings
+        if isinstance(binding.bound_value, wcc_model.WccNameAtom)
+        and binding.bound_value.name == "flag")
+    group = next(binding.bound_value for binding in root_bindings
+        if isinstance(binding.bound_value, wcc_model.WccProviderSupervision))
+    selected, bindings = _assert_structured_member_select(
+        context, group, '(if flag "selected" "other")')
+    assert selected.bound_value.condition.name == captured.bound_name
+    assert selected.bound_value.then_arm.value.value == "selected"
+    assert selected.bound_value.else_arm.value.value == "other"
+    perform = next(binding.bound_value for binding in bindings
+        if isinstance(binding.bound_value, wcc_model.WccPerform))
+    assert perform.positional_args[0].name == selected.bound_name
+    _assert_public_member_callback_defect(context, "(bound-worker)")
 
 
 def test_wcc_rejects_specialized_workflow_ref_member_as_workflow_boundary(
@@ -3022,8 +3047,10 @@ def test_wcc_rejects_specialized_workflow_ref_member_as_workflow_boundary(
     )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        wcc_elaborate_module.elaborate_typed_workflow(
-            context["typed_workflow"],
+        wcc_elaborate_module.elaborate_typed_workflow_body(
+            context["typed_workflow"].typed_body,
+            owner_name=context["typed_workflow"].definition.name,
+            value_env=dict(context["typed_workflow"].signature.params),
             type_env=context["type_env"],
             workflow_return_types=context["workflow_return_types"],
             procedure_return_types=context["procedure_return_types"],
@@ -3085,8 +3112,10 @@ def test_wcc_rejects_let_bound_workflow_ref_as_workflow_boundary(
     )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
-        wcc_elaborate_module.elaborate_typed_workflow(
-            context["typed_workflow"],
+        wcc_elaborate_module.elaborate_typed_workflow_body(
+            context["typed_workflow"].typed_body,
+            owner_name=context["typed_workflow"].definition.name,
+            value_env=dict(context["typed_workflow"].signature.params),
             type_env=context["type_env"],
             workflow_return_types=context["workflow_return_types"],
             procedure_return_types=context["procedure_return_types"],
@@ -3542,7 +3571,7 @@ def test_wcc_rejects_case_bearing_inline_provider_member_at_call_site(
     )
 
 
-def test_wcc_rejects_pure_if_feeding_inline_provider_member_at_call_site(
+def test_wcc_prepares_pure_if_feeding_inline_provider_member_at_call_site(
     tmp_path: Path,
 ) -> None:
     context = _typed_live_provider_wcc_context(
@@ -3569,23 +3598,19 @@ def test_wcc_rejects_pure_if_feeding_inline_provider_member_at_call_site(
         ),
     )
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _close_source_level_live_provider_group(context)
-
-    diagnostics = excinfo.value.diagnostics
-    assert [diagnostic.code for diagnostic in diagnostics] == [
-        "provider_supervision_member_ineligible",
-        "provider_supervision_member_disqualifying_form",
-    ]
-    assert _diagnostic_source(context, diagnostics[0]) == (
-        "(branching-input-worker true)"
-    )
-    assert _diagnostic_source(context, diagnostics[1]).startswith(
-        '(if ready "ready" "not-ready")'
-    )
+    group = _close_source_level_live_provider_group(context)
+    selected, bindings = _assert_structured_member_select(
+        context, group, '(if ready "ready" "not-ready")')
+    assert selected.bound_value.condition.value is True
+    assert selected.bound_value.then_arm.value.value == "ready"
+    assert selected.bound_value.else_arm.value.value == "not-ready"
+    perform = next(binding.bound_value for binding in bindings
+        if isinstance(binding.bound_value, wcc_model.WccPerform))
+    assert perform.positional_args[0].name == selected.bound_name
+    _assert_public_member_callback_defect(context, "(branching-input-worker true)")
 
 
-def test_wcc_rejects_nested_pure_if_feeding_inline_provider_member(
+def test_wcc_prepares_nested_pure_if_feeding_inline_provider_member(
     tmp_path: Path,
 ) -> None:
     context = _typed_live_provider_wcc_context(
@@ -3615,20 +3640,17 @@ def test_wcc_rejects_nested_pure_if_feeding_inline_provider_member(
         ),
     )
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _close_source_level_live_provider_group(context)
-
-    diagnostics = excinfo.value.diagnostics
-    assert [diagnostic.code for diagnostic in diagnostics] == [
-        "provider_supervision_member_ineligible",
-        "provider_supervision_member_disqualifying_form",
-    ]
-    assert _diagnostic_source(context, diagnostics[0]) == (
-        "(nested-branching-worker true)"
-    )
-    assert _diagnostic_source(context, diagnostics[1]).startswith(
-        '(if ready "ready" "not-ready")'
-    )
+    group = _close_source_level_live_provider_group(context)
+    selected, bindings = _assert_structured_member_select(
+        context, group, '(if ready "ready" "not-ready")')
+    assert selected.bound_value.condition.value is True
+    record = next(binding for binding in bindings
+        if isinstance(binding.bound_value, wcc_model.WccRecordAtom))
+    assert dict(record.bound_value.fields)["value"].name == selected.bound_name
+    perform = next(binding.bound_value for binding in bindings
+        if isinstance(binding.bound_value, wcc_model.WccPerform))
+    assert perform.positional_args[0].name == record.bound_name
+    _assert_public_member_callback_defect(context, "(nested-branching-worker true)")
 
 
 def test_wcc_rejects_loop_bearing_inline_provider_member_at_call_site(
@@ -3704,7 +3726,7 @@ def test_recursive_live_provider_member_is_rejected_by_procedure_cycle_gate(
     diagnostic = excinfo.value.diagnostics[0]
     assert diagnostic.code == "proc_lowering_cycle"
     source = _module_source(
-        "2.16",
+        "2.35",
         recursive_procedure,
         orchestrate_workflow,
     )

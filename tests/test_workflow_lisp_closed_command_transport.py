@@ -57,7 +57,7 @@ def _scope_inputs(program, builder):
         procedure_return_types=builder.procedure_return_types,
         resolved_procedures_by_name=program.procedures,
         procedure_type_envs=program.procedure_type_envs,
-        route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION, closed_program=True)
+        route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION, )
     facts = ControlFacts(signature=entry.signature, type_env=type_env,
         local_type_bindings=values, typed_procedures=program.procedures,
         workflow_catalog=workflow_catalog_for(program, owner),

@@ -13,7 +13,7 @@ from urllib.parse import unquote_to_bytes, urlsplit
 from orchestrator.workflow_lisp import compiler
 from orchestrator.workflow_lisp.compiler import Stage3ValidationProfile
 from orchestrator.workflow_lisp.lints import LINT_PROFILE_DEFAULT
-from orchestrator.workflow_lisp.wcc.route import LoweringRoute, normalize_lowering_route
+
 
 from .diagnostics import DiagnosticContribution
 
@@ -52,7 +52,6 @@ class LspInitializationOptions:
     configuration: LspConfigurationPaths
     validation_profile: Stage3ValidationProfile
     lint_profile: str
-    lowering_route: LoweringRoute
 
 
 @dataclass(frozen=True, slots=True)
@@ -288,7 +287,6 @@ def initialize_lsp_state(
             ),
             validation_profile=Stage3ValidationProfile.SHARED_CALLABLE,
             lint_profile=LINT_PROFILE_DEFAULT,
-            lowering_route=normalize_lowering_route(None),
         ),
         entries=canonical_entries,
     )

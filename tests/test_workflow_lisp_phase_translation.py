@@ -23,8 +23,8 @@ from orchestrator.workflow_lisp.workflows import (
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "tests" / "fixtures" / "workflow_lisp"
 VALID_FIXTURE = FIXTURES / "valid" / "neurips_implementation_attempt.orc"
-INVALID_TARGET_FIXTURE = FIXTURES / "invalid" / "phase_target_outside_with_phase.orc"
-INVALID_CONTEXT_FIXTURE = FIXTURES / "invalid" / "phase_context_invalid.orc"
+INVALID_TARGET_FIXTURE = FIXTURES / "current235" / "invalid" / "phase_target_outside_with_phase.orc"
+INVALID_CONTEXT_FIXTURE = FIXTURES / "current235" / "invalid" / "phase_context_invalid.orc"
 
 
 def _build_syntax_module(path: Path):
@@ -144,7 +144,7 @@ def test_typecheck_rejects_phase_context_report_targets_that_are_not_target_path
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath DesignDocPath",
                 "    :kind relpath",
                 '    :under "docs/design"',
@@ -195,7 +195,7 @@ def test_typecheck_rejects_phase_target_unknown(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -257,7 +257,7 @@ def test_typecheck_rejects_nested_with_phase(tmp_path: Path) -> None:
                     [
                         "(workflow-lisp",
                         '  (:language "0.1")',
-                        '  (:target-dsl "2.14")',
+                        '  (:target-dsl "2.35")',
                         "  (defpath DesignDocPath",
                         "    :kind relpath",
                         '    :under "docs/design"',
@@ -309,7 +309,7 @@ def test_typecheck_rejects_non_implementation_phase_name_for_bounded_slice(tmp_p
                     [
                         "(workflow-lisp",
                         '  (:language "0.1")',
-                        '  (:target-dsl "2.14")',
+                        '  (:target-dsl "2.35")',
                         "  (defenum BlockerClass",
                         "    missing_resource)",
                         "  (defenum ImplementationStateTag",
@@ -394,7 +394,7 @@ def test_typecheck_rejects_non_implementation_attempt_provider_result_inside_wit
                     [
                         "(workflow-lisp",
                         '  (:language "0.1")',
-                        '  (:target-dsl "2.14")',
+                        '  (:target-dsl "2.35")',
                         "  (defpath DesignDocPath",
                         "    :kind relpath",
                         '    :under "docs/design"',

@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule neurips/macros)
   (import neurips/types :only (WorkReport ImplementationSummary))
   (export defworkflow-alias)

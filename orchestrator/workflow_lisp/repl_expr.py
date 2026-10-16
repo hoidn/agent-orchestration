@@ -185,7 +185,7 @@ def typecheck_repl_expression(
     for name, binding in externs.items():
         values[name] = PrimitiveTypeRef("Provider" if isinstance(binding, ProviderExtern) else "Prompt")
     w3 = syntax.target_dsl_supports_local_hook_inference(module.typed_program.target)
-    session = CompilerSession(closed_program=True)
+    session = CompilerSession()
     try:
         expr = expressions.elaborate_expression(
             node,
@@ -211,10 +211,9 @@ def typecheck_repl_expression(
                                  expressions.FunctionCallExpr, expressions.CallExpr))
                for child in walk_expr(expr)):
             raise ReplRefusal("repl_module_context_missing", "module calls require compiler context")
-    elif syntax.target_dsl_supports_pure_call_composition(module.typed_program.target):
+    if context is not None:
         expr = functions.normalize_function_calls(
             expr, typed_functions_by_name=context.typed_functions_by_name,
-            target_dsl_version=module.typed_program.target,
         )
     typed = typecheck_expression(
         expr, type_env=module.type_env, value_env=values,
@@ -238,7 +237,11 @@ def evaluate_repl_expression(
     line: str, module: LoadedModule, captured: CapturedRun
 ) -> tuple[EvaluatedValue, TypedExpr]:
     typed, captured_types, values = typecheck_repl_expression(line, module, captured)
-    if typed.effect_summary.transitive_effects:
+    from .effects import unresolved_effect_calls
+    if typed.effect_summary.transitive_effects or (
+        syntax.target_dsl_supports_effect_ceilings(module.typed_program.target)
+        and unresolved_effect_calls(typed.effect_summary, module.typed_program.procedures)
+    ):
         raise ReplRefusal("repl_effect_refused", "REPL expressions must be pure")
     entry, builder = module.typed_program.entry, module.builder
     owner = module.build.program.tree["entry"]
@@ -256,7 +259,6 @@ def evaluate_repl_expression(
         expression_owner, module.typed_program, d, type_env=module.type_env, value_env=values,
     )
     verify_requests = builder._install_prepared_requests(normalized, d, children)
-    builder._prepare_computed_capture_requests(normalized, d, module.typed_program)
     body = builder.body(normalized, d, values)
     verify_requests()
     lowered = body["value"] if body["k"] == "halt" else {"k": "block", "body": body}

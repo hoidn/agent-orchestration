@@ -35,36 +35,18 @@ def _compile(tmp_path: Path, target: str):
     )
 
 
-def test_ordinary_target_2_24_library_module_compiles_through_the_full_frontend(
+def test_ordinary_current_library_module_compiles_through_the_full_frontend(
     tmp_path: Path,
 ) -> None:
-    result = _compile(tmp_path, "2.24")
+    result = _compile(tmp_path, "2.35")
 
-    assert result.entry_result.module.target_dsl_version == "2.24"
-
-
-def test_target_2_26_is_admitted(
-    tmp_path: Path,
-) -> None:
-    result = _compile(tmp_path, "2.26")
-
-    assert result.entry_result.module.target_dsl_version == "2.26"
+    assert result.entry_result.module.target_dsl_version == "2.35"
 
 
-def test_target_2_27_is_admitted(
-    tmp_path: Path,
-) -> None:
-    result = _compile(tmp_path, "2.27")
-
-    assert result.entry_result.module.target_dsl_version == "2.27"
 
 
-def test_target_2_28_is_admitted(
-    tmp_path: Path,
-) -> None:
-    result = _compile(tmp_path, "2.28")
 
-    assert result.entry_result.module.target_dsl_version == "2.28"
+
 
 
 def test_normative_specs_route_the_target_2_24_run_ref_contract() -> None:

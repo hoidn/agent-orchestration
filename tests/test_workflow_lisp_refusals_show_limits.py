@@ -143,7 +143,7 @@ def test_public_transport_byte_refusal_prints_observed_size_and_cap(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.33")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule grt/entry)",
                 "  (export run)",
                 "  (defrecord Item (label String))",

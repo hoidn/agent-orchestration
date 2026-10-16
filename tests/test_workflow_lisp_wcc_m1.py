@@ -211,7 +211,7 @@ def test_wcc_identity_factory_is_stable_for_same_semantic_inputs() -> None:
 
 
 def test_elaboration_preserves_authored_let_order_variant_identity_and_provenance() -> None:
-    fixture = VALID_FIXTURES / "wcc_m1_value_union_letstar.orc"
+    fixture = FIXTURES / "current235" / "valid" / "wcc_m1_value_union_letstar.orc"
     typed_workflow = _typed_workflow(fixture, "value-union-letstar")
 
     elaborated = elaborate_typed_workflow_body(
@@ -238,7 +238,7 @@ def test_elaboration_preserves_authored_let_order_variant_identity_and_provenanc
     (("wcc_m1_value_union_letstar.orc", "value-union-letstar"),),
 )
 def test_elaboration_is_total_for_covered_positive_fixtures(fixture_name: str, workflow_name: str) -> None:
-    fixture = VALID_FIXTURES / fixture_name
+    fixture = FIXTURES / "current235" / "valid" / fixture_name
     typed_workflow = _typed_workflow(fixture, workflow_name)
 
     elaborated = elaborate_typed_workflow_body(

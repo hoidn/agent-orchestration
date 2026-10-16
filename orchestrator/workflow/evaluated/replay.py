@@ -126,10 +126,7 @@ class _Discovery:
         return float('inf') if settlement is None else settlement.offset
 
     def parallel_map(self, machine, node, environment, owner, activation, loops):
-        source = machine._value(node['source'], environment, owner, activation, loops)
-        if len(source.value) > node['max']:
-            raise machine._error('list_map_effect_cap_exceeded',
-                f"parallel map length {len(source.value)} exceeds limit {node['max']}", node)
+        source = machine._parallel_source(node, environment, owner, activation, loops)
         outer = self.order
         commits_before = len(self.prefix.commits)
         tails, results, faults = [], [], []
@@ -158,12 +155,8 @@ class _Discovery:
         outer.map_barrier = max(outer.map_barrier, *(self._settled_offset(entry) for entry in tails))
 
     def _item(self, machine, node, environment, owner, activation, loops, index, item, source):
-        value = coerce_evaluated_value(item, node['item_type'], dependencies=source.dependencies)
-        local = environment.extend(node['binder'], value)
-        if 'index' in node:
-            local = local.extend(node['index'], coerce_evaluated_value(index, {'kind': 'primitive', 'name': 'Int'}))
-        workspace = machine._value(node['workspace'], local, owner, activation, loops)
-        workspace = machine._add_dependencies(workspace, source.dependencies)
+        local, workspace = machine._parallel_item(node, environment, owner, activation, loops,
+            index, item, source)
         item_machine = replace(machine, launch_workspace=workspace)
         try:
             result = item_machine._body(node['body'], local, owner, activation, (*loops, (node['label'], index)))

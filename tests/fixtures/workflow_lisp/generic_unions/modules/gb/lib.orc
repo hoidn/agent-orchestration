@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.33")
+  (:target-dsl "2.35")
   (defmodule gb/lib)
   (export Decision run-review)
   (defunion Decision :forall (F B)

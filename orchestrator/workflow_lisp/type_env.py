@@ -27,17 +27,7 @@ from .compiler_session import TypecheckSessionState
 from .modules import canonical_callable_key
 from .result_guidance import ResultGuidance
 from .spans import SourcePosition, SourceSpan
-from .syntax import (
-    HUMAN_REPLY_TYPE_NAME,
-    PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
-    ProcedureExpansionFrame,
-    target_dsl_is_2_33_or_newer,
-    target_dsl_supports_agent_sessions,
-    target_dsl_supports_provider_supervision,
-    target_dsl_supports_provider_context_values,
-    target_dsl_supports_human_input,
-    target_dsl_supports_value,
-)
+from .syntax import HUMAN_REPLY_TYPE_NAME, PROVIDER_STEERING_DIRECTIVE_TYPE_NAME, ProcedureExpansionFrame, target_dsl_supports_agent_sessions
 from .type_expressions import (
     AppliedTypeExpr,
     ContextualTypeExpr,
@@ -149,18 +139,14 @@ def prelude_type_names_for_target(target_dsl_version: str) -> frozenset[str]:
     """Return compiler-owned prelude names installed for one target."""
 
     names = PRELUDE_TYPE_NAMES
-    if target_dsl_supports_provider_supervision(target_dsl_version):
-        names = names | frozenset(
-            {PROVIDER_STEERING_DIRECTIVE_TYPE_NAME}
-        )
-    if target_dsl_supports_value(target_dsl_version):
-        names = names | frozenset({"Value"})
-    if target_dsl_supports_provider_context_values(target_dsl_version):
-        from .context_types import CONTEXT_TYPE_NAMES
+    names = names | frozenset(
+        {PROVIDER_STEERING_DIRECTIVE_TYPE_NAME}
+    )
+    names = names | frozenset({"Value"})
+    from .context_types import CONTEXT_TYPE_NAMES
 
-        names = names | CONTEXT_TYPE_NAMES
-    if target_dsl_supports_human_input(target_dsl_version):
-        names = names | frozenset({HUMAN_REPLY_TYPE_NAME})
+    names = names | CONTEXT_TYPE_NAMES
+    names = names | frozenset({HUMAN_REPLY_TYPE_NAME})
     if target_dsl_supports_agent_sessions(target_dsl_version):
         names = names | frozenset({"Agent"})
     return names
@@ -481,8 +467,7 @@ class FrontendTypeEnvironment:
                     )
 
         primitive_type_names = PRELUDE_PRIMITIVE_TYPE_NAMES
-        if target_dsl_supports_value(module.target_dsl_version):
-            primitive_type_names = primitive_type_names | frozenset({"Value"})
+        primitive_type_names = primitive_type_names | frozenset({"Value"})
         if target_dsl_supports_agent_sessions(module.target_dsl_version):
             primitive_type_names = primitive_type_names | frozenset({"Agent"})
         type_refs: dict[str, TypeRef] = {
@@ -494,32 +479,27 @@ class FrontendTypeEnvironment:
                 for name, definition in PRELUDE_PATH_TYPES.items()
             }
         )
-        if target_dsl_supports_provider_supervision(
-            module.target_dsl_version
-        ):
-            type_refs[PROVIDER_STEERING_DIRECTIVE_TYPE_NAME] = UnionTypeRef(
-                name=PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
-                definition=PRELUDE_PROVIDER_STEERING_DIRECTIVE,
-                variant_field_types={
-                    "CONTINUE": {},
-                    "STEER": {
-                        "guidance": type_refs["String"],
-                    },
+        type_refs[PROVIDER_STEERING_DIRECTIVE_TYPE_NAME] = UnionTypeRef(
+            name=PROVIDER_STEERING_DIRECTIVE_TYPE_NAME,
+            definition=PRELUDE_PROVIDER_STEERING_DIRECTIVE,
+            variant_field_types={
+                "CONTINUE": {},
+                "STEER": {
+                    "guidance": type_refs["String"],
                 },
-            )
-        if target_dsl_supports_provider_context_values(module.target_dsl_version):
-            from .context_types import context_fixed_types
+            },
+        )
+        from .context_types import context_fixed_types
 
-            type_refs.update(context_fixed_types(type_refs))
-        if target_dsl_supports_human_input(module.target_dsl_version):
-            type_refs[HUMAN_REPLY_TYPE_NAME] = UnionTypeRef(
-                name=HUMAN_REPLY_TYPE_NAME,
-                definition=PRELUDE_HUMAN_REPLY,
-                variant_field_types={
-                    "ANSWERED": {"text": type_refs["String"]},
-                    "CANCELLED": {},
-                },
-            )
+        type_refs.update(context_fixed_types(type_refs))
+        type_refs[HUMAN_REPLY_TYPE_NAME] = UnionTypeRef(
+            name=HUMAN_REPLY_TYPE_NAME,
+            definition=PRELUDE_HUMAN_REPLY,
+            variant_field_types={
+                "ANSWERED": {"text": type_refs["String"]},
+                "CANCELLED": {},
+            },
+        )
         compiler_type_identities_by_definition_id = {
             id(definition): type_ref.name
             for type_ref in type_refs.values()
@@ -607,7 +587,7 @@ class FrontendTypeEnvironment:
                                 field.type_name,
                                 type_refs=type_refs,
                                 import_scope=import_scope,
-                                target_dsl_version=module.target_dsl_version,
+
                                 span=field.span,
                                 form_path=("workflow-lisp", definition.name, field.name),
                             )
@@ -632,7 +612,7 @@ class FrontendTypeEnvironment:
                                     field.type_name,
                                     type_refs=type_refs,
                                     import_scope=import_scope,
-                                    target_dsl_version=module.target_dsl_version,
+
                                     span=field.span,
                                     form_path=("workflow-lisp", definition.name, variant.name, field.name),
                                     local_type_params=frozenset(definition.type_params),
@@ -765,7 +745,7 @@ class FrontendTypeEnvironment:
             name,
             type_refs=self._type_refs,
             import_scope=self._import_scope,
-            target_dsl_version=self.target_dsl_version,
+
             canonical_name_overrides=self._canonical_name_overrides,
             schema_names=self._schema_names,
             span=span,
@@ -796,9 +776,7 @@ class FrontendTypeEnvironment:
             return expr.resolved_type
         frames = [frame for frame in expr.expansion_stack if isinstance(frame, ProcedureExpansionFrame)]
         if (
-            frames
-            and frames[-1].call_span == expr.span
-            and target_dsl_is_2_33_or_newer(self.target_dsl_version or "")
+            (frames) and (frames[-1].call_span == expr.span)
         ):
             raise LispFrontendCompileError(
                 (
@@ -1001,7 +979,6 @@ class FrontendTypeEnvironment:
         *,
         type_refs: dict[str, TypeRef],
         import_scope: "ModuleImportScope | None",
-        target_dsl_version: str | None = None,
         span: SourceSpan,
         form_path: tuple[str, ...],
         canonical_name_overrides: dict[str, str] | None = None,
@@ -1039,49 +1016,8 @@ class FrontendTypeEnvironment:
             form_path=form_path,
             expansion_stack=expansion_stack,
         )
-        if (
-            target_dsl_version is not None
-            and not target_dsl_supports_value(target_dsl_version)
-            and _parsed_type_expr_contains_value(parsed)
-        ):
-            _raise_error(
-                (
-                    "`Value` requires target DSL 2.19 or newer; "
-                    f"module targets {target_dsl_version}"
-                ),
-                code="value_type_requires_dsl_2_19",
-                span=span,
-                form_path=form_path,
-                expansion_stack=expansion_stack,
-            )
-        if (
-            target_dsl_version is not None
-            and not target_dsl_supports_provider_context_values(target_dsl_version)
-            and _parsed_type_expr_contains_contextual(parsed)
-        ):
-            _raise_error(
-                (
-                    "`Contextual` requires target DSL 2.31 or newer; "
-                    f"module targets {target_dsl_version}"
-                ),
-                code="contextual_type_requires_dsl_2_31",
-                span=span,
-                form_path=form_path,
-                expansion_stack=expansion_stack,
-            )
-        if target_dsl_version is not None:
-            from .generic_unions import application_target_diagnostic
 
-            target_diagnostic = application_target_diagnostic(
-                parsed,
-                authored_name=name,
-                target_dsl_version=target_dsl_version,
-                span=span,
-                form_path=form_path,
-                expansion_stack=expansion_stack,
-            )
-            if target_diagnostic is not None:
-                raise LispFrontendCompileError((target_diagnostic,))
+
         return _resolve_parsed_type_expr(
             parsed,
             authored_name=name,
@@ -1094,58 +1030,6 @@ class FrontendTypeEnvironment:
             expansion_stack=expansion_stack,
             local_type_params=local_type_params,
         )
-
-
-def _parsed_type_expr_contains_value(parsed: ParsedTypeExpr) -> bool:
-    """Return whether one parsed authored type contains exact ``Value``."""
-
-    if isinstance(parsed, NamedTypeExpr):
-        return parsed.name == "Value"
-    if isinstance(parsed, AppliedTypeExpr):
-        return any(_parsed_type_expr_contains_value(arg) for arg in parsed.args)
-    if isinstance(parsed, (OptionalTypeExpr, ListTypeExpr, ContextualTypeExpr)):
-        return _parsed_type_expr_contains_value(parsed.item_type)
-    if isinstance(parsed, MapTypeExpr):
-        return (
-            _parsed_type_expr_contains_value(parsed.key_type)
-            or _parsed_type_expr_contains_value(parsed.value_type)
-        )
-    if isinstance(parsed, (WorkflowRefTypeExpr, ProcRefTypeExpr)):
-        return (
-            any(
-                _parsed_type_expr_contains_value(param_type)
-                for param_type in parsed.param_types
-            )
-            or _parsed_type_expr_contains_value(parsed.return_type)
-        )
-    raise TypeError(f"unsupported parsed type expression: {type(parsed)!r}")
-
-
-def _parsed_type_expr_contains_contextual(parsed: ParsedTypeExpr) -> bool:
-    """Return whether one parsed authored type contains ``Contextual``."""
-
-    if isinstance(parsed, NamedTypeExpr):
-        return False
-    if isinstance(parsed, ContextualTypeExpr):
-        return True
-    if isinstance(parsed, AppliedTypeExpr):
-        return any(_parsed_type_expr_contains_contextual(arg) for arg in parsed.args)
-    if isinstance(parsed, (OptionalTypeExpr, ListTypeExpr)):
-        return _parsed_type_expr_contains_contextual(parsed.item_type)
-    if isinstance(parsed, MapTypeExpr):
-        return (
-            _parsed_type_expr_contains_contextual(parsed.key_type)
-            or _parsed_type_expr_contains_contextual(parsed.value_type)
-        )
-    if isinstance(parsed, (WorkflowRefTypeExpr, ProcRefTypeExpr)):
-        return (
-            any(
-                _parsed_type_expr_contains_contextual(param_type)
-                for param_type in parsed.param_types
-            )
-            or _parsed_type_expr_contains_contextual(parsed.return_type)
-        )
-    raise TypeError(f"unsupported parsed type expression: {type(parsed)!r}")
 
 
 def _resolve_parsed_type_expr(
@@ -1754,8 +1638,6 @@ def _record_refs_are_structural_contexts(expected: RecordTypeRef, actual: Record
 
 def _record_type_basename(type_ref: RecordTypeRef) -> str:
     return type_ref.definition.name.rsplit("::", 1)[-1].rsplit("/", 1)[-1]
-
-
 
 
 def _union_name_basename(name: str) -> str:

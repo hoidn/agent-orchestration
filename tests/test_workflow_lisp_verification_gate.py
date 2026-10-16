@@ -13,7 +13,7 @@ import pytest
 from orchestrator.workflow_lisp.compiler import compile_stage1_entrypoint
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.reader import read_sexpr_file
-from orchestrator.workflow_lisp.syntax import build_syntax_module
+from orchestrator.workflow_lisp.sexpr import ListExpr, SymbolAtom
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -108,7 +108,7 @@ def _assert_pending_import_fails(module_name: str, tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule demo/entry)",
                 f"  (import {module_name} :only (placeholder))",
                 "  (export LocalRecord)",
@@ -167,9 +167,26 @@ def _iter_checked_in_orc_fixtures(source: str) -> tuple[Path, ...]:
     return tuple(dict.fromkeys(path.resolve() for path in resolved))
 
 
+def _fixture_module_metadata(path: Path) -> tuple[str | None, tuple[str, ...]]:
+    # Inventory historical fixture data without asking the current compiler to admit it.
+    root = read_sexpr_file(path).items[0]
+    module_name = None
+    imports = []
+    for form in root.items[1:]:
+        if not isinstance(form, ListExpr) or len(form.items) < 2:
+            continue
+        head, name = form.items[:2]
+        if not isinstance(head, SymbolAtom) or not isinstance(name, SymbolAtom):
+            continue
+        if head.value == "defmodule":
+            module_name = name.value
+        elif head.value == "import":
+            imports.append(name.value)
+    return module_name, tuple(imports)
+
+
 def _infer_fixture_source_root(path: Path) -> Path:
-    syntax_module = build_syntax_module(read_sexpr_file(path))
-    module_name = syntax_module.module_name
+    module_name, _ = _fixture_module_metadata(path)
     if module_name is None:
         return path.parent
     expected_parts = Path(*module_name.split("/")).with_suffix(".orc").parts
@@ -198,11 +215,11 @@ def _iter_orc_fixture_import_closure(fixtures: tuple[Path, ...]) -> tuple[Path, 
         seen.add(fixture_path)
         resolved.append(fixture_path)
 
-        syntax_module = build_syntax_module(read_sexpr_file(fixture_path))
+        _, imports = _fixture_module_metadata(fixture_path)
         source_root = _infer_fixture_source_root(fixture_path)
-        for import_directive in syntax_module.imports:
+        for module_name in imports:
             imported_path = _resolve_local_fixture_import(
-                import_directive.module_name,
+                module_name,
                 source_root=source_root,
             )
             if imported_path is not None and imported_path not in seen:
@@ -450,7 +467,7 @@ def test_orc_fixture_import_closure_fails_on_transitive_pending_builtin(tmp_path
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule demo/entry)",
                 "  (import demo/helper :only (HelperRecord))",
                 "  (export EntryRecord)",
@@ -466,7 +483,7 @@ def test_orc_fixture_import_closure_fails_on_transitive_pending_builtin(tmp_path
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule demo/helper)",
                 "  (import std/resource :only (ResourceView))",
                 "  (export HelperRecord)",
@@ -499,3 +516,13 @@ def test_checked_in_gate_counted_suite_fixtures_do_not_import_pending_builtins()
             fixture_paths=_iter_checked_in_orc_fixture_closure(source),
             pending_modules=pending_modules,
         )
+
+
+def test_fixture_import_inventory_reads_retired_source_as_data() -> None:
+    path = REPO_ROOT / "tests/fixtures/workflow_lisp/retired_examples/review_revise_design_docs.orc"
+    before = path.read_bytes()
+    module, imports = _fixture_module_metadata(path)
+    assert module == "review_revise_design_docs"
+    assert "std/phase" in imports
+    assert _infer_fixture_source_root(path) == path.parent
+    assert path.read_bytes() == before

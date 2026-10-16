@@ -9,7 +9,7 @@ from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
-FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp" / "modules"
+FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp" / "current235" / "modules"
 VALID_ROOT = FIXTURES / "valid" / "imported_stdlib_macro_payload_helper_composition"
 VALID_ENTRY_FIXTURE = (
     VALID_ROOT / "imported_stdlib_macro_payload_helper_composition" / "entry.orc"
@@ -88,7 +88,7 @@ def _compile_entry_fixture(
         command_boundaries=command_boundaries or {},
         validate_shared=True,
         workspace_root=tmp_path,
-        lowering_route=None,
+
     )
 
 

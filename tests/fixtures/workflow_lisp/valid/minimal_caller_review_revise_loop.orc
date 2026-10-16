@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule minimal_caller_review_revise_loop)
   (import std/phase :only (ReviewDecision ReviewFindings ReviewFindingsJsonPath ReviewLoopResult ReviewReportPath review-revise-loop-proc))
   (defrecord MinimalCompleted)

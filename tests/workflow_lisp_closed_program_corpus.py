@@ -19,12 +19,14 @@ from orchestrator.workflow_lisp.command_boundaries import (
     ExternalToolBinding,
     PROMOTED_CALL_REQUIRED_METADATA_FIELDS,
 )
+from orchestrator.workflow_lisp.build import FrontendBuildRequest
+from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
 from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from orchestrator.workflow_lisp.closed.build import build_closed_program
 from orchestrator.contracts.closed_program.program import ClosedProgram, _sites_from_nodes
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.reader import read_sexpr_file
-from orchestrator.workflow_lisp.sexpr import KeywordAtom, ListExpr
+from orchestrator.workflow_lisp.sexpr import KeywordAtom, ListExpr, SymbolAtom, StringAtom
 from orchestrator.workflow_lisp.syntax import (
     build_syntax_module,
     syntax_node_datum,
@@ -134,28 +136,25 @@ def _source_owner(path: Path, module: str) -> Path:
 
 
 def corpus(repo_root: Path = REPO_ROOT) -> list[Workflow]:
-    """Enumerate exported workflow definitions through parsed syntax owners."""
-
+    """Inventory authored exports as data, including refused historical source."""
     found: list[Workflow] = []
     for relative_root in CORPUS_ROOTS:
-        root = repo_root / relative_root
-        for path in sorted(root.rglob("*.orc")):
-            module = build_syntax_module(read_sexpr_file(path))
-            if module.module_name is None:
+        for path in sorted((repo_root / relative_root).rglob("*.orc")):
+            root = read_sexpr_file(path).items[0]
+            forms = [form for form in root.items[1:] if isinstance(form, ListExpr)]
+            module = next((form.items[1].value for form in forms
+                if len(form.items) > 1 and isinstance(form.items[0], SymbolAtom)
+                and form.items[0].value == "defmodule"), None)
+            if module is None:
                 continue
-            definitions: set[str] = set()
-            for form in module.forms:
-                if syntax_head_name(syntax_node_datum(form)) != "defworkflow":
-                    continue
-                datum = syntax_node_datum(form)
-                if len(datum.items) > 1 and isinstance(datum.items[1], syntax.SyntaxIdentifier):
-                    definitions.add(datum.items[1].display_name)
-            owner = _source_owner(path, module.module_name)
-            found.extend(
-                Workflow(path, owner, module.module_name, name)
-                for name in module.exports
-                if name in definitions
-            )
+            definitions = {form.items[1].value for form in forms
+                if len(form.items) > 1 and isinstance(form.items[0], SymbolAtom)
+                and form.items[0].value == "defworkflow"}
+            exports = [item.value for form in forms
+                if form.items and isinstance(form.items[0], SymbolAtom)
+                and form.items[0].value == "export" for item in form.items[1:]]
+            owner = _source_owner(path, module)
+            found.extend(Workflow(path, owner, module, name) for name in exports if name in definitions)
     return sorted(found, key=lambda row: (row.source.as_posix(), row.name))
 
 
@@ -538,26 +537,16 @@ def _target_form(source: Path):
 
 
 def target_dsl_version(source: Path) -> str:
-    return build_syntax_module(read_sexpr_file(source)).target_dsl_version
+    """Read an authored header as corpus data without admitting its source."""
+    value = _target_form(source).items[1]
+    assert isinstance(value, StringAtom)
+    return value.value
 
 
-def entry_with_target(source: Path, target: str) -> str:
-    target_form = _target_form(source)
-    start, end = target_form.span.start.offset, target_form.span.end.offset
-    text = source.read_text(encoding="utf-8")
-    replacement = f'(:target-dsl "{target}")'
-    return text[:start] + replacement + text[end:]
 
 
-def _replace_entry_target(source: Path, destination: Path) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    target = target_dsl_version(source)
-    if not syntax.target_dsl_uses_evaluated_execution(target):
-        target = syntax.EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
-    destination.write_text(
-        entry_with_target(source, target),
-        encoding="utf-8",
-    )
+
+
 
 
 def prepare(workflow: Workflow, scratch: Path, *, source_fixture: Path | None = None,
@@ -570,7 +559,7 @@ def prepare(workflow: Workflow, scratch: Path, *, source_fixture: Path | None = 
     shutil.copytree(workflow.source_root, destination_root)
     source_relative = workflow.source.relative_to(workflow.source_root)
     entry = destination_root / source_relative
-    _replace_entry_target(source_fixture or workflow.source, entry)
+    shutil.copy2(source_fixture or workflow.source, entry)
     roots = [destination_root]
     library = REPO_ROOT / "workflows/library"
     library_copy: Path | None = None
@@ -774,6 +763,22 @@ def compile(prepared: Prepared):
 
 
 def try_build(workflow: Workflow, scratch: Path) -> BuildResult:
+    if not syntax.target_dsl_uses_evaluated_execution(target_dsl_version(workflow.source)):
+        original = workflow.source.read_bytes()
+        workspace_before = {path.relative_to(scratch): path.read_bytes()
+            for path in scratch.rglob("*") if path.is_file()}
+        try:
+            build_closed_program_bundle(FrontendBuildRequest(source_path=workflow.source,
+                entry_workflow=workflow.canonical_name, source_roots=(workflow.source_root,),
+                workspace_root=scratch))
+        except LispFrontendCompileError as exc:
+            diagnostic = exc.diagnostics[0]
+            assert diagnostic.code == "workflow_execution_target_retired"
+            assert workflow.source.read_bytes() == original
+            assert {path.relative_to(scratch): path.read_bytes()
+                for path in scratch.rglob("*") if path.is_file()} == workspace_before
+            return BuildResult(Refused(diagnostic.code), diagnostic=diagnostic)
+        raise AssertionError("historical source was admitted")
     try:
         prepared = prepare(workflow, scratch)
     except NotSynthesizableError as exc:

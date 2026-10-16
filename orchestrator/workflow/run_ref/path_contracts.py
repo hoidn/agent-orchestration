@@ -6,10 +6,7 @@ import json
 from typing import Mapping
 
 from orchestrator.contracts.closed_program.program import ClosedProgram
-from orchestrator.contracts.closed_program.targets import (
-    target_dsl_supports_nested_structural_transport,
-    target_dsl_uses_evaluated_execution,
-)
+from orchestrator.contracts.closed_program.targets import target_dsl_uses_evaluated_execution
 from orchestrator.workflow.evaluated.machine import site_classes
 
 from .config import PathProgram, RunRefInput
@@ -80,12 +77,8 @@ def _signature_mismatch_causes(
     signature: Mapping[str, object],
     configured_inputs: tuple[RunRefInput, ...],
     program: PathProgram,
-    *,
-    target_dsl_version: str = "2.24",
 ) -> tuple[str, ...]:
-    allow_nested_structures = target_dsl_supports_nested_structural_transport(
-        target_dsl_version
-    )
+
     expected_rows = signature["inputs"]
     if not isinstance(expected_rows, list):
         return ("signature_inputs_malformed",)
@@ -98,7 +91,7 @@ def _signature_mismatch_causes(
         descriptor = row.get("type")
         if not isinstance(descriptor, Mapping) or not is_transportable_type_descriptor(
             descriptor,
-            allow_nested_structures=allow_nested_structures,
+            allow_nested_structures=True,
         ):
             causes.append(f"input_nontransportable:{name}")
         configured = configured_by_name.get(name)
@@ -115,7 +108,7 @@ def _signature_mismatch_causes(
     return_descriptor = signature.get("return")
     if not isinstance(return_descriptor, Mapping) or not is_transportable_type_descriptor(
         return_descriptor,
-        allow_nested_structures=allow_nested_structures,
+        allow_nested_structures=True,
     ):
         causes.append("return_nontransportable")
     return_claim = program.return_refinement or _VALUE_DESCRIPTOR
@@ -161,8 +154,7 @@ def closed_program_signature(program):
 def _require_closed_signature(program, step_config):
     signature = closed_program_signature(program)
     causes = _signature_mismatch_causes(signature, step_config.run_ref.inputs,
-                                       step_config.run_ref.program,
-                                       target_dsl_version=program.tree["target"])
+                                       step_config.run_ref.program)
     if causes:
         raise _refuse("trial_program_signature_mismatch",
                       {"program": step_config.run_ref.program.record, "signature": signature,

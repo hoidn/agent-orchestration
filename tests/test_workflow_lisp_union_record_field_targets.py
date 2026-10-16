@@ -1,17 +1,4 @@
-"""A union variant's record field filled from a bound name, by target.
-
-Owner decision D2 (Ruling 7 in the CF-1b ledger): targets up to 2.32 do not
-change what they accept.
-
-- Below 2.29 the field is rejected everywhere, at compile time, with
-  `workflow_return_not_exportable` at the variant expression.
-- At 2.29 to 2.32 it is rejected only where the variant is a loop result
-  (`done` or `:on-exhausted`); elsewhere, for example a variant built from a
-  `let*`-bound name, it compiles and runs.
-- At 2.33 it is accepted as a loop result too.
-
-Hooks are command-backed probes.
-"""
+"""Current union variant record fields preserve bound values inside and outside loops."""
 
 from __future__ import annotations
 
@@ -37,7 +24,7 @@ print(json.dumps(payload))
 
 SOURCE = """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "TARGET")
+  (:target-dsl "2.35")
   (defmodule tgt/entry)
   (export run)
   (defrecord Candidate (title String) (score Int))
@@ -67,7 +54,7 @@ BOUND = "state.current"
 ON_EXHAUSTED_VARIANT = "(variant Result EXHAUSTED"
 DONE_VARIANT = "(variant Result APPROVED"
 
-# placement -> (:on-exhausted value, done value, the variant the pre-2.33 rejection names)
+# Placement selects the two current loop result shapes.
 PLACEMENTS = {
     "on-exhausted": (BOUND, REBUILT, ON_EXHAUSTED_VARIANT),
     "done": (REBUILT, BOUND, DONE_VARIANT),
@@ -75,13 +62,12 @@ PLACEMENTS = {
 }
 
 
-def _write_program(root: Path, *, target: str, placement: str, limit: int) -> tuple[Path, Path]:
+def _write_program(root: Path, *, placement: str, limit: int) -> tuple[Path, Path]:
     probe = root / "probe_check.py"
     probe.write_text(PROBE, encoding="utf-8")
     exhausted_value, done_value, _ = PLACEMENTS[placement]
     source = (
-        SOURCE.replace("TARGET", target)
-        .replace("LIMIT", str(limit))
+        SOURCE.replace("LIMIT", str(limit))
         .replace("PROBE_PATH", probe.as_posix())
         .replace("EXHAUSTED_VALUE", exhausted_value)
         .replace("DONE_VALUE", done_value)
@@ -92,8 +78,8 @@ def _write_program(root: Path, *, target: str, placement: str, limit: int) -> tu
     return entry, probe
 
 
-def _compile(root: Path, *, target: str, placement: str, limit: int = 1):
-    entry, probe = _write_program(root, target=target, placement=placement, limit=limit)
+def _compile(root: Path, *, placement: str, limit: int = 1):
+    entry, probe = _write_program(root, placement=placement, limit=limit)
     return compile_stage3_entrypoint(
         entry,
         source_roots=(root,),
@@ -102,7 +88,7 @@ def _compile(root: Path, *, target: str, placement: str, limit: int = 1):
         command_boundaries={"probe_check": ExternalToolBinding(name="probe_check", stable_command=("python", probe.as_posix()))},
         validate_shared=True,
         workspace_root=root,
-        lowering_route=None,
+
     )
 
 
@@ -121,20 +107,19 @@ def _location_of(entry: Path, marker: str) -> tuple[str, int, int]:
     [(1, "EXHAUSTED"), (2, "APPROVED")],
     ids=["exhausted", "approved"],
 )
-def test_target_233_types_a_record_field_filled_from_a_bound_name(
+def test_current_target_types_a_record_field_filled_from_a_bound_name(
     tmp_path: Path, placement: str, limit: int, expected_variant: str
 ) -> None:
-    result = _compile(tmp_path, target="2.33", placement=placement, limit=limit)
+    result = _compile(tmp_path, placement=placement, limit=limit)
     workflow = result.entry_result.typed_program.workflows["tgt/entry::run"]
     assert workflow.signature.return_type_ref.name == "Result"
     assert workflow.typed_body.type_ref == workflow.signature.return_type_ref
 
 
-@pytest.mark.parametrize("target", ["2.29", "2.32"])
-def test_targets_229_to_232_type_a_variant_outside_a_loop_filled_from_a_bound_name(tmp_path: Path, target: str) -> None:
+def test_current_target_types_a_variant_outside_a_loop_filled_from_a_bound_name(tmp_path: Path) -> None:
     entry = tmp_path / "tgt" / "entry.orc"
     entry.parent.mkdir(parents=True)
-    entry.write_text(NON_LOOP_SOURCE.replace("TARGET", target), encoding="utf-8")
+    entry.write_text(NON_LOOP_SOURCE, encoding="utf-8")
     result = compile_stage3_entrypoint(
         entry,
         source_roots=(tmp_path,),
@@ -143,7 +128,7 @@ def test_targets_229_to_232_type_a_variant_outside_a_loop_filled_from_a_bound_na
         command_boundaries={},
         validate_shared=True,
         workspace_root=tmp_path,
-        lowering_route=None,
+
     )
 
     workflow = result.entry_result.typed_program.workflows["tgt/entry::run"]

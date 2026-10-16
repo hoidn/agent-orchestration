@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.33")
+  (:target-dsl "2.35")
   (defmodule guide_shapes/loop_in_called_workflow)
   (export run)
   (defrecord Box (n Int))

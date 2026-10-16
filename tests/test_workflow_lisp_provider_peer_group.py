@@ -138,16 +138,16 @@ def _provider_result(
     )
 
 
-def test_provider_peer_group_target_217_is_accepted_by_reader_and_shared_validator(
+def test_provider_peer_group_current_source_is_accepted_by_reader_and_shared_validator(
     tmp_path: Path,
 ) -> None:
     module = build_syntax_module(
         read_sexpr_text(
-            _module_source("2.17", "(defenum Approval APPROVE)"),
+            _module_source("2.35", "(defenum Approval APPROVE)"),
             source_path="target_2_17.orc",
         )
     )
-    assert module.target_dsl_version == "2.17"
+    assert module.target_dsl_version == "2.35"
 
 
 
@@ -313,51 +313,15 @@ def test_with_live_provider_peers_has_reserved_static_registry_route() -> None:
     assert spec.macro_bindable is False
 
 
-def test_target_216_allows_macro_with_future_peer_form_spelling(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "target-216-peer-spelling.orc"
-    path.write_text(
-        _module_source(
-            "2.16",
-            "(defmacro with-live-provider-peers (value) value)",
-            (
-                "(defworkflow orchestrate () -> String "
-                '(with-live-provider-peers "ok"))'
-            ),
-        ),
-        encoding="utf-8",
-    )
-
-    syntax_module = build_syntax_module(
-        read_sexpr_text(
-            path.read_text(encoding="utf-8"),
-            source_path=str(path),
-        )
-    )
-    catalog = macro_module.collect_macro_catalog(syntax_module)
-    assert "with-live-provider-peers" in catalog.definitions_by_name
-    expanded = macro_module.expand_module_forms(
-        syntax_module,
-        catalog=catalog,
-    )
-    workflow = elaborate_workflow_definitions(expanded)[0]
-    expr = elaborate_expression(
-        workflow.body,
-        bound_names=frozenset(),
-    )
-
-    assert isinstance(expr, expression_module.LiteralExpr)
-    assert expr.value == "ok"
 
 
-def test_target_217_reserves_peer_form_against_macro_shadowing(
+def test_current_source_reserves_peer_form_against_macro_shadowing(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "target-217-peer-spelling.orc"
     path.write_text(
         _module_source(
-            "2.17",
+            "2.35",
             "(defmacro with-live-provider-peers (value) value)",
         ),
         encoding="utf-8",
@@ -369,173 +333,26 @@ def test_target_217_reserves_peer_form_against_macro_shadowing(
     assert excinfo.value.diagnostics[0].code == "macro_reserved_name"
 
 
-def test_target_217_rejects_bare_imported_legacy_peer_macro() -> None:
-    legacy_module = build_syntax_module(
-        read_sexpr_text(
-            _module_source(
-                "2.16",
-                "(defmacro with-live-provider-peers (value) value)",
-            ),
-            source_path="legacy_peer_macro.orc",
-        )
-    )
-    legacy_macro = macro_module.collect_macro_catalog(
-        legacy_module
-    ).definitions_by_name["with-live-provider-peers"]
-    consumer_module = build_syntax_module(
-        read_sexpr_text(
-            _module_source("2.17"),
-            source_path="peer_macro_consumer.orc",
-        )
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        macro_module.collect_macro_catalog_with_imports(
-            consumer_module,
-            imported_definitions={
-                "with-live-provider-peers": legacy_macro,
-            },
-        )
-
-    assert excinfo.value.diagnostics[0].code == "macro_reserved_name"
 
 
-@pytest.mark.parametrize(
-    "accessible_name",
-    (
-        "legacy.with-live-provider-peers",
-        "legacy/module/with-live-provider-peers",
-    ),
-)
-def test_target_217_allows_qualified_imported_legacy_peer_macro(
-    accessible_name: str,
-) -> None:
-    legacy_module = build_syntax_module(
-        read_sexpr_text(
-            _module_source(
-                "2.16",
-                "(defmacro with-live-provider-peers (value) value)",
-            ),
-            source_path="legacy_qualified_peer_macro.orc",
-        )
-    )
-    legacy_macro = macro_module.collect_macro_catalog(
-        legacy_module
-    ).definitions_by_name["with-live-provider-peers"]
-    consumer_module = build_syntax_module(
-        read_sexpr_text(
-            _module_source(
-                "2.17",
-                (
-                    "(defworkflow orchestrate () -> String "
-                    f'({accessible_name} "ok"))'
-                ),
-            ),
-            source_path="qualified_peer_macro_consumer.orc",
-        )
-    )
-
-    catalog = macro_module.collect_macro_catalog_with_imports(
-        consumer_module,
-        imported_definitions={accessible_name: legacy_macro},
-    )
-    expanded = macro_module.expand_module_forms(
-        consumer_module,
-        catalog=catalog,
-    )
-    workflow = elaborate_workflow_definitions(expanded)[0]
-    expr = elaborate_expression(
-        workflow.body,
-        bound_names=frozenset(),
-        target_dsl_version="2.17",
-    )
-
-    assert catalog.definitions_by_name[accessible_name] is legacy_macro
-    assert isinstance(expr, expression_module.LiteralExpr)
-    assert expr.value == "ok"
 
 
-def test_target_216_nested_legacy_peer_macro_keeps_generic_hygiene() -> None:
-    syntax_module = build_syntax_module(
-        read_sexpr_text(
-            _module_source(
-                "2.16",
-                (
-                    "(defmacro with-live-provider-peers "
-                    "(bindings body) body)"
-                ),
-                (
-                    "(defmacro wrap () "
-                    "(with-live-provider-peers "
-                    '((input "p") (other "q")) input))'
-                ),
-                (
-                    "(defworkflow run ((input String)) "
-                    "-> String (wrap))"
-                ),
-            ),
-            source_path="nested_legacy_peer_macro.orc",
-        )
-    )
-    expanded = macro_module.expand_module_forms(
-        syntax_module,
-        catalog=macro_module.collect_macro_catalog(syntax_module),
-    )
-    workflow = elaborate_workflow_definitions(expanded)[0]
-    expr = elaborate_expression(
-        workflow.body,
-        bound_names=frozenset({"input"}),
-        target_dsl_version="2.16",
-    )
-    typed = typecheck_expression(
-        expr,
-        type_env=_type_environment("2.16"),
-        value_env={"input": PrimitiveTypeRef(name="String")},
-    )
-
-    assert isinstance(expr, expression_module.NameExpr)
-    assert expr.name == "input"
-    assert typed.type_ref == PrimitiveTypeRef(name="String")
 
 
-@pytest.mark.parametrize(
-    ("callable_names_arg", "expected_type"),
-    (
-        ("function_names", expression_module.FunctionCallExpr),
-        ("procedure_names", expression_module.ProcedureCallExpr),
-    ),
-)
-def test_target_216_legacy_peer_spelling_dispatches_to_known_callable(
-    callable_names_arg: str,
-    expected_type,
-) -> None:
-    expr = elaborate_expression(
-        _expression('(with-live-provider-peers "ok")'),
-        bound_names=frozenset(),
-        target_dsl_version="2.16",
-        **{
-            callable_names_arg: frozenset(
-                {"with-live-provider-peers"}
-            )
-        },
-    )
-
-    assert isinstance(expr, expected_type)
-    assert expr.callee_name == "with-live-provider-peers"
 
 
 @pytest.mark.parametrize(
     "callable_names_arg",
     ("function_names", "procedure_names"),
 )
-def test_target_217_peer_core_form_stays_unshadowable_by_callable(
+def test_current_source_peer_core_form_stays_unshadowable_by_callable(
     callable_names_arg: str,
 ) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         elaborate_expression(
             _expression('(with-live-provider-peers "ok")'),
             bound_names=frozenset(),
-            target_dsl_version="2.17",
+            target_dsl_version="2.35",
             **{
                 callable_names_arg: frozenset(
                     {"with-live-provider-peers"}
@@ -549,24 +366,15 @@ def test_target_217_peer_core_form_stays_unshadowable_by_callable(
     )
 
 
-def test_target_216_legacy_peer_spelling_dispatches_to_bound_proc_ref() -> None:
-    expr = elaborate_expression(
-        _expression('(with-live-provider-peers "ok")'),
-        bound_names=frozenset({"with-live-provider-peers"}),
-        target_dsl_version="2.16",
-    )
-
-    assert isinstance(expr, expression_module.ProcedureCallExpr)
-    assert expr.callee_name == "with-live-provider-peers"
 
 
-def test_target_217_peer_core_form_stays_unshadowable_by_bound_proc_ref(
+def test_current_source_peer_core_form_stays_unshadowable_by_bound_proc_ref(
 ) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         elaborate_expression(
             _expression('(with-live-provider-peers "ok")'),
             bound_names=frozenset({"with-live-provider-peers"}),
-            target_dsl_version="2.17",
+            target_dsl_version="2.35",
         )
 
     assert (
@@ -575,46 +383,6 @@ def test_target_217_peer_core_form_stays_unshadowable_by_bound_proc_ref(
     )
 
 
-@pytest.mark.parametrize(
-    "callable_definition",
-    (
-        (
-            "(defun with-live-provider-peers "
-            "((value String)) -> String value)"
-        ),
-        (
-            "(defproc with-live-provider-peers "
-            "((value String)) -> String "
-            ":effects () :lowering inline value)"
-        ),
-    ),
-)
-def test_target_216_compiler_calls_legacy_peer_spelling_callable(
-    tmp_path: Path,
-    callable_definition: str,
-) -> None:
-    path = tmp_path / "target_216_legacy_peer_callable.orc"
-    path.write_text(
-        _module_source(
-            "2.16",
-            callable_definition,
-            (
-                "(defworkflow orchestrate () -> String "
-                '(with-live-provider-peers "ok"))'
-            ),
-        ),
-        encoding="utf-8",
-    )
-
-    result = compile_stage3_module(
-        path,
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    assert result.typed_workflows[0].typed_body.type_ref == (
-        PrimitiveTypeRef(name="String")
-    )
 
 
 def _let_proc_escape_analysis_peer_callable_source(
@@ -671,57 +439,16 @@ def _let_proc_escape_analysis_cross_kind_source(target_dsl: str) -> str:
     )
 
 
-@pytest.mark.parametrize("callable_kind", ("defproc", "defun"))
-def test_target_216_let_proc_escape_analysis_keeps_legacy_peer_callable(
-    tmp_path: Path,
-    callable_kind: str,
-) -> None:
-    path = tmp_path / "target_216_let_proc_peer_callable.orc"
-    path.write_text(
-        _let_proc_escape_analysis_peer_callable_source(
-            "2.16",
-            callable_kind,
-        ),
-        encoding="utf-8",
-    )
-
-    result = compile_stage3_module(
-        path,
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    assert result.typed_workflows[0].typed_body.type_ref == (
-        PrimitiveTypeRef(name="String")
-    )
 
 
-def test_target_216_let_proc_escape_analysis_resolves_function_from_defproc(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "target_216_let_proc_cross_kind_callable.orc"
-    path.write_text(
-        _let_proc_escape_analysis_cross_kind_source("2.16"),
-        encoding="utf-8",
-    )
-
-    result = compile_stage3_module(
-        path,
-        validate_shared=False,
-        workspace_root=tmp_path,
-    )
-
-    assert result.typed_workflows[0].typed_body.type_ref == (
-        PrimitiveTypeRef(name="String")
-    )
 
 
-def test_target_217_let_proc_escape_analysis_keeps_cross_kind_core_unshadowable(
+def test_current_source_let_proc_escape_analysis_keeps_cross_kind_core_unshadowable(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "target_217_let_proc_cross_kind_core.orc"
     path.write_text(
-        _let_proc_escape_analysis_cross_kind_source("2.17"),
+        _let_proc_escape_analysis_cross_kind_source("2.35"),
         encoding="utf-8",
     )
 
@@ -739,14 +466,14 @@ def test_target_217_let_proc_escape_analysis_keeps_cross_kind_core_unshadowable(
 
 
 @pytest.mark.parametrize("callable_kind", ("defproc", "defun"))
-def test_target_217_let_proc_escape_analysis_keeps_peer_core_unshadowable(
+def test_current_source_let_proc_escape_analysis_keeps_peer_core_unshadowable(
     tmp_path: Path,
     callable_kind: str,
 ) -> None:
     path = tmp_path / "target_217_let_proc_peer_core.orc"
     path.write_text(
         _let_proc_escape_analysis_peer_callable_source(
-            "2.17",
+            "2.35",
             callable_kind,
         ),
         encoding="utf-8",
@@ -769,7 +496,7 @@ def test_target_217_let_proc_escape_analysis_keeps_peer_core_unshadowable(
     ("target_dsl", "group_expression"),
     (
         (
-            "2.16",
+            "2.35",
             (
                 "(with-live-providers "
                 "((worker "
@@ -784,7 +511,7 @@ def test_target_217_let_proc_escape_analysis_keeps_peer_core_unshadowable(
             ),
         ),
         (
-            "2.17",
+            "2.35",
             (
                 "(with-live-provider-peers "
                 "((planner "
@@ -844,7 +571,7 @@ def test_with_live_provider_peers_macro_hygiene_renames_all_binders_and_body(
     syntax_module = build_syntax_module(
         read_sexpr_text(
             _module_source(
-                "2.17",
+                "2.35",
                 (
                     "(defmacro define-team (name) "
                     "(defworkflow name () -> String "
@@ -885,24 +612,6 @@ def test_with_live_provider_peers_macro_hygiene_renames_all_binders_and_body(
     assert group.body.name == names[1]
 
 
-def test_with_live_provider_peers_target_216_rejects_at_type_gate() -> None:
-    expr = _elaborate_peers(
-        "(with-live-provider-peers "
-        '((planner "plan") (reviewer "review")) '
-        "planner)"
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        typecheck_expression(
-            expr,
-            type_env=_type_environment("2.16"),
-            value_env={},
-        )
-
-    assert (
-        excinfo.value.diagnostics[0].code
-        == "provider_peer_messaging_target_dsl_unsupported"
-    )
 
 
 def test_live_provider_peer_members_do_not_see_sibling_results() -> None:
@@ -915,7 +624,7 @@ def test_live_provider_peer_members_do_not_see_sibling_results() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         typecheck_expression(
             expr,
-            type_env=_type_environment("2.17"),
+            type_env=_type_environment("2.35"),
             value_env={},
         )
 
@@ -934,7 +643,7 @@ def test_live_provider_peers_preserve_member_effects_and_authored_order(
 
     typed = typecheck_expression(
         expr,
-        type_env=_type_environment("2.17"),
+        type_env=_type_environment("2.35"),
         value_env={},
         extern_environment=_peer_extern_environment(),
     )
@@ -982,7 +691,7 @@ def test_live_provider_peers_type_pure_settlement_over_all_results() -> None:
     typed = typecheck_expression(
         expr,
         type_env=_type_environment(
-            "2.17",
+            "2.35",
             "(defrecord TeamResult (plan String) (approved Bool))",
         ),
         value_env={
@@ -1006,7 +715,7 @@ def test_live_provider_peers_reject_nontransportable_member_result() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         typecheck_expression(
             expr,
-            type_env=_type_environment("2.17"),
+            type_env=_type_environment("2.35"),
             value_env={
                 "opaque": PrimitiveTypeRef(name="Json"),
                 "review_value": PrimitiveTypeRef(name="String"),
@@ -1023,7 +732,7 @@ def test_live_provider_peers_reject_nontransportable_settlement() -> None:
     syntax_module = build_syntax_module(
         read_sexpr_text(
             _module_source(
-                "2.17",
+                "2.35",
                 (
                     "(defproc settle () -> String "
                     ':effects () :lowering inline "done")'
@@ -1074,7 +783,7 @@ def test_live_provider_peers_reject_outer_settlement_capture() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         typecheck_expression(
             expr,
-            type_env=_type_environment("2.17"),
+            type_env=_type_environment("2.35"),
             value_env={"outer": PrimitiveTypeRef(name="String")},
         )
 
@@ -1091,7 +800,7 @@ def test_live_provider_peers_reject_effectful_settlement() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         typecheck_expression(
             expr,
-            type_env=_type_environment("2.17"),
+            type_env=_type_environment("2.35"),
             value_env={},
             extern_environment=_peer_extern_environment(),
         )
@@ -1107,7 +816,7 @@ def test_live_provider_peers_reject_effect_free_procedure_settlement_edge(
     syntax_module = build_syntax_module(
         read_sexpr_text(
             _module_source(
-                "2.17",
+                "2.35",
                 (
                     "(defproc settle () -> String "
                     ':effects () :lowering inline "done")'
@@ -1168,7 +877,7 @@ def test_live_provider_peer_type_boundary_rejects_transformed_duplicate(
                     replace(reviewer, name=planner.name),
                 ),
             ),
-            type_env=_type_environment("2.17"),
+            type_env=_type_environment("2.35"),
             value_env={},
         )
 
@@ -1182,7 +891,7 @@ def _typed_identity_function():
     syntax_module = build_syntax_module(
         read_sexpr_text(
             _module_source(
-                "2.17",
+                "2.35",
                 "(defun identity ((value String)) -> String value)",
             ),
             source_path="provider_peer_function_normalization.orc",

@@ -122,8 +122,8 @@ def test_authorized_path_child_uses_ordinary_closed_build(tmp_path, monkeypatch,
         assert len(prepared) == 1
         build = prepared[0]
         workspace = fixture.materialized_source.workspace_path
-        assert (build.source_roots, build.entry_workflow, build.boundary_admission_profile,
-                build.lowering_route) == ((workspace,), "run", None, None)
+        assert (build.source_roots, build.entry_workflow, build.boundary_admission_profile) == (
+            (workspace,), "run", None)
         assert (build.provider_externs_path, build.prompt_externs_path,
                 build.imported_workflow_bundles_path, build.command_boundaries_path) == (None,) * 4
         root = workspace / ".orchestrate" / "runs" / document["child_run_id"]
@@ -336,17 +336,17 @@ def test_closed_child_allows_pure_procedure(tmp_path, monkeypatch, capsys):
         assert returned["workflow_outputs"] == {"__result__": "mode2-child-input"}
 
 
-def test_old_import_graph_matches_public_closed_admission(tmp_path, monkeypatch, capsys):
+def test_import_graph_matches_public_closed_type_refusal(tmp_path, monkeypatch, capsys):
     from orchestrator.cli.commands.compile import compile_workflow
     from orchestrator.cli.main import create_parser
 
-    old = '''(workflow-lisp (:language "0.1") (:target-dsl "2.24")
+    old = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
       (defmodule old) (export choose Choice)
       (defunion Choice (KEEP (value String)) (DROP))
       (defworkflow choose ((payload Choice)) -> String
-        (match payload (KEEP (value) value) (DROP () "drop"))))'''
+        (match payload ((KEEP kept) kept.value) ((DROP dropped) "drop"))))'''
     source = _closed_source(import_form="(import old :only (choose Choice))",
-                            body="(call choose :payload (variant Choice KEEP :value payload))")
+                            body="(call choose :payload payload)")
     monkeypatch.setattr(caller, "_build_path_fixture", lambda root:
         _closed_source_fixture(root, source, {"old.orc": old}))
     with caller._checked_launch_fixture(tmp_path) as (_request, fixture, document, owner):
@@ -359,7 +359,7 @@ def test_old_import_graph_matches_public_closed_admission(tmp_path, monkeypatch,
         assert child.main(["--path-request", fixture.request_path.as_posix(), "--parent-root-fd", str(owner.root_fd)]) == 2
         private = json.loads(capsys.readouterr().err)["compile_diagnostics"]
         assert public["status"] == private["status"] == "rejected"
-        assert [row["code"] for row in public["diagnostics"]] == [row["code"] for row in private["diagnostics"]] == ["workflow_boundary_type_invalid"]
+        assert [row["code"] for row in public["diagnostics"]] == [row["code"] for row in private["diagnostics"]] == ["type_mismatch"]
         assert not (fixture.state_dir / document["child_run_id"]).exists()
 
 

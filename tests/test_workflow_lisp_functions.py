@@ -30,7 +30,6 @@ def _compiler_module():
 
 
 def compile_stage3_module(*args, **kwargs):
-    kwargs.setdefault("lowering_route", "legacy")
     return _compile_stage3_module(*args, **kwargs)
 
 
@@ -52,7 +51,7 @@ def _compile(path: Path, *, tmp_path: Path):
                 stable_command=("python", "scripts/run_checks.py"),
             )
         },
-        lowering_route="legacy",
+
         validate_shared=False,
         workspace_root=tmp_path,
     )
@@ -135,7 +134,7 @@ def test_elaborate_function_return_spec(return_source: str, has_guidance: bool) 
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.15")',
+                '  (:target-dsl "2.35")',
                 f"  (defun approved () -> {return_source} true))",
             ]
         )
@@ -157,7 +156,7 @@ def test_function_definition_stores_only_canonical_return_spec() -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.15")',
+                '  (:target-dsl "2.35")',
                 '  (defun approved () -> (result Bool :description "No blockers remain.") true))',
             ]
         )
@@ -182,7 +181,7 @@ def test_elaborate_function_rejects_result_annotation_in_parameter_position() ->
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.15")',
+                    '  (:target-dsl "2.35")',
                     "  (defun approved ((value (result Bool))) -> Bool value))",
                 ]
             )
@@ -217,7 +216,7 @@ def test_build_function_catalog_registers_local_helpers_before_body_checking() -
 def test_compile_stage3_supports_helper_forward_references(tmp_path: Path) -> None:
     result = _compile(VALID_FIXTURES / "defun_forward_ref.orc", tmp_path=tmp_path)
 
-    assert result.typed_workflows[0].definition.name == "orchestrate"
+    assert result.typed_workflows[0].definition.name == 'entry::orchestrate'
 
 
 def test_compile_stage3_rejects_helper_return_type_mismatches(tmp_path: Path) -> None:
@@ -227,7 +226,7 @@ def test_compile_stage3_rejects_helper_return_type_mismatches(tmp_path: Path) ->
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -326,7 +325,7 @@ def test_find_purity_violation_allows_pure_cond_body() -> None:
             form_path=("workflow-lisp", "defun", "summarize"),
         ),
         bound_names=frozenset(),
-        target_dsl_version="2.26",
+        target_dsl_version="2.35",
     )
 
     assert functions._find_purity_violation(expr) is None
@@ -348,7 +347,7 @@ def test_find_purity_violation_flags_effectful_cond_clause_child() -> None:
         ),
         bound_names=frozenset(),
         procedure_names=frozenset({"dispatch"}),
-        target_dsl_version="2.26",
+        target_dsl_version="2.35",
     )
 
     assert functions._find_purity_violation(expr) == "defproc"
@@ -390,7 +389,7 @@ def test_compile_stage3_normalizes_helper_calls_inside_if(tmp_path: Path) -> Non
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -446,7 +445,7 @@ def test_function_dependency_walker_descends_through_if_expr(tmp_path: Path) -> 
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',

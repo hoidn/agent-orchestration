@@ -1,25 +1,7 @@
-"""Generated programs and their classification for `tests/test_workflow_lisp_totality_matrix.py`.
+"""Current235 programs for the form, placement and helper-locality matrix.
 
-One program per cell: form, position, helper locality (calls only), and target.
-Original names retain target 2.33; `t234:` aliases select 2.34. `inline:` and
-`imported:` vary the selected outer helper, preserving its effects and value.
-Contract: docs/design/workflow_lisp_core_calculus_middle_end.md section 9
-(elaboration totality: a program that passes typecheck elaborates, normalizes
-and defunctionalizes; any restriction is a typecheck diagnostic that names it).
-Case letters refer to docs/reports/2026-09-29-workflow-lisp-value-effect-separation-decision-brief.md,
-section 2.1.
-
-Every effect is a command-backed procedure. All commands run one probe script,
-which appends `<command> <arg>` to `probe.log`, so a test can assert the ordered
-command log of the whole run.
-
-Each form has one type. The calls that the brief's cases a and c are about
-return unions, so they can be `match` subjects; the command-backed calls and
-the pure `match` return a record, so that they reach cases b and d.
-
-Each known-defect cell records how it fails (`KNOWN_DEFECTS`): exit code,
-diagnostic code or exception type, and stage (`STAGES`). The test asserts it
-before the cell counts as its defect.
+The legacy classification tables below are captured data. Current admission,
+values and ordered command logs are asserted by test_workflow_evaluated_totality.
 """
 
 from __future__ import annotations
@@ -29,7 +11,7 @@ from dataclasses import dataclass, replace
 from tests import workflow_lisp_totality_matrix_extensions as regressions
 from tests import workflow_lisp_totality_matrix_locality as locality
 
-HEADER = '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.33")\n'
+HEADER = '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.35")\n'
 
 PROBE = """import json, os, sys
 from pathlib import Path
@@ -417,7 +399,7 @@ def program(form_name: str, position_name: str, probe: str) -> dict[str, str]:
     if form.lib:
         sources["grt/lib.orc"] = LIB.format(probe=probe)
     sources.update(locality.additional_sources(form_name, FORMS, HEADER, probe))
-    return locality.retarget(sources, target)
+    return sources
 
 
 def expected(form_name: str, position_name: str) -> tuple[dict[str, object], list[str]]:

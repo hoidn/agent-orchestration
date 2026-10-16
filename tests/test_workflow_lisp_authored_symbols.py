@@ -32,7 +32,7 @@ def compiled_fixture():
         source_roots=(FIXTURE_ROOT,),
         validate_shared=False,
         workspace_root=FIXTURE_ROOT,
-        lowering_route="legacy",
+
     )
     source = linked.graph.modules_by_name[linked.graph.entry_module_name]
     return ENTRYPOINT.read_text(encoding="utf-8"), source, linked.entry_result
@@ -474,12 +474,12 @@ def test_projection_ignores_compiled_only_generated_and_specialized_shapes(
     typed_procedure = next(
         row
         for row in compiled_result.typed_procedures
-        if row.definition is procedure
+        if row.definition.name == procedure.name
     )
     typed_workflow = next(
         row
         for row in compiled_result.typed_workflows
-        if row.definition is workflow
+        if row.definition.name == workflow.name
     )
     specialized_typed_procedure = replace(
         typed_procedure,

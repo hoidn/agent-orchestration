@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.33")
+  (:target-dsl "2.35")
   (defmodule guide_shapes/bind_proc_capture)
   (export run)
   (defproc add-leading ((leading Int) (value Int)) -> Int

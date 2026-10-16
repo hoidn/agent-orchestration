@@ -8,7 +8,7 @@ hook work is not replayed on resume.
 from __future__ import annotations
 
 
-HEADER = '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.33")\n'
+HEADER = '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.35")\n'
 
 
 DECISION_LIB = HEADER + """  (defmodule grt/lib)

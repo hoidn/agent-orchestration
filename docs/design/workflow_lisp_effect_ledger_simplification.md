@@ -2,13 +2,13 @@
 
 ## Metadata
 
-- **Status:** proposed target; not implemented or copy-safe current syntax
+- **Status:** accepted target-2.39 contract; implementation and consumer evidence are tracked by the linked plan and capability matrix
 - **Kind:** language contract and subtractive architecture decision
 - **Owner:** Workflow Lisp frontend
 - **Created:** 2026-08-15
-- **Last material update:** 2026-09-08
-- **Implementation target:** unassigned; selection and bounded steps belong to
-  [roadmap EL-1](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#el-1--effect-contracts-and-analysis-cleanup-pending-unselected)
+- **Last material update:** 2026-10-15
+- **Implementation target:** 2.39; selection and bounded steps belong to
+  [roadmap EL-1](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#el-1--effect-contracts-and-analysis-cleanup-selected-239)
 - **Evidence:** [effect-tracking audit](../reports/2026-09-08-workflow-lisp-effect-tracking-audit.md)
 - **Drafting record:** [design plan](../plans/2026-09-08-effect-contract-and-composition-design-plan.md)
 
@@ -36,8 +36,8 @@ safety is not the rationale; tool use remains provider/agent-owned.
 Current authoring follows the [drafting guide](../lisp_workflow_drafting_guide.md),
 [frontend baseline](workflow_lisp_frontend_specification.md), and
 [effect graph](workflow_lisp_effect_graph.md). The latter's general coverage
-wording does not supersede the implemented mandatory/exact ordinary-procedure
-rule or its specialization exceptions. This proposal changes that contract;
+wording does not supersede the mandatory/exact ordinary-procedure rule at
+admitted definition origins 2.35–2.38 or its specialization exceptions. Target 2.39 changes that contract;
 it does not claim merely to fix an implementation exceeding the baseline.
 
 Other authorities:
@@ -45,7 +45,7 @@ Other authorities:
 - [Language principles](workflow_language_design_principles.md): effects visible
   to validation/IR, procedural composition, and deterministic work ownership.
 - [WCC](workflow_lisp_core_calculus_middle_end.md): resolved calls, normalization,
-  scope/proof analysis, and defunctionalization.
+  scope/proof analysis, and checked closed-program construction.
 - [Semantic IR](workflow_lisp_semantic_workflow_ir.md) and
   [lexical checkpoints](workflow_lisp_lexical_execution_checkpoints.md):
   operation explanations and execution evidence, respectively.
@@ -94,16 +94,14 @@ automatically make the expression representable by the pure evaluator.
 Workflow calls remain tracked dependencies even when their returned value is
 constant; this proposal does not erase workflow/checkpoint boundaries.
 
-Examples below are target examples, not runnable on current targets:
+Examples below require target 2.39 and its implemented route:
 
 ```lisp
 (defproc seven () -> Int
-  :lowering inline
   7)
 
 (defproc checked-seven () -> Int
   :effects ()
-  :lowering inline
   (seven))
 ```
 
@@ -140,9 +138,31 @@ semantics. They are not all provider capabilities or globally resolvable
 symbols, and this design adds neither resource alias analysis nor claims about
 all tools an opaque provider might execute. Distinct atom kinds remain distinct.
 
-The current parser normalizes effect operands but does not perform general
-expression-style resolution. A defining-scope resolution fixture is therefore
-a prerequisite, not an existing capability claim.
+Resolution uses the existing catalogs and specialization bindings; it does not
+change `EffectAtom` or create an external-capability registry:
+
+- `calls-workflow` resolves the defining module's aliases to the existing
+  canonical workflow identity. Canonical subjects already in the linked
+  transitive closure remain usable. A formal WorkflowRef subject substitutes
+  its selected `workflow_ref_bindings` before comparison; unresolved formals
+  remain incomplete.
+- `uses-provider` names the existing provider extern key in the source graph's
+  compiler-owned extern environment, not a provider-id string or configuration
+  digest. An unused named permission must still resolve to a provider binding.
+- `uses-command` preserves the current operation/adapter **step label** domain;
+  an adapter's label is not its boundary binding name. Path, artifact, state,
+  child-run and other domain labels likewise keep their existing equality
+  semantics, rather than acquiring invented declaration lookups.
+- Separately compiled workflow capsules keep their existing callable alias and
+  producer configuration ownership. Their private provider/command names do
+  not become caller-environment permissions. Ordinary source imports and
+  opaque workflow imports retain their current effect-summary boundary;
+  this contract introduces neither cross-capsule inference nor a second effect
+  graph.
+
+Unused workflow/provider symbols must resolve even when the procedure body is
+pure. Wrong-kind and unknown names are declaration errors. Domain labels are
+not symbols and are not rejected merely for lacking an extern declaration.
 
 Some compiler-inferred atoms have no authored grammar. Initially preserve
 their inference and equality identities: an explicit restriction that cannot
@@ -157,12 +177,15 @@ that every desired restriction is already expressible.
 The restriction is attached to its authored definition, not to whichever name
 the compiler generates for it. Carry clause presence, source location, and
 defining contract/version origin through parsing, linking, signature copying,
-and specialization. Use existing definition/source ownership where sufficient;
-do not invent a parallel registry.
+and specialization. Use a compiler-only origin target on `ProcedureDef` and optional declared
+atoms on the existing definition/signature; qualification and specialization
+copy those facts. Do not persist the origin in executable identity/JSON or
+invent a parallel registry. A definition produced by a macro uses the target
+of the receiving expanded module; importing an already defined procedure
+preserves that procedure's origin, including when specialized in a newer module.
 
 ```lisp
 (defproc forward ((runner ProcRef[() -> Result])) -> Result
-  :lowering inline
   (runner))
 ```
 
@@ -173,26 +196,46 @@ path identified. Generic summaries with unresolved hooks are incomplete,
 not proof of purity. An uninstantiated generic can be checked only to the
 extent its bindings are known; report that boundary honestly.
 
+Resolve each call in its owner's lexical WorkflowRef environment and use the
+existing materialized callee row when bindings are concrete, before joining
+effects. Never substitute caller bindings into inherited callee atoms; a
+visible workflow with the same spelling does not resolve a lexical formal.
+An unresolved dependency and any known workflow boundary remain represented
+through their existing owning call/edge. An empty restriction, or one allowing
+no workflow calls, cannot accept that known boundary; a named restriction
+defers only the unresolved identity comparison until materialization. Other
+known effects remain checked. Reconstruct own call facts consistently for
+procedures and workflows through the existing discovery traversal, preserving
+workflow-summary closure without a second graph or persisted call metadata.
+
 Validate authored restrictions after the existing inference fixed point has
 settled, not during intermediate passes that intentionally suppress declared
 validation. This ordering applies to every resolved specialization inheriting
-the restriction, including nested generated and imported definitions.
+the restriction, including nested generated and imported definitions. The
+final check includes helpers or specializations materialized by the final
+workflow re-typecheck, not only those present at the first validation call.
 
 Generated `let-proc` helpers currently receive synthetic empty declarations.
-Under the target, a generated helper without an authored restriction is
-unconstrained. A specialization of an explicitly restricted definition retains
+Under target 2.39, every temporary and final generated helper without an
+authored restriction uses omission and caller-owned inline semantics; it must
+not synthesize `:effects ()` or `:lowering` source clauses. A specialization of an explicitly restricted definition retains
 and checks that restriction. Neither blanket generated-name exemptions nor
 synthetic purity promises are permitted.
 
 The definition's contract regime governs imports. A new-target caller must not
 reinterpret an old library's empty clause, and old targets must not admit new
 syntax accidentally. Existing module-version compatibility checks still apply;
-mixed-target linking requires a fixture proving restriction-origin preservation
-or an explicit version incompatibility, never silent reinterpretation.
+a target-2.39 module may import 2.35–2.38 definitions with their original exactness,
+exemptions and lowering policy. A module below 2.39 must refuse a dependency
+defined at 2.39, including the otherwise compatible 2.37/2.38 route. This
+check precedes existing evaluated-import shortcuts. The separate source-floor migration retargets the six maintained stdlib modules
+to 2.35, preserving their old-contract behavior. They are not retargeted to 2.39
+or stripped of intentional clauses merely because a new caller imports them.
+Pre-2.35 definitions are rejected, not preserved through an origin exemption.
 
 ## Frontend And Inspection Contract
 
-Ordinary syntax errors and unknown kinds remain errors. Proposed target
+Ordinary syntax errors and unknown kinds remain errors. Target-2.39
 diagnostics distinguish malformed/unresolved declarations from
 `procedure_effect_ceiling_exceeded`. A ceiling violation reports the authored
 restriction, uncovered kind/subject, resolved specialization, and a relevant
@@ -209,17 +252,23 @@ Existing compiler/editor projections should expose:
 - contributing calls and unresolved generic dependencies;
 - actual execution evidence only when inspecting a particular run.
 
-The LSP currently renders `signature.declared_effects`; that is insufficient
-once clauses are optional and already incomplete for specialization. Use
-compiler-derived facts, not hover text or reports as semantic authority.
+LSP procedure-completion detail projects compiler-derived restriction and
+inference facts; `signature.declared_effects` alone cannot represent optional
+clauses or specialization. Use compiler facts, not hover text or reports as semantic authority.
 Definition inspection may show unresolved requirements; call-site inspection
 must show the resolved result or a clear unavailable/incomplete state.
-No dashboard or new inspection service is a prerequisite.
+Use existing REPL `:info` for definition restriction/inferred status and
+`:type` for a resolved expression's inferred summary; retain no-effect execution
+rules. LSP procedure-completion detail projects the same compiler facts for
+the declaration and marks unresolved generic dependencies incomplete. No new
+hover request, span-to-type service, dashboard or runtime inspection API is
+selected. Early pure-function/child-run/trial consumers must consult inferred
+or unresolved facts; an absent clause is never evidence of purity.
 
 ## Internal Architecture And Subtraction
 
-Keep the existing path: frontend resolution/typechecking → WCC → shared Core →
-validated executable IR → runtime. The following are separate facts, not a
+Keep the existing path: frontend resolution/typechecking → executable WCC →
+checked closed program → evaluated runtime. The following are separate facts, not a
 requirement for separate modules or persisted records:
 
 | Fact | Owner and consumers |
@@ -256,10 +305,11 @@ retaining the simpler existing representation is an acceptable outcome.
 
 ## Persistence And Compatibility
 
-Choose and document one target/version boundary before implementation; this
-draft does not allocate a version. Current targets retain mandatory exact
-ordinary-procedure checks and their existing specialization behavior.
-Target examples become copy-safe only after their route is implemented.
+Target 2.39 is the version boundary. Admitted targets 2.35–2.38 retain mandatory
+exact ordinary-procedure checks and their existing specialization behavior.
+Current authoring examples and their copy limits belong to the
+[drafting guide](../lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239)
+and [library reference](../lisp_library_reference.md#target-239-local-hooks).
 
 Migration reviews actual definitions, including stdlib/imported hooks:
 
@@ -312,12 +362,11 @@ Implementation needs a public-entry usage/integration check and proportionate
 checkpoint/path-admission controls, not inspection alone. Design-only drafting
 does not establish those capabilities.
 
-Feasibility prerequisites before an implementation contract is complete are:
-defining-scope subject resolution, authored/generated restriction-origin
-carriage, imported target semantics, and available inferred editor projections.
-Resolve with source/test evidence or a bounded approved spike; do not silently
-delegate these choices to an implementer. Internal representation and persisted
-format feasibility are prerequisites only if that optional cleanup is selected.
+The selected plan identifies the existing owner catalogs, definition copying,
+final inference pass and inspection projections used by this contract. Their
+new-target integration still requires the finite resolution/origin/inspection
+fixtures above before completion. Internal representation and persisted-format
+cleanup are not part of the selected implementation.
 
 ## Five-Axis Utility And Consequent Decisions
 
@@ -344,15 +393,19 @@ a useful consumer solely because the present type system cannot express it.
 
 ## Documentation And Implementation Handoff
 
-On acceptance, amend the effect-graph and frontend contracts with the chosen
-version semantics; clarify WCC inferred rows versus authored restrictions.
-Update the drafting guide, specialization/import contracts, LSP expectations,
-and versioning specification together. Do not mark this target implemented
-merely because the design exists. Runtime specs change only if their actual
-contracts change; evidence obligations above otherwise preserve them.
+The effect-graph and frontend contracts carry the target-2.39 version
+semantics; WCC continues consuming inferred rows rather than authored ceilings.
+Inference-default restrictions, origin-aware specialization/import checks and
+inspection use the existing summary. The frontend selects caller-owned inline
+composition and enforces finite private-form admission; these source contracts
+do not change runtime effect identity, memo reuse or transport policy.
 
-The smallest implementation candidate is inference-default authoring plus
-meaningful restrictions and inspection over the existing summary. The
+The [drafting guide](../lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239)
+explains omission, checked empty/named restrictions and explicit workflow
+boundaries. Its maintained proposal and compact-search examples are the two
+selected consumer migrations; the [capability matrix](../capability_status_matrix.md)
+and [implementation plan](../plans/2026-10-15-orc-simplification-roadmap-extension.md#target-239-selected-implementation)
+own supported scope, acceptance evidence and remaining gates. The
 [pure-call design](workflow_lisp_pure_call_composition.md) is independently
 reviewable and can retain current annotations. Consumer-led representation
 cleanup follows demonstrated need, not a compulsory phase before either benefit.
@@ -362,5 +415,5 @@ dependency instead of making all EL-1 work a gate.
 Roadmap EL-1 owns scheduling and existing entry conditions. This revision
 supersedes the earlier proposal's unchecked subjects, blanket compatibility,
 fixed footprint/call-bit architecture, mandatory path-facts v2, and global
-decision-equivalence gate. It does not select implementation or amend frozen
-research packages.
+decision-equivalence gate. The selected implementation is recorded in the roadmap and simplification
+plan; it does not amend frozen research packages.

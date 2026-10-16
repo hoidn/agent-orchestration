@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.33")
+  (:target-dsl "2.35")
   (defmodule guide_shapes/on_exhausted_float_defun)
   (export run)
   (defun twice ((x Float)) -> Float

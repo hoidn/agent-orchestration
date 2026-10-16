@@ -95,7 +95,7 @@ def test_elaborate_record_and_union_payload_field_guidance(tmp_path: Path) -> No
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.15")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord ReviewResult",
                 '    (approved Bool :description "No blockers remain." :example true))',
                 "  (defunion Decision",
@@ -122,7 +122,7 @@ def test_schema_include_preserves_field_guidance(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.15")',
+                '  (:target-dsl "2.35")',
                 "  (defschema ReviewFields",
                 '    (approved Bool :description "No blockers remain." :example true))',
                 "  (defrecord ReviewResult",
@@ -145,7 +145,7 @@ def test_schema_include_guidance_does_not_override_duplicate_local_field(tmp_pat
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.15")',
+                '  (:target-dsl "2.35")',
                 "  (defschema ReviewFields",
                 '    (approved Bool :description "Included guidance."))',
                 "  (defrecord ReviewResult",
@@ -177,7 +177,7 @@ def test_elaborate_field_rejects_invalid_guidance(tmp_path: Path, field_source: 
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.15")',
+                '  (:target-dsl "2.35")',
                 f"  (defrecord ReviewResult {field_source}))",
             ]
         ),
@@ -194,7 +194,7 @@ def test_elaborate_rejects_enum_member_and_union_variant_guidance(tmp_path: Path
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.15")',
+                '  (:target-dsl "2.35")',
                 '  (defenum Decision (APPROVE :description "Approve.")))',
             ]
         ),
@@ -208,7 +208,7 @@ def test_elaborate_rejects_enum_member_and_union_variant_guidance(tmp_path: Path
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.15")',
+                '  (:target-dsl "2.35")',
                 "  (defunion Decision",
                 '    (Approved :description "Approve." (approved Bool))))',
             ]
@@ -354,7 +354,7 @@ def test_guidance_example_rejects_runtime_binding_with_same_constant_diagnostic(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.15")',
+                '  (:target-dsl "2.35")',
                 "  (defworkflow binding-example ((input Bool))",
                 "    -> (result Bool :example input)",
                 "    input))",
@@ -378,7 +378,7 @@ def test_guidance_example_validates_annotated_record_fields_during_compile(tmp_p
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.15")',
+                '  (:target-dsl "2.35")',
                 '  (defrecord ReviewResult (approved Bool :example "yes"))',
                 "  (defworkflow review () -> Bool true))",
             ]
@@ -398,7 +398,7 @@ def test_guidance_example_valid_module_compiles_through_stage3(tmp_path: Path) -
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.15")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord ReviewResult",
                 '    (approved Bool :example true)',
                 '    (score Float :example 0.91))',
@@ -421,7 +421,7 @@ def test_root_and_record_bundle_guidance_lower_to_exact_wire_shapes(tmp_path: Pa
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.15")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord ReviewResult",
                 '    (approved Bool :description "No blockers remain." :example true)',
                 '    (score Float :format-hint "Inclusive range [0, 1]." :example 0.91)))',
@@ -502,7 +502,7 @@ def test_nested_guidance_context_is_rfc6901_prefix_ordered_and_not_concatenated(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.15")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord Location",
                 '    (code String :description "Stable leaf code."))',
                 "  (defrecord Blocker",
@@ -563,7 +563,7 @@ def test_union_guidance_preserves_variant_fields_and_guidance_by_variant(tmp_pat
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.15")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord Details",
                 "    (approved Bool)",
                 "    (score Float))",
@@ -645,7 +645,7 @@ def test_guidance_free_contract_callers_ignore_annotated_definition_examples(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.15")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord ReviewResult",
                 '    (approved Bool :description "No blockers." :example true))',
                 "  (defunion Decision",
@@ -669,7 +669,7 @@ def test_guidance_free_contract_callers_ignore_annotated_definition_examples(
         )
         reusable = workflow_lisp_contracts.derive_reusable_state_contract_metadata(
             type_ref,
-            target_dsl_version="2.15",
+            target_dsl_version="2.35",
             workflow_name="runtime-only",
             step_id=f"runtime-only__{type_ref.name}",
             span=module.span,
@@ -779,7 +779,7 @@ def test_guidance_example_validates_effect_boundary_occurrence(tmp_path: Path) -
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.15")',
+                '  (:target-dsl "2.35")',
                 "  (defworkflow review () -> Bool",
                 "    (provider-result providers.review",
                 "      :prompt prompts.review",
@@ -978,7 +978,7 @@ def test_typecheck_workflow_definitions_rejects_unknown_callees(tmp_path: Path) 
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defworkflow missing-helper",
                 "    ((input ChecksResult)",
                 "     (report_path WorkReport))",
@@ -1106,7 +1106,7 @@ def test_derive_structured_result_contract_adds_distinct_shared_field_subjects(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord ReportEnvelope",
                 "    (path String))",
                 "  (defunion Decision",
@@ -1177,7 +1177,7 @@ def test_typecheck_workflow_definitions_rejects_return_type_mismatches(tmp_path:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defworkflow mismatch",
                 "    ((report_path WorkReport))",
                 "    -> ImplementationSummary",
@@ -1231,7 +1231,7 @@ def test_typecheck_provider_result_requires_record_or_union_return_types(tmp_pat
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defworkflow provider-attempt",
                 "    ((input ChecksResult)",
                 "     (report_path WorkReport))",
@@ -1267,7 +1267,7 @@ def test_typecheck_provider_result_rejects_missing_or_mismatched_externs(tmp_pat
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defworkflow provider-attempt",
                 "    ((input ChecksResult)",
                 "     (report_path WorkReport))",
@@ -1306,7 +1306,7 @@ def test_typecheck_provider_result_rejects_missing_or_mismatched_externs(tmp_pat
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defworkflow provider-attempt",
                 "    ((input ChecksResult)",
                 "     (report_path WorkReport))",
@@ -1363,7 +1363,7 @@ def test_typecheck_command_result_rejects_inline_shell_and_python_glue(tmp_path:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defworkflow wrapped-shell",
                 "    ((report_path WorkReport))",
                 "    -> ChecksResult",
@@ -1395,7 +1395,7 @@ def test_typecheck_command_result_rejects_inline_shell_and_python_glue(tmp_path:
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.14")',
+                    '  (:target-dsl "2.35")',
                     "  (defworkflow wrapped-shell",
                     "    ((report_path WorkReport))",
                     "    -> ChecksResult",
@@ -1439,7 +1439,7 @@ def test_typecheck_command_result_accepts_external_tool_and_certified_adapter_bi
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defworkflow run-checks",
                 "    ((report_path WorkReport))",
                 "    -> ChecksResult",
@@ -1501,7 +1501,7 @@ def test_typecheck_command_result_rejects_missing_semantic_adapter_metadata(tmp_
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defworkflow normalize",
                 "    ((report_path WorkReport))",
                 "    -> ImplementationSummary",
@@ -1541,7 +1541,7 @@ def test_typecheck_command_result_accepts_promoted_certified_adapter_bindings(tm
     )
 
     assert [workflow.definition.name for workflow in result.typed_workflows] == [
-        "normalize-summary",
+        'entry::normalize-summary',
     ]
 
 
@@ -1556,7 +1556,7 @@ def test_command_adapter_missing_contract_serializes_as_authority_validation_pas
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defworkflow normalize",
                 "    ((report_path WorkReport))",
                 "    -> ImplementationSummary",
@@ -1876,7 +1876,7 @@ def test_derive_structured_result_contract_keeps_repeated_union_fields_variant_s
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath AcceptedReport",
                 "    :kind relpath",
                 '    :under "artifacts/accepted"',
@@ -2049,7 +2049,7 @@ def test_workflow_signature_contract_flattening_rejects_projection_name_collisio
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -2180,7 +2180,7 @@ def test_nested_union_boundary_projection_retains_direct_result_authority(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.25")',
+                '  (:target-dsl "2.35")',
                 "  (defunion Usage",
                 "    (KNOWN (amount Int))",
                 "    (UNKNOWN))",
@@ -2285,7 +2285,7 @@ def test_build_workflow_catalog_rejects_unsupported_boundary_types_in_validated_
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -2307,7 +2307,7 @@ def test_build_workflow_catalog_rejects_unsupported_boundary_types_in_validated_
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defworkflow summarize",
                 "    ((input InvalidInput))",
                 "    -> InvalidOutput",
@@ -2495,7 +2495,7 @@ def test_is_transportable_result_type_rejects_compile_time_reference_types() -> 
     assert is_transportable_result_type(workflow_ref) is False
 
 
-@pytest.mark.parametrize("returns_type_name", NATIVE_RETURN_TYPE_NAMES)
+@pytest.mark.parametrize("returns_type_name", (*NATIVE_RETURN_TYPE_NAMES, "Optional[ImplementationState]", "List[ImplementationSummary]", "Map[String, ImplementationState]"))
 def test_typecheck_provider_result_accepts_native_transportable_returns(returns_type_name: str) -> None:
     type_env = _build_type_env()
     expr = elaborate_expression(
@@ -2528,7 +2528,7 @@ def test_typecheck_provider_result_accepts_native_transportable_returns(returns_
     )
 
 
-@pytest.mark.parametrize("returns_type_name", NATIVE_RETURN_TYPE_NAMES)
+@pytest.mark.parametrize("returns_type_name", (*NATIVE_RETURN_TYPE_NAMES, "Optional[ImplementationState]", "List[ImplementationSummary]", "Map[String, ImplementationState]"))
 def test_typecheck_command_result_accepts_native_transportable_returns(returns_type_name: str) -> None:
     type_env = _build_type_env()
     expr = elaborate_expression(
@@ -2561,7 +2561,7 @@ def test_typecheck_command_result_accepts_native_transportable_returns(returns_t
 
 @pytest.mark.parametrize(
     "returns_type_name",
-    ["Provider", "Prompt", "Optional[ImplementationState]", "List[ImplementationSummary]"],
+    ["Provider", "Prompt"],
 )
 def test_typecheck_provider_result_rejects_non_transportable_native_returns(returns_type_name: str) -> None:
     type_env = _build_type_env()
@@ -2594,7 +2594,7 @@ def test_typecheck_provider_result_rejects_non_transportable_native_returns(retu
 
 @pytest.mark.parametrize(
     "returns_type_name",
-    ["Json", "Map[String, ImplementationState]"],
+    ["Json"],
 )
 def test_typecheck_command_result_rejects_non_transportable_native_returns(returns_type_name: str) -> None:
     type_env = _build_type_env()

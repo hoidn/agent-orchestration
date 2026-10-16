@@ -8,11 +8,19 @@
 - **Owner:** Workflow Lisp frontend and evaluated-runtime maintainers
 - **Reviewers:** Independent code and design reviewers
 - **Created:** 2026-10-12
-- **Last material update:** 2026-10-12
+- **Last material update:** 2026-10-15
 - **Related docs / issues / plans:** [Execution plan](../plans/2026-10-12-workflow-lisp-repl-plan.md), [introspection design](workflow_lisp_repl_introspection.md), [introspection plan](../plans/2026-10-12-workflow-lisp-repl-introspection-plan.md), [evaluated execution](workflow_lisp_evaluated_execution.md), [frontend baseline](workflow_lisp_frontend_specification.md)
-- **Implementation target:** Evaluated entries at DSL 2.35 and 2.36
+- **Implementation target:** admitted evaluated source at DSL 2.35–2.39; 2.39 adds restriction/inference inspection without effect evaluation
 
 ## Summary
+
+The selected [source floor](workflow_lisp_executor_retirement.md#source-floor-235)
+is 2.35 for every source dependency. Old module headers receive the shared
+unsupported-target diagnostic; no legacy analysis, import fallback or stale
+callable snapshot survives the refusal. Current evaluated inspection and
+no-effect guarantees remain. Source migration does not qualify an otherwise
+unsupported editor/runtime capability.
+
 
 Add `orchestrator repl` to load a Workflow Lisp module, explicitly run it through
 the ordinary public run service, attach to an evaluated run, inspect its lexical
@@ -128,6 +136,13 @@ lowering and evaluation so effectful expressions can be analyzed. Help states
 the supported declaration families and exclusions. The
 [CLI contract](../../specs/cli.md#workflow-lisp-repl-targets-235-and-236) owns their
 exact output and diagnostics.
+
+For target-2.39 procedure contracts, `:info` distinguishes the authored
+restriction (including absence) from compiler-inferred effects and marks
+unresolved generic hooks incomplete. `:type` reports a concrete expression's
+resolved inferred effects or an explicit incomplete state; it does not treat
+an omitted clause as purity or evaluate effects. These are projections of the
+existing typed owner and specialization facts, not a second effect analysis.
 
 Both load paths retain compiler read snapshots, graph and final entry import
 scope in memory. Source inspection uses validated authored spans in those
@@ -270,10 +285,10 @@ Enforce purity at three boundaries:
    `TypedWorkflowDef` containing the actual `TypedExpr`, with a minimal signature
    of the captured typed parameters and expression return type, retaining the
    loaded entry's source owner. Create `builder.definition_context`, retain
-   identity names, call `_prepare_command_owner`, `_install_prepared_requests`,
-   the ordinary computed-capture preparation, then `builder.body` and the
-   installed request verifier. Direct `frontend_value` alone lacks prepared
-   call coordinates for closed-opaque pure calls. Recursively guard the lowered
+   identity names and call `_prepare_command_owner` to complete bodies, child
+   requests and capture recipes. Install them with `_install_prepared_requests`,
+   then call `builder.body` and the installed request verifier. The ordinary
+   semantic closure/inventory guard checks completed preparation before emission. Recursively guard the lowered
    value, block bodies and reachable callee bodies against `perform`; allow pure
    calls. Never determine purity from the entered head alone.
 3. Call `evaluate_closed_value` with ordinary `_Machine._body`/`_bound`
@@ -316,7 +331,7 @@ families, exclusions and the pure-expression execution limit.
 
 ## Dependencies And Sequencing
 
-The evaluated 2.35/2.36 authority, public build/run services, closed evaluator
+The admitted evaluated authority, public build/run services, closed evaluator
 and W3 compiler are prerequisites. This design does not select broader
 runtime roadmap work. Implement the transient compile products before the
 expression bridge, and capture before CLI attachment. The bounded
@@ -364,8 +379,13 @@ operator evaluator or effect-launch route is duplicated.
 
 ## Compatibility And Migration
 
-No existing source, artifact, memo, header, profile or schema migrates. Targets
-through 2.34 retain their route and refuse REPL attachment. Existing compile
+The REPL adds no artifact, memo, header, profile or schema conversion. The
+separate source-floor migration rejects pre-2.35 loading/analysis as well as
+attachment; it preserves frozen source rather than retargeting it at load time.
+Imported typed programs obey the same transitive floor. Pure preparation
+continues through the ordinary frontend/evaluator; removal of source-mode or
+lowering-route selectors introduces no REPL compatibility compiler.
+Existing compile
 callers retain their result type; additive transient fields default to `None`
 and do not affect equality, repr or serialization. Existing view replay callers
 retain the ordinary evaluator by default. Stored artifacts remain the only

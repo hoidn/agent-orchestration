@@ -54,27 +54,7 @@ from .procedures import ProcedureCatalog
 from .result_guidance import ReturnSpec, parse_return_spec
 from .spans import SourceSpan
 from .spans import SourcePosition
-from .syntax import (
-    ExpansionStack,
-    SyntaxIdentifier,
-    SyntaxFloat,
-    SyntaxInt,
-    SyntaxKeyword,
-    SyntaxList,
-    SyntaxNode,
-    SyntaxString,
-    SyntaxBool,
-    WorkflowLispSyntaxModule,
-    syntax_head,
-    syntax_head_name,
-    syntax_identifier,
-    syntax_node_datum,
-    syntax_resolved_name,
-    target_dsl_uses_evaluated_execution,
-    target_dsl_supports_local_hook_inference,
-    target_dsl_supports_rich_loop_values,
-    target_dsl_supports_trial,
-)
+from .syntax import ExpansionStack, SyntaxIdentifier, SyntaxFloat, SyntaxInt, SyntaxKeyword, SyntaxList, SyntaxNode, SyntaxString, SyntaxBool, WorkflowLispSyntaxModule, syntax_head, syntax_head_name, syntax_identifier, syntax_node_datum, syntax_resolved_name, target_dsl_uses_evaluated_execution, target_dsl_supports_local_hook_inference
 from .type_env import (
     FrontendTypeEnvironment,
     ListTypeRef,
@@ -377,7 +357,6 @@ class WorkflowDef:
 
 
 WorkflowDef.return_type_name = property(lambda self: self.return_spec.type_name)
-
 
 
 @dataclass(frozen=True)
@@ -856,10 +835,8 @@ def build_workflow_catalog(
     allow_hidden_context_callers: bool = False,
     selected_entry_workflow_name: str | None = None,
     allow_collection_input_boundaries: bool = False,
-    allow_collection_return_boundaries: bool = False,
     allow_transportable_input_boundaries: bool = False,
     family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
-    closed_program: bool = False,
 ) -> WorkflowCatalog:
     """Build same-file workflow signatures before any body is typechecked."""
     from .contracts import is_transportable_result_type
@@ -931,14 +908,8 @@ def build_workflow_catalog(
                 )
             )
             continue
-        return_diagnostic = _workflow_return_boundary_diagnostic(
-            module, workflow_def, return_type_ref,
-            allow_collection_return_boundaries=allow_collection_return_boundaries,
-            closed_program=closed_program,
-        )
-        if return_diagnostic is not None:
-            diagnostics.append(return_diagnostic)
-            continue
+
+
         params: list[tuple[str, TypeRef]] = []
         private_compatibility_bridge_types: dict[str, TypeRef] = {}
         param_defaults: dict[str, WorkflowParamDefault] = {}
@@ -2173,16 +2144,6 @@ def _synthetic_workflow_param_default_syntax(
     )
 
 
-def _target_dsl_supports_root_workflow_returns(target_dsl_version: str) -> bool:
-    """Return whether a module's target DSL accepts root-valued public returns."""
-
-    try:
-        parsed = tuple(int(part) for part in str(target_dsl_version).split("."))
-    except ValueError:
-        return False
-    return parsed >= (2, 15)
-
-
 def _match_boundary_type_from_contracts(
     contracts: Mapping[str, Mapping[str, object]],
     *,
@@ -2218,7 +2179,6 @@ def _match_boundary_type_from_contracts(
             allow_union=allow_union,
             allow_nested_unions=(
                 generated_name == "return"
-                and target_dsl_supports_rich_loop_values(type_env.target_dsl_version)
             ),
         )
         if not analysis.lowerable:
@@ -2891,11 +2851,7 @@ def typecheck_workflow_definitions(
             clear_active_reusable_state_producer_context(compiler_session.typecheck)
             clear_active_workflow_signature(compiler_session.typecheck)
         if (
-            target_dsl_supports_trial(type_env.target_dsl_version)
-            and workflow_def.return_type_name == "Value"
-            and isinstance(body_expr, TrialExpr)
-            and isinstance(typed_body.type_ref, RecordTypeRef)
-            and typed_body.type_ref.name in type_env._compiler_owned_type_names
+            (workflow_def.return_type_name == "Value") and (isinstance(body_expr, TrialExpr)) and (isinstance(typed_body.type_ref, RecordTypeRef)) and (typed_body.type_ref.name in type_env._compiler_owned_type_names)
         ):
             from .trial_result_contract import derive_trial_result_contract
 
@@ -2939,45 +2895,6 @@ def typecheck_workflow_definitions(
             )
         )
     return tuple(typed_workflows)
-
-
-def _workflow_return_boundary_diagnostic(
-    module, workflow_def, return_type_ref, *, allow_collection_return_boundaries, closed_program,
-) -> LispFrontendDiagnostic | None:
-    # Transportability was checked by the catalog owner before this decision.
-    if not isinstance(return_type_ref, (RecordTypeRef, UnionTypeRef)):
-        if not _target_dsl_supports_root_workflow_returns(module.target_dsl_version):
-            return LispFrontendDiagnostic(
-                code="workflow_root_return_target_dsl_unsupported",
-                message=(
-                    f"workflow `{workflow_def.name}` returns "
-                    f"`{workflow_def.return_type_name}` directly, which requires "
-                    'DSL 2.15; declare `(:target-dsl "2.15")` in the module header'
-                ),
-                span=workflow_def.span,
-                form_path=workflow_def.form_path,
-                expansion_stack=workflow_def.expansion_stack,
-            )
-        return None
-    if closed_program:
-        return None
-    return_analysis = analyze_workflow_boundary_type(
-        return_type_ref,
-        source_path=("return",),
-        allow_union=True,
-        allow_nested_unions=(
-            allow_collection_return_boundaries
-            and target_dsl_supports_rich_loop_values(module.target_dsl_version)
-        ),
-    )
-    return _boundary_diagnostic(
-        workflow_name=workflow_def.name,
-        analysis=return_analysis,
-        span=workflow_def.span,
-        form_path=workflow_def.form_path,
-        expansion_stack=workflow_def.expansion_stack,
-        allow_collection_boundaries=allow_collection_return_boundaries,
-    )
 
 
 def _boundary_diagnostic(

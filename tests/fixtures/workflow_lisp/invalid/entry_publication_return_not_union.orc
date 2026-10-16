@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule entry_publication_return_not_union)
   (export entry-publication-return-not-union)
   (defrecord PublishRecord

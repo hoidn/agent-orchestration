@@ -26,7 +26,7 @@ use the capability matrix to determine what is implemented and qualified.
 | --- | --- | --- |
 | Understand the system | [Architecture overview](architecture_overview.md) and [orchestration model](orchestration_start_here.md) | Concepts, authority and component boundaries |
 | Check available behavior | [Capability matrix](capability_status_matrix.md) | Implemented, partial, library, designed, future and historical surfaces; implementation does not imply public qualification |
-| Author a workflow | [Workflow Lisp drafting guide](lisp_workflow_drafting_guide.md) | Current `.orc` syntax, prerequisites and runnable shapes |
+| Author a workflow | [Workflow Lisp drafting guide](lisp_workflow_drafting_guide.md) and [2.39 procedure contracts](lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239) | Current `.orc` syntax, prerequisites and runnable shapes; inferred effects and optional restrictions at 2.39 |
 | Choose a reusable helper | [Library reference](lisp_library_reference.md) | Typed inputs, outputs, composition and examples |
 | Copy a complete example | [Workflow catalog](../workflows/README.md#which-example-should-i-copy) | Route readiness and copy safety; a compile check alone is not live-provider qualification |
 | Compile, run, resume or invalidate | [Lifecycle](runtime_execution_lifecycle.md) and [CLI contract](../specs/cli.md) | Evaluated execution is the sole current workflow runtime; old profiles remain read-only |
@@ -36,7 +36,7 @@ use the capability matrix to determine what is implemented and qualified.
 | Use agent instances | [Agent Sessions](lisp_workflow_drafting_guide.md#agent-sessions-target-238) | Bounded target-2.38 native session turns; qualification and remaining comparisons have separate owners |
 | Run a confined child | [Command-only recipe](lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only) and [confinement contract](design/workflow_lisp_run_ref_expression_environments.md) | Command-only `:network :none` is implemented; private transport does not open public confined providers |
 | Evaluate parallel work | [Evaluated execution](design/workflow_lisp_evaluated_execution.md) and [capability matrix](capability_status_matrix.md) | Target 2.37 has bounded qualification; parallel source is not generally copy-safe |
-| Select implementation work | [Delivery plan](plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md), [evolution roadmap](plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md) and [substrate track](plans/2026-07-26-substrate-maintenance-track.md) | Current selection, dependencies and remaining gates; historical instructions do not authorize new work |
+| Select implementation work | [Delivery plan](plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md), [evolution roadmap](plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md), [substrate track](plans/2026-07-26-substrate-maintenance-track.md) and [simplification execution record](plans/2026-10-15-orc-simplification-roadmap-extension.md) | Current selection, dependencies and remaining gates; the extension records completed selected lanes, explicit deferrals and verification limits, with existing gates preserved |
 | Review proposals and backlog | [Work definition model](work_definition_model.md) and [backlog inventory](backlog/README.md) | File residence in `active/` does not establish selection or completion |
 | Choose review/revision/search patterns | [Workflow design lessons](orc_workflow_design_lessons.md) and [comparison harness](../experiments/compare/README.md) | Separate executable recipes, task calibration and measured quality; historical results do not establish general utility |
 | Work with provider prompts | [Prompt catalog](../prompts/README.md), [providers](../specs/providers.md) and [dependencies](../specs/dependencies.md) | Manual reuse, typed imports and executable consumers have distinct prerequisites |
@@ -47,8 +47,13 @@ use the capability matrix to determine what is implemented and qualified.
 
 - [CLI admission](../specs/cli.md#executable-support-boundary) and
   [executor retirement](design/workflow_lisp_executor_retirement.md) govern
-  execution. Historical YAML/flat contracts and typed imports do not supply
-  permission to run or repair retired profiles.
+  execution and the selected 2.35 source/import/tooling floor. Historical
+  YAML/flat contracts and frozen source do not supply current analysis,
+  execution or recovery permission.
+- Targets 2.35–2.39 share the evaluated runtime. [Target 2.39](lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239) changes procedure authoring and finite source admission; imported 2.35–2.38 definitions retain their original contracts.
+- The 2.35 source floor covers transitive source and typed-program imports,
+  REPL loading and LSP analysis. Historical report/dashboard data readers do
+  not reopen those source doors; evaluated LSP F2 remains OPEN_NOT_WAIVED.
 - Validated typed values, closed artifacts and memo records own current runtime
   meaning. Reports, stdout, debug projections and pointer files are views unless
   their owning contract explicitly says otherwise.

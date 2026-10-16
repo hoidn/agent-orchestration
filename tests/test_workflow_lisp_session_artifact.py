@@ -73,7 +73,7 @@ def _session_source(clause: str = ":session-artifact omp_session", *, extra: str
     )
 
 
-def _elaborate_session(source: str, *, target: str = "2.27"):
+def _elaborate_session(source: str, *, target: str = "2.35"):
     return elaborate_expression(
         _expression_syntax(source),
         bound_names=frozenset({"providers.session", "prompts.session"}),
@@ -81,7 +81,7 @@ def _elaborate_session(source: str, *, target: str = "2.27"):
     )
 
 
-def _elaborate_diagnostic_code(source: str, *, target: str = "2.27") -> str:
+def _elaborate_diagnostic_code(source: str, *, target: str = "2.35") -> str:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _elaborate_session(source, target=target)
     return excinfo.value.diagnostics[0].code
@@ -106,7 +106,7 @@ def _typecheck_session(
     source: str,
     *,
     session_artifact_allowed: bool = False,
-    target: str = "2.27",
+    target: str = "2.35",
 ):
     expr = _elaborate_session(source, target=target)
     return typecheck_expression(
@@ -134,7 +134,6 @@ def _compile_fixture(
     *,
     validate_shared: bool = False,
     provider_externs=None,
-    lowering_route: str | None = None,
 ):
     return compile_stage3_entrypoint(
         FIXTURE_ROOT / name,
@@ -143,7 +142,7 @@ def _compile_fixture(
         prompt_externs=_PROMPT_EXTERNS,
         validate_shared=validate_shared,
         workspace_root=FIXTURE_ROOT,
-        lowering_route=lowering_route,
+
     )
 
 
@@ -180,28 +179,15 @@ def _compile_source(
 # --- Step 6.1: syntax and typecheck REDs -------------------------------------
 
 
-def test_syntax_supported_versions_include_2_27() -> None:
-    assert "2.27" in _syntax_module().SUPPORTED_TARGET_DSL_VERSIONS
+def test_syntax_supported_versions_include_current_source() -> None:
+    assert "2.35" in _syntax_module().SUPPORTED_TARGET_DSL_VERSIONS
 
 
-def test_syntax_session_artifact_gate_admits_2_27_and_rejects_2_26() -> None:
-    syntax = _syntax_module()
-    assert syntax.SESSION_ARTIFACT_MIN_TARGET_DSL_VERSION == "2.27"
-    helper = getattr(syntax, "target_dsl_supports_session_artifact", None)
-    assert helper is not None
-    assert helper("2.26") is False
-    assert helper("2.27") is True
-    assert helper("2.28") is True
 
 
-def test_elaborate_rejects_session_artifact_at_2_26() -> None:
-    assert (
-        _elaborate_diagnostic_code(_session_source(), target="2.26")
-        == "session_artifact_target_dsl_unsupported"
-    )
 
 
-def test_elaborate_admits_session_artifact_at_2_27_as_bare_symbol_declaration() -> None:
+def test_elaborate_admits_session_artifact_for_current_source_as_bare_symbol_declaration() -> None:
     expr = _elaborate_session(_session_source())
     assert isinstance(expr, ProviderResultExpr)
     spec_type = _session_spec_type()
@@ -327,18 +313,11 @@ def test_traversal_does_not_visit_session_artifact_spec() -> None:
 
 
 
-def test_stage3_target_2_26_rejected() -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile_fixture("root_2_26.orc")
-    assert (
-        excinfo.value.diagnostics[0].code
-        == "session_artifact_target_dsl_unsupported"
-    )
 
 
 def test_stage3_procedure_placement_rejected(tmp_path: Path) -> None:
     source = (
-        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.27\") "
+        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\") "
         "(defmodule procedure) "
         "(defproc worker () -> String "
         ":effects ((uses-provider providers.session)) "
@@ -359,7 +338,7 @@ def test_stage3_phase_placement_rejected(tmp_path: Path) -> None:
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.27")',
+            '  (:target-dsl "2.35")',
             "  (defmodule phase)",
             "  (defpath WorkReport",
             "    :kind relpath",
@@ -400,7 +379,7 @@ def test_stage3_loop_placement_rejected(tmp_path: Path) -> None:
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.27")',
+            '  (:target-dsl "2.35")',
             "  (defmodule loop)",
             "  (export gate)",
             "  (defworkflow gate () -> Bool",
@@ -434,7 +413,7 @@ def test_stage3_imported_workflow_placement_rejected(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.27")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule lib)",
                 "  (export helper)",
                 "  (defworkflow helper () -> String",
@@ -453,7 +432,7 @@ def test_stage3_imported_workflow_placement_rejected(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.27")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule main)",
                 "  (import lib :only (helper))",
                 "  (export run)",
@@ -486,7 +465,7 @@ def test_stage3_function_placement_rejected_by_purity_enforcement(
     tmp_path: Path,
 ) -> None:
     source = (
-        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.27\") "
+        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\") "
         "(defmodule fn_placement) "
         "(defun helper () -> String "
         "(provider-result providers.session :prompt prompts.session "
@@ -500,7 +479,7 @@ def test_stage3_function_placement_rejected_by_purity_enforcement(
 
 def test_stage3_if_branch_placement_rejected(tmp_path: Path) -> None:
     source = (
-        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.27\") "
+        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\") "
         "(defmodule if_placement) "
         "(defworkflow run () -> String "
         "(if true "
@@ -522,7 +501,7 @@ def test_stage3_resume_boundary_placement_rejected(tmp_path: Path) -> None:
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.27")',
+            '  (:target-dsl "2.35")',
             "  (defmodule resume_placement)",
             "  (defpath WorkReport",
             "    :kind relpath",
@@ -573,7 +552,7 @@ def test_stage3_live_provider_boundary_placement_rejected(
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.27")',
+            '  (:target-dsl "2.35")',
             "  (defmodule live_placement)",
             "  (defworkflow orchestrate () -> String",
             "    (with-live-providers",
@@ -623,7 +602,7 @@ def test_stage3_two_exports_never_get_implicit_selection(
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.27")',
+            '  (:target-dsl "2.35")',
             "  (defmodule two_exports)",
             "  (export bridge session_run)",
             "  (defrecord WorkflowInput (value String))",
@@ -649,7 +628,7 @@ def test_stage3_two_exports_never_get_implicit_selection(
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.27")',
+            '  (:target-dsl "2.35")',
             "  (defmodule entry_selection_reject)",
             "  (export run)",
             "  (defworkflow helper () -> String",

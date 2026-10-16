@@ -23,7 +23,7 @@ from orchestrator.workflow_lisp.diagnostics import (
 )
 from orchestrator.workflow_lisp.reader import SourceReadTrace
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
-from orchestrator.workflow_lisp.wcc.route import normalize_lowering_route
+
 
 
 CLI_FIXTURES = (
@@ -163,7 +163,6 @@ def test_initialize_compile_driver_freezes_absent_production_configuration_once(
             "prompt_externs_path": None,
             "command_boundaries_path": None,
             "imported_workflow_bundles_path": None,
-            "lowering_route": normalize_lowering_route(None),
         }
     ]
     assert driver.state.configuration_vector == lsp_state.ImmutableConfigurationVector(
@@ -535,7 +534,7 @@ def test_configuration_drift_latches_cancels_and_notifies_once_across_reversion(
     workspace.mkdir()
     initial, paths = _configured_initial_state(workspace)
     entry_path = workspace / "entry.orc"
-    entry_text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    entry_text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     entry_path.write_text(entry_text, encoding="utf-8")
     driver = compile_driver.initialize_compile_driver(initial)
     opened = lsp_state.open_entry(
@@ -711,7 +710,7 @@ def test_driver_coalesces_latest_generation_and_accepts_one_injected_success(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
-    entry_text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    entry_text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     entry_path.write_text(entry_text, encoding="utf-8")
     calls: list[tuple[build.FrontendBuildRequest, SourceReadTrace]] = []
     result = _injected_success()
@@ -761,7 +760,7 @@ def test_driver_coalesces_latest_generation_and_accepts_one_injected_success(
         command_boundaries_path=None,
         workspace_root=workspace.resolve(),
         lint_profile=driver.state.options.lint_profile,
-        lowering_route=driver.state.options.lowering_route,
+
     )
     assert trace.revision_vector == (
         compile_driver.probe_raw_revision(entry_path),
@@ -786,7 +785,7 @@ def _opened_split_phase_driver(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
-    entry_text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    entry_text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     entry_path.write_text(entry_text, encoding="utf-8")
 
     def successful_build(
@@ -930,7 +929,7 @@ def test_driver_rechecks_configuration_before_calling_builder_without_notificati
     workspace.mkdir()
     initial, paths = _configured_initial_state(workspace)
     entry_path = workspace / "entry.orc"
-    entry_text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    entry_text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     entry_path.write_text(entry_text, encoding="utf-8")
     calls: list[build.FrontendBuildRequest] = []
 
@@ -976,7 +975,7 @@ def test_driver_logs_preflight_exception_settles_generation_and_continues_queue(
     workspace.mkdir()
     first_path = workspace / "first.orc"
     second_path = workspace / "second.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     for path in (first_path, second_path):
         path.write_text(text, encoding="utf-8")
     logged: list[Exception] = []
@@ -1055,7 +1054,7 @@ def test_driver_discards_success_when_configuration_drifts_during_build(
     workspace.mkdir()
     initial, paths = _configured_initial_state(workspace)
     entry_path = workspace / "entry.orc"
-    entry_text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    entry_text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     entry_path.write_text(entry_text, encoding="utf-8")
 
     def drift_during_build(
@@ -1197,7 +1196,7 @@ def test_driver_latches_injected_attempt_configuration_evidence_mismatch(
     workspace.mkdir()
     initial, paths = _configured_initial_state(workspace)
     entry_path = workspace / "entry.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     entry_path.write_text(text, encoding="utf-8")
     diagnostic = LispFrontendDiagnostic(
         code="must_not_publish",
@@ -1299,7 +1298,7 @@ def test_source_mutation_during_build_routes_through_revision_observation(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
-    entry_text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    entry_text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     changed_text = entry_text + "\n"
     entry_path.write_text(entry_text, encoding="utf-8")
     result = _injected_success(("must-not-publish",))
@@ -1349,7 +1348,7 @@ def test_driver_rejects_success_built_from_disk_newer_than_clean_editor_proof(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
-    editor_text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    editor_text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     newer_disk_text = editor_text + "\n"
     entry_path.write_text(editor_text, encoding="utf-8")
 
@@ -1398,7 +1397,7 @@ def test_driver_rejects_language_error_from_disk_newer_than_clean_editor_proof(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
-    editor_text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    editor_text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     newer_disk_text = editor_text + "\n"
     entry_path.write_text(editor_text, encoding="utf-8")
     diagnostic = LispFrontendDiagnostic(
@@ -1466,7 +1465,7 @@ def test_trace_drift_without_prior_ownership_reproves_and_reschedules_entry(
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
     new_dependency = workspace / "new-dependency.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     entry_path.write_text(text, encoding="utf-8")
     new_dependency.write_text(text, encoding="utf-8")
     build_count = 0
@@ -1530,7 +1529,7 @@ def test_driver_accepts_success_trace_under_exact_frozen_builtin_root(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     entry_path.write_text(text, encoding="utf-8")
     initial = lsp_state.initialize_lsp_state(root_uri=workspace.as_uri())
     builtin_source = (
@@ -1583,7 +1582,7 @@ def test_driver_routes_external_trace_to_logged_failure_and_continues_queue(
     entry_path = workspace / "entry.orc"
     second_path = workspace / "second.orc"
     external_path = tmp_path / "external.orc"
-    entry_text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    entry_text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     for path in (entry_path, second_path):
         path.write_text(entry_text, encoding="utf-8")
     external_path.write_text(entry_text, encoding="utf-8")
@@ -1650,7 +1649,7 @@ def test_driver_rejects_invalid_success_trace_and_continues_queue(
     second_path = workspace / "second.orc"
     dependency_path = workspace / "dependency.orc"
     missing_path = workspace / "missing.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     for path in (first_path, second_path, dependency_path):
         path.write_text(text, encoding="utf-8")
     logged: list[Exception] = []
@@ -1723,7 +1722,7 @@ def test_driver_routes_language_error_external_trace_to_logged_server_failure(
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
     external_path = tmp_path / "external.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     for path in (entry_path, external_path):
         path.write_text(text, encoding="utf-8")
     diagnostic = LispFrontendDiagnostic(
@@ -1792,7 +1791,7 @@ def test_driver_records_server_failure_when_postflight_recheck_raises(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     entry_path.write_text(text, encoding="utf-8")
     logged: list[Exception] = []
 
@@ -1859,7 +1858,7 @@ def test_driver_discards_dirty_or_closed_completion(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
-    entry_text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    entry_text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     entry_path.write_text(entry_text, encoding="utf-8")
     holder: dict[str, compile_driver.LspCompileDriver] = {}
 
@@ -1918,7 +1917,7 @@ def test_driver_reentrant_run_is_rejected_while_single_builder_is_running(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
-    entry_text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    entry_text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     entry_path.write_text(entry_text, encoding="utf-8")
     holder: dict[str, compile_driver.LspCompileDriver] = {}
 
@@ -1964,7 +1963,7 @@ def test_driver_process_local_guard_prevents_two_threads_from_consuming_together
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     entry_paths = tuple(workspace / f"entry-{index}.orc" for index in range(2))
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     for path in entry_paths:
         path.write_text(text, encoding="utf-8")
 
@@ -2095,7 +2094,7 @@ def test_driver_run_next_consults_mutex_before_touching_queued_work(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     entry_path.write_text(text, encoding="utf-8")
     build_calls: list[Path] = []
 
@@ -2385,7 +2384,6 @@ def _l3_serializable_result_identity(
                 capture.boundary_admission_profile.value
             ),
             "lint_profile": capture.lint_profile,
-            "lowering_route": capture.lowering_route.value,
             "provider_externs": dict(capture.provider_externs),
             "prompt_externs": dict(capture.prompt_externs),
             "command_boundaries": tuple(sorted(capture.command_boundaries)),
@@ -2759,7 +2757,7 @@ def test_success_translates_diagnostics_to_exact_target_contributions(
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
     target_path = workspace / "imported.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     for path in (entry_path, target_path):
         path.write_text(text, encoding="utf-8")
     position = SourcePosition(
@@ -2818,7 +2816,7 @@ def test_completed_outer_graph_language_error_translates_precise_contribution(
     entry_path = workspace / "entry.orc"
     dependency_path = workspace / "dependency.orc"
     guidance_path = workspace / "guidance.md"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     for path in (entry_path, dependency_path):
         path.write_text(text, encoding="utf-8")
     guidance_path.write_text("guidance\n", encoding="utf-8")
@@ -3065,7 +3063,7 @@ def test_language_error_trace_completeness_fails_closed_to_unknown_state(
     entry_path = workspace / "entry.orc"
     child_path = workspace / "child.orc"
     missing_path = workspace / "missing.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     for path in (entry_path, child_path):
         path.write_text(text, encoding="utf-8")
     position = SourcePosition(
@@ -3195,7 +3193,7 @@ def test_language_error_complete_child_and_outer_attempts_remain_precise(
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
     child_path = workspace / "child.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     for path in (entry_path, child_path):
         path.write_text(text, encoding="utf-8")
     diagnostic = LispFrontendDiagnostic(
@@ -3274,7 +3272,7 @@ def test_precise_language_error_revision_vector_drives_reverse_relevance(
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
     dependency_path = workspace / "dependency.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     for path in (entry_path, dependency_path):
         path.write_text(text, encoding="utf-8")
     diagnostic = LispFrontendDiagnostic(
@@ -3352,7 +3350,7 @@ def test_server_failure_preserves_contribution_logs_and_continues_queue(
     workspace.mkdir()
     first_path = workspace / "first.orc"
     second_path = workspace / "second.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     for path in (first_path, second_path):
         path.write_text(text, encoding="utf-8")
     initial = lsp_state.initialize_lsp_state(root_uri=workspace.as_uri())
@@ -3452,7 +3450,7 @@ def test_repeated_read_mismatch_reproves_and_reschedules_clean_entry(
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
     dependency_path = workspace / "dependency.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     for path in (entry_path, dependency_path):
         path.write_text(text, encoding="utf-8")
     logged: list[Exception] = []
@@ -3513,7 +3511,7 @@ def test_repeated_read_conflict_reschedules_after_dependency_bytes_revert(
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
     dependency_path = workspace / "dependency.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     changed_text = text + "\n"
     for path in (entry_path, dependency_path):
         path.write_text(text, encoding="utf-8")
@@ -3579,7 +3577,7 @@ def test_caught_read_conflict_reproves_before_accepting_terminal_outcome(
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
     dependency_path = workspace / "dependency.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     changed_text = text + "\n"
     for path in (entry_path, dependency_path):
         path.write_text(text, encoding="utf-8")
@@ -3659,7 +3657,7 @@ def test_generic_exception_with_unchanged_internal_trace_remains_server_error(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     entry_path.write_text(text, encoding="utf-8")
     logged: list[Exception] = []
 
@@ -3718,7 +3716,7 @@ def test_generic_exception_uses_only_exact_structural_configuration_evidence(
     workspace.mkdir()
     initial, _configured_paths = _configured_initial_state(workspace)
     entry_path = workspace / "entry.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     entry_path.write_text(text, encoding="utf-8")
     holder: dict[str, compile_driver.LspCompileDriver] = {}
     logged: list[Exception] = []
@@ -3877,7 +3875,7 @@ def test_generic_exception_external_trace_logs_once_and_remains_server_error(
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
     external_path = tmp_path / "external.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     for path in (entry_path, external_path):
         path.write_text(text, encoding="utf-8")
     logged: list[Exception] = []
@@ -3928,7 +3926,7 @@ def test_late_or_configuration_stale_language_errors_are_discarded(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     entry_path.write_text(text, encoding="utf-8")
     if late_kind == "configuration_stale":
         initial, configured_paths = _configured_initial_state(workspace)
@@ -4013,7 +4011,7 @@ def test_late_server_failure_logs_but_does_not_synthesize_or_accept(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     entry_path.write_text(text, encoding="utf-8")
     logged: list[Exception] = []
     holder: dict[str, compile_driver.LspCompileDriver] = {}
@@ -4063,7 +4061,7 @@ def test_snapshot_if_current_returns_only_live_clean_success(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     entry_path.write_text(text, encoding="utf-8")
     result = _injected_success()
 
@@ -4149,7 +4147,7 @@ def test_snapshot_if_current_observes_source_drift_without_notification(
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
     dependency_path = workspace / "dependency.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     for path in (entry_path, dependency_path):
         path.write_text(text, encoding="utf-8")
 
@@ -4197,7 +4195,7 @@ def test_snapshot_if_current_latches_config_drift_without_notification(
     workspace.mkdir()
     initial, paths = _configured_initial_state(workspace)
     entry_path = workspace / "entry.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     entry_path.write_text(text, encoding="utf-8")
     holder: dict[str, compile_driver.LspCompileDriver] = {}
 
@@ -4293,7 +4291,7 @@ def test_snapshot_rechecks_configuration_before_non_candidate_return(
     workspace.mkdir()
     initial, paths = _configured_initial_state(workspace)
     entry_path = workspace / "entry.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     entry_path.write_text(text, encoding="utf-8")
     driver = compile_driver.initialize_compile_driver(initial)
     driver.apply_transition(
@@ -4410,7 +4408,7 @@ def test_observe_disk_path_probes_source_once_and_applies_invalidation(
     workspace.mkdir()
     entry_path = workspace / "entry.orc"
     dependency_path = workspace / "dependency.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     for path in (entry_path, dependency_path):
         path.write_text(text, encoding="utf-8")
 
@@ -4472,7 +4470,7 @@ def test_observe_disk_path_routes_frozen_member_to_configuration_latch(
     workspace.mkdir()
     initial, paths = _configured_initial_state(workspace)
     entry_path = workspace / "entry.orc"
-    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.14\"))\n"
+    text = "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\"))\n"
     entry_path.write_text(text, encoding="utf-8")
     driver = compile_driver.initialize_compile_driver(initial)
     driver.apply_transition(
@@ -4494,7 +4492,7 @@ def test_observe_disk_path_routes_frozen_member_to_configuration_latch(
     assert transition.effects.restart_notice_required is True
 
 
-@pytest.mark.parametrize("target", ("2.34", "2.35", "2.36", "2.37", "2.38"))
+@pytest.mark.parametrize("target", ("2.35", "2.36", "2.37", "2.38", "2.39"))
 def test_analysis_build_accepts_supported_headers_without_flat_emission(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str,
 ) -> None:

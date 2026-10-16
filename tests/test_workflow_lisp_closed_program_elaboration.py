@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from orchestrator.workflow_lisp.functions import _ExpansionNameAllocator
+
 from dataclasses import fields, is_dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -102,7 +104,6 @@ def _compile_and_elaborate(
     module: str = "cp/closed_elaboration",
     commands: dict[str, ExternalToolBinding] = _COMMANDS,
     entry_workflow: str = "run",
-    closed_program: bool = True,
 ):
     source = source.replace("TARGET", EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION)
     path = (tmp_path / Path(*module.split("/"))).with_suffix(".orc")
@@ -133,7 +134,6 @@ def _compile_and_elaborate(
         resolved_procedures_by_name=typed.procedures,
         procedure_type_envs=typed.procedure_type_envs,
         route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION,
-        closed_program=closed_program,
     )
     return normalize_wcc_body_to_anf(body)
 
@@ -279,16 +279,7 @@ def test_closed_command_adapter_inputs_bind_effectful_values_before_perform(
         adapter_binding
     )
 
-    with pytest.raises(
-        TypeError,
-        match="unsupported WCC elaboration node: ProcedureCallExpr",
-    ):
-        _compile_and_elaborate(
-            tmp_path,
-            source=source,
-            commands=commands,
-            closed_program=False,
-        )
+
 
 
 def test_closed_run_ref_inputs_bind_effectful_values_before_perform(
@@ -414,7 +405,7 @@ def test_closed_entry_elaborates_admitted_older_target_imported_helper(
 ) -> None:
     helper = tmp_path / "older.orc"
     helper.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.24")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
           (defmodule older) (export get Box)
           (defrecord Box (n Int))
           (defunion Choice (Ready (value Box)) (Empty))
@@ -471,13 +462,9 @@ def test_closed_entry_elaborates_admitted_older_target_imported_helper(
         route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION,
     )
 
-    with pytest.raises(TypeError, match="unsupported nested WCC M2 prefix"):
-        elaborate_typed_workflow_body(procedure.typed_body, **arguments)
-
     body = normalize_wcc_body_to_anf(
         elaborate_typed_workflow_body(
             procedure.typed_body,
-            closed_program=True,
             **arguments,
         )
     )
@@ -619,14 +606,6 @@ def test_closed_with_phase_binds_compound_context_once_before_target_use(
     assert target.args[0].base.name == context.bound_name
 
 
-def test_flag_off_keeps_the_legacy_phase_target_atom(tmp_path: Path) -> None:
-    body = _compile_and_elaborate(
-        tmp_path,
-        source=_PHASE_TARGET_SOURCE,
-        closed_program=False,
-    )
-
-    assert any(isinstance(node, WccPhaseTargetAtom) for node in _walk_wcc(body))
 
 
 _SHORT_CIRCUIT_SOURCE = '''(workflow-lisp
@@ -921,29 +900,29 @@ def test_closed_short_circuit_renames_condition_prefix_over_later_shadowed_opera
 
 
 @pytest.mark.parametrize(
-    ("body_source", "condition_shape_type", "expected"),
+    ("body_source", "condition_type", "expected"),
     (
         (
             "(and (let* ((ignored (check-bool 1))) false) true)",
-            LiteralBoolCondition,
+            WccLiteralAtom,
             False,
         ),
         (
             "(and (let* ((gate (check-gate 1))) gate.enabled) true)",
-            BoolRefCondition,
+            WccFieldAccessAtom,
             ("gate", ("enabled",)),
         ),
         (
             "(and (let* ((flag (check-bool 1))) (not flag)) true)",
-            PureExprCondition,
-            None,
+            WccNameAtom,
+            "not",
         ),
     ),
 )
-def test_closed_short_circuit_classifies_the_materialized_condition_value(
+def test_closed_short_circuit_uses_the_materialized_typed_condition(
     tmp_path: Path,
     body_source: str,
-    condition_shape_type: type,
+    condition_type: type,
     expected: object,
 ) -> None:
     source = f'''(workflow-lisp
@@ -971,12 +950,17 @@ def test_closed_short_circuit_classifies_the_materialized_condition_value(
     )
 
     conditional = next(node for node in _walk_wcc(body) if isinstance(node, WccIf))
-    shape = conditional.condition_shape
-    assert isinstance(shape, condition_shape_type)
-    if isinstance(shape, LiteralBoolCondition):
-        assert shape.value is expected
-    elif isinstance(shape, BoolRefCondition):
-        assert (shape.base_name, shape.fields) == expected
+    assert conditional.condition_shape is None
+    condition = conditional.condition
+    assert isinstance(condition, condition_type)
+    if isinstance(condition, WccLiteralAtom):
+        assert condition.value is expected
+    elif isinstance(condition, WccFieldAccessAtom):
+        assert (condition.base.name, condition.fields) == expected
+    elif isinstance(condition, WccNameAtom):
+        producer = next(node.bound_value for node in _walk_wcc(body)
+            if isinstance(node, WccLet) and node.bound_name == condition.name)
+        assert isinstance(producer, WccPureOp) and producer.operator == expected
 
 
 _BIND_PROC_CAPTURE_SOURCE = '''(workflow-lisp
@@ -1027,27 +1011,19 @@ def test_closed_bind_proc_captures_effectful_outer_alias_before_shadowing(tmp_pa
     assert lets.index(alias) < lets.index(shadow_b)
 
 
-def test_closed_program_flag_does_not_change_wcc_semantic_identity() -> None:
-    from dataclasses import replace
-
-    flat = WccIdentityFactory(owner_name="demo")
-    closed = replace(flat, closed_program=True)
+def test_wcc_semantic_identity_preserves_existing_scope_and_node_ids() -> None:
+    scope = WccIdentityFactory(owner_name="demo")
     position = SourcePosition(path="test.orc", line=1, column=1, offset=0)
     span = SourceSpan(start=position, end=position)
 
-    assert flat.scope_id == closed.scope_id
-    assert flat.atom_metadata(
+    assert scope.scope_id == "wcc-scope:wcc_m1:5b0bdcf9b7967b28"
+    assert scope.atom_metadata(
         role="value",
         type_ref=PrimitiveTypeRef(name="Int"),
         source_span=span,
         form_path=("test",),
-    ).node_id == closed.atom_metadata(
-        role="value",
-        type_ref=PrimitiveTypeRef(name="Int"),
-        source_span=span,
-        form_path=("test",),
-    ).node_id
-    assert closed.child_scope("child").closed_program
+    ).node_id == "wcc-node:wcc_m1:52b953413d22b211"
+    assert scope.child_scope("child").scope_id == "wcc-scope:wcc_m1:89eadc0a5ef1e00f"
 
 
 _LOOP_SEED_BUDGET_SOURCE = '''(workflow-lisp
@@ -1432,7 +1408,7 @@ def test_retained_input_maps_and_expands_helpers_in_its_incoming_scope() -> None
     expanded = _normalize_expr(
         source,
         typed_functions_by_name={"helper": helper},
-        expand_admitted_containers=False,
+        allocator=_ExpansionNameAllocator(),
     )
 
     assert isinstance(mapped, LetStarExpr)
@@ -1566,7 +1542,6 @@ def test_cross_module_inline_constructor_survives_retention_and_source_deletion(
             resolved_procedures_by_name=typed.procedures,
             procedure_type_envs=typed.procedure_type_envs,
             route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION,
-            closed_program=True,
         )
     )
     assert [
@@ -1690,22 +1665,6 @@ def test_closed_loop_preserves_state_before_budget_keyword_order(
     ]
 
 
-def test_flat_loop_route_retains_its_unsupported_effectful_budget_behavior(
-    tmp_path: Path,
-) -> None:
-    with pytest.raises(
-        TypeError,
-        match="unsupported WCC elaboration node: ProcedureCallExpr",
-    ):
-        _compile_and_elaborate(
-            tmp_path,
-            source=_LOOP_SEED_BUDGET_SOURCE,
-            commands={
-                name: ExternalToolBinding(name=name, stable_command=("python", "probe.py"))
-                for name in ("budget", "seed")
-            },
-            closed_program=False,
-        )
 
 
 _LOOP_IN_IF_CONDITION_SOURCE = _LOOP_SEED_BUDGET_SOURCE.replace(
@@ -1916,7 +1875,7 @@ def test_closed_imported_old_snapshot_survives_source_deletion_and_is_reachable(
     producer_path.write_text(
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.34")
+  (:target-dsl "2.35")
   (defmodule cp/producer)
   (export get)
   (defproc seed ((n Int)) -> Int
@@ -1942,7 +1901,7 @@ def test_closed_imported_old_snapshot_survives_source_deletion_and_is_reachable(
         command_boundaries=commands,
         validate_shared=True,
         workspace_root=tmp_path,
-        lowering_route=None,
+
     )
     snapshot = producer.entry_result.typed_program
     snapshot = replace(snapshot, entry=snapshot.workflows["cp/producer::get"])
@@ -1994,7 +1953,6 @@ def test_closed_imported_old_snapshot_survives_source_deletion_and_is_reachable(
             resolved_procedures_by_name=typed.procedures,
             procedure_type_envs=typed.procedure_type_envs,
             route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION,
-            closed_program=True,
         )
     )
 
@@ -2068,7 +2026,6 @@ def test_closed_nested_zero_budget_keeps_done_effect_inside_inner_iteration(
             resolved_procedures_by_name=typed.procedures,
             procedure_type_envs=typed.procedure_type_envs,
             route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION,
-            closed_program=True,
         )
     )
     loops = [node for node in _walk_wcc(body) if isinstance(node, WccRecJoin)]
@@ -2181,7 +2138,6 @@ def test_closed_value_operands_normalize_loops_without_losing_locality(
             resolved_procedures_by_name=typed.procedures,
             procedure_type_envs=typed.procedure_type_envs,
             route_schema_version=WCC_M4_ROUTE_SCHEMA_VERSION,
-            closed_program=True,
         )
     )
     loops = [node for node in _walk_wcc(body) if isinstance(node, WccRecJoin)]
@@ -2238,3 +2194,164 @@ def test_closed_exhaustive_effectful_terminal_cond_evaluates_condition_once(
         isinstance(node, WccOpaqueFrontendValue) and _contains_effect(node.expr)
         for node in _walk_wcc(body)
     )
+
+
+@pytest.mark.parametrize(
+    ("body", "result_type", "expected"),
+    [
+        ("(list)", "List[Int]", ()),
+        ("(list (list 1 2) (list 3 4))", "List[List[Int]]", ((1, 2), (3, 4))),
+        ("(let* ((x 10)) (list (let* ((x (+ x 1))) x) x))", "List[Int]", (11, 10)),
+        ("(list (if true (let* ((x (+ 1.0 2.0))) x) (/ 1.0 zero)) 4.0)", "List[Float]", (3.0, 4.0)),
+    ],
+)
+def test_closed_lists_prepare_children_without_frontend_reentry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str, result_type: str, expected: object,
+) -> None:
+    from orchestrator.workflow_lisp.closed import command_templates
+    from orchestrator.workflow.evaluated.machine import evaluate_closed_program
+    from orchestrator.contracts.closed_program.program import ClosedProgram
+    from tests.workflow_lisp_closed_program_helpers import build
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("list compilation unexpectedly required source value preparation")
+
+    monkeypatch.setattr(command_templates, "prepare_frontend_value", forbidden)
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
+      (defmodule cp/prepared_lists) (export run)
+      (defworkflow run ((zero Float)) -> {result_type} {body}))'''
+    program = build(tmp_path, source)
+    restored = ClosedProgram.from_artifact(program.artifact())
+    from orchestrator.workflow.evaluated.values import coerce_evaluated_value
+    assert evaluate_closed_program(restored, {"zero": coerce_evaluated_value(0.0, {"kind": "primitive", "name": "Float"})}).value == expected
+
+
+def test_prepared_list_blocks_preserve_free_names_and_shadowing(tmp_path: Path) -> None:
+    from orchestrator.workflow_lisp.wcc.model import WccBlock, WccHalt, WccList
+    from orchestrator.workflow_lisp.wcc.analysis import _referenced_wcc_names
+    from orchestrator.workflow_lisp.wcc.elaborate import _substitute_wcc_value
+    from orchestrator.workflow_lisp.wcc.hygiene import _free_names, _renamed
+
+    body = _compile_and_elaborate(tmp_path, source='''(workflow-lisp
+      (:language "0.1") (:target-dsl "TARGET")
+      (defmodule cp/closed_elaboration) (export run)
+      (defworkflow run ((x Int)) -> List[Int]
+        (list (let* ((x (+ x 1))) x) x)))''', commands={})
+    assert isinstance(body, WccHalt)
+    value = body.result
+    assert isinstance(value, WccList)
+    local, outer = value.items
+    assert isinstance(local, WccBlock)
+    assert isinstance(local.body, WccLet)
+    assert local.body.bound_type_ref == local.metadata.type_ref == outer.metadata.type_ref
+    assert _referenced_wcc_names(value) == _free_names(value) == {"x"}
+
+    replacement = WccLiteralAtom(metadata=outer.metadata, value=99, literal_kind="int")
+    substituted = _substitute_wcc_value(value, {"x": replacement})
+    assert _referenced_wcc_names(substituted) == _free_names(substituted) == set()
+    assert substituted.items[0].body.body.result.name == "x"
+    assert substituted.items[0].body.bound_value.args[0] == replacement
+    renamed = _renamed(value, {"x": "outside"})
+    assert _free_names(renamed) == {"outside"}
+    assert renamed.items[0].body.body.result.name == "x"
+    unshadowed, _ = rename_capturing_binders(body, live=frozenset({"x"}))
+    assert unshadowed.result.items[0].body.bound_name != "x"
+    assert unshadowed.result.items[1].name == "x"
+
+
+def test_prepared_lists_specialize_old_header_imports_without_reentry(tmp_path: Path, monkeypatch) -> None:
+    from orchestrator.workflow_lisp.closed import command_templates
+    from orchestrator.workflow.evaluated.machine import evaluate_closed_program
+    from tests.workflow_lisp_closed_program_helpers import build
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("specialized list compilation unexpectedly required source value preparation")
+
+    monkeypatch.setattr(command_templates, "prepare_frontend_value", forbidden)
+    program = build(tmp_path, {
+        "cp/list_import.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
+          (defmodule cp/list_import) (import lib :as old) (export run)
+          (defworkflow run () -> List[List[Int]]
+            (list (old.singleton 4 5) (old.singleton true 8))))''',
+        "lib.orc": '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+          (defmodule lib) (export singleton)
+          (defproc singleton :forall (T) ((value T) (n Int)) -> List[Int]
+            :effects () :lowering inline (list (+ n 1))))''',
+    }, entry_path="cp/list_import.orc")
+    assert evaluate_closed_program(program, {}).value == ((6,), (9,))
+
+
+def test_prepared_list_artifact_checker_rejects_wrong_child_type(tmp_path: Path) -> None:
+    from copy import deepcopy
+    from orchestrator.contracts.closed_program.check import CheckedFormError, validate
+    from tests.workflow_lisp_closed_program_helpers import build
+
+    program = build(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
+      (defmodule cp/list_check) (export run)
+      (defworkflow run () -> List[Int] (list 1 2)))''')
+    tree = deepcopy(program.tree)
+    tree["body"]["value"]["items"][1] = {
+        "k": "lit", "v": True, "type": {"kind": "primitive", "name": "Bool"},
+    }
+    with pytest.raises(CheckedFormError) as exc:
+        validate(tree)
+    assert exc.value.rule == "type_mismatch"
+
+
+@pytest.mark.parametrize("materialized", [False, True])
+def test_prepared_list_captures_preserve_materialization_order(tmp_path: Path, monkeypatch, materialized: bool) -> None:
+    from orchestrator.workflow.evaluated import values
+    from orchestrator.workflow.evaluated.machine import evaluate_closed_program
+    from tests.workflow_lisp_closed_program_helpers import build
+
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
+      (defmodule cp/list_capture) (export run)
+      (defproc helper ((fixed List[Int]) (n Int)) -> List[Int] :effects () :lowering inline fixed)
+      (defworkflow run ((x Int)) -> List[List[Int]]
+        (let* ((hook (bind-proc (proc-ref helper)
+                       :fixed (list (+ x 1) (let* ((x (+ x 2))) x)))))
+          (let* ((x 100)) (list (hook 2) (hook 3))))))'''
+    if materialized:
+        source = source.replace("((hook (bind-proc", "((saved (list (+ x 1) (let* ((x (+ x 2))) x))) (hook (bind-proc")
+        source = source.replace(":fixed (list (+ x 1) (let* ((x (+ x 2))) x))", ":fixed saved")
+    program = build(tmp_path, source)
+    operations = []
+    original = values.evaluate_pure_expr
+
+    def observed(payload, *, resolved_bindings, **kwargs):
+        if payload["expr"].get("operator") == "+":
+            operations.append(tuple(resolved_bindings.values()))
+        return original(payload, resolved_bindings=resolved_bindings, **kwargs)
+
+    monkeypatch.setattr(values, "evaluate_pure_expr", observed)
+    result = evaluate_closed_program(program, {
+        "x": values.coerce_evaluated_value(7, {"kind": "primitive", "name": "Int"}),
+    })
+    assert result.value == ((8, 9), (8, 9))
+    assert operations == [(7, 1), (7, 2)] * (1 if materialized else 2)
+
+
+def test_prepared_list_in_adapter_payload_prepares_its_pure_calls(tmp_path: Path) -> None:
+    from orchestrator.contracts.closed_program.program import ClosedProgram
+    from tests.workflow_lisp_closed_program_helpers import build
+
+    adapter = CertifiedAdapterBinding(
+        name="sum", stable_command=("python", "sum.py"), closure=(),
+        input_contract={"type": "object"}, output_type_name="Total",
+        effects=("structured_result",), path_safety={"kind": "workspace_relpath"},
+        source_map_behavior="step", fixture_ids=("sum_ok",),
+        negative_fixture_ids=("sum_bad",), behavior_class="structured_result",
+        input_signature=(CertifiedAdapterInputField(
+            name="numbers", type_name="List[Int]", required=True, transport_key="numbers",
+        ),),
+        artifact_contracts=("total",), error_codes=("sum_invalid_payload",),
+        owner_module="cp/list_payload", invocation_protocol="json_object_positional_arg",
+        declared_promoted_fields=PROMOTED_CALL_REQUIRED_METADATA_FIELDS,
+    )
+    program = build(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
+      (defmodule cp/list_payload) (export run) (defrecord Total (n Int))
+      (defproc keep ((n Int)) -> Int :effects () :lowering inline n)
+      (defworkflow run () -> Total
+        (command-result sum :adapter sum :inputs ((numbers (list (keep 1) (keep 2))))
+          :returns Total)))''', boundaries={"sum": adapter})
+    assert ClosedProgram.from_artifact(program.artifact()).digest == program.digest

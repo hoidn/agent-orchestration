@@ -159,7 +159,7 @@ def _type_env(*extra_types) -> FrontendTypeEnvironment:
     refs.update({type_ref.name: type_ref for type_ref in extra_types})
     return FrontendTypeEnvironment(
         refs,
-        target_dsl_version="2.25",
+        target_dsl_version="2.35",
         nominal_descriptor_names_by_definition_id={
             id(type_ref.definition): type_ref.name
             for type_ref in extra_types
@@ -247,9 +247,8 @@ def _transportable_types(span):
     )
 
 
-def test_trial_form_is_registered_only_for_target_225() -> None:
-    assert get_form_spec("trial", target_dsl_version="2.24") is None
-    spec = get_form_spec("trial", target_dsl_version="2.25")
+def test_trial_form_is_registered_for_current_source() -> None:
+    spec = get_form_spec("trial", target_dsl_version="2.35")
     assert spec is not None
     assert spec.kind.value == "core_effect"
     assert spec.elaboration_route == "trial"
@@ -260,10 +259,10 @@ def test_trial_parser_surface_is_public() -> None:
     assert hasattr(expressions, "parse_trial_expression")
 
 
-def test_trial_target_225_parses_exact_closed_static_form() -> None:
+def test_trial_current_source_parses_exact_closed_static_form() -> None:
     expr = parse_trial_expression(
         _expression(_trial_source()),
-        target_dsl_version="2.25",
+        target_dsl_version="2.35",
     )
 
     assert isinstance(expr, TrialExpr)
@@ -288,14 +287,6 @@ def test_trial_target_225_parses_exact_closed_static_form() -> None:
     assert expr.budget.max_evaluator_concurrency == 2
 
 
-def test_trial_rejects_target_224_with_closed_diagnostic() -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        parse_trial_expression(
-            _expression(_trial_source()),
-            target_dsl_version="2.24",
-        )
-
-    assert excinfo.value.diagnostics[0].code == "trial_target_dsl_unsupported"
 
 
 @pytest.mark.parametrize(
@@ -373,7 +364,7 @@ def test_trial_closed_shape_and_bounds_use_owned_refusals(
     with pytest.raises(LispFrontendCompileError) as excinfo:
         parse_trial_expression(
             _expression(source),
-            target_dsl_version="2.25",
+            target_dsl_version="2.35",
         )
 
     assert excinfo.value.diagnostics[0].code == expected_code
@@ -460,7 +451,7 @@ def test_trial_nested_runtime_contract_values_are_not_pure(source: str) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         parse_trial_expression(
             _expression(source),
-            target_dsl_version="2.25",
+            target_dsl_version="2.35",
         )
 
     assert (
@@ -495,7 +486,7 @@ def test_trial_enormous_numeric_threshold_uses_closed_diagnostic() -> None:
 def test_trial_typechecks_homogeneous_arms_to_generated_result_and_effect() -> None:
     expr = parse_trial_expression(
         _expression(_trial_source()),
-        target_dsl_version="2.25",
+        target_dsl_version="2.35",
     )
     typed = typecheck_expression(
         expr,
@@ -509,7 +500,8 @@ def test_trial_typechecks_homogeneous_arms_to_generated_result_and_effect() -> N
     assert typed.type_ref.name.startswith("TrialResult$")
     assert expr.evaluation.provider == "scorer"
     assert isinstance(typed.expr, TrialExpr)
-    assert typed.expr.evaluation.provider == "codex"
+    assert typed.expr.evaluation.provider == "scorer"
+    assert _externs().bindings_by_name["scorer"].provider_id == "codex"
     assert typed.expr.span == expr.span
     assert typed.expr.form_path == expr.form_path
     assert {type(effect).__name__ for effect in typed.effect_summary.direct_effects} == {
@@ -527,7 +519,7 @@ def test_trial_typechecks_homogeneous_arms_to_generated_result_and_effect() -> N
 def test_evaluated_retyping_keeps_the_trial_provider_alias(provider_rows) -> None:
     expr = parse_trial_expression(
         _expression(_trial_source()),
-        target_dsl_version="2.25",
+        target_dsl_version="2.35",
     )
     bindings = {
         name: ProviderExtern(name=name, provider_id=provider_id)
@@ -538,7 +530,7 @@ def test_evaluated_retyping_keeps_the_trial_provider_alias(provider_rows) -> Non
         asset_file="rubrics/trial.md",
     )
     externs = ExternEnvironment(bindings_by_name=bindings)
-    compiler_session = CompilerSession(closed_program=True)
+    compiler_session = CompilerSession()
     first = typecheck_expression(
         expr,
         type_env=_type_env(),
@@ -566,7 +558,7 @@ def test_evaluated_retyping_still_rejects_an_authored_provider_id() -> None:
     source = _trial_source().replace(':provider "scorer"', ':provider "codex"')
     expr = parse_trial_expression(
         _expression(source),
-        target_dsl_version="2.25",
+        target_dsl_version="2.35",
     )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
@@ -576,7 +568,7 @@ def test_evaluated_retyping_still_rejects_an_authored_provider_id() -> None:
             value_env={},
             workflow_catalog=_catalog(expr, PrimitiveTypeRef("String")),
             extern_environment=_externs(),
-            compiler_session=CompilerSession(closed_program=True),
+            compiler_session=CompilerSession(),
         )
 
     assert excinfo.value.diagnostics[0].code == "trial_evaluation_provider_unresolved"
@@ -585,7 +577,7 @@ def test_evaluated_retyping_still_rejects_an_authored_provider_id() -> None:
 def test_trial_failed_enclosing_placement_rolls_back_type_environment() -> None:
     trial = parse_trial_expression(
         _expression(_trial_source()),
-        target_dsl_version="2.25",
+        target_dsl_version="2.35",
     )
     literal = LiteralExpr("unused", "string", trial.span, FORM_PATH)
     candidate = IfExpr(trial, literal, literal, trial.span, FORM_PATH)
@@ -604,7 +596,7 @@ def test_trial_failed_enclosing_placement_rolls_back_type_environment() -> None:
             extern_environment=_externs(),
         )
 
-    assert excinfo.value.diagnostics[0].code == "trial_nested_unsupported"
+    assert excinfo.value.diagnostics[0].code == "if_condition_not_bool"
     assert type_env._type_refs is type_refs_object
     assert type_env._compiler_owned_type_names is owned_names_object
     assert type_env._type_refs == original_types
@@ -614,7 +606,7 @@ def test_trial_failed_enclosing_placement_rolls_back_type_environment() -> None:
 def test_trial_success_commits_generated_types_to_type_environment() -> None:
     trial = parse_trial_expression(
         _expression(_trial_source()),
-        target_dsl_version="2.25",
+        target_dsl_version="2.35",
     )
     type_env = _type_env()
     original_types = dict(type_env._type_refs)
@@ -637,11 +629,11 @@ def test_trial_success_commits_generated_types_to_type_environment() -> None:
 def test_trial_later_failure_restores_post_success_type_environment() -> None:
     first = parse_trial_expression(
         _expression(_trial_source()),
-        target_dsl_version="2.25",
+        target_dsl_version="2.35",
     )
     second = parse_trial_expression(
         _expression(f"\n{_trial_source()}"),
-        target_dsl_version="2.25",
+        target_dsl_version="2.35",
     )
     literal = LiteralExpr("unused", "string", second.span, FORM_PATH)
     failing_candidate = IfExpr(
@@ -672,7 +664,7 @@ def test_trial_later_failure_restores_post_success_type_environment() -> None:
             extern_environment=_externs(),
         )
 
-    assert excinfo.value.diagnostics[0].code == "trial_nested_unsupported"
+    assert excinfo.value.diagnostics[0].code == "if_condition_not_bool"
     assert first_typed.type_ref.name in type_env._compiler_owned_type_names
     assert type_env._type_refs == post_success_types
     assert type_env._compiler_owned_type_names == post_success_owned_names
@@ -681,11 +673,11 @@ def test_trial_later_failure_restores_post_success_type_environment() -> None:
 def test_trial_fixed_verdict_types_reuse_across_distinct_sites() -> None:
     first = parse_trial_expression(
         _expression(_trial_source()),
-        target_dsl_version="2.25",
+        target_dsl_version="2.35",
     )
     second = parse_trial_expression(
         _expression(f"\n{_trial_source()}"),
-        target_dsl_version="2.25",
+        target_dsl_version="2.35",
     )
     assert first.span != second.span
     type_env = _type_env()
@@ -722,7 +714,7 @@ def test_trial_fixed_verdict_types_reuse_across_distinct_sites() -> None:
 def test_trial_fixed_type_collision_still_fails_closed() -> None:
     expr = parse_trial_expression(
         _expression(_trial_source()),
-        target_dsl_version="2.25",
+        target_dsl_version="2.35",
     )
     type_env = _type_env()
     catalog = _catalog(expr, PrimitiveTypeRef("String"))
@@ -758,7 +750,7 @@ def test_trial_fixed_type_collision_still_fails_closed() -> None:
 def test_trial_rejects_mismatched_arm_value_descriptors() -> None:
     expr = parse_trial_expression(
         _expression(_trial_source()),
-        target_dsl_version="2.25",
+        target_dsl_version="2.35",
     )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
@@ -784,7 +776,7 @@ def test_trial_rejects_mismatched_arm_value_descriptors() -> None:
 def test_trial_accepts_every_transportable_value_root(value_index: int) -> None:
     expr = parse_trial_expression(
         _expression(_trial_source()),
-        target_dsl_version="2.25",
+        target_dsl_version="2.35",
     )
     value_types = _transportable_types(expr.span)
     value_type = value_types[value_index]
@@ -805,10 +797,10 @@ def test_trial_accepts_every_transportable_value_root(value_index: int) -> None:
     ).type_ref is typed.type_ref
 
 
-def test_trial_accepts_target_225_nested_structural_transport() -> None:
+def test_trial_accepts_current_nested_structural_transport() -> None:
     probe = parse_trial_expression(
         _expression(_trial_source()),
-        target_dsl_version="2.25",
+        target_dsl_version="2.35",
     )
     record_def = RecordDef(
         name="Measurement",
@@ -838,7 +830,7 @@ def test_trial_accepts_target_225_nested_structural_transport() -> None:
 def test_trial_generated_contract_has_exact_union_and_load_bearing_path() -> None:
     expr = parse_trial_expression(
         _expression(_trial_source()),
-        target_dsl_version="2.25",
+        target_dsl_version="2.35",
     )
     type_env = _type_env()
     typed = typecheck_expression(
@@ -873,7 +865,7 @@ def test_trial_generated_contract_has_exact_union_and_load_bearing_path() -> Non
 
 def test_trial_completed_evidence_descriptor_closes_check_results() -> None:
     expr = parse_trial_expression(
-        _expression(_trial_source()), target_dsl_version="2.25"
+        _expression(_trial_source()), target_dsl_version="2.35"
     )
     type_env = _type_env()
     typed = typecheck_expression(
@@ -968,7 +960,7 @@ def test_trial_completed_evidence_descriptor_closes_check_results() -> None:
 
 def test_trial_partial_evidence_descriptor_lists_only_present_closed_facts() -> None:
     expr = parse_trial_expression(
-        _expression(_trial_source()), target_dsl_version="2.25"
+        _expression(_trial_source()), target_dsl_version="2.35"
     )
     type_env = _type_env()
     typed = typecheck_expression(
@@ -1092,7 +1084,7 @@ def test_trial_partial_evidence_descriptor_lists_only_present_closed_facts() -> 
 
 def test_trial_verdict_descriptor_closes_rows_usage_and_cost() -> None:
     expr = parse_trial_expression(
-        _expression(_trial_source()), target_dsl_version="2.25"
+        _expression(_trial_source()), target_dsl_version="2.35"
     )
     type_env = _type_env()
     typed = typecheck_expression(
@@ -1324,7 +1316,7 @@ def test_trial_generated_contract_rejects_loose_value_verdict_leaves(
     budget_field: str | None,
 ) -> None:
     expr = parse_trial_expression(
-        _expression(_trial_source()), target_dsl_version="2.25"
+        _expression(_trial_source()), target_dsl_version="2.35"
     )
     type_env = _type_env()
     typed = typecheck_expression(
@@ -1365,7 +1357,7 @@ def test_trial_generated_contract_rejects_loose_value_evidence(
     variant_name: str,
 ) -> None:
     expr = parse_trial_expression(
-        _expression(_trial_source()), target_dsl_version="2.25"
+        _expression(_trial_source()), target_dsl_version="2.35"
     )
     type_env = _type_env()
     typed = typecheck_expression(
@@ -1415,7 +1407,7 @@ def test_trial_generated_contract_rejects_loose_value_evidence(
 
 def test_trial_generated_contract_rejects_tampered_verdict_path() -> None:
     expr = parse_trial_expression(
-        _expression(_trial_source()), target_dsl_version="2.25"
+        _expression(_trial_source()), target_dsl_version="2.35"
     )
     type_env = _type_env()
     typed = typecheck_expression(
@@ -1472,7 +1464,7 @@ def test_trial_resolves_provider_and_rubric_at_the_consuming_site(
     expected_code: str,
 ) -> None:
     expr = parse_trial_expression(
-        _expression(_trial_source()), target_dsl_version="2.25"
+        _expression(_trial_source()), target_dsl_version="2.35"
     )
     with pytest.raises(LispFrontendCompileError) as excinfo:
         typecheck_expression(
@@ -1486,16 +1478,6 @@ def test_trial_resolves_provider_and_rubric_at_the_consuming_site(
     assert excinfo.value.diagnostics[0].code == expected_code
 
 
-def test_pre_225_same_named_procedure_remains_backward_compatible() -> None:
-    expr = elaborate_expression(
-        _expression('(trial "legacy")'),
-        bound_names=frozenset(),
-        procedure_names=frozenset({"trial"}),
-        target_dsl_version="2.24",
-    )
-
-    assert isinstance(expr, ProcedureCallExpr)
-    assert expr.callee_name == "trial"
 
 
 @pytest.mark.parametrize("placement", ("if", "loop", "list-map", "pure"))
@@ -1508,7 +1490,7 @@ def test_trial_rejects_pure_loop_and_generated_effect_placements(
     )
 
     trial = parse_trial_expression(
-        _expression(_trial_source()), target_dsl_version="2.25"
+        _expression(_trial_source()), target_dsl_version="2.35"
     )
     literal = LiteralExpr("done", "string", trial.span, FORM_PATH)
     if placement == "if":
@@ -1544,7 +1526,9 @@ def test_trial_rejects_pure_loop_and_generated_effect_placements(
         )
         with pytest.raises(LispFrontendCompileError) as excinfo:
             _validate_pure_function_expr(trial, function_def=function)
-        assert excinfo.value.diagnostics[0].code == "trial_nested_unsupported"
+        assert excinfo.value.diagnostics[0].code == (
+        "if_condition_not_bool" if placement == "if" else "trial_nested_unsupported"
+    )
         return
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
@@ -1555,7 +1539,9 @@ def test_trial_rejects_pure_loop_and_generated_effect_placements(
             workflow_catalog=_catalog(trial, PrimitiveTypeRef("String")),
             extern_environment=_externs(),
         )
-    assert excinfo.value.diagnostics[0].code == "trial_nested_unsupported"
+    assert excinfo.value.diagnostics[0].code == (
+        "if_condition_not_bool" if placement == "if" else "trial_nested_unsupported"
+    )
 
 
 def test_runs_trial_effect_parses_and_renders_as_a_marker() -> None:
@@ -1572,7 +1558,7 @@ def test_runs_trial_effect_parses_and_renders_as_a_marker() -> None:
 
 def test_trial_is_valid_in_branches_and_effectful_procedures() -> None:
     trial = parse_trial_expression(
-        _expression(_trial_source()), target_dsl_version="2.25"
+        _expression(_trial_source()), target_dsl_version="2.35"
     )
     condition = LiteralExpr(True, "bool", trial.span, FORM_PATH)
     branch = typecheck_expression(
@@ -1632,7 +1618,7 @@ def test_trial_is_valid_in_branches_and_effectful_procedures() -> None:
 
 def test_trial_effect_flows_through_reusable_calls() -> None:
     trial = parse_trial_expression(
-        _expression(_trial_source()), target_dsl_version="2.25"
+        _expression(_trial_source()), target_dsl_version="2.35"
     )
     signature = ProcedureSignature(
         name="run-trial",
@@ -1677,7 +1663,7 @@ def test_trial_preserves_nested_run_ref_input_effect_after_outer_boundary() -> N
     )
     expr = parse_trial_expression(
         _expression(_trial_source(arm_a=outer)),
-        target_dsl_version="2.25",
+        target_dsl_version="2.35",
     )
 
     typed = typecheck_expression(
@@ -1716,7 +1702,7 @@ def test_trial_preserves_same_subject_nested_run_ref_input_effect() -> None:
     )
     expr = parse_trial_expression(
         _expression(_trial_source(arm_a=outer)),
-        target_dsl_version="2.25",
+        target_dsl_version="2.35",
     )
 
     typed = typecheck_expression(
@@ -1746,7 +1732,7 @@ def test_trial_allows_nested_bundle_with_non_trial_reachable_graph() -> None:
     )
     expr = parse_trial_expression(
         _expression(_trial_source(arm_a=outer)),
-        target_dsl_version="2.25",
+        target_dsl_version="2.35",
     )
 
     typed = typecheck_expression(
@@ -1777,7 +1763,7 @@ def test_trial_rejects_nested_bundle_with_reachable_trial_effect() -> None:
     )
     expr = parse_trial_expression(
         _expression(_trial_source(arm_a=outer)),
-        target_dsl_version="2.25",
+        target_dsl_version="2.35",
     )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
@@ -1806,7 +1792,7 @@ def test_trial_rejects_direct_and_reachable_nested_trials() -> None:
         1,
     )
     nested = parse_trial_expression(
-        _expression(nested_source), target_dsl_version="2.25"
+        _expression(nested_source), target_dsl_version="2.35"
     )
     with pytest.raises(LispFrontendCompileError) as excinfo:
         typecheck_expression(
@@ -1819,7 +1805,7 @@ def test_trial_rejects_direct_and_reachable_nested_trials() -> None:
     assert excinfo.value.diagnostics[0].code == "trial_nested_unsupported"
 
     direct = parse_trial_expression(
-        _expression(_trial_source()), target_dsl_version="2.25"
+        _expression(_trial_source()), target_dsl_version="2.35"
     )
     with pytest.raises(LispFrontendCompileError) as excinfo:
         typecheck_expression(
@@ -1847,7 +1833,7 @@ def test_transitive_trial_effect_is_rejected_from_containing_contexts(
     )
 
     trial = parse_trial_expression(
-        _expression(_trial_source()), target_dsl_version="2.25"
+        _expression(_trial_source()), target_dsl_version="2.35"
     )
     signature = ProcedureSignature(
         name="run-trial",
@@ -1931,7 +1917,7 @@ def test_full_compiler_types_trial_in_exported_workflow_before_lowering(
         f"""\
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.25")
+  (:target-dsl "2.35")
   (defmodule trial_frontend)
   (export compare first second)
   (defworkflow first () -> String
@@ -1948,16 +1934,16 @@ def test_full_compiler_types_trial_in_exported_workflow_before_lowering(
         source_path, entry_workflow="compare", provider_externs={"scorer": "test-provider"},
         prompt_externs={"trial-rubric": "rubrics/trial.md"}, workspace_root=tmp_path,
     )
-    typed_entry = result.typed_program.workflows["compare"]
+    typed_entry = result.typed_program.workflows["trial_frontend::compare"]
     assert isinstance(typed_entry.typed_body.expr, TrialExpr)
     assert isinstance(typed_entry.typed_body.type_ref, RecordTypeRef)
     assert typed_entry.typed_body.type_ref.name.split("::")[-1].startswith("TrialResult$")
     assert typed_entry.signature.return_type_ref == typed_entry.typed_body.type_ref
-    assert result.workflow_catalog.signatures_by_name["compare"].return_type_ref == typed_entry.typed_body.type_ref
+    assert result.workflow_catalog.signatures_by_name["trial_frontend::compare"].return_type_ref == typed_entry.typed_body.type_ref
     assert RunsTrialEffect() in typed_entry.effect_summary.direct_effects
 
 
-@pytest.mark.parametrize("target_dsl_version", ("2.24", "2.25"))
+@pytest.mark.parametrize("target_dsl_version", ("2.35", "2.36"))
 def test_full_compiler_keeps_non_trial_value_return_signature(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1982,6 +1968,6 @@ def test_full_compiler_keeps_non_trial_value_return_signature(
     result = workflow_lisp_compiler.compile_stage3_module(
         source_path, entry_workflow="passthrough", workspace_root=tmp_path,
     )
-    typed_entry = result.typed_program.workflows["passthrough"]
+    typed_entry = result.typed_program.workflows["value_frontend::passthrough"]
     assert typed_entry.signature.return_type_ref == PrimitiveTypeRef("Value")
     assert result.workflow_catalog.signatures_by_name["passthrough"].return_type_ref == PrimitiveTypeRef("Value")

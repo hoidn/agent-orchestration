@@ -1,4 +1,4 @@
-"""`provider-result :returns <applied generic union>` at target 2.33 (owner decision D1).
+"""`provider-result :returns <applied generic union>` at the current typed target (owner decision D1).
 
 A provider hook may declare `:returns Decision[Notes Blocker]` directly. The
 payload is checked against the instantiated union at the provider boundary, so a
@@ -28,7 +28,7 @@ from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 from tests.test_workflow_evaluated_cli import _run_args
 
 
-HEADER = '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "TARGET")\n'
+HEADER = '(workflow-lisp\n  (:language "0.1")\n  (:target-dsl "2.35")\n'
 
 PRELUDE = HEADER + """  (defmodule gpr_entry)
   (import std/improve :only (Decision))
@@ -60,13 +60,6 @@ SOURCE = PRELUDE + """  (defproc review ((draft String)) -> Decision[Notes Block
 """
 
 # The applied union appears only in `:returns`, so a rejection names that use.
-RETURNS_ONLY_SOURCE = PRELUDE + """  (defworkflow run ((draft String)) -> Outcome
-    (let* ((decision (provider-result providers.review
-                       :prompt prompts.review
-                       :inputs (draft)
-                       :returns Decision[Notes Blocker])))
-      (record Outcome :status "reviewed"))))
-"""
 
 RECORDER = """import json, os, sys
 from pathlib import Path
@@ -80,9 +73,9 @@ PROMPTS = {"prompts.review": "review.md"}
 COMMAND = ("python", "record_outcome.py")
 
 
-def _install(root: Path, source: str, *, target: str = "2.33") -> Path:
+def _install(root: Path, source: str) -> Path:
     entry = root / "gpr_entry.orc"
-    entry.write_text(source.replace("TARGET", target), encoding="utf-8")
+    entry.write_text(source, encoding="utf-8")
     (root / "review.md").write_text("Review the draft.\n", encoding="utf-8")
     (root / "record_outcome.py").write_text(RECORDER, encoding="utf-8")
     (root / "providers.json").write_text(json.dumps(PROVIDERS), encoding="utf-8")
@@ -124,7 +117,7 @@ class _Provider:
 def _public_run(root: Path, payload: dict, monkeypatch: pytest.MonkeyPatch):
     """Run through `run_workflow`; return (exit code, state, provider calls, recorded argv)."""
 
-    entry = _install(root, SOURCE, target="2.35")
+    entry = _install(root, SOURCE)
     files = {"source": entry, "source_root": root, "providers": root / "providers.json", "prompts": root / "prompts.json"}
     args = _run_args(files, input_file=root / "inputs.json")
     args.entry_workflow = "gpr_entry::run"
@@ -202,18 +195,6 @@ def test_malformed_payload_fails_at_the_provider_boundary_and_nothing_after_it_r
     assert [row["type"] for row in failed[0]["violations"]] == [violation]
 
 
-def _compile(root: Path, source: str, *, target: str):
-    entry = _install(root, source, target=target)
-    return compile_stage3_entrypoint(
-        entry,
-        source_roots=(root,),
-        provider_externs=PROVIDERS,
-        prompt_externs=PROMPTS,
-        command_boundaries={"record_outcome": ExternalToolBinding(name="record_outcome", stable_command=COMMAND)},
-        validate_shared=True,
-        workspace_root=root,
-        lowering_route=None,
-    )
 
 
 def _strings(node: object):
@@ -226,21 +207,3 @@ def _strings(node: object):
     elif isinstance(node, list):
         for value in node:
             yield from _strings(value)
-
-
-
-
-def test_target_232_rejects_an_applied_union_in_provider_result_returns(tmp_path: Path) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile(tmp_path, RETURNS_ONLY_SOURCE, target="2.32")
-
-    diagnostic = excinfo.value.diagnostics[0]
-    lines = RETURNS_ONLY_SOURCE.splitlines()
-    line = next(number for number, text in enumerate(lines, start=1) if "(provider-result" in text)
-    start = diagnostic.span.start
-    assert (diagnostic.code, Path(start.path).name, start.line, start.column) == (
-        "generic_union_requires_dsl_2_33",
-        "gpr_entry.orc",
-        line,
-        lines[line - 1].index("(provider-result") + 1,
-    )

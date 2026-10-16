@@ -7,14 +7,17 @@ executable target increments the minor version, and the last release that
 executes that target stays tagged (`v0.1.0` executes targets 2.14 through 2.37,
 including the flat runtime through 2.34).
 
-Language versions govern syntax/types and remain registered for typed imports
-and analysis; they are distinct from executable support. The owner-selected
+Language versions govern syntax/types. The selected package source floor is
+**2.35**: lower headers are no longer admitted for source compilation, imports,
+REPL or LSP analysis. Language feature versions and executable qualification
+remain distinct above that floor. The owner-selected
 2026-10-13 retirement cutoff follows the CLI support boundary; the
 [closeout](../docs/reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md)
 records implementation and delivery status.
 It admits evaluated entries/profiles at 2.35/2.36, the registered bounded
-2.37 surface and the bounded 2.38 command-only confined run-ref and agent-sessions surfaces with their
-existing limits, not entries through 2.34. The
+2.37 surface, the bounded 2.38 command-only confined run-ref and agent-sessions
+surfaces, and the 2.39 procedure authoring contract with their existing limits,
+not entries through 2.34. The
 [CLI support boundary](cli.md#executable-support-boundary) owns refusal
 codes/exits and precedence. Old entry builds/runs/dry-runs refuse before
 publication; old-profile resume/restart/repair/invalidation refuse without
@@ -22,14 +25,27 @@ mutation. No old-to-evaluated representation/profile conversion is provided.
 
 The additions and stability receipts through 2.34 below describe historical
 language/artifact semantics, not continued flat execution or recovery in the
-new package. Typed imports, parser/LSP analysis and shared services retain their
-admitted contracts. Trials/SDK, ES/research trial execution, workflow watchdog,
+new package. Typed imports and parser/REPL/LSP analysis require a source graph
+whose every module is at least 2.35; shared services retain current consumers. Trials/SDK, ES/research trial execution, workflow watchdog,
 flat `explain`/IR APIs and `prompt run`/`import` execution are retired without
 ports; native compiler-free `prompt resume [--in-place]` and historical readers
 remain separate. Original run data stays unchanged. Recovery is promised only
 for families demonstrated under an exact retained complete release/environment
 ([policy](../docs/design/workflow_lisp_executor_retirement.md#7-recovery-policy-and-one-deletion-gate));
 no new package version or universal recovery guarantee is inferred.
+
+The source-floor migration is a package support change, not a new DSL target
+or state schema. Maintained stdlib source uses 2.35; exclusively pre-floor
+branches, route selectors and admission tests have no current source contract.
+Preserve 2.35–2.38 semantics and the separate 2.39 contract. Changing imported
+stdlib bytes is an explicit source migration: preserve behavior and lineage,
+but do not claim old source fingerprints, compiler-runtime identity or
+cross-package resume. Unchanged current artifacts keep their existing checked
+read/recovery contract; old source graphs are not silently rebuilt, retargeted
+or backfilled. Unsupported historical recovery uses a qualified pinned release.
+Historical feature tables below record their original introductions, not
+continued source admission. The [source-floor contract](../docs/design/workflow_lisp_executor_retirement.md#source-floor-235)
+owns the finite retained-reader boundary; its implementation plan owns status.
 
 - Tracks
   - DSL version: governs available fields and validation behavior.
@@ -894,16 +910,16 @@ no new package version or universal recovery guarantee is inferred.
   - Admission at 2.35 is unchanged by execution: an effect class or form
     outside the first release still refuses at build with
     `closed_program_gap`, a scope exclusion rather than a defect list. A
-    2.35 module may import an older-target module whose definitions the
-    closed program can express. Older typed imports remain admitted; an
+    2.35 module may import an admitted module whose definitions the
+    closed program can express. Only typed imports at 2.35 or newer remain admitted after the source floor; an
     older-target executable entry instead refuses before publication under the
     support boundary above. Historical profile (`2.1`) and artifact bytes are
     preserved for reading, not converted or resumed by this package.
   - Path-mode run references at a 2.35 entry are admitted in a loop body, in
     a budget or seed expression, as a `match` subject and as the one-effect
     body of a serial `list/map-effect`, directly or through admitted calls
-    including older-target helpers; exhaustion guards and other pure
-    contexts stay pure, trials, bundle mode and effectful children stay
+    including imported helpers at target 2.35 or newer; exhaustion guards and
+    other pure contexts stay pure, trials, bundle mode and effectful children stay
     excluded; retired old child entries refuse before child publication.
     Older executable entries (2.24–2.34) are retired ([DSL](dsl.md)).
     Evidence: `tests/test_workflow_evaluated_run_ref.py`,
@@ -969,17 +985,19 @@ no new package version or universal recovery guarantee is inferred.
     becoming captures; eligible lexical aliases retain ordinary admission rules.
     No runtime closure, nesting, recursion or effect-annotation change is added.
   - One builtin `std/improve` API is selected per source import graph by the
-    entry target. Through 2.35, retain `stdlib_modules/std/improve.orc` bytes
-    and path. At 2.36, replace only that builtin candidate with
+    entry target. At 2.35, retain the `stdlib_modules/std/improve.orc` API and
+    path. The source-floor migration changes its header to 2.35 with behavioral
+    comparison, superseding the earlier byte-preservation rule. At 2.36,
+    replace only that builtin candidate with
     `stdlib_modules/w3/std/improve.orc` and its actual source root; its source
-    header remains 2.33. The API is `improve(initial, review, revise, limit)`,
+    header also migrates to 2.35. The API is `improve(initial, review, revise, limit)`,
     with `review(S) -> Decision[F B]` and `revise(S F) -> S`.
     Every source importer sees this one API; five-argument source callers must
     migrate when the graph is retargeted. Defining-module syntax admission,
-    other roots and ambiguity checks remain unchanged. Compatible old and
+    other roots and ambiguity checks remain unchanged. Compatible 2.35+ and
     type-only imports are admitted; both builtin variants are never exposed.
   - Complete imported snapshots retain producer authority without reopening
-    or retargeting source. Sole old helper authority remains admitted;
+    or retargeting source. Admitted 2.35+ helper authority remains usable;
     differing canonical overlap still refuses
     `compiled_workflow_snapshot_conflict`.
   - Retargeting changes the program digest when the rebuild is valid after
@@ -1176,6 +1194,32 @@ bytes and recovery. Contracts:
 Rollback means declining the target and profile while retaining read-only
 diagnostics for their recorded artifacts.
 
+Target **2.39** selects inference-default procedure contracts and caller-owned
+procedure composition. Its accepted frontend contract is
+[effect-ledger simplification](../docs/design/workflow_lisp_effect_ledger_simplification.md)
+and [procedure lowering/source admission](../docs/design/workflow_lisp_frontend_specification.md#106-procedure-lowering-policy-resolved).
+Admitted definition origins 2.35–2.38 keep exact declarations, specialization
+exceptions and authored/default lowering. New definitions omit `:effects` for
+unrestricted inference, use empty/named clauses as checked restrictions, and
+reject authored `:lowering`; an explicit workflow/call expresses a semantic
+boundary. The finite private/compatibility-form admission rule is applied after
+macro expansion using actual builtin template provenance. A 2.39 module may
+import definitions from 2.35–2.38 unchanged; a module below 2.39 refuses new definitions.
+
+This target does not change state schema `3.0`, `evaluated_execution.v1`,
+transport/coercion policy, ordinary provider launch defaults or confinement
+qualification. Old artifacts and frozen evidence are not rewritten; source or
+boundary migration does not promise old fingerprint/checkpoint reuse. Target
+registration is separate from public qualification. Inference-default checked
+restrictions, inferred inspection, caller-owned inline composition and finite
+source admission use the existing frontend and evaluated runtime. The
+[drafting guide](../docs/lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239)
+and [library reference](../docs/lisp_library_reference.md#target-239-local-hooks)
+provide current recipes; their bounded evidence does not qualify arbitrary
+composition or evaluated LSP. Both the main target registry and run-ref config
+admit 2.35–2.39 after the source-floor cut; their previous lower ranges are
+retired. Run-ref still enforces its independent feature restrictions.
+
 | DSL version | Key features enabled | Notes |
 | --- | --- | --- |
 | 1.1 | Baseline DSL; providers (argv/stdin), `wait_for`, `depends_on` (required/optional), `when` (equals/exists/not_exists), retries/timeouts, strict path safety | State schema initially 1.1.1 (separate track). Unknown DSL fields rejected. |
@@ -1222,9 +1266,10 @@ diagnostics for their recorded artifacts.
 | 2.32 | Workflow Lisp durable host input | Adds `(request-input String)`, fixed `HumanReply`, one `host-input` effect, closed `request_input` graph v6 carriage, one root-owned durable request, thin answer/cancel clients, and exact checked resume consumption. It neither serializes arbitrary continuations nor turns a reply into provider/session state; state schema remains 2.1. |
 | 2.33 | Workflow Lisp first-order generic unions and `std/improve` | Adds first-order generic union declarations (`defunion :forall`), type applications in type positions, `ProcRef` signatures and constructors, `provider-result :returns` and `defprompt` results of an applied union with violations reported at the provider boundary, and the `std/improve` value-returning review helper. Applications instantiate to concrete descriptors at compile time. Effect inference includes imported procedures and hooks; effectful calls are admitted in `loop-state :like` fields under `continue` and in `match` subjects, including generic calls with a type-dependent hook. Typed match-subject preservation is limited to typed prompts and type-dependent hooks; a direct generic subject without either still lowers differently from the same call bound by `let*`, including at 2.34. Admission is per defining module: a module below 2.33 accepts the same source forms as before and may call procedures defined in a 2.33 module. It adds no generic records and no explicit procedure type arguments. State schema remains 2.1. |
 | 2.34 | Workflow Lisp numeric surface | Adds decimal literals in expressions, exponent forms included, and the numeric operators `/`, `int/div`, `int/mod`, `float/abs`, `float/sqrt`, `float/log`, `int/to-float`, `float/floor` and `float/round`, with `Float` operands for `+ - * min max`; their type rules and evaluation live once in the pure-expression catalog. A non-finite `Float` is refused at every boundary and on resume. Otherwise accepts and lowers exactly what 2.33 does. Repetition reduction remains a separate unapproved proposal; no repetition syntax is implemented here. State schema remains 2.1. |
-| 2.35 | Workflow Lisp evaluated execution | Public compile writes and validates a closed program for commands, portable composed providers without context capture, procedure/workflow calls and captures, and path run references; public run, resume and invalidate evaluate it on a memo-backed run (`evaluated_execution.v1`, state schema `3.0`) with derived views, command closures bound by content, one pin per distinct bare interpreter token fixed for the run, typed external-tool input documents, an immutable rebuild recipe plus run-reference and result roots in the header, and whole-suffix invalidation. Selected excluded effects refuse with `closed_program_gap`. See the v2.35 additions above for availability and admission limits. Older module headers retain typed/import contracts; old executable entries/profiles are retired without artifact conversion. |
+| 2.35 | Workflow Lisp evaluated execution | Public compile writes and validates a closed program for commands, portable composed providers without context capture, procedure/workflow calls and captures, and path run references; public run, resume and invalidate evaluate it on a memo-backed run (`evaluated_execution.v1`, state schema `3.0`) with derived views, command closures bound by content, one pin per distinct bare interpreter token fixed for the run, typed external-tool input documents, an immutable rebuild recipe plus run-reference and result roots in the header, and whole-suffix invalidation. Selected excluded effects refuse with `closed_program_gap`. See the v2.35 additions above for availability and admission limits. Pre-2.35 module headers are retired from source/import/tooling admission; old executable entries/profiles remain retired without artifact conversion. |
 | 2.36 | W3 local hooks and graph-selected `std/improve` | Uses the existing evaluated schemas/profile. Inferred lexical captures, several local bindings and one-site incomplete signatures; four-argument helper selected per source graph, with old-caller migration on retargeting and unchanged snapshot/resume guards. See v2.36 additions and the Phase 4c plan for qualification status. |
 | 2.38 (command path implemented; provider qualification pending) | Workflow Lisp run-ref confined workflow children | Command, recovery and export paths are implemented; public confined providers and native provider qualification remain pending. Agent allocation and turns are excluded from confined children. Named private child entry, `:commit` expression, closed confinement policy, `COMPLETED`/`FAILED` site union, `run_ref_static_config.v2` and `run_ref_confinement.v1`. See the 2.38 paragraph above. |
 | 2.38 | Workflow Lisp agent sessions: `agent` constructor, opaque `Agent`, `provider-result` on an agent as a coordinator `agent_turn` effect | Implemented and additive; 2.35/2.36/2.37 unchanged. Allocation/turn runtime, recovery, C8 guards and views are delivered by [Plan B](../docs/plans/2026-10-14-agent-sessions-implementation-plan-b.md); [PQ-1a evidence](../docs/reports/2026-10-14-agent-sessions-pq1a-qualification.md) records deterministic proofs and bounded adapter smokes, with the acceptance comparison pending. State schema `3.0`, profile `evaluated_execution.v1` unchanged (additive `effect_class` values and class-specific `proof`). |
+| 2.39 | Inferred effects with optional checked restrictions, caller-owned inline defproc composition, explicit workflow boundaries and finite private/compatibility-form admission | Definition-origin compatibility; no runtime/state/transport policy change. The guide and library reference own bounded recipes; evaluated LSP and independent qualification gates remain separate. See the 2.39 paragraph above. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

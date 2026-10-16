@@ -2357,9 +2357,9 @@ def test_prompt_identity_normative_and_authoring_surfaces_ship_q3() -> None:
     normalized_master = _normalized_routing_text(master)
     from orchestrator.workflow_lisp.syntax import SUPPORTED_TARGET_DSL_VERSIONS
 
-    # Registered historical syntax remains distinct from executable support.
-    assert "2.22" in SUPPORTED_TARGET_DSL_VERSIONS
-    assert "2.34" in SUPPORTED_TARGET_DSL_VERSIONS
+    # Historical feature records do not admit retired source targets.
+    assert "2.22" not in SUPPORTED_TARGET_DSL_VERSIONS
+    assert "2.34" not in SUPPORTED_TARGET_DSL_VERSIONS
     assert "2.35" in SUPPORTED_TARGET_DSL_VERSIONS
     assert "workflow_execution_target_retired" in (REPO_ROOT / "specs/cli.md").read_text(encoding="utf-8")
     assert "v2.22 adds direct fragment prompt attempt identity" in (

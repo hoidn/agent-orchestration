@@ -19,11 +19,11 @@ from orchestrator.workflow_lisp.prompts import PromptApplicationExpr
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SOURCE = (
     REPO_ROOT
-    / "tests/fixtures/workflow_lisp/phased_contract_delivery/phased.orc"
+    / "tests/fixtures/workflow_lisp/current_examples/phased_contract_delivery.orc"
 )
 
 
-def _compile(*, route: str = "wcc_m4"):
+def _compile():
     return compile_stage3_module(
         SOURCE.relative_to(REPO_ROOT),
         entry_workflow="phased-review",
@@ -31,12 +31,11 @@ def _compile(*, route: str = "wcc_m4"):
         prompt_externs={},
         validate_shared=True,
         workspace_root=REPO_ROOT,
-        lowering_route=route,
     )
 
 
 def _compile_composed():
-    source = SOURCE.with_name("composed.orc")
+    source = SOURCE.with_name("composed_contract_delivery.orc")
     return compile_stage3_module(
         source.relative_to(REPO_ROOT),
         entry_workflow="composed-review",
@@ -44,7 +43,6 @@ def _compile_composed():
         prompt_externs={},
         validate_shared=True,
         workspace_root=REPO_ROOT,
-        lowering_route="wcc_m4",
     )
 
 
@@ -54,7 +52,7 @@ def _compile_source(tmp_path: Path, *, target: str, sections: str):
         f"""(workflow-lisp
   (:language "0.1")
   (:target-dsl "{target}")
-  (defmodule phased_policy)
+  (defmodule policy)
   (export check)
   (defrecord Result (approved Bool))
   (defprompt review-prompt
@@ -75,15 +73,11 @@ def _compile_source(tmp_path: Path, *, target: str, sections: str):
         prompt_externs={},
         validate_shared=True,
         workspace_root=tmp_path,
-        lowering_route="wcc_m4",
     )
 
 
-@pytest.mark.parametrize("route", ("legacy", "wcc_m2", "wcc_m3", "wcc_m4"))
-def test_phased_policy_defaults_and_identity_stay_paired_through_carriers(
-    route: str,
-) -> None:
-    result = _compile(route=route)
+def test_phased_policy_defaults_and_identity_stay_paired_through_carriers() -> None:
+    result = _compile()
     typed_expr = result.typed_workflows[0].typed_body.expr
     assert isinstance(typed_expr, ProviderResultExpr)
     assert isinstance(typed_expr.delivery, LiteralExpr)
@@ -134,15 +128,7 @@ def test_explicit_composed_keeps_typed_identity_v1_without_default_attempts(
     ),
     (
         (
-            "2.22",
-            ":delivery :phased",
-            "provider_phased_delivery_requires_dsl_2_23",
-            "target_below_2_23",
-            "2.22",
-            "delivery_keyword",
-        ),
-        (
-            "2.23",
+            "2.35",
             ":delivery true",
             "provider_phased_delivery_policy_invalid",
             "delivery_type_invalid",
@@ -150,7 +136,7 @@ def test_explicit_composed_keeps_typed_identity_v1_without_default_attempts(
             "delivery_keyword",
         ),
         (
-            "2.23",
+            "2.35",
             ":delivery :unknown",
             "provider_phased_delivery_policy_invalid",
             "delivery_enum_invalid",
@@ -158,7 +144,7 @@ def test_explicit_composed_keeps_typed_identity_v1_without_default_attempts(
             "delivery_keyword",
         ),
         (
-            "2.23",
+            "2.35",
             ":materialization-attempts 2",
             "provider_phased_delivery_policy_invalid",
             "attempts_pairing_invalid",
@@ -166,7 +152,7 @@ def test_explicit_composed_keeps_typed_identity_v1_without_default_attempts(
             "materialization_attempts_keyword",
         ),
         (
-            "2.23",
+            "2.35",
             ":delivery :composed :materialization-attempts 2",
             "provider_phased_delivery_policy_invalid",
             "attempts_pairing_invalid",
@@ -174,7 +160,7 @@ def test_explicit_composed_keeps_typed_identity_v1_without_default_attempts(
             "materialization_attempts_keyword",
         ),
         (
-            "2.23",
+            "2.35",
             ":delivery :phased :materialization-attempts true",
             "provider_phased_delivery_policy_invalid",
             "attempts_type_invalid",
@@ -182,7 +168,7 @@ def test_explicit_composed_keeps_typed_identity_v1_without_default_attempts(
             "materialization_attempts_keyword",
         ),
         (
-            "2.23",
+            "2.35",
             ":delivery :phased :materialization-attempts 0",
             "provider_phased_delivery_policy_invalid",
             "attempts_out_of_range",
@@ -190,7 +176,7 @@ def test_explicit_composed_keeps_typed_identity_v1_without_default_attempts(
             "materialization_attempts_keyword",
         ),
         (
-            "2.23",
+            "2.35",
             ":delivery :phased :materialization-attempts 4",
             "provider_phased_delivery_policy_invalid",
             "attempts_out_of_range",
@@ -259,7 +245,7 @@ def test_phased_fragment_requires_non_empty_generated_contract_suffix(
         SOURCE.read_text(encoding="utf-8").replace(
             "(defrecord PhasedReviewResult\n    (approved Bool))",
             "(defrecord PhasedReviewResult)",
-        ),
+        ).replace("(defmodule phased_contract_delivery)", "(defmodule empty-result)"),
         encoding="utf-8",
     )
 
@@ -271,7 +257,6 @@ def test_phased_fragment_requires_non_empty_generated_contract_suffix(
             prompt_externs={},
             validate_shared=True,
             workspace_root=tmp_path,
-            lowering_route="wcc_m4",
         )
 
     diagnostic = exc_info.value.diagnostics[0]
@@ -294,8 +279,8 @@ def test_phased_delivery_rejects_extern_prompt_without_fragment_contract(
     source.write_text(
         """(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.23")
-  (defmodule phased_extern)
+  (:target-dsl "2.35")
+  (defmodule extern-prompt)
   (export review)
   (defworkflow review ((subject String)) -> Bool
     (provider-result providers.review
@@ -315,7 +300,6 @@ def test_phased_delivery_rejects_extern_prompt_without_fragment_contract(
             prompt_externs={"prompts.review": "prompts/review.md"},
             validate_shared=True,
             workspace_root=tmp_path,
-            lowering_route="wcc_m4",
         )
 
     diagnostic = exc_info.value.diagnostics[0]

@@ -24,11 +24,12 @@ ENTRYPOINT = CLI_FIXTURES / "current" / "neurips" / "entry.orc"
 SOURCE_ROOT = FIXTURES / "modules" / "valid" / "imported_bundle_mix"
 CALLABLE_SOURCE_ROOT = FIXTURES / "modules" / "valid" / "callables"
 RETIRED_EXAMPLES = FIXTURES / "retired_examples"
-KISS_ENTRYPOINT = RETIRED_EXAMPLES / "kiss_backlog_item.orc"
+CURRENT_EXAMPLES = FIXTURES / "current_examples"
+KISS_ENTRYPOINT = CURRENT_EXAMPLES / "kiss_backlog_item.orc"
 KISS_PROVIDERS = RETIRED_EXAMPLES / "inputs" / "kiss_backlog_item" / "providers.json"
 KISS_PROMPTS = RETIRED_EXAMPLES / "inputs" / "kiss_backlog_item" / "prompts.json"
-CYCLE_GUARD_ENTRYPOINT = RETIRED_EXAMPLES / "cycle_guard_demo.orc"
-CYCLE_GUARD_SOURCE_ROOT = RETIRED_EXAMPLES
+CYCLE_GUARD_ENTRYPOINT = CURRENT_EXAMPLES / "cycle_guard_demo.orc"
+CYCLE_GUARD_SOURCE_ROOT = CURRENT_EXAMPLES
 
 
 def _build_module():
@@ -419,7 +420,7 @@ def test_compile_diagnostics_json_identity_is_clone_root_independent(
         root = tmp_path / name
         shutil.copytree(CALLABLE_SOURCE_ROOT, root)
         source = root / "neurips" / "entry.orc"
-        source.write_text(source.read_text().replace('(:target-dsl "2.14")', '(:target-dsl "2.35")'))
+
         monkeypatch.chdir(root)
 
         result = compile_workflow(
@@ -449,7 +450,7 @@ def test_compile_diagnostics_json_accepts_absolute_source_outside_cwd_without_so
     source_root = tmp_path / "absolute-source"
     shutil.copytree(SOURCE_ROOT, source_root)
     source = source_root / "neurips" / "entry.orc"
-    source.write_text(source.read_text().replace('(:target-dsl "2.14")', '(:target-dsl "2.35")'))
+
     ordinary_args = _orc_compile_args(workflow=source, diagnostics_json=False)
     ordinary_args.source_root = None
     assert compile_workflow(ordinary_args) == 0
@@ -477,7 +478,7 @@ def test_compile_diagnostics_json_build_key_binds_imported_source_bytes(
         cli_root = root / "cli"
         shutil.copytree(SOURCE_ROOT, source_root)
         entry = source_root / "neurips" / "entry.orc"
-        entry.write_text(entry.read_text().replace('(:target-dsl "2.14")', '(:target-dsl "2.35")'))
+
         shutil.copytree(CLI_FIXTURES, cli_root)
         if name == "changed-import":
             imported_source = cli_root / "imported_selector.orc"
@@ -520,7 +521,7 @@ def test_compile_diagnostics_json_normalizes_absolute_imported_bundle_paths(
         source_root = root / "source"
         shutil.copytree(SOURCE_ROOT, source_root)
         entry = source_root / "neurips" / "entry.orc"
-        entry.write_text(entry.read_text().replace('(:target-dsl "2.14")', '(:target-dsl "2.35")'))
+
         imported_source = root / "imported_selector.orc"
         shutil.copy2(CLI_FIXTURES / "imported_selector.orc", imported_source)
         imported_manifest = root / "imports.json"
@@ -670,7 +671,7 @@ def test_run_workflow_orc_public_binding_excludes_managed_write_roots(tmp_path: 
     )
 
     current_entry = tmp_path / "cycle_guard_demo.orc"
-    current_entry.write_text(CYCLE_GUARD_ENTRYPOINT.read_text().replace('(:target-dsl "2.14")', '(:target-dsl "2.35")'))
+    current_entry.write_text(CYCLE_GUARD_ENTRYPOINT.read_text())
     args = _orc_run_args(
         workflow=current_entry,
         source_root=CYCLE_GUARD_SOURCE_ROOT,
@@ -698,7 +699,7 @@ def test_run_workflow_kiss_backlog_item_dry_run_accepts_only_typed_backlog_input
     monkeypatch.chdir(REPO_ROOT)
     # New public consumer; std/phase and all original producer modules stay intact.
     source = tmp_path / "kiss_backlog_item.orc"
-    source.write_text(KISS_ENTRYPOINT.read_text().replace('(:target-dsl "2.14")', '(:target-dsl "2.35")'))
+    source.write_text(KISS_ENTRYPOINT.read_text())
     inputs = tmp_path / "backlog-inputs.json"
     inputs.write_text(json.dumps({"backlog-inputs": {
         "backlog_item": "docs/backlog/active/2026-05-29-workflow-lisp-effectful-composition-lowering.md",

@@ -220,20 +220,15 @@ def install_standins(bin_dir: Path, monkeypatch, answers: dict[str, dict], repos
 
 
 def current_source(name: str) -> bytes:
-    """The program's 2.35 copy, retargeted from its historical source when needed."""
+    """The exact admitted source installed for the recovery case."""
     program = PROGRAMS[name]
-    if program.target == "2.35":
-        return (ROOT / program.source).read_bytes()
-    header = f'(:target-dsl "{program.target}")'
-    text = (ROOT / (program.source_fixture or program.source)).read_text(encoding="utf-8")
-    assert text.count(header) == 1
-    return text.replace(header, '(:target-dsl "2.35")').encode("utf-8")
+    return (ROOT / (program.source_fixture or program.source)).read_bytes()
 
 
 def prepare(root: Path, name: str, inputs: dict, *, must_not_repeat: bool = False) -> list[str]:
     """Install the 2.35 program in `root` with gated commands; return its frontend arguments."""
     program = PROGRAMS[name]
-    frontend = install(root, program, inputs, current=True)
+    frontend = install(root, program, inputs)
     assert (root / program.source).read_bytes() == current_source(name)
     if (root / LAUNCHER_PATH).exists():
         (root / LAUNCHER_PATH).write_text(LAUNCHER, encoding="utf-8")

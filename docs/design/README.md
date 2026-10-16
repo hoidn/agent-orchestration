@@ -8,13 +8,18 @@ copy safety. Implementation evidence and pending work live in each owner's
 linked plan/report, rather than in this index.
 
 [Evaluated execution](workflow_lisp_evaluated_execution.md) is the sole workflow
-runtime. Syntax/type minimum versions below 2.35 do not admit old executors.
-Typed imports, retained analysis and historical readers have their own scope.
+runtime. Current compilation, typed imports and REPL/LSP analysis require
+source targets 2.35 or newer throughout the dependency graph. Historical
+feature-introduction versions do not restore old-source admission; retained
+data readers remain independent of source compilation.
 Targets 2.35/2.36 are admitted for their supported classes; 2.37 parallelism has
 bounded qualification. The bounded 2.38 [Agent Sessions](workflow_lisp_agent_sessions.md)
 and [command-only confined children](workflow_lisp_run_ref_expression_environments.md)
 do not open public confined providers. See [CLI admission](../../specs/cli.md#executable-support-boundary)
-and [retirement](workflow_lisp_executor_retirement.md).
+and [retirement](workflow_lisp_executor_retirement.md). Target 2.39 adds
+[inference-default procedure contracts](workflow_lisp_effect_ledger_simplification.md),
+caller-owned composition and finite source admission; it changes no runtime
+profile or qualification gate.
 
 ## Current Component Contracts
 
@@ -23,7 +28,7 @@ and [retirement](workflow_lisp_executor_retirement.md).
 | [workflow_language_design_principles.md](workflow_language_design_principles.md) | Cross-frontend semantic authority principles | Current contract | Yes |
 | [workflow_command_adapter_contract.md](workflow_command_adapter_contract.md) | Command adapter and inline glue policy | Partial; the command closure declaration (C1–C5) is enforced at run time at target 2.35 | Yes |
 | [workflow_lisp_frontend_specification.md](workflow_lisp_frontend_specification.md) | Accepted Workflow Lisp frontend baseline | Current contract | Yes |
-| [workflow_lisp_repl.md](workflow_lisp_repl.md) | Pure interactive inspection of evaluated 2.35/2.36 runs | Current contract | No |
+| [workflow_lisp_repl.md](workflow_lisp_repl.md) | Pure interactive inspection of admitted 2.35–2.39 source and evaluated runs | Current contract | No |
 | [workflow_lisp_provider_prompt_dependencies.md](workflow_lisp_provider_prompt_dependencies.md) | Workflow Lisp provider prompt dependencies | Implemented functional contract | Yes |
 | [workflow_lisp_provider_call_policy.md](workflow_lisp_provider_call_policy.md) | Explicit provider policy and registry binding | Implemented contract for admitted evaluated calls | Yes |
 | [omp_provider_and_native_continuation.md](omp_provider_and_native_continuation.md) | OMP provider calls and existing native-session continuation | Partial; creation/import routes retired, OMP-I2 unselected | Within retained scope |
@@ -49,7 +54,7 @@ and [retirement](workflow_lisp_executor_retirement.md).
 | [workflow_lisp_executor_retirement.md](workflow_lisp_executor_retirement.md) | Complete serial best-of-N migration and delete old executors | Selected retirement complete; current execution and read-only historical scope | Use existing evaluated recipes |
 | [provider_result_delivery.md](provider_result_delivery.md) | Output-contract delivery rendering on the evaluated route, the rendering replayed as recorded, the missing-result diagnostic, a typed inability channel | Yes for evaluated 2.35/2.36 runs | Yes; prompts carry no transport instructions |
 | [workflow_lisp_runtime_migration_foundation.md](workflow_lisp_runtime_migration_foundation.md) | Runtime foundation for command outputs, private values, and generated paths | Partial: retained typed/shared-service scope | Only within evaluated admission |
-| [workflow_lisp_core_calculus_middle_end.md](workflow_lisp_core_calculus_middle_end.md) | Workflow core calculus and compiler middle-end | Typed compiler substrate retained; flat execution through 2.34 retired | No |
+| [workflow_lisp_core_calculus_middle_end.md](workflow_lisp_core_calculus_middle_end.md) | Workflow core calculus and compiler middle-end | Typed WCC, mandatory executable preparation and semantic closure; flat execution through 2.34 retired | No |
 | [workflow_lisp_private_runtime_state_and_consumer_value_flow.md](workflow_lisp_private_runtime_state_and_consumer_value_flow.md) | Private runtime checkpoints and consumer-side typed-value rendering | Partial: narrow C1/C6 input carriage; C2–C5 and remaining C6 future; Track R historical | No |
 | [workflow_lisp_runtime_native_drain_authoring.md](workflow_lisp_runtime_native_drain_authoring.md) | Runtime-native Workflow Lisp drain authoring | Historical reference target / regression checklist | No |
 | [workflow_lisp_shared_owner_lane_prerequisites.md](workflow_lisp_shared_owner_lane_prerequisites.md) | Shared owner-lane prerequisites for imported stdlib adoption | Reference target / prerequisite ledger | No |
@@ -65,12 +70,12 @@ and [retirement](workflow_lisp_executor_retirement.md).
 | [workflow_lisp_value_and_continuation_composition.md](workflow_lisp_value_and_continuation_composition.md) | Incremental union prompt inputs, rich loop values, helper composition, provider context, and human input | Current Increments 1–3; provider capture and host-input Increments 4–5 retired | Admitted evaluated union/loop/pure-helper forms |
 | [workflow_lisp_progressive_execution.md](workflow_lisp_progressive_execution.md) | Agreed goal, just-in-time task refinement, tool-enabled workers, checks, and replanning | Draft design | No |
 | [workflow_lisp_strict_boolean_control_flow.md](workflow_lisp_strict_boolean_control_flow.md) | Target-2.26 arbitrary strict-`Bool` `if` conditions, `cond`, effectful short-circuit normalization, and discriminant-derived union proof | Implemented strict Boolean/proof contract | Admitted evaluated forms; syntax minimum 2.26 |
-| [workflow_lisp_effect_ledger_simplification.md](workflow_lisp_effect_ledger_simplification.md) | Inference-default optional identity-aware restrictions, explicit-empty specialization/import migration, inferred inspection, and independent consumer-led metadata cleanup | Proposed; not implemented | No |
+| [workflow_lisp_effect_ledger_simplification.md](workflow_lisp_effect_ledger_simplification.md) | Target-2.39 inference-default optional identity-aware restrictions, explicit-empty specialization/import migration and inferred inspection | Implemented at 2.39 over the existing inferred summary; old definition origins retain their contracts | [2.39 procedure guide](../lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239) and bounded maintained consumers |
 | [workflow_lisp_write_once.md](workflow_lisp_write_once.md) | W3 local hooks, lexical captures/expected signatures and graph-selected no-context `improve`; other write-once proposals remain separate | W3 implemented at 2.36; W1/W2/W4 unselected | Bounded proposal/reviewed-change recipes; evidence limits in closeout |
 | [workflow_lisp_evaluated_execution.md](workflow_lisp_evaluated_execution.md) | Execution by evaluation of the compiled program: values in an environment, effect identity from site and activation path, an append-only memo of effects, resume by evaluation, declared command closures, a coordinator protocol, views derived from the memo, typed effect inputs, parallel map | Implemented admitted 2.35/2.36 classes; 2.37 parallel workers bounded, full public qualification pending | Use the drafting guide; later classes require their own admission |
 | [workflow_lisp_numeric_surface.md](workflow_lisp_numeric_surface.md) | Decimal literals in expressions, closed decimal arithmetic, explicit conversion, finite values at every boundary | Implemented numeric contract; N4 runtime location and full-position test coverage remain limited | Admitted evaluated forms; syntax minimum 2.34 |
 | [workflow_lisp_pure_call_composition.md](workflow_lisp_pure_call_composition.md) | Effect-free procedure expression composition through resolved inline normalization; effects, representation, and sequencing kept distinct | Implemented resolved-inline subset | Admitted evaluated forms; syntax minimum 2.30 |
-| [workflow_lisp_composition_first.md](workflow_lisp_composition_first.md) | Value-returning procedures through first-order generic unions; ordinary `std/improve` helper and domain-owned migration adapters | Generic unions and value-returning std/improve implemented; consumer migration separate | Current 2.36 helper recipe; 2.33 source contract is historical |
+| [workflow_lisp_composition_first.md](workflow_lisp_composition_first.md) | Value-returning procedures through first-order generic unions; ordinary `std/improve` helper and domain-owned migration adapters | Generic unions and value-returning std/improve implemented; consumer migration separate | Current 2.39 caller with W3 hooks and retained 2.35 library definitions; 2.33 source contract is historical |
 | [workflow_lisp_native_transportable_returns.md](workflow_lisp_native_transportable_returns.md) | Uniform native returns and optional typed result guidance | Implemented typed return contract | Admitted evaluated forms; syntax minimum 2.15 |
 | [workflow_lisp_transportable_value_type.md](workflow_lisp_transportable_value_type.md) | Opt-in transport-contract top `Value`, strict JSON wire validation, exact source compatibility, and target-gated public `type: value` / `kind: value` | Implemented | Yes at target 2.19+ |
 | [workflow_lisp_agent_sessions.md](workflow_lisp_agent_sessions.md) | Stable run-scoped agent identity and interleaved native-session turns | First slice implemented at 2.38; PQ-1a evidence recorded; PQ-1c pending | Opt-in bounded first slice |

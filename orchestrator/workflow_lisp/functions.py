@@ -9,14 +9,7 @@ from typing import TYPE_CHECKING
 
 from .compiler_session import CompilerSession
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
-from .expression_traversal import (
-    _rebuild_with_replacements,
-    free_expr_names,
-    iter_child_exprs,
-    map_expr,
-    map_command_operands,
-    walk_expr,
-)
+from .expression_traversal import _rebuild_with_replacements, iter_child_exprs, map_expr, map_command_operands, walk_expr
 from .expressions import (
     AgentExpr,
     BindProcExpr,
@@ -71,21 +64,7 @@ from .expressions import (
 from .result_guidance import ReturnSpec, parse_return_spec
 from .prompts import PromptApplicationExpr
 from .spans import SourceSpan
-from .syntax import (
-    ExpansionStack,
-    HelperExpansionFrame,
-    ProcedureExpansionFrame,
-    SyntaxList,
-    SyntaxNode,
-    WorkflowLispSyntaxModule,
-    syntax_head,
-    syntax_identifier,
-    syntax_node_datum,
-    syntax_resolved_name,
-    target_dsl_is_2_33_or_newer,
-    target_dsl_supports_pure_call_composition,
-    target_dsl_supports_strict_boolean_control_flow,
-)
+from .syntax import ExpansionStack, HelperExpansionFrame, ProcedureExpansionFrame, SyntaxList, SyntaxNode, WorkflowLispSyntaxModule, syntax_head, syntax_identifier, syntax_node_datum, syntax_resolved_name, target_dsl_supports_effect_ceilings
 from .type_env import (
     FrontendTypeEnvironment,
     ProcRefTypeRef,
@@ -96,7 +75,7 @@ from .type_env import (
 )
 from .type_expressions import parse_type_expression, type_expression_names
 from .typecheck import TypedExpr, typecheck_expression
-from .wcc.hygiene import fresh_name, reserved_identifiers
+
 
 if TYPE_CHECKING:
     from .procedures import ProcedureCatalog
@@ -309,9 +288,7 @@ def typecheck_function_definitions(
             expected_type=signature.return_type_ref,
             compiler_session=compiler_session,
             allow_provisional_procedure_calls=(
-                target_dsl_supports_pure_call_composition(
-                    type_env.target_dsl_version
-                )
+                True
             ),
         )
         if not type_refs_compatible(signature.return_type_ref, typed_body.type_ref):
@@ -353,8 +330,6 @@ def retypecheck_resolved_function_definitions(
 ) -> tuple[TypedFunctionDef, ...]:
     """Strictly recheck every function after procedure selection has settled."""
 
-    if not target_dsl_supports_pure_call_composition(type_env.target_dsl_version):
-        return typed_functions
 
     typed_functions_by_name = {
         function.definition.name: function for function in typed_functions
@@ -364,7 +339,7 @@ def retypecheck_resolved_function_definitions(
         normalized_functions = normalize_function_calls(
             function.typed_body,
             typed_functions_by_name=typed_functions_by_name,
-            target_dsl_version=type_env.target_dsl_version,
+
         )
         normalized_body = normalize_resolved_inline_procedure_calls(
             normalized_functions,
@@ -374,7 +349,6 @@ def retypecheck_resolved_function_definitions(
             workflow_catalog=workflow_catalog,
             typed_workflows_by_name=typed_workflows_by_name,
             require_pure_procedure_calls=True,
-            closed_program=compiler_session.closed_program,
             inlined_constructor_type=inlined_constructor_type,
         )
         typed_body = typecheck_expression(
@@ -453,24 +427,16 @@ def normalize_function_calls(
     node: TypedExpr | ExprNode,
     *,
     typed_functions_by_name: Mapping[str, TypedFunctionDef],
-    target_dsl_version: str | None = None,
 ) -> TypedExpr | ExprNode:
     """Rewrite helper calls into `let*` plus existing pure expression nodes."""
 
     from .conditionals import normalize_expanded_conditions
 
-    expand_admitted_containers: bool | _HygienicExpansionMode = (
-        _HygienicExpansionMode()
-        if target_dsl_supports_pure_call_composition(target_dsl_version or "")
-        else target_dsl_supports_strict_boolean_control_flow(target_dsl_version or "")
-    )
+    allocator = _ExpansionNameAllocator()
 
     def _rewrite(expr: ExprNode) -> ExprNode:
-        expanded = _normalize_expr(expr, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers)
-        return normalize_expanded_conditions(
-            expanded,
-            target_dsl_version=target_dsl_version,
-        )
+        expanded = _normalize_expr(expr, typed_functions_by_name=typed_functions_by_name, allocator=allocator)
+        return normalize_expanded_conditions(expanded)
 
     if isinstance(node, TypedExpr):
         return replace(node, expr=_rewrite(node.expr))
@@ -481,7 +447,7 @@ def _normalize_expr(
     expr: ExprNode,
     *,
     typed_functions_by_name: Mapping[str, TypedFunctionDef],
-    expand_admitted_containers: bool | _HygienicExpansionMode,
+    allocator: _ExpansionNameAllocator,
 ) -> ExprNode:
     if isinstance(expr, FunctionCallExpr):
         function_def = typed_functions_by_name[expr.callee_name]
@@ -498,7 +464,7 @@ def _normalize_expr(
             expansion_stack=helper_stack,
         )
         normalized_args = tuple(
-            _normalize_expr(arg, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers)
+            _normalize_expr(arg, typed_functions_by_name=typed_functions_by_name, allocator=allocator)
             for arg in expr.args
         )
         call_bindings = (
@@ -507,23 +473,16 @@ def _normalize_expr(
                 args=normalized_args,
                 source_expr=expr,
                 role="function",
-                allocator=expand_admitted_containers,
-            )
-            if isinstance(expand_admitted_containers, _HygienicExpansionMode)
-            else _sequential_call_bindings(
-                params=function_def.signature.params,
-                args=normalized_args,
-                body=cloned_body,
+                allocator=allocator,
             )
         )
-        if call_bindings.formal_names or isinstance(expand_admitted_containers, _HygienicExpansionMode):
-            cloned_body = _rename_free_names(cloned_body, call_bindings.formal_names)
+        cloned_body = _rename_free_names(cloned_body, call_bindings.formal_names)
         bindings = call_bindings.bindings
         return LetStarExpr(
             bindings=bindings,
             body=_normalize_expr(
                 cloned_body,
-                typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers,
+                typed_functions_by_name=typed_functions_by_name, allocator=allocator,
             ),
             span=expr.span,
             form_path=expr.form_path,
@@ -535,7 +494,7 @@ def _normalize_expr(
             fields=tuple(
                 (
                     field_name,
-                    _normalize_expr(field_expr, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers),
+                    _normalize_expr(field_expr, typed_functions_by_name=typed_functions_by_name, allocator=allocator),
                 )
                 for field_name, field_expr in expr.fields
             ),
@@ -544,7 +503,7 @@ def _normalize_expr(
         return replace(
             expr,
             args=tuple(
-                _normalize_expr(arg, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers)
+                _normalize_expr(arg, typed_functions_by_name=typed_functions_by_name, allocator=allocator)
                 for arg in expr.args
             ),
         )
@@ -552,7 +511,7 @@ def _normalize_expr(
         return replace(
             expr,
             items=tuple(
-                _normalize_expr(item, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers)
+                _normalize_expr(item, typed_functions_by_name=typed_functions_by_name, allocator=allocator)
                 for item in expr.items
             ),
         )
@@ -561,18 +520,18 @@ def _normalize_expr(
         if isinstance(expr, ListMapEffectExpr) and expr.workspace_expr is not None:
             workspace_fields["workspace_expr"] = _normalize_expr(
                 expr.workspace_expr, typed_functions_by_name=typed_functions_by_name,
-                expand_admitted_containers=expand_admitted_containers,
+                allocator=allocator,
             )
         return replace(
             expr,
             **workspace_fields,
             source_expr=_normalize_expr(
                 expr.source_expr,
-                typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers,
+                typed_functions_by_name=typed_functions_by_name, allocator=allocator,
             ),
             body_expr=_normalize_expr(
                 expr.body_expr,
-                typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers,
+                typed_functions_by_name=typed_functions_by_name, allocator=allocator,
             ),
         )
     if isinstance(expr, CompilerListNonemptyHeadExpr):
@@ -580,7 +539,7 @@ def _normalize_expr(
             expr,
             source_expr=_normalize_expr(
                 expr.source_expr,
-                typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers,
+                typed_functions_by_name=typed_functions_by_name, allocator=allocator,
             ),
         )
     if isinstance(expr, PathJoinUnderExpr):
@@ -588,7 +547,7 @@ def _normalize_expr(
             expr,
             child_expr=_normalize_expr(
                 expr.child_expr,
-                typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers,
+                typed_functions_by_name=typed_functions_by_name, allocator=allocator,
             ),
         )
     if isinstance(expr, RecordUpdateExpr):
@@ -596,12 +555,12 @@ def _normalize_expr(
             expr,
             base_expr=_normalize_expr(
                 expr.base_expr,
-                typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers,
+                typed_functions_by_name=typed_functions_by_name, allocator=allocator,
             ),
             overrides=tuple(
                 (
                     field_name,
-                    _normalize_expr(field_expr, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers),
+                    _normalize_expr(field_expr, typed_functions_by_name=typed_functions_by_name, allocator=allocator),
                 )
                 for field_name, field_expr in expr.overrides
             ),
@@ -615,7 +574,7 @@ def _normalize_expr(
                     type_name=field.type_name,
                     value_expr=_normalize_expr(
                         field.value_expr,
-                        typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers,
+                        typed_functions_by_name=typed_functions_by_name, allocator=allocator,
                     ),
                     span=field.span,
                     form_path=field.form_path,
@@ -630,12 +589,12 @@ def _normalize_expr(
             expr,
             base_expr=_normalize_expr(
                 expr.base_expr,
-                typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers,
+                typed_functions_by_name=typed_functions_by_name, allocator=allocator,
             ),
             overrides=tuple(
                 (
                     field_name,
-                    _normalize_expr(field_expr, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers),
+                    _normalize_expr(field_expr, typed_functions_by_name=typed_functions_by_name, allocator=allocator),
                 )
                 for field_name, field_expr in expr.overrides
             ),
@@ -646,7 +605,7 @@ def _normalize_expr(
             fields=tuple(
                 (
                     field_name,
-                    _normalize_expr(field_expr, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers),
+                    _normalize_expr(field_expr, typed_functions_by_name=typed_functions_by_name, allocator=allocator),
                 )
                 for field_name, field_expr in expr.fields
             ),
@@ -657,16 +616,16 @@ def _normalize_expr(
             bindings=tuple(
                 (
                     name,
-                    _normalize_expr(binding_expr, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers),
+                    _normalize_expr(binding_expr, typed_functions_by_name=typed_functions_by_name, allocator=allocator),
                 )
                 for name, binding_expr in expr.bindings
             ),
-            body=_normalize_expr(expr.body, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers),
+            body=_normalize_expr(expr.body, typed_functions_by_name=typed_functions_by_name, allocator=allocator),
             condition_normalization_input=(
                 _normalize_expr(
                     expr.condition_normalization_input,
                     typed_functions_by_name=typed_functions_by_name,
-                    expand_admitted_containers=expand_admitted_containers,
+                    allocator=allocator,
                 )
                 if expr.condition_normalization_input is not None
                 else None
@@ -677,25 +636,25 @@ def _normalize_expr(
             expr,
             condition_expr=_normalize_expr(
                 expr.condition_expr,
-                typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers,
+                typed_functions_by_name=typed_functions_by_name, allocator=allocator,
             ),
             then_expr=_normalize_expr(
                 expr.then_expr,
-                typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers,
+                typed_functions_by_name=typed_functions_by_name, allocator=allocator,
             ),
             else_expr=_normalize_expr(
                 expr.else_expr,
-                typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers,
+                typed_functions_by_name=typed_functions_by_name, allocator=allocator,
             ),
         )
     if isinstance(expr, MatchExpr):
         return replace(
             expr,
-            subject=_normalize_expr(expr.subject, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers),
+            subject=_normalize_expr(expr.subject, typed_functions_by_name=typed_functions_by_name, allocator=allocator),
             arms=tuple(
                 replace(
                     arm,
-                    body=_normalize_expr(arm.body, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers),
+                    body=_normalize_expr(arm.body, typed_functions_by_name=typed_functions_by_name, allocator=allocator),
                 )
                 for arm in expr.arms
             ),
@@ -706,7 +665,7 @@ def _normalize_expr(
             bindings=tuple(
                 (
                     binding_name,
-                    _normalize_expr(binding_expr, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers),
+                    _normalize_expr(binding_expr, typed_functions_by_name=typed_functions_by_name, allocator=allocator),
                 )
                 for binding_name, binding_expr in expr.bindings
             ),
@@ -714,7 +673,7 @@ def _normalize_expr(
     if isinstance(expr, CommandResultExpr):
         return map_command_operands(expr, lambda section, slot, value: _normalize_expr(
             value, typed_functions_by_name=typed_functions_by_name,
-            expand_admitted_containers=expand_admitted_containers))
+            allocator=allocator))
     if isinstance(expr, ProviderResultExpr):
         normalized_prompt = (
             replace(
@@ -724,7 +683,7 @@ def _normalize_expr(
                         fill,
                         value_expr=_normalize_expr(
                             fill.value_expr,
-                            typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers,
+                            typed_functions_by_name=typed_functions_by_name, allocator=allocator,
                         ),
                     )
                     for fill in expr.prompt.fills
@@ -733,24 +692,24 @@ def _normalize_expr(
             if isinstance(expr.prompt, PromptApplicationExpr)
             else _normalize_expr(
                 expr.prompt,
-                typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers,
+                typed_functions_by_name=typed_functions_by_name, allocator=allocator,
             )
         )
         return replace(
             expr,
-            provider=_normalize_expr(expr.provider, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers),
+            provider=_normalize_expr(expr.provider, typed_functions_by_name=typed_functions_by_name, allocator=allocator),
             prompt=normalized_prompt,
             inputs=tuple(
-                _normalize_expr(arg, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers)
+                _normalize_expr(arg, typed_functions_by_name=typed_functions_by_name, allocator=allocator)
                 for arg in expr.inputs
             ),
             model=(
-                _normalize_expr(expr.model, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers)
+                _normalize_expr(expr.model, typed_functions_by_name=typed_functions_by_name, allocator=allocator)
                 if expr.model is not None
                 else None
             ),
             effort=(
-                _normalize_expr(expr.effort, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers)
+                _normalize_expr(expr.effort, typed_functions_by_name=typed_functions_by_name, allocator=allocator)
                 if expr.effort is not None
                 else None
             ),
@@ -758,11 +717,11 @@ def _normalize_expr(
                 replace(
                     expr.prompt_dependencies,
                     required=tuple(
-                        _normalize_expr(item, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers)
+                        _normalize_expr(item, typed_functions_by_name=typed_functions_by_name, allocator=allocator)
                         for item in expr.prompt_dependencies.required
                     ),
                     optional=tuple(
-                        _normalize_expr(item, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers)
+                        _normalize_expr(item, typed_functions_by_name=typed_functions_by_name, allocator=allocator)
                         for item in expr.prompt_dependencies.optional
                     ),
                 )
@@ -770,7 +729,7 @@ def _normalize_expr(
                 else None
             ),
             context_expr=(
-                _normalize_expr(expr.context_expr, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers)
+                _normalize_expr(expr.context_expr, typed_functions_by_name=typed_functions_by_name, allocator=allocator)
                 if expr.context_expr is not None
                 else None
             ),
@@ -783,7 +742,7 @@ def _normalize_expr(
                     name=binding.name,
                     value_expr=_normalize_expr(
                         binding.value_expr,
-                        typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers,
+                        typed_functions_by_name=typed_functions_by_name, allocator=allocator,
                     ),
                     observes=binding.observes,
                     name_span=binding.name_span,
@@ -797,7 +756,7 @@ def _normalize_expr(
             ),
             body=_normalize_expr(
                 expr.body,
-                typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers,
+                typed_functions_by_name=typed_functions_by_name, allocator=allocator,
             ),
         )
     if isinstance(expr, WithLiveProviderPeersExpr):
@@ -809,7 +768,7 @@ def _normalize_expr(
                     value_expr=_normalize_expr(
                         binding.value_expr,
                         typed_functions_by_name=typed_functions_by_name,
-                        expand_admitted_containers=expand_admitted_containers,
+                        allocator=allocator,
                     ),
                     name_span=binding.name_span,
                     span=binding.span,
@@ -820,14 +779,14 @@ def _normalize_expr(
             ),
             body=_normalize_expr(
                 expr.body,
-                typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers,
+                typed_functions_by_name=typed_functions_by_name, allocator=allocator,
             ),
         )
     if isinstance(expr, WithPhaseExpr):
         return replace(
             expr,
-            ctx_expr=_normalize_expr(expr.ctx_expr, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers),
-            body=_normalize_expr(expr.body, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers),
+            ctx_expr=_normalize_expr(expr.ctx_expr, typed_functions_by_name=typed_functions_by_name, allocator=allocator),
+            body=_normalize_expr(expr.body, typed_functions_by_name=typed_functions_by_name, allocator=allocator),
         )
     if isinstance(expr, FieldAccessExpr):
         return replace(
@@ -839,13 +798,12 @@ def _normalize_expr(
                 expansion_stack=expr.base.expansion_stack,
             ),
         )
-    if not expand_admitted_containers:
-        return expr
+
     children = iter_child_exprs(expr)
     if not children:
         return expr
     replacements = {
-        id(child): _normalize_expr(child, typed_functions_by_name=typed_functions_by_name, expand_admitted_containers=expand_admitted_containers)
+        id(child): _normalize_expr(child, typed_functions_by_name=typed_functions_by_name, allocator=allocator)
         for child in children
     }
     return _rebuild_with_replacements(expr, replacements)
@@ -862,19 +820,14 @@ def normalize_resolved_inline_procedure_calls(
     workflow_catalog: "WorkflowCatalog | None" = None,
     typed_workflows_by_name: Mapping[str, object] | None = None,
     require_pure_procedure_calls: bool = False,
-    closed_program: bool = False,
     inlined_constructor_type: Callable[[object, ExprNode], TypeRef] | None = None,
 ) -> TypedExpr | ExprNode:
     """Reduce final-inline procedure calls through the shared typed-expression path.
 
-    From target 2.33, each `record` and `variant` constructor copied out of a
-    selected procedure's body carries `inlined_constructor_type(procedure,
-    constructor)`, the type the procedure's own environment resolves it to.
-    Without it the copy keeps only its type text, as below 2.33.
+    Each copied `record` and `variant` constructor carries the type resolved
+    in the selected procedure's defining environment.
     """
 
-    if not target_dsl_supports_pure_call_composition(target_dsl_version or ""):
-        return node
 
     from .conditionals import normalize_expanded_conditions
     from .procedure_refs import resolve_proc_ref_value
@@ -913,7 +866,7 @@ def normalize_resolved_inline_procedure_calls(
     visible_literal_values: dict[object, LiteralExpr] = {}
     capture_reification_enabled = True
     active_callees: set[str] = set()
-    allocator = _HygienicExpansionMode()
+    allocator = _ExpansionNameAllocator()
 
     def select_materialized_procedure(
         procedure: object,
@@ -1219,6 +1172,12 @@ def normalize_resolved_inline_procedure_calls(
                 isinstance(frame, HelperExpansionFrame)
                 for frame in expr.expansion_stack
             )
+            if (procedure is not None and is_pure_function_expansion
+                and procedure_effect_summary is not None
+                and target_dsl_supports_effect_ceilings(target_dsl_version)):
+                from .effects import unresolved_effect_calls
+                if unresolved_effect_calls(procedure_effect_summary, typed_procedures_by_name):
+                    raise representation_unsupported()
             if (
                 procedure is not None
                 and is_pure_function_expansion
@@ -1228,6 +1187,12 @@ def normalize_resolved_inline_procedure_calls(
                     or procedure_effect_summary.transitive_effects
                 )
             ):
+                if target_dsl_supports_effect_ceilings(target_dsl_version):
+                    from .effects import effect_summary_contains_runs_ref
+                    from .typecheck_context import raise_run_ref_placement_invalid
+                    if effect_summary_contains_runs_ref(procedure_effect_summary):
+                        raise_run_ref_placement_invalid(expr, reason="is not permitted in a pure function",
+                            effect_summary=procedure_effect_summary)
                 raise LispFrontendCompileError(
                     (
                         LispFrontendDiagnostic(
@@ -1294,9 +1259,7 @@ def normalize_resolved_inline_procedure_calls(
                     if is_pure_function_expansion:
                         raise representation_unsupported() from None
                     return replace(expr, args=rewritten_args)
-                if inlined_constructor_type is not None and target_dsl_is_2_33_or_newer(
-                    target_dsl_version or ""
-                ):
+                if inlined_constructor_type is not None:
                     # A generic template calling an unspecialized generic
                     # procedure records no type arguments for the call, so
                     # type text naming the callee's parameters has no type
@@ -1385,7 +1348,7 @@ def normalize_resolved_inline_procedure_calls(
                         static_params, static_capture_rows, strict=True
                     )
                 )
-                if closed_program and not is_pure_function_expansion and any(
+                if (not is_pure_function_expansion) and (any(
                     capture_source is None and contains_selected_effect(
                         value,
                         proc_ref_bindings=proc_ref_bindings,
@@ -1394,7 +1357,7 @@ def normalize_resolved_inline_procedure_calls(
                     for value, capture_source in zip(
                         normalized_static_values, static_capture_rows, strict=True
                     )
-                ):
+                )):
                     # The caller already evaluates the computed binding. Keep
                     # the reference call so Builder consumes its capture slot.
                     return replace(expr, args=rewritten_args)
@@ -1474,7 +1437,7 @@ def normalize_resolved_inline_procedure_calls(
                     proc_ref_bindings=dict(owning_proc_ref_bindings or {}),
                     workflow_ref_bindings=dict(owning_workflow_ref_bindings or {}),
                 ),
-                target_dsl_version=target_dsl_version,
+
             ),
         )
     return normalize_expanded_conditions(
@@ -1483,7 +1446,7 @@ def normalize_resolved_inline_procedure_calls(
             proc_ref_bindings=dict(owning_proc_ref_bindings or {}),
             workflow_ref_bindings=dict(owning_workflow_ref_bindings or {}),
         ),
-        target_dsl_version=target_dsl_version,
+
     )
 
 
@@ -1536,7 +1499,7 @@ def _with_resolved_constructor_types(
 
 
 @dataclass
-class _HygienicExpansionMode:
+class _ExpansionNameAllocator:
     """Per-normalization allocator for compiler-owned lexical names."""
 
     ordinal: int = 0
@@ -1574,7 +1537,7 @@ def _ordered_call_bindings(
     args: tuple[ExprNode, ...],
     source_expr: ExprNode,
     role: str,
-    allocator: _HygienicExpansionMode,
+    allocator: _ExpansionNameAllocator,
 ) -> _OrderedCallBindings:
     """Evaluate caller arguments before binding formal names."""
 
@@ -1604,30 +1567,6 @@ def _ordered_call_bindings(
     )
     return _OrderedCallBindings(
         bindings=(*temporary_bindings, *formal_bindings),
-        formal_names=formal_names,
-    )
-
-
-def _sequential_call_bindings(
-    *,
-    params: tuple[tuple[str, TypeRef], ...],
-    args: tuple[ExprNode, ...],
-    body: ExprNode,
-) -> _OrderedCallBindings:
-    """Bind each parameter to its argument in order, as targets below 2.30 do.
-
-    `let*` binds in order, so a parameter would capture a later argument's
-    reference to the caller's binding of the same name. Such a parameter gets
-    a fresh name, which the body's references follow.
-    """
-
-    formal_names: dict[str, str] = {}
-    for index, (param_name, _) in enumerate(params):
-        if any(param_name in free_expr_names(arg) for arg in args[index + 1 :]):
-            reserved = reserved_identifiers((*args, body), value_env={}, compile_time_bindings={})
-            formal_names[param_name] = fresh_name(param_name, reserved | {name for name, _ in params} | set(formal_names.values()))
-    return _OrderedCallBindings(
-        bindings=tuple((formal_names.get(param_name, param_name), arg) for (param_name, _), arg in zip(params, args, strict=True)),
         formal_names=formal_names,
     )
 
@@ -2034,6 +1973,11 @@ def _substitute_expanded_loop_state_type_facts(
             if any(replacements[id(child)] is not child for child in children)
             else node
         )
+        if isinstance(rewritten, ListExpr):
+            rewritten = replace(rewritten,
+                element_type_ref=(substitute_type_params(rewritten.element_type_ref, dict(type_bindings))
+                    if rewritten.element_type_ref is not None else None),
+                item_type_refs=tuple(substitute_type_params(ref, dict(type_bindings)) for ref in rewritten.item_type_refs))
         if isinstance(rewritten, LoopStateSeedExpr):
             fields = []
             changed = False
@@ -2090,10 +2034,11 @@ def _validate_pure_function_expr(
             )
         if isinstance(candidate, ProcedureCallExpr) and procedure_catalog is not None:
             signature = procedure_catalog.signatures_by_name.get(candidate.callee_name)
-            if signature is not None and any(
+            if (not target_dsl_supports_effect_ceilings(target_dsl_version or "")
+                and signature is not None and any(
                 isinstance(effect, (RunsRefEffect, RunsTrialEffect))
                 for effect in signature.declared_effects
-            ):
+            )):
                 raise_run_ref_placement_invalid(
                     candidate,
                     reason="is not permitted in a pure function",
@@ -2103,9 +2048,7 @@ def _validate_pure_function_expr(
                 )
     violation = _find_purity_violation(
         expr,
-        allow_procedure_calls=target_dsl_supports_pure_call_composition(
-            target_dsl_version or ""
-        ),
+        allow_procedure_calls=True,
     )
     if violation is None:
         return

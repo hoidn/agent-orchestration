@@ -156,18 +156,14 @@ def _expression_syntax(source: str) -> SyntaxNode:
 
 
 
-def test_target_218_is_accepted_and_owns_one_list_traversal_gate() -> None:
-    syntax = importlib.import_module("orchestrator.workflow_lisp.syntax")
-
+def test_current_target_accepts_list_traversal_source() -> None:
     module = build_syntax_module(
         read_sexpr_text(
-            _module_source("2.18"),
-            source_path="target_218_list_traversal.orc",
+            _module_source("2.35"),
+            source_path="current_list_traversal.orc",
         )
     )
-
-    assert module.target_dsl_version == "2.18"
-    assert syntax.LIST_TRAVERSAL_MIN_TARGET_DSL_VERSION == "2.18"
+    assert module.target_dsl_version == "2.35"
 
 
 
@@ -1062,7 +1058,7 @@ def test_empty_list_uses_declared_return_context_through_match_arms(
         """
         (workflow-lisp
           (:language "0.1")
-          (:target-dsl "2.18")
+          (:target-dsl "2.35")
           (defmodule match_empty_context)
           (defunion Choice
             (EMPTY)
@@ -1303,7 +1299,7 @@ def test_frontend_effect_map_path_join_under_does_not_widen_other_surfaces(
         f"""
         (workflow-lisp
           (:language "0.1")
-          (:target-dsl "2.23")
+          (:target-dsl "2.35")
           (defmodule {module_name})
           (export orchestrate)
           (defpath ChildPath
@@ -1324,7 +1320,7 @@ def test_frontend_effect_map_path_join_under_does_not_widen_other_surfaces(
             provider_externs={"providers.worker": "deterministic-worker"},
             validate_shared=True,
             workspace_root=tmp_path,
-            lowering_route="wcc_m4",
+
         )
 
     assert excinfo.value.diagnostics[0].code == expected_code
@@ -1386,39 +1382,6 @@ def test_list_traversal_authored_head_inventory_is_exact() -> None:
     )
 
 
-@pytest.mark.parametrize("head", _LIST_TRAVERSAL_AUTHORED_HEADS)
-@pytest.mark.parametrize("callable_lane", ("function", "procedure", "bound"))
-def test_target_217_list_traversal_heads_defer_to_same_named_callable(
-    head: str,
-    callable_lane: str,
-) -> None:
-    expression = elaborate_expression(
-        _expression_syntax(f"({head} 1)"),
-        target_dsl_version="2.17",
-        function_names=(
-            frozenset({head})
-            if callable_lane == "function"
-            else frozenset()
-        ),
-        procedure_names=(
-            frozenset({head})
-            if callable_lane == "procedure"
-            else frozenset()
-        ),
-        bound_names=(
-            frozenset({head})
-            if callable_lane == "bound"
-            else frozenset()
-        ),
-    )
-
-    expected_type = (
-        FunctionCallExpr
-        if callable_lane == "function"
-        else ProcedureCallExpr
-    )
-    assert isinstance(expression, expected_type)
-    assert expression.callee_name == head
 
 
 def _compile_hygiene_source(tmp_path: Path, source: str):
@@ -1440,7 +1403,7 @@ def _write_list_map_template_macro(tmp_path: Path) -> None:
         """
         (workflow-lisp
           (:language "0.1")
-          (:target-dsl "2.18")
+          (:target-dsl "2.35")
           (defmodule helpers/list-map-macros)
           (export map-plus-one)
           (defmacro map-plus-one (values)
@@ -1452,7 +1415,7 @@ def _write_list_map_template_macro(tmp_path: Path) -> None:
     )
 
 
-def test_target_218_local_macro_hygienically_introduces_list_map_binder(
+def test_current_target_local_macro_hygienically_introduces_list_map_binder(
     tmp_path: Path,
 ) -> None:
     expression = _compile_hygiene_source(
@@ -1460,7 +1423,7 @@ def test_target_218_local_macro_hygienically_introduces_list_map_binder(
         """
         (workflow-lisp
           (:language "0.1")
-          (:target-dsl "2.18")
+          (:target-dsl "2.35")
           (defmodule local_list_map_hygiene)
           (export orchestrate)
           (defmacro map-plus-one (values)
@@ -1482,7 +1445,7 @@ def test_target_218_local_macro_hygienically_introduces_list_map_binder(
     assert expression.body_expr.args[0].name == expression.binder_name
 
 
-def test_target_218_imported_macro_hygienically_introduces_list_map_binder(
+def test_current_target_imported_macro_hygienically_introduces_list_map_binder(
     tmp_path: Path,
 ) -> None:
     _write_list_map_template_macro(tmp_path)
@@ -1492,7 +1455,7 @@ def test_target_218_imported_macro_hygienically_introduces_list_map_binder(
         """
         (workflow-lisp
           (:language "0.1")
-          (:target-dsl "2.18")
+          (:target-dsl "2.35")
           (defmodule imported_list_map_hygiene)
           (import helpers/list-map-macros :only (map-plus-one))
           (export orchestrate)
@@ -1510,31 +1473,3 @@ def test_target_218_imported_macro_hygienically_introduces_list_map_binder(
     assert expression.body_expr.operator == "+"
     assert isinstance(expression.body_expr.args[0], NameExpr)
     assert expression.body_expr.args[0].name == expression.binder_name
-
-
-def test_target_217_user_macro_list_map_head_keeps_generic_hygiene(
-    tmp_path: Path,
-) -> None:
-    expression = _compile_hygiene_source(
-        tmp_path,
-        """
-        (workflow-lisp
-          (:language "0.1")
-          (:target-dsl "2.17")
-          (defmodule legacy_list_map_hygiene)
-          (export orchestrate)
-          (defmacro list/map (bindings body) body)
-          (defmacro use-legacy-map (values)
-            (list/map ((item values))
-              (+ item 1)))
-          (defworkflow orchestrate
-            ((values List[Int]) (item Int))
-            -> Int
-            (use-legacy-map values)))
-        """,
-    )
-
-    assert isinstance(expression, PureOpExpr)
-    assert expression.operator == "+"
-    assert isinstance(expression.args[0], NameExpr)
-    assert expression.args[0].name == "item"

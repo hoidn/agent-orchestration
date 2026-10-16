@@ -117,7 +117,7 @@ def test_existing_introspection_substrate(
         provider_externs={"providers.review": "fixture-review"},
         prompt_externs={"prompts.external": PromptExtern(name="prompts.external", asset_file="unused.md")},
         validation_profile="frontend_only",
-        lowering_route="legacy",
+
         workspace_root=tmp_path,
         source_read_trace=trace,
     )
@@ -183,7 +183,7 @@ def test_existing_introspection_substrate(
     )
     datum = parsed.items[0]
     node = syntax.SyntaxNode(datum, datum.span, "<effectful-typecheck>", form_path)
-    session = CompilerSession(closed_program=True)
+    session = CompilerSession()
     extern_names = frozenset(entry_result.extern_environment.bindings_by_name)
     expression = expressions.elaborate_expression(
         node,

@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.33")
+  (:target-dsl "2.35")
   (defmodule std/improve)
   (export Decision Improvement improve)
   ; Contract: docs/design/workflow_lisp_composition_first.md sections 3 and 4.

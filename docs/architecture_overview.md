@@ -84,7 +84,11 @@ Resume re-evaluates from the entry and reuses validated committed effects.
 
 Public compilation and execution use admitted evaluated targets: 2.35/2.36,
 bounded 2.37 parallel-map support, and bounded 2.38 Agent Sessions and command-only
-confined run references. Public confined providers remain gated. The
+confined run references. Target 2.39 adds inferred procedure effects with
+optional restrictions and compiler-owned lowering, using the same runtime.
+Source compilation, imports and editor analysis require targets 2.35–2.39;
+historical data readers do not admit older source. Public confined providers
+remain gated. The
 [evaluated design](design/workflow_lisp_evaluated_execution.md) owns that model;
 the [flat-route retrospective](reports/2026-10-13-flat-route-retirement-retrospective.md)
 records the retired predecessor. The [capability matrix](capability_status_matrix.md)

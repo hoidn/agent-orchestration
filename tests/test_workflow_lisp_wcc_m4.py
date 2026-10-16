@@ -31,12 +31,12 @@ from orchestrator.workflow_lisp.workflows import (
     build_workflow_catalog,
     elaborate_workflow_definitions,
 )
-from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow
+from orchestrator.workflow_lisp.wcc.elaborate import elaborate_typed_workflow_body
 from orchestrator.workflow_lisp.wcc.anf import normalize_wcc_body_to_anf
 from orchestrator.workflow_lisp.wcc.analysis import analyze_wcc_body
 from orchestrator.workflow_lisp.wcc import analysis as wcc_analysis
 from orchestrator.workflow_lisp.wcc import model as wcc_model
-from orchestrator.workflow_lisp.wcc.route import DEFAULT_LOWERING_ROUTE, LoweringRoute, normalize_lowering_route
+
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.type_env import PrimitiveTypeRef
 from orchestrator.workflow_lisp.wcc.model import (
@@ -63,7 +63,7 @@ VALID_FIXTURES = FIXTURES / "valid"
 MODULE_FIXTURES = FIXTURES / "modules" / "valid"
 CHARACTERIZATION_SOURCES = FIXTURES / "characterization" / "sources"
 PURE_EXPR_LOOP_COUNTER = VALID_FIXTURES / "pure_expr_loop_counter.orc"
-PURE_EXPR_SELECTOR_PROJECTION = VALID_FIXTURES / "pure_expr_selector_action_projection.orc"
+PURE_EXPR_SELECTOR_PROJECTION = FIXTURES / "current_wcc" / "pure_expr_selector_action_projection.orc"
 LEXICAL_CHECKPOINT_FIXTURE = VALID_FIXTURES / "lexical_checkpoint_shadow_points.orc"
 LEXICAL_POLICY_FIXTURE = VALID_FIXTURES / "lexical_checkpoint_effect_policies.orc"
 LEXICAL_RESTORE_FIXTURE = VALID_FIXTURES / "lexical_checkpoint_restore_regions.orc"
@@ -117,13 +117,10 @@ def _skip_lets(body):
 
 
 
-def test_normalize_lowering_route_accepts_wcc_m4() -> None:
-    assert normalize_lowering_route("wcc_m4") is LoweringRoute.WCC_M4
-    assert normalize_lowering_route(LoweringRoute.WCC_M4) is LoweringRoute.WCC_M4
 
 
-def test_default_lowering_route_is_wcc_m4_after_m5_flip() -> None:
-    assert DEFAULT_LOWERING_ROUTE is LoweringRoute.WCC_M4
+
+
 
 
 
@@ -136,7 +133,7 @@ def test_wcc_m4_accepts_imported_procedure_calling_owner_module_workflow(tmp_pat
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule pkg/helpers)",
                 "  (import std/resource :only (WorkReport))",
                 "  (export Outcome route)",
@@ -166,7 +163,7 @@ def test_wcc_m4_accepts_imported_procedure_calling_owner_module_workflow(tmp_pat
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule pkg/entry)",
                 "  (import std/resource :only (WorkReport))",
                 "  (import pkg/helpers :only (Outcome route))",
@@ -186,7 +183,7 @@ def test_wcc_m4_accepts_imported_procedure_calling_owner_module_workflow(tmp_pat
         source_roots=(tmp_path,),
         validate_shared=False,
         workspace_root=tmp_path,
-        lowering_route="wcc_m4",
+
         entry_workflow="drain",
     )
 
@@ -206,7 +203,7 @@ def test_wcc_m4_accepts_generic_imported_workflow_call_module_graph(
         prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
         validate_shared=False,
         workspace_root=tmp_path,
-        lowering_route="wcc_m4",
+
     )
 
     assert result.typed_workflows
@@ -217,10 +214,12 @@ def test_wcc_m4_pure_op_elaboration_preserves_operation_metadata(tmp_path: Path)
         PURE_EXPR_SELECTOR_PROJECTION,
         tmp_path=tmp_path,
     )
-    typed_workflow = workflows["orchestrate"]
+    typed_workflow = workflows["pure_expr_selector_action_projection::orchestrate"]
 
-    body = elaborate_typed_workflow(
-        typed_workflow,
+    body = elaborate_typed_workflow_body(
+        typed_workflow.typed_body,
+        owner_name=typed_workflow.definition.name,
+        value_env=dict(typed_workflow.signature.params),
         type_env=type_env,
         workflow_return_types=workflow_return_types,
         procedure_return_types=procedure_return_types,
@@ -245,7 +244,7 @@ def test_wcc_m4_rejects_runtime_proc_ref_in_loop_state(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord Output",
                 "    (value String))",
                 "  (defproc echo",
@@ -271,13 +270,10 @@ def test_wcc_m4_rejects_runtime_proc_ref_in_loop_state(tmp_path: Path) -> None:
             module_path,
             validate_shared=False,
             workspace_root=tmp_path,
-            lowering_route="wcc_m4",
+
         )
 
-    assert excinfo.value.diagnostics[0].code in {
-        "wcc_lowering_route_unsupported",
-        "proc_ref_runtime_transport_forbidden",
-    }
+    assert excinfo.value.diagnostics[0].code == "proc_ref_runtime_transport_forbidden"
 
 
 def test_wcc_m4_model_instantiates_rec_join_loop_nodes() -> None:
@@ -369,12 +365,14 @@ def test_wcc_m4_model_instantiates_rec_join_loop_nodes() -> None:
 
 def test_wcc_m4_elaborates_top_level_loop_recur_to_rec_join(tmp_path: Path) -> None:
     type_env, workflows, workflow_return_types, procedure_return_types = _compile_fixture(
-        VALID_FIXTURES / "loop_recur_minimal.orc",
+        FIXTURES / "current_wcc" / "loop_recur_minimal.orc",
         tmp_path=tmp_path,
     )
 
-    body = elaborate_typed_workflow(
-        workflows["loop-recur-minimal"],
+    body = elaborate_typed_workflow_body(
+        workflows["entry::loop-recur-minimal"].typed_body,
+        owner_name=workflows["entry::loop-recur-minimal"].definition.name,
+        value_env=dict(workflows["entry::loop-recur-minimal"].signature.params),
         type_env=type_env,
         workflow_return_types=workflow_return_types,
         procedure_return_types=procedure_return_types,
@@ -394,12 +392,15 @@ def test_wcc_m4_elaborates_top_level_loop_recur_to_rec_join(tmp_path: Path) -> N
 
 def test_wcc_m4_elaborates_continue_done_and_exhaustion(tmp_path: Path) -> None:
     type_env, workflows, workflow_return_types, procedure_return_types = _compile_fixture(
-        VALID_FIXTURES / "loop_recur_on_exhausted_union.orc",
+        FIXTURES / "current_wcc" / "loop_recur_on_exhausted_union.orc",
         tmp_path=tmp_path,
     )
 
-    body = elaborate_typed_workflow(
-        next(iter(workflows.values())),
+    workflow = next(iter(workflows.values()))
+    body = elaborate_typed_workflow_body(
+        workflow.typed_body,
+        owner_name=workflow.definition.name,
+        value_env=dict(workflow.signature.params),
         type_env=type_env,
         workflow_return_types=workflow_return_types,
         procedure_return_types=procedure_return_types,
@@ -469,11 +470,14 @@ def _loop_done_nodes(body) -> list[WccLoopDone]:
 
 def test_wcc_m4_anf_atomizes_loop_budget_continue_done_and_exhaustion(tmp_path: Path) -> None:
     type_env, workflows, workflow_return_types, procedure_return_types = _compile_fixture(
-        VALID_FIXTURES / "loop_recur_on_exhausted_union.orc",
+        FIXTURES / "current_wcc" / "loop_recur_on_exhausted_union.orc",
         tmp_path=tmp_path,
     )
-    body = elaborate_typed_workflow(
-        next(iter(workflows.values())),
+    workflow = next(iter(workflows.values()))
+    body = elaborate_typed_workflow_body(
+        workflow.typed_body,
+        owner_name=workflow.definition.name,
+        value_env=dict(workflow.signature.params),
         type_env=type_env,
         workflow_return_types=workflow_return_types,
         procedure_return_types=procedure_return_types,
@@ -497,12 +501,14 @@ def test_wcc_m4_anf_atomizes_loop_budget_continue_done_and_exhaustion(tmp_path: 
 
 def test_wcc_m4_analysis_records_loop_site_and_nested_case_scopes(tmp_path: Path) -> None:
     type_env, workflows, workflow_return_types, procedure_return_types = _compile_fixture(
-        VALID_FIXTURES / "loop_recur_minimal.orc",
+        FIXTURES / "current_wcc" / "loop_recur_minimal.orc",
         tmp_path=tmp_path,
     )
     body = normalize_wcc_body_to_anf(
-        elaborate_typed_workflow(
-            workflows["loop-recur-minimal"],
+        elaborate_typed_workflow_body(
+            workflows["entry::loop-recur-minimal"].typed_body,
+            owner_name=workflows["entry::loop-recur-minimal"].definition.name,
+            value_env=dict(workflows["entry::loop-recur-minimal"].signature.params),
             type_env=type_env,
             workflow_return_types=workflow_return_types,
             procedure_return_types=procedure_return_types,
@@ -1279,7 +1285,7 @@ def _provider_peer_group_module_source(*forms: str) -> str:
         (
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.17")',
+            '  (:target-dsl "2.35")',
             *(f"  {form}" for form in forms),
             ")",
         )
@@ -1393,8 +1399,10 @@ def _typed_provider_peer_group_wcc_context(
 
 
 def _elaborate_closed_provider_group(context):
-    return elaborate_typed_workflow(
-        context["typed_workflow"],
+    return elaborate_typed_workflow_body(
+        context["typed_workflow"].typed_body,
+        owner_name=context["typed_workflow"].definition.name,
+        value_env=dict(context["typed_workflow"].signature.params),
         type_env=context["type_env"],
         workflow_return_types=context["workflow_return_types"],
         procedure_return_types=context["procedure_return_types"],
@@ -1530,7 +1538,7 @@ def test_wcc_m4_peer_settlement_type_inference_excludes_outer_names() -> None:
             peer_expr,
             type_env=FrontendTypeEnvironment(
                 {},
-                target_dsl_version="2.17",
+                target_dsl_version="2.35",
             ),
             value_env={
                 "outer_only": PrimitiveTypeRef(name="String"),

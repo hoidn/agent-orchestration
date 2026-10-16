@@ -379,8 +379,8 @@ records current-route placement limits and the remaining live-provider
 settlement-capture defect. The [pure correction report](../reports/2026-10-07-workflow-lisp-pure-capture-correction.md)
 records the repaired creator-scope/duplicate-producer cases and their bounded
 compatibility evidence.
-The target-2.36 proposal and reviewed-change consumers exercise lexical
-captures, final values and committed-boundary resume through public CLI
+The maintained target-2.39 proposal and target-2.36 reviewed-change fixture
+exercise lexical captures, final values and committed-boundary resume through public CLI
 harnesses in `tests/test_workflow_evaluated_consumers.py`. Exact compatibility
 and package-bound phase qualification evidence are recorded in the
 [closeout](../reports/2026-10-07-evaluated-execution-phase-4c-w3-closeout.md).

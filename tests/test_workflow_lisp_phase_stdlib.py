@@ -27,6 +27,7 @@ from orchestrator.workflow_lisp.contracts import (
 )
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.effects import UsesCommandEffect, UsesProviderEffect
 from orchestrator.workflow_lisp.expressions import (
     GeneratedRelpathSeedExpr,
     LoopRecurExpr,
@@ -40,7 +41,6 @@ from orchestrator.workflow_lisp.workflows import CertifiedAdapterBinding, Comman
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
 REPO_ROOT = Path(__file__).resolve().parent.parent
-WORKFLOW_LIBRARY_ROOT = REPO_ROOT / "workflows" / "library"
 STDLIB_MODULE_ROOT = REPO_ROOT / "orchestrator" / "workflow_lisp" / "stdlib_modules"
 
 
@@ -80,69 +80,6 @@ def test_reusable_result_bundle_delegates_exact_unframed_json(
     assert json.loads(capsys.readouterr().out) == payload
 
 
-def _design_delta_provider_externs() -> dict[str, str]:
-    return {
-        "providers.implementation.execute": "fake-execute",
-        "providers.implementation.review": "fake-review",
-        "providers.implementation.fix": "fake-fix",
-    }
-
-
-def _design_delta_prompt_externs() -> dict[str, str]:
-    return {
-        "prompts.implementation.execute": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/implement_plan.md",
-        "prompts.implementation.review": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/review_implementation.md",
-        "prompts.implementation.fix": "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/fix_implementation.md",
-    }
-
-
-def _g0_retirement_metadata(
-    *,
-    name: str,
-    retirement_class: str,
-    retirement_label: str,
-    replacement_surface: str,
-) -> dict[str, object]:
-    return {
-        "retirement_class": retirement_class,
-        "retirement_label": retirement_label,
-        "replacement_surface": replacement_surface,
-        "bridge_owner": "workflow-lisp",
-        "expiry_condition": f"test-{name}-metadata",
-        "evidence_refs": (f"{name}_evidence",),
-    }
-
-
-def _design_delta_command_boundaries() -> dict[str, ExternalToolBinding]:
-    return {
-        "run_neurips_backlog_checks": ExternalToolBinding(
-            name="run_neurips_backlog_checks",
-            stable_command=(
-                "python",
-                "workflows/library/scripts/run_neurips_backlog_checks.py",
-            ),
-            **_g0_retirement_metadata(
-                name="run_neurips_backlog_checks",
-                retirement_class="genuine_system",
-                retirement_label="keep_certified_system",
-                replacement_surface="bounded repo-local checks",
-            ),
-        ),
-        "validate_review_findings_v1": ExternalToolBinding(
-            name="validate_review_findings_v1",
-            stable_command=(
-                "python",
-                "-m",
-                "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
-            ),
-            **_g0_retirement_metadata(
-                name="validate_review_findings_v1",
-                retirement_class="validation",
-                retirement_label="keep_certified_system",
-                replacement_surface="typed review findings validation",
-            ),
-        ),
-    }
 VALID_RUN_PROVIDER_FIXTURE = FIXTURES / "valid" / "phase_stdlib_run_provider_phase.orc"
 VALID_PHASE_SNAPSHOT_EFFECTS_FIXTURE = FIXTURES / "valid" / "phase_snapshot_effects.orc"
 VALID_POINTER_MATERIALIZATION_EFFECTS_FIXTURE = FIXTURES / "valid" / "pointer_materialization_effects.orc"
@@ -183,10 +120,6 @@ INVALID_RESUME_FIXTURE = FIXTURES / "invalid" / "resume_or_start_contract_invali
 INVALID_RESUME_POINTER_FIXTURE = FIXTURES / "invalid" / "resume_or_start_pointer_authority_invalid.orc"
 INVALID_RESUME_RECORD_VALID_WHEN_FIXTURE = FIXTURES / "invalid" / "resume_or_start_record_valid_when_invalid.orc"
 INVALID_UNCERTIFIED_RESUME_FIXTURE = FIXTURES / "invalid" / "resume_or_start_uncertified_adapter.orc"
-DESIGN_DELTA_IMPLEMENTATION_PHASE_LIBRARY_MODULE = (
-    WORKFLOW_LIBRARY_ROOT / "lisp_frontend_design_delta" / "implementation_phase.orc"
-)
-DESIGN_DELTA_TYPES_LIBRARY_MODULE = WORKFLOW_LIBRARY_ROOT / "lisp_frontend_design_delta" / "types.orc"
 
 
 def _build_syntax_module(path: Path):
@@ -224,36 +157,6 @@ def _rewrite_fixture(path: Path, *, replacements: tuple[tuple[str, str], ...], t
     return _write_module(tmp_path / filename, source)
 
 
-def _copy_design_delta_implementation_phase_graph(
-    tmp_path: Path,
-    *,
-    std_phase_source: str | None = None,
-) -> Path:
-    _write_module(
-        tmp_path / "lisp_frontend_design_delta" / "implementation_phase.orc",
-        DESIGN_DELTA_IMPLEMENTATION_PHASE_LIBRARY_MODULE.read_text(encoding="utf-8"),
-    )
-    _write_module(
-        tmp_path / "lisp_frontend_design_delta" / "types.orc",
-        DESIGN_DELTA_TYPES_LIBRARY_MODULE.read_text(encoding="utf-8"),
-    )
-    _write_module(
-        tmp_path / "std" / "context.orc",
-        (STDLIB_MODULE_ROOT / "std" / "context.orc").read_text(encoding="utf-8"),
-    )
-    _write_module(
-        tmp_path / "std" / "resource.orc",
-        (STDLIB_MODULE_ROOT / "std" / "resource.orc").read_text(encoding="utf-8"),
-    )
-    _write_module(
-        tmp_path / "std" / "phase.orc",
-        std_phase_source
-        if std_phase_source is not None
-        else (STDLIB_MODULE_ROOT / "std" / "phase.orc").read_text(encoding="utf-8"),
-    )
-    return tmp_path / "lisp_frontend_design_delta" / "implementation_phase.orc"
-
-
 def _write_payload_file(tmp_path: Path, filename: str, payload: dict[str, object]) -> str:
     path = tmp_path / filename
     path.write_text(json.dumps(payload), encoding="utf-8")
@@ -269,7 +172,7 @@ def _structured_contract_fingerprint(
     digest = hashlib.sha256(
         json.dumps(structured_contract, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
-    return f"2.14:{return_type_name}:{structured_contract_kind}:{digest}"
+    return f"2.35:{return_type_name}:{structured_contract_kind}:{digest}"
 
 
 def test_reusable_state_fingerprint_excludes_runtime_provenance(tmp_path: Path) -> None:
@@ -279,7 +182,7 @@ def test_reusable_state_fingerprint_excludes_runtime_provenance(tmp_path: Path) 
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defunion Decision",
                 "    (ACCEPTED",
                 "      (report String))",
@@ -300,7 +203,7 @@ def test_reusable_state_fingerprint_excludes_runtime_provenance(tmp_path: Path) 
     contract_kind, fingerprint, _, structured_contract = (
         derive_reusable_state_contract_metadata(
             decision,
-            target_dsl_version="2.14",
+            target_dsl_version="2.35",
             workflow_name="demo/module::entry",
             step_id="execute",
             span=syntax_module.span,
@@ -332,12 +235,12 @@ def test_reusable_state_fingerprint_excludes_runtime_provenance(tmp_path: Path) 
         json.dumps(semantic_contract, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
     assert contract_kind == "union"
-    assert fingerprint == f"2.14:Decision:union:{expected_digest}"
+    assert fingerprint == f"2.35:Decision:union:{expected_digest}"
 
     common_error: ValueError | None = None
     try:
         reusable_phase_state_common.validate_contract_fingerprint(
-            target_dsl_version="2.14",
+            target_dsl_version="2.35",
             return_type_name="Decision",
             structured_contract_kind=contract_kind,
             structured_contract=dict(structured_contract),
@@ -346,7 +249,7 @@ def test_reusable_state_fingerprint_excludes_runtime_provenance(tmp_path: Path) 
     except ValueError as error:
         common_error = error
     loader_accepts = load_canonical_phase_result._validate_contract_fingerprint(
-        target_dsl_version="2.14",
+        target_dsl_version="2.35",
         return_type_name="Decision",
         structured_contract_kind=contract_kind,
         structured_contract=dict(structured_contract),
@@ -395,7 +298,7 @@ def _resume_state_payload(
     return {
         "bundle_path": bundle_relpath,
         "resume_from": bundle_relpath,
-        "target_dsl_version": "2.14",
+        "target_dsl_version": "2.35",
         "return_type_name": return_type_name,
         "structured_contract_kind": structured_contract_kind,
         "expected_contract_fingerprint": fingerprint,
@@ -414,7 +317,7 @@ def _resume_state_payload(
             "return_type_name": return_type_name,
             "structured_contract_kind": structured_contract_kind,
             "expected_contract_fingerprint": fingerprint,
-            "target_dsl_version": "2.14",
+            "target_dsl_version": "2.35",
             "compiler_version": "0.1.0",
             "reusable_variants": reusable_variants,
             "public_input_hash_basis": public_input_hash_basis,
@@ -423,7 +326,7 @@ def _resume_state_payload(
             "prompt_extern_bindings": {"prompts.implementation.execute": "prompts/implementation/execute.md"},
             "command_boundary_bindings": {"run_checks": {"kind": "external_tool", "stable_command": ["python", "scripts/run_checks.py"]}},
             "imported_workflow_fingerprints": {},
-            "lowering_options": {"language_version": "0.1", "target_dsl_version": "2.14"},
+            "lowering_options": {"language_version": "0.1", "target_dsl_version": "2.35"},
             "compile_inputs_fingerprint": "compile-inputs-fingerprint",
         },
         "source_run_id": "test-run",
@@ -490,7 +393,7 @@ def _compile(
         imported_workflow_bundles=imported_workflow_bundles,
         validate_shared=validate_shared,
         workspace_root=tmp_path,
-        lowering_route="legacy",
+
     )
 
 
@@ -533,7 +436,7 @@ def _compile_entrypoint(
         },
         validate_shared=validate_shared,
         workspace_root=tmp_path,
-        lowering_route="legacy",
+
     )
 
 
@@ -581,7 +484,7 @@ def test_typecheck_accepts_generic_phase_ctx_for_phase_target(tmp_path: Path) ->
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath WorkReportTarget",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -609,7 +512,7 @@ def test_typecheck_accepts_generic_phase_ctx_for_phase_target(tmp_path: Path) ->
 
     typed = _typecheck_fixture(path)
 
-    assert [workflow.definition.name for workflow in typed] == ["generic-phase-target"]
+    assert [workflow.definition.name.rsplit("::", 1)[-1] for workflow in typed] == ["generic-phase-target"]
 
 
 def test_typecheck_rejects_resume_state_adapter_authored_outside_resume_or_start(
@@ -621,7 +524,7 @@ def test_typecheck_rejects_resume_state_adapter_authored_outside_resume_or_start
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath StateFile",
                 "    :kind relpath",
                 '    :under "state"',
@@ -729,7 +632,7 @@ def test_typecheck_rejects_unknown_generic_phase_target() -> None:
 
 
 
-def test_reusable_phase_state_with_composed_with_phase_private_workflow_rejects_review_loop_boundary(
+def test_current_target_composes_review_loop_through_phase_private_workflow(
     tmp_path: Path,
 ) -> None:
     path = _write_module(
@@ -738,7 +641,7 @@ def test_reusable_phase_state_with_composed_with_phase_private_workflow_rejects_
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.14")',
+                    '  (:target-dsl "2.35")',
                     "  (defmodule reusable_composed_with_phase_review_loop)",
                     "  (import std/phase :only (ReviewDecision ReviewFindings ReviewLoopResult ReviewReportPath review-revise-loop with-phase))",
                 "  (defpath WorkReport",
@@ -817,22 +720,33 @@ def test_reusable_phase_state_with_composed_with_phase_private_workflow_rejects_
         ),
     )
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            path,
-            provider_externs={
-                "providers.review": "fake-review",
-                "providers.fix": "fake-fix",
-            },
-            prompt_externs={
-                "prompts.implementation.review": "prompts/implementation/review.md",
-                "prompts.implementation.fix": "prompts/implementation/fix.md",
-            },
-            validate_shared=True,
-            workspace_root=tmp_path,
-        )
+    result = compile_stage3_module(
+        path,
+        provider_externs={
+            "providers.review": "fake-review",
+            "providers.fix": "fake-fix",
+        },
+        prompt_externs={
+            "prompts.implementation.review": "prompts/implementation/review.md",
+            "prompts.implementation.fix": "prompts/implementation/fix.md",
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
 
-    _assert_diagnostic_code(excinfo, "proc_private_workflow_boundary_invalid")
+    helper = next(
+        procedure
+        for procedure in result.typed_procedures
+        if procedure.definition.name.endswith("::review-phase-helper")
+    )
+    assert helper.resolved_lowering_mode.value == "private-workflow"
+    assert helper.transitive_effect_summary.transitive_effects == frozenset(
+        {
+            UsesProviderEffect(subject=("providers", "review")),
+            UsesProviderEffect(subject=("providers", "fix")),
+            UsesCommandEffect(subject=("validate_review_findings_v1",)),
+        }
+    )
 
 
 def test_typecheck_rejects_invalid_review_loop_findings_contract() -> None:
@@ -849,7 +763,7 @@ def test_typecheck_accepts_review_loop_result_contract_with_equivalent_findings_
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule phase_stdlib_review_loop_alias)",
                 "  (import std/phase :as phase :only (ReviewFindings))",
                 "  (defrecord WrappedFindings",
@@ -897,7 +811,7 @@ def test_linked_builtin_std_phase_owner_lane_resolves_exported_review_loop_types
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule phase_stdlib_owner_lane)",
                 "  (import std/phase :as phase :only (",
                 "    ReviewDecision",
@@ -994,9 +908,24 @@ def test_linked_builtin_std_phase_owner_lane_fails_closed_on_review_loop_result_
         "(defunion BrokenReviewLoopResult",
         1,
     )
-    entry_path = _copy_design_delta_implementation_phase_graph(
-        tmp_path,
-        std_phase_source=broken_phase_source,
+    _write_module(
+        tmp_path / "std" / "context.orc",
+        (STDLIB_MODULE_ROOT / "std" / "context.orc").read_text(encoding="utf-8"),
+    )
+    _write_module(tmp_path / "std" / "phase.orc", broken_phase_source)
+    entry_path = _write_module(
+        tmp_path / "phase_owner.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.35")',
+                "  (defmodule phase_owner)",
+                "  (import std/phase :only (ReviewLoopResult))",
+                "  (defrecord ResultHolder (result ReviewLoopResult))",
+                "  (defworkflow run () -> Int 1))",
+            ]
+        ),
     )
     monkeypatch.setattr(workflow_lisp_compiler, "_builtin_stdlib_source_root", lambda: tmp_path)
 
@@ -1004,9 +933,6 @@ def test_linked_builtin_std_phase_owner_lane_fails_closed_on_review_loop_result_
         compile_stage3_entrypoint(
             entry_path,
             source_roots=(tmp_path,),
-            provider_externs=_design_delta_provider_externs(),
-            prompt_externs=_design_delta_prompt_externs(),
-            command_boundaries=_design_delta_command_boundaries(),
             validate_shared=True,
             workspace_root=tmp_path,
         )
@@ -1023,7 +949,7 @@ def test_typecheck_rejects_non_alias_path_type_substitution(tmp_path: Path) -> N
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule path_type_substitution_invalid)",
                 "  (defpath ReportA",
                 "    :kind relpath",
@@ -1059,7 +985,7 @@ def test_typecheck_rejects_review_findings_json_path_substitution(tmp_path: Path
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule review_findings_path_substitution_invalid)",
                 "  (import std/phase :as phase :only (ReviewFindingsJsonPath))",
                 "  (defpath WorkReport",
@@ -1231,7 +1157,7 @@ def test_typecheck_accepts_generic_phase_scoped_provider_result_record(tmp_path:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule generic_phase_provider_result)",
                 "  (defpath WorkReport",
                 "    :kind relpath",
@@ -1478,32 +1404,25 @@ def test_typecheck_resume_or_start_derives_summary_metadata_contract(tmp_path: P
     assert plan_gate_spec.artifact_requirements["APPROVED"][1].field_path == ("execution_report_path",)
 
 
-def test_resume_or_start_hash_basis_uses_target_aware_nested_public_input_projection(
+def test_resume_or_start_hash_basis_projects_nested_public_inputs_at_current_target(
     tmp_path: Path,
 ) -> None:
-    legacy_path = _rewrite_fixture(
-        VALID_RESUME_FIXTURE,
-        replacements=(('(:target-dsl "2.14")', '(:target-dsl "2.24")'),),
-        tmp_path=tmp_path,
-        filename="phase_stdlib_resume_or_start.orc",
-    )
-    legacy_result = _compile(legacy_path, tmp_path=tmp_path)
-    legacy_spec = next(
+    base_result = _compile(VALID_RESUME_FIXTURE, tmp_path=tmp_path)
+    base_spec = next(
         node.validation_spec
-        for workflow in legacy_result.typed_workflows
+        for workflow in base_result.typed_workflows
         for node in _walk_nodes(workflow.typed_body)
         if type(node).__name__ == "ResumeOrStartExpr" and node.resume_name == "checks"
     )
-    assert legacy_spec is not None
-    assert "inputs__report_path" in legacy_spec.public_input_hash_basis
-    assert legacy_spec.producer_fingerprint_basis["public_input_hash_basis"] == list(
-        legacy_spec.public_input_hash_basis
+    assert base_spec is not None
+    assert "inputs__report_path" in base_spec.public_input_hash_basis
+    assert base_spec.producer_fingerprint_basis["public_input_hash_basis"] == list(
+        base_spec.public_input_hash_basis
     )
 
     nested_path = _rewrite_fixture(
         VALID_RESUME_FIXTURE,
         replacements=(
-            ('(:target-dsl "2.14")', '(:target-dsl "2.25")'),
             (
                 "  (defrecord ResumeInputs\n",
                 "  (defrecord Measurement\n"
@@ -1528,6 +1447,7 @@ def test_resume_or_start_hash_basis_uses_target_aware_nested_public_input_projec
         if type(node).__name__ == "ResumeOrStartExpr" and node.resume_name == "checks"
     )
     assert nested_spec is not None
+    assert "inputs__report_path" in nested_spec.public_input_hash_basis
     assert "inputs__measurements" in nested_spec.public_input_hash_basis
     assert nested_spec.producer_fingerprint_basis["public_input_hash_basis"] == list(
         nested_spec.public_input_hash_basis
@@ -1777,7 +1697,7 @@ def test_write_reusable_phase_state_writes_sidecar_summary(
     assert summary["summary_version"] == "v1"
     assert summary["result_type"] == "ChecksResult"
     assert summary["compatibility"] == {
-        "dsl_version": "2.14",
+        "dsl_version": "2.35",
         "state_schema_version": "v1",
         "reusable": True,
         "status": "REUSABLE",
@@ -1975,7 +1895,7 @@ def test_load_canonical_phase_result_writes_declared_output_bundle_when_env_path
             json.dumps(
                 {
                     "bundle_path": "checks-state.json",
-                    "target_dsl_version": "2.14",
+                    "target_dsl_version": "2.35",
                     "return_type_name": "ChecksResult",
                     "expected_contract_fingerprint": _structured_contract_fingerprint(
                         structured_contract_kind="record",
@@ -2225,10 +2145,10 @@ def test_validate_reusable_phase_state_rejects_contract_fingerprint_mismatch(
         "validate_mismatch.json",
         {
             "resume_from": "checks-state.json",
-            "target_dsl_version": "2.14",
+            "target_dsl_version": "2.35",
             "return_type_name": "ChecksResult",
             "structured_contract_kind": "record",
-            "expected_contract_fingerprint": "2.14:ChecksResult:record:expected",
+            "expected_contract_fingerprint": "2.35:ChecksResult:record:expected",
             "structured_contract": structured_contract,
             "reusable_variants": [],
             "artifact_requirements": {
@@ -2284,14 +2204,14 @@ def test_validate_reusable_phase_state_rejects_contract_fingerprint_dsl_version_
         "validate_version_mismatch.json",
         {
             "resume_from": "checks-state.json",
-            "target_dsl_version": "2.14",
+            "target_dsl_version": "2.35",
             "return_type_name": "ChecksResult",
             "structured_contract_kind": "record",
             "expected_contract_fingerprint": _structured_contract_fingerprint(
                 structured_contract_kind="record",
                 structured_contract=structured_contract,
                 return_type_name="ChecksResult",
-            ).replace("2.14:", "999.99:", 1),
+            ).replace("2.35:", "999.99:", 1),
             "structured_contract": structured_contract,
             "reusable_variants": [],
             "artifact_requirements": {
@@ -2347,7 +2267,7 @@ def test_validate_reusable_phase_state_rejects_contract_fingerprint_return_type_
         "validate_return_type_mismatch.json",
         {
             "resume_from": "checks-state.json",
-            "target_dsl_version": "2.14",
+            "target_dsl_version": "2.35",
             "return_type_name": "ChecksResult",
             "structured_contract_kind": "record",
             "expected_contract_fingerprint": _structured_contract_fingerprint(
@@ -2404,7 +2324,7 @@ def test_validate_reusable_phase_state_rejects_pointer_file_authority(
         "validate_pointer.json",
         {
             "resume_from": "pointer.txt",
-            "target_dsl_version": "2.14",
+            "target_dsl_version": "2.35",
             "return_type_name": "ChecksResult",
             "structured_contract_kind": "record",
             "expected_contract_fingerprint": _structured_contract_fingerprint(
@@ -2466,7 +2386,7 @@ def test_validate_reusable_phase_state_rejects_unsafe_required_artifact_path(
         "validate_unsafe.json",
         {
             "resume_from": "checks-state.json",
-            "target_dsl_version": "2.14",
+            "target_dsl_version": "2.35",
             "return_type_name": "ChecksResult",
             "structured_contract_kind": "record",
             "expected_contract_fingerprint": _structured_contract_fingerprint(
@@ -2557,7 +2477,7 @@ def test_validate_reusable_phase_state_rejects_missing_required_artifact_for_reu
     payload = {
         "bundle_path": "plan-gate-state.json",
         "resume_from": "plan-gate-state.json",
-        "target_dsl_version": "2.14",
+        "target_dsl_version": "2.35",
         "return_type_name": "PlanGateResult",
         "structured_contract_kind": "union",
         "expected_contract_fingerprint": _structured_contract_fingerprint(
@@ -2590,7 +2510,7 @@ def test_validate_reusable_phase_state_rejects_missing_required_artifact_for_reu
                 structured_contract=structured_contract,
                 return_type_name="PlanGateResult",
             ),
-            "target_dsl_version": "2.14",
+            "target_dsl_version": "2.35",
             "compiler_version": "0.1.0",
             "reusable_variants": ["APPROVED"],
             "public_input_hash_basis": ["phase-ctx__phase-name"],
@@ -2688,7 +2608,7 @@ def test_validate_reusable_phase_state_rejects_symlinked_external_bundle_path(
         "validate_symlinked_external_bundle.json",
         {
             "resume_from": "checks-state-link.json",
-            "target_dsl_version": "2.14",
+            "target_dsl_version": "2.35",
             "return_type_name": "ChecksResult",
             "structured_contract_kind": "record",
             "expected_contract_fingerprint": _structured_contract_fingerprint(
@@ -2750,7 +2670,7 @@ def test_load_canonical_phase_result_accepts_bundle_path_contract(
             json.dumps(
                 {
                     "bundle_path": "checks-state.json",
-                    "target_dsl_version": "2.14",
+                    "target_dsl_version": "2.35",
                     "return_type_name": "ChecksResult",
                     "expected_contract_fingerprint": _structured_contract_fingerprint(
                         structured_contract_kind="record",
@@ -2846,7 +2766,7 @@ def test_load_canonical_phase_result_keeps_bundle_bytes_after_path_replacement(
             json.dumps(
                 {
                     "bundle_path": "checks-state.json",
-                    "target_dsl_version": "2.14",
+                    "target_dsl_version": "2.35",
                     "return_type_name": "ChecksResult",
                     "expected_contract_fingerprint": _structured_contract_fingerprint(
                         structured_contract_kind="record",
@@ -2899,7 +2819,7 @@ def test_load_canonical_phase_result_rejects_digest_mismatch_before_emit(
             json.dumps(
                 {
                     "bundle_path": "checks-state.json",
-                    "target_dsl_version": "2.14",
+                    "target_dsl_version": "2.35",
                     "return_type_name": "ChecksResult",
                     "expected_contract_fingerprint": _structured_contract_fingerprint(
                         structured_contract_kind="record",
@@ -2953,13 +2873,13 @@ def test_load_canonical_phase_result_rejects_contract_fingerprint_dsl_version_mi
             json.dumps(
                 {
                     "bundle_path": "checks-state.json",
-                    "target_dsl_version": "2.14",
+                    "target_dsl_version": "2.35",
                     "return_type_name": "ChecksResult",
                     "expected_contract_fingerprint": _structured_contract_fingerprint(
                         structured_contract_kind="record",
                         structured_contract=structured_contract,
                         return_type_name="ChecksResult",
-                    ).replace("2.14:", "999.99:", 1),
+                    ).replace("2.35:", "999.99:", 1),
                     "structured_contract_kind": "record",
                     "structured_contract": structured_contract,
                     "source_bundle_sha256": bundle_sha256,
@@ -3007,7 +2927,7 @@ def test_load_canonical_phase_result_rejects_contract_fingerprint_return_type_mi
             json.dumps(
                 {
                     "bundle_path": "checks-state.json",
-                    "target_dsl_version": "2.14",
+                    "target_dsl_version": "2.35",
                     "return_type_name": "ChecksResult",
                     "expected_contract_fingerprint": _structured_contract_fingerprint(
                         structured_contract_kind="record",
@@ -3043,7 +2963,7 @@ def test_load_canonical_phase_result_rejects_unsafe_bundle_path_with_stable_erro
             json.dumps(
                 {
                     "bundle_path": "../unsafe.json",
-                    "target_dsl_version": "2.14",
+                    "target_dsl_version": "2.35",
                     "return_type_name": "ChecksResult",
                     "expected_contract_fingerprint": _structured_contract_fingerprint(
                         structured_contract_kind="record",
@@ -3100,7 +3020,7 @@ def test_load_canonical_phase_result_rejects_malformed_bundle_with_stable_error_
             json.dumps(
                 {
                     "bundle_path": "checks-state.json",
-                    "target_dsl_version": "2.14",
+                    "target_dsl_version": "2.35",
                     "return_type_name": "ChecksResult",
                     "expected_contract_fingerprint": _structured_contract_fingerprint(
                         structured_contract_kind="record",
@@ -3163,7 +3083,7 @@ def test_load_canonical_phase_result_rejects_symlinked_external_bundle_path(
             json.dumps(
                 {
                     "bundle_path": "checks-state-link.json",
-                    "target_dsl_version": "2.14",
+                    "target_dsl_version": "2.35",
                     "return_type_name": "ChecksResult",
                     "expected_contract_fingerprint": _structured_contract_fingerprint(
                         structured_contract_kind="record",

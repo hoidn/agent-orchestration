@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.14")
+  (:target-dsl "2.35")
   (defmodule resume_or_start_pointer_authority_invalid)
   (import std/phase :only (with-phase))
   (defpath WorkReport

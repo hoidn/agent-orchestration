@@ -13,7 +13,7 @@ from orchestrator.workflow.pure_expr import (
     pure_operator_signature,
 )
 from .expressions import LiteralExpr, NameExpr, PureOpExpr, RecordUpdateExpr, UnionVariantTagExpr
-from .syntax import target_dsl_supports_numeric_surface
+
 from .type_env import (
     DiscriminantTypeRef,
     ListTypeRef,
@@ -199,7 +199,7 @@ def typecheck_pure_expr(
         if spec.signatures:
             return typed_factory(
                 expr=rewritten,
-                type_ref=_typecheck_catalog_operator(rewritten, arg_types, context=context),
+                type_ref=_typecheck_catalog_operator(rewritten, arg_types),
                 effect=merge_effect_summaries(*summaries),
             )
 
@@ -210,33 +210,6 @@ def typecheck_pure_expr(
             return typed_factory(
                 expr=rewritten,
                 type_ref=arg_types[0],
-                effect=merge_effect_summaries(*summaries),
-            )
-
-        if operator in {"and", "or"}:
-            for arg_type in arg_types:
-                _require_primitive(
-                    expr=expr,
-                    type_ref=arg_type,
-                    name="Bool",
-                    operator=operator,
-                )
-            return typed_factory(
-                expr=rewritten,
-                type_ref=PrimitiveTypeRef(name="Bool"),
-                effect=merge_effect_summaries(*summaries),
-            )
-
-        if operator == "not":
-            _require_primitive(
-                expr=expr,
-                type_ref=arg_types[0],
-                name="Bool",
-                operator=operator,
-            )
-            return typed_factory(
-                expr=rewritten,
-                type_ref=PrimitiveTypeRef(name="Bool"),
                 effect=merge_effect_summaries(*summaries),
             )
 
@@ -256,32 +229,6 @@ def typecheck_pure_expr(
                     name="String",
                     operator=operator,
                 )
-            return typed_factory(
-                expr=rewritten,
-                type_ref=PrimitiveTypeRef(name="String"),
-                effect=merge_effect_summaries(*summaries),
-            )
-
-        if operator == "string/empty?":
-            _require_primitive(
-                expr=expr,
-                type_ref=arg_types[0],
-                name="String",
-                operator=operator,
-            )
-            return typed_factory(
-                expr=rewritten,
-                type_ref=PrimitiveTypeRef(name="Bool"),
-                effect=merge_effect_summaries(*summaries),
-            )
-
-        if operator == "symbol/name":
-            _require_primitive(
-                expr=expr,
-                type_ref=arg_types[0],
-                name="Symbol",
-                operator=operator,
-            )
             return typed_factory(
                 expr=rewritten,
                 type_ref=PrimitiveTypeRef(name="String"),
@@ -318,13 +265,7 @@ def typecheck_pure_expr(
                 effect=merge_effect_summaries(*summaries),
             )
 
-        if operator in {
-            "list/empty?",
-            "list/head",
-            "list/rest",
-            "list/append",
-            "list/length",
-        }:
+        if spec.group == "list":
             list_type = arg_types[0]
             if not isinstance(list_type, ListTypeRef):
                 _raise_operand_mismatch(
@@ -438,29 +379,23 @@ def typecheck_pure_expr(
     )
 
 
-def _typecheck_catalog_operator(expr: PureOpExpr, arg_types: list[TypeRef], *, context) -> TypeRef:
-    """Type an operator whose signatures the catalog holds, at the module's target.
+def _typecheck_catalog_operator(expr: PureOpExpr, arg_types: list[TypeRef]) -> TypeRef:
+    """Type a catalog operator and validate constant numeric literals (rule N4)."""
 
-    At a target with the numeric surface, an application whose operands are all
-    numeric literals is evaluated now, so its refusal is a compile error (rule N4).
-    """
 
-    target = context.type_env.target_dsl_version or ""
     signature = pure_operator_signature(
         expr.operator,
         [_primitive_name(arg_type) for arg_type in arg_types],
-        target_dsl_version=target,
     )
     if signature is None:
         _raise_operand_mismatch(
             expr=expr,
             message=(
                 f"operator `{expr.operator}` requires "
-                f"{pure_operator_operands_text(expr.operator, target_dsl_version=target)} operands"
+                f"{pure_operator_operands_text(expr.operator)} operands"
             ),
         )
-    if target_dsl_supports_numeric_surface(target):
-        _literal_value(expr)
+    _literal_value(expr)
     return PrimitiveTypeRef(name=signature.result)
 
 

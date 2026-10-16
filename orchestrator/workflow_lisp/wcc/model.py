@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
 from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
@@ -29,8 +29,6 @@ if TYPE_CHECKING:
 
 
 WCC_M1_ROUTE_SCHEMA_VERSION = "wcc_m1"
-WCC_M2_ROUTE_SCHEMA_VERSION = "wcc_m2"
-WCC_M3_ROUTE_SCHEMA_VERSION = "wcc_m3"
 WCC_M4_ROUTE_SCHEMA_VERSION = "wcc_m4"
 _RUN_REF_SITE_DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 _RUN_REF_RESULT_NAME = re.compile(r"RunRefResult\$[0-9a-f]{16}\Z")
@@ -95,7 +93,6 @@ class WccIdentityFactory:
     # Only names generated from target 2.33 read them (`hygiene.generated_name_scope`);
     # `scope_id` and node ids leave them out, so every earlier identity stays the same.
     enclosing_variants: tuple[str, ...] = ()
-    closed_program: bool = False
 
     @property
     def scope_id(self) -> str:
@@ -115,7 +112,6 @@ class WccIdentityFactory:
             lexical_owner_chain=(*self.lexical_owner_chain, segment),
             route_schema_version=self.route_schema_version,
             enclosing_variants=self.enclosing_variants,
-            closed_program=self.closed_program,
         )
 
     def _metadata(
@@ -286,11 +282,43 @@ class WccRecordAtom:
     metadata: WccNodeMetadata
     type_name: str
     fields: tuple[tuple[str, "WccValue"], ...]
-    # The `RecordExpr.resolved_type` of a constructor copied out of an inlined
-    # procedure body, carried back to the frontend expression on lowering.
+    # Exact constructor ownership survives specialization and historical reconstruction.
     resolved_type: TypeRef | None = field(
         default=None, repr=False, compare=False, metadata={"json_omit_if_none": True}
     )
+
+
+@dataclass(frozen=True)
+class WccList:
+    metadata: WccNodeMetadata
+    items: tuple["WccValue", ...]
+
+
+@dataclass(frozen=True)
+class WccListMap:
+    metadata: WccNodeMetadata
+    source: "WccValue"
+    binder_name: str
+    binder_type_ref: TypeRef
+    body: "WccBody"
+    # The body block and its first binding have distinct source locations.
+    body_metadata: WccNodeMetadata
+    binding_label: str | None = field(default=None, compare=False, repr=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True})
+    binding_identity: object | None = field(default=None, compare=False, repr=False,
+        metadata={"json_omit_always": True, "semantic_identity_omit": True})
+
+
+@dataclass(frozen=True)
+class WccResultPath:
+    metadata: WccNodeMetadata
+    source: WccNameAtom
+
+
+@dataclass(frozen=True)
+class WccBlock:
+    metadata: WccNodeMetadata
+    body: "WccBody"
 
 
 @dataclass(frozen=True)
@@ -305,9 +333,6 @@ class WccPureOp:
 class WccOpaqueFrontendValue:
     metadata: WccNodeMetadata
     expr: object
-    normalized_body: "WccBody | None" = field(
-        default=None, repr=False, metadata={"json_omit_if_none": True},
-    )
 
 
 WccAtom = WccLiteralAtom | WccNameAtom | WccFieldAccessAtom | WccPhaseTargetAtom | WccRecordAtom | WccOpaqueFrontendValue
@@ -350,7 +375,7 @@ class WccSelect:
     else_arm: WccSelectArm
 
 
-WccValue = WccAtom | WccInject | WccPureOp | WccSelect
+WccValue = WccAtom | WccInject | WccPureOp | WccSelect | WccList | WccBlock | WccResultPath | WccListMap
 
 
 def _frozen_run_ref_inputs(
@@ -817,6 +842,30 @@ WccBindingValue = (
 
 
 @dataclass(frozen=True)
+class WccPromptDependencyRow:
+    """One typed authored dependency row retained in a provider payload."""
+
+    role: str
+    authored_index: int
+    value: WccValue
+    source_span: object
+    form_path: tuple[str, ...]
+    expansion_stack: tuple[object, ...]
+
+
+@dataclass(frozen=True)
+class WccPromptDependencyPayload:
+    """Closed prompt-dependency payload owned by ``WccPerform``."""
+
+    rows: tuple[WccPromptDependencyRow, ...]
+    position: str
+    instruction: str | None
+    source_span: object
+    form_path: tuple[str, ...]
+    expansion_stack: tuple[object, ...]
+
+
+@dataclass(frozen=True)
 class WccRunProviderPhasePayload:
     phase_name: str
     ctx_expr: WccValue
@@ -986,3 +1035,49 @@ class WccLet:
 
 WccBody = WccLet | WccCase | WccIf | WccJoin | WccJump | WccLoopContinue | WccLoopDone | WccRecJoin | WccParallelMap | WccHalt
 WccProgram = WccBody
+
+
+def map_perform_payload_values(perform_kind, payload, transform, *, include_transport=True):
+    """Transform admitted payload operands; declarations and child capsules are static."""
+    if not isinstance(payload, Mapping):
+        return payload
+    if perform_kind == "command_result":
+        result = dict(payload)
+        if "adapter_inputs" in payload:
+            result["adapter_inputs"] = tuple((name, transform(value)) for name, value in payload["adapter_inputs"])
+        if include_transport and "argv_transport" in payload:
+            result["argv_transport"] = [
+                {**plan, "parts": [
+                    {**part, "value": transform(part["value"])} if part["kind"] == "slot" else part
+                    for part in plan["parts"]
+                ]} if plan["kind"] == "template" else plan
+                for plan in payload["argv_transport"]
+            ]
+        return result
+    if perform_kind not in {"provider_result", "agent_turn"}:
+        return payload
+    result = dict(payload)
+    for name in ("model", "effort", "timeout_sec", "delivery"):
+        if payload.get(name) is not None:
+            result[name] = transform(payload[name])
+    application = payload.get("prompt_application")
+    if isinstance(application, Mapping):
+        result["prompt_application"] = {**application, "fills": tuple(
+            {**row, "value": transform(row["value"])} for row in application["fills"])}
+    dependencies = payload.get("prompt_dependencies")
+    if dependencies is not None:
+        result["prompt_dependencies"] = replace(dependencies,
+            rows=tuple(replace(row, value=transform(row.value)) for row in dependencies.rows))
+    return result
+
+
+def perform_payload_values(perform_kind, payload, *, include_transport=True):
+    """Inspect the same payload operands, including command routing annotations."""
+    values = []
+
+    def retain(value):
+        values.append(value)
+        return value
+
+    map_perform_payload_values(perform_kind, payload, retain, include_transport=include_transport)
+    return tuple(values)

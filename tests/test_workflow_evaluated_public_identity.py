@@ -31,8 +31,8 @@ Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps({"n": 
 
 
 def _arms_source():
-    path = Path(__file__).parent / "experiments/fixtures/evaluated_execution_spike/arms_in_loop.orc"
-    return path.read_text().replace('(:target-dsl "2.33")', '(:target-dsl "2.35")')
+    path = Path(__file__).parent / "fixtures/workflow_lisp/current_evaluated/arms_in_loop.orc"
+    return path.read_text()
 
 
 def _pure_seed(source):
@@ -222,10 +222,10 @@ def _hidden_macro_files(root, kind):
     if kind == "imported":
         shutil.copytree(fixtures / "modules/valid/import_macro/neurips", root / "neurips")
         files["source"] = root / "neurips/entry.orc"
-        files["source"].write_text(files["source"].read_text().replace('"2.14"', '"2.35"'))
+
         return files, "generated", "neurips/macros.orc"
     if kind == "command":
-        source = (fixtures / "invalid/macro_hidden_command_effect.orc").read_text().replace('"2.14"', '"2.35"')
+        source = (fixtures / "invalid/macro_hidden_command_effect.orc").read_text()
         source = source.replace('(:target-dsl "2.35")', '(:target-dsl "2.35") (defmodule main) (export command_checks)')
         files["commands"].write_text(json.dumps({"run_checks": {"kind": "external_tool",
             "stable_command": ["python", "probe.py"], "closure": ["probe.py"]}}))

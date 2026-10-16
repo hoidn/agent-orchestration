@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.33")
+  (:target-dsl "2.35")
   (defunion Outcome :forall (T E)
     (OK (value T))
     (ERROR (error E)))

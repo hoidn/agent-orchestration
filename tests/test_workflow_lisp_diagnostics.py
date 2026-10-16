@@ -25,8 +25,6 @@ from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
 MODULE_FIXTURES = FIXTURES / "modules"
 INVALID_IF_NOT_BOOL_FIXTURE = FIXTURES / "invalid" / "if_condition_not_bool.orc"
-INVALID_IF_EFFECTFUL_FIXTURE = FIXTURES / "invalid" / "if_condition_effectful.orc"
-INVALID_IF_NOT_PROJECTABLE_FIXTURE = FIXTURES / "invalid" / "if_condition_not_projectable.orc"
 INVALID_PURE_EXPR_OPERATOR_UNSUPPORTED_FIXTURE = FIXTURES / "invalid" / "pure_expr_operator_unsupported.orc"
 INVALID_PURE_EXPR_UNION_EQUALITY_FIXTURE = FIXTURES / "invalid" / "pure_expr_union_equality.orc"
 INVALID_PURE_EXPR_FLOAT_EQUALITY_FIXTURE = FIXTURES / "invalid" / "pure_expr_float_equality.orc"
@@ -92,12 +90,10 @@ def _compiler_module():
 
 
 def compile_stage3_entrypoint(*args, **kwargs):
-    kwargs.setdefault("lowering_route", "legacy")
     return _compile_stage3_entrypoint(*args, **kwargs)
 
 
 def compile_stage3_module(*args, **kwargs):
-    kwargs.setdefault("lowering_route", "legacy")
     return _compile_stage3_module(*args, **kwargs)
 
 
@@ -1022,10 +1018,11 @@ def test_run_validation_pipeline_stops_after_blocking_pass() -> None:
 
 def test_stage3_validation_pipeline_reports_authority_as_blocking_pass(tmp_path: Path) -> None:
     compiler_module = _compiler_module()
-    run_pipeline = getattr(compiler_module, "_run_stage3_validation_pipeline")
+    run_pipeline = getattr(compiler_module, "_run_stage3_entrypoint_validation_pipeline")
 
     _, results = run_pipeline(
         FIXTURES / "valid" / "structured_results.orc",
+        standalone_entry_namespace="entry",
         provider_externs={"providers.execute": "test-provider"},
         prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
         imported_workflow_bundles=None,
@@ -1100,8 +1097,9 @@ def test_stage1_validation_pipeline_routes_entrypoint_compile_through_runner(
 def test_stage3_validation_pipeline_runs_retained_frontend_passes(tmp_path: Path) -> None:
     compiler_module = _compiler_module()
 
-    _, results = compiler_module._run_stage3_validation_pipeline(
+    _, results = compiler_module._run_stage3_entrypoint_validation_pipeline(
         FIXTURES / "valid" / "structured_results.orc",
+        standalone_entry_namespace="entry",
         provider_externs={"providers.execute": "test-provider"},
         prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
         imported_workflow_bundles=None,
@@ -1125,7 +1123,6 @@ def test_stage3_validation_pipeline_runs_retained_frontend_passes(tmp_path: Path
         "contract",
         "proof",
         "authority",
-        "lowering_surface",
     ]
 
 
@@ -1247,7 +1244,7 @@ def test_serialize_diagnostic_preserves_command_result_adapter_invalid_phase(tmp
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -1276,17 +1273,14 @@ def test_serialize_diagnostic_preserves_command_result_adapter_invalid_phase(tmp
     assert payload["phase"] == "read"
 
 
-def test_serialize_diagnostic_classifies_command_adapter_input_not_projectable(tmp_path: Path) -> None:
-    diagnostics_module = importlib.import_module("orchestrator.workflow_lisp.diagnostics")
-    serialize_diagnostic = getattr(diagnostics_module, "serialize_diagnostic")
-
+def test_evaluated_command_adapter_preserves_structured_inputs(tmp_path: Path) -> None:
     path = tmp_path / "command_adapter_not_projectable.orc"
     path.write_text(
         "\n".join(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -1312,54 +1306,54 @@ def test_serialize_diagnostic_classifies_command_adapter_input_not_projectable(t
         encoding="utf-8",
     )
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            path,
-            command_boundaries=_parse_command_boundaries_manifest(
-                {
-                    "wrap_result": {
-                        "kind": "certified_adapter",
-                        "stable_command": ["python", "scripts/wrap_result.py"],
-                        "input_contract": {"type": "object"},
-                        "output_type_name": "ImplementationSummary",
-                        "effects": ["structured_result"],
-                        "path_safety": {"kind": "workspace_relpath"},
-                        "source_map_behavior": "step",
-                        "fixture_ids": ["wrap_result_ok"],
-                        "negative_fixture_ids": ["wrap_result_bad"],
-                        "behavior_class": "structured_result",
-                        "input_signature": [
-                            {
-                                "name": "completed",
-                                "type_name": "Wrapper",
-                                "required": True,
-                                "transport_key": "completed",
-                            },
-                            {
-                                "name": "review_report",
-                                "type_name": "WorkReport",
-                                "required": True,
-                                "transport_key": "review_report",
-                            },
-                        ],
-                        "artifact_contracts": ["implementation_summary_report"],
-                        "state_writes": [],
-                        "error_codes": ["wrap_result_invalid_payload"],
-                        "owner_module": "std/phase",
-                        "replacement_path": None,
-                        "invocation_protocol": "json_object_positional_arg",
-                    }
-                },
-                manifest_path=None,
-            ),
-            validate_shared=False,
-            workspace_root=tmp_path,
-        )
+    result = compile_stage3_module(
+        path,
+        command_boundaries=_parse_command_boundaries_manifest(
+            {
+                "wrap_result": {
+                    "kind": "certified_adapter",
+                    "stable_command": ["python", "scripts/wrap_result.py"],
+                    "input_contract": {"type": "object"},
+                    "output_type_name": "ImplementationSummary",
+                    "effects": ["structured_result"],
+                    "path_safety": {"kind": "workspace_relpath"},
+                    "source_map_behavior": "step",
+                    "fixture_ids": ["wrap_result_ok"],
+                    "negative_fixture_ids": ["wrap_result_bad"],
+                    "behavior_class": "structured_result",
+                    "input_signature": [
+                        {
+                            "name": "completed",
+                            "type_name": "Wrapper",
+                            "required": True,
+                            "transport_key": "completed",
+                        },
+                        {
+                            "name": "review_report",
+                            "type_name": "WorkReport",
+                            "required": True,
+                            "transport_key": "review_report",
+                        },
+                    ],
+                    "artifact_contracts": ["implementation_summary_report"],
+                    "state_writes": [],
+                    "error_codes": ["wrap_result_invalid_payload"],
+                    "owner_module": "std/phase",
+                    "replacement_path": None,
+                    "invocation_protocol": "json_object_positional_arg",
+                }
+            },
+            manifest_path=None,
+        ),
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
 
-    payload = serialize_diagnostic(excinfo.value.diagnostics[0])
-
-    assert payload["code"] == "command_adapter_input_not_projectable"
-    assert payload["phase"] == "typecheck"
+    command = result.typed_workflows[0].typed_body.expr
+    assert command.adapter_name == "wrap_result"
+    assert tuple(name for name, _ in command.adapter_inputs) == ("completed", "review_report")
+    assert command.adapter_inputs[0][1].name == "completed"
+    assert command.adapter_inputs[1][1].fields == ("review_report",)
 
 
 def test_compile_stage3_preserves_low_level_state_path_warning_without_aborting(tmp_path: Path) -> None:
@@ -1372,7 +1366,7 @@ def test_compile_stage3_preserves_low_level_state_path_warning_without_aborting(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule low_level_state_path_warning)",
                 "  (export orchestrate)",
                 "  (defpath StateFile",
@@ -1384,8 +1378,9 @@ def test_compile_stage3_preserves_low_level_state_path_warning_without_aborting(
                 "  (defworkflow orchestrate",
                 "    ((state_file StateFile))",
                 "    -> RawStateOutput",
-                "    (record RawStateOutput",
-                "      :state_file state_file))",
+                "    (command-result inspect_state",
+                '      :argv ("python" "scripts/inspect_state.py" state_file)',
+                "      :returns RawStateOutput))",
                 ")",
             ]
         )
@@ -1393,7 +1388,17 @@ def test_compile_stage3_preserves_low_level_state_path_warning_without_aborting(
         encoding="utf-8",
     )
 
-    result = compile_stage3_module(path, validate_shared=False, workspace_root=tmp_path)
+    result = compile_stage3_module(
+        path,
+        command_boundaries={
+            "inspect_state": ExternalToolBinding(
+                name="inspect_state",
+                stable_command=("python", "scripts/inspect_state.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
 
     assert [diagnostic.code for diagnostic in result.diagnostics] == [
         "low_level_state_path_in_high_level_module",
@@ -1413,7 +1418,7 @@ def test_compile_stage3_strict_lint_still_rejects_unrelated_public_state_path(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defmodule unrelated_public_state_path)",
                 "  (export orchestrate)",
                 "  (defpath StateFile",
@@ -1425,8 +1430,9 @@ def test_compile_stage3_strict_lint_still_rejects_unrelated_public_state_path(
                 "  (defworkflow orchestrate",
                 "    ((state_file StateFile))",
                 "    -> RawStateOutput",
-                "    (record RawStateOutput",
-                "      :state_file state_file))",
+                "    (command-result inspect_state",
+                '      :argv ("python" "scripts/inspect_state.py" state_file)',
+                "      :returns RawStateOutput))",
                 ")",
             ]
         )
@@ -1437,6 +1443,12 @@ def test_compile_stage3_strict_lint_still_rejects_unrelated_public_state_path(
     with pytest.raises(LispFrontendCompileError) as exc_info:
         compile_stage3_module(
             path,
+            command_boundaries={
+                "inspect_state": ExternalToolBinding(
+                    name="inspect_state",
+                    stable_command=("python", "scripts/inspect_state.py"),
+                )
+            },
             validate_shared=False,
             lint_profile="strict",
             workspace_root=tmp_path,
@@ -1479,7 +1491,7 @@ def test_compile_stage1_preserves_diagnostic_order(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord ProblemRecord",
                 "    (status MissingA)",
                 "    (status MissingB))",
@@ -1522,7 +1534,7 @@ def test_compile_stage3_renders_macro_expansion_notes_for_downstream_command_err
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -1563,7 +1575,7 @@ def test_compile_stage3_reports_macro_emitted_malformed_letstar_as_frontend_diag
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord Out",
                 "    (value String))",
                 "  (emit-broken-workflow broken)",
@@ -1597,7 +1609,7 @@ def test_compile_stage3_renders_macro_expansion_notes_for_downstream_name_unknow
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord Out",
                 "    (value String))",
                 "  (emit-record-workflow broken)",
@@ -1636,7 +1648,7 @@ def test_compile_stage3_preserves_macro_provenance_without_reclassifying_downstr
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defrecord Out",
                 "    (value String))",
                 "  (emit-record-workflow broken)",
@@ -1741,7 +1753,7 @@ def test_compile_stage3_renders_macro_expansion_notes_for_downstream_provider_pa
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -1807,7 +1819,7 @@ def test_compile_stage3_renders_macro_expansion_notes_for_provider_extern_valida
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
+                '  (:target-dsl "2.35")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -1941,8 +1953,6 @@ def test_serialize_diagnostic_infers_executable_ir_metadata_from_code() -> None:
     ("fixture_path", "expected_code"),
     [
         (INVALID_IF_NOT_BOOL_FIXTURE, "if_condition_not_bool"),
-        (INVALID_IF_EFFECTFUL_FIXTURE, "if_condition_has_effect"),
-        (INVALID_IF_NOT_PROJECTABLE_FIXTURE, "if_condition_not_projectable"),
         (INVALID_PURE_EXPR_OPERATOR_UNSUPPORTED_FIXTURE, "pure_expr_operator_unsupported"),
         (INVALID_PURE_EXPR_UNION_EQUALITY_FIXTURE, "pure_expr_union_equality_forbidden"),
         (INVALID_PURE_EXPR_FLOAT_EQUALITY_FIXTURE, "pure_expr_float_equality_forbidden"),
@@ -1985,7 +1995,7 @@ _COND_NON_BOOL_EFFECTFUL_SOURCE = "\n".join(
     [
         "(workflow-lisp",
         '  (:language "0.1")',
-        '  (:target-dsl "2.26")',
+        '  (:target-dsl "2.35")',
         "  (defmodule cond_non_bool)",
         '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
         "  (defworkflow decide () -> String",
@@ -2031,7 +2041,7 @@ _IF_NON_BOOL_EFFECTFUL_SOURCE = "\n".join(
     [
         "(workflow-lisp",
         '  (:language "0.1")',
-        '  (:target-dsl "2.26")',
+        '  (:target-dsl "2.35")',
         "  (defmodule if_non_bool)",
         '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
         "  (defworkflow decide () -> String",
@@ -2157,3 +2167,29 @@ def test_compile_stage3_reports_entry_publication_diagnostics(
         )
 
     assert excinfo.value.diagnostics[0].code == expected_code
+
+
+@pytest.mark.parametrize(
+    ("fixture_name", "command_count"),
+    (("evaluated_if_effectful.orc", 1), ("evaluated_if_function.orc", 0)),
+)
+def test_evaluated_conditions_accept_effects_and_pure_function_calls(
+    tmp_path: Path, fixture_name: str, command_count: int,
+) -> None:
+    from orchestrator.workflow_lisp.expression_traversal import walk_expr
+    from orchestrator.workflow_lisp.expressions import CommandResultExpr, IfExpr
+
+    result = compile_stage3_module(
+        FIXTURES / "valid" / fixture_name,
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            ),
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    nodes = tuple(walk_expr(result.typed_workflows[0].typed_body.expr))
+    assert sum(isinstance(node, IfExpr) for node in nodes) == 1
+    assert sum(isinstance(node, CommandResultExpr) for node in nodes) == command_count
