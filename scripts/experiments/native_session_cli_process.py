@@ -278,13 +278,16 @@ class ProcessTracker:
                 break
             self.refresh()
             time.sleep(0.02)
-        try:
-            table = _process_table()
-            self._capture(table)
-            child_live = any(_alive(pid, started, table) for pid, started in invocation.tracked.items())
-        except (OSError, RuntimeError):
-            invocation.tracking_ok = False
-            child_live = bool(invocation.tracked)
+        if expired and invocation.timed_out:
+            child_live = False
+        else:
+            try:
+                table = _process_table()
+                self._capture(table)
+                child_live = any(_alive(pid, started, table) for pid, started in invocation.tracked.items())
+            except (OSError, RuntimeError):
+                invocation.tracking_ok = False
+                child_live = bool(invocation.tracked)
         if expired or child_live or not invocation.tracking_ok:
             self._stop_owned()
         if child_live and not invocation.timed_out:
@@ -329,6 +332,7 @@ class ProcessTracker:
         deadline = time.monotonic() + 0.6
         clean_scans = 0
         sig = signal.SIGTERM
+        self._signal_owned(sig)
         while time.monotonic() < deadline:
             table: dict[int, Process] | None = None
             try:
@@ -337,23 +341,7 @@ class ProcessTracker:
             except (OSError, RuntimeError):
                 for invocation in self.invocations:
                     invocation.tracking_ok = False
-            for invocation in self.invocations:
-                if self._poll(invocation) is None and invocation.stop_requested is None:
-                    invocation.stop_requested = time.monotonic()
-            for identity in list(self.pidfds):
-                if not self._signal(identity, sig):
-                    for invocation in self.invocations:
-                        invocation.tracking_ok = False
-            for invocation in self.invocations:
-                identity = (invocation.process.pid, invocation.leader_start_time if invocation.leader_start_time is not None else -1)
-                if identity not in self.pidfds and invocation.process.poll() is None:
-                    # An unreaped direct child cannot have its PID reused.
-                    try:
-                        invocation.process.kill()
-                    except ProcessLookupError:
-                        pass
-                    except OSError:
-                        invocation.tracking_ok = False
+            self._signal_owned(sig)
             clean_scans = clean_scans + 1 if table is not None and not self._live_identities(table) else 0
             if clean_scans >= 2:
                 break
@@ -365,6 +353,25 @@ class ProcessTracker:
             except subprocess.TimeoutExpired:
                 invocation.tracking_ok = False
         _reap({pid for pid, _ in self.pidfds})
+
+    def _signal_owned(self, sig: signal.Signals) -> None:
+        for invocation in self.invocations:
+            if self._poll(invocation) is None and invocation.stop_requested is None:
+                invocation.stop_requested = time.monotonic()
+        for identity in list(self.pidfds):
+            if not self._signal(identity, sig):
+                for invocation in self.invocations:
+                    invocation.tracking_ok = False
+        for invocation in self.invocations:
+            identity = (invocation.process.pid, invocation.leader_start_time if invocation.leader_start_time is not None else -1)
+            if identity not in self.pidfds and invocation.process.poll() is None:
+                # An unreaped direct child cannot have its PID reused.
+                try:
+                    invocation.process.kill()
+                except ProcessLookupError:
+                    pass
+                except OSError:
+                    invocation.tracking_ok = False
 
     def close(self) -> None:
         self._stop_owned()

@@ -91,6 +91,14 @@ def test_neovim_observes_current_diagnostics_and_one_save_progress_interval(
     assert saved_text != initial_text
     before_entries = _workspace_entries(workspace)
 
+    # The harness delays the initial ACK until publication and releases build 2 on begin.
+    control_root = tmp_path / "control"
+    control_root.mkdir()
+    release_build = control_root / "release-build-2"
+    server_path = (
+        REPO_ROOT
+        / "tests/fixtures/workflow_lisp/lsp_transport/controlled_compile_server.py"
+    )
     result_path = (tmp_path / "neovim-result.json").resolve()
     script_path = (tmp_path / "neovim-l4.lua").resolve()
     script_path.write_text(
@@ -99,6 +107,8 @@ local result_path = assert(vim.env.ORC_NEOVIM_RESULT)
 local source_path = assert(vim.env.ORC_NEOVIM_SOURCE)
 local workspace = assert(vim.env.ORC_NEOVIM_WORKSPACE)
 local python = assert(vim.env.ORC_NEOVIM_PYTHON)
+local server_path = assert(vim.env.ORC_NEOVIM_SERVER)
+local release_build = assert(vim.env.ORC_NEOVIM_RELEASE_BUILD)
 
 local result = {
   create_events = {},
@@ -141,7 +151,7 @@ local ok, failure = xpcall(function()
 
   local client_id = assert(vim.lsp.start({
     name = "workflow-lisp-l4-acceptance",
-    cmd = { python, "-m", "orchestrator.lsp" },
+    cmd = { python, server_path },
     root_dir = workspace,
     capabilities = capabilities,
     init_options = {
@@ -156,11 +166,19 @@ local ok, failure = xpcall(function()
       ["window/workDoneProgress/create"] = function(err, params, ctx, config)
         table.insert(result.create_events, vim.deepcopy(params))
         record("create", params)
+        if result.initial_publish == nil then
+          wait_for("diagnostic before initial create ACK", function()
+            return #result.publish_events > 0
+          end)
+        end
         return default_create(err, params, ctx, config)
       end,
       ["$/progress"] = function(err, params, ctx, config)
         table.insert(result.progress_events, vim.deepcopy(params))
         record("progress", params)
+        if params.value.kind == "begin" then
+          vim.fn.writefile({}, release_build)
+        end
         return default_progress(err, params, ctx, config)
       end,
     },
@@ -178,14 +196,23 @@ local ok, failure = xpcall(function()
     end
     return false
   end)
-  wait_for("initial progress settlement", function()
-    for _, event in ipairs(result.progress_events) do
-      if event.value.kind == "end" then
-        return true
-      end
-    end
-    return false
+  wait_for("initial create handling", function()
+    return #result.create_events == 1
   end)
+  local client = assert(vim.lsp.get_client_by_id(client_id))
+  local function request_barrier()
+    local response, request_error = client.request_sync(
+      "textDocument/documentSymbol",
+      { textDocument = { uri = vim.uri_from_bufnr(bufnr) } },
+      30000,
+      bufnr
+    )
+    assert(response, request_error)
+    assert(response.err == nil, vim.inspect(response.err))
+  end
+  request_barrier()
+  result.initial_progress = vim.deepcopy(result.progress_events)
+  assert(#result.initial_progress == 0, "late initial ACK emitted progress")
   result.initial_view_count = #vim.diagnostic.get(bufnr)
   for _, publication in ipairs(result.publish_events) do
     if #publication.diagnostics == 1 then
@@ -237,7 +264,7 @@ local ok, failure = xpcall(function()
       and #result.publish_events > 0
       and #vim.diagnostic.get(bufnr) == 0
   end)
-  vim.wait(200)
+  request_barrier()
   result.post_save_view_count = #vim.diagnostic.get(bufnr)
   result.post_save_publish =
     vim.deepcopy(result.publish_events[#result.publish_events])
@@ -250,6 +277,7 @@ local ok, failure = xpcall(function()
   end)
 end, debug.traceback)
 
+vim.fn.writefile({}, release_build)
 if not ok then
   result.error = failure
 end
@@ -271,6 +299,10 @@ end
             "ORC_NEOVIM_SOURCE": str(source_path),
             "ORC_NEOVIM_WORKSPACE": str(workspace),
             "ORC_NEOVIM_PYTHON": sys.executable,
+            "ORC_NEOVIM_SERVER": str(server_path),
+            "ORC_NEOVIM_RELEASE_BUILD": str(release_build),
+            "WORKFLOW_LSP_TEST_CONTROL_ROOT": str(control_root),
+            "WORKFLOW_LSP_TEST_GATED_BUILD": "2",
             "PYTHONPATH": os.pathsep.join(
                 (
                     str(REPO_ROOT),
@@ -279,25 +311,28 @@ end
             ).rstrip(os.pathsep),
         }
     )
-    completed = subprocess.run(
-        (
-            nvim,
-            "--clean",
-            "--headless",
-            "-n",
-            "-u",
-            "NONE",
-            "-c",
-            "lua dofile(vim.env.ORC_NEOVIM_SCRIPT)",
-        ),
-        cwd=workspace,
-        env={**environment, "ORC_NEOVIM_SCRIPT": str(script_path)},
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=45,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            (
+                nvim,
+                "--clean",
+                "--headless",
+                "-n",
+                "-u",
+                "NONE",
+                "-c",
+                "lua dofile(vim.env.ORC_NEOVIM_SCRIPT)",
+            ),
+            cwd=workspace,
+            env={**environment, "ORC_NEOVIM_SCRIPT": str(script_path)},
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=45,
+            check=False,
+        )
+    finally:
+        release_build.touch()
     assert result_path.is_file(), (
         f"Neovim produced no result; stdout={completed.stdout!r}; "
         f"stderr={completed.stderr!r}"
@@ -335,6 +370,11 @@ end
         "accepted_generation": 1,
     }
     assert result["initial_view_count"] == 1
+    assert result["initial_progress"] == []
+    assert (control_root / "build-1-started").is_file()
+    assert not (control_root / "build-1-finished").exists()
+    assert (control_root / "build-2-started").is_file()
+    assert (control_root / "build-2-finished").is_file()
     assert result["dirty_publish"] == {
         "uri": source_path.as_uri(),
         "diagnostics": [],

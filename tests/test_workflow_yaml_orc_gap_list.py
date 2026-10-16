@@ -93,6 +93,14 @@ def _handoff_queues() -> dict[str, dict[str, object]]:
     return {row["queue_id"]: row for row in queues}
 
 
+def _local_link_paths(document: Path) -> set[Path]:
+    return {
+        document.parent.joinpath(href.partition("#")[0]).resolve()
+        for href in re.findall(r"\[[^\]]*\]\(([^)]+)\)", document.read_text(encoding="utf-8"))
+        if not href.startswith(("https:", "http:", "#"))
+    }
+
+
 def test_gap_list_queue_scope_is_exact_projection_of_handoff() -> None:
     rows = _table_after_heading(GAP_LIST.read_text(encoding="utf-8"), "## Queue reconciliation")
     assert {row["Queue ID"] for row in rows} == set(SCOPED_QUEUES)
@@ -157,27 +165,61 @@ def test_prompt_dependency_gap_closes_both_survivor_family_applications() -> Non
     assert "their yaml twins subsequently passed the task 6 deletion gates" in normalized
 
 
-def test_prompt_dependency_status_preserves_historical_yaml_evidence_after_retirement() -> None:
+def test_prompt_dependency_routes_keep_current_owner_and_historical_evidence_distinct() -> None:
     capability = CAPABILITY_MATRIX.read_text(encoding="utf-8")
-    index = DOCS_INDEX.read_text(encoding="utf-8")
+    matrix_rows = [
+        line
+        for line in capability.splitlines()
+        if line.startswith("|") and "Workflow Lisp provider prompt dependencies" in line
+    ]
+    assert len(matrix_rows) == 1
+    matrix_cells = [cell.strip() for cell in matrix_rows[0].strip("|").split("|")]
+    assert matrix_cells[1] == "Implemented"
+    for owner in (
+        "docs/design/workflow_lisp_provider_prompt_dependencies.md",
+        "specs/dependencies.md",
+        "specs/providers.md",
+        "specs/state.md",
+    ):
+        assert owner in matrix_cells[3]
 
-    for surface in (capability, index):
-        normalized = " ".join(
-            surface.lower().replace("-", " ").replace("_", " ").split()
-        )
-        assert "workflow lisp provider prompt dependencies" in normalized
-        assert "implemented" in normalized
-        assert "runtime plan remains topology only" in normalized
-        assert "evidence is non authoritative" in normalized
-        assert "historical" in normalized
-        assert (
-            "retired yaml twins" in normalized
-            or "no live authored frontend" in normalized
-        )
-        assert "yaml content mode remains legacy" not in normalized
-        assert "verified iteration drain" in normalized
-        assert "generic run watchdog" in normalized
-        assert "both" in normalized and "parity" in normalized
+    owner = REPO_ROOT / "docs/design/workflow_lisp_provider_prompt_dependencies.md"
+    history = REPO_ROOT / "docs/plans/2026-07-17-workflow-lisp-provider-prompt-dependencies-design.md"
+    assert owner in _local_link_paths(DOCS_INDEX)
+    assert GAP_LIST in _local_link_paths(DOCS_INDEX)
+    assert history in _local_link_paths(owner)
+    assert owner in _local_link_paths(history)
+    assert "Historical checkpoint" in history.read_text(encoding="utf-8")
+
+    gap_text = GAP_LIST.read_text(encoding="utf-8")
+    decision = next(
+        row
+        for row in _table_after_heading(gap_text, "## Gap decisions")
+        if row["Gap ID"] == "common.prompt-dependency-parity"
+    )
+    port_queues = {
+        row["Queue ID"]
+        for row in _table_after_heading(gap_text, "## Queue reconciliation")
+        if row["Disposition"] == "port"
+    }
+    assert port_queues == {"port_verified_iteration", "port_generic_run_watchdog"}
+    assert set(decision["Applies to"].split(", ")) == port_queues
+
+    yaml_row = next(
+        line
+        for line in capability.splitlines()
+        if line.startswith("|") and "YAML DSL v2.x" in line
+    )
+    assert "| Retired |" in yaml_row
+    matrix_routes = (
+        "specs/dsl.md",
+        "docs/plans/2026-07-07-yaml-retirement-program.md",
+        "docs/workflow_yaml_estate_triage.md",
+        "docs/workflow_yaml_orc_gap_list.md",
+    )
+    for route in matrix_routes:
+        assert route in yaml_row
+        assert (REPO_ROOT / route).is_file()
 
 
 def test_both_survivor_family_gates_and_yaml_retirement_are_closed() -> None:
@@ -339,19 +381,13 @@ def test_yaml_retirement_tasks_1_through_7_are_closed() -> None:
     assert "e38b14de" in task_5
 
 
-def test_canonical_routing_surfaces_close_stage_6_without_starting_stage_7() -> None:
+def test_canonical_routing_preserves_retirement_owners_without_reselecting_historical_work() -> None:
     roadmap = ROADMAP.read_text(encoding="utf-8")
     capability = CAPABILITY_MATRIX.read_text(encoding="utf-8")
     index = DOCS_INDEX.read_text(encoding="utf-8")
 
-    for text in (roadmap, capability, index):
+    for text in (capability, index):
         normalized = " ".join(text.lower().split())
-        assert re.search(
-            r"\bstage 6\b[^.;]{0,200}\bcomplete\b"
-            r"|\byaml retirement\b[^.;]{0,200}\btask 7\b"
-            r"[^.;]{0,80}\bcomplete\b",
-            normalized,
-        )
         for stale_task in (1, 2, 3, 4, 5, 6, 7):
             assert re.search(
                 rf"\byaml retirement\b[^.;]{{0,120}}\btask {stale_task}\b"
@@ -360,11 +396,30 @@ def test_canonical_routing_surfaces_close_stage_6_without_starting_stage_7() -> 
                 rf"[^.;]{{0,80}}\btask {stale_task}\b",
                 normalized,
             ) is None
-        assert re.search(
-            r"\bstage 7\b[^.;]{0,120}\b(?:is current|has started|is started)\b"
-            r"|\bcurrent selector\b[^.;]{0,120}\bstage 7\b",
-            normalized,
-        ) is None
+
+    index_routes = _local_link_paths(DOCS_INDEX)
+    for route in (
+        YAML_RETIREMENT_PROGRAM,
+        ROADMAP,
+        REPO_ROOT / "docs/design/workflow_lisp_executor_retirement.md",
+        REPO_ROOT / "specs/cli.md",
+    ):
+        assert route in index_routes
+        assert route.is_file()
+    yaml_row = next(
+        line
+        for line in capability.splitlines()
+        if line.startswith("|") and "YAML DSL v2.x" in line
+    )
+    assert "| Retired |" in yaml_row
+    for route in (
+        "specs/dsl.md",
+        "docs/plans/2026-07-07-yaml-retirement-program.md",
+        "docs/plans/2026-07-13-procedure-first-reuse-inventory.json",
+        "docs/workflow_yaml_estate_triage.md",
+        "docs/workflow_yaml_orc_gap_list.md",
+    ):
+        assert route in yaml_row
 
     stage_6 = _section(roadmap, "### Stage 6: Resume YAML Retirement")
     normalized_stage_6 = " ".join(stage_6.lower().split())
@@ -382,3 +437,7 @@ def test_canonical_routing_surfaces_close_stage_6_without_starting_stage_7() -> 
     assert "stage 7" in normalized_stage_6
     assert "owner" in normalized_stage_6
     assert "schedul" in normalized_stage_6
+    assert not any(
+        path.is_file() and path.suffix in {".yaml", ".yml"}
+        for path in (REPO_ROOT / "workflows").rglob("*")
+    )

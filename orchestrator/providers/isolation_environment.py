@@ -3930,10 +3930,11 @@ def _open_absolute_directory_chain(
             owned_fds.append(child_fd)
             opened = os.fstat(child_fd)
             edge_path = f"{issue_path}.components[{index}]"
-            _require_same_source_identity(
+            _require_same_pinned_edge_identity(
                 before,
                 opened,
                 issue_path=edge_path,
+                changed_message="directory authority edge changed during admission",
             )
             edges.append(
                 _PinnedEdge(

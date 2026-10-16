@@ -1988,7 +1988,10 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         "workflow_lisp_transportable_value_type.md",
     )
     assert "| Implemented |" in value_design_row
-    assert "target 2.19" in _normalized_routing_text(value_design_row)
+    normalized_value_row = _normalized_routing_text(value_design_row)
+    assert "introduced at 2.19" in normalized_value_row
+    assert re.search(r"2\.35[–-]2\.39", value_design_row)
+    _assert_doc_routes("docs/design/README.md", TRANSPORTABLE_VALUE_DESIGN_PATH)
     capability_row = _markdown_table_row(
         capability_matrix_path,
         "Workflow Lisp transportable `Value`",
@@ -2170,11 +2173,17 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
         "defprompt",
         "compiled_prompt_fragment_identity",
         "workflow_prompt_fragment_snapshot.functional.v1",
-        "prompt_calculus_requires_dsl_2_20",
         "prompt_fill_renderer_unsupported",
         "prompt_return_redeclaration_forbidden",
     ):
         assert required in normalized_frontend
+    frontend_q1 = _markdown_heading_section(
+        frontend, "### 8.7.1 `defprompt` (Target 2.20)"
+    )
+    assert "target_dsl_unsupported" in frontend_q1
+    assert "workflow_execution_target_retired" in frontend_q1
+    assert "prompt_calculus_requires_dsl_2_20" not in frontend_q1
+    _assert_doc_routes("docs/design/workflow_lisp_frontend_specification.md", "specs/cli.md")
     assert "q2" in normalized_frontend
     assert "q3" in normalized_frontend
     assert "q4" in normalized_frontend
@@ -2196,11 +2205,24 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
     assert "workflow_prompt_fragment_snapshot.functional.v1" in providers
     assert "before provider launch" in normalized_providers
 
-    normalized_state = _normalized_routing_text(state)
-    assert "workflow lisp prompt fragment attempt state and resume" in normalized_state
-    assert "schema 2.1" in normalized_state
-    assert "compatible completed result reuse" in normalized_state
-    assert "do not read prompt snapshot evidence" in normalized_state
+    q1_state = state.split(
+        "## Workflow Lisp Prompt Fragment Attempt State And Resume", 1
+    )[1].split("\n## Target 2.21 Prompt Output-Position Attempt State And Resume", 1)[0]
+    normalized_q1_state = _normalized_routing_text(q1_state)
+    assert "schema 2.1" in normalized_q1_state
+    assert "compatible completed result reuse" in normalized_q1_state
+    assert "do not read prompt snapshot evidence" in normalized_q1_state
+    evaluated_state = state.split(
+        "## Evaluated Execution Persistence Profile (target 2.35)", 1
+    )[1].split("\n## Durable Host Input State And Recovery", 1)[0]
+    assert '`schema_version: "3.0"`' in evaluated_state
+    assert "`memo.jsonl`" in evaluated_state
+    assert "the only authority for results" in evaluated_state
+    _assert_doc_routes(
+        "specs/state.md",
+        "specs/cli.md",
+        "docs/design/workflow_lisp_executor_retirement.md",
+    )
 
     assert "(defprompt review-design-doc" in guide
     assert "List[DesignDocPath]" in guide
@@ -2212,6 +2234,16 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
         "workflow_lisp_prompt_calculus.md",
     )
     assert "| Implemented |" in prompt_design_row
+    _assert_doc_routes(
+        "docs/design/workflow_lisp_prompt_calculus.md",
+        "docs/design/workflow_lisp_executor_retirement.md",
+        "docs/design/workflow_lisp_evaluated_execution.md",
+        "specs/cli.md",
+    )
+    _routed_history(
+        "docs/design/workflow_lisp_prompt_calculus.md",
+        "docs/reports/documentation-history/workflow_lisp_prompt_calculus-history.md",
+    )
     prompt_capability_row = _markdown_table_row(
         capability_matrix_path,
         "Workflow Lisp prompt calculus Q1",
@@ -2245,10 +2277,9 @@ def test_prompt_output_positions_normative_and_authoring_surfaces_ship_q2() -> N
         encoding="utf-8"
     )
 
-    normalized_master = _normalized_routing_text(master)
-    assert "target 2.21" in normalized_master
-    assert "prompt output positions" in normalized_master
-    assert "v2.18 bounded list traversal tranche" in normalized_master
+    master_current = master.split("- Version history and current target extensions", 1)[0]
+    assert re.search(r"targets\s+2\.35[–-]2\.39", master_current)
+    _assert_doc_routes("specs/index.md", "specs/versioning.md", "specs/cli.md")
 
     version_rows = [
         line
@@ -2265,6 +2296,8 @@ def test_prompt_output_positions_normative_and_authoring_surfaces_ship_q2() -> N
         if line.startswith("| 2.18 |")
     ]
     assert len(list_version_rows) == 1
+    normalized_list_version_row = _normalized_routing_text(list_version_rows[0])
+    assert "bounded list traversal" in normalized_list_version_row
     normalized_versioning = _normalized_routing_text(versioning)
     assert "v2.18 additions" in normalized_versioning
     assert "workflow lisp bounded list traversal" in normalized_versioning
@@ -2275,13 +2308,21 @@ def test_prompt_output_positions_normative_and_authoring_surfaces_ship_q2() -> N
     assert "target 2.21" in normalized_dsl
     assert "slot name :path :out [pathtype]" in normalized_dsl
     assert "compiler_prompt_fragment_contract.v2" in dsl
-    assert "below target 2.21" in normalized_dsl
-    assert "expected_outputs may coexist with exactly one output_bundle" in (
-        normalized_dsl
-    )
-    assert "expected_outputs may coexist with exactly one variant_output" in (
-        normalized_dsl
-    )
+    dsl_q2 = dsl.split(
+        "  - Workflow Lisp prompt output positions (target 2.21):", 1
+    )[1].split("\n  - ", 1)[0]
+    assert "target_dsl_unsupported" in dsl_q2
+    assert "Historical payload readers" in dsl_q2
+    bundle_contract = dsl.split(
+        "    - `output_bundle` (optional; v1.3+):", 1
+    )[1].split("      - `OutputBundleField`:", 1)[0]
+    variant_contract = dsl.split(
+        "    - `variant_output` (optional; v2.14+):", 1
+    )[1].split("      - The contract declares", 1)[0]
+    normalized_bundle_contract = " ".join(bundle_contract.split())
+    normalized_variant_contract = " ".join(variant_contract.split())
+    assert "At target 2.21+, `expected_outputs` may coexist with exactly one" in normalized_bundle_contract
+    assert "expected_outputs` may coexist with exactly one `variant_output`" in normalized_variant_contract
 
     normalized_io = _normalized_routing_text(io)
     assert "prompt output position composition" in normalized_io

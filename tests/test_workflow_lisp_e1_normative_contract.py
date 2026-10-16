@@ -1,4 +1,4 @@
-"""Target-2.24 E1 normative admission and spec-routing contract."""
+"""Historical E1 wire contract and current run-ref admission routing."""
 
 from __future__ import annotations
 
@@ -11,6 +11,19 @@ from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SPECS_ROOT = REPO_ROOT / "specs"
+
+
+def _assert_doc_routes(owner: Path, *destinations: Path) -> str:
+    document = owner.read_text(encoding="utf-8")
+    links = {
+        owner.parent.joinpath(href.partition("#")[0]).resolve()
+        for href in re.findall(r"\[[^\]]*\]\(([^)]+)\)", document)
+        if not href.startswith(("https:", "http:", "#"))
+    }
+    for destination in destinations:
+        assert destination.resolve() in links, (owner, destination)
+        assert destination.is_file(), destination
+    return document
 
 
 def _ordinary_source(target: str) -> str:
@@ -49,11 +62,16 @@ def test_ordinary_current_library_module_compiles_through_the_full_frontend(
 
 
 
-def test_normative_specs_route_the_target_2_24_run_ref_contract() -> None:
+def test_historical_e1_contract_routes_to_current_run_ref_admission() -> None:
     dsl = (SPECS_ROOT / "dsl.md").read_text(encoding="utf-8")
     state = (SPECS_ROOT / "state.md").read_text(encoding="utf-8")
     versioning = (SPECS_ROOT / "versioning.md").read_text(encoding="utf-8")
-    index = (SPECS_ROOT / "index.md").read_text(encoding="utf-8")
+    master_path = SPECS_ROOT / "index.md"
+    index = _assert_doc_routes(
+        master_path,
+        SPECS_ROOT / "versioning.md",
+        SPECS_ROOT / "cli.md",
+    )
 
     target_section = re.search(
         r"(?m)^\s*- [^\n]*target 2\.24[^\n]*:$",
@@ -98,21 +116,42 @@ def test_normative_specs_route_the_target_2_24_run_ref_contract() -> None:
     ):
         assert f"`{diagnostic_code}`" in dsl_2_24
 
-    assert "run_ref_attempt_ledger.v1" in state
-    assert "completed_pending_parent_commit" in state
-    assert "StepResult.run_ref" in state
-    assert "reuse_validated_run_ref_result" in state
-    assert re.search(r'(?m)^\s*- `schema_version: "2\.1"`$', state)
-    assert 'schema_version: "2.2"' not in state
+    historical_scope = state.split("## Execution and historical-format scope", 1)[1].split(
+        "\n## Derived Pure-Result Persistence Profile", 1
+    )[0]
+    assert re.search(r'(?m)^\s*- `schema_version: "2\.1"`$', historical_scope)
+    run_ref_state = state.split(
+        "## Target 2.24 `run-ref` State, Settlement, And Resume", 1
+    )[1].split("\n## ", 1)[0]
+    assert "run_ref_attempt_ledger.v1" in run_ref_state
+    assert "completed_pending_parent_commit" in run_ref_state
+    assert "StepResult.run_ref" in run_ref_state
+    assert "reuse_validated_run_ref_result" in run_ref_state
+    assert 'schema_version: "2.2"' not in run_ref_state
+
+    evaluated_state = state.split(
+        "## Evaluated Execution Persistence Profile (target 2.35)", 1
+    )[1].split("\n## Durable Host Input State And Recovery", 1)[0]
+    assert '`schema_version: "3.0"`' in evaluated_state
+    assert "`memo.jsonl`" in evaluated_state
+    assert "the only authority for results" in evaluated_state
+    _assert_doc_routes(
+        SPECS_ROOT / "state.md",
+        SPECS_ROOT / "cli.md",
+        REPO_ROOT / "docs/design/workflow_lisp_executor_retirement.md",
+    )
 
     assert re.search(r"(?m)^\| 2\.24 \|[^\n]*`run-ref`", versioning)
-    master_version = re.search(
-        r"(?m)^# .*v1\.1 through (?:bounded )?v(?P<major>\d+)\.(?P<minor>\d+)",
-        index,
+    current_scope = index.split("- Version history and current target extensions", 1)[0]
+    assert re.search(r"targets\s+2\.35[–-]2\.39", current_scope)
+
+    trial_runs_path = REPO_ROOT / "docs/design/workflow_lisp_trial_runs.md"
+    trial_runs = _assert_doc_routes(
+        trial_runs_path,
+        REPO_ROOT / "docs/design/workflow_lisp_evaluated_execution.md",
+        REPO_ROOT / "docs/design/workflow_lisp_executor_retirement.md",
+        SPECS_ROOT / "cli.md",
     )
-    assert master_version is not None
-    assert (
-        int(master_version.group("major")),
-        int(master_version.group("minor")),
-    ) >= (2, 24)
-    assert "`run-ref`" in index
+    normalized_trial_runs = " ".join(trial_runs.split())
+    assert "Path-mode run references retain their pure-child" in normalized_trial_runs
+    assert "bundle/trial effects are excluded" in normalized_trial_runs

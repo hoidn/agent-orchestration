@@ -95,6 +95,41 @@ doubles. The three file/2-dependent test edits remain uncommitted alongside the
 pre-existing file/2 implementation and consumer changes they require.
 The final ten-module check on integrated main passed 310 cases in 7.43 seconds.
 
-Process handling, documentation tests and retired research demo test collection
-remain to be repaired. The final full default suite and completion audit are
-still pending.
+Eight documentation regressions now distinguish historical feature/wire contracts
+from current source admission and route to their actual owners. The exact estate
+projection, parity evidence, diagnostics and static-reader contracts remain
+covered. Independent contract and quality review passed after adding two missing
+owner/row checks. All 252 cases in the five affected modules passed, followed by
+the two revised cases; six source-floor/retirement controls also passed. The final
+five files were integrated at their reviewed hashes without changing documents.
+
+Process cleanup now signals retained pidfds before global discovery and still
+signals newly captured children within the same cleanup iteration. The redundant
+pre-stop scan is skipped only for an expired target; other-expired-invocation
+descendant evidence remains intact. Ancestor admission uses the existing pinned
+edge identity while preserving strict source/payload validation. Five regression
+cases, 388 owner cases and 11 fake-CLI timeout/recovery cases passed; three sealed
+I0 environment cases remain skipped because their required identity is unset.
+Both changed test modules collected 212 cases. Independent review passed and all
+four files were integrated at reviewed hashes. The prior intermittent recovery
+count failure passed narrowly; its original fine-grained cause remains unproven.
+
+The watcher reuses checked state within an uninterrupted poll iteration while
+retaining fresh reads after waits and recovery actions. The Neovim harness now
+controls create-ACK/build scheduling and uses protocol barriers, preserving
+current diagnostics and exact save-progress assertions. Separate real-stdio
+checks retain public-module startup coverage. Independent review passed; 81
+owner cases passed with one existing xfail. Both discovery cases used eight
+Python starts through discovery, versus twelve in the original receipt; this
+is a startup-count result, not a wall-time speed claim. The three reviewed files
+were integrated at their frozen hashes.
+
+The baseline-node ledger now accounts for all 106 failed cases passing focused
+checks. One collection error remains. This accounting is not a final full suite
+result: retained research demo algorithm/oracle coverage must be separated from
+its archived retired-executor assertions, followed by the full default suite
+and completion audit.
+
+The integrated-main checkpoint for these documentation, process/isolation and
+watcher/Neovim repairs passed 721 cases, with three existing environment skips
+and one existing xfail, in 50.47 seconds. The complete default suite is pending.

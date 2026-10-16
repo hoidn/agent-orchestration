@@ -180,9 +180,8 @@ is_evaluated_state() {
 }
 
 recent_limit_log_hits() {
-  local state
-  state="$(read_run_state "$RUN_ROOT" 2>> "$LOG")" || return 0
-  if ! is_evaluated_state "$state"; then
+  local state="$1" evaluated="$2"
+  if [[ "$evaluated" == false ]]; then
     find "$RUN_ROOT" \
       -type f \( -name '*.stderr' -o -name '*.stdout' -o -name '*.log' -o -name '*.txt' \) \
       -mmin -10 -print0 2>/dev/null \
@@ -251,14 +250,14 @@ PY
 }
 
 write_state_summary() {
-  read_run_state "$RUN_ROOT" 2>> "$LOG" | python -c '
+  python -c '
 import json, sys
 try:
     state = json.load(sys.stdin)
     print("state", state.get("status"), "updated_at", state.get("updated_at"), "current_step", state.get("current_step"))
 except ValueError:
     pass
-' >> "$LOG" 2>&1
+' <<< "$1" >> "$LOG" 2>&1
 }
 
 wait_for_target_shell() {
@@ -480,9 +479,8 @@ PY
 }
 
 requeue_provider_limit_blocked_tranche() {
-  local state
-  state="$(read_run_state "$RUN_ROOT" 2>> "$LOG")" || return 1
-  if is_evaluated_state "$state"; then
+  local state="$1" evaluated="$2"
+  if [[ "$evaluated" == true ]]; then
     return 1
   fi
   python -c "$(cat <<'PY'
@@ -561,7 +559,7 @@ PY
 
 handle_completed_provider_limit_blocked_run() {
   local tranche_id cmd
-  tranche_id="$(requeue_provider_limit_blocked_tranche 2>/dev/null || true)"
+  tranche_id="$(requeue_provider_limit_blocked_tranche "$1" "$2" 2>/dev/null || true)"
   if [[ -z "$tranche_id" ]]; then
     return 1
   fi
@@ -658,6 +656,7 @@ wait_until_claude_ready() {
 interrupt_wait_and_resume() {
   local pane_out="$1"
   local log_hits="$2"
+  local state
 
   log "detected provider usage/rate limit; interrupting $TARGET"
   {
@@ -677,7 +676,8 @@ interrupt_wait_and_resume() {
     sleep 4
     wait_for_target_shell || log "target still not at a recognized shell; provider-limit recovery will skip relaunch if it remains active"
   fi
-  write_state_summary
+  state="$(read_run_state "$RUN_ROOT" 2>> "$LOG")"
+  write_state_summary "$state"
 
   if ! wait_until_claude_ready; then
     log "skipping automatic relaunch because target appears manually resumed"
@@ -715,11 +715,13 @@ while true; do
     sleep "$POLL_SECONDS"
     continue
   fi
+  evaluated=false
   if is_evaluated_state "$state"; then
+    evaluated=true
     pane_out=""
   fi
-  log_hits="$(recent_limit_log_hits)"
-  if handle_completed_provider_limit_blocked_run; then
+  log_hits="$(recent_limit_log_hits "$state" "$evaluated")"
+  if handle_completed_provider_limit_blocked_run "$state" "$evaluated"; then
     continue
   fi
   if printf '%s\n%s\n' "$pane_out" "$log_hits" | grep -Eiq "$LIMIT_PATTERN"; then
@@ -727,6 +729,6 @@ while true; do
     continue
   fi
 
-  write_state_summary
+  write_state_summary "$state"
   sleep "$POLL_SECONDS"
 done

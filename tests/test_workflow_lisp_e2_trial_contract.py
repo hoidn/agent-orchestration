@@ -1,4 +1,4 @@
-"""Target-2.25 E2 normative admission and cross-spec trial contract."""
+"""Historical E2 static-trial wire contract and current retirement routing."""
 
 from __future__ import annotations
 
@@ -43,6 +43,19 @@ def _spec(name: str) -> str:
 def _between(document: str, start: str, end: str) -> str:
     start_index = document.index(start)
     return document[start_index : document.index(end, start_index)]
+
+
+def _assert_doc_routes(owner: Path, *destinations: Path) -> str:
+    document = owner.read_text(encoding="utf-8")
+    links = {
+        owner.parent.joinpath(href.partition("#")[0]).resolve()
+        for href in re.findall(r"\[[^\]]*\]\(([^)]+)\)", document)
+        if not href.startswith(("https:", "http:", "#"))
+    }
+    for destination in destinations:
+        assert destination.resolve() in links, (owner, destination)
+        assert destination.is_file(), destination
+    return document
 
 
 @pytest.mark.parametrize("target", ("2.35", "2.36"))
@@ -105,10 +118,15 @@ def test_trial_config_rejects_mixed_parent_and_arm_targets(tmp_path: Path) -> No
             target_dsl_version="2.36",
         )
 
-def test_dsl_and_version_specs_define_only_the_bounded_static_trial() -> None:
+def test_historical_static_trial_contract_is_preserved_under_current_retirement() -> None:
     dsl = _spec("dsl.md")
     versioning = _spec("versioning.md")
-    index = _spec("index.md")
+    master_path = SPECS_ROOT / "index.md"
+    index = _assert_doc_routes(
+        master_path,
+        SPECS_ROOT / "versioning.md",
+        SPECS_ROOT / "cli.md",
+    )
     trial = " ".join(
         _between(
             dsl,
@@ -180,14 +198,31 @@ def test_dsl_and_version_specs_define_only_the_bounded_static_trial() -> None:
     assert "raw executable configs" in version
     assert "not an OS sandbox" in version
     assert "| 2.25 |" in versioning
-    summary_bounds = re.fullmatch(
-        r"# Multi-Agent Orchestration — Master Spec \(v([0-9.]+) through (?:bounded )?v([0-9.]+)\)",
-        index.splitlines()[0],
-    )
-    assert summary_bounds is not None
-    assert "`trial` requires target `2.25`" in index
+    current_scope = index.split("- Version history and current target extensions", 1)[0]
+    assert re.search(r"targets\s+2\.35[–-]2\.39", current_scope)
 
-    current_contract = "\n".join((trial, version))
+    trial_runs_path = REPO_ROOT / "docs/design/workflow_lisp_trial_runs.md"
+    trial_runs = _assert_doc_routes(
+        trial_runs_path,
+        REPO_ROOT / "docs/design/workflow_lisp_evaluated_execution.md",
+        REPO_ROOT / "docs/design/workflow_lisp_executor_retirement.md",
+        SPECS_ROOT / "cli.md",
+    )
+    normalized_trial_runs = " ".join(trial_runs.split())
+    assert "Path-mode run references retain their pure-child" in normalized_trial_runs
+    assert "bundle/trial effects are excluded" in normalized_trial_runs
+    cli = _between(
+        _spec("cli.md"),
+        "## Executable support boundary",
+        "\n## Workspace execution ownership",
+    )
+    normalized_cli = " ".join(cli.lower().split())
+    assert "target-2.25 trial cli/compile-and-run sdk" in normalized_cli
+    assert "workflow_execution_target_retired" in cli
+    assert "target_dsl_unsupported" in cli
+    assert "trial" in normalized_cli
+
+    historical_contract = "\n".join((trial, version))
     for parked_name in (
         "ExecutionAdmissionPolicy",
         "ExecutionInstanceSpec",
@@ -196,7 +231,7 @@ def test_dsl_and_version_specs_define_only_the_bounded_static_trial() -> None:
         "registry rehash",
         "revocation service",
     ):
-        assert parked_name not in current_contract
+        assert parked_name not in historical_contract
 
 
 def test_provider_spec_closes_blinded_packets_scores_and_budgets() -> None:

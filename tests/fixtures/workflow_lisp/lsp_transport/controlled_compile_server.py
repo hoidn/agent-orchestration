@@ -13,6 +13,7 @@ from orchestrator.workflow_lisp.build import build_frontend_bundle_in_memory
 
 
 CONTROL_ROOT = Path(os.environ["WORKFLOW_LSP_TEST_CONTROL_ROOT"]).resolve()
+_GATED_BUILD = int(os.environ.get("WORKFLOW_LSP_TEST_GATED_BUILD", "1"))
 _PROBE_LOCK = Lock()
 _BUILD_COUNT = 0
 _SAVE_COUNT = 0
@@ -29,13 +30,15 @@ def _controlled_build(*args: object, **kwargs: object) -> object:
         _BUILD_COUNT += 1
         build_number = _BUILD_COUNT
         (CONTROL_ROOT / f"build-{build_number}-started").touch()
-    if build_number == 1:
-        release = CONTROL_ROOT / "release-first-build"
+    if build_number == _GATED_BUILD:
+        release = CONTROL_ROOT / (
+            "release-first-build" if build_number == 1 else f"release-build-{build_number}"
+        )
         deadline = time.monotonic() + 30.0
         while not release.exists() and time.monotonic() < deadline:
             time.sleep(0.01)
         if not release.exists():
-            raise TimeoutError("test did not release the first LSP compile")
+            raise TimeoutError(f"test did not release LSP compile {build_number}")
     result = build_frontend_bundle_in_memory(*args, **kwargs)
     _mark(f"build-{build_number}-finished")
     return result

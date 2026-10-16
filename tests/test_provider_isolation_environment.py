@@ -2973,6 +2973,51 @@ def test_snapshot_assembly_never_reopens_source_root_path(
         snapshot.close()
 
 
+def test_snapshot_admission_tolerates_unrelated_ancestor_sibling_churn(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _api()
+    source = _make_source(tmp_path)
+    run_root = tmp_path / "run"
+    run_root.mkdir(mode=0o700)
+    prospective = api.build_provider_environment_manifest(source, PROVIDER_PREFIX)
+    real_open_directory_at = api._open_directory_at
+    created = False
+
+    def create_sibling_before_open(parent_fd: int, name: str) -> int:
+        nonlocal created
+        parent = os.fstat(parent_fd)
+        expected_parent = tmp_path.parent.stat()
+        if (
+            not created
+            and name == tmp_path.name
+            and (parent.st_dev, parent.st_ino)
+            == (expected_parent.st_dev, expected_parent.st_ino)
+        ):
+            (tmp_path / "unrelated-sibling").mkdir()
+            created = True
+        return real_open_directory_at(parent_fd, name)
+
+    monkeypatch.setattr(api, "_open_directory_at", create_sibling_before_open)
+
+    snapshot = api.assemble_provider_environment_snapshot(
+        source,
+        PROVIDER_PREFIX,
+        run_root,
+        expected_digest=prospective.digest,
+    )
+    try:
+        assert created
+        assert api.verify_provider_environment_snapshot(
+            snapshot.rootfs_path,
+            expected_digest=prospective.digest,
+            expected_run_root=run_root,
+        ) == prospective
+    finally:
+        snapshot.close()
+
+
 def test_snapshot_assembly_rejects_persistent_source_root_replacement(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

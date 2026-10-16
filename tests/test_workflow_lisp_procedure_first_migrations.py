@@ -275,6 +275,14 @@ def _load_json(path: Path) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _local_link_paths(document: Path) -> set[Path]:
+    return {
+        document.parent.joinpath(href.partition("#")[0]).resolve()
+        for href in re.findall(r"\[[^\]]*\]\(([^)]+)\)", document.read_text(encoding="utf-8"))
+        if not href.startswith(("https:", "http:", "#"))
+    }
+
+
 _YAML_RETIREMENT_QUEUE_COUNTS = {
     "delete_non_survivor_estate": (100, 53),
     "archive_design_delta_yaml_twin": (7, 10),
@@ -999,7 +1007,11 @@ def test_yaml_estate_triage_projects_every_handoff_path_and_queue() -> None:
     assert handoff["estate"]["normalized_path_sha256"] in triage
     assert "all five queues are drained" in triage.lower()
     assert "authored yaml/yml estate is empty" in triage.lower()
-    assert "task 7 is current and eligible but not implemented" in triage.lower()
+    triage_path = REPO_ROOT / "docs/workflow_yaml_estate_triage.md"
+    completion_owner = REPO_ROOT / "docs/plans/2026-07-07-yaml-retirement-program.md"
+    assert completion_owner in _local_link_paths(triage_path)
+    assert completion_owner.is_file()
+    assert all(not (REPO_ROOT / path).exists() for path in handoff["estate"]["paths"])
 
 
 def test_procedure_first_reuse_inventory_rebaselines_active_and_history_counts() -> None:

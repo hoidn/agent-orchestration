@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -102,6 +102,133 @@ def test_cleanup_scan_failure_never_causes_unbounded_wait(
     tracker.finish(invocation, .01)
     assert invocation.quiescent is False
     assert process.waits and all(timeout is not None for timeout in process.waits)
+
+
+def test_stop_owned_signals_held_pidfd_before_global_scan(
+    module: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    process = FakeProcess(201, running=True)
+    invocation = module.Invocation(1, process, 0, 10)
+    tracker = _tracker(module, [invocation])
+    tracker.pidfds[(201, 10)] = 123
+    events: list[tuple[str, object]] = []
+
+    def send_signal(_descriptor: int, sig: signal.Signals) -> None:
+        events.append(("signal", sig))
+        if sig == signal.SIGTERM:
+            process.running = False
+
+    def process_table() -> dict[int, module.Process]:
+        events.append(("scan", None))
+        return {}
+
+    monkeypatch.setattr(module.signal, "pidfd_send_signal", send_signal)
+    monkeypatch.setattr(module, "_process_table", process_table)
+
+    tracker._stop_owned()
+
+    assert events[0] == ("signal", signal.SIGTERM)
+    assert invocation.stop_requested is not None
+
+
+def test_captured_pidfd_is_signaled_after_capture_consumes_cleanup_deadline(
+    module: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    process = FakeProcess(201, running=True)
+    invocation = module.Invocation(1, process, 0, 10)
+    tracker = _tracker(module, [invocation])
+    tracker.pidfds[(201, 10)] = 11
+    events: list[tuple[str, int | signal.Signals, float]] = []
+    clock = [0.0]
+
+    def monotonic() -> float:
+        clock[0] += 0.1
+        return clock[0]
+
+    def process_table() -> dict[int, module.Process]:
+        events.append(("scan", 0, clock[0]))
+        clock[0] = 0.7
+        return {}
+
+    def capture(_table) -> None:
+        events.append(("capture", 0, clock[0]))
+        invocation.tracked[301] = 30
+        tracker.pidfds[(301, 30)] = 12
+
+    def send_signal(descriptor: int, sig: signal.Signals) -> None:
+        events.append(("signal", descriptor, clock[0]))
+        if descriptor == 11 and sig == signal.SIGTERM:
+            process.running = False
+
+    monkeypatch.setattr(module, "time", SimpleNamespace(monotonic=monotonic, sleep=lambda _s: None))
+    monkeypatch.setattr(module, "_process_table", process_table)
+    monkeypatch.setattr(module.signal, "pidfd_send_signal", send_signal)
+    monkeypatch.setattr(module, "_reap", lambda _pids: None)
+    tracker._capture = capture
+
+    tracker._stop_owned()
+
+    captured = events.index(("capture", 0, 0.7))
+    child_signal = next(
+        index
+        for index, event in enumerate(events)
+        if event[0] == "signal" and event[1] == 12
+    )
+    assert captured < child_signal
+    assert events[child_signal][2] > 0.6
+
+
+def test_other_expired_invocation_keeps_target_descendant_observation(
+    module: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    old = module.Invocation(1, FakeProcess(201, running=True), time.monotonic() - 10, 10)
+    target_process = FakeProcess(202, running=True)
+    target = module.Invocation(2, target_process, time.monotonic(), 20, tracked={301: 30})
+    tracker = _tracker(module, [old, target])
+    scans = iter(
+        [
+            {301: module.Process(301, 202, "S", 30)},
+            {},
+        ]
+    )
+    monkeypatch.setattr(module, "_process_table", lambda: next(scans))
+    tracker._stop_owned = lambda: setattr(target_process, "running", False)
+    monkeypatch.setattr(module, "_reap", lambda _pids: None)
+
+    tracker.finish(target, 1)
+
+    assert old.timed_out
+    assert not target.timed_out
+    assert target.unexpected_descendants
+    assert not target.quiescent
+
+
+def test_expired_target_signals_retained_child_before_first_global_scan(
+    module: ModuleType, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    process = FakeProcess(201, running=True)
+    invocation = module.Invocation(1, process, time.monotonic() - 2, 10)
+    tracker = _tracker(module, [invocation])
+    tracker.pidfds[(201, 10)] = 123
+    events: list[tuple[str, object]] = []
+
+    def send_signal(_descriptor: int, sig: signal.Signals) -> None:
+        events.append(("signal", sig))
+        if sig == signal.SIGTERM:
+            process.running = False
+
+    def process_table() -> dict[int, module.Process]:
+        events.append(("scan", None))
+        return {}
+
+    monkeypatch.setattr(module.signal, "pidfd_send_signal", send_signal)
+    monkeypatch.setattr(module, "_process_table", process_table)
+
+    tracker.finish(invocation, 0.01)
+
+    assert invocation.timed_out
+    assert events[0] == ("signal", signal.SIGTERM)
+    assert events[1] == ("scan", None)
 
 
 def test_failure_after_popen_cleans_registered_leader(
