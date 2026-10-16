@@ -171,10 +171,10 @@ evidence, not production acceptance; the implementation checks below remain open
   Cover missing server-PID record, delayed socket after failed/timed-out
   creation, replaced namespace/lock/socket and foreign group/server identities.
   Prove natural residual-group failure, including when later cleanup succeeds.
-- [ ] After Tasks 3–4 integrate candidate ownership and dispatch, prove that
+- [x] After Tasks 3–4 integrate candidate ownership and dispatch, prove that
   active/unresolved cleanup preserves candidate files and blocks redispatch;
   run at least one public evaluated resume smoke in Task 5.
-- [ ] Follow-up from public interruption and natural-exit checks: request child
+- [x] Follow-up from public interruption and natural-exit checks: request child
   reaping only from the positively identified bound tmux server, retaining actual
   group-absence proof, original deadlines and group-before-server teardown.
   Cover natural exit without forced group signals, resistant descendants,
@@ -298,35 +298,35 @@ evidence, not production acceptance; the implementation checks below remain open
 
 **Role/artifact:** Implementation / deterministic integration fixtures/tests.
 
-- [ ] Create `tests/fixtures/providers/fake_phased_interactive.py` and the 2.39
+- [x] Create `tests/fixtures/providers/fake_phased_interactive.py` and the 2.39
   `.orc` fixture. Run the public `python -m orchestrator run` path with a fake
   interactive provider through the real adapter/submit CLI. Use the declared
   provider capability and a subprocess environment, not monkeypatched dispatch.
   Fixture asserts/logs structured protocol events and request/process identity;
   tests must not assert literal prompt phrasing. No live API credentials needed.
-- [ ] Prove valid first submission, invalid-then-valid correction and exhaustion:
+- [x] Prove valid first submission, invalid-then-valid correction and exhaustion:
   one process, one task delivery, bounded materialization turns, joint validation,
   natural zero exit, one commit, settlement, correctly typed downstream value.
-- [ ] Use subprocess kill gates patterned on
+- [x] Use subprocess kill gates patterned on
   `tests/test_workflow_evaluated_resume_kills.py`. Kill after durable preparation
   but before memo commit: resume cleans the old attempt and reruns at ordinal 2.
   Kill immediately after memo commit but before settle: resume reconciles and
   settles ordinal 1 with no extra provider process or task delivery.
-- [ ] Add kill gates before/after ownership receipt and backend allocation,
+- [x] Add kill gates before/after ownership receipt and backend allocation,
   task/materialization delivery, freeze and settlement, including a live old
   client before preparation. Exercise cleanup refusal,
   candidate/receipt/proof tampering and preexisting output path checks. Assert
   unrelated files/processes remain untouched. Repeat resume to prove idempotence.
   Assert report/monitor can read failed, pending, unsettled and completed states
   without becoming execution authority.
-- [ ] Cover prelaunch cuts after `started`, directory/reservation creation,
+- [x] Cover prelaunch cuts after `started`, directory/reservation creation,
   during temporary receipt writing and before atomic publication. Checked
   canonical absence must resume at the next ordinal without deleting files or
   scanning transport roots. Prove no backend starts before receipt file/rename/
   directory durability completes. Present truncated or altered receipts still
   refuse; external deletion of durable ownership is outside the documented
   crash model, not a claimed tamper-detection case.
-- [ ] Run the deterministic public smoke explicitly:
+- [x] Run the deterministic public smoke explicitly:
 
   ```bash
   pytest -q -n 16 --dist=worksteal tests/test_workflow_evaluated_phased.py tests/test_workflow_evaluated_phased_recovery.py
@@ -474,5 +474,24 @@ accurate current routing. Ordinary composed behavior remains compatible.
   evidence; overlapping selections are not additive. These are local-terminal
   runtime checks; public subprocess CLI/SIGKILL qualification remains Task 5,
   current guidance remains Task 6 and full-suite/final integration remains Task 7.
+- Task 5 complete, including the remaining Task 2 public-recovery and child-reap
+  obligations: the public CLI uses the real interactive adapter and submit client
+  with a deterministic local provider. Kill gates cover prepublication through
+  both commit gaps; refusal preserves candidates and unrelated resources, while
+  source-free committed reconciliation avoids provider and candidate reads.
+  Public tests exposed retained tmux child zombies in interrupted and natural
+  completion. The checked server `SIGCHLD` request now permits reaping without
+  weakening actual group-absence proof, the original deadline or natural-exit
+  semantics. The design clarification at `f1a8c744` and all eleven frozen
+  implementation/test files passed independent review; the coordinator inspected
+  the diff and verified the hashes. The final two-module selector passed **117**
+  cases (including **42** public cases), affected adapter/protocol checks **633**,
+  the two original failure cases **2**, and retained compatibility checks **33**.
+  All exited zero; changed modules collected **164**. Counts overlap. Evidence:
+  `/tmp/orc-phased-239-evidence/task5-public/verification-receipt.json`,
+  `frozen-hashes.json`, `acceptance-mapping.json` and the named final logs/exit
+  receipts. Original failures and successful causal probes remain preserved.
+  Task 6 final guidance verification and Task 7 full-suite classification remain
+  required; these results do not establish full-suite health or paid qualification.
 - Live-provider qualification: not selected; deterministic fixtures do not claim
   it and do not establish improved provider task quality.

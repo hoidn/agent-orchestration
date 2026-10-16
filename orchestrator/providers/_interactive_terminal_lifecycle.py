@@ -273,6 +273,7 @@ def group_empty(client):
 
 
 def stop_group(client, deadline):
+    """Escalate while retaining the leader anchor; the caller proves subsequent absence."""
     if group_empty(client):
         return
     # Keep escalation and reap observation inside the caller's original budget.
@@ -283,13 +284,14 @@ def stop_group(client, deadline):
             os.killpg(client['pgid'], sig)
         except ProcessLookupError:
             return
+        if sig == signal.SIGKILL:
+            return
         while True:
             if group_empty(client):
                 return
             if time.monotonic() >= end:
                 break
             time.sleep(min(.01, remaining(end)))
-    raise TimeoutError('provider group survived cleanup')
 
 
 def helper_argv(reservation, mode, deadline):

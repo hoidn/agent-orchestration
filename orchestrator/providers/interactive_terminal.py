@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import hashlib
 import math
 import os
+import signal
 import stat
 from pathlib import Path
 import subprocess
@@ -713,6 +714,21 @@ class _TmuxInteractiveTerminalBackend:
             return server, socket_info, None
         return server, socket_info, condition
 
+    def request_server_reap(self, reservation, files, command, *, deadline):
+        if command is None or command["state"] != "completed":
+            raise lifecycle.OwnershipError("unsettled creating command")
+        identity = self.validate_reserved_server(reservation, files, command, deadline=deadline)
+        if identity is True or identity[2] is None:
+            return
+        server = identity[0]
+        lifecycle.validate(reservation, files)
+        self._remaining(deadline)
+        current = lifecycle.start_token(server["server_pid"])
+        if current is None or current != str(server["server_start_ticks"]):
+            raise lifecycle.OwnershipError("server identity changed before reap request")
+        os.kill(server["server_pid"], signal.SIGCHLD)
+        self._remaining(deadline)
+
     def close_reserved_server(self, reservation, files, command, *, deadline):
         identity = self.validate_reserved_server(reservation, files, command, deadline=deadline)
         if identity is True:
@@ -1125,6 +1141,7 @@ class InteractiveTerminalTurnQueueAdapter:
                     preflight(reservation, files, command, deadline=deadline)
                     if client is not None:
                         lifecycle.stop_group(client, deadline)
+                        self._observe_group_absence(reservation, files, command, client, deadline)
                     server_absent = close(reservation, files, command, deadline=deadline)
                     lifecycle.remaining(deadline)
                 finally:
@@ -1133,6 +1150,11 @@ class InteractiveTerminalTurnQueueAdapter:
         except Exception:
             return PhasedFailedCleanupEvidence("failed_cleanup", False, server_absent, False,
                                               "cleanup_backend_error")
+
+    def _observe_group_absence(self, reservation, files, command, client, deadline):
+        while not lifecycle.group_empty(client):
+            self._backend.request_server_reap(reservation, files, command, deadline=deadline)
+            self._wait(min(self._poll_interval_sec, lifecycle.remaining(deadline)))
 
     def prove_no_backend_allocation(
         self,
@@ -1457,11 +1479,20 @@ class InteractiveTerminalTurnQueueAdapter:
                 )
 
             if hasattr(self._backend, "close_reserved_server"):
-                with lifecycle.opened(self._reservation) as files:
-                    client = lifecycle.record(self._reservation, files, "client.json")
-                    if client is None or not lifecycle.group_empty(client):
-                        self._state = "failed"
-                        raise InteractiveTerminalError("process_group_not_empty")
+                try:
+                    with lifecycle.opened(self._reservation) as files:
+                        lease = lifecycle.acquire(self._reservation, files, deadline)
+                        try:
+                            client = lifecycle.record(self._reservation, files, "client.json")
+                            command = lifecycle.record(self._reservation, files, "command.json")
+                            if client is None:
+                                raise lifecycle.OwnershipError("missing registered provider group")
+                            self._observe_group_absence(self._reservation, files, command, client, deadline)
+                        finally:
+                            os.close(lease)
+                except Exception as exc:
+                    self._state = "failed"
+                    raise InteractiveTerminalError("process_group_not_empty") from exc
                 evidence = self.recover_failed(self._reservation, deadline=deadline)
                 if not evidence.cleanup_complete:
                     self._state = "failed"

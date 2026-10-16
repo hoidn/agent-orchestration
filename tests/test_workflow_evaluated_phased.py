@@ -6,7 +6,7 @@ from hashlib import sha256
 import pytest
 
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
-from tests.workflow_evaluated_phased_helpers import checked_request
+from tests.workflow_evaluated_phased_helpers import public_phased_cleanup, checked_request
 
 
 def _candidates(tmp_path):
@@ -442,3 +442,57 @@ def test_phased_deadline_captured_once_and_rejects_unrepresentable_addition(tmp_
     assert calls == [1]
     with pytest.raises(ValueError):
         capture_phased_deadline(node, now=lambda: 1e308)
+
+
+@pytest.mark.parametrize("mode,turns", [("success", 1), ("missing-output-once", 2),
+    ("bad-result-once", 2), ("both-invalid-once", 2)])
+def test_public_phased_cli_joint_validation_and_typed_downstream(tmp_path, mode, turns):
+    from tests.workflow_evaluated_phased_helpers import (
+        public_case, public_cli, public_events, public_run_root, public_snapshot,
+        assert_public_completed, assert_public_readers,
+    )
+    case = public_case(tmp_path, mode=mode)
+    result = public_cli(case, case[0])
+    assert result.returncode == 0, result.stdout + result.stderr
+    run_root = public_run_root(tmp_path)
+    assert_public_completed(case, run_root, ordinal=1, processes=1, turns=turns)
+    events = public_events(tmp_path)
+    retry = [row for row in events if row["event"] == "turn" and row["phase"] == "retry_materialization"]
+    if retry:
+        reasons = [row["reason"] for row in retry[0]["diagnostics"]]
+        expected = {"missing-output-once": ["output_validation_failed"],
+            "bad-result-once": ["structured_result_validation_failed"],
+            "both-invalid-once": ["output_validation_failed", "structured_result_validation_failed"]}
+        assert reasons == expected[mode]
+    assert_public_readers(case, run_root, "completed")
+
+
+@pytest.mark.parametrize("attempts", [1, 2, 3])
+def test_public_phased_cli_exhaustion_never_publishes(tmp_path, attempts):
+    import json
+    from tests.workflow_evaluated_phased_helpers import (
+        public_case, public_cli, public_events, public_run_root, public_snapshot,
+        assert_public_readers,
+    )
+    case = public_case(tmp_path, mode="always-invalid", attempts=attempts)
+    result = public_cli(case, case[0])
+    assert result.returncode != 0
+    run_root = public_run_root(tmp_path)
+    snapshot = public_snapshot(run_root)
+    assert not snapshot.active_commits and not snapshot.pending_starts
+    assert snapshot.terminal.data["outcome"] == "failed"
+    events = public_events(tmp_path)
+    assert len([row for row in events if row["event"] == "start"]) == 1
+    assert len([row for row in events if row["event"] == "task"]) == 1
+    receipts = [row for row in events if row["event"] == "submit"]
+    assert len([row for row in events if row["event"] == "submit_request"]) == attempts
+    assert [row["receipt"]["status"] for row in receipts[:attempts - 1]] == ["retry_queued"] * (attempts - 1)
+    (start,) = snapshot.latest_starts.values()
+    ledger = [json.loads(line) for line in
+        (run_root / start.data["result_path"]).with_name("phases.jsonl").read_text().splitlines()]
+    assert [row["payload"]["submission_ordinal"] for row in ledger if row.get("event") == "submit_received"] == list(range(1, attempts + 1))
+    assert ledger[-1]["event"] == "terminal_failed"
+    assert ledger[-1]["payload"]["diagnostic"]["reason"] == "materialization_attempts_exhausted"
+    assert not (tmp_path / "outputs/report.md").exists()
+    assert not (tmp_path / "continuations.jsonl").exists()
+    assert_public_readers(case, run_root, "failed")

@@ -746,3 +746,164 @@ def test_recovery_rechecks_server_exit_when_guard_connection_loses_shutdown_race
             assert not (reservation.path/'tmux.sock').exists()
         finally:
             adapter.recover_failed(reservation, deadline=time.monotonic()+3)
+
+
+def test_natural_join_requests_owned_server_reap_without_group_signals(monkeypatch):
+    from orchestrator.providers import _interactive_terminal_lifecycle as life
+    with tempfile.TemporaryDirectory(prefix='orc-reap-') as path:
+        root = Path(path)
+        reservation = InteractiveTerminalTurnQueueAdapter.reserve_recoverable(root)
+        adapter = InteractiveTerminalTurnQueueAdapter(root, socket_root=root, reservation=reservation)
+        outcome = adapter.start(_invocation(root, 'import sys;sys.stdin.readline()'), deadline=time.monotonic()+6)
+        assert outcome.status == 'started'
+        signals = []
+        original_empty, original_kill, original_killpg = life.group_empty, os.kill, os.killpg
+        reaped = False
+        def group_empty(client):
+            return reaped and original_empty(client)
+        def kill(pid, sig):
+            nonlocal reaped
+            signals.append(('server', sig))
+            result = original_kill(pid, sig)
+            if sig == signal.SIGCHLD:
+                reaped = True
+            return result
+        def killpg(pid, sig):
+            if sig:
+                signals.append(('group', sig))
+            return original_killpg(pid, sig)
+        try:
+            adapter.offer_close(outcome.handle, deadline=time.monotonic()+4)
+            with monkeypatch.context() as patch:
+                patch.setattr(life, 'group_empty', group_empty)
+                patch.setattr(os, 'kill', kill)
+                patch.setattr(os, 'killpg', killpg)
+                proof = adapter.join(outcome.handle, deadline=time.monotonic()+3)
+            assert proof.return_code == 0 and proof.proof_complete
+            assert ('server', signal.SIGCHLD) in signals
+            assert not [row for row in signals if row[0] == 'group']
+        finally:
+            assert adapter.recover_failed(reservation, deadline=time.monotonic()+4).cleanup_complete
+
+
+def test_recovery_reaps_only_after_resistant_group_escalation_then_is_idempotent(monkeypatch):
+    from orchestrator.providers import _interactive_terminal_lifecycle as life
+    with tempfile.TemporaryDirectory(prefix='orc-reap-') as path:
+        root = Path(path)
+        reservation = InteractiveTerminalTurnQueueAdapter.reserve_recoverable(root)
+        adapter = InteractiveTerminalTurnQueueAdapter(root, socket_root=root, reservation=reservation)
+        ready = root / 'ready'
+        script = ('import signal,time;from pathlib import Path;'
+            'signal.signal(signal.SIGHUP,signal.SIG_IGN);signal.signal(signal.SIGTERM,signal.SIG_IGN);'
+            f'Path({str(ready)!r}).touch();time.sleep(30)')
+        outcome = adapter.start(_invocation(root, script), deadline=time.monotonic()+6)
+        assert outcome.status == 'started'
+        _wait(ready.exists)
+        events = []
+        original_empty, original_kill, original_killpg = life.group_empty, os.kill, os.killpg
+        reaped = False
+        def group_empty(client):
+            return reaped and original_empty(client)
+        def killpg(pid, sig):
+            if sig:
+                events.append(sig)
+            return original_killpg(pid, sig)
+        def kill(pid, sig):
+            nonlocal reaped
+            if sig == signal.SIGCHLD:
+                assert signal.SIGKILL in events
+                events.append(sig)
+                reaped = True
+            return original_kill(pid, sig)
+        try:
+            with monkeypatch.context() as patch:
+                patch.setattr(life, 'group_empty', group_empty)
+                patch.setattr(os, 'killpg', killpg)
+                patch.setattr(os, 'kill', kill)
+                assert adapter.recover_failed(reservation, deadline=time.monotonic()+3).cleanup_complete
+            assert events.index(signal.SIGTERM) < events.index(signal.SIGKILL) < events.index(signal.SIGCHLD)
+            assert adapter.recover_failed(reservation, deadline=time.monotonic()+3).cleanup_complete
+        finally:
+            assert adapter.recover_failed(reservation, deadline=time.monotonic()+4).cleanup_complete
+
+
+@pytest.mark.parametrize('damage', ['foreign-token', 'absent-token', 'token-drift-after-preflight', 'signal-error'])
+def test_server_reap_refuses_unmatched_identity_or_failed_signal_without_other_signals(monkeypatch, damage):
+    from orchestrator.providers import _interactive_terminal_lifecycle as life
+    with tempfile.TemporaryDirectory(prefix='orc-reap-') as path:
+        root = Path(path)
+        reservation = InteractiveTerminalTurnQueueAdapter.reserve_recoverable(root)
+        adapter = InteractiveTerminalTurnQueueAdapter(root, socket_root=root, reservation=reservation)
+        outcome = adapter.start(_invocation(root, 'import time;time.sleep(30)'), deadline=time.monotonic()+6)
+        assert outcome.status == 'started'
+        try:
+            with life.opened(reservation) as files:
+                lease = life.acquire(reservation, files, time.monotonic()+3)
+                try:
+                    command = life.record(reservation, files, 'command.json')
+                    server = life.record(reservation, files, 'server.json')
+                    original_token, original_kill = life.start_token, os.kill
+                    signals = []
+                    validated = False
+                    validate = adapter._backend.validate_reserved_server
+                    def validate_then_drift(*args, **kwargs):
+                        nonlocal validated
+                        value = validate(*args, **kwargs)
+                        validated = True
+                        return value
+                    def token(pid):
+                        if pid == server['server_pid'] and (damage != 'token-drift-after-preflight' or validated):
+                            return None if damage == 'absent-token' else str(server['server_start_ticks'] + 1)
+                        return original_token(pid)
+                    def kill(pid, sig):
+                        signals.append((pid, sig))
+                        if damage == 'signal-error':
+                            raise PermissionError('reap denied')
+                        return original_kill(pid, sig)
+                    with monkeypatch.context() as patch:
+                        patch.setattr(os, 'kill', kill)
+                        if damage != 'signal-error':
+                            patch.setattr(life, 'start_token', token)
+                        if damage == 'token-drift-after-preflight':
+                            patch.setattr(adapter._backend, 'validate_reserved_server', validate_then_drift)
+                        with pytest.raises((life.OwnershipError, OSError, TimeoutError)):
+                            adapter._backend.request_server_reap(reservation, files, command, deadline=time.monotonic()+.3)
+                    if damage == 'signal-error':
+                        assert signals == [(server['server_pid'], signal.SIGCHLD)]
+                    else:
+                        assert not signals
+                finally:
+                    os.close(lease)
+        finally:
+            assert adapter.recover_failed(reservation, deadline=time.monotonic()+4).cleanup_complete
+
+
+def test_recovery_interrupted_after_reap_notification_remains_retryable(monkeypatch):
+    from orchestrator.providers import _interactive_terminal_lifecycle as life
+    with tempfile.TemporaryDirectory(prefix='orc-reap-') as path:
+        root = Path(path)
+        reservation = InteractiveTerminalTurnQueueAdapter.reserve_recoverable(root)
+        adapter = InteractiveTerminalTurnQueueAdapter(root, socket_root=root, reservation=reservation)
+        outcome = adapter.start(_invocation(root, 'import time;time.sleep(30)'), deadline=time.monotonic()+6)
+        assert outcome.status == 'started'
+        original_empty, original_kill = life.group_empty, os.kill
+        notified = False
+        def group_empty(client):
+            return notified and original_empty(client)
+        def kill(pid, sig):
+            nonlocal notified
+            result = original_kill(pid, sig)
+            if sig == signal.SIGCHLD:
+                notified = True
+                raise RuntimeError('controller stopped after notification')
+            return result
+        try:
+            with monkeypatch.context() as patch:
+                patch.setattr(life, 'group_empty', group_empty)
+                patch.setattr(os, 'kill', kill)
+                assert not adapter.recover_failed(reservation, deadline=time.monotonic()+1).cleanup_complete
+                assert notified
+            assert adapter.recover_failed(reservation, deadline=time.monotonic()+4).cleanup_complete
+            assert adapter.recover_failed(reservation, deadline=time.monotonic()+2).cleanup_complete
+        finally:
+            assert adapter.recover_failed(reservation, deadline=time.monotonic()+4).cleanup_complete

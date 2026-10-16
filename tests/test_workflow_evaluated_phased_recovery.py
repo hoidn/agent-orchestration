@@ -12,7 +12,7 @@ from orchestrator.workflow.evaluated.authority import publish_run_authority
 from orchestrator.workflow.evaluated.machine import site_classes
 from orchestrator.workflow.evaluated.memo import read_memo
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
-from tests.workflow_evaluated_phased_helpers import checked_request, local_terminal_provider
+from tests.workflow_evaluated_phased_helpers import public_phased_cleanup, checked_request, local_terminal_provider
 from tests.test_workflow_lisp_phased_239 import _compile
 
 
@@ -570,3 +570,284 @@ def test_tampered_prepared_receipt_cannot_commit_even_with_numeric_alias(tmp_pat
         monkeypatch.setattr(phased, "prepare_phased_provider_attempt", tamper)
         assert _execute(authority, inputs, tmp_path) == (1, None)
         assert not _snapshot(authority).active_commits
+
+
+@pytest.mark.parametrize("cut", ["started", "effects-directory", "identity-directory", "attempt-directory",
+    "reservation", "before-receipt", "receipt-temp", "receipt-file-fsync", "receipt-before-rename"])
+def test_public_phased_prepublication_kills_preserve_unowned_files_and_retry(tmp_path, cut):
+    from tests.workflow_evaluated_phased_helpers import (public_case, public_kill, public_run_root,
+        public_snapshot, public_events, public_tree, public_resume_absence_guard, assert_public_completed)
+    case = public_case(tmp_path)
+    marker = public_kill(case, cut)
+    run_root = public_run_root(tmp_path)
+    snapshot = public_snapshot(run_root)
+    (start,) = snapshot.latest_starts.values()
+    old = run_root / start.data["result_path"]
+    old_dir = old.parent
+    assert not (old_dir / "phased-attempt.json").exists()
+    assert not public_events(tmp_path)
+    preserved = public_tree(old_dir) if old_dir.exists() else {}
+    unrelated = tmp_path / "outputs/unrelated.txt"
+    unrelated.write_bytes(b"keep me")
+    if marker["reservation"]:
+        namespace = Path("/tmp") / marker["reservation"]["namespace"]
+        assert not (namespace / "command.json").exists()
+        namespace_files = public_tree(namespace)
+    result = public_resume_absence_guard(case, run_root)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert_public_completed(case, run_root, ordinal=2, processes=1, turns=1)
+    assert not (old_dir / "phased-attempt.json").exists()
+    assert (public_tree(old_dir) if old_dir.exists() else {}) == preserved
+    assert unrelated.read_bytes() == b"keep me"
+    if marker["reservation"]:
+        assert public_tree(namespace) == namespace_files
+
+
+@pytest.mark.parametrize("cut", ["receipt-after-rename", "receipt-directory-fsync", "before-backend",
+    "after-server", "task", "before-materialization", "materialization", "before-freeze", "frozen", "prepared"])
+def test_public_phased_uncommitted_kills_cleanup_before_whole_visit_rerun(tmp_path, cut):
+    from tests.workflow_evaluated_phased_helpers import (public_case, public_kill, public_run_root,
+        public_snapshot, public_events, public_cli, assert_public_completed, assert_public_readers)
+    case = public_case(tmp_path)
+    marker = public_kill(case, cut)
+    run_root = public_run_root(tmp_path)
+    snapshot = public_snapshot(run_root)
+    assert not snapshot.active_commits and snapshot.pending_starts
+    (start,) = snapshot.latest_starts.values()
+    receipt_path = (run_root / start.data["result_path"]).with_name("phased-attempt.json")
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt["state"] == ("prepared" if cut == "prepared" else "intent")
+    if cut in {"receipt-after-rename", "receipt-directory-fsync", "before-backend", "after-server"}:
+        assert not public_events(tmp_path)
+    if cut == "prepared":
+        assert receipt["proof"]["natural_shutdown"]["return_code"] == 0
+    before_processes = len([row for row in public_events(tmp_path) if row["event"] == "start"])
+    unrelated = tmp_path / "outputs/unrelated.txt"
+    unrelated.write_bytes(b"keep me")
+    assert_public_readers(case, run_root, "interrupted")
+    result = public_cli(case, ["resume", run_root.name])
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert_public_completed(case, run_root, ordinal=2, processes=before_processes + 1)
+    assert json.loads(receipt_path.read_text())["state"] == "abandoned"
+    assert unrelated.read_bytes() == b"keep me"
+    namespace = Path("/tmp") / marker["reservation"]["namespace"]
+    assert not (namespace / "tmux.sock").exists()
+
+
+@pytest.mark.parametrize("cut", ["committed", "receipt-settled", "memo-settled"])
+def test_public_phased_committed_kills_reconcile_without_dispatch(tmp_path, cut):
+    from tests.workflow_evaluated_phased_helpers import (public_case, public_kill, public_run_root,
+        public_snapshot, public_events, public_cli, assert_public_completed, assert_public_readers)
+    case = public_case(tmp_path)
+    public_kill(case, cut)
+    run_root = public_run_root(tmp_path)
+    snapshot = public_snapshot(run_root)
+    assert len(snapshot.active_commits) == 1 and not snapshot.pending_starts
+    assert bool(snapshot.unsettled_coordinators) == (cut != "memo-settled")
+    before = public_events(tmp_path)
+    assert_public_readers(case, run_root, "interrupted")
+    result = public_cli(case, ["resume", run_root.name])
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert public_events(tmp_path) == before
+    assert_public_completed(case, run_root, ordinal=1, processes=1, turns=1)
+
+
+@pytest.mark.parametrize("damage", ["torn", "foreign-binding", "foreign-proof", "candidate-symlink", "active-command"])
+def test_public_phased_cleanup_refusal_preserves_candidates_and_unrelated_process(tmp_path, damage):
+    import os
+    import subprocess
+    import sys
+    from tests.workflow_evaluated_phased_helpers import (public_case, public_kill, public_run_root,
+        public_snapshot, public_events, public_cli, public_tree, assert_public_completed)
+    case = public_case(tmp_path)
+    marker = public_kill(case, "materialization" if damage == "active-command" else "prepared")
+    run_root = public_run_root(tmp_path)
+    (start,) = public_snapshot(run_root).latest_starts.values()
+    receipt_path = (run_root / start.data["result_path"]).with_name("phased-attempt.json")
+    receipt_bytes = receipt_path.read_bytes()
+    receipt = json.loads(receipt_bytes)
+    report = tmp_path / "outputs/report.md"
+    unrelated = tmp_path / "outputs/unrelated.txt"
+    unrelated.write_bytes(b"unrelated")
+    command_path = Path("/tmp") / marker["reservation"]["namespace"] / "command.json"
+    command_bytes = command_path.read_bytes()
+    if damage == "torn":
+        receipt_path.write_bytes(b'{"schema_version":')
+    elif damage == "foreign-binding":
+        receipt["identity"] = "foreign identity"
+        receipt_path.write_text(json.dumps(receipt))
+    elif damage == "foreign-proof":
+        receipt["proof"]["attempt"] += 1
+        receipt_path.write_text(json.dumps(receipt))
+    elif damage == "candidate-symlink":
+        report.unlink()
+        report.symlink_to(unrelated)
+    else:
+        command = json.loads(command_bytes)
+        command["state"] = "active"
+        command.pop("outcome")
+        command_path.write_text(json.dumps(command))
+    before = public_tree(run_root), public_events(tmp_path), report.read_bytes()
+    sentinel = subprocess.Popen([sys.executable, "-c", "import signal; signal.pause()"], start_new_session=True)
+    restored = False
+    try:
+        for _ in range(2):
+            result = public_cli(case, ["resume", run_root.name])
+            assert result.returncode != 0
+            assert (public_tree(run_root), public_events(tmp_path), report.read_bytes()) == before
+            assert sentinel.poll() is None
+            assert unrelated.read_bytes() == b"unrelated"
+        if damage == "active-command":
+            (provider,) = [row for row in public_events(tmp_path) if row["event"] == "start"]
+            os.kill(provider["pid"], 0)
+        receipt_path.write_bytes(receipt_bytes)
+        command_path.write_bytes(command_bytes)
+        restored = True
+        if damage == "candidate-symlink":
+            report.unlink()
+        result = public_cli(case, ["resume", run_root.name])
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert_public_completed(case, run_root, ordinal=2, processes=2)
+        assert sentinel.poll() is None and unrelated.read_bytes() == b"unrelated"
+    finally:
+        if not restored:
+            receipt_path.write_bytes(receipt_bytes)
+            command_path.write_bytes(command_bytes)
+        if report.is_symlink():
+            report.unlink()
+        sentinel.terminate()
+        sentinel.wait(timeout=5)
+
+
+def test_public_phased_preexisting_candidate_is_preserved_before_backend(tmp_path):
+    from tests.workflow_evaluated_phased_helpers import public_case, public_cli, public_events, public_run_root, assert_public_readers
+    case = public_case(tmp_path)
+    report = tmp_path / "outputs/report.md"
+    report.write_bytes(b"existing user output")
+    result = public_cli(case, case[0])
+    assert result.returncode != 0
+    assert report.read_bytes() == b"existing user output" and not public_events(tmp_path)
+    assert_public_readers(case, public_run_root(tmp_path), "failed")
+
+
+@pytest.mark.parametrize("missing", ["receipt", "attempt", "identity", "effects", "candidates-and-audit"])
+def test_public_phased_committed_inline_proof_survives_missing_sidecars(tmp_path, missing):
+    import shutil
+    from tests.workflow_evaluated_phased_helpers import (public_case, public_kill, public_run_root,
+        public_snapshot, public_events, public_cli, assert_public_completed)
+    case = public_case(tmp_path)
+    public_kill(case, "committed")
+    run_root = public_run_root(tmp_path)
+    (commit,) = public_snapshot(run_root).active_commits.values()
+    attempt = (run_root / commit.data["result_path"]).parent
+    if missing == "receipt":
+        (attempt / "phased-attempt.json").write_bytes(b'{"schema_version":')
+    elif missing in {"attempt", "identity", "effects"}:
+        removed = attempt if missing == "attempt" else attempt.parent if missing == "identity" else attempt.parent.parent
+        shutil.rmtree(removed)
+    else:
+        (attempt / "result.json").unlink()
+        (attempt / "phases.jsonl").write_bytes(b'{"torn audit')
+        (tmp_path / "outputs/report.md").unlink()
+    before = public_events(tmp_path)
+    result = public_cli(case, ["resume", run_root.name])
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert public_events(tmp_path) == before
+    snapshot = public_snapshot(run_root)
+    assert snapshot.terminal.data["value"] == 9
+    assert json.loads((attempt / "phased-attempt.json").read_text())["proof"] == commit.data["proof"]
+    if missing != "candidates-and-audit":
+        assert_public_completed(case, run_root, ordinal=1, processes=1, turns=1)
+
+
+def test_public_phased_foreign_committed_proof_refuses_readonly_without_dispatch(tmp_path):
+    from tests.workflow_evaluated_phased_helpers import (public_case, public_kill, public_run_root,
+        public_snapshot, public_events, public_cli, public_tree, assert_public_completed)
+    case = public_case(tmp_path)
+    public_kill(case, "committed")
+    run_root = public_run_root(tmp_path)
+    (commit,) = public_snapshot(run_root).active_commits.values()
+    receipt_path = (run_root / commit.data["result_path"]).with_name("phased-attempt.json")
+    original = receipt_path.read_bytes()
+    receipt = json.loads(original)
+    receipt["proof"]["attempt"] = 2
+    receipt_path.write_text(json.dumps(receipt))
+    before = public_tree(run_root), public_events(tmp_path)
+    for _ in range(2):
+        result = public_cli(case, ["resume", run_root.name])
+        assert result.returncode != 0
+        assert (public_tree(run_root), public_events(tmp_path)) == before
+    receipt_path.write_bytes(original)
+    result = public_cli(case, ["resume", run_root.name])
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert_public_completed(case, run_root, ordinal=1, processes=1, turns=1)
+
+
+def test_public_phased_fresh_process_checks_and_reconciles_without_compiler(tmp_path):
+    from tests.workflow_evaluated_phased_helpers import public_case, public_kill, public_run_root, assert_public_completed
+    from tests.test_workflow_closed_program_isolation import BLOCK_COMPILER, RETAIN_AUTHORITY, _python
+    case = public_case(tmp_path)
+    public_kill(case, "committed")
+    _python(BLOCK_COMPILER + RETAIN_AUTHORITY + '''
+from copy import deepcopy
+from pathlib import Path
+import json
+from orchestrator.contracts.closed_program.program import ClosedProgram, ClosedProgramInvalid
+from orchestrator.workflow.evaluated.authority import load_run_authority
+from orchestrator.workflow.evaluated.machine import site_classes
+from orchestrator.workflow.evaluated.memo import read_memo, reduce_memo, MemoError
+from orchestrator.workflow.evaluated import runtime, phased_providers as phased
+root = Path(sys.argv[1])
+run_root, = (root / ".orchestrate/runs").iterdir()
+stack, authority = retained_authority(run_root)
+try:
+    before = {str(path.relative_to(run_root)): path.read_bytes() for path in run_root.rglob("*") if path.is_file()}
+    snapshot = read_memo(authority.memo_path, site_classes(authority.program))
+    commit, = snapshot.active_commits.values()
+    assert commit.data["effect_class"] == "provider_phased"
+    assert snapshot.unsettled_coordinators
+    forged = deepcopy(authority.program.tree)
+    forged["target"] = "2.38"
+    try:
+        ClosedProgram.from_artifact(json.dumps(forged))
+    except ClosedProgramInvalid as exc:
+        assert exc.rule not in {"json", "digest"}
+    else:
+        raise AssertionError("source-free checker accepted an older owner for phased delivery")
+    forged_rows = [deepcopy(entry.data) for entry in snapshot.entries]
+    next(row for row in forged_rows if row["record"] == "committed")["proof"]["natural_shutdown"]["return_code"] = 7
+    try:
+        reduce_memo(b"".join((json.dumps(row) + "\\n").encode() for row in forged_rows), site_classes(authority.program))
+    except MemoError:
+        pass
+    else:
+        raise AssertionError("source-free memo accepted a nonzero natural-exit proof")
+    assert {str(path.relative_to(run_root)): path.read_bytes() for path in run_root.rglob("*") if path.is_file()} == before
+    events = (root / "phased-events.jsonl").read_bytes()
+    def forbidden(*args, **kwargs):
+        raise AssertionError("committed reconciliation consulted provider or candidates")
+    phased.prepare_phased_provider_attempt = forbidden
+    phased.recover_phased_provider_attempt = forbidden
+    phased.PhasedCandidates.snapshot = forbidden
+    runtime.provider_executor_for_run = forbidden
+    open_read = WorkspaceFiles.open_read
+    forbidden_files = {run_root / commit.data["result_path"],
+        (run_root / commit.data["result_path"]).with_name("phases.jsonl"), root / "outputs/report.md"}
+    def candidate_guard(self, path):
+        absolute = self.workspace / self.relative(path)
+        if absolute in forbidden_files:
+            raise AssertionError("committed reconciliation read candidate or audit bytes")
+        return open_read(self, path)
+    WorkspaceFiles.open_read = candidate_guard
+    assert runtime.execute_pure_resume(authority, authority.header["bound_inputs"],
+        run_id=run_root.name, workspace=root) == (0, 9)
+    assert (root / "phased-events.jsonl").read_bytes() == events
+    stable = authority.memo_path.read_bytes()
+    assert runtime.execute_pure_resume(authority, authority.header["bound_inputs"],
+        run_id=run_root.name, workspace=root) == (0, 9)
+    assert authority.memo_path.read_bytes() == stable
+finally:
+    stack.close()
+assert not any(name.startswith("orchestrator.workflow_lisp") for name in sys.modules)
+''', tmp_path)
+    assert_public_completed(case, public_run_root(tmp_path), ordinal=1, processes=1, turns=1)
