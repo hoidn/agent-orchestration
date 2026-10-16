@@ -4595,6 +4595,8 @@ class _Checker:
                         self.fail("effect_shape", "phased provider materialization attempts must be a literal in 1..3", node)
                     actual = self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
                     self._require_type(actual, int_type, "effect_shape", node)
+                    if "timeout_sec" not in policy:
+                        self.fail("effect_shape", "phased provider requires a positive timeout literal", node)
                 elif "materialization_attempts" in policy:
                     self.fail("effect_shape", "materialization attempts require the phased provider class", node)
             elif effect_class == "provider_phased":

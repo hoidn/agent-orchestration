@@ -197,6 +197,7 @@ _TYPE_CODES = frozenset(
         "generic_union_unresolved_argument",
         "generic_union_instantiation_cycle",
         "generic_union_not_generic",
+        "provider_phased_timeout_required",
         # Agent sessions (target 2.38).
         "agent_target_dsl_unsupported", "agent_provider_invalid", "agent_keyword_invalid",
         "agent_model_type_invalid", "agent_effort_type_invalid", "agent_policy_operand_not_inline_lowerable",

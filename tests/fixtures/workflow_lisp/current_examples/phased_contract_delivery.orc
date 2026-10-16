@@ -18,5 +18,6 @@
     -> PhasedReviewResult
     (provider-result providers.review
       :prompt (phased-review-prompt :subject subject)
-      :delivery :phased))
+      :delivery :phased
+      :timeout-sec 60))
 )

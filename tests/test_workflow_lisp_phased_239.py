@@ -14,7 +14,7 @@ from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 
 
-def _source(target: str, sections: str = ":delivery :phased") -> str:
+def _source(target: str, sections: str = ":delivery :phased :timeout-sec 60") -> str:
     return f'''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
       (defmodule phased239) (export run)
       (defrecord Review (approved Bool))
@@ -107,7 +107,8 @@ def test_target_239_phased_provider_allows_discriminant_only_union_contract(tmp_
       (defunion Review (approved) (rejected))
       (defprompt review (:fills (subject :text)) -> Review "Review {subject}")
       (defworkflow run ((subject String)) -> Review
-        (provider-result providers.review :prompt (review :subject subject) :delivery :phased)))'''
+        (provider-result providers.review :prompt (review :subject subject)
+          :delivery :phased :timeout-sec 60)))'''
     program = _compile(tmp_path / "phased239.orc", source)
     contract = _provider_effect(program)["contract"]
     assert contract["kind"] == "variant_output"
@@ -143,9 +144,49 @@ def test_target_239_default_composed_provider_omits_new_policy_fields(tmp_path: 
 def test_target_239_phased_provider_keeps_explicit_literal_attempts(tmp_path: Path, attempts: int) -> None:
     program = _compile(
         tmp_path / "phased239.orc",
-        _source("2.39", f":delivery :phased :materialization-attempts {attempts}"),
+        _source(
+            "2.39",
+            f":delivery :phased :timeout-sec 60 :materialization-attempts {attempts}",
+        ),
     )
     assert _provider_effect(program)["policy"]["materialization_attempts"]["v"] == attempts
+
+
+def test_target_239_phased_provider_requires_explicit_timeout(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(tmp_path / "phased239.orc", _source("2.39", ":delivery :phased"))
+    assert excinfo.value.diagnostics[0].code == "provider_phased_timeout_required"
+
+
+def test_imported_target_239_phased_provider_requires_its_own_timeout(tmp_path: Path) -> None:
+    helper = _source("2.39", ":delivery :phased").replace("phased239", "helper").replace(
+        "(export run)", "(export Review run)"
+    )
+    main = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+      (defmodule main) (import helper :as helper :only (Review run)) (export run)
+      (defworkflow run ((subject String)) -> helper.Review
+        (call helper.run :subject subject)))'''
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_modules(tmp_path, {"main.orc": main, "helper.orc": helper}, "main::run")
+    assert excinfo.value.diagnostics[0].code == "provider_phased_timeout_required"
+
+
+@pytest.mark.parametrize(
+    ("timeout", "code"),
+    [
+        ("subject", "provider_result_timeout_literal_required"),
+        ("true", "provider_result_timeout_type_invalid"),
+        ("0", "provider_result_timeout_nonpositive"),
+        ("-1", "provider_result_timeout_nonpositive"),
+    ],
+)
+def test_target_239_phased_provider_preserves_timeout_value_validation(
+    tmp_path: Path, timeout: str, code: str
+) -> None:
+    source = _source("2.39", f":delivery :phased :timeout-sec {timeout}")
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(tmp_path / "phased239.orc", source)
+    assert excinfo.value.diagnostics[0].code == code
 
 
 @pytest.mark.parametrize("target", ["2.35", "2.36", "2.37", "2.38"])
@@ -161,10 +202,10 @@ def test_phased_provider_is_refused_before_239_definition_target(tmp_path: Path,
 def test_target_239_phased_delivery_rejects_agent_valued_provider(tmp_path: Path) -> None:
     source = _source("2.39").replace(
         '(provider-result providers.review :prompt (review :subject subject)\n'
-        '          :model "bound-model" :effort "bound-effort" :delivery :phased)',
+        '          :model "bound-model" :effort "bound-effort" :delivery :phased :timeout-sec 60)',
         '(let* ((reviewer (agent providers.review)))\n'
         '          (provider-result reviewer :prompt (review :subject subject)\n'
-        '            :delivery :phased))',
+        '            :delivery :phased :timeout-sec 60))',
     )
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(tmp_path / "phased239.orc", source)
@@ -177,7 +218,7 @@ def test_target_239_phased_delivery_rejects_extern_prompt(tmp_path: Path) -> Non
       (defrecord Review (approved Bool))
       (defworkflow run ((subject String)) -> Review
         (provider-result providers.review :prompt prompts.review
-          :returns Review :delivery :phased)))'''
+          :returns Review :delivery :phased :timeout-sec 60)))'''
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(
             tmp_path / "phased239.orc",
@@ -199,7 +240,7 @@ def test_target_239_phased_delivery_rejects_extern_prompt(tmp_path: Path) -> Non
 def test_target_239_phased_delivery_rejects_context_and_session_pairings(
     tmp_path: Path, option: str, code: str
 ) -> None:
-    source = _source("2.39", f":delivery :phased {option}")
+    source = _source("2.39", f":delivery :phased :timeout-sec 60 {option}")
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(tmp_path / "phased239.orc", source)
     assert excinfo.value.diagnostics[0].code == code
@@ -304,7 +345,8 @@ def test_closed_checker_rejects_phased_provider_reached_by_parallel_worker(tmp_p
       (defrecord Review (approved Bool))
       (defprompt review (:fills (subject :text)) -> Review "Review {subject}")
       (defworkflow worker ((subject String)) -> Review
-        (provider-result providers.review :prompt (review :subject subject) :delivery :phased))
+        (provider-result providers.review :prompt (review :subject subject)
+          :delivery :phased :timeout-sec 60))
       (defworkflow run ((subjects List[String])) -> List[Review]
         (list/map-effect ((subject subjects)) :max 4 :parallel 2 :workspace "."
           (call worker :subject subject))))'''
@@ -334,7 +376,8 @@ def test_parallel_worker_refusal_follows_specialized_procedure_calls(tmp_path: P
       (defprompt review (:fills (subject :text)) -> Review "Review {subject}")
       (defproc worker :forall (T) ((subject String) (tag T)) -> Review
         :effects ((uses-provider providers.review))
-        (provider-result providers.review :prompt (review :subject subject) :delivery :phased))
+        (provider-result providers.review :prompt (review :subject subject)
+          :delivery :phased :timeout-sec 60))
       (defworkflow run ((subjects List[String])) -> List[Review]
         (list/map-effect ((subject subjects)) :max 4 :parallel 2 :workspace "."
           (worker subject false))))'''
@@ -352,7 +395,7 @@ def test_source_free_checker_rejects_direct_phased_provider_map_forgery(tmp_path
         (record Review :approved true))
       (defworkflow run ((base String) (subjects List[String])) -> List[Review]
         (let* ((sequential (provider-result providers.review
-                  :prompt (review :subject base) :delivery :phased)))
+                  :prompt (review :subject base) :delivery :phased :timeout-sec 60)))
           (list/map-effect ((subject subjects)) :max 4 :parallel 2 :workspace "."
             (call worker :subject subject)))))'''
     tree = deepcopy(_compile(tmp_path / "phased239.orc", source).tree)
@@ -384,7 +427,8 @@ def test_runtime_rejects_unwired_phased_class_before_memo_or_provider_dispatch(t
       (defrecord Result (ok Bool))
       (defprompt review (:fills (message :text)) -> Result "{message}")
       (defworkflow run ((message String)) -> Result
-        (provider-result providers.review :prompt (review :message message) :delivery :phased)))'''
+        (provider-result providers.review :prompt (review :message message)
+          :delivery :phased :timeout-sec 60)))'''
     fixture = _fixture(tmp_path, source)
     result = _cli(tmp_path, fixture)
 
@@ -415,10 +459,10 @@ def test_confined_run_ref_provider_walker_recognizes_phased_class(tmp_path: Path
 @pytest.mark.parametrize(
     ("sections", "reason"),
     [
-        (":delivery :phased :materialization-attempts true", "attempts_type_invalid"),
-        (":delivery :phased :materialization-attempts 0", "attempts_out_of_range"),
-        (":delivery :phased :materialization-attempts 4", "attempts_out_of_range"),
-        (":delivery :phased :materialization-attempts subject", "attempts_literal_required"),
+        (":delivery :phased :timeout-sec 60 :materialization-attempts true", "attempts_type_invalid"),
+        (":delivery :phased :timeout-sec 60 :materialization-attempts 0", "attempts_out_of_range"),
+        (":delivery :phased :timeout-sec 60 :materialization-attempts 4", "attempts_out_of_range"),
+        (":delivery :phased :timeout-sec 60 :materialization-attempts subject", "attempts_literal_required"),
         (":delivery :composed :materialization-attempts 2", "attempts_pairing_invalid"),
         (":materialization-attempts 2", "attempts_pairing_invalid"),
     ],
@@ -441,6 +485,7 @@ def test_target_239_policy_admission_rejects_forged_attempt_shapes(
         ("missing_contract_payload", "effect_contract"),
         ("empty_contract_payload", "effect_result"),
         ("empty_record_contract", "effect_contract"),
+        ("missing_timeout", "effect_shape"),
         ("prompt_source", "effect_shape"),
         ("extra_prompt_field", "effect_shape"),
         ("missing_delivery", "effect_shape"),
@@ -492,6 +537,8 @@ def test_source_free_checker_rejects_phased_class_and_policy_forgery(
         policy["delivery"]["v"] = "composed"
     elif mutation == "missing_attempts":
         del policy["materialization_attempts"]
+    elif mutation == "missing_timeout":
+        del policy["timeout_sec"]
     elif mutation == "attempts_bool":
         policy["materialization_attempts"]["v"] = True
     elif mutation == "attempts_low":

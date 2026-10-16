@@ -1051,6 +1051,14 @@ def typecheck_provider_result_expr(
                 expansion_stack=expr.timeout_sec.expansion_stack,
             )
         policy_summaries.append(typed_timeout.effect_summary)
+    if phased and expr.timeout_sec is None:
+        raise_error(
+            "`provider-result :timeout-sec` is required for phased delivery",
+            code="provider_phased_timeout_required",
+            span=expr.delivery.span,
+            form_path=expr.delivery.form_path,
+            expansion_stack=expr.delivery.expansion_stack,
+        )
     prompt_dependency_summaries = []
     if expr.prompt_dependencies is not None:
         for dependency_expr in (
