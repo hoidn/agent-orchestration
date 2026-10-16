@@ -939,6 +939,11 @@ defines the closed proof and attempt-receipt fields.
   private resource-cleanup authority. Their exact shapes and ownership belong
   to the [adapter design](../docs/design/workflow_lisp_phased_contract_delivery.md#adapter-reservation-and-resource-ownership),
   separate from the inline commit proof and diagnostic phase ledger.
+  The controller-owned submit endpoint separately records its process and
+  observed socket identity in `submit.json`; its [ownership protocol](../docs/design/workflow_lisp_phased_contract_delivery.md#submit-endpoint-ownership-and-recovery)
+  proves worker quiescence or controller death before recovery cleanup. The run
+  writer lock alone is not such proof. Endpoint admission is read-only before
+  adapter cleanup; endpoint cleanup then precedes candidate cleanup.
 - On a committed memo hit, validate the inline proof and idempotently finish
   settlement (K3), without provider dispatch, candidate reconstruction or
   phase-ledger reads. Inline proof may reconstruct an absent/torn receipt as
@@ -963,11 +968,21 @@ defines the closed proof and attempt-receipt fields.
   failed/timed-out creation is incomplete cleanup, not absence proof; candidates
   remain untouched and no replacement attempt is allocated. Cleanup has a
   separate bounded recovery deadline and cannot renew the expired live attempt.
+- Initial ownership publication uses file fsync, atomic rename and directory
+  fsync before backend allocation. All later receipt transitions atomically
+  replace the canonical file; no admitted operation removes it. Assuming the
+  filesystem honors that durability, checked no-follow absence of the exact
+  memo-derived attempt directory or canonical receipt classifies the latest
+  uncommitted attempt as not dispatched. Preserve its files, perform no candidate
+  cleanup or transport scan, and invent no abandoned receipt before the next
+  ordinal. Unsafe/ambiguous reads and present malformed ownership refuse without
+  mutation. External deletion or rollback of previously durable evidence is
+  outside this crash model; it is not distinguishable from pre-publication
+  interruption. See the [absence rule](../docs/design/workflow_lisp_phased_contract_delivery.md#initial-ownership-publication-and-absence-classification).
 - Diagnostic phase-ledger loss or truncation alone does not block recovery.
-  Missing/malformed operational ownership is distinct: it may justify no
-  dispatch only where durable ordering proves that; otherwise it fails
-  closed. The adapter must cover the crash window between resource allocation
-  and returning a live handle through its preallocated private reservation.
+  The adapter covers the crash window between resource allocation and returning
+  a live handle through its preallocated private reservation. Diagnostic files
+  do not establish operational ownership or dispatch.
 - The existing phase ledger remains content-free audit evidence.
   `publication_succeeded` can be emitted only after memo commit and cannot
   substitute for it. Old Q3/Q5 reports, functional snapshots and schema-2.1

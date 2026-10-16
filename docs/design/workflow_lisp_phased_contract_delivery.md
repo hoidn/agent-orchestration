@@ -235,6 +235,37 @@ failure may mark it `abandoned` only after proving both resource and exact
 candidate cleanup; otherwise resume must complete the same cleanup before
 allocating any replacement, even if the memo already contains `failed`.
 
+#### Initial Ownership Publication And Absence Classification
+
+Publish the initial receipt through a temporary file, file fsync, atomic rename
+to `phased-attempt.json`, and containing-directory fsync before any backend
+allocation. Failure or interruption before that sequence returns cannot launch
+the provider. Every later receipt transition uses atomic replacement; no live,
+failed, abandoned or settlement path removes the canonical receipt.
+
+Recovery assumes that the retained filesystem honors those durability
+guarantees. Under this crash model, a receipt published before dispatch cannot
+disappear through an admitted operation. After authority/memo checks and under
+the run writer lock, confirmed absence of the exact memo-derived attempt
+directory or its canonical receipt therefore classifies that uncommitted
+attempt as not dispatched. Confirm canonical-leaf absence through no-follow
+owners; unsafe paths, permission failures and observed root replacement are
+not absence. A present torn, malformed, nonregular or foreign-bound receipt
+refuses recovery without mutation.
+
+For this not-dispatched case, preserve existing files and directories, perform
+no transport scan or candidate cleanup, and manufacture no `abandoned` receipt.
+Continue ordinary K4 bookkeeping and allocate the next ordinal, whose candidate
+preflight must still pass. An unpublished temporary file or `prompt.txt` is not
+dispatch authority. An unrecorded pre-launch transport reservation can contain
+reservation metadata only, never a server or provider process.
+
+Deletion or rollback of previously durable ownership evidence is outside this
+crash-recovery guarantee: external destruction cannot be distinguished from a
+pre-publication interruption. No additional deletable marker would remove that
+assumption, and arbitrary same-UID state mutation is not confined. Committed
+attempts retain K3's inline-proof settlement rules.
+
 #### Adapter Reservation And Resource Ownership
 
 Extend `InteractiveTerminalTurnQueueAdapter` and its existing tmux backend;
@@ -436,9 +467,8 @@ is being retried. If its memo committed, K3 settles without transport. Otherwise
 1. Open only the memo-derived old attempt directory through pinned no-follow
    owners, and validate its ownership receipt against the checked effect,
    started/failed memo rows and captured candidate declarations. Never trust a
-   receipt-supplied arbitrary path. Missing receipt is proof of no dispatch
-   only when the pre-dispatch protocol and attempt state establish that its
-   durable write could not have completed; malformed/ambiguous ownership
+   receipt-supplied arbitrary path. Apply the initial-publication absence rule
+   above before resource cleanup; present malformed or ambiguous ownership
    fails closed, not as historical quarantine.
 2. Finish bounded cleanup of the old private provider/endpoint resources under
    the adapter ownership protocol above: settle creation commands, revoke late

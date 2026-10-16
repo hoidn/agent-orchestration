@@ -301,6 +301,13 @@ evidence, not production acceptance; the implementation checks below remain open
   unrelated files/processes remain untouched. Repeat resume to prove idempotence.
   Assert report/monitor can read failed, pending, unsettled and completed states
   without becoming execution authority.
+- [ ] Cover prelaunch cuts after `started`, directory/reservation creation,
+  during temporary receipt writing and before atomic publication. Checked
+  canonical absence must resume at the next ordinal without deleting files or
+  scanning transport roots. Prove no backend starts before receipt file/rename/
+  directory durability completes. Present truncated or altered receipts still
+  refuse; external deletion of durable ownership is outside the documented
+  crash model, not a claimed tamper-detection case.
 - [ ] Run the deterministic public smoke explicitly:
 
   ```bash
