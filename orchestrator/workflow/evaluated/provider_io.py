@@ -141,5 +141,3 @@ class ProviderIOContext:
         if activation.owner != owner or (owner, site) not in self.sites:
             raise ValueError("workflow IO effect binding does not match its checked owner/site")
         return activation.reader
-
-
