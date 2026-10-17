@@ -78,6 +78,7 @@ def execute_pure_run(
     run_id: str,
     workspace: Path,
     provider_io: ProviderIOContext | None = None,
+    stream_output: bool = False,
 ) -> tuple[int, Any]:
     """Evaluate the checked table and persist its terminal outcome under its writer lock."""
     if not isinstance(authority, RunAuthority):
@@ -116,6 +117,7 @@ def execute_pure_run(
                 site_classes=checked_site_classes,
                 reader=reader,
                 provider_executor=provider_executor,
+                stream_output=stream_output,
             )
 
         try:
@@ -163,6 +165,7 @@ def execute_pure_resume(
     run_id: str,
     workspace: Path,
     provider_io: ProviderIOContext | None = None,
+    stream_output: bool = False,
 ) -> tuple[int, Any]:
     """Replay committed effects before allowing resume to repair or continue."""
     if not isinstance(authority, RunAuthority):
@@ -187,7 +190,8 @@ def execute_pure_resume(
         except Exception as exc:
             return _resume_refusal(exc)
     return execute_pure_run(
-        authority, inputs, run_id=run_id, workspace=workspace, provider_io=provider_io
+        authority, inputs, run_id=run_id, workspace=workspace, provider_io=provider_io,
+        stream_output=stream_output,
     )
 
 
@@ -345,6 +349,7 @@ def _execute_effect(
     site_classes: Mapping[str, str],
     reader,
     provider_executor: ProviderExecutor | None,
+    stream_output: bool = False,
 ) -> EvaluatedValue:
     snapshot = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
     commit = snapshot.active_commits.get(identity)
@@ -373,7 +378,7 @@ def _execute_effect(
         logger.warning("[effect_rerun] %s attempts=%s", identity, list(range(1, ordinal)))
     return _start_and_perform_effect(authority, node, identity, ordinal, result_path,
         input_digest, parts, implementation_files, dependencies, resolved, workspace,
-        run_files, workspace_files, site_classes, provider_executor)
+        run_files, workspace_files, site_classes, provider_executor, stream_output)
 
 
 def _reuse_reached_commit(authority, node, identity, parts, input_digest, dependencies,
@@ -541,6 +546,7 @@ def _start_and_perform_effect(
     workspace_files,
     site_classes,
     provider_executor,
+    stream_output=False,
 ):
     if node["class"] == "run_ref":
         validate_evaluated_run_ref_start(authority, resolved_request, identity, ordinal, workspace)
@@ -572,7 +578,8 @@ def _start_and_perform_effect(
             result, result_digest = perform_provider(node, resolved_request, identity,
                 executor=provider_executor, attempt_files=attempt_files,
                 workspace_files=workspace_files, result_path=workspace_relative_path(
-                    workspace, authority.run_root / result_path))
+                    workspace, authority.run_root / result_path),
+                stream_output=stream_output)
             after_files = {}
         value = result.json_value()
         _require_retained_root(run_files)

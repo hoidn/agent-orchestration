@@ -236,7 +236,7 @@ def _perform_dynamic_command(run, program, node, operands, *, pointer, code, con
 
 def _perform_dynamic_provider(
     run, built, program, node, operands, *, pointer, code, context, steps,
-    workspace_files, executor,
+    workspace_files, executor, stream_output=False,
 ):
     owner = program.definitions[code]['owner']['module']
     try:
@@ -295,6 +295,7 @@ def _perform_dynamic_provider(
             workspace_files=workspace_files,
             result_path=result_path,
             native_result=True,
+            stream_output=stream_output,
         )
         if not run_root_matches_fd(run.files.workspace, run.files.root_fd):
             raise ProviderPerformerError('dynamic_state_invalid', 'dynamic run root changed')
@@ -311,7 +312,7 @@ def _perform_dynamic_provider(
     return value
 
 
-def execute_dynamic_run(built, inputs, *, workspace, workflow_path, state_dir=None):
+def execute_dynamic_run(built, inputs, *, workspace, workflow_path, state_dir=None, stream_output=False):
     """Publish captured checked authority before source-free pure evaluation."""
     run_id = StateManager.new_run_id()
     runs_root = Path(state_dir).expanduser().absolute() if state_dir else workspace / '.orchestrate/runs'
@@ -352,6 +353,7 @@ def execute_dynamic_run(built, inputs, *, workspace, workflow_path, state_dir=No
                 return _perform_dynamic_provider(
                     run, built, program, node, operands,
                     executor=provider_executor,
+                    stream_output=stream_output,
                     **details,
                 )
 

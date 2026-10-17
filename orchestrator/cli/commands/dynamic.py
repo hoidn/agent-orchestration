@@ -155,7 +155,8 @@ def run_dynamic_workflow(args, *, workspace, workflow_path, source_read_trace=No
             from orchestrator.workflow.dynamic.runtime import execute_dynamic_run
             exit_code, run_id, run_root, value = execute_dynamic_run(
                 built, inputs, workspace=workspace, workflow_path=workflow_path,
-                state_dir=getattr(args, 'state_dir', None))
+                state_dir=getattr(args, 'state_dir', None),
+                stream_output=not getattr(args, 'quiet', False))
             return RunWorkflowResult(exit_code=exit_code, run_id=run_id, run_root=run_root,
                                      workflow_outputs=value)
     except LispFrontendCompileError as exc:

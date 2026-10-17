@@ -426,6 +426,31 @@ def test_actual_public_subprocess_fresh_run(tmp_path):
     assert state['status'] == 'completed' and state['workflow_outputs'] == 0
 
 
+@pytest.mark.parametrize(('extra', 'streamed'), [((), True), (('--quiet',), False), (('--stream-output',), True)],
+                         ids=['default', 'quiet', 'stream-output'])
+def test_public_subprocess_streams_provider_output_unless_quiet(tmp_path, monkeypatch, extra, streamed):
+    from tests.test_workflow_dynamic_providers import _manifests, _source, _stage_tools, _values
+    path = _source(tmp_path)
+    (tmp_path / 'notes').mkdir()
+    (tmp_path / 'notes/input.md').write_text('document', encoding='utf-8')
+    (tmp_path / 'reports').mkdir()
+    providers, commands = _manifests(tmp_path)
+    _stage_tools(tmp_path, monkeypatch)
+    inputs = tmp_path / 'inputs.json'
+    inputs.write_text(json.dumps(_values()), encoding='utf-8')
+    env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[1]), PYTHONDONTWRITEBYTECODE='1')
+    completed = subprocess.run(
+        [sys.executable, '-m', 'orchestrator', 'run', str(path), '--source-root', str(tmp_path),
+         '--provider-externs-file', str(providers), '--command-boundaries-file', str(commands),
+         '--input-file', str(inputs), *extra],
+        cwd=tmp_path, env=env, capture_output=True, text=True)
+    assert completed.returncode == 0, completed.stderr
+    (root,) = (tmp_path / '.orchestrate/runs').iterdir()
+    assert json.loads((root / 'state.json').read_text())['status'] == 'completed'
+    assert ('private-provider-stdout' in completed.stdout) == streamed
+    assert any(b'private-provider-stdout' in out.read_bytes() for out in root.glob('effects/*/attempt-1/stdout.txt'))
+
+
 def test_runtime_uses_captured_source_after_preflight_deletion(tmp_path, monkeypatch):
     from orchestrator.cli.commands import dynamic
     from orchestrator.workflow.dynamic.state import load_dynamic_view

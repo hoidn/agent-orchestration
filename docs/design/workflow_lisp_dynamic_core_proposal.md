@@ -1060,7 +1060,8 @@ invalid defaults refuse before run creation. No CLI coercion is available to
 provider output or dynamic function values.
 
 The qualified run options are frontend binding/source/entry flags, inputs,
-`--state-dir`, `--dry-run` and ordinary logging/streaming. Dynamic runs stop on
+`--state-dir`, `--dry-run`, logging and `--quiet` (provider output streams by
+default; `--stream-output` is accepted and inert). Dynamic runs stop on
 error and default to zero runtime retries; explicit `--on-error continue` or
 nonzero `--max-retries` refuses. Preserve old profiles' retry defaults. Profile
 option validation distinguishes omitted parser defaults from explicit requests;
