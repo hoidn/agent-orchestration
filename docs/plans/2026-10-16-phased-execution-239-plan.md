@@ -23,6 +23,12 @@ settle/replay without another provider call.
 evaluated memo runtime, tmux interactive transport, pytest and pytest-xdist.
 No new dependency, public form, Agent abstraction or workflow executor.
 
+**Status:** selected deterministic migration complete on `feat/phased-execution-239`
+through `bf142a11`. Tasks 1–7 are verified below. The full suite remains red;
+its sole new failure in the third campaign was corrected and rechecked across
+every consumer of the changed test helper. Paid live-provider qualification
+remains unselected.
+
 **Tradeoff:** a crash before memo commit can repeat the whole paid provider
 visit. Recovery needs durable ownership facts for cleanup; inability to prove
 cleanup prevents redispatch. Retaining literal bounded materialization policy
@@ -144,7 +150,8 @@ The probes show that server termination alone leaves a resistant writer,
 owned-group cleanup stops writes, delayed pre-exec observes revocation, the
 wrapper retains its lease through child reap, and foreign group identity is
 refused without signalling. These local temporary artifacts are mechanism
-evidence, not production acceptance; the implementation checks below remain open.
+evidence, not production acceptance; the implementation evidence below records
+the subsequently completed checks.
 
 - [x] Extend `tests/test_provider_phased_delivery_coordinator.py` to establish a
   prepared outcome after joint candidate validation, freeze, ingress shutdown
@@ -181,9 +188,9 @@ evidence, not production acceptance; the implementation checks below remain open
   foreign identity with no signals, failed reaping with incomplete cleanup and
   interrupted/idempotent recovery. Re-run both observed public failures before
   accepting Task 5. Mechanism evidence is in
-  `/tmp/orc-phased-239-evidence/task5-public/sigchld-probe.log`; it is not yet
-  implementation acceptance.
-- [ ] Full-suite follow-up: an already-subreaping controller must reap only its
+  `/tmp/orc-phased-239-evidence/task5-public/sigchld-probe.log`; implementation
+  acceptance is recorded under Task 5 below.
+- [x] Full-suite follow-up: an already-subreaping controller must reap only its
   exact recorded private server after a positive matching start-token check,
   using nonblocking `waitpid`; retain actual PID absence, namespace/socket
   checks and the original deadline. Prove natural completion and failed cleanup
@@ -379,7 +386,7 @@ evidence, not production acceptance; the implementation checks below remain open
   publication authority, no ordinary fallback and no old executor route.
 - [x] Run `pytest --collect-only -q` for every new or renamed test module.
   Reuse valid focused results unless integration changes touched their behavior.
-- [ ] Run the broad/full suite from the worktree root in tmux using the `tmux`
+- [x] Run the broad/full suite from the worktree root in tmux using the `tmux`
   skill and the required command:
 
   ```bash
@@ -392,7 +399,7 @@ evidence, not production acceptance; the implementation checks below remain open
   deterministic migration automatically; every new failure must be fixed or
   explicitly shown unrelated with a controlled base/current probe. Do not
   weaken checks or claim a green suite when it is red.
-- [ ] Complete both deterministic public CLI kill-gap cases and the source-free
+- [x] Complete both deterministic public CLI kill-gap cases and the source-free
   artifact tampering checks on the final relevant code. Update this plan's
   evidence/disposition below. State any missing external prerequisite and keep
   real-provider qualification separate. Final success requires all selected
@@ -448,8 +455,8 @@ accurate current routing. Ordinary composed behavior remains compatible.
   `round4-broad.log`, exit receipts and `round4-collect.log` beside them.
   Earlier failing logs remain diagnostic evidence. Adapter tests use real tmux
   with deterministic local processes; paid provider qualification was not run.
-  The candidate-preservation/redispatch and public resume checks above remain
-  open for Tasks 4–5.
+  The candidate-preservation/redispatch and public resume checks were still
+  open at this checkpoint; Tasks 4–5 below subsequently completed them.
 - Task 3 complete: evaluated bindings share one captured prompt cut, jointly
   validate and freeze candidate bytes, persist atomic attempt ownership and
   prepared proof, and implement memo-only settlement and exact-attempt cleanup
@@ -465,8 +472,8 @@ accurate current routing. Ordinary composed behavior remains compatible.
   Real local tmux cases exercise same-process correction and natural close.
   At this checkpoint Tasks 4–7 remained incomplete: bindings were not yet
   wired into public evaluated dispatch, memo commit or resume. The Task 4
-  evidence below records that subsequent integration; public CLI kill-gap
-  evidence and current documentation routing remain required.
+  evidence below records that subsequent integration; Tasks 5–6 record public
+  CLI kill-gap evidence and current documentation routing.
 - Task 4 complete: concrete phased dispatch now commits only a jointly validated,
   naturally closed prepared result, then settles before exposing it. Read-only
   resume preflight validates exact ownership; uncommitted attempts clean up and
@@ -483,8 +490,8 @@ accurate current routing. Ordinary composed behavior remains compatible.
   `frozen-files.json`, `run-broad.sh`, `broad.log`, `broad.exit`,
   `collect-final.log` and its exit receipt. Earlier red runs remain diagnostic
   evidence; overlapping selections are not additive. These are local-terminal
-  runtime checks; public subprocess CLI/SIGKILL qualification remains Task 5,
-  current guidance remains Task 6 and full-suite/final integration remains Task 7.
+  runtime checks; subsequent public subprocess CLI/SIGKILL evidence, current
+  guidance and full-suite integration are recorded under Tasks 5–7 below.
 - Task 5 complete, including the remaining Task 2 public-recovery and child-reap
   obligations: the public CLI uses the real interactive adapter and submit client
   with a deterministic local provider. Kill gates cover prepublication through
@@ -502,8 +509,8 @@ accurate current routing. Ordinary composed behavior remains compatible.
   `/tmp/orc-phased-239-evidence/task5-public/verification-receipt.json`,
   `frozen-hashes.json`, `acceptance-mapping.json` and the named final logs/exit
   receipts. Original failures and successful causal probes remain preserved.
-  Task 6 final guidance verification and Task 7 full-suite classification remain
-  required; these results do not establish full-suite health or paid qualification.
+  Task 6 final guidance verification and Task 7 full-suite classification follow
+  below; these results do not establish full-suite health or paid qualification.
 - Task 6 complete: thirteen maintained guidance/spec/routing documents describe
   the implemented deterministic 2.39 lifecycle, its prerequisites and recovery
   limits. Historical Q5 bodies/fixtures and unrelated qualification gates remain
@@ -519,8 +526,8 @@ accurate current routing. Ordinary composed behavior remains compatible.
   Task 5 files. Fresh collection of all five added test modules found **228**
   cases, exit zero; exact command/result are in
   `/tmp/orc-phased-239-evidence/task7-full/collect-new-result.json` and
-  `collect-new.log`. The full suite and its baseline comparison remain pending.
-- Task 7 full campaigns remain open. The first campaign recorded **79 failed,
+  `collect-new.log`. The subsequent full campaigns and baseline comparison follow.
+- The first two Task 7 full campaigns did not close acceptance. The first recorded **79 failed,
   16,115 passed, 117 skipped, 2 xfailed**: six new failures were corrected at
   `2cf415fe`, with independent compliance/quality approval, **6** focused cases
   and **40** affected cases passing, and **106** collected. The second campaign
@@ -530,10 +537,59 @@ accurate current routing. Ordinary composed behavior remains compatible.
   three were not reproduced (not established as resolved). An ordered experiment
   test then phased test reproduces the leaked subreaper state; an isolated
   subreaper probe identifies the matching private server as a controller-owned
-  zombie awaiting exact-child reap. The Task 2 follow-up above is selected; no
-  failure is waived. Evidence: `/tmp/orc-phased-239-evidence/task7-corrections/`,
+  zombie awaiting exact-child reap. The completed Task 2 follow-up is recorded
+  below; no failure was waived. Evidence: `/tmp/orc-phased-239-evidence/task7-corrections/`,
   `task7-full-final/` and `task7-lifecycle-regression/` under the same evidence
   root. Four nanoBragg baseline failures separately require the absent external
   `/tmp/nanoBragg/golden_suite_generator/nanoBragg.c`; they are not new regressions.
+- Task 2 full-suite follow-up complete at `9a7547ed`: exact private-server
+  child reaping now checks identity and the original deadline before nonblocking
+  `waitpid`, preserves unrelated child status and still requires actual absence.
+  Experiment tests restore their prior subreaper state after existing cleanup.
+  Independent contract and quality reviews approved the four frozen files;
+  the coordinator verified their hashes and diff. Final checks passed **13**
+  focused cases and **428** affected cases; **109** cases collected. The affected
+  selector excludes only the known baseline `delayed-marker-hang` case; the
+  full campaign is unfiltered. The actual experiment-to-phased ordering now
+  passes both cases and preserves the initial subreaper flag. Evidence:
+  `/tmp/orc-phased-239-evidence/task7-lifecycle-regression/verification-receipt.json`
+  and its named logs, exit receipts and frozen hash manifest.
+- The third Task 7 full campaign recorded **74 failed, 16,133 passed,
+  117 skipped, 2 xfailed**, exit 1, in 976.32 seconds. The exact required command
+  started at `4b4bdd06` plus the frozen correction subsequently committed as
+  `9a7547ed`; all **49** recorded code/test hashes remained unchanged. **73**
+  baseline failure IDs remain; two were not reproduced, which does not establish
+  their resolution. The six lifecycle failures from the second campaign are
+  absent. One new failure occurred in the public `before-materialization` kill
+  case: its report/monitor read-only check observes a changed tree/event snapshot.
+  The subsequent controlled diagnosis and correction are recorded below;
+  no assertion or failure was waived. Evidence:
+  `/tmp/orc-phased-239-evidence/task7-full-3/result.json`, `comparison.json`,
+  `full.log` and `new-failure-details.log`.
+- Task 7 complete at `bf142a11`: a controlled real-client probe reproduced the
+  snapshot failure with a byte-identical run tree and only delayed `start`/`task`
+  provider events. The test helper now awaits the existing task acknowledgement
+  before the same pre-materialization kill gate. Its full tree/event equality
+  assertions, live old client, exact cleanup and ordinal-2 rerun remain intact.
+  The new deterministic regression failed before the correction; it and the
+  original failing case then passed (**2** cases, 26.42 seconds). Both complete
+  phased modules passed **118** cases in 59.22 seconds with
+  `python -m pytest -q -n 16 --dist=worksteal
+  tests/test_workflow_evaluated_phased.py
+  tests/test_workflow_evaluated_phased_recovery.py`, exit zero. These include
+  both public commit-gap cuts and source-free artifact/memo tampering checks on
+  the final code. The changed module collected **77** cases, exit zero.
+  Independent contract and quality reviews approved both frozen test files;
+  the coordinator inspected the diff, hashes, causal result and final logs.
+  Evidence: `/tmp/orc-phased-239-evidence/task7-readers-regression/HANDOFF.md`,
+  `commands.txt`, `frozen-hashes.json`, `causal-diff.json`, `red.log`,
+  `narrow-green.log`, `affected.log`, `collect.log` and their exit receipts.
+  No production file changed after the third full campaign; only the two tested
+  files differ from its **49** recorded hashes. Both modules are the complete
+  consumer set of the changed helper, so that full campaign remains the broad
+  evidence, supplemented by this final affected check. It is not a globally
+  green result: **73** observed baseline failures remain, and two baseline
+  failures were not reproduced. The single new failure has been corrected and
+  verified; no fourth full campaign or unrelated failure repair is claimed.
 - Live-provider qualification: not selected; deterministic fixtures do not claim
   it and do not establish improved provider task quality.
