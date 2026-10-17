@@ -448,7 +448,9 @@ def test_public_subprocess_streams_provider_output_unless_quiet(tmp_path, monkey
     (root,) = (tmp_path / '.orchestrate/runs').iterdir()
     assert json.loads((root / 'state.json').read_text())['status'] == 'completed'
     assert ('private-provider-stdout' in completed.stdout) == streamed
+    assert ('private-provider-stderr' in completed.stderr) == streamed
     assert any(b'private-provider-stdout' in out.read_bytes() for out in root.glob('effects/*/attempt-1/stdout.txt'))
+    assert any(b'private-provider-stderr' in err.read_bytes() for err in root.glob('effects/*/attempt-1/stderr.txt'))
 
 
 def test_runtime_uses_captured_source_after_preflight_deletion(tmp_path, monkeypatch):

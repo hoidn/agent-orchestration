@@ -36,3 +36,4 @@ if mode in {"missing-bundle", "stdout-bundle"}:
 else:
     Path(event["result_path"]).write_text(json.dumps(result), encoding="utf-8")
 print("private-provider-stdout", flush=True)
+print("private-provider-stderr", file=sys.stderr, flush=True)
