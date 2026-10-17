@@ -1329,11 +1329,6 @@ class ProviderExecutor:
             )
 
         try:
-            # Prepare stdin if needed
-            stdin_input = None
-            if invocation.input_mode == InputMode.STDIN and invocation.prompt:
-                stdin_input = invocation.prompt.encode('utf-8')
-
             logger.debug(f"Executing command: {invocation.command}")
             if invocation.input_mode == InputMode.STDIN:
                 logger.debug(f"Using stdin mode, prompt size: {len(invocation.prompt or '')} bytes")
@@ -1347,12 +1342,29 @@ class ProviderExecutor:
                     invocation=invocation,
                     working_dir=working_dir,
                     process_env=process_env,
-                    stdin_input=stdin_input,
                     stream_output=stream_output,
                     start_time=start_time,
                     session_runtime=session_runtime,
                     observation_handle=observation_handle,
                 )
+
+            if invocation.terminate_process_tree:
+                return self._execute_controlled_invocation(
+                    invocation=invocation,
+                    working_dir=working_dir,
+                    stream_output=stream_output,
+                    start_time=start_time,
+                    session_runtime=session_runtime,
+                    control=ProviderExecutionControl(),
+                    observation_handle=observation_handle,
+                    process_env=process_env,
+                    controlled=False,
+                )
+
+            # Prepare stdin if needed
+            stdin_input = None
+            if invocation.input_mode == InputMode.STDIN and invocation.prompt:
+                stdin_input = invocation.prompt.encode('utf-8')
 
             if not stream_output:
                 if observation_handle is not None:
@@ -1364,44 +1376,6 @@ class ProviderExecutor:
                         start_time=start_time,
                         observation_handle=observation_handle,
                     )
-                if invocation.terminate_process_tree:
-                    process = self._start_process(
-                        invocation,
-                        cwd=str(working_dir),
-                        env=process_env,
-                        stdin=subprocess.PIPE if stdin_input is not None else subprocess.DEVNULL,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        start_new_session=True,
-                    )
-                    try:
-                        stdout, stderr = process.communicate(
-                            input=stdin_input,
-                            timeout=invocation.timeout_sec,
-                        )
-                        duration_ms = int((time.time() - start_time) * 1000)
-                        return ProviderExecutionResult(
-                            exit_code=process.returncode,
-                            stdout=stdout,
-                            stderr=stderr,
-                            duration_ms=duration_ms,
-                        )
-                    except subprocess.TimeoutExpired as exc:
-                        self._terminate_process_tree(process)
-                        stdout, stderr = process.communicate()
-                        duration_ms = int((time.time() - start_time) * 1000)
-                        return ProviderExecutionResult(
-                            exit_code=124,
-                            stdout=(exc.stdout or b"") + (stdout or b""),
-                            stderr=(exc.stderr or b"") + (stderr or b""),
-                            duration_ms=duration_ms,
-                            error={
-                                "type": "timeout",
-                                "message": f"Provider timed out after {invocation.timeout_sec} seconds",
-                                "context": {"timeout_sec": invocation.timeout_sec},
-                            },
-                        )
-
                 # Execute command
                 # Note: We use 'input' parameter for stdin content, not both 'stdin' and 'input'
                 result = self._run_process(
@@ -1473,10 +1447,7 @@ class ProviderExecutor:
                     duration_ms=duration_ms
                 )
             except subprocess.TimeoutExpired:
-                if invocation.terminate_process_tree:
-                    self._terminate_process_tree(process)
-                else:
-                    process.kill()
+                process.kill()
                 process.wait()
                 stdout_thread.join()
                 stderr_thread.join()
@@ -1639,11 +1610,8 @@ class ProviderExecutor:
         try:
             exit_code = process.wait(timeout=invocation.timeout_sec)
         except subprocess.TimeoutExpired:
-            if invocation.terminate_process_tree:
-                self._terminate_process_tree(process)
-            else:
-                process.kill()
-                process.wait()
+            process.kill()
+            process.wait()
             if stdin_thread is not None:
                 stdin_thread.join()
             stdout_thread.join()
@@ -1687,6 +1655,7 @@ class ProviderExecutor:
         control: ProviderExecutionControl,
         observation_handle: Optional[ProviderObservationHandle],
         process_env: Dict[str, str],
+        controlled: bool = True,
     ) -> ProviderExecutionResult:
         """Execute one opt-in invocation inside a runtime-owned process group."""
         expected_session_id: Optional[str] = None
@@ -1736,7 +1705,7 @@ class ProviderExecutor:
                 ),
                 expectation=invocation.omp_transport_expectation,
             )
-            if accumulator is not None:
+            if accumulator is not None and controlled:
                 control.publish_session_snapshot(accumulator.snapshot())
             process = self._start_process(
                 invocation,
@@ -1810,6 +1779,7 @@ class ProviderExecutor:
                 stdin_outcomes=stdin_outcomes,
                 stdin_outcome_lock=stdin_outcome_lock,
                 observation_handle=observation_handle,
+                controlled=controlled,
             )
         except BaseException as exc:
             failure_result = self._fail_bound_controlled_invocation(
@@ -1829,7 +1799,26 @@ class ProviderExecutor:
                 stdin_outcomes=stdin_outcomes,
                 stdin_outcome_lock=stdin_outcome_lock,
                 error=exc,
+                controlled=controlled,
             )
+            if not controlled:
+                failure_result.error["type"] = "provider_process_cleanup_failed"
+                if invocation.session_request is None and invocation.metadata_mode is None:
+                    failure_result.stdout = bytes(stdout_buf)
+            if control.cancellation_reason == "timeout":
+                failure_result.exit_code = 124
+                failure_result.error["context"]["timeout_sec"] = invocation.timeout_sec
+            if control.cancellation_reason == "timeout" and (
+                not controlled or accumulator is None
+            ):
+                failure_result.error = {
+                    "type": "timeout",
+                    "message": f"Provider timed out after {invocation.timeout_sec} seconds",
+                    "context": {
+                        "timeout_sec": invocation.timeout_sec,
+                        "cleanup_error": failure_result.error["message"],
+                    },
+                }
             if not isinstance(exc, Exception):
                 raise
             return failure_result
@@ -1958,6 +1947,7 @@ class ProviderExecutor:
                 continue
             try:
                 if leader_reaped and pgid_empty:
+                    os.set_blocking(pipe.fileno(), False)
                     remainder = pipe.read() or b""
                     if is_stdout:
                         stdout += remainder
@@ -2037,16 +2027,22 @@ class ProviderExecutor:
         stdin_outcomes: Dict[str, Tuple[bool, Optional[str]]],
         stdin_outcome_lock: Any,
         observation_handle: Optional[ProviderObservationHandle],
+        controlled: bool,
     ) -> ProviderExecutionResult:
         """Run capture, wait, transport finalization, and boundary recording."""
+        session_enabled = (
+            invocation.session_request is not None or invocation.metadata_mode is not None
+        )
         stdout_callback: Optional[Callable[[bytes], None]] = None
-        if accumulator is not None:
+        if session_enabled:
             stdout_callback = self._build_session_stdout_callback(
                 invocation=invocation,
                 stream_output=stream_output,
                 session_runtime=session_runtime,
                 accumulator=accumulator,
-                identity_snapshot_callback=control.publish_session_snapshot,
+                identity_snapshot_callback=(
+                    control.publish_session_snapshot if controlled else None
+                ),
             )
         else:
             stdout_callback = self._observation_display_callback(
@@ -2061,14 +2057,14 @@ class ProviderExecutor:
                 "capture_outcomes": capture_outcomes,
                 "capture_outcome_lock": capture_outcome_lock,
                 "control": control,
-                "session_accumulator": accumulator,
+                "session_accumulator": accumulator if controlled else None,
                 "out_stream": (
                     sys.stdout
-                    if stream_output and accumulator is None
+                    if stream_output and not session_enabled
                     else None
                 ),
                 "chunk_callback": stdout_callback,
-                "read_mode": "lines" if accumulator is not None else "chunks",
+                "read_mode": "lines" if session_enabled else "chunks",
             },
             daemon=True,
         )
@@ -2094,6 +2090,7 @@ class ProviderExecutor:
                     "stdin_outcomes": stdin_outcomes,
                     "stdin_outcome_lock": stdin_outcome_lock,
                     "control": control,
+                    "tolerate_broken_pipe": not controlled,
                 },
                 name=f"provider-stdin-{process.pid}",
                 daemon=True,
@@ -2115,20 +2112,26 @@ class ProviderExecutor:
         io_join_errors = self._join_controlled_io_workers(
             stdin_threads=stdin_threads,
             capture_threads=capture_threads,
-            bounded=not pgid_empty,
+            timeout_sec=(
+                ProviderExecutionControl._FINALIZATION_TIMEOUT_SEC if pgid_empty
+                else self._CONTROL_IO_JOIN_TIMEOUT_SEC
+            ),
         )
         capture_threads_joined = (
             not stdout_thread.is_alive() and not stderr_thread.is_alive()
         )
 
-        final_identity_valid = invocation.session_request is None
+        final_identity_valid = invocation.session_request is None or (
+            not controlled and accumulator is None
+        )
         if accumulator is not None:
             if capture_threads_joined:
                 _, identity_error = accumulator.finalize(
                     expected_session_id=expected_session_id,
                     require_terminal=False,
                 )
-                control.publish_session_snapshot(accumulator.snapshot())
+                if controlled:
+                    control.publish_session_snapshot(accumulator.snapshot())
                 final_identity_valid = identity_error is None
             else:
                 final_identity_valid = False
@@ -2137,7 +2140,7 @@ class ProviderExecutor:
         raw_stdout = bytes(stdout_buf)
         stderr = bytes(stderr_buf)
         natural_result: ProviderExecutionResult
-        if accumulator is not None and capture_threads_joined:
+        if session_enabled and capture_threads_joined:
             natural_result = self._finalize_session_result(
                 invocation=invocation,
                 exit_code=exit_code,
@@ -2200,7 +2203,8 @@ class ProviderExecutor:
         ]
         boundary = control.record_execution_boundary(
             capture_threads_joined=capture_threads_joined,
-            final_identity_valid=final_identity_valid,
+            # Ordinary session normalization owns protocol validity separately.
+            final_identity_valid=final_identity_valid if controlled else True,
             transport_failed=natural_result.error is not None,
             boundary_error=(
                 "; ".join(boundary_errors)
@@ -2210,18 +2214,27 @@ class ProviderExecutor:
         )
 
         if boundary.disposition == "boundary_failed":
-            return self._controlled_boundary_failure_result(
+            result = self._controlled_boundary_failure_result(
                 leader_return_code=boundary.leader_return_code,
                 boundary_error=boundary.error,
                 raw_stdout=raw_stdout,
                 stderr=stderr,
                 duration_ms=duration_ms,
             )
+            if not controlled:
+                result.error["type"] = "provider_process_cleanup_failed"
+                if not session_enabled:
+                    result.stdout = raw_stdout
+            if timed_out:
+                result.exit_code = 124
+                result.error["context"]["timeout_sec"] = invocation.timeout_sec
+            if not timed_out or (controlled and not final_identity_valid):
+                return result
 
         if timed_out:
             return ProviderExecutionResult(
                 exit_code=124,
-                stdout=b"",
+                stdout=raw_stdout if not controlled and not session_enabled else b"",
                 stderr=stderr,
                 duration_ms=duration_ms,
                 classification="failed",
@@ -2232,11 +2245,14 @@ class ProviderExecutor:
                         f"Provider timed out after "
                         f"{invocation.timeout_sec} seconds"
                     ),
-                    "context": {"timeout_sec": invocation.timeout_sec},
+                    "context": {
+                        "timeout_sec": invocation.timeout_sec,
+                        **({"cleanup_error": boundary.error} if boundary.error else {}),
+                    },
                 },
             )
 
-        if boundary.disposition == "cancelled":
+        if boundary.disposition == "cancelled" and controlled:
             return ProviderExecutionResult(
                 exit_code=self._nonzero_controlled_exit_code(
                     boundary.leader_return_code
@@ -2250,6 +2266,10 @@ class ProviderExecutor:
                 provider_session=None,
             )
 
+        if not controlled:
+            natural_result.classification = None
+            if not session_enabled:
+                natural_result.raw_stdout = None
         return natural_result
 
     def _wait_for_controlled_process(
@@ -2266,13 +2286,30 @@ class ProviderExecutor:
             else time.monotonic() + timeout_sec
         )
         timed_out = False
+        wait_error: Exception | None = None
 
         while True:
             cancellation_preceded_probe = control.cancellation_requested
             try:
-                return process.wait(timeout=0), timed_out
+                exit_code = process.wait(timeout=0)
             except subprocess.TimeoutExpired:
                 pass
+            except Exception as exc:
+                wait_error = wait_error or exc
+                control.request_cancel(
+                    reason="execution_error",
+                    grace=self._CONTROL_CAPTURE_FAILURE_GRACE_SEC,
+                )
+                try:
+                    reaped = process.poll() is not None
+                except Exception:
+                    reaped = False
+                if reaped:
+                    raise wait_error
+            else:
+                if wait_error is not None:
+                    raise wait_error
+                return exit_code, timed_out
 
             now = time.monotonic()
             if (
@@ -2296,6 +2333,17 @@ class ProviderExecutor:
             if cancellation_preceded_probe:
                 control.apply_pending_cancellation_after_incomplete_probe()
 
+            grace_deadline = control.cancellation_grace_deadline
+            if (
+                grace_deadline is not None
+                and now >= grace_deadline + self._CONTROL_IO_JOIN_TIMEOUT_SEC
+            ):
+                if wait_error is not None:
+                    raise wait_error
+                raise TimeoutError(
+                    "provider process leader was not reaped before the cleanup deadline"
+                )
+
             wait_slice = self._CONTROL_WAIT_SLICE_SEC
             if not timed_out and deadline is not None:
                 wait_slice = min(
@@ -2305,9 +2353,20 @@ class ProviderExecutor:
                 if wait_slice == 0:
                     continue
             try:
-                return process.wait(timeout=wait_slice), timed_out
+                exit_code = process.wait(timeout=wait_slice)
             except subprocess.TimeoutExpired:
                 continue
+            except Exception as exc:
+                wait_error = wait_error or exc
+                control.request_cancel(
+                    reason="execution_error",
+                    grace=self._CONTROL_CAPTURE_FAILURE_GRACE_SEC,
+                )
+                time.sleep(wait_slice)
+            else:
+                if wait_error is not None:
+                    raise wait_error
+                return exit_code, timed_out
 
     def _fail_bound_controlled_invocation(
         self,
@@ -2328,22 +2387,39 @@ class ProviderExecutor:
         stdin_outcomes: Dict[str, Tuple[bool, Optional[str]]],
         stdin_outcome_lock: Any,
         error: BaseException,
+        controlled: bool,
     ) -> ProviderExecutionResult:
         """Fail closed after bind while preserving executor-owned wait."""
         control.request_cancel(
             reason="execution_error",
             grace=self._CONTROL_CAPTURE_FAILURE_GRACE_SEC,
         )
-        exit_code, _ = self._wait_for_controlled_process(
-            process=process,
-            control=control,
-            timeout_sec=None,
+        reap_error: str | None = None
+        try:
+            if isinstance(error, TimeoutError):
+                control.force_kill()
+                control.apply_pending_cancellation_after_incomplete_probe()
+                exit_code = process.wait(timeout=self._CONTROL_IO_JOIN_TIMEOUT_SEC)
+            else:
+                exit_code, _ = self._wait_for_controlled_process(
+                    process=process,
+                    control=control,
+                    timeout_sec=None,
+                )
+        except Exception as exc:
+            exit_code = process.returncode
+            reap_error = f"provider process leader could not be reaped: {exc}"
+        pgid_empty = (
+            control.record_leader_reaped(exit_code)
+            if exit_code is not None else False
         )
-        pgid_empty = control.record_leader_reaped(exit_code)
         io_join_errors = self._join_controlled_io_workers(
             stdin_threads=stdin_threads,
             capture_threads=capture_threads,
-            bounded=not pgid_empty,
+            timeout_sec=(
+                ProviderExecutionControl._FINALIZATION_TIMEOUT_SEC if pgid_empty
+                else self._CONTROL_IO_JOIN_TIMEOUT_SEC
+            ),
         )
         capture_threads_joined = all(
             not thread.is_alive()
@@ -2362,7 +2438,7 @@ class ProviderExecutor:
             try:
                 process.stdin.close()
             except BrokenPipeError:
-                if not control.classify_stdin_broken_pipe(
+                if controlled and not control.classify_stdin_broken_pipe(
                     failure_grace=self._CONTROL_STDIN_FAILURE_GRACE_SEC,
                 ):
                     stdin_close_error = (
@@ -2389,16 +2465,13 @@ class ProviderExecutor:
             if pipe is None or getattr(pipe, "closed", False):
                 continue
             try:
-                if (
-                    pgid_empty
-                    and (
-                        capture_thread is None
-                        or not capture_thread.is_alive()
-                    )
-                ):
+                if capture_thread is None or not capture_thread.is_alive():
+                    os.set_blocking(pipe.fileno(), False)
                     remainder = pipe.read()
                     if remainder:
                         buffer.extend(remainder)
+            except Exception as exc:
+                io_join_errors.append(f"failed to read provider pipe during cleanup: {exc}")
             finally:
                 if (
                     capture_thread is None
@@ -2423,6 +2496,7 @@ class ProviderExecutor:
 
         boundary_errors = [
             f"provider execution failed after bind: {error}",
+            *([reap_error] if reap_error else []),
             *self._stdin_outcome_errors(
                 stdin_required=stdin_input is not None,
                 stdin_outcomes=stdin_outcomes,
@@ -2484,14 +2558,10 @@ class ProviderExecutor:
         *,
         stdin_threads: List[threading.Thread],
         capture_threads: List[threading.Thread],
-        bounded: bool,
+        timeout_sec: float,
     ) -> List[str]:
-        """Join owned I/O workers without waiting forever on a live PGID."""
-        deadline = (
-            time.monotonic() + self._CONTROL_IO_JOIN_TIMEOUT_SEC
-            if bounded
-            else None
-        )
+        """Bound settlement even when escaped descendants hold owned pipes."""
+        deadline = time.monotonic() + timeout_sec
         workers = [
             *(
                 (f"stdin-{index}", thread)
@@ -2505,10 +2575,7 @@ class ProviderExecutor:
         for _, thread in workers:
             if thread.ident is None:
                 continue
-            if deadline is None:
-                thread.join()
-            else:
-                thread.join(timeout=max(deadline - time.monotonic(), 0.0))
+            thread.join(timeout=max(deadline - time.monotonic(), 0.0))
 
         nonjoined = [
             name
@@ -2526,30 +2593,6 @@ class ProviderExecutor:
     def _nonzero_controlled_exit_code(exit_code: int | None) -> int:
         return 1 if exit_code in {None, 0} else exit_code
 
-    def _terminate_process_tree(self, process: subprocess.Popen) -> None:
-        """Terminate a managed provider process group with a hard-kill fallback."""
-        try:
-            os.killpg(process.pid, signal.SIGTERM)
-        except ProcessLookupError:
-            return
-        except Exception:
-            process.terminate()
-        try:
-            process.wait(timeout=2)
-            return
-        except subprocess.TimeoutExpired:
-            pass
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            return
-        except Exception:
-            process.kill()
-        try:
-            process.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            pass
-
     def _write_controlled_stdin(
         self,
         pipe: Optional[Any],
@@ -2561,6 +2604,7 @@ class ProviderExecutor:
         ],
         stdin_outcome_lock: Any,
         control: ProviderExecutionControl,
+        tolerate_broken_pipe: bool = False,
     ) -> None:
         """Deliver controlled stdin without blocking the executor arbiter."""
         failure: str | None = None
@@ -2582,8 +2626,10 @@ class ProviderExecutor:
                     )
                 remaining = remaining[written:]
         except BrokenPipeError as exc:
-            broken_pipe_expected = control.classify_stdin_broken_pipe(
-                failure_grace=self._CONTROL_STDIN_FAILURE_GRACE_SEC,
+            broken_pipe_expected = (
+                tolerate_broken_pipe or control.classify_stdin_broken_pipe(
+                    failure_grace=self._CONTROL_STDIN_FAILURE_GRACE_SEC,
+                )
             )
             if not broken_pipe_expected:
                 failure = (
@@ -2607,7 +2653,8 @@ class ProviderExecutor:
                     if failure is None:
                         if broken_pipe_expected is None:
                             broken_pipe_expected = (
-                                control.classify_stdin_broken_pipe(
+                                tolerate_broken_pipe
+                                or control.classify_stdin_broken_pipe(
                                     failure_grace=(
                                         self._CONTROL_STDIN_FAILURE_GRACE_SEC
                                     ),
@@ -2974,132 +3021,23 @@ class ProviderExecutor:
         invocation: ProviderInvocation,
         working_dir: Path,
         process_env: Dict[str, str],
-        stdin_input: Optional[bytes],
         stream_output: bool,
         start_time: float,
         session_runtime: Optional[Dict[str, Any]] = None,
         observation_handle: Optional[ProviderObservationHandle] = None,
     ) -> ProviderExecutionResult:
-        """Execute one session-enabled provider invocation and normalize transport."""
-        try:
-            process = self._start_process(
-                invocation,
-                cwd=str(working_dir),
-                env=process_env,
-                stdin=subprocess.PIPE if stdin_input is not None else subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                start_new_session=True,
-            )
-
-            if stdin_input is not None and process.stdin is not None:
-                try:
-                    process.stdin.write(stdin_input)
-                    process.stdin.close()
-                except BrokenPipeError:
-                    pass
-
-            stdout_buf = bytearray()
-            stderr_buf = bytearray()
-            expected_session_id = self._expected_session_id(invocation)
-            accumulator: SessionTransportAccumulator | None = None
-
-            def _emit_assistant_text(assistant_text: str) -> None:
-                if accumulator is None:
-                    return
-                snapshot = accumulator.snapshot()
-                if not snapshot.assistant_text_is_eligible(
-                    expected_session_id=expected_session_id,
-                ):
-                    return
-                if stream_output:
-                    self._emit_session_assistant_text(assistant_text)
-                self._append_observation_display(
-                    observation_handle,
-                    assistant_text.encode("utf-8"),
-                )
-
-            accumulator = create_session_transport_accumulator(
-                invocation.metadata_mode,
-                assistant_text_callback=(
-                    _emit_assistant_text
-                    if stream_output or observation_handle is not None
-                    else None
-                ),
-                expectation=invocation.omp_transport_expectation,
-            )
-            stdout_callback = self._build_session_stdout_callback(
-                invocation=invocation,
-                stream_output=stream_output,
-                session_runtime=session_runtime,
-                accumulator=accumulator,
-            )
-
-            stdout_thread = threading.Thread(
-                target=self._capture_pipe,
-                args=(process.stdout, stdout_buf),
-                kwargs={
-                    "chunk_callback": stdout_callback,
-                    "read_mode": "lines",
-                },
-                daemon=True,
-            )
-            stderr_thread = threading.Thread(
-                target=self._capture_pipe,
-                args=(process.stderr, stderr_buf),
-                kwargs={"out_stream": sys.stderr if stream_output else None},
-                daemon=True,
-            )
-            stdout_thread.start()
-            stderr_thread.start()
-
-            try:
-                exit_code = process.wait(timeout=invocation.timeout_sec)
-                stdout_thread.join()
-                stderr_thread.join()
-            except subprocess.TimeoutExpired:
-                self._terminate_process_tree(process)
-                process.wait()
-                stdout_thread.join()
-                stderr_thread.join()
-                duration_ms = int((time.time() - start_time) * 1000)
-                return ProviderExecutionResult(
-                    exit_code=124,
-                    stdout=b"",
-                    stderr=bytes(stderr_buf),
-                    duration_ms=duration_ms,
-                    raw_stdout=bytes(stdout_buf),
-                    error={
-                        "type": "timeout",
-                        "message": f"Provider timed out after {invocation.timeout_sec} seconds",
-                        "context": {"timeout_sec": invocation.timeout_sec},
-                    },
-                )
-
-            duration_ms = int((time.time() - start_time) * 1000)
-            return self._finalize_session_result(
-                invocation=invocation,
-                exit_code=exit_code,
-                raw_stdout=bytes(stdout_buf),
-                stderr=bytes(stderr_buf),
-                duration_ms=duration_ms,
-                stream_output=stream_output,
-                accumulator=accumulator,
-            )
-        except Exception as exc:
-            duration_ms = int((time.time() - start_time) * 1000)
-            return ProviderExecutionResult(
-                exit_code=1,
-                stdout=b"",
-                stderr=str(exc).encode("utf-8"),
-                duration_ms=duration_ms,
-                raw_stdout=b"",
-                error={
-                    "type": "execution_error",
-                    "message": str(exc),
-                    "context": {},
-                },
-            )
+        """Execute a session turn using the invocation-owned group lifecycle."""
+        return self._execute_controlled_invocation(
+            invocation=invocation,
+            working_dir=working_dir,
+            process_env=process_env,
+            stream_output=stream_output,
+            start_time=start_time,
+            session_runtime=session_runtime,
+            control=ProviderExecutionControl(),
+            observation_handle=observation_handle,
+            controlled=False,
+        )
 
     def _append_masked_transport(
         self,
