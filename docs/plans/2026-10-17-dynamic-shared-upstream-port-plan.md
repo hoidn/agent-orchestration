@@ -111,28 +111,28 @@ the coordinator instead of applied.
 **Files:** `orchestrator/providers/{executor,control}.py`,
 `tests/test_provider_execution.py`, `tests/test_provider_execution_control.py`,
 `specs/providers.md`.
-- [ ] `git apply` both saved patches; run
+- [x] `git apply` both saved patches; run
   `python -m pytest -q -p no:cacheprovider tests/test_provider_execution.py tests/test_provider_execution_control.py`;
   expect exactly 194 passed. Anything else is an adaptation gap: fix or escalate.
-- [ ] Run the executor consumers on HEAD and on the control worktree, in tmux:
+- [x] Run the executor consumers on HEAD and on the control worktree, in tmux:
   `tests/test_managed_provider_execution.py tests/test_managed_provider_runtime.py tests/test_provider_session_transport.py tests/test_provider_observation_execution.py tests/test_provider_interactive_terminal.py tests/test_provider_peer_group_runtime.py tests/test_workflow_evaluated_provider_lifecycle.py tests/test_provider_supervision_ir.py tests/test_provider_supervision_resume.py tests/test_provider_supervision_runtime.py`.
   Attribute every HEAD-only failure; a failure that is the D-C rule taking effect
   is updated to the new contract with that reason in the commit.
-- [ ] Port the `specs/providers.md` owned-group teardown wording (reaped leader,
+- [x] Port the `specs/providers.md` owned-group teardown wording (reaped leader,
   observed-empty group, finite deadlines, settlement, D-C) into the branch's
   Timeouts section at hunk level; native/3.0 sections untouched.
-- [ ] Distinct review, then commit: `fix: port bounded owned-group provider teardown`.
+- [x] Distinct review, then commit: `fix: port bounded owned-group provider teardown`.
 
 ### Task 2: Port the streaming rule (package 2)
 **Files:** as listed in the scope table, plus `tests/test_workflow_dynamic_cli.py`.
 Runs in parallel with Task 1 (disjoint files).
-- [ ] Add the `tests/test_workflow_evaluated_providers.py` hunk and a native
+- [x] Add the `tests/test_workflow_evaluated_providers.py` hunk and a native
   subprocess regression (`python -m orchestrator … run` at 3.0 with a local
   provider shim) asserting provider output appears on stdout by default and not
   with `--quiet`, with `--stream-output` accepted; collect, show the failures,
   implement, rerun. Record at least one real CLI process per route in the receipt.
-- [ ] Run `python -m pytest -q -p no:cacheprovider tests/test_workflow_evaluated_providers.py tests/test_workflow_dynamic_providers.py tests/test_workflow_dynamic_cli.py tests/test_workflow_evaluated_resume.py tests/test_workflow_lisp_closed_program_corpus.py`.
-- [ ] Write the `specs/cli.md` wording and the proposal-doc line. Distinct
+- [x] Run `python -m pytest -q -p no:cacheprovider tests/test_workflow_evaluated_providers.py tests/test_workflow_dynamic_providers.py tests/test_workflow_dynamic_cli.py tests/test_workflow_evaluated_resume.py tests/test_workflow_lisp_closed_program_corpus.py`.
+- [x] Write the `specs/cli.md` wording and the proposal-doc line. Distinct
   review, commit: `feat: stream provider output through both runtimes`.
 
 ### Task 3: Port reply-excerpt blanking and the parser delegation (packages 3, 4)
@@ -140,31 +140,31 @@ Runs in parallel with Task 1 (disjoint files).
 `orchestrator/contracts/output_contract.py`,
 `tests/test_workflow_evaluated_providers.py`, `tests/test_workflow_evaluated_provider_delivery.py`.
 Starts only after Task 2 has committed (shared files).
-- [ ] Add the shim modes and the excerpt test; replace the branch assertion as
+- [x] Add the shim modes and the excerpt test; replace the branch assertion as
   described; show failure; port the two `providers.py` hunks.
-- [ ] Port the `_parse_output_value` delegation; run
+- [x] Port the `_parse_output_value` delegation; run
   `python -m pytest -q -p no:cacheprovider tests/test_output_contract.py tests/test_output_contract_collections.py tests/test_output_contract_nested_transport.py tests/test_output_contract_value.py tests/test_workflow_evaluated_providers.py tests/test_workflow_evaluated_provider_delivery.py`.
-- [ ] Distinct review, commit: `fix: name the reply head in missing-result failures and deduplicate output parsing`.
+- [x] Distinct review, commit: `fix: name the reply head in missing-result failures and deduplicate output parsing`.
 
 ### Task 4: Affected campaign and public smoke
-- [ ] In tmux: the 54 baseline modules plus the Task 1 consumer modules and any
+- [x] In tmux: the 54 baseline modules plus the Task 1 consumer modules and any
   new modules; compare with the baseline (2205 passed, 0 failed) and, for modules
   outside the baseline, with the same selectors on the control worktree. Every
   HEAD-only failure is attributed by node and fixed or shown pre-existing.
-- [ ] Public smoke, real processes: the Task 2 native subprocess regression,
+- [x] Public smoke, real processes: the Task 2 native subprocess regression,
   `tests/test_workflow_dynamic_cli.py::test_actual_public_subprocess_fresh_run`,
   `tests/test_workflow_dynamic_repl.py::test_public_native_repl_reconstructs_completed_local_provider_result_read_only`,
   `tests/test_workflow_evaluated_invalidate_smoke.py`,
   `tests/test_workflow_evaluated_consumers.py -k 'best_of_n or public or smoke'`.
 
 ### Task 5: Full non-e2e campaign and integrated review
-- [ ] In tmux: `python -m pytest -q -n 16 --dist=worksteal -p no:cacheprovider -m 'not e2e' --ignore=tests/e2e`.
+- [x] In tmux: `python -m pytest -q -n 16 --dist=worksteal -p no:cacheprovider -m 'not e2e' --ignore=tests/e2e`.
   Rerun every failing node on HEAD and on the control worktree with identical
   environment; compare normalized diagnostics (checkout/temp roots stripped). Use
   `/var/tmp/orc-dynamic-evidence/orc-dynamic-main-sync-20261015-yenoqng0/task7/failure-review/`
   only to group known causes. HEAD-only failures, or changed diagnostics, are
   fixed or demonstrated unrelated with evidence.
-- [ ] Distinct review of the whole integrated diff against `74fae634`;
+- [x] Distinct review of the whole integrated diff against `74fae634`;
   coordinator inspects `git diff --check`, `git diff --stat 74fae634..HEAD` and receipts.
 
 ### Task 6: Report, rehearse, then fast-forward the target
