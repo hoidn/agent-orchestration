@@ -634,6 +634,37 @@ def test_public_phased_uncommitted_kills_cleanup_before_whole_visit_rerun(tmp_pa
     assert not (namespace / "tmux.sock").exists()
 
 
+def test_public_phased_before_materialization_waits_for_task_acknowledgement(tmp_path, monkeypatch):
+    from tests import workflow_evaluated_phased_helpers as public
+    case = public.public_case(tmp_path)
+    binary = tmp_path / "bin/codex"
+    # Hold the real client before its first event until the controller starts
+    # waiting for its task acknowledgement. No materialization can be offered.
+    binary.write_text(binary.read_text().replace("def event(kind, **fields):", """def event(kind, **fields):
+    if kind == 'start':
+        import time
+        deadline = time.monotonic() + 15
+        while not Path('release-task-ack').exists():
+            assert time.monotonic() < deadline, 'controller did not await task acknowledgement'
+            time.sleep(.01)"""))
+    launcher = public._PUBLIC_KILL_LAUNCHER.replace("def wait_event(kind):", """def wait_event(kind):
+    if kind == 'task':
+        Path('release-task-ack').touch()""")
+    monkeypatch.setattr(public, "_PUBLIC_KILL_LAUNCHER", launcher)
+    marker = public.public_kill(case, "before-materialization")
+    assert [row["event"] for row in public.public_events(tmp_path)] == ["start", "task"]
+    run_root = public.public_run_root(tmp_path)
+    (start,) = public.public_snapshot(run_root).latest_starts.values()
+    receipt_path = (run_root / start.data["result_path"]).with_name("phased-attempt.json")
+    assert json.loads(receipt_path.read_text())["state"] == "intent"
+    public.assert_public_readers(case, run_root, "interrupted")
+    result = public.public_cli(case, ["resume", run_root.name])
+    assert result.returncode == 0, result.stdout + result.stderr
+    public.assert_public_completed(case, run_root, ordinal=2, processes=2, turns=1)
+    assert json.loads(receipt_path.read_text())["state"] == "abandoned"
+    assert not (Path("/tmp") / marker["reservation"]["namespace"] / "tmux.sock").exists()
+
+
 @pytest.mark.parametrize("cut", ["committed", "receipt-settled", "memo-settled"])
 def test_public_phased_committed_kills_reconcile_without_dispatch(tmp_path, cut):
     from tests.workflow_evaluated_phased_helpers import (public_case, public_kill, public_run_root,

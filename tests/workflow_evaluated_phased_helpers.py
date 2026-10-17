@@ -366,6 +366,7 @@ terminal.InteractiveTerminalTurnQueueAdapter.start = start_gate
 
 offer = terminal.InteractiveTerminalTurnQueueAdapter.offer
 def offer_gate(self, *args, **kwargs):
+    if cut == 'before-materialization': wait_event('task')
     pause('before-materialization')
     value = offer(self, *args, **kwargs)
     if cut == 'materialization': wait_event('candidates')
