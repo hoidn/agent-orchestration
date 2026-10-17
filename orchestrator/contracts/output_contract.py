@@ -1262,29 +1262,17 @@ def _parse_output_value(
     finite_floats: bool = False,
     workspace_files: Any | None = None,
 ) -> tuple[Any, ContractViolation | None]:
-    if value_type == "string":
-        return raw_value, None
+    if value_type in {"string", "enum", "integer", "bool", "relpath"}:
+        return _parse_output_bundle_value(
+            raw_value=raw_value,
+            value_type=value_type,
+            spec=spec,
+            workspace=workspace,
+            finite_floats=finite_floats,
+            workspace_files=workspace_files,
+        )
 
-    if value_type == "enum":
-        allowed = spec.get("allowed", [])
-        if raw_value not in allowed:
-            return None, ContractViolation(
-                type="invalid_enum_value",
-                message="Output value is not in allowed enum set",
-                context={"value": raw_value, "allowed": allowed},
-            )
-        return raw_value, None
-
-    if value_type == "integer":
-        try:
-            return int(raw_value), None
-        except ValueError:
-            return None, ContractViolation(
-                type="invalid_integer",
-                message="Output value is not a valid integer",
-                context={"value": raw_value},
-            )
-
+    # Bundle Float violations include value_path; leaf Float violations do not.
     if value_type == "float":
         try:
             return _read_float(raw_value, finite_floats)
@@ -1294,23 +1282,6 @@ def _parse_output_value(
                 message="Output value is not a valid float",
                 context={"value": raw_value},
             )
-
-    if value_type == "bool":
-        lowered = raw_value.lower()
-        if lowered == "true":
-            return True, None
-        if lowered == "false":
-            return False, None
-        return None, ContractViolation(
-            type="invalid_bool",
-            message="Output value is not a valid boolean literal (expected true|false)",
-            context={"value": raw_value, "allowed": ["true", "false"]},
-        )
-
-    if value_type == "relpath":
-        return _validate_relpath_value(
-            raw_value, spec, workspace, workspace_files=workspace_files
-        )
 
     return None, ContractViolation(
         type="unsupported_type",

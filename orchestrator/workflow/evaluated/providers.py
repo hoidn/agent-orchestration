@@ -328,7 +328,8 @@ def perform_provider(
     if invocation.metadata_mode == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value:
         if not execution.normalized_stdout:
             raise ProviderPerformerError(
-                "provider_result_missing", f"provider did not provide normalized output for {result_path}"
+                "provider_result_missing",
+                f"provider did not provide normalized output for {result_path}{_reply_excerpt(attempt_files)}",
             )
         attempt_files.create("result.json", execution.normalized_stdout, exclusive=True)
     return _provider_result(
@@ -364,6 +365,16 @@ def _prepare_provider_invocation(node, resolved, result_path, executor):
     )
 
 
+def _reply_excerpt(attempt_files):
+    """`; reply began: <head>` from the attempt's stdout for operators, or "" when it is blank.
+
+    Non-printable characters (NUL, ANSI escapes) become spaces: the memo rejects a NUL in the terminal message.
+    """
+    reply = attempt_files.read("stdout.txt").decode("utf-8", errors="replace")
+    head = " ".join("".join(c if c.isprintable() else " " for c in reply).split())[:240]
+    return f"; reply began: {head}" if head else ""
+
+
 def _provider_result(
     node, resolved, attempt_files, workspace_files, result_path, *, native_result=False
 ):
@@ -371,7 +382,7 @@ def _provider_result(
         result_bytes = attempt_files.read("result.json")
     except FileNotFoundError as exc:
         raise ProviderPerformerError(
-            "provider_result_missing", f"provider did not create {result_path}"
+            "provider_result_missing", f"provider did not create {result_path}{_reply_excerpt(attempt_files)}"
         ) from exc
     except (OSError, ValueError) as exc:
         raise ProviderPerformerError("provider_result_unreadable", str(exc)) from exc

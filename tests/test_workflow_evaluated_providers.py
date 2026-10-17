@@ -41,6 +41,8 @@ with Path("requests.jsonl").open("a", encoding="utf-8") as out:
         "prompt": prompt.decode("utf-8"), "env": {key: os.environ.get(key)
         for key in ("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY")}}) + "\n")
 mode = os.environ.get("PROVIDER_SHIM_MODE", "success")
+if mode == "silent": sys.exit(0)
+if mode == "nul": sys.stdout.buffer.write(b"I wrote it\x00 here \x1b[31mred\x1b[0m\n"); sys.exit(0)
 if mode != "empty":
     sys.stdout.buffer.write(b"complete stdout\n"); sys.stdout.buffer.flush()
     sys.stderr.buffer.write(b"complete stderr\n"); sys.stderr.buffer.flush()
