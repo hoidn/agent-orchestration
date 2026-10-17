@@ -1,19 +1,8 @@
 # Workflow Lisp Structural Parametric Constraints
 
-Status: superseded by `docs/design/workflow_lisp_parametric_type_system.md`
-(2026-07-06); retained as a historical record, do not extend
-Kind: Workflow Lisp type-system design direction
-Created: 2026-06-02
+Status: Historical (retired surface)
 
-Related docs:
-
-- `docs/design/workflow_lisp_compile_time_parametric_specialization.md`
-- `docs/design/workflow_lisp_review_revise_stdlib_parametric_integration.md`
-- `docs/design/workflow_lisp_key_migration_parity_architecture.md`
-- `docs/design/workflow_lisp_proc_refs_partial_application.md`
-- `docs/design/workflow_lisp_stdlib_lowering.md`
-- `docs/plans/2026-06-02-workflow-lisp-generic-orc-expansion-refactor.md`
-- `docs/plans/LISP-MIGRATION-PARITY-DRAIN/design-gaps/workflow-lisp-review-loop-generic-effectful-composition/implementation_architecture.md`
+Replaced by the [parametric type system](workflow_lisp_parametric_type_system.md).
 
 ## Purpose
 

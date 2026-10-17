@@ -1,6 +1,6 @@
 # YAML-to-Workflow-Lisp Gap List
 
-Status: Historical Stage 6 Task 1 gate contract; all three scoped YAML paths retired in Task 6
+Historical record of the retired YAML frontend; for current authoring, use the [Workflow Lisp drafting guide](lisp_workflow_drafting_guide.md).
 
 This audit closes the language-gap list for exactly the two YAML workflows that
 received dedicated `.orc` ports and the former protected holdout in the

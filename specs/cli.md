@@ -49,11 +49,10 @@ workspace as the working directory.
 
 ## Workflow Lisp REPL
 
-The shared session supports typed evaluated targets 2.35/2.36 and the
-branch-qualified native 3.0 contract. The accepted
+The shared session supports typed evaluated targets 2.35/2.36 and
+[native target 3.0](versioning.md#native-target-30). The
 [REPL design](../docs/design/workflow_lisp_repl.md) owns capture and expression
-semantics; the [port plan](../docs/plans/2026-10-12-workflow-lisp-dynamic-repl-port-plan.md)
-owns implementation status and verification, independently of this contract.
+semantics.
 
 ```text
 orchestrator repl [WORKFLOW] [--entry-workflow NAME] [--source-root DIR ...]
@@ -129,7 +128,7 @@ root. Omit NAME to inspect the completed entry result. Computed values and
 missing/invalid locators report `repl_no_result_file`; unknown captured names
 report `name_unknown`; an absent completed entry reports `repl_no_result`.
 It locates result files, not source declaration locations. See the
-[accepted introspection design](../docs/design/workflow_lisp_repl_introspection.md)
+[introspection design](../docs/design/workflow_lisp_repl_introspection.md)
 for provenance and per-profile projection boundaries. These commands dispatch
 no effects and leave run authority, memo, views and attempt evidence unchanged.
 
@@ -254,10 +253,10 @@ universally detectable; typed memo integrity guarantees do not transfer.
 
 ## Dynamic execution
 
-On the qualified branch, an explicit `(:target-dsl "3.0")` selects the
-[dynamic profile](versioning.md#branch-qualified-target-30) through the existing
+An explicit `(:target-dsl "3.0")` selects the
+[native dynamic profile](versioning.md#native-target-30) through the existing
 compile/run entry points and source/entry/binding flags; there is no profile
-flag or separate dynamic launcher. Full readiness and adoption remain separate.
+flag or separate dynamic launcher.
 
 Compile admits the complete source/import graph and every body, writes an
 independently checked dynamic program/source map, and validates read-back.
@@ -289,6 +288,7 @@ performer dispatch. A fresh run can repeat earlier calls, budget and external
 writes; it does not adopt orphan outputs. Typed and legacy recovery contracts
 below remain scoped to their retained profiles. See
 [State](state.md#dynamic-fresh-run-authority).
+
 ## Command reference
 
 - Commands

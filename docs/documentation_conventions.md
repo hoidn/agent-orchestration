@@ -1,119 +1,82 @@
 # Documentation Conventions
 
-Status: informative documentation hygiene guide
-Normative authority: `specs/` for runtime behavior
+Rules for adding or editing maintained docs: `README.md`, `MIND_MAP.md`, top-level
+`docs/*.md`, `docs/design/`, `docs/templates/`, `specs/`, and the READMEs under
+`workflows/`, `prompts/` and `experiments/`.
 
-Use this guide when adding or revising docs, plans, design docs, workflow
-catalog entries, and authoring examples. The goal is to make each page clear
-about authority, status, evidence, and copy safety.
+A reader should be able to tell from any page what it covers, what runs, how to
+use it and where it stops.
 
-## Required Front Matter In Prose
+## Current Guidance And Historical Records
 
-Near the top of new docs, answer these questions in plain text:
+- `specs/` defines normative runtime and language behavior. If a doc and a spec
+  disagree, fix the doc (or change the spec on purpose).
+- `docs/design/` explains how a feature works and why. A design that is not
+  implemented yet may link its own plan.
+- Guides, catalogs and indexes route readers to the owning spec or design; they
+  do not redefine behavior.
+- [`capability_status_matrix.md`](capability_status_matrix.md) records whether a
+  surface runs.
+- History lives in `docs/plans/`, `docs/reports/`, `docs/superpowers/`,
+  `docs/backlog/` and git. Maintained docs do not cite these directories,
+  except for the [History section of the index](index.md#history), a design
+  doc's own plan while the design is unimplemented, and an experiment README's
+  own result report. Leave historical records as they are.
 
-- What is this page for?
-- Is it normative, current guidance, a target design, a plan, or historical
-  context?
-- Which spec, design, test, workflow, or run evidence owns the behavior?
-- Is the page safe to copy from directly?
-- If it describes future work, what should readers use today?
+## Writing Rules
 
-## Status Labels
+Say what is current, in present tense: what the feature is, which targets and
+forms run, the commands, inputs, outputs and user-visible errors. Link the spec
+or design that owns the behavior and the runnable example or test a reader
+would use.
 
-Use these labels consistently:
+State limits plainly, as facts about today: "native 3.0 runs are fresh-only:
+no resume, retries or result reuse." Do not hedge a limit with process language.
 
-- `Current contract`: behavior or guidance accepted for the current checkout.
-- `Implemented`: available with runtime/test/spec evidence.
-- `Partial`: available only for some routes or with clear limitations.
-- `Library`: available as a library/frontend abstraction rather than a raw DSL
-  primitive.
-- `Designed`: design exists, but implementation is not complete enough for
-  normal use.
-- `Planned`: roadmap position and a gated plan exist, but the governing design
-  is not yet accepted and implementation must not begin.
+Leave these out of maintained docs:
+
+- status or authority boilerplate (`Status: informative`, `Normative
+  authority: ...`, "this page does not select or authorize ...");
+- commit, tree and SHA-256 identifiers; review tokens (`*_APPROVED`,
+  `PASS_*`); pass/fail counts;
+- task, phase, gate, stage and tranche labels, unless the label is a
+  user-visible feature name;
+- delivery narration ("now imported", "Task 7 removed", "the earlier
+  comparison");
+- qualification and selection framing ("branch-qualified", "candidate",
+  "adoption", "selected", "frozen", "does not certify", "no default change").
+
+Version identifiers such as 2.34, 2.35, 2.36 and 3.0 are real target names;
+use them.
+
+## Capability Labels
+
+The capability matrix uses these labels:
+
+- `Implemented`: runs, with spec and tests.
+- `Partial`: runs for some routes or with stated limits.
+- `Library`: provided by a library or frontend abstraction rather than a raw
+  runtime primitive.
+- `Designed`: a design exists; not usable yet.
 - `Future`: intentionally deferred.
-- `Retired`: removed from the live product or evidence surface; retained
-  references are historical provenance.
-- `Legacy`: retained for compatibility or migration comparison, not preferred
-  for new authoring.
-- `Historical`: useful context, but not a current authority.
+- `Retired`: removed; remaining references are history.
+- `Legacy`: kept for compatibility; not for new authoring.
 
-When status is uncertain, say so explicitly. Do not turn an aspirational design
-into current guidance by omission.
+## References
 
-## Authority Rules
+Refer to mutable code and docs by path, symbol or section heading, not line
+number. Before renaming or removing a heading, search maintained docs for links
+to its anchor and update them.
 
-- Runtime and DSL behavior: `specs/` wins.
-- Current Workflow Lisp contracts: accepted component docs under `docs/design/`
-  and current tests/examples provide the implementation-facing contract.
-- Runnable workflow authoring: `docs/lisp_workflow_drafting_guide.md`.
-- Historical YAML/YML interpretation and translation:
-  `docs/workflow_drafting_guide.md`; the retired frontend cannot execute it.
-- Design routing: `docs/design/README.md`.
-- Surface status: `docs/capability_status_matrix.md`.
-- Historical orientation: `MIND_MAP.md`.
+## Examples
 
-If two docs disagree, fix the lower-authority or stale doc rather than copying
-the disagreement forward.
+An example meant for copying runs from the repo root, uses no
+maintainer-local absolute paths or unstated environment variables, names its
+inputs, and says which target it uses. An example not meant for copying says
+why (negative fixture, reference only, known failure).
 
-Indexes, catalogs, maps, and README hubs own discoverability: links, reading
-paths, status, and evidence routing. They do not redefine the behavior or policy
-owned by the linked spec, design, plan, or artifact contract.
+## Views
 
-## Durable References
-
-Reference mutable source and documentation by path, symbol, or section. Use
-exact line numbers only for immutable evidence artifacts or when the line itself
-is the claim under review.
-
-## Copy-Safe Examples
-
-Examples intended for copying should:
-
-- run from the repo root;
-- avoid maintainer-local absolute paths;
-- avoid unstated environment variables;
-- name required inputs;
-- say whether they are YAML, `.orc`, generated debug output, or test fixtures;
-- say whether they are current, partial, legacy, negative, or migration-only.
-
-Examples not intended for copying should say why. Common reasons include legacy
-compatibility, negative fixtures, prompt asset issues, missing schema cleanup, or
-future design sketches.
-
-## Design Docs
-
-Design docs should state:
-
-- status and scope;
-- what they own and what they consume from other docs;
-- normative/spec impact;
-- implementation evidence required before promotion;
-- current fallback behavior if the design is not implemented;
-- known open questions and non-goals.
-
-Do not use a design doc to silently redefine normative runtime behavior. Add or
-plan the corresponding spec update when behavior changes.
-
-## Plans And Backlog Items
-
-Plans and backlog items should distinguish:
-
-- target architecture;
-- implementation tasks;
-- verification tasks;
-- accepted temporary bridges;
-- terminal blocker conditions;
-- user-input conditions.
-
-Avoid status labels that make recoverable implementation work look like a
-terminal decision. In workflow-drained work, user input should be reserved for
-major unresolvable ambiguity in intention or environment issues that require
-user intervention.
-
-## Reports And Views
-
-Reports, markdown summaries, rendered debug YAML, stdout, prompt audits, pointer
-files, dashboards, and source maps are views unless a contract says otherwise.
-When a doc asks readers to trust one of those views, it should also identify the
-structured state, artifact, bundle, or spec that backs it.
+Reports, markdown summaries, rendered debug output, stdout, prompt audits,
+pointer files, dashboards and source maps are views. If a doc asks readers to
+rely on one, it names the structured state, artifact or spec behind it.

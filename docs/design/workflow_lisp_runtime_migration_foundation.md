@@ -1,43 +1,19 @@
 # Workflow Lisp Runtime Migration Foundation
 
-Status: implemented foundation; manifest-driven promotion-gate tranche retired
+Status: Implemented
 
-The manifest-driven parity generator described in the historical tranche below
-is retired. Structured-output, private-value, prompt-extern, and generated-path
-contracts remain current; current route claims use the route-readiness registry
-and direct owner tests, while checked-in parity reports remain frozen history.
+Command structured-output conformance, frontend-lowered typed value transport,
+provider structured-output target binding, and generated state/path
+allocation. Normative behavior is owned by [IO](../../specs/io.md),
+[providers](../../specs/providers.md), [DSL](../../specs/dsl.md) and
+[state](../../specs/state.md). The manifest-driven promotion gate in the
+historical tranche below is retired.
 
-Historical status at completion: completed foundation / implemented baseline
-Kind: architecture decision / migration foundation
-Created: 2026-06-08
-Updated: 2026-06-11
-Scope: command structured-output conformance; frontend-lowered typed value transport; provider structured-output target binding; migration promotion gate hardening; and generated state/path allocation ownership.
-
-Authority:
-
-- Normative command IO behavior lives in `specs/io.md`.
-- Normative provider prompt/source behavior lives in `specs/providers.md`.
-- Normative DSL/runtime surface behavior lives in `specs/dsl.md`.
-- Normative runtime state behavior lives in `specs/state.md`.
-- This document is a completed migration foundation and implementation-sequencing design.
-- This document does not by itself promote any `.orc` workflow to primary surface.
-- A behavior described here remains baseline only while the listed verification evidence and owning specs/tests stay current.
-
-Related docs:
-
-- `specs/io.md`
-- `specs/dsl.md`
-- `specs/providers.md`
-- `specs/state.md`
-- `docs/design/workflow_command_adapter_contract.md`
-- `docs/design/workflow_lisp_key_migration_parity_architecture.md`
-- `docs/design/workflow_lisp_state_layout.md`
-- `docs/design/workflow_lisp_semantic_workflow_ir.md`
-- `docs/design/workflow_lisp_executable_ir.md`
-- `docs/design/workflow_lisp_source_map.md`
-- `docs/design/workflow_lisp_review_revise_stdlib_parametric_integration.md`
-- `docs/reports/2026-06-08-generic-review-revise-orc-runtime-gap-report.md`
-- `docs/lisp_workflow_drafting_guide.md`
+Related: [command adapter contract](workflow_command_adapter_contract.md),
+[state layout](workflow_lisp_state_layout.md),
+[Semantic Workflow IR](workflow_lisp_semantic_workflow_ir.md),
+[executable IR](workflow_lisp_executable_ir.md),
+[source map](workflow_lisp_source_map.md).
 
 ## 1. Purpose
 

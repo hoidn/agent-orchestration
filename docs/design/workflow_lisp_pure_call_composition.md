@@ -1,22 +1,15 @@
 # Workflow Lisp Pure-Call Expression Composition
 
-## Metadata
+Status: Implemented in target 2.30
 
-- **Status:** implemented for the resolved-inline subset at target 2.30
-- **Kind:** companion architecture decision; implemented contract incorporated
-  into [frontend baseline §8.6](workflow_lisp_frontend_specification.md#86-defun)
-- **Owner:** Workflow Lisp typechecking, pure-expression lowering, and WCC
-- **Created:** 2026-09-08
-- **Implementation target:** 2.30, Package C in the owner-requested composition
-  implementation plan. Forty-eight focused checks include selected hooks,
-  strict rechecking, once-only evaluation and public committed-boundary resume;
-  Astra approved the shared-owner correction and old-target compatibility proof.
-  This does not select a research allocation or establish superior reuse utility.
-- **Roadmap:** [EC-1](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#ec-1--pure-call-expression-composition-pending-unselected)
-- **Companion:** [effect-ledger simplification](workflow_lisp_effect_ledger_simplification.md)
-- **Evidence:** [effect-tracking audit](../reports/2026-09-08-workflow-lisp-effect-tracking-audit.md)
-- **Drafting record:** [design plan](../plans/2026-09-08-effect-contract-and-composition-design-plan.md)
-- **Incremental integration:** [value and continuation composition](workflow_lisp_value_and_continuation_composition.md); its Increment 3 consumes this contract without making rendering, loop, context, or human-input work prerequisites.
+Calls to resolved inline effect-free helpers compose as ordinary expressions;
+effectful calls, private execution frames and bodies that cannot reduce to
+supported pure expressions are excluded. The implemented contract is part of
+[frontend specification §8.6](workflow_lisp_frontend_specification.md#86-defun).
+
+Related: [effect-ledger simplification](workflow_lisp_effect_ledger_simplification.md),
+[value and continuation composition](workflow_lisp_value_and_continuation_composition.md)
+(Increment 3 consumes this contract).
 
 ## Summary And Current Fallback
 

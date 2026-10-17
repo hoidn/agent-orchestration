@@ -1,7 +1,5 @@
 # Work Definition Model
 
-Status: informative
-
 This document explains how this repo separates semantic definitions from
 procedural work instructions and workflow mechanics.
 
@@ -79,9 +77,7 @@ Examples:
 
 These mechanics belong in Workflow Lisp source, reusable `.orc` libraries,
 certified scripts/adapters, and prompt contracts for the relevant workflow
-step. They are not part of the work instructions. Historical YAML definitions
-may document prior mechanics, but are translation evidence rather than runnable
-workflow source.
+step. They are not part of the work instructions.
 
 ### Run Evidence
 

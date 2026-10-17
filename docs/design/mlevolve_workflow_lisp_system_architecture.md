@@ -1,45 +1,17 @@
 # MLEvolve Workflow Lisp System Architecture
 
-Status: draft design
-Kind: system architecture / workflow-library design
-Created: 2026-06-09
-Updated: 2026-06-09
-Scope: Workflow Lisp architecture for an MLEvolve-style autonomous ML engineering search workflow, including typed orchestration, Monte Carlo Graph Search approximation, provider roles, certified adapters, state authority, and migration path from candidate sketches.
+Status: Design only (not implemented)
 
-Authority:
-
-- Normative DSL/runtime behavior lives in `specs/`.
-- Workflow Lisp authoring guidance lives in `docs/lisp_workflow_drafting_guide.md`.
-- Command adapter policy lives in `docs/design/workflow_command_adapter_contract.md`.
-- Runtime foundation prerequisites live in `docs/design/workflow_lisp_runtime_migration_foundation.md`.
-- This document is a design target and implementation architecture. It is not a normative runtime spec.
-- This document does not promote any MLEvolve `.orc` workflow to production authority until compile, shared validation, dry-run or smoke, adapter fixtures, and runtime evidence pass.
-
-Related docs:
-
-- `docs/design/workflow_language_design_principles.md`
-- `docs/design/workflow_command_adapter_contract.md`
-- `docs/design/workflow_lisp_runtime_migration_foundation.md`
-- `docs/design/workflow_lisp_proc_refs_partial_application.md`
-- `docs/design/workflow_lisp_stdlib_lowering.md`
-- `docs/design/workflow_lisp_state_layout.md`
-- `docs/lisp_workflow_drafting_guide.md`
-- `specs/dsl.md`
-- `specs/io.md`
-- `specs/providers.md`
-- `specs/state.md`
-
-Source candidate sketches:
-
-- `tmp/mle/mle1/mlevolve_modular_mcgs_solution/`
-- `tmp/mle/mle2/mlevolve_orc_solution_self_contained/`
-- `tmp/mle/mle3/mlevolve_orc_solution/`
-- `tmp/mle/mle4/mlevolve_approx_solution/`
-
-These paths are local working evidence, not durable implementation evidence.
-Before using this document as an implementation handoff, preserve the reviewed
-candidates under a committed fixture path, a report artifact, or a recorded
-commit/ref.
+A proposed Workflow Lisp architecture for an MLEvolve-style autonomous ML
+search workflow: typed orchestration, a Monte Carlo Graph Search approximation,
+provider roles, certified adapters and state authority. No workflow implements
+it; [`specs/`](../../specs/index.md) own runtime behavior, and today readers
+author with the [drafting guide](../lisp_workflow_drafting_guide.md) and the
+[command adapter contract](workflow_command_adapter_contract.md). The small
+scripted [MLEvolve-inspired paired search](../../experiments/mlevolve_pair/README.md)
+is the closest runnable example. The candidate sketches compared below
+(`tmp/mle/mle1`–`mle4`) were local working copies and are not in the
+repository.
 
 ## 1. Purpose
 

@@ -1,37 +1,35 @@
 # Workflow Lisp Library Reference
 
-Status: informative reference, with availability stated per execution profile.
-Use this page to choose a reusable helper or complete example. The
-[drafting guide](lisp_workflow_drafting_guide.md) owns authoring judgment;
-[capability status](capability_status_matrix.md), linked designs and
-[normative versioning](../specs/versioning.md) own availability. Existing
-application sources retain their declared targets; a newer runtime does not
-retarget an imported example automatically.
+Use this page to choose a reusable helper or complete example. Each entry
+names the target it runs at. Typed 2.35/2.36 checks types before execution and
+can resume a run; native 3.0 composes ordinary functions and closures in fresh
+runs. The [drafting guide](lisp_workflow_drafting_guide.md) covers authoring;
+[versioning](../specs/versioning.md) defines each target. A source keeps its
+declared target; the runtime never retargets an example or an import.
 
 ## Choose by task
 
 | Task | Entry | Kind and prerequisites |
 | --- | --- | --- |
-| Generate independent code changes and choose one | [Generate candidates and select](#generate-candidates-and-select) | Serial target-2.35 example; caller prepares candidate repositories and provider bindings |
+| Generate independent code changes and choose one | [Generate candidates and select](#generate-candidates-and-select) | Typed 2.35 example, serial; caller prepares candidate repositories and provider bindings |
 | Review and revise one candidate | [Review and revise](#review-and-revise) | Typed `std/improve` or native `std/dynamic/improve`; caller supplies hooks and domain data |
-| Obtain a deterministic score | [Evaluate with an external command](#evaluate-with-an-external-command) | Complete target-2.35 command example, executable and manifest |
-| Search under an evaluation budget | [Iterative search](#iterative-search) | Application-defined controller and local leaves, with explicitly selected target |
-| Inspect a loaded module or run | [REPL guide](lisp_workflow_drafting_guide.md#inspect-a-run-with-the-workflow-lisp-repl) | Typed 2.35/2.36 or qualified native 3.0; declaration inspection does not run effects |
+| Obtain a deterministic score | [Evaluate with an external command](#evaluate-with-an-external-command) | Typed 2.35 example with its scorer and command manifest |
+| Search under an evaluation budget | [Iterative search](#iterative-search) | Native 3.0 controller over local commands; the application defines the policy |
+| Inspect a loaded module or run | [REPL guide](lisp_workflow_drafting_guide.md#inspect-a-run-with-the-workflow-lisp-repl) | Typed 2.35/2.36 or native 3.0; declaration inspection does not run effects |
 
 Selection compares alternatives; revision changes one candidate; evaluation
 supplies evidence; a controller chooses what to propose next. No generic
 candidate, fitness, population or merge API is supplied. The
-[design lessons](orc_workflow_design_lessons.md) explain the evidence for choosing
-between these patterns.
+[design lessons](orc_workflow_design_lessons.md) say when each pattern pays off.
 
 Compile and dry-run validate source, bindings and inputs without launching
-providers or commands. They do not certify executable bytes. Reached execution
-pins declared command closures under the
+providers or commands, and without reading command executables. Execution pins
+the declared command closures under the
 [command adapter contract](design/workflow_command_adapter_contract.md#command-closure-declaration).
 
 ## Generate candidates and select
 
-**Kind:** example workflow. The complete maintained
+**Kind:** example workflow. The complete
 [`best_of_n.orc`](../experiments/orc_vs_single_call/workflows/best_of_n.orc)
 targets **2.35**. Its `best-of-n(task: String, intent: String,
 repos: List[String]) -> Selection` calls `implement-one` serially through
@@ -46,10 +44,9 @@ separate existing clones from the same clean baseline, with their required
 application environment already installed. Supply a task that applies to that
 baseline, an intended change for judging and the clone paths. For `select-only`,
 supply one account per repo in matching order; the module adds no alignment
-check. It does not create clones, install environments or sandbox provider tools.
-There is no current primitive for preparing repositories or running arbitrary
-expressions in isolated environments. Generalized run-reference/OCI expression
-environments remain proposed, not an available authoring route.
+check. It does not create clones, install environments or sandbox provider tools,
+and no primitive prepares repositories or runs expressions in isolated
+environments.
 
 The module supplies its types and two prompts. The
 [provider manifest](../experiments/orc_vs_single_call/workflows/best_of_n.providers.json)
@@ -70,11 +67,10 @@ python -m orchestrator compile experiments/orc_vs_single_call/workflows/best_of_
   --provider-externs-file experiments/orc_vs_single_call/workflows/best_of_n.providers.json
 ```
 
-The [maintained operating recipe](../experiments/orc_vs_single_call/README.md#run-the-maintained-best-of-n-workflow)
-provides clone preparation, complete JSON inputs and compile/dry-run/run/resume
-commands from the prepared candidate working root. It is the complete launch
-route; the frozen experiment measurements describe their original sources.
-Candidates execute in order, not in parallel, and there are no ProcRef hooks.
+The [operating recipe](../experiments/orc_vs_single_call/README.md#run-the-maintained-best-of-n-workflow)
+gives clone preparation, complete JSON inputs and compile/dry-run/run/resume
+commands from the prepared candidate working root. Candidates execute in
+order, not in parallel, and there are no ProcRef hooks.
 
 ## Review and revise
 
@@ -91,16 +87,16 @@ own the typed outcome and round contracts.
 | Entry profile | Import/call | Hooks and limits |
 | --- | --- | --- |
 | Typed 2.35 | `std/improve`; `(improve initial inputs review revise limit)` | `review(S I) -> Decision[F B]`; `revise(S I F) -> S`; positive compile-time round limit |
-| Typed 2.36 W3 | `std/improve`; `(improve initial review revise limit)` | `review(S) -> Decision[F B]`; `revise(S F) -> S`; local hooks may capture context; same typed round limit |
-| Qualified native 3.0 | `std/dynamic/improve`; `(improve initial review revise limit)` | Ordinary functions/captures; declared boundary schemas; positive runtime limit and entry operation budget |
+| Typed 2.36 | `std/improve`; `(improve initial review revise limit)` | `review(S) -> Decision[F B]`; `revise(S F) -> S`; local hooks may capture context; same typed round limit |
+| Native 3.0 | `std/dynamic/improve`; `(improve initial review revise limit)` | Ordinary functions/captures; declared boundary schemas; positive runtime limit and entry operation budget |
 
 The typed entry target selects **one API for the whole source import graph**.
 Retargeting to 2.36 requires migrating five-argument source callers, including
 indirect dependencies; compatible and type-only older modules remain legal.
-Complete compiled snapshots retain producer authority. W3's helper source still
-has header 2.33. See [write-once §9](design/workflow_lisp_write_once.md#9-targets-and-compatibility)
-for identity and resume guards. Native imports old domain declarations, not the
-typed helper executable body; its four-argument helper is a separate real module.
+Imported compiled snapshots keep the API they were built with. See
+[write-once §9](design/workflow_lisp_write_once.md#9-targets-and-compatibility)
+for identity and resume guards. Native imports the domain declarations, not the
+typed helper's body; its four-argument helper is a separate module.
 
 ### Complete typed examples
 
@@ -160,34 +156,32 @@ python -m orchestrator run improve_explicit.orc --entry-workflow run
 
 Both return APPROVED with title `draft` and evidence note `clear`. The hooks
 are illustrative deterministic policy; approval here proves no domain quality.
-An incomplete W3 local needs exactly one authored direct consumer call site;
+A 2.36 local hook without a full signature needs exactly one direct call site;
 full signatures permit reuse. Sibling/self calls, nested locals and recursion
-remain excluded. See the [W3 contract](design/workflow_lisp_write_once.md#63-language-changes-to-let-proc).
+are not supported. See the [local hook contract](design/workflow_lisp_write_once.md#63-language-changes-to-let-proc).
 
 The complete [experiment-proposal application](../workflows/examples/improve_experiment_proposal.orc)
-retains **2.33**, explicit top-level hooks and five arguments. Its
-[drafting recipe](lisp_workflow_drafting_guide.md#137-improve) lists actual
-provider/prompt manifests and workspace-owned launcher requirements; it is not
-a maintained 2.36 application. The pure examples above do not establish its
-live-provider quality or compatibility after retargeting.
+targets **2.33**, with explicit top-level hooks and five arguments. Its
+[drafting recipe](lisp_workflow_drafting_guide.md#137-improve) lists the
+provider/prompt manifests and the workspace launcher it needs. Retargeting it
+to 2.36 requires migrating its `improve` call.
 
 ### Native consumer and prerequisites
 
 The complete [native consumer](../tests/fixtures/workflow_lisp/dynamic/improve.orc)
-imports the actual [std/dynamic/improve](../orchestrator/workflow_lisp/stdlib_modules/std/dynamic/improve.orc)
+imports [std/dynamic/improve](../orchestrator/workflow_lisp/stdlib_modules/std/dynamic/improve.orc)
 and passes captured review/revise functions. The
-[complete consumer and setup](lisp_workflow_drafting_guide.md#complete-imported-improvement-consumer)
+[consumer and setup](lisp_workflow_drafting_guide.md#complete-imported-improvement-consumer)
 explain the staged `dynamic_consumer/improve.orc`, renamed `types.orc`, probe
-scripts, command manifest, event-log environment and public smoke. A fixture
-path alone is not a standalone CLI launch. Workflow and command results retain
+scripts, command manifest, event-log environment and public smoke. The fixture
+path alone cannot be launched from the CLI. Workflow and command results keep
 strict declared schemas; internal functions have no inferred signatures.
 
-Native 3.0 is branch-qualified and fresh-only: no resume, invalidation or result
-reuse. A corrected fresh run may repeat previous calls and writes. Agent
-orchestration forms, parallel/child/trial/resource/view/host-input effects and
-provider sessions/context/phased/live surfaces remain unavailable. Ordinary
-portable composed-provider and command effects are sequential. This reference
-does not select adoption or change the default target.
+Native 3.0 runs are fresh-only: no resume, invalidation or result reuse, so a
+corrected fresh run may repeat earlier calls and writes. Provider and command
+effects run sequentially. Parallel, child-run, trial, resource, view and
+host-input effects, and provider session, context, phased and live surfaces,
+are not available ([native target 3.0](../specs/versioning.md#native-target-30)).
 
 ## Evaluate with an external command
 
@@ -258,22 +252,19 @@ retains ordinary recovery refusals.
 
 ## Iterative search
 
-The complete maintained [search_compact.orc](../experiments/mlevolve_pair/search_compact.orc)
-retains **2.33**. It defines Candidate/Evaluation/Trial/SearchState/SearchResult,
-seed evaluation, branch alternation, repair, fusion and termination policy. Its
-[reproduction guide](../experiments/mlevolve_pair/README.md) supplies the actual
-[command manifest](../experiments/mlevolve_pair/commands_compact.json) and
-[local leaves](../experiments/mlevolve_pair/leaves.py); the proposal leaf is a
-deterministic fixture, not a live-model optimizer. Do not pass this source to
-the typed 2.35 runtime by implication or treat historical measurements as
-qualification of a different target.
-
 The [native search consumer](../tests/fixtures/workflow_lisp/dynamic/search.orc)
-is a complete target-3.0 controller. Its
-[staging and public reproduction](lisp_workflow_drafting_guide.md#reproduce-the-complete-local-consumers)
-supply the renamed type module, leaves and accurate closure-bearing manifest.
-It reproduces a ten-evaluation trace with no model credentials. A source path
-without that setup is not a standalone launch.
+is a complete target-3.0 controller: seed evaluation, branch alternation,
+repair, fusion and a termination policy over the
+[local leaves](../experiments/mlevolve_pair/leaves.py) and
+[command manifest](../experiments/mlevolve_pair/commands_compact.json) of the
+[paired-search specimen](../experiments/mlevolve_pair/README.md). The proposal
+leaf is a deterministic fixture, not a live-model optimizer. Its
+[staging and reproduction](lisp_workflow_drafting_guide.md#reproduce-the-complete-local-consumers)
+supply the renamed type module, leaves and a manifest with closures; it
+reproduces a ten-evaluation trace with no model credentials. The source path
+alone cannot be launched from the CLI. The specimen's typed 2.33 controllers
+(`search.orc`, `search_compact.orc`) are refused by the compiler at their
+declared target.
 
 The controller owns budget accounting and accepts only valid, strictly lower
 scores; inspect the returned status/evaluation rather than assuming it solved

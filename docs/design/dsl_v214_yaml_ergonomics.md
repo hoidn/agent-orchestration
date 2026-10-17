@@ -1,13 +1,9 @@
 # Historical DSL v2.14 YAML Ergonomics And LOC Reduction
 
-## Historical status
+Status: Historical (retired surface)
 
-This is a pre-retirement design follow-up for the public v2.14
-materialization and variant-output release. Stage 6 subsequently retired the
-authored YAML/YML frontend; current runnable authoring uses Workflow Lisp
-`.orc`. The YAML LOC analysis and proposed corrections below are preserved as
-historical design context only. They are not current authoring guidance, and
-their forward-looking wording must not be used to reopen the retired frontend.
+The authored YAML frontend this LOC analysis targeted is retired; Workflow Lisp
+`.orc` replaced it (see the [drafting guide](../lisp_workflow_drafting_guide.md)).
 
 ## Problem
 

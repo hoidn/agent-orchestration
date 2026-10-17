@@ -1,15 +1,17 @@
 # Workflow Lisp Effect Graph
 
-Status: current-checkout component contract
-Depends on: `docs/design/workflow_lisp_semantic_workflow_ir.md`,
-`docs/design/workflow_command_adapter_contract.md`
+Status: Partial
 
-Proposed changes are owned by
+Procedure, macro and statement effects stay visible after lowering, so frontend
+abstractions cannot hide provider calls, commands, state mutation, resource
+movement or publication. `EffectSummary` and the direct/transitive procedure
+effect views are implemented; the `EffectEntry` and effect-kind listing below is
+the design shape, not current class names. Proposed changes belong to
 [effect-ledger simplification](workflow_lisp_effect_ledger_simplification.md)
-(inference-default optional restrictions and consumer-led metadata cleanup) and
-[pure-call composition](workflow_lisp_pure_call_composition.md)
-(semantic effects versus expression representation). Neither is implemented by
-this routing note. Current source retains its declaration and placement rules.
+and [pure-call composition](workflow_lisp_pure_call_composition.md); current
+source keeps its declaration and placement rules. See also the
+[semantic workflow IR](workflow_lisp_semantic_workflow_ir.md) and
+[command adapter contract](workflow_command_adapter_contract.md).
 
 ## Purpose
 

@@ -1,12 +1,9 @@
 # Architecture Overview
 
-Status: informative conceptual front door
-Normative authority: `specs/`
-Fuller model: [Orchestration Start Here](orchestration_start_here.md)
-
-`agent-orchestration` is a deterministic workflow runtime plus a Workflow Lisp
-frontend for agent-driven work. It treats workflows as typed contracts over
-state, artifacts, provider calls, command calls, and control flow.
+`agent-orchestration` is a compiler and runtime for agent-driven work written
+in Workflow Lisp (`.orc`). Workflows are contracts over state, artifacts,
+provider calls, command calls and control flow. For the fuller model and
+glossary, read [Orchestration Start Here](orchestration_start_here.md).
 
 ## One-Screen Model
 
@@ -14,93 +11,96 @@ state, artifacts, provider calls, command calls, and control flow.
 authored Workflow Lisp source (.orc)
         |
         v
-frontend compiler / shared validation
+compiler: parse, check, admit for the declared target
         |
         v
-typed workflow state, output contracts, artifact lineage, source maps
+flat Core + IR (typed through 2.34) | closed program (typed 2.35/2.36) | dynamic program (native 3.0)
         |
         v
 runtime execution
         |
         v
-run state, logs, artifacts, reports, and resume evidence
+run state, logs, artifacts, reports, and resume evidence (typed profiles)
 ```
+
+The `(:target-dsl ...)` declaration selects the profile:
+
+- **Typed flat, through 2.34**: lowers through shared validation, Semantic IR,
+  Executable IR and source maps to the step runtime. Checked state; resume.
+- **Typed evaluated, 2.35/2.36**: compiles a checked closed program and
+  evaluates it with lexical values and a memo of committed effects. Resume and
+  suffix invalidation; forms outside the admitted subset refuse at build.
+- **Native, 3.0**: ordinary functions, closures and real imports inside one
+  sequential run, with strict schemas at workflow, prompt and command
+  boundaries. Runs are fresh-only: no resume, retries or result reuse.
+
+[Versioning](../specs/versioning.md) defines each profile; the
+[capability matrix](capability_status_matrix.md) shows what each one admits.
 
 ## What Is Authoritative?
 
-Normative runtime behavior lives in `specs/`, especially:
+Normative behavior lives in `specs/`, especially:
 
 - [DSL](../specs/dsl.md)
 - [Step IO](../specs/io.md)
 - [Providers](../specs/providers.md)
 - [State](../specs/state.md)
-- [Dependencies](../specs/dependencies.md)
+- [Versioning](../specs/versioning.md)
 
-Within a run, structured state, output bundles, typed variants, validated
-artifacts, snapshots, and source-mapped executable nodes are the semantic
-authority. They decide routing, resume, publication, and terminal status.
+Within a run, structured state, validated result bundles, typed variants,
+validated artifacts and source-mapped program nodes decide routing, resume,
+publication and terminal status.
 
 ## What Is A View?
 
-Reports, markdown summaries, stdout, prompt audits, pointer files, and
+Reports, markdown summaries, stdout, prompt audits, pointer files and
 dashboards are views unless a specific contract makes one of them the artifact
-value. `expanded.debug.yaml` is an intentionally historical filename for a
-JSON-rendered debug projection; it is also a view and is never parsed as authored
-source. A useful view may explain a decision, but workflow control should come
-from validated state and contracts.
+value. `expanded.debug.yaml` is a JSON-rendered debug projection despite its
+name; it is also a view and is never parsed as source. A view can explain a
+decision, but control flow comes from validated state and contracts.
 
 ## Why Files?
 
-The runtime intentionally exposes durable filesystem artifacts:
+The runtime exposes durable filesystem artifacts so that:
 
-- runs can be resumed or inspected after process death;
+- runs can be inspected after process death, and typed runs resumed;
 - provider and command outputs have stable evidence paths;
 - workflow steps can consume validated artifacts instead of transient process
   memory;
 - downstream tools can inspect the same state the runtime uses.
 
-Files are storage and evidence. They should not become unvalidated hidden state
+Files are storage and evidence. They must not become unvalidated hidden state
 or ad hoc pointers that replace structured workflow values.
 
 ## Why Types?
 
-Typed outputs, variants, and contracts prevent common workflow mistakes:
+Typed results, variants and contracts prevent common workflow mistakes:
 
 - a review decision is distinct from a report;
 - a tagged outcome must prove its variant before variant-specific values are
-  consumed;
-- command and provider outputs are validated before canonical state is exposed;
-- migration results can be compared against preserved historical baselines
-  mechanically.
+  used;
+- command and provider outputs are validated before they become canonical
+  state.
+
+Typed profiles check these before execution. Native 3.0 validates declared
+boundaries and checks internal operations when they run.
 
 ## Why Workflow Lisp?
 
-Workflow Lisp (`.orc`) is an authoring frontend for reusable typed composition.
-It should make high-level workflows easier to write without changing runtime
-authority. The frontend lowers through shared validation, semantic IR, executable
-IR, source maps, and the existing runtime.
-
-That is the runnable route through target 2.34. The accepted
-[evaluated-execution design](design/workflow_lisp_evaluated_execution.md) instead
-compiles a closed program for evaluation; its target-2.35 compiler is partially
-integrated, with public compilation and execution still unavailable. Check the
-[capability matrix](capability_status_matrix.md) before choosing a target.
-
-Workflow Lisp is the only fresh authoring frontend. If the required form is not
-implemented, record a capability gap rather than creating a lower-level or YAML
-workaround. Historical YAML/YML sources remain translation and evidence inputs,
-not executable workflows.
+Workflow Lisp is the only authoring frontend. It makes high-level, reusable
+composition easy to write without moving authority out of the runtime's
+validated state. If a needed form is not available for your target, record the
+gap rather than writing a lower-level or YAML workaround. Retired YAML/YML
+sources cannot run.
 
 ## Next Reading
 
-- [Documentation Hub](index.md): choose the right spec, guide, or design doc.
+- [Documentation Index](index.md): find the right spec, guide or design doc.
 - [Capability Status Matrix](capability_status_matrix.md): check whether a
-  surface is implemented, partial, library-provided, designed, future, or legacy.
-- [Workflow Drafting Guide](workflow_drafting_guide.md): translate or audit
-  historical YAML workflows.
+  surface is implemented, partial, library-provided, designed, future or legacy.
 - [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md): author `.orc`
   workflows.
-- [Design Documentation Index](design/README.md): route to architecture and
-  migration designs.
-- [Documentation Conventions](documentation_conventions.md): keep future docs
-  explicit about status, authority, examples, and trust boundaries.
+- [Design Documentation Index](design/README.md): find architecture and
+  feature designs.
+- [Documentation Conventions](documentation_conventions.md): rules for
+  maintained docs.

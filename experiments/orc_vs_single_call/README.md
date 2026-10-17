@@ -1,14 +1,19 @@
 # `.orc` Workflows Versus A Single Agent Call
 
-Material of the experiment of 2026-09-28.
+Materials of an experiment that compared two `.orc` workflows with a single
+agent call on the same task: generate four candidates and select one, and
+implement, review and revise. It is small: one real
+defect of this repository as the task, six runs per configuration, and model
+judges rating patches blind against a four-criterion rubric. Treat its numbers
+as exploratory.
 
-- Report: [`docs/reports/2026-09-28-orc-versus-single-call.md`](../../docs/reports/2026-09-28-orc-versus-single-call.md)
-- Guidance: [`docs/orc_workflow_design_lessons.md`](../../docs/orc_workflow_design_lessons.md)
+- Results: [experiment report](../../docs/reports/2026-09-28-orc-versus-single-call.md)
+- Guidance drawn from it: [`docs/orc_workflow_design_lessons.md`](../../docs/orc_workflow_design_lessons.md)
 
 | Path | Contents |
 | --- | --- |
-| `workflows/best_of_n.orc` | four implementers, one selector; Sonnet implements, `gpt-6-sol` selects |
-| `workflows/reviewed_change.orc` | implement, review, revise; Sonnet implements, `gpt-6-sol` reviews |
+| `workflows/best_of_n.orc` | target 2.35; four implementers, one selector; Sonnet implements, `gpt-6-sol` selects |
+| `workflows/reviewed_change.orc` | target 2.28; implement, review, revise; Sonnet implements, `gpt-6-sol` reviews |
 | `workflows/*.providers.json` | provider bindings for each workflow |
 | `task/` | the instructions given to the agents and the bug report package |
 | `evaluation/rubric.md` | the four criteria the blind judges applied |
@@ -17,11 +22,13 @@ Material of the experiment of 2026-09-28.
 | `harness/` | the agent CLI wrapper and the trial runners, with the paths of the machine the experiment ran on |
 
 The patches themselves, the prompts and the agents' outputs are not tracked.
+The `harness/` scripts carry the paths of the machine the experiment ran on;
+adapt them before rerunning a trial.
 
 ## Run the maintained best-of-N workflow
 
-The canonical [`best_of_n.orc`](workflows/best_of_n.orc) targets evaluated
-execution 2.35. Its `best-of-n` entry maps candidates serially, with a maximum
+[`best_of_n.orc`](workflows/best_of_n.orc) targets typed 2.35. Its
+`best-of-n` entry maps candidates serially, with a maximum
 of eight, then asks the judge to select one. The existing
 [`best_of_n.providers.json`](workflows/best_of_n.providers.json) binds the
 implementers to `claude_unrestricted_workspace` and the judge to
@@ -68,5 +75,16 @@ python -B -m orchestrator report --run-id "$RUN_ID" \
 
 Each repository path must exist and point to a separate clone of the same
 baseline. The `select-only` entry takes `intent`, ordered `repos`, and ordered
-`accounts`; it calls only the judge. The `harness/` directory above remains
-historical machine-specific experiment provenance.
+`accounts`; it calls only the judge.
+
+To check `reviewed_change.orc` without calling providers, from the repository
+root:
+
+```bash
+python -m orchestrator run experiments/orc_vs_single_call/workflows/reviewed_change.orc \
+  --entry-workflow reviewed_change::reviewed-change \
+  --source-root experiments/orc_vs_single_call/workflows \
+  --provider-externs-file experiments/orc_vs_single_call/workflows/reviewed_change.providers.json \
+  --input task="Fix add in calc.py" --input intent="add returns a + b" --input repo=. \
+  --dry-run
+```

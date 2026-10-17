@@ -1,26 +1,19 @@
 # Workflow Lisp Review/Revise Stdlib Integration With Refactor Preconditions and Parametric Constraints
 
-Status: implemented companion design / target-delta history
-Kind: incremental architecture / stdlib migration spec / consuming design for parametric Workflow Lisp
-Created: 2026-06-03
-Scope: `review-revise-loop` first; later reusable review/revise/fix orchestration forms with the same shape.
+Status: Implemented
 
-Related docs:
+`review-revise-loop` as an ordinary imported `.orc` stdlib component
+(`std/phase`) instead of a compiler-special form, with the refactor and
+parametric prerequisites that made it possible. Current behavior is owned by
+the [frontend specification](workflow_lisp_frontend_specification.md); this
+document keeps the migration rationale, open questions and possible extensions.
 
-- `docs/design/workflow_lisp_refactor_architecture.md`
-- `docs/plans/2026-05-23-workflow-lisp-refactoring-backlog.md`
-- `docs/plans/2026-06-02-workflow-lisp-low-hanging-refactor-plan.md`
-- `docs/plans/2026-06-02-workflow-lisp-generic-orc-expansion-refactor.md`
-- `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/workflow-lisp-owner-seam-split-prerequisite/implementation_architecture.md`
-- `docs/design/workflow_lisp_compile_time_parametric_specialization.md`
-- `docs/design/workflow_lisp_structural_parametric_constraints.md`
-- `docs/design/workflow_lisp_key_migration_parity_architecture.md`
-- `docs/design/workflow_lisp_stdlib_lowering.md`
-- `docs/design/lisp_frontend_review_fix_loops.md`
-- `docs/design/workflow_lisp_state_layout.md`
-- `docs/design/workflow_lisp_proc_refs_partial_application.md`
-- `docs/plans/2026-06-01-review-revise-loop-stdlib-feasibility-proof.md`
-- `specs/dsl.md`
+Related: [refactor architecture](workflow_lisp_refactor_architecture.md),
+[parametric type system](workflow_lisp_parametric_type_system.md),
+[stdlib lowering](workflow_lisp_stdlib_lowering.md),
+[review/fix loops](lisp_frontend_review_fix_loops.md),
+[state layout](workflow_lisp_state_layout.md),
+[ProcRef and partial application](workflow_lisp_proc_refs_partial_application.md).
 
 ## 1. Purpose
 

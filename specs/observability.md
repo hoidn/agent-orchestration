@@ -282,7 +282,8 @@ derives solely from the validated `.orc` executable and `state.json`.
     `workflow_prompt_attempt_identity.v1`; `role_sha256` has exactly
     `fragment_program`, `resolved_bindings`, `injected_dependencies`,
     `runtime_contributions`, and `provider_policy`; and `comparison` reuses
-    the closed Q3 comparison schema and reason set byte-for-byte.
+    the closed target-2.22 prompt-attempt comparison schema and reason set
+    byte-for-byte.
 - An unavailable judgment is the closed
   `workflow_judgment_inspection.v1` object with exactly
   `schema_version`, `status: "unavailable"`, `coordinate`, and `reason`.
@@ -308,7 +309,7 @@ derives solely from the validated `.orc` executable and `state.json`.
   Its status is:
   - `comparable`, with a non-null comparison, both digests, and null reason;
   - `not_comparable`, with null comparison, both digests, and null reason; or
-  - `unavailable`, with null comparison and digests plus one closed Q4 reason.
+  - `unavailable`, with null comparison and digests plus one closed unavailable-judgment reason.
 - Each matrix has one closed `workflow_judgment_disagreement.v1` row with
   exactly `schema_version`, `group`, `status`, `available_member_count`,
   `comparable_member_count`, `not_comparable_member_count`,
@@ -322,13 +323,13 @@ derives solely from the validated `.orc` executable and `state.json`.
 - A closed `workflow_judgment_iteration_series.v1` row has exactly
   `schema_version`, `scope_sha256`, `coordinate`, and `attempts`. Each attempt
   has exactly `attempt_ordinal`, `record_status`, `record_sha256`,
-  `comparison`, and `committed_result_status`, reusing Q3's closed record
-  status, digest, and comparison contracts. `committed_result_status` is:
+  `comparison`, and `committed_result_status`, reusing the target-2.22 prompt-attempt
+  closed record status, digest, and comparison contracts. `committed_result_status` is:
   - `bound` only for the one ordinal selected by a fully validated result
     binding;
   - `not_bound` only when another ordinal is validly bound in that scope or
     reached state proves the scope has no committed provider result; or
-  - `unknown_pre_q4` for every ordinal when an otherwise-compatible pre-Q4
+  - `unknown_pre_q4` for every ordinal when an otherwise-compatible pre-binding
     reached result has no binding.
   At most one ordinal is `bound`, and the projector never infers a committing
   attempt from the newest record.

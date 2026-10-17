@@ -1,15 +1,12 @@
 # Workflow Lisp ProcRef And Partial Application Delta
 
-Status: implemented design delta
-Extends: [Workflow Lisp Frontend Specification](workflow_lisp_frontend_specification.md)
+Status: Implemented
 
-This document defines the scoped language extension for compile-time procedure
-references and explicit partial application in Workflow Lisp. The parent
-frontend specification remains the umbrella language contract; this document is
-the focused contract for the implemented `ProcRef` / `bind-proc` tranche.
-Current availability and verification route through the
-[capability matrix](../capability_status_matrix.md) and
-`tests/test_workflow_lisp_procedures.py` / `tests/test_workflow_lisp_modules.py`.
+Compile-time procedure references (`ProcRef`, `proc-ref`) and explicit partial
+application (`bind-proc`); neither becomes a runtime procedure value. The
+parent [frontend specification](workflow_lisp_frontend_specification.md)
+remains the umbrella language contract. Tests:
+`tests/test_workflow_lisp_procedures.py`, `tests/test_workflow_lisp_modules.py`.
 
 ## Decision
 

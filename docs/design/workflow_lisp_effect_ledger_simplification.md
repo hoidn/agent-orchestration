@@ -1,16 +1,13 @@
 # Workflow Lisp Effect Ledger Simplification
 
-## Metadata
+Status: Design only (not implemented)
 
-- **Status:** proposed target; not implemented or copy-safe current syntax
-- **Kind:** language contract and subtractive architecture decision
-- **Owner:** Workflow Lisp frontend
-- **Created:** 2026-08-15
-- **Last material update:** 2026-09-08
-- **Implementation target:** unassigned; selection and bounded steps belong to
-  [roadmap EL-1](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#el-1--effect-contracts-and-analysis-cleanup-pending-unselected)
-- **Evidence:** [effect-tracking audit](../reports/2026-09-08-workflow-lisp-effect-tracking-audit.md)
-- **Drafting record:** [design plan](../plans/2026-09-08-effect-contract-and-composition-design-plan.md)
+Proposes inferring procedure effects by default, with an optional
+identity-aware `:effects` upper bound and explicit-empty specialization and
+import migration; the syntax below is not copy-safe. Today ordinary procedures
+declare exact `:effects` per the [frontend specification](workflow_lisp_frontend_specification.md)
+and [effect graph](workflow_lisp_effect_graph.md); authors follow the
+[drafting guide](../lisp_workflow_drafting_guide.md).
 
 ## Summary
 

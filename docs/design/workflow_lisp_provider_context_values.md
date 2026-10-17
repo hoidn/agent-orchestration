@@ -1,24 +1,20 @@
 # Workflow Lisp Provider Context Values
 
-- **Status:** portable ordinary-call slice implemented at target 2.31; native continuation remains proposed
-- **Kind:** language and provider-boundary architecture decision
-- **Owner:** Workflow Lisp frontend and provider/runtime boundary
-- **Created:** 2026-09-08
-- **Last material update:** 2026-10-01
-- **Implementation target:** 2.31 for portable ordinary calls in the
-  [composition implementation plan](../plans/2026-09-22-value-and-continuation-composition-implementation-plan.md#d-portable-context-pc-1-ordinary-call-slice);
-  source/runtime support includes imported generic/private carriage, collections,
-  loops, pure context edits, independent branches and committed-boundary resume.
-  Real Codex capture/fresh binding is verified. Private flattened boundaries
-  still reject colliding paths such as `a__b` and nested `a.b`; native
-  continuation and other adapters remain unselected.
-- **Roadmap:** [PC-1](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#pc-1--first-class-provider-context-pending-unselected)
-  research/utility selection remains pending and unselected. The bounded
-  target-2.31 implementation above was delivered separately; native support,
-  additional adapters, and later improvement or retirement require their own
-  selection and allocation.
-- **Review and drafting record:** [design plan and comparative simulation](../plans/2026-09-08-provider-context-design-plan.md)
-- **Incremental integration:** [value and continuation composition](workflow_lisp_value_and_continuation_composition.md); its Increment 4 starts with portable capture/bind under this contract, keeping native continuation and human input independent.
+Status: Partial
+
+Accumulated provider context as an explicit, immutable value that a program
+can receive, transform, return and bind to another provider call. The portable
+ordinary-call slice is implemented at target 2.31 for supported Codex calls,
+including imported generic/private carriage, collections, loops, pure context
+edits, independent branches and committed-boundary resume; native session
+continuation and other adapters are design only, and private flattened
+boundaries still reject colliding paths such as `a__b` and nested `a.b`.
+Normative behavior is owned by [providers](../../specs/providers.md) and
+[IO](../../specs/io.md).
+
+Related: [value and continuation composition](workflow_lisp_value_and_continuation_composition.md)
+(Increment 4 consumes this contract),
+[provider prompt queue](workflow_lisp_provider_prompt_queue.md) (native turns).
 
 ## Summary
 
@@ -751,7 +747,7 @@ for its advertised scope: Codex 0.155.1 capture/fresh binding, the closed event
 schema, `Contextual[T]` typing, atomic typed publication, imported/private and
 aggregate carriage, collections, branches, loops, and committed-boundary resume
 have public or real-adapter evidence in the linked implementation plan and
-tests. This does not select broader PC-1 research or imply universal support.
+tests. This does not imply universal support.
 
 Before making claims beyond that slice, prove or resolve these concrete questions:
 
@@ -796,8 +792,7 @@ covered and a reviewed migration justifies deletion. The
 [native-turn design](workflow_lisp_provider_prompt_queue.md) preserves one
 final result but requires a distinct continuation/recovery contract; derive
 conversational plumbing from the same adapter/codec owners rather than add a
-second session manager. Its [PQ-1 roadmap entry](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md#pq-1-sequential-native-session-turns)
-does not select native Context snapshots or delay portable-context work.
+second session manager.
 
 The target-2.31 slice updated the frontend/type and executable contracts,
 [DSL](../../specs/dsl.md), [Providers](../../specs/providers.md),

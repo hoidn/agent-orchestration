@@ -1,21 +1,19 @@
 # Workflow Lisp Unified Design for Unimplemented Surfaces
 
-Status: draft unified future-design contract  
-Scope: only the non-implemented, partial, or explicitly deferred portions of the Workflow Lisp design set  
-Design style: incremental target over the current implementation, not a replacement specification  
-Baseline: current Workflow Lisp frontend implementation, including compile-time `ProcRef` / `bind-proc`, is treated as fixed input and is not respecified here  
-Supersedes-as-future-scope: the unimplemented portions of `workflow_lisp_frontend_specification.md`, `workflow_lisp_let_proc_local_proc_refs.md`, and `workflow_lisp_runtime_closures_boundary.md`  
-Does not supersede: current implementation behavior, current tests, shared workflow validation, existing runtime semantics, or the accepted implemented `ProcRef` / `bind-proc` contract
+Status: Partial
+
+Future-design delta for Workflow Lisp surfaces beyond the implemented
+frontend: `let-proc` local procedure bindings (Part I, implemented as bounded
+V1 under [its component contract](workflow_lisp_let_proc_local_proc_refs.md)),
+effectful composition completion, the component-contract architecture and
+later parts, each with its own acceptance gate. Current behavior is owned by
+the [frontend specification](workflow_lisp_frontend_specification.md); use the
+[capability matrix](../capability_status_matrix.md) to tell implemented parts
+from remaining targets.
 
 ---
 
 ## 0. Purpose
-
-Current-status note: bounded V1 `let-proc` is implemented under
-[its component contract](workflow_lisp_let_proc_local_proc_refs.md). Part I
-preserves that tranche's design and acceptance rationale. Use the
-[capability matrix](../capability_status_matrix.md) to distinguish implemented
-portions from remaining targets; this historical proposal does not select work.
 
 This document is the unified design for Workflow Lisp features that are **not yet implemented**, are **only partially implemented**, or are **explicitly deferred**.
 

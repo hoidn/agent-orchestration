@@ -1,16 +1,19 @@
 # Workflow Lisp REPL Introspection
 
-## Metadata
+Status: Implemented in typed targets 2.35/2.36 and native target 3.0
 
-- **Status:** accepted bounded contract for typed 2.35/2.36 and qualified native 3.0.
-- **Kind:** additive REPL design; no new execution or persistence profile.
-- **Authorities:** [CLI](../../specs/cli.md#workflow-lisp-repl),
-  [versioning](../../specs/versioning.md), [REPL baseline](workflow_lisp_repl.md),
-  [native architecture](workflow_lisp_dynamic_core_proposal.md#9-complete-consumer-production-candidate).
-- **Evidence owners:** `tests/test_workflow_lisp_repl_introspection.py`,
-  `tests/test_workflow_lisp_repl_type_query.py`,
-  `tests/test_workflow_evaluated_repl_introspection.py`,
-  `tests/test_workflow_dynamic_repl_introspection.py`.
+Loaded-only REPL declaration, source and type queries plus attached result-file
+lookup; no new execution or persistence profile. Normative behavior is owned
+by the [CLI spec](../../specs/cli.md#workflow-lisp-repl), with native
+differences under
+[native target 3.0 inspection](../../specs/cli.md#native-target-30-inspection).
+It extends the [REPL design](workflow_lisp_repl.md); native architecture is in
+[the native 3.0 architecture](workflow_lisp_dynamic_core_proposal.md) §9.
+
+Tests: `tests/test_workflow_lisp_repl_introspection.py`,
+`tests/test_workflow_lisp_repl_type_query.py`,
+`tests/test_workflow_evaluated_repl_introspection.py`,
+`tests/test_workflow_dynamic_repl_introspection.py`.
 
 ## Decision and scope
 

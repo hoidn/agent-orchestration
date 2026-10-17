@@ -1,7 +1,11 @@
 # Workflow Lisp Reference Catalog
 
-Status: draft internal design  
-Depends on: `docs/design/workflow_lisp_semantic_workflow_ir.md`
+Status: Partial
+
+Internal design for one registry of values addressable by workflow references
+(artifacts, snapshots, outcomes, exit codes, inputs). Normative reference
+syntax is owned by the [DSL spec](../../specs/dsl.md). Depends on
+[Semantic Workflow IR](workflow_lisp_semantic_workflow_ir.md).
 
 ## Purpose
 

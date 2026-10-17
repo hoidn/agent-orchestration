@@ -10,8 +10,6 @@ GAP_LIST = REPO_ROOT / "docs" / "workflow_yaml_orc_gap_list.md"
 HANDOFF = REPO_ROOT / "docs" / "plans" / "2026-07-13-procedure-first-reuse-inventory.json"
 YAML_RETIREMENT_PROGRAM = REPO_ROOT / "docs" / "plans" / "2026-07-07-yaml-retirement-program.md"
 ROADMAP = REPO_ROOT / "docs" / "plans" / "2026-07-09-procedure-first-roadmap-execution-sequence.md"
-CAPABILITY_MATRIX = REPO_ROOT / "docs" / "capability_status_matrix.md"
-DOCS_INDEX = REPO_ROOT / "docs" / "index.md"
 
 SCOPED_QUEUES = {
     "port_verified_iteration": {
@@ -155,29 +153,6 @@ def test_prompt_dependency_gap_closes_both_survivor_family_applications() -> Non
     assert "both ports proved their exact dependency sets" in normalized_row
     assert "both survivor families passed this proof" in normalized
     assert "their yaml twins subsequently passed the task 6 deletion gates" in normalized
-
-
-def test_prompt_dependency_status_preserves_historical_yaml_evidence_after_retirement() -> None:
-    capability = CAPABILITY_MATRIX.read_text(encoding="utf-8")
-    index = DOCS_INDEX.read_text(encoding="utf-8")
-
-    for surface in (capability, index):
-        normalized = " ".join(
-            surface.lower().replace("-", " ").replace("_", " ").split()
-        )
-        assert "workflow lisp provider prompt dependencies" in normalized
-        assert "implemented" in normalized
-        assert "runtime plan remains topology only" in normalized
-        assert "evidence is non authoritative" in normalized
-        assert "historical" in normalized
-        assert (
-            "retired yaml twins" in normalized
-            or "no live authored frontend" in normalized
-        )
-        assert "yaml content mode remains legacy" not in normalized
-        assert "verified iteration drain" in normalized
-        assert "generic run watchdog" in normalized
-        assert "both" in normalized and "parity" in normalized
 
 
 def test_both_survivor_family_gates_and_yaml_retirement_are_closed() -> None:
@@ -341,30 +316,27 @@ def test_yaml_retirement_tasks_1_through_7_are_closed() -> None:
 
 def test_canonical_routing_surfaces_close_stage_6_without_starting_stage_7() -> None:
     roadmap = ROADMAP.read_text(encoding="utf-8")
-    capability = CAPABILITY_MATRIX.read_text(encoding="utf-8")
-    index = DOCS_INDEX.read_text(encoding="utf-8")
 
-    for text in (roadmap, capability, index):
-        normalized = " ".join(text.lower().split())
+    normalized = " ".join(roadmap.lower().split())
+    assert re.search(
+        r"\bstage 6\b[^.;]{0,200}\bcomplete\b"
+        r"|\byaml retirement\b[^.;]{0,200}\btask 7\b"
+        r"[^.;]{0,80}\bcomplete\b",
+        normalized,
+    )
+    for stale_task in (1, 2, 3, 4, 5, 6, 7):
         assert re.search(
-            r"\bstage 6\b[^.;]{0,200}\bcomplete\b"
-            r"|\byaml retirement\b[^.;]{0,200}\btask 7\b"
-            r"[^.;]{0,80}\bcomplete\b",
-            normalized,
-        )
-        for stale_task in (1, 2, 3, 4, 5, 6, 7):
-            assert re.search(
-                rf"\byaml retirement\b[^.;]{{0,120}}\btask {stale_task}\b"
-                rf"[^.;]{{0,40}}\b(?:is|remains) current\b"
-                rf"|\bcurrent selector\b[^.;]{{0,120}}\byaml retirement\b"
-                rf"[^.;]{{0,80}}\btask {stale_task}\b",
-                normalized,
-            ) is None
-        assert re.search(
-            r"\bstage 7\b[^.;]{0,120}\b(?:is current|has started|is started)\b"
-            r"|\bcurrent selector\b[^.;]{0,120}\bstage 7\b",
+            rf"\byaml retirement\b[^.;]{{0,120}}\btask {stale_task}\b"
+            rf"[^.;]{{0,40}}\b(?:is|remains) current\b"
+            rf"|\bcurrent selector\b[^.;]{{0,120}}\byaml retirement\b"
+            rf"[^.;]{{0,80}}\btask {stale_task}\b",
             normalized,
         ) is None
+    assert re.search(
+        r"\bstage 7\b[^.;]{0,120}\b(?:is current|has started|is started)\b"
+        r"|\bcurrent selector\b[^.;]{0,120}\bstage 7\b",
+        normalized,
+    ) is None
 
     stage_6 = _section(roadmap, "### Stage 6: Resume YAML Retirement")
     normalized_stage_6 = " ".join(stage_6.lower().split())

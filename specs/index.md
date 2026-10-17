@@ -29,28 +29,30 @@ Status: Normative master. This index defines scope, versioning, conformance, and
     admission is per defining module. It adds no generic records or explicit
     procedure type arguments. See `versioning.md`, which also lists the scope
     corrections that apply to every target.
-  - DSL v2.34 implements decimal literals, numeric operators and finite-value
-    checks at boundaries. Repetition reduction is a separate unapproved
-    proposal; see [versioning](versioning.md) for the implemented surface.
-  - DSL v2.35 is the selected typed evaluated-execution target. Public closed-program
+  - DSL v2.34 adds decimal literals, numeric operators and finite-value
+    checks at boundaries; it has no repetition-reduction syntax. See
+    [versioning](versioning.md) for the surface.
+  - DSL v2.35 is the typed evaluated-execution target. Public closed-program
     compilation, validated dry-run, pure execution, command execution and portable
-    composed-provider execution, ordinary typed resume and suffix invalidation are
-    integrated. Path run-reference dispatch and public report/dashboard/operations
-    readers are implemented; external command input documents are delivered.
-    Phase-wide and actual-provider qualification remain open; this is not a complete
-    Phase 3 release. The bounded runtime evidence is
-    [the public CLI suite](../tests/test_workflow_evaluated_cli.py) and
-    [controlled provider suite](../tests/test_workflow_evaluated_providers.py), plus
+    composed-provider execution, ordinary typed resume and suffix invalidation,
+    path run-reference dispatch, public report/dashboard/operations readers and
+    external command input documents are implemented for a bounded effect
+    subset; other effects refuse at compile time. Provider tests use controlled
+    local transport. See
+    [the public CLI suite](../tests/test_workflow_evaluated_cli.py),
+    [controlled provider suite](../tests/test_workflow_evaluated_providers.py) and
     [public recovery smoke](../tests/test_workflow_evaluated_invalidate_smoke.py).
     The [evaluated-execution design](../docs/design/workflow_lisp_evaluated_execution.md)
-    owns the accepted model; [versioning](versioning.md) owns target admission.
-  - DSL v2.36 uses the existing typed evaluated route and adds W3 local hooks
+    owns the model; [versioning](versioning.md) owns target admission.
+  - DSL v2.36 uses the existing typed evaluated route and adds local hooks
     and graph-selected four-argument `std/improve`. See
     [versioning](versioning.md) and the
     [local-hook contract](../docs/design/workflow_lisp_write_once.md#63-language-changes-to-let-proc).
-    Older typed targets retain their contracts; this does not change the default
-    or select native-profile adoption or application migration.
-  - Legacy state schema: `schema_version: "2.1"`. The partial evaluated profile
+    Older typed targets retain their contracts.
+  - Target 3.0 is a separate native dynamic profile outside this Core DSL
+    version range, used only when a module declares it; see
+    [native target 3.0](versioning.md#native-target-30).
+  - Legacy state schema: `schema_version: "2.1"`. The evaluated profile
     uses the versioned authority/view contract in the
     [evaluated-execution design](../docs/design/workflow_lisp_evaluated_execution.md#84-the-run-header-and-the-representation); it does not reinterpret legacy state.
   - Validation is strict: unknown fields are rejected at the declared DSL `version`.
@@ -79,7 +81,7 @@ Status: Normative master. This index defines scope, versioning, conformance, and
     `wait_for`). The bounded concurrency exceptions are v2.16
     `with-live-providers` (exactly one worker and one supervisor), v2.17
     `with-live-provider-peers` (one static group of two through eight
-    members), and v2.25 `trial` (a static bounded set of E1 child-run cells);
+    members), and v2.25 `trial` (a static bounded set of `run-ref` child-run cells);
     each lowers to one atomic executable node.
 
 - Quick links
@@ -102,14 +104,14 @@ Status: Normative master. This index defines scope, versioning, conformance, and
 
 ## Executive Summary
 
-Versioning note: This specification defines the v1.1 baseline and includes later gates, typed predicates, bookkeeping, cycle guards, the v2.0 scoped-ref / stable-ID tranche, the v2.1 workflow-signature tranche, the v2.2-v2.3 structured-control/finalization tranches, the v2.5 reusable-call tranche, the v2.6-v2.8 `match` / `repeat_until` / score-gate tranches, the v2.9 advisory linting tranche, the v2.10 provider-session tranche, the v2.11 adjudicated-provider tranche, the v2.12 repeat-until exhaustion-output tranche, the v2.13 managed-provider-jobs tranche, the v2.14 materialization / snapshot / variant-output tranche, the v2.15 native-return/guidance tranche, the v2.16 provider-supervision tranche, the v2.17 provider-peer-group tranche, the v2.18 bounded-list-traversal tranche, the v2.19 exact-`Value` tranche, the v2.20 prompt-fragment tranche, the v2.21 prompt-output-position tranche, the v2.22 prompt-attempt-identity tranche, the v2.23 phased-contract-delivery tranche, the v2.24 pinned-child-execution tranche, the v2.25 bounded-static-trial tranche, the v2.26 strict-Boolean-control-flow tranche, the v2.27 fresh-session-artifact tranche, the v2.28 whole-union prompt-input tranche, the v2.29 rich-loop-value tranche, the v2.30 resolved-inline pure-call tranche, the v2.31 portable-context tranche, the v2.32 durable host-input tranche, and the v2.33 first-order generic-union tranche. The state schema remains `schema_version: "2.1"`. Workflows written against older DSL versions remain valid, but post-v2.1 runtimes reject resume from pre-v2.1 state unless an explicit upgrader is introduced. The workflow DSL `version:` and the state `schema_version` follow separate version tracks by design. DSL validation is strict: unknown fields are rejected. Workflows that use `depends_on.inject` MUST set `version: "1.1.1"` (or higher), workflows that use dataflow contracts MUST set `version: "1.2"` (or higher), workflows that use bundle contracts MUST set `version: "1.3"` (or higher), workflows that use provider sessions MUST set `version: "2.10"` (or higher), workflows that use adjudicated provider steps MUST set `version: "2.11"` (or higher), workflows that use `repeat_until.on_exhausted` MUST set `version: "2.12"` (or higher), workflows that use `managed_jobs` MUST set `version: "2.13"` (or higher), workflows that use `materialize_artifacts`, `pre_snapshot`, `variant_output`, `select_variant_output`, or `requires_variant` MUST set `version: "2.14"` (or higher), Workflow Lisp native direct-root returns or typed guidance MUST target `2.15` (or higher), `with-live-providers` MUST target `2.16` (or higher), `with-live-provider-peers` MUST target `2.17` (or higher), bounded list constructors/operators/maps, eligible `List[T]` loop state, or `path/join-under` MUST target `2.18` (or higher), `defprompt` MUST target `2.20` (or higher), a prompt output position MUST target `2.21` (or higher), direct-fragment prompt-attempt identity evidence requires target `2.22`, explicit phased contract delivery requires target `2.23`, `run-ref` requires target `2.24`, `trial` requires target `2.25`, strict Boolean `if`/`cond` control flow requires target `2.26`, provider `:session-artifact` publication requires target `2.27`, whole-union prompt consumption requires target `2.28`, rich loop values require target `2.29`, resolved-inline pure-call composition requires target `2.30`, portable provider context requires target `2.31`, durable host input requires target `2.32`, and first-order generic unions require target `2.33` (see `dsl.md` and `versioning.md`).
+Versioning note: This specification defines the v1.1 baseline and every later DSL version listed under Versioning above. The state schema remains `schema_version: "2.1"`. Workflows written against older DSL versions remain valid, but post-v2.1 runtimes reject resume from pre-v2.1 state unless an explicit upgrader is introduced. The workflow DSL `version:` and the state `schema_version` follow separate version tracks by design. DSL validation is strict: unknown fields are rejected. Workflows that use `depends_on.inject` MUST set `version: "1.1.1"` (or higher), workflows that use dataflow contracts MUST set `version: "1.2"` (or higher), workflows that use bundle contracts MUST set `version: "1.3"` (or higher), workflows that use provider sessions MUST set `version: "2.10"` (or higher), workflows that use adjudicated provider steps MUST set `version: "2.11"` (or higher), workflows that use `repeat_until.on_exhausted` MUST set `version: "2.12"` (or higher), workflows that use `managed_jobs` MUST set `version: "2.13"` (or higher), workflows that use `materialize_artifacts`, `pre_snapshot`, `variant_output`, `select_variant_output`, or `requires_variant` MUST set `version: "2.14"` (or higher), Workflow Lisp native direct-root returns or typed guidance MUST target `2.15` (or higher), `with-live-providers` MUST target `2.16` (or higher), `with-live-provider-peers` MUST target `2.17` (or higher), bounded list constructors/operators/maps, eligible `List[T]` loop state, or `path/join-under` MUST target `2.18` (or higher), `defprompt` MUST target `2.20` (or higher), a prompt output position MUST target `2.21` (or higher), direct-fragment prompt-attempt identity evidence requires target `2.22`, explicit phased contract delivery requires target `2.23`, `run-ref` requires target `2.24`, `trial` requires target `2.25`, strict Boolean `if`/`cond` control flow requires target `2.26`, provider `:session-artifact` publication requires target `2.27`, whole-union prompt consumption requires target `2.28`, rich loop values require target `2.29`, resolved-inline pure-call composition requires target `2.30`, portable provider context requires target `2.31`, durable host input requires target `2.32`, and first-order generic unions require target `2.33` (see `dsl.md` and `versioning.md`).
 
 This system executes validated workflow bundles compiled from fresh `.orc`
 source, including command and LLM-provider invocations. Most execution is
 deterministic and sequential; v2.16 adds one narrowly bounded two-provider
 supervision overlap, v2.17 adds one statically bounded two-through-eight
 provider peer-group overlap, and v2.25 adds one statically bounded concurrent
-set of E1 child-run trial cells. Each workflow-state/result boundary remains
+set of `run-ref` child-run trial cells. Each workflow-state/result boundary remains
 atomic. Agents may
 coordinate through filesystem queues (`inbox/`, `processed/`, `failed/`).
 Steps capture outputs as text, line arrays, JSON, or validated structured
@@ -123,7 +125,7 @@ surfaces distinct: workflow-boundary `inputs`/`outputs`, runtime dependencies
 
 - General concurrency and parallel blocks; v2.16's exactly-two-provider
   supervision node, v2.17's static two-through-eight-member peer-group node,
-  and v2.25's static bounded E1-child `trial` node are the only bounded
+  and v2.25's static bounded `run-ref`-child `trial` node are the only bounded
   exceptions
 - While loops
 - Parallel execution blocks

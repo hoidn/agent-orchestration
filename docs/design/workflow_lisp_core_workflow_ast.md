@@ -1,7 +1,10 @@
 # Workflow Lisp Core Workflow AST
 
-Status: draft internal design  
-Depends on: `specs/dsl.md`, `docs/design/workflow_language_design_principles.md`
+Status: Implemented
+
+`CoreWorkflowAST` (`orchestrator/workflow/core_ast.py`) is the syntax-neutral
+workflow representation that Workflow Lisp reaches through the WCC middle-end
+before shared validation. [DSL](../../specs/dsl.md) owns workflow semantics.
 
 ## Purpose
 

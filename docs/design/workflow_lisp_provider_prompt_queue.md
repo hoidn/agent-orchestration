@@ -1,11 +1,19 @@
 # Workflow Lisp Provider Prompt Queue
 
+Status: Design only (not implemented)
+
+Sequential prompts delivered one turn at a time in one native provider session,
+with `prompt-queue` as the authoring surface, one final typed result and
+explicit turn-prefix recovery. Today, use one combined prompt, or sequential
+calls carrying portable [provider context](workflow_lisp_provider_context_values.md).
+Implementation plan:
+[sequential native-session turns](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md#pq-1-sequential-native-session-turns).
+
 ## Scope And Authority
 
 This is the target design for **sequential turns in one native provider
 session**, with `prompt-queue` as the bounded authoring surface. It is not
-implemented syntax. Selection, delivery limits, and evidence disposition
-belong to [PQ-1 in the evaluated-execution roadmap](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md#pq-1-sequential-native-session-turns).
+implemented syntax.
 
 This revision supersedes the earlier design's unconditional whole-queue
 replay, lack of durable turn progress, and claim that dynamic length is
@@ -22,8 +30,8 @@ Governing contracts:
 - [Phased Contract Delivery](workflow_lisp_phased_contract_delivery.md):
   its task/materialization policy is not a general authored queue.
 - [Providers](../../specs/providers.md), [Step IO](../../specs/io.md) and
-  [State](../../specs/state.md): current normative behavior remains unchanged
-  until a separately selected implementation amends it.
+  [State](../../specs/state.md): current normative behavior is unchanged by this
+  design.
 
 ## Purpose And Alternatives
 

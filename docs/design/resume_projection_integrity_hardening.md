@@ -1,31 +1,16 @@
 # Resume Projection-Integrity Hardening
 
-## Metadata
+Status: Implemented
 
-- **Status:** accepted
-- **Kind:** architecture decision and runtime-state compatibility clarification
-- **Owner:** workflow runtime and state owners
-- **Reviewers:** runtime-state specification review, resume architecture review,
-  and documentation quality review
-- **Created:** 2026-07-16
-- **Last material update:** 2026-07-16
-- **Related docs / plans:**
-  - `docs/design/workflow_lisp_procedure_migration_identity_compatibility.md`
-  - `docs/design/workflow_lisp_state_layout.md`
-  - `docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md`
-  - `specs/state.md`
-  - `specs/acceptance/index.md`
-- **Characterization authority:** Task 1 evidence at `1cd60767` in
-  `tests/test_workflow_state_projection.py`,
-  `tests/test_subworkflow_calls.py`, and `tests/test_resume_command.py`
-- **Implementation target:**
-  `docs/plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md`
-- **Update 2026-09-29:** a failed Workflow Lisp call frame with no running
-  member is now resumed in place: after the ordinal audit of every failed
-  predecessor, the latest failed frame is validated and resumed, and no retry
-  frame is allocated (`specs/state.md`, call frames and retry lineage). The
-  sections below are corrected to that rule; `next_unused_retry_frame_id`
-  remains in the lineage API but has no production caller.
+Checksum-compatible resume audits persisted state projections at the root (CLI
+preflight plus executor revalidation) and at each reached call before callee
+effects. A failed Workflow Lisp call frame with no running member resumes in
+place: after the ordinal audit of every failed predecessor, the latest failed
+frame is validated and resumed and no retry frame is allocated;
+`next_unused_retry_frame_id` remains in the lineage API without a production
+caller. [State](../../specs/state.md) owns the normative resume and call-frame
+rules; see also [procedure migration identity compatibility](workflow_lisp_procedure_migration_identity_compatibility.md)
+and [state layout](workflow_lisp_state_layout.md).
 
 ## Summary
 

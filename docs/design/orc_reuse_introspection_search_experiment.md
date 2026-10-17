@@ -1,41 +1,17 @@
 # ORC Programmability, Composition, And Improvement
 
-## Status And Authority
+Status: Partial
 
-Status: draft experiment design. This describes a proposed study, not an
-implemented optimizer, an accepted execution plan, or an efficacy result.
-Scheduling and selection belong to the [roadmap](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md);
-bounded execution tasks belong to the [plan](../plans/2026-09-08-orc-research-demonstration-plan.md).
-The [charter](../plans/2026-09-08-orc-research-charter.md) states the investment thesis.
-The plan owns current selection and resource limits; this design selects no
-new study or budget. Earlier human-only, zero-paid-R1a, and constrained-authoring
-proposals remain historical context, not the normal agent-session contract below.
-
-The reduced pilot, assisted C1 feasibility and qualitative ergonomic assessment
-are recorded. The remaining C1 receipt-interface repair is unselected; consult
-the plan for current disposition. Completed development does not select a new
-study or establish comparative efficacy.
-
-Normative behavior remains in `specs/`. The existing [trial design](workflow_lisp_trial_runs.md)
-owns child-run/evaluation methodology; [program-search boundaries](workflow_lisp_program_search_boundaries.md)
-record the current architecture. This proposal adds no language target.
-
-Owner scope clarification, 2026-09-08: **execution safety is excluded from the
-conceptual assessment and proposed investment gates**. Tool use is performed by
-agents/providers. This design studies how ORC composes, describes, reuses, and
-optimizes those operations. Existing execution-route restrictions are
-implementation facts, not evidence against the research thesis. This draft does
-not silently change those restrictions or claim they are already removed.
-
-Exhaustive imported-source identity, checkpoint, replay, and interrupted-run
-recovery qualification are not general admission requirements for development.
-Use fresh runs unless recovery is itself the selected use case. Correctness of
-reused components requires intended callers to receive the changed policy and
-preserve behavioral outputs; ergonomic value needs Experiment A's separate
-assessment. Retain selective reuse that is part of the task. Actual source/artifact
-attribution and metered effort remain; comparative evidence also needs fair
-exposure. The active plan and its linked owner amendment own diagnostic scope;
-preserved identity/recovery failures do not settle independent research axes.
+A research design for five separate questions about ORC: programmability and
+composition, reuse, introspection, self-programming and optimization. The
+reduced pilot, an assisted C1 feasibility run and a qualitative reuse
+assessment have run; the other experiments have not, and nothing here
+establishes comparative efficacy. Execution safety is out of scope, and studies
+use fresh runs unless recovery is itself the use case.
+[`specs/`](../../specs/index.md) own runtime behavior; the
+[trial design](workflow_lisp_trial_runs.md) owns child-run and evaluation
+methodology, and [program-search boundaries](workflow_lisp_program_search_boundaries.md)
+record the current architecture. This design adds no language target.
 
 ## Question And Intended Value
 
@@ -422,7 +398,7 @@ rule above; traces do not reveal an agent's private reasoning.
 This is the separately selectable R1b lane, not an expansion of R1a. R1a's
 agent-assisted construction, reuse, and diagnosis outputs do not count as
 human performance, live-task efficacy, or autonomous closed-loop evidence.
-R1b remains unselected. Its proposed three episodes need an explicit finite
+Its proposed three episodes need an explicit finite
 cost/time allocation suitable for normal tools; old proposed request/token or
 source-attempt ceilings do not govern the agent loop. This design selects or
 raises no budget; the eventual plan must reserve final-assessment resources.
@@ -613,8 +589,8 @@ polls are diagnostic costs, not objectives to minimize regardless of quality.
 The accepted trial design's default confirmatory rule is ≥10 percentage points
 absolute improvement with an interval excluding zero at ≤1.5× provider cost,
 or statistically non-inferior success at ≥20% lower cost; its holdout floor is
-≥30 independent cases with a power calculation. This small pilot neither
-waives those requirements nor earns `PASS_E3`. Any experiment-specific amendment
+≥30 independent cases with a power calculation. This small pilot does not
+waive those requirements and is not confirmatory evidence. Any experiment-specific amendment
 must be explicit and frozen before the study.
 
 ## ORC-Specific Comparison And Disposition

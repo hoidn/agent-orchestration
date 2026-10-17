@@ -1,55 +1,10 @@
 # Workflow Lisp Key Migration Parity Architecture
 
-Status: historical architecture
+Status: Historical (retired surface)
 
-The manifest-driven parity generator described below is retired. Preserve this
-document and its frozen reports as promotion-history rationale; current route
-readiness comes from `docs/workflow_lisp_route_readiness_registry.json` and the
-direct owner tests cited there.
-
-Historical status at last material update: draft
-Kind: architecture decision / migration design
-Created: 2026-06-01
-Last material update: 2026-06-02
-Scope:
-
-- Workflow Lisp lowering requirements for key-workflow parity.
-- Runtime/spec deltas required before `.orc` promotion.
-- Migration evidence and promotion policy.
-
-Authority:
-
-- Normative DSL/runtime behavior remains in `specs/`.
-- This document preserves the former migration architecture and is not current
-  runtime or route authority.
-- A `.orc` workflow must not replace a YAML primary solely because this document
-  describes a target behavior.
-
-Related docs:
-
-- `docs/lisp_workflow_drafting_guide.md`
-- `docs/design/workflow_lisp_stdlib_lowering.md`
-- `docs/design/lisp_frontend_review_fix_loops.md`
-- `docs/design/workflow_lisp_state_layout.md`
-- `docs/design/workflow_command_adapter_contract.md`
-- `docs/design/workflow_lisp_compile_time_parametric_specialization.md`
-- `docs/plans/2026-05-29-lisp-migrate-key-workflows-execution-summary.md`
-- `docs/plans/2026-06-01-review-revise-loop-stdlib-feasibility-proof.md`
-- `docs/plans/2026-06-02-workflow-lisp-generic-orc-expansion-refactor.md`
-- Generated run evidence:
-  `artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/index.json`
-
-Implementation target: staged changes to the Workflow Lisp frontend,
-remaining effectful composition gaps, shared validation, and runtime
-command/output handling needed before promoting key `.orc` workflow
-replacements over YAML primaries.
-
-Current checkout status (2026-07-13): the permanent target-loading,
-report/Markdown/index, gate-evaluation, and CLI kernel remains active for
-`cycle_guard_demo` and `design_plan_impl_stack`. The promoted Design Delta
-family is no longer a live target; its Design-Delta-only evidence roles and G8
-artifact dependency are deleted, while its immutable historical promotion
-report remains the Stage-6 decision record.
+The manifest-driven parity generator is retired; route readiness now comes from
+[`docs/workflow_lisp_route_readiness_registry.json`](../workflow_lisp_route_readiness_registry.json)
+and the direct owner tests it cites.
 
 ## Summary
 

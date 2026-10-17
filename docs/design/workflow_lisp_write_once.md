@@ -1,22 +1,19 @@
 # Workflow Lisp: Writing Each Fact Once
 
-## Metadata
+Status: Partial
 
-- **Status:** accepted W3 contract at target 2.36; other rules remain independently scoped proposals.
-- **Kind:** language and standard-library contract, with one authoring rule
-  that needs no language change
-- **Owner:** Workflow Lisp frontend
-- **Created:** 2026-09-29
-- **Evidence:** [repetition census](../reports/2026-09-29-workflow-lisp-repetition-census.md)
-- **Plan:** [repetition reduction plan](../plans/2026-09-29-workflow-lisp-repetition-reduction-plan.md); branch integration and verification belong to the [REPL port plan](../plans/2026-10-12-workflow-lisp-dynamic-repl-port-plan.md).
-- **Related:**
-  [design principles](workflow_language_design_principles.md) 15, 25, 26, 29
-  and 30,
-  [effect ledger simplification](workflow_lisp_effect_ledger_simplification.md),
-  [local ProcRef bindings](workflow_lisp_let_proc_local_proc_refs.md),
-  [parametric type system](workflow_lisp_parametric_type_system.md),
-  [composition-first procedures](workflow_lisp_composition_first.md),
-  [pure list traversal](workflow_lisp_pure_list_traversal.md)
+Six rules (W0–W5) for stating each fact once at the declaration that owns it.
+W3, inferred local hooks that capture their context, is implemented at typed
+target 2.36 and owned by [versioning](../../specs/versioning.md) (v2.36
+additions); W0 is an authoring rule that needs no language change; W1, W2, W4
+and W5 are design only. Compile-time captures are not runtime closures.
+
+Related: [design principles](workflow_language_design_principles.md) 15, 25,
+26, 29 and 30, [effect ledger simplification](workflow_lisp_effect_ledger_simplification.md),
+[local ProcRef bindings](workflow_lisp_let_proc_local_proc_refs.md),
+[parametric type system](workflow_lisp_parametric_type_system.md),
+[composition-first procedures](workflow_lisp_composition_first.md),
+[pure list traversal](workflow_lisp_pure_list_traversal.md).
 
 ## 1. Summary
 
@@ -179,8 +176,8 @@ That document lists what must be decided before implementation: the target,
 name resolution of effect subjects in the defining scope, how the origin of
 an authored restriction is carried through specialization, mixed-target
 linking, and the editor projection of inferred effects. This design proposes
-one shared target for W1, W2 and W4. W3 may be qualified separately; the
-implementation plan owns target selection.
+one shared target for W1, W2 and W4. W3 has its own target,
+2.36.
 
 `:lowering` is not part of W2. The clause is optional today. Its default,
 `auto`, may choose a private workflow for a procedure with several call
@@ -376,13 +373,9 @@ remain domain values; only forwarding scaffolding is removed.
 
 ### 6.7 Execution Prerequisites
 
-The selected evaluated route must demonstrate lexical capture and once-only
+The evaluated route must demonstrate lexical capture and once-only
 effect execution through public compile/run/resume. Successful specialization
 or an illustrative rewrite does not establish general composition coverage.
-The [branch port plan](../plans/2026-10-12-workflow-lisp-dynamic-repl-port-plan.md)
-owns imported W3 integration evidence; the frozen
-[paired comparison](../../experiments/dynamic_core_evaluation/README.md#implemented-w3-comparison-opt-in)
-qualifies only its pinned earlier packet, not this combined runtime.
 
 ## 7. W4: Provider Options Are Bound Once
 
@@ -470,10 +463,8 @@ serve.
 ## 9. Targets And Compatibility
 
 - W0 applies to every target. It changes no language rule.
-- W1, W2 and W4 retain their separate unselected target proposal. W3 is
-  selected for 2.36 on the evaluated route and implemented;
-  the [branch port plan](../plans/2026-10-12-workflow-lisp-dynamic-repl-port-plan.md) owns integration evidence. Existing targets retain their
-  admitted syntax and lowering.
+- W1, W2 and W4 have no target yet. W3 is implemented at 2.36 on the
+  evaluated route. Existing targets retain their admitted syntax and lowering.
 - One `std/improve` API is selected for each **source import graph** by its
   entry target. Entries through 2.35 keep the current bundled
   `stdlib_modules/std/improve.orc` bytes and path. At 2.36 (and later supported
@@ -511,7 +502,7 @@ serve.
 | General type inference (Hindley-Milner), annotated `let*`, type ascription | The accepted list design excludes them, and W1 needs none: every position in 4.2 has a declared type |
 | Resolving a bare variant tag by searching the visible unions | Ambiguous at thirteen of thirty-three sites |
 | A result-type clause on `loop/recur` | The loop takes its expected type from its position. A loop bound by `let*` writes its constructors in the explicit form |
-| Runtime closures within W3 | Outside this typed contract; compile-time capture suffices. Ordinary lexical functions belong to the separate [dynamic profile](workflow_lisp_dynamic_core_proposal.md) |
+| Runtime closures within W3 | Outside this typed contract; compile-time capture suffices. Ordinary lexical functions belong to the separate [native 3.0 profile](workflow_lisp_dynamic_core_proposal.md) |
 | Provider options as module-level defaults in the program | Model and effort are deployment choices; a program would have to change to run elsewhere |
 | Removing `:lowering` | It records a choice of state and resume namespace |
 | Replacing `Decision[F B]` by constraints now | No measured caller needs it; section 8.4 |
@@ -557,17 +548,10 @@ Public runtime evidence on that route must establish the behavior above;
 compiler acceptance alone is insufficient.
 
 W1's expected-type construction, W3's inferred compile-time hooks and W5's
-constraint inference are the typed alternative to parts of the
-[dynamic-core proposal](workflow_lisp_dynamic_core_proposal.md). They remain
-comparison and fallback contracts; qualifying the dynamic candidate does not
-retire typed behavior or turn W3 into runtime closures. Its ordinary records and
-functions would replace those internal typing mechanisms only under an adopted
-target and consumer migration contract. Boundary schemas and meaningful domain
-outcomes remain required in either design.
+constraint inference are the typed alternative to the ordinary functions and
+records of [native target 3.0](workflow_lisp_dynamic_core_proposal.md). Native
+3.0 is a separate profile: it does not retire typed behavior or turn W3 into
+runtime closures. Boundary schemas and meaningful domain outcomes remain
+required in either profile.
 
-The [evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
-owns prospective routing and the decision to retain the typed path. Credit
-qualified W1/W3 reductions in that comparison, distinguish illustrative rewrites
-from executable evidence, and require W5's concrete caller need (§8.4) before
-adding inference machinery. Do not deliver two stdlib migrations merely to
-compare the candidates.
+W5's inference machinery requires the concrete caller need in §8.4.

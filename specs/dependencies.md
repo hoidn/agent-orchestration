@@ -5,7 +5,7 @@
   - `depends_on.optional`: missing matches are allowed and omitted without error.
   - Patterns resolve relative to WORKSPACE; symlinks are followed; dotfiles matched only when explicitly specified; case sensitivity follows the host FS.
   - Globstar `**` is not supported in v1.1.
-  - When reusable `call` lands, plain `depends_on` keeps these same workspace-relative semantics inside imported workflows; it does not become import-local automatically.
+  - Under reusable `call`, plain `depends_on` keeps these same workspace-relative semantics inside imported workflows; it does not become import-local automatically.
 
 - Injection (v1.1.1)
   - Shorthand: `inject: true` ≡ `{ mode: 'list', position: 'prepend' }` with default instruction.
@@ -26,7 +26,7 @@
   - Follow symlinks; if the resolved real path escapes WORKSPACE, reject the path.
   - Enforce at load time and before FS operations. See `security.md#path-safety`.
 
-## Planned Source-Relative Asset Surface (Task 10 contract; v2.5 execution)
+## Source-Relative Asset Surface (v2.4 contract; v2.5 execution)
 
 - `depends_on` remains the workspace-relative runtime dependency surface.
   - Use it for authored files that are expected to exist in the execution workspace at run time.

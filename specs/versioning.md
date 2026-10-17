@@ -4,21 +4,17 @@
   - DSL version: governs available fields and validation behavior.
   - State schema version: `schema_version` stored in `state.json`.
 
-- ML-0 contract pivot (provider attempts)
-  - Provider attempt recovery changes from exactly-once quarantine to
-    at-least-once discard-and-rerun without changing the DSL version or state
-    schema version. This applies uniformly to ordinary, session, supervision,
-    peer-group, phased, and exact-scope adjudication recovery.
-  - The normative contract was accepted before its runtime tranches. ML-1,
-    ML-2, and ML-4 are now historical complete, so the at-least-once runtime
-    contract is implemented across the named provider families and exact-scope
-    adjudication recovery. This closure does not select a successor phase.
+- At-least-once provider attempt recovery (every DSL version)
+  - Interrupted provider attempts are recovered by at-least-once
+    discard-and-rerun, not exactly-once quarantine. Neither the DSL version
+    nor the state schema version changes. This applies uniformly to ordinary,
+    session, supervision, peer-group, phased, and exact-scope adjudication
+    recovery, and the runtime implements it for all of them.
   - Compatible completed-result reuse, managed jobs, declared resource
     transitions, source/checkpoint guards, lineage, atomic publication, and
-    peer message ledgers remain unchanged.
-  - The provider-isolation transfer journal remains unchanged. Its separately
-    owner-gated ML-3 simplification is deferred and no security surface is
-    selected by this pivot.
+    peer message ledgers are unchanged.
+  - The provider-isolation transfer journal is unchanged, and this recovery
+    contract changes no security surface.
 
 - v1.1 baseline
   - Core DSL: steps with provider/command/wait_for, conditionals, for_each.
@@ -134,14 +130,14 @@
   - This tranche remains on state schema `2.0`; `finalization` bookkeeping and lowered cleanup-step metadata are additive top-level fields.
 
 - v2.4 contract boundary (reusable-call docs lock; not executable by itself)
-  - Reserves the future reusable-workflow path taxonomy before runtime support lands:
+  - Reserves the reusable-workflow path taxonomy that v2.5 executes:
     - workflow-source-relative `imports`, nested imports, `asset_file`, and `asset_depends_on`
     - workspace-relative runtime paths unchanged for `input_file`, `depends_on`, `output_file`, deterministic relpath outputs, and bundle paths
   - Locks the first `call` tranche as inline and non-isolating.
   - Requires reusable workflows to surface DSL-managed write roots as typed `relpath` inputs and requires call sites to bind distinct values where multiple invocations could alias the same managed paths.
   - Locks the first-tranche same-version caller/callee rule and callee-private `providers` / `artifacts` / `context` defaults.
-  - Schedules a state-schema bump for Task 11 because the current bare artifact-name ledger cannot represent call-scoped internal lineage and freshness safely.
-  - Current loader/runtime support still stops at the implemented v2.3 surface; `v2.4` is a contract boundary, not an already-executable workflow version.
+  - Requires the state-schema bump that v2.5 makes for `call`, because the bare artifact-name ledger cannot represent call-scoped internal lineage and freshness safely.
+  - `v2.4` adds no executable surface beyond v2.3; it is a contract boundary, not an executable reusable-call version.
 
 - v2.5 additions (imports + `call`)
   - Top-level `imports` plus step-level `call` / typed `with:` binding.
@@ -192,8 +188,8 @@
   - Resume consumes still participate in ordinary lineage selection, but the reserved `session_id_from` consume is excluded from prompt injection and `consume_bundle`.
   - Session-enabled visits create canonical observability artifacts under `.orchestrate/runs/<run_id>/provider_sessions/`.
   - The original v2.10 release quarantined interrupted session-enabled visits.
-    The ML-0 contract pivot supersedes that recovery policy with validated
-    discard-and-rerun; the session schema and completed-result reuse are
+    At-least-once provider attempt recovery (above) supersedes that policy
+    with validated discard-and-rerun; the session schema and completed-result reuse are
     unchanged.
 
 - v2.11 additions (adjudicated provider steps)
@@ -228,7 +224,7 @@
   - State schema remains `2.1`; the node's required
     `provider_supervision.v1` config tag provides the additive compatibility
     boundary. The original interrupted-visit quarantine policy is superseded
-    by the ML-0 at-least-once recovery contract.
+    by at-least-once provider attempt recovery.
 
 - v2.17 additions (Workflow Lisp provider peer groups)
   - Target DSL `2.17` reserves and accepts the `.orc`-only
@@ -259,7 +255,7 @@
   - `workflow_executable_ir.v1`, runtime-plan v1, Semantic IR v1, source-map
     v1, and state schema `2.1` remain their envelope versions. Older runtimes
     reject the unknown peer-group node kind. The original additive peer-group
-    quarantine policy is superseded by ML-0 at-least-once recovery without a
+    quarantine policy is superseded by at-least-once recovery without a
     schema migration.
 
 - v2.18 additions (Workflow Lisp bounded list traversal)
@@ -352,8 +348,8 @@
     Markdown report projections remain provenance only. The report key is
     present for every target; older valid fragment snapshots project as
     `legacy_snapshot`, and unqualified runs project an empty attempt list.
-  - Compiled fragment identities/contracts remain v1 or v2 according to the
-    existing Q1/Q2 shape. Target-2.20/2.21 compiler, runtime, checkpoint,
+  - Compiled fragment identities/contracts remain v1, or v2 for a fragment
+    with an output position. Target-2.20/2.21 compiler, runtime, checkpoint,
     provider, evidence, and completed-result reuse bytes remain unchanged.
     State schema remains `2.1`.
 
@@ -378,14 +374,14 @@
     `provider_phased_delivery_diagnostic.v1`, and
     `workflow_prompt_context_report.v2` are additive, content-free,
     non-authoritative evidence/report surfaces. Completed reuse does not read
-    the ledger; ML-0 supersedes sticky quarantine for interrupted nonterminal
+    the ledger; at-least-once recovery supersedes sticky quarantine for interrupted nonterminal
     phased visits with whole-visit discard and a fresh attempt.
   - The closed `provider_call_policy` ordering becomes `model`, `effort`,
     `delivery`, `materialization_attempts`. Only model/effort are
     provider-bound; delivery/attempts are runtime-only, and `timeout_sec`
     remains the one whole-attempt deadline outside the mapping.
   - State schema remains `2.1`. Target-2.22 and earlier source, omitted/composed
-    invocation bytes, compiled Q1/Q2 identities, and completed-result reuse
+    invocation bytes, compiled v1/v2 fragment identities, and completed-result reuse
     remain compatible.
 
 - v2.24 additions (Workflow Lisp pinned child execution)
@@ -419,7 +415,7 @@
 
 - v2.25 additions (Workflow Lisp bounded static trials)
   - Target `2.25` adds one durable `trial` effect over 2–16 statically authored
-    E1 `run-ref` arms, 1–64 repetitions, at most 256 cells, and an arm
+    `run-ref` arms, 1–64 repetitions, at most 256 cells, and an arm
     concurrency cap in 1–32. Every arm has the same normalized value
     descriptor. Failures are typed outcomes, collection order is authored
     order rather than completion order, and nested or dynamically assembled
@@ -434,13 +430,13 @@
     bytes are not the measurement surface. These are transport resource
     bounds, not security or isolation claims.
   - `TrialStaticConfig.digest` binds target/lowering, source site, authored arm
-    order and E1 config digests, common result contract, repetitions,
+    order and `run-ref` config digests, common result contract, repetitions,
     evaluation, budget, and compiler/runtime identities. The runtime request
     additionally binds parent run/frame/step/visit and resolved inputs.
     Completion timing/order, paths, opaque-label salt, provider output, and
     report bytes remain identity-neutral.
   - `trial_event_ledger.v1` is one coordinator-written exact-scope ledger. A
-    cell settles between its prepared E1 row and adjacent E1 committed edge;
+    cell settles between its prepared `run-ref` row and adjacent `run-ref` committed edge;
     incomplete work discards and reruns at a fresh ordinal, exact committed
     cells reuse, and terminal trial settlement is one atomic parent result
     transition followed by its adjacent ledger commit. State schema stays
@@ -562,15 +558,15 @@
     expression schema or state schema changes; <=2.28 behavior stays unchanged.
 
 - v2.30 additions (Workflow Lisp resolved-inline pure-call composition)
-  - The development catalog admits resolved-inline pure-call normalization and
+  - Target 2.30 admits resolved-inline pure-call normalization and
     ordered schema-3 lexical bindings. Earlier targets preserve their existing
     pipeline and payload behavior, apart from the scope corrections listed under
     "Exceptions to target stability" below. No runtime procedure interpreter is
     added.
-  - Selected-hook context, strict effect/representation diagnostics, eager
-    once-only evaluation and public committed-boundary resume are covered by
-    Package C. Private/effectful/unrepresentable calls remain excluded. See the
-    composition implementation plan for reviewed evidence and baseline limits.
+  - The admitted surface covers selected-hook context, strict
+    effect/representation diagnostics, eager once-only evaluation and public
+    committed-boundary resume. Private/effectful/unrepresentable calls remain
+    excluded.
   - State schema remains `2.1`.
 
 - v2.31 additions (portable ordinary provider context)
@@ -788,8 +784,8 @@
     - The type rules and the evaluation of these operators live once, in the
       pure-expression catalog. Below 2.34 none of this surface is admitted and
       each refusal is the one of 2.33.
-  - Repetition reduction remains a separate unapproved proposal; no repetition
-    syntax is implemented at target 2.34. State schema remains `2.1`.
+  - No repetition-reduction syntax is implemented at target 2.34. State schema
+    remains `2.1`.
   - Finite values at boundaries (numeric surface rule N6): at 2.34 a
     non-finite `Float` in a workflow input, a command or provider result field
     or an expected output file is refused with `float_not_finite`, which names
@@ -820,30 +816,31 @@
     This changes neither target admission nor state schema. See
     [Providers](providers.md#composed-provider-result-delivery) and
     [State](state.md#evaluated-provider-delivery-identity).
-  - Closed-program compilation is implemented: `orchestrator compile` writes
+  - Closed-program compilation: `orchestrator compile` writes
     `closed_program.json` (`workflow-lisp/closed-program/1`, `table/1`)
     and `manifest.json`, with canonical configuration, typed callee
     bodies, a perform-site table and a provenance-independent program digest.
-    The artifact is validated on build and read-back. Evidence:
+    The artifact is validated on build and read-back. See
     `orchestrator/workflow_lisp/closed/artifact.py` and
     `tests/test_workflow_lisp_closed_program_compile_cli.py`.
   - The compiler admits commands, the portable composed-provider subset
     (without context capture), procedure/workflow calls and captures, bounded
-    local procedures, and path-mode run references. Selected effects outside
-    that subset refuse with `closed_program_gap`; admission and the corpus
-    partition are owned by the [Phase 2 plan](../docs/plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md)
-    and `tests/test_workflow_lisp_closed_program_corpus.py`.
+    local procedures, and path-mode run references. Effects outside that
+    subset refuse with `closed_program_gap`. The
+    [evaluated-execution design](../docs/design/workflow_lisp_evaluated_execution.md)
+    and `tests/test_workflow_lisp_closed_program_corpus.py` own admission and
+    the corpus partition.
   - Every supplied command boundary and every used compiler-injected boundary
     requires an explicit `closure` array, including `[]` when nothing is
     declared (C1). Canonical declarations enter program identity; compilation
     does not read their file contents (C2). See [IO](io.md) and
     `tests/test_workflow_lisp_command_boundary_closure.py`.
-  - Phase 3 has integrated validated public dry-run and public pure, command
-    and portable composed-provider `run`, including checked terminal authority
-    and exclusive attempt evidence. Providers use captured source/dependency
-    bytes, typed result projection and required output-file checks; public tests
-    use controlled local transport, not live-vendor qualification. Certified
-    adapter input documents use inline JSON; external-tool documents use
+  - Validated public dry-run and public pure, command and portable
+    composed-provider `run` are implemented, including checked terminal
+    authority and exclusive attempt evidence. Providers use captured
+    source/dependency bytes, typed result projection and required output-file
+    checks; public tests use controlled local transport, not live vendor
+    providers. Certified adapter input documents use inline JSON; external-tool documents use
     attempt-owned `inputs.json` plus a workspace-relative path token, with
     recursive checked contracts and absent/empty distinction (§9.1.1 of the
     [evaluated contract](../docs/design/workflow_lisp_evaluated_execution.md#911-typed-command-input-documents)). Ordinary public `resume` rebuilds the
@@ -854,23 +851,21 @@
     `invalidate <run_id> <identity>` uses checked stored authority and cancels one
     active commit suffix; historical profiles and a coordinator anywhere in that
     suffix refuse. Path run-reference dispatch and derived report/dashboard,
-    monitor/probe/watchdog readers are implemented. Phase-wide and
-    actual-provider qualification remain pending. Compilation
-    alone establishes
-    neither effect execution nor resume parity. Evidence:
+    monitor/probe/watchdog readers are implemented. Compilation alone
+    establishes neither effect execution nor resume parity. See
     `tests/test_workflow_evaluated_cli.py`, `tests/test_workflow_evaluated_providers.py`,
     `tests/test_workflow_evaluated_invalidate_smoke.py` and
     `tests/test_workflow_lisp_target_evaluated_execution.py`. Targets through
     2.34 retain their current route and artifacts.
 
-- v2.36 additions (W3)
-  - Target 2.36 selects the existing evaluated route. The closed program's
+- v2.36 additions (local hooks and `std/improve`)
+  - Target 2.36 uses the existing evaluated route. The closed program's
     top-level `target` is the entry's source target, also recorded in its build
     manifest. The admitted evaluated targets are `"2.35"` and `"2.36"`.
     Schema `workflow-lisp/closed-program/1`, representation `table/1`, runtime
     profile `evaluated_execution.v1`, state schema `3.0`, read-back equality
     and the separate internal run-reference target `2.35` retain their contracts.
-  - W3 extends `let-proc` with several nonempty local bindings, inferred lexical
+  - Target 2.36 extends `let-proc` with several nonempty local bindings, inferred lexical
     captures and bounded expected `ProcRef` signatures; the
     [local-hook contract](../docs/design/workflow_lisp_write_once.md#63-language-changes-to-let-proc)
     owns grammar and preparation. An incomplete signature requires exactly one
@@ -899,16 +894,15 @@
     an invalid rebuild preserves its compile refusal. Both refuse before
     evidence writes. Genuine package/command-closure pin changes retain their
     existing guards; rejection does not prove compatible retained-run resume.
-    Branch availability and combined-runtime verification belong to the
-    [REPL port plan](../docs/plans/2026-10-12-workflow-lisp-dynamic-repl-port-plan.md).
 
-## Branch-qualified target 3.0
+## Native target 3.0
 
-Target `3.0` selects the bounded dynamic-composition profile on its qualified
-development branch. This is an incompatible execution profile, not a new
-default, released upgrade or application-adoption decision. Availability and
-remaining readiness evidence belong to the [readiness plan](../docs/plans/2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md);
-architecture is recorded in [proposal §9](../docs/design/workflow_lisp_dynamic_core_proposal.md#9-complete-consumer-production-candidate).
+Target `3.0` is the bounded native dynamic-composition profile. It is an
+incompatible execution profile, not a default and not an upgrade of the typed
+targets: a module uses it only by declaring `(:target-dsl "3.0")`, and no
+existing workflow is converted to it automatically. The
+[dynamic-core design](../docs/design/workflow_lisp_dynamic_core_proposal.md#9-native-30-profile-architecture)
+records the architecture.
 
 - Source uses ordinary `define`/`fn`, immutable captures, strict `if`, real
   source imports and a positive entry `:budget`. Internal values have no
@@ -916,8 +910,9 @@ architecture is recorded in [proposal §9](../docs/design/workflow_lisp_dynamic_
   fills/results and command contracts retain strict boundary validation.
 - The independently checked artifact is `workflow-lisp/dynamic-program/1`,
   representation `dynamic/1`. Admission checks every body, source map and
-  canonical binding owner; unreachable unsupported forms also refuse. Selected
-  old-target declaration/prompt imports do not elaborate old executable bodies.
+  canonical binding owner; unreachable unsupported forms also refuse.
+  Declarations and prompts imported from older-target modules do not
+  elaborate those modules' executable bodies.
   Supplied compiled imports and old procedures/workflows/macros/ProcRefs refuse.
 - Effects are sequential external/certified commands and portable composed
   providers through existing shared performers. Parallel/child/trial/resource/
@@ -939,25 +934,26 @@ architecture is recorded in [proposal §9](../docs/design/workflow_lisp_dynamic_
 [IO](io.md#dynamic-boundary-io) and [Providers](providers.md#dynamic-composed-provider-boundary)
 own the detailed contracts. Targets through 2.34 and typed 2.35 preserve their
 original artifacts, runtime pins, memo/recovery and readers. Unknown/mixed
-profiles and historical spike artifacts never fall back or convert to this
-profile.
+profiles and artifacts from the earlier dynamic prototype (spike) never fall
+back or convert to this profile.
+
 ## Rollout and compatibility
 
 - DSL evolution rollout roadmap
-  - `v1.5`: D1 `assert`
-  - `v1.6`: D2 typed predicates + structured `ref:` + normalized outcomes
-  - `v1.7`: D2a scalar bookkeeping
-  - `v1.8`: D3 cycle guards
-  - `v2.0`: D4-D5 scoped refs + stable internal IDs
-  - `v2.1`: D6 workflow signatures
-  - `v2.2`: D7 structured `if/else`
-  - `v2.3`: D8 `finally`
-  - `v2.4` (docs/contract boundary): D9 reusable-call contract
-  - `v2.5`: D10 imports + `call`
-  - `v2.6`: D11 `match`
-  - `v2.7`: D12 `repeat_until`
-  - `v2.8`: D13 score-aware gates
-  - `v2.9`: D14 authoring linting and normalization
+  - `v1.5`: `assert`
+  - `v1.6`: typed predicates + structured `ref:` + normalized outcomes
+  - `v1.7`: scalar bookkeeping
+  - `v1.8`: cycle guards
+  - `v2.0`: scoped refs + stable internal IDs
+  - `v2.1`: workflow signatures
+  - `v2.2`: structured `if/else`
+  - `v2.3`: `finally`
+  - `v2.4` (contract boundary only): reusable-call contract
+  - `v2.5`: imports + `call`
+  - `v2.6`: `match`
+  - `v2.7`: `repeat_until`
+  - `v2.8`: score-aware gates
+  - `v2.9`: authoring linting and normalization
   - `v2.10`: first-class provider-session resume
   - `v2.11`: adjudicated provider steps
   - `v2.12`: deterministic repeat-until exhaustion outputs
@@ -984,14 +980,9 @@ profile.
   - `v2.31`: portable ordinary provider-context capture and fresh binding
   - `v2.32`: durable host input, `HumanReply`, and checked resume
   - `v2.33`: first-order generic unions and `std/improve`
-  - `v2.34`: implemented decimal literals in expressions, numeric operators and finite boundary values; repetition reduction remains an unapproved proposal
-  - `v2.35`: closed-program compilation, public dry-run and pure/command/portable-provider run implemented; ordinary public resume/suffix invalidation, path children and public readers implemented; external input documents delivered; complete Phase 3 qualification pending
-  - `v2.36`: W3 local hooks and graph-selected four-argument `std/improve` on the existing typed evaluated route
-
-- Ordering note
-  - D2a scalar bookkeeping is intentionally sequenced before D3 cycle guards.
-  - Rationale: scalar bookkeeping only extends the current top-level name-keyed execution/result shape, while cycle guards introduce persisted counters and resume-sensitive control-flow state.
-  - The first durable identity and schema migration remains reserved for the later D4-D5 tranche.
+  - `v2.34`: decimal literals in expressions, numeric operators and finite boundary values; no repetition-reduction syntax
+  - `v2.35`: closed-program compilation, public dry-run and pure/command/portable-provider run; ordinary public resume/suffix invalidation, path children, public readers and external input documents
+  - `v2.36`: local hooks and graph-selected four-argument `std/improve` on the existing typed evaluated route
 
 - Planned future (declarative per-item lifecycle)
   - `for_each.on_item_complete` with `success.move_to` / `failure.move_to` directories.
@@ -1107,28 +1098,28 @@ Planned acceptance:
 | 2.1 | Top-level `inputs`/`outputs`, `${inputs.*}`, `ref: inputs.*`, and CLI input binding | Typed workflow-boundary signatures layered on top of the v2.0 identity/state model. |
 | 2.2 | Top-level structured `if/else` with lowered branch markers/join nodes | Branch-local work stays scoped to `then` / `else`; downstream refs target statement outputs on the join node. |
 | 2.3 | Top-level `finally` with resume-safe cleanup progress and deferred workflow outputs | Cleanup runs once after body success/failure, keeps stable finalization ids, and suppresses workflow outputs on cleanup failure. |
-| 2.4 | Reusable-call contract boundary only (not executable by itself) | Locks path taxonomy, same-version rule, write-root parameterization, and accepted operational-risk language before runtime work lands. |
+| 2.4 | Reusable-call contract boundary only (not executable by itself) | Locks path taxonomy, same-version rule, write-root parameterization, and accepted operational-risk language that v2.5 executes. |
 | 2.5 | `imports` + inline `call` with typed `with:` binding | Uses `schema_version: "2.1"` for persisted call-frame lineage/export state. |
 | 2.6 | Top-level structured `match` with exhaustive enum case coverage | Case-local work stays scoped to the selected case; downstream refs target statement outputs on the join node. |
 | 2.7 | Top-level post-test `repeat_until` with loop-frame outputs and resume-safe iteration bookkeeping | Loop conditions read only `self.outputs.*`; downstream refs target the loop frame outputs on the authored step; direct nested `call`, `match`, and `if/else` bodies are allowed. |
 | 2.8 | Score-aware predicate helper `score` for thresholds and score bands | Thin sugar over numeric typed predicates; keeps benchmark gating inside the existing `when` / `assert` / structured-control surfaces. |
 | 2.9 | Advisory authoring linting / normalization hints surfaced in CLI dry-run and report output | Warns about migration candidates without turning valid workflows into validation failures. |
-| 2.10 | Scalar `string` contracts and first-class provider-session resume | Adds runtime-owned fresh/resume session handles for root-level provider steps. Its original interrupted-visit quarantine is superseded by the ML-0 at-least-once recovery contract. |
+| 2.10 | Scalar `string` contracts and first-class provider-session resume | Adds runtime-owned fresh/resume session handles for root-level provider steps. Its original interrupted-visit quarantine is superseded by at-least-once provider attempt recovery. |
 | 2.11 | `adjudicated_provider` steps | Runs isolated artifact-producing candidates, scores valid outputs through a same-trust-boundary evaluator, promotes the selected declared outputs, and records adjudication ledgers/state without stdout-derived step output. |
 | 2.12 | `repeat_until.on_exhausted.outputs` | Lets bounded post-test loops route deterministic non-convergence through authored scalar loop-frame outputs while preserving hard failures for body, output, and predicate errors. |
 | 2.13 | `managed_jobs` provider-step modifier | Adds runtime-owned managed job interception, guard/shim execution, watcher classification, audit/recovery state, and managed outcome routing for provider-launched training jobs. |
 | 2.14 | `materialize_artifacts`, `pre_snapshot`, `variant_output`, `select_variant_output`, and `requires_variant` | Adds deterministic typed materialization, durable snapshot-diff evidence, tagged-union output validation, atomic variant bundle selection, and author-time variant availability proof. |
-| 2.15 | Direct JSON root results (`output_bundle` fields with `json_pointer: ""`), public `optional\|list\|map` output and structured-result schemas, strict effect-boundary `guidance` / `guidance_context` / `guidance_by_variant`, and top-level workflow `result_guidance` | Promoted after the combined native-transportable-return and typed-result-guidance gate. Ordinary loader entrypoints, Workflow Lisp shared validation, CLI run/resume/report, dashboard projection, and imported-bundle loading accept the same version. v2.14 rejects the new guidance containers and retains its existing record/union contracts. Guidance is non-runtime metadata and does not change artifact names, value validity, source identities, checkpoint identities, or resume behavior. |
-| 2.16 | `.orc` `with-live-providers`, reserved `ProviderSteeringDirective`, structural `session_support.turn_boundary_resume`, default provider observation, and `provider_supervision.v1` | Adds exactly-two-member bounded provider overlap inside one atomic workflow node, one validated observation edge, pure settlement, and at most one exact-session resume. Its original interrupted-visit quarantine is superseded by ML-0 at-least-once recovery. General authored concurrency and parallel blocks remain unsupported. State schema remains `2.1`. |
-| 2.17 | `.orc` `with-live-provider-peers`, structural `interactive_session_support`, exact-attempt peer ingress, and `provider_peer_group.v1` | Adds static two-through-eight-member bounded provider overlap with durable record-before-offer receiver ledgers, cooperative acknowledgement/finish, typed direct-root member bundles, pure atomic settlement, natural-shutdown proof, and failed cleanup. Its original interrupted-visit quarantine is superseded by ML-0 at-least-once recovery. It adds no forcing edge and leaves target-2.16 supervision artifacts unchanged. State schema remains `2.1`. |
+| 2.15 | Direct JSON root results (`output_bundle` fields with `json_pointer: ""`), public `optional\|list\|map` output and structured-result schemas, strict effect-boundary `guidance` / `guidance_context` / `guidance_by_variant`, and top-level workflow `result_guidance` | Ordinary loader entrypoints, Workflow Lisp shared validation, CLI run/resume/report, dashboard projection, and imported-bundle loading accept the same version. v2.14 rejects the new guidance containers and retains its existing record/union contracts. Guidance is non-runtime metadata and does not change artifact names, value validity, source identities, checkpoint identities, or resume behavior. |
+| 2.16 | `.orc` `with-live-providers`, reserved `ProviderSteeringDirective`, structural `session_support.turn_boundary_resume`, default provider observation, and `provider_supervision.v1` | Adds exactly-two-member bounded provider overlap inside one atomic workflow node, one validated observation edge, pure settlement, and at most one exact-session resume. Its original interrupted-visit quarantine is superseded by at-least-once provider attempt recovery. General authored concurrency and parallel blocks remain unsupported. State schema remains `2.1`. |
+| 2.17 | `.orc` `with-live-provider-peers`, structural `interactive_session_support`, exact-attempt peer ingress, and `provider_peer_group.v1` | Adds static two-through-eight-member bounded provider overlap with durable record-before-offer receiver ledgers, cooperative acknowledgement/finish, typed direct-root member bundles, pure atomic settlement, natural-shutdown proof, and failed cleanup. Its original interrupted-visit quarantine is superseded by at-least-once provider attempt recovery. It adds no forcing edge and leaves target-2.16 supervision artifacts unchanged. State schema remains `2.1`. |
 | 2.18 | Workflow Lisp bounded list traversal, mapping, list loop state, and rooted path joining | Adds `(list ...)`, five total list operators, pure `list/map`, bounded `list/map-effect`, structurally eligible `List[T]` loop state, and pure containment-checked `path/join-under`. New pure expressions use payload schema 2 and effectful mapping erases to existing loop/call/checkpoint machinery; state schema remains `2.1`. |
 | 2.19 | Compiler-owned exact `Value`, `type: value`, and public `kind: value` | Adds an opaque strict-JSON transport contract with exact source compatibility, sole direct-root `__result__` carriage and no envelope, recursive failure paths, description/format-hint guidance without examples, and unchanged state schema `2.1`. Classic/WCC, state, checkpoint, and resume preserve the declared type rather than payload shape; targets below 2.19 reject it. |
 | 2.20 | Workflow Lisp `defprompt`, closed fragment slots, and prompt-owned structured returns | Adds fully applied importable fragments, exact v1 fragment identity/carriage, schema-2.1 prompt snapshots, and compatible completed-boundary reuse. |
 | 2.21 | Workflow Lisp `(slot :path :out [PathType])`, `compiled_prompt_fragment_identity.v2`, and `compiler_prompt_fragment_contract.v2` | One authored path fill drives rendering plus one required UTF-8 file contract. The generated file contract composes with exactly one prompt-owned structured result in fixed order, rejects name/destination collisions before launch, and commits both artifact maps state-atomically. |
 | 2.22 | Workflow Lisp direct-fragment prompt-attempt identity, functional-v2 evidence, and additive prompt-context reports | Requires the compiler-owned identity-version/binding-plan pair, seals five content-free roles plus exact prepared-prompt composition after invocation preparation and before launch, classifies retry drift in fixed order, and preserves target-2.20/2.21 execution and evidence bytes. |
 | 2.23 | Workflow Lisp explicit phased contract delivery | Adds optional `:delivery :composed|:phased` and phased-only literal materialization attempts, exact `T1 || T2 == C` delivery inside one provider process, bounded same-client correction, identity-v2/functional-v3/phase-ledger evidence, and report-v2 actual-delivery comparison. Omitted/explicit composed calls preserve the ordinary path and identity-v1/functional-v2 bytes; state schema remains `2.1`. |
-| 2.24 | Workflow Lisp pinned child execution through `run-ref` | Adds exact repository/materialization identity, statically compiled-bundle and ordinary full child-compile program modes, all transportable inputs/results, deterministic workspace/accounting evidence, separate parent/child roots and writers, and at-least-once incomplete-attempt discard/fresh-rerun plus validated committed reuse. Mode 1 never recompiles; mode 2 v1 admits only deterministic effect-free candidates; effect-loop placement is deferred. State schema remains `2.1`. |
-| 2.25 | Workflow Lisp bounded static `trial` over `run-ref` | Adds homogeneous compiler-generated trial outcome/verdict contracts, bounded arm/repetition concurrency, coordinator-only settlement, M2-compatible persistence, frozen blinded evaluation, packet-only citations, exact budgets, and the ordinary-compiler SDK/CLI boundary. It also admits generically bounded recursive structural transport at depth 64 and at most 16,777,216 canonical UTF-8 JSON bytes. State schema remains `2.1`; no security mechanism is added. |
+| 2.24 | Workflow Lisp pinned child execution through `run-ref` | Adds exact repository/materialization identity, statically compiled-bundle and ordinary full child-compile program modes, all transportable inputs/results, deterministic workspace/accounting evidence, separate parent/child roots and writers, and at-least-once incomplete-attempt discard/fresh-rerun plus validated committed reuse. Mode 1 never recompiles; mode 2 v1 admits only deterministic effect-free candidates; effect-loop placement is not admitted. State schema remains `2.1`. |
+| 2.25 | Workflow Lisp bounded static `trial` over `run-ref` | Adds homogeneous compiler-generated trial outcome/verdict contracts, bounded arm/repetition concurrency, coordinator-only settlement, `derived_pure_replay.v1`-compatible persistence, frozen blinded evaluation, packet-only citations, exact budgets, and the ordinary-compiler SDK/CLI boundary. It also admits generically bounded recursive structural transport at depth 64 and at most 16,777,216 canonical UTF-8 JSON bytes. State schema remains `2.1`; no security mechanism is added. |
 | 2.26 | Workflow Lisp strict Boolean control flow: arbitrary exact-`Bool` `if`/`cond` conditions, effectful short-circuit normalization, and `.variant`-derived union proof | Generalizes `if` and adds `cond` as nested-`if` sugar with typed exhaustiveness; condition effects run left to right at most once with `and`/`or` short circuit; typed `.variant` comparisons establish branch-local proof carried into the existing `requires_variant` guard and resume descriptor. State schema stays `2.1`; no new runtime/public-IR/state form. |
 | 2.27 | Workflow Lisp explicit fresh-session artifact | Adds one optional entry-root/sequential-spine `provider-result :session-artifact <bare-symbol>` that synthesizes a scalar String artifact and reuses existing fresh `provider_session` publication. Omission stays transient; invalid placement, duplicates, collisions, unsupported templates, and targets below 2.27 reject. State schema remains `2.1`; no new public IR/runtime form. |
 | 2.28 | Workflow Lisp whole-union prompt inputs | Adds direct closed-union and eligible list-of-union inputs through the existing canonical renderer. Variant-shaped compiler sources resolve only active payloads; literal/ref data remain distinct. Existing output contracts, phase fallback, old targets, and state schema `2.1` are preserved. |
@@ -1137,9 +1128,9 @@ Planned acceptance:
 | 2.31 | Portable provider context values | Ordinary `Context`/`Contextual[T]` capture, transformation, carriage and fresh binding; closed graph v5 when reachable. Codex exposed-history subset, not native or cross-provider continuation; state schema stays 2.1. |
 | 2.32 | Workflow Lisp durable host input | Adds `(request-input String)`, fixed `HumanReply`, one `host-input` effect, closed `request_input` graph v6 carriage, one root-owned durable request, thin answer/cancel clients, and exact checked resume consumption. It neither serializes arbitrary continuations nor turns a reply into provider/session state; state schema remains 2.1. |
 | 2.33 | Workflow Lisp first-order generic unions and `std/improve` | Adds first-order generic union declarations (`defunion :forall`), type applications in type positions, `ProcRef` signatures and constructors, `provider-result :returns` and `defprompt` results of an applied union with violations reported at the provider boundary, and the `std/improve` value-returning review helper. Applications instantiate to concrete descriptors at compile time. Effect inference includes imported procedures and hooks; effectful calls are admitted in `loop-state :like` fields under `continue` and in `match` subjects, including generic calls with a type-dependent hook. Typed match-subject preservation is limited to typed prompts and type-dependent hooks; a direct generic subject without either still lowers differently from the same call bound by `let*`, including at 2.34. Admission is per defining module: a module below 2.33 accepts the same source forms as before and may call procedures defined in a 2.33 module. It adds no generic records and no explicit procedure type arguments. State schema remains 2.1. |
-| 2.34 | Workflow Lisp numeric surface | Adds decimal literals in expressions, exponent forms included, and the numeric operators `/`, `int/div`, `int/mod`, `float/abs`, `float/sqrt`, `float/log`, `int/to-float`, `float/floor` and `float/round`, with `Float` operands for `+ - * min max`; their type rules and evaluation live once in the pure-expression catalog. A non-finite `Float` is refused at every boundary and on resume. Otherwise accepts and lowers exactly what 2.33 does. Repetition reduction remains a separate unapproved proposal; no repetition syntax is implemented here. State schema remains 2.1. |
-| 2.35 | Workflow Lisp compilation and bounded public runtime implemented; full runtime partial | Public compile writes and validates a closed program for commands, portable composed providers without context capture, procedure/workflow calls and captures, and path run references. Explicit command closures are required; selected excluded effects refuse with `closed_program_gap`. Validated public dry-run and pure/command/portable-provider run are integrated. Certified input documents use inline JSON; external documents use attempt-owned `inputs.json` and a path token. Path run-reference dispatch and derived report/dashboard/operations readers are implemented; phase-wide and actual-provider qualification remain pending. Ordinary public resume and source-independent suffix invalidation are implemented; historical missing recipes and force restart refuse resume. Provider evidence uses controlled local transport. See the v2.35 additions above for implementation evidence and admission limits. Existing targets retain their current route and artifacts. |
-| 2.36 | W3 local hooks and graph-selected `std/improve` | Uses the existing evaluated schemas/profile. Inferred lexical captures, grouped local bindings and one-site incomplete signatures; four-argument helper selected per source graph, with caller migration on retargeting and preserved older-target/snapshot/resume guards. See v2.36 additions for the contract and the REPL port plan for branch verification. |
-| 3.0 | Branch-qualified dynamic composition; bounded qualification, adoption unselected | Ordinary functions/captures and real source imports, strict declared boundaries, sequential shared command/portable-provider performers, independently checked dynamic program and schema-3.1 fresh state. No resume/reuse, default change or application migration. See [branch-qualified target 3.0](#branch-qualified-target-30) and the readiness plan. |
+| 2.34 | Workflow Lisp numeric surface | Adds decimal literals in expressions, exponent forms included, and the numeric operators `/`, `int/div`, `int/mod`, `float/abs`, `float/sqrt`, `float/log`, `int/to-float`, `float/floor` and `float/round`, with `Float` operands for `+ - * min max`; their type rules and evaluation live once in the pure-expression catalog. A non-finite `Float` is refused at every boundary and on resume. Otherwise accepts and lowers exactly what 2.33 does. No repetition-reduction syntax is implemented. State schema remains 2.1. |
+| 2.35 | Workflow Lisp closed-program compilation and public typed runtime for a bounded effect subset | Public compile writes and validates a closed program for commands, portable composed providers without context capture, procedure/workflow calls and captures, and path run references. Explicit command closures are required; excluded effects refuse with `closed_program_gap`. Validated public dry-run and pure/command/portable-provider run are implemented. Certified input documents use inline JSON; external documents use attempt-owned `inputs.json` and a path token. Path run-reference dispatch and derived report/dashboard/operations readers are implemented. Ordinary public resume and source-independent suffix invalidation are implemented; historical missing recipes and force restart refuse resume. Provider evidence uses controlled local transport. See the v2.35 additions above for admission limits. Existing targets retain their current route and artifacts. |
+| 2.36 | Local hooks and graph-selected `std/improve` | Uses the existing evaluated schemas/profile. Inferred lexical captures, grouped local bindings and one-site incomplete signatures; four-argument helper selected per source graph, with caller migration on retargeting and preserved older-target/snapshot/resume guards. See the v2.36 additions for the contract. |
+| 3.0 | Native dynamic composition | Ordinary functions/captures and real source imports, strict declared boundaries, sequential shared command/portable-provider performers, independently checked dynamic program and schema-3.1 fresh state. Runs are fresh-only, with no resume or reuse. Used only when a module declares `(:target-dsl "3.0")`; existing workflows are not converted. See [native target 3.0](#native-target-30). |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

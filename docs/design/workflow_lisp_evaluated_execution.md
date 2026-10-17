@@ -1,81 +1,39 @@
 # Workflow Lisp Evaluated Execution
 
-## Metadata
+Status: Implemented in targets 2.35 and 2.36
 
-The [REPL baseline](workflow_lisp_repl.md) and
-[introspection extension](workflow_lisp_repl_introspection.md) define read-only
-lexical/module inspection over this execution model. Typed result-file lookup
-uses checked retained locators; native inspection has its own explicit boundary.
-Shared checked artifacts/checkers/sites/identities live in
-`orchestrator/contracts/closed_program/`, prepared provider IO carriers in
-`orchestrator/workflow/evaluated/provider_io.py`, and runtime typed prompt helpers
-in `orchestrator/workflow/typed_prompt_inputs.py`. Frontend preparation and source
-projection remain frontend-owned; compatibility imports preserve existing API
-identity. These ownership seams do not establish full CLI/runtime frontend
-isolation or retire the typed frontend.
+Typed closed-program evaluation: `orchestrator compile` writes the checked
+artifact, `run --dry-run` validates inputs, and `run` evaluates pure code,
+commands, portable composed providers, workflow/procedure calls and path-mode
+run references with an effect memo; ordinary resume, suffix invalidation and
+the report/dashboard/monitor readers work on these runs. Effect classes outside
+§1.1 (trials, supervision, peer groups, phased providers, adjudication, human
+input, resource transitions, materialized views, parallel map) and non-portable
+provider features refuse at build with `closed_program_gap`; target 2.36 adds
+W3 local hooks ([write-once §6.3](workflow_lisp_write_once.md#63-language-changes-to-let-proc))
+on the same representation. [State](../../specs/state.md),
+[IO](../../specs/io.md), [CLI](../../specs/cli.md) and
+[Versioning](../../specs/versioning.md) own normative behavior.
 
-- **Status:** accepted for the first release at gate G1 on 2026-09-29;
-  Closed-program compilation and bounded pure, command and portable
-  composed-provider execution use the current typed evaluated targets 2.35 and
-  2.36. Target 2.36 adds W3 under the
-  [versioning contract](../../specs/versioning.md) and
-  [local-hook owner](workflow_lisp_write_once.md#63-language-changes-to-let-proc);
-  it retains the evaluated representation and persistence profile.
-  `orchestrator compile` writes the checked artifact; `run --dry-run` validates
-  inputs, and `run` publishes durable authority, terminal results and effect
-  attempt evidence. Ordinary typed public resume and suffix invalidation are
-  implemented for this subset.
-  Certified adapter documents use inline JSON; external command input documents
-  use attempt-owned `inputs.json` and a workspace-relative path token. Path
-  run-reference dispatch, derived report/dashboard views and monitor/probe/watchdog
-  readers are implemented. Full Phase 3 and actual-provider qualification remain
-  open; this is not the complete Phase 3 release. Evidence:
-  [public compile tests](../../tests/test_workflow_lisp_closed_program_compile_cli.py),
-  [pure/command-run and dry-run tests](../../tests/test_workflow_evaluated_cli.py),
-  [controlled local provider tests](../../tests/test_workflow_evaluated_providers.py),
-  [public recovery smoke](../../tests/test_workflow_evaluated_invalidate_smoke.py),
-  [path-child integration](../../tests/e2e/test_e2e_workflow_evaluated_run_ref.py),
-  [public readers](../../tests/test_workflow_evaluated_readers.py),
-  [input-document contracts](../../tests/test_workflow_evaluated_input_document_contracts.py)
-  and [attempt transport](../../tests/test_workflow_evaluated_input_document_attempts.py),
-  [target routing tests](../../tests/test_workflow_lisp_target_evaluated_execution.py)
-  and [Phase 2 status](../plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md#status-authorities-and-scope).
-  Phase-wide checks and the completed red-suite diagnosis are recorded in
-  the [closeout report](../reports/2026-10-02-workflow-lisp-evaluated-execution-phase-2-closeout.md);
-  Phase 2 compiler closeout is complete: code/verification PASS `17049e79`,
-  documentation PASS `a6efc7e7` and integration `a7b157d8`. The spike under
-  `experiments/evaluated_execution_spike/` remains separate runtime evidence.
-- **Kind:** execution model, run state and compiler output contract
-- **Owner:** Workflow Lisp frontend and runtime
-- **Created:** 2026-09-29. **Revised:** 2026-10-04, including current bounded
-  runtime availability and the Phase 3 input-document, profile, invalidation-entry, artifact-handoff, command
-  transport and shared-union field-proof clarifications; 2026-10-12, importing
-  the 2026-10-06 provider clause of R2 (§9.4, §20) and command cache exclusion (C2, C5).
-- **Evidence:**
-  [gate report](../reports/2026-09-29-evaluated-execution-spike.md), cited
-  below as "gate report";
-  [execution facts](../reports/2026-09-29-workflow-lisp-execution-facts.md);
-  [value/effect separation decision brief](../reports/2026-09-29-workflow-lisp-value-effect-separation-decision-brief.md).
-  The spike's reports for its four iterations and the three independent
-  reviews are kept in the plan's working directory, outside the repository
-  (gate report, §10); they are cited below as "spike iteration N"
-- **Plan:** [evaluated execution plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md).
-  Its decisions 5 and 7 fix the architecture and the scope of the first
-  release; decision 6 selects target 2.35 (owner, 2026-09-30).
-  Delivery order and consumer migration are owned by that plan, not this
-  execution contract.
-- **Amends when the first release lands:**
-  [core calculus middle-end](workflow_lisp_core_calculus_middle_end.md)
-  (§10.1 constructs, §11.4 identity, §15 alternatives, §16 deferred work),
-  `specs/state.md`, `specs/io.md`, `specs/cli.md`, `specs/versioning.md`,
-  and the command boundary manifest of the
-  [command adapter contract](workflow_command_adapter_contract.md)
-- **Related:** [numeric surface](workflow_lisp_numeric_surface.md),
+- Code: shared checked artifacts, checkers, sites and identities in
+  `orchestrator/contracts/closed_program/`; prepared provider IO in
+  `orchestrator/workflow/evaluated/provider_io.py`; typed prompt helpers in
+  `orchestrator/workflow/typed_prompt_inputs.py`.
+- Tests: [compile](../../tests/test_workflow_lisp_closed_program_compile_cli.py),
+  [run and dry-run](../../tests/test_workflow_evaluated_cli.py),
+  [controlled local providers](../../tests/test_workflow_evaluated_providers.py),
+  [recovery smoke](../../tests/test_workflow_evaluated_invalidate_smoke.py),
+  [path children](../../tests/e2e/test_e2e_workflow_evaluated_run_ref.py),
+  [readers](../../tests/test_workflow_evaluated_readers.py) and
+  [target routing](../../tests/test_workflow_lisp_target_evaluated_execution.py).
+- Related: [REPL](workflow_lisp_repl.md) and
+  [REPL introspection](workflow_lisp_repl_introspection.md) (read-only
+  inspection over this model), [numeric surface](workflow_lisp_numeric_surface.md),
   [writing each fact once](workflow_lisp_write_once.md),
   [lexical execution checkpoints](workflow_lisp_lexical_execution_checkpoints.md),
-  [pure-result replay](workflow_lisp_pure_result_replay.md),
-  [design principles](workflow_language_design_principles.md) 5, 6, 10, 15,
-  17, 27 and 28
+  [pure-result replay](workflow_lisp_pure_result_replay.md).
+- Citations below to the "gate report", "spike iteration N" and "the plan"
+  refer to the 2026-09-29 evaluated-execution spike and plan records.
 
 ## 1. Summary
 
@@ -2846,12 +2804,11 @@ Codes this design introduces or keeps, and where each is raised:
 
 ## 13. Targets And Compatibility
 
-The [dynamic-core proposal](workflow_lisp_dynamic_core_proposal.md) is a separate
-candidate contract; its [evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
-owns decisions about that alternative. This accepted target retains typed P5,
-statically resolved callable identities and its bounded, nonrecursive execution
-contract. Adopting dynamic values/closures would require a distinct target and
-versioned program/profile contract, with explicit owner amendments. Shared memo,
+The [dynamic-core proposal](workflow_lisp_dynamic_core_proposal.md) records the
+separate native 3.0 profile. This target retains typed P5, statically resolved
+callable identities and its bounded, nonrecursive execution contract. Dynamic
+values and closures exist only in the distinct target 3.0 with its own
+versioned program/profile contract. Shared memo,
 performer or request-parity evidence does not permit reinterpreting saved typed
 programs or runs as dynamic environments.
 
@@ -2860,7 +2817,7 @@ programs or runs as dynamic environments.
   on 2026-09-30; 2.36 adds the
   [W3 contract](../../specs/versioning.md) on the same representation/profile.
   Compilation alone does not establish runtime availability or recovery evidence.
-  The [branch-qualified native 3.0 profile](../../specs/versioning.md#branch-qualified-target-30)
+  The [native 3.0 profile](../../specs/versioning.md#native-target-30)
   is separate; the typed target range does not admit its dynamic representation
   or reinterpret typed artifacts/runs.
 - Until explicitly retired under plan decision 8, programs at older targets
@@ -2901,7 +2858,7 @@ programs or runs as dynamic environments.
   `specs/providers.md` give them; their request bytes, prompts and compiled
   artifacts do not change.
   The shared provider performer also supplies this absolute destination to
-  branch-qualified target 3.0; that profile retains its separate fresh-only
+  native target 3.0; that profile retains its separate fresh-only
   authority and gains no evaluated memo/recovery guarantees.
 - The command boundary manifest gains the field `closure` (C1). At older
   targets through 2.34 the field is accepted and ignored by binding
@@ -3017,7 +2974,7 @@ owns compiler completion; the [Phase 3 plan](../plans/2026-10-02-workflow-lisp-e
 | The closed program can be built for the corpus | P1 to P7 hold for every workflow whose forms/classes are admitted; inventory every refusal against §1.1, including stdlib command closures. Never seed an unknown implementation closure as empty merely to pass | Historical spike: 38 of 52 built in iteration 3, 39 in iteration 4; phased calls were treated as ordinary calls. Implemented Phase 2 corpus: 37 Built, 10 Gap, 4 Refused, 1 NotSynthesizable, owned by `tests/test_workflow_lisp_closed_program_corpus.py`; every Built artifact is validated/read back and its perform/site bijection checked. Neither count establishes runtime parity |
 | A lexical path distinguishes every effect site, across inlined copies | A procedure with one effect, called from three arms of one `match`, in a loop | Met (gate report, §2, criterion 6) |
 | Prompt assembly can run outside the executor | Public compile/run fixtures distinguish `asset_file` and `input_file` using different texts at their lookup locations; a document-slot `defprompt` and dependency snapshots assemble the same prompt as the flat route, apart from R3 | Implemented pure assembly and captured C6 source/dependency reads: `tests/test_workflow_evaluated_prompts.py` and `tests/test_workflow_evaluated_provider_reads.py`. `tests/test_workflow_evaluated_providers.py` compares complete flat requests and exercises public nested asset/input-file/document slots through controlled local transport; public command/provider resume is implemented in `tests/test_workflow_evaluated_invalidate_smoke.py`; later live-provider qualification remains pending |
-| Evaluation is a function of program, inputs and committed results | Two evaluations with one memo give the same trace and launch nothing the second time | Met (spike iteration 1, commit `92d47fe0`). Open: path existence checks, variant selection by workspace digest and secrets are each an effect or part of a resolved input; secrets are not designed |
+| Evaluation is a function of program, inputs and committed results | Two evaluations with one memo give the same trace and launch nothing the second time | Met (spike iteration 1). Open: path existence checks, variant selection by workspace digest and secrets are each an effect or part of a resolved input; secrets are not designed |
 | The views satisfy their readers | Every V9 adapter reads the evaluated profile through its public entry, including concurrent partial-tail/stale-view cases and a failed atomic view replacement after commit | Only report-shaped in-memory rows/status shown in iteration 2; durable publication, status adapters and public-reader integration remain prerequisites |
 | A run-reference adapter can reuse its runtime and ledger | A compiled path-mode run reference, killed at both gaps, with the changed caller adapter | Met in the spike (iteration 3, E); public evaluator integration remains required |
 | The context forms have a closed value equal to the present route's | One program per form (X1 to X4), run on both routes | Met for X1 and X4; X2 and X3 open |

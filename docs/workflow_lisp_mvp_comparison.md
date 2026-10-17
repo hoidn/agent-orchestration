@@ -1,16 +1,17 @@
 # Workflow Lisp MVP Comparison
 
-This page is the quick, user-facing comparison for the Workflow Lisp MVP.
-
-It answers one question: does the Lisp frontend make a real workflow slice
-clearer, or does it only replace YAML punctuation with parentheses?
+This page compares one real workflow slice written in the retired YAML
+frontend with its Workflow Lisp (`.orc`) version. It answers one question: does
+the Lisp frontend make the slice clearer, or does it only replace YAML
+punctuation with parentheses? YAML sources do not run; the excerpts below
+show what authors used to write.
 
 Short answer: for the MVP slice, it is a real improvement. The Lisp version is
 shorter and removes several brittle authoring details from the workflow source.
 
 ## The Two Files
 
-Read the Lisp MVP source alongside the historical comparison below:
+The Lisp source:
 
 - Lisp MVP slice:
   [`tests/fixtures/workflow_lisp/valid/neurips_implementation_attempt.orc`](../tests/fixtures/workflow_lisp/valid/neurips_implementation_attempt.orc)
@@ -23,8 +24,7 @@ The retired YAML equivalent was the implementation-attempt portion:
 - `PublishBlockedProgressReport`
 
 That slice started at `ExecuteImplementation` and ended at
-`PublishBlockedProgressReport`; the comparison remains as migration history
-after retirement of the authored YAML source.
+`PublishBlockedProgressReport`.
 
 ## What Changed
 
@@ -51,7 +51,7 @@ Expose only the fields that belong to the selected variant.
 ```
 
 The Lisp slice makes that smaller idea explicit. The compiler then lowers it
-into the v2.14 protocol pieces that YAML currently has to author directly.
+into the v2.14 protocol pieces that YAML authors had to write directly.
 
 | Authoring problem | YAML expression | Lisp expression | Why the Lisp stays smaller |
 | --- | --- | --- | --- |
@@ -211,17 +211,12 @@ source removes repeated correctness obligations from the author:
 - no inline Python to republish path values;
 - no hand-managed implementation-state path in the workflow body.
 
-The MVP evidence is summarized in:
-
-[`docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/first-phase-translation-neurips-implementation/mvp_metrics_recommendation_report.md`](plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/first-phase-translation-neurips-implementation/mvp_metrics_recommendation_report.md)
-
 ## Boundary
 
-This comparison proves only the MVP implementation-attempt slice. It does not
-prove that the full Lisp frontend is complete or that the entire NeurIPS drain
-stack is better after translation.
+This comparison covers only the implementation-attempt slice, not a whole
+drain stack.
 
-For the implementation contract and remaining design, see:
+For the language contract, see:
 
 - [`docs/design/workflow_lisp_frontend_mvp_specification.md`](design/workflow_lisp_frontend_mvp_specification.md)
 - [`docs/design/workflow_lisp_frontend_specification.md`](design/workflow_lisp_frontend_specification.md)

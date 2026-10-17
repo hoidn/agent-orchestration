@@ -1,41 +1,20 @@
 # Workflow Lisp Provider Live Binding
 
-- **Status:** v1 target-`2.16` supervision and additive v1.1 target-`2.17`
-  peer messaging are implemented. Their original interrupted-visit quarantine
-  sections describe the pre-ML behavior and are superseded by the normative
-  at-least-once contract in `specs/state.md`; historical-complete ML-1
-  implements runtime recovery without reopening the completed v1/v1.1 feature
-  gates.
-- **Kind:** feature / provider observation, bounded concurrency, and
-  turn-boundary supervision architecture
-- **Owner:** Workflow Lisp frontend + provider runtime
-- **Review:** original independent specification PASS and quality APPROVED;
-  evidence-driven resume-boundary amendment independently
-  `SPEC_COMPLIANT`, quality `APPROVED`, and behavior simulation `PASS` on
-  2026-07-23; the initial 2026-07-24 peer-messaging amendment review returned
-  `CHANGES_REQUIRED`, and the revised additive design then received
-  `DESIGN_SPEC_APPROVED` and ordered `DESIGN_QUALITY_APPROVED`; v1.1
-  implementation tasks received ordered specification and quality review
-- **Created:** 2026-07-13
-- **Last material update:** 2026-07-24
-- **Normative recovery note (2026-07-30):** preserve all member, settlement,
-  message-ledger, cleanup, and completed-result rules below. Read any
-  interrupted-visit quarantine wording as historical design provenance; the
-  ML-0 spec pivot replaces only that policy with guarded discard-and-rerun.
-- **Related docs / plans:**
-  - `docs/design/workflow_lisp_frontend_specification.md`
-  - `docs/design/workflow_lisp_executable_ir.md`
-  - `docs/design/workflow_lisp_provider_prompt_queue.md`
-  - `docs/design/workflow_lisp_provider_peer_messaging.md`
-  - `docs/design/workflow_lisp_lexical_execution_checkpoints.md`
-  - `docs/design/workflow_lisp_native_transportable_returns.md`
-  - `docs/plans/2026-07-23-provider-live-binding-t3-behavior-simulation.md`
-  - `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`
-  - `specs/providers.md`, `specs/io.md`, `specs/state.md`,
-    `specs/versioning.md`, and `specs/observability.md`
-- **Implementation target:** v1 is complete through `4d4f05c7`; the additive
-  v1.1 capability, runtime, target-`2.17` frontend, executable projections,
-  and real-provider gates landed in `4f28ffde` through `b08c04a6`
+Status: Implemented in targets 2.16 and 2.17
+
+Run-scoped live observation panes for provider invocations, `with-live-providers`
+(one worker, one supervisor, one bounded turn-boundary correction) at target
+2.16, and additive recorded peer messaging at target 2.17. Normative behavior
+is owned by [providers](../../specs/providers.md), [IO](../../specs/io.md),
+[state](../../specs/state.md) and [observability](../../specs/observability.md).
+Interrupted visits follow the state spec's guarded discard-and-rerun contract;
+the quarantine wording in the sections below is superseded, while member,
+settlement, message-ledger, cleanup and completed-result rules stand.
+
+Related: [provider peer messaging](workflow_lisp_provider_peer_messaging.md),
+[provider prompt queue](workflow_lisp_provider_prompt_queue.md),
+[executable IR](workflow_lisp_executable_ir.md),
+[frontend specification](workflow_lisp_frontend_specification.md).
 
 ## Summary
 

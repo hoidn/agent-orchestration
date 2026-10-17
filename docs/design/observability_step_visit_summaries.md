@@ -1,6 +1,10 @@
 # Observability Step-Visit Summaries
 
-Status: draft implementation design
+Status: Implemented
+
+Generated step summaries are per-visit records: repeated or looped visits get
+`<step>.<kind>.<step-id>.visit-<n>` stems instead of overwriting each other.
+[Observability](../../specs/observability.md) owns the summary hub contract.
 
 ## Problem
 

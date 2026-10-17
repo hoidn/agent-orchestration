@@ -1,15 +1,14 @@
 # Workflow Lisp Prompt Identity And Diagnostics
 
-- **Status:** accepted
-- **Kind:** target design
-- **Owner:** Workflow Lisp prompt-calculus Q3
-- **Target:** DSL 2.22
-- **Depends on:** implemented Q1 prompt core and Q2 output positions
-- **Design reviews:** `Q3_DESIGN_SPEC_APPROVED`, then
-  `Q3_DESIGN_QUALITY_APPROVED`, over immutable reviewed snapshot
-  `fdf16f362f93eae89c05600e6954a118270fe7b7`
-- **Does not select:** Q4 judgment views, prompt search/evolution, P1–P5,
-  runtime debugging, or any parked roadmap
+Status: Implemented in target 2.22
+
+Attempt-scoped, role-separated identity for the prompt bytes and invocation
+context prepared for a direct fragment-backed provider call, with fixed-order
+retry-drift classification and comparison reports. Normative behavior is owned
+by [providers](../../specs/providers.md), [state](../../specs/state.md) and
+[versioning](../../specs/versioning.md); it builds on the
+[prompt calculus](workflow_lisp_prompt_calculus.md) prompt core and output
+positions.
 
 ## Summary
 

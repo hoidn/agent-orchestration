@@ -1,6 +1,10 @@
 # Lisp Frontend Review/Fix Loops
 
-Status: historical compatibility design; its YAML sources were retired during Stage 6
+Status: Historical (retired surface)
+
+The YAML drain phases this doc characterizes are retired; the `.orc` phases in
+[`workflows/library/lisp_frontend_design_delta/`](../../workflows/library/lisp_frontend_design_delta/)
+replaced them, with review loops on the typed `std/phase` `ReviewLoopResult`.
 
 ## Problem
 

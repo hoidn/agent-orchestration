@@ -1,31 +1,19 @@
 # Workflow Lisp Prompt Calculus
 
-- **Status:** accepted and implemented Q1, Q2, and Q3 designs
-- **Kind:** language design — typed, compositional provider prompts
-- **Owner:** Workflow Lisp frontend plus the existing provider prompt pipeline
-- **Selected tranches:** Q1 prompt core, Q2 output positions, and Q3
-  prompt-attempt identity/diagnostics are implemented
-- **Minimum targets:** Q1 `(:target-dsl "2.20")`; Q2 additive syntax
-  `(:target-dsl "2.21")`; Q3 evidence/runtime behavior
-  `(:target-dsl "2.22")`
-- **Q2 design reviews:** independent specification rereview
-  `Q2_DESIGN_SPEC_REAPPROVED`, then independent quality review
-  `Q2_DESIGN_QUALITY_APPROVED` (2026-07-26)
-- **Q2 implementation plan:** accepted after independent
-  `Q2_PLAN_SPEC_APPROVED` then `Q2_PLAN_QUALITY_APPROVED`;
-  `docs/plans/2026-07-26-workflow-lisp-prompt-output-positions-implementation-plan.md`
-- **Q3 design reviews:** `Q3_DESIGN_SPEC_APPROVED`, then
-  `Q3_DESIGN_QUALITY_APPROVED`, over immutable snapshot
-  `fdf16f362f93eae89c05600e6954a118270fe7b7`
-- **Related docs:**
-  - `docs/design/workflow_lisp_frontend_specification.md`
-  - `docs/design/workflow_lisp_transportable_value_type.md`
-  - `docs/design/workflow_lisp_native_transportable_returns.md`
-  - `docs/plans/2026-07-17-workflow-lisp-provider-prompt-dependencies-design.md`
-  - `docs/design/workflow_lisp_program_search_boundaries.md`
-  - `docs/design/workflow_language_design_principles.md`, especially
-    principle 29
-  - `docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md`
+Status: Implemented in targets 2.20–2.22
+
+Typed, compositional provider prompts: the prompt core (Q1, target 2.20),
+compiler-owned output positions (Q2, target 2.21) and prompt-attempt identity
+and diagnostics (Q3, target 2.22, detailed in
+[prompt identity diagnostics](workflow_lisp_prompt_identity_diagnostics.md)).
+Normative behavior is owned by [providers](../../specs/providers.md) and
+[versioning](../../specs/versioning.md).
+
+Related: [frontend specification](workflow_lisp_frontend_specification.md),
+[transportable `Value`](workflow_lisp_transportable_value_type.md),
+[native transportable returns](workflow_lisp_native_transportable_returns.md),
+[program-search boundaries](workflow_lisp_program_search_boundaries.md),
+[design principles](workflow_language_design_principles.md) (especially 29).
 
 ## Decision
 
@@ -505,16 +493,11 @@ The implementation plan must include TDD coverage for:
   resume adjacency; and
 - the repository broad non-security comparison.
 
-Q1 and Q2 are implemented through their reviewed plans recorded in the active
-roadmap. The design below is durable contract authority; factual execution
-evidence remains in the Q2 implementation plan.
+Q1 and Q2 are implemented.
 
 ## Implemented Q2 Amendment: Output-Position Slots
 
-**Status:** accepted after independent specification rereview
-`Q2_DESIGN_SPEC_REAPPROVED` and independent quality review
-`Q2_DESIGN_QUALITY_APPROVED`, then implemented under the reviewed Q2 plan.
-Q2 is an additive target-2.21 surface.
+**Status:** implemented. Q2 is an additive target-2.21 surface.
 Target-2.20 parsing, compilation, identity bytes, runtime behavior, and resume
 compatibility remain exactly the implemented Q1 behavior above.
 

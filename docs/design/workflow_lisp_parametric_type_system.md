@@ -1,24 +1,21 @@
 # Workflow Lisp Parametric Type System
 
-Status: draft design (consolidates and supersedes
-`workflow_lisp_compile_time_parametric_specialization.md` and
-`workflow_lisp_structural_parametric_constraints.md`)
-Kind: Workflow Lisp language design / implementation architecture
-Created: 2026-07-06
+Status: Partial
 
-Related docs:
+Generic definitions with `:forall`, the structural `:where` constraint
+vocabulary, instantiate-then-typecheck specialization, and the policy for
+moving compiler-known stdlib forms onto that substrate. Generic procedures and
+constraints back `std/phase`, `std/resource` and `std/drain`, and first-order
+generic unions are implemented at target 2.33; the deferred extensions listed
+below are not. The parent language contract is the
+[frontend specification](workflow_lisp_frontend_specification.md); this
+document supersedes `workflow_lisp_compile_time_parametric_specialization.md`
+and `workflow_lisp_structural_parametric_constraints.md`.
 
-- `docs/design/workflow_lisp_frontend_specification.md` (parent language contract)
-- `docs/design/workflow_lisp_review_revise_stdlib_parametric_integration.md`
-  (owns `ReviewFindings` / `ReviewDecision` / `ReviewLoopResult` schemas)
-- `docs/design/workflow_lisp_type_catalog.md` (type-to-contract mapping)
-- `docs/design/workflow_lisp_stdlib_lowering.md`
-- `docs/design/workflow_lisp_macro_surface_contract.md`
-- `docs/design/workflow_lisp_proc_refs_partial_application.md`
-- `docs/design/workflow_lisp_procedure_first_reuse_contract.md`
-- `docs/design/workflow_lisp_runtime_native_drain_authoring.md` (owns the
-  concrete drain hook shape contracts consumed by Tranche 2)
-- `docs/design/workflow_lisp_shared_owner_lane_prerequisites.md`
+Related: [type catalog](workflow_lisp_type_catalog.md),
+[ProcRef and partial application](workflow_lisp_proc_refs_partial_application.md),
+[review/revise stdlib integration](workflow_lisp_review_revise_stdlib_parametric_integration.md)
+(owns the `ReviewFindings` / `ReviewDecision` / `ReviewLoopResult` schemas).
 
 ## Purpose
 

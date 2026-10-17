@@ -1,7 +1,12 @@
 # Workflow Lisp Debug YAML Renderer
 
-Status: draft internal design  
-Depends on: `docs/design/workflow_lisp_core_workflow_ast.md`, `docs/design/workflow_lisp_source_map.md`
+Status: Implemented
+
+`orchestrator/workflow_lisp/debug_yaml.py` renders non-authoritative YAML views
+of compiled workflows for inspection and debugging; they are never compiler
+input or execution authority. See the
+[Core Workflow AST](workflow_lisp_core_workflow_ast.md) and
+[source map](workflow_lisp_source_map.md) designs.
 
 ## Purpose
 

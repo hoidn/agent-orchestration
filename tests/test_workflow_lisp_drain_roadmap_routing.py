@@ -282,9 +282,6 @@ TASK8_BASELINE_REPLAY_PATH = (
     "task8-baseline-replay/adjudication.json"
 )
 MIGRATION_TASK_1_IMPLEMENTATION_COMMITS = ("4983afff", "fa16bcf0")
-CORRECTION_SUBPLAN_PATH = (
-    "docs/plans/2026-07-14-procedure-identity-store-match-scoped-counts-plan.md"
-)
 ORDERED_ROADMAP_PATHS = (
     CURRENT_SELECTOR_PATH,
     "docs/plans/2026-07-07-yaml-retirement-program.md",
@@ -808,6 +805,16 @@ def _markdown_table_row(path: Path, key: str) -> str:
     )
 
 
+def _design_index_entry(name: str) -> str:
+    return next(
+        line
+        for line in (REPO_ROOT / DESIGN_INDEX_PATH)
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.startswith(f"- [{name}]({name})")
+    )
+
+
 def _normalized_routing_text(text: str) -> str:
     return " ".join(
         text.lower()
@@ -987,16 +994,6 @@ def _assert_migration_wave_complete_and_yaml_stage_closed(
     ) is None, label
 
 
-def _assert_exact_ordered_routing_paths(surface: str, label: str) -> None:
-    canonical = _canonical_routing_paths(surface)
-    positions: list[int] = []
-    for path in ORDERED_ROADMAP_PATHS:
-        assert canonical.count(path) == 1, (label, path, canonical.count(path))
-        positions.append(canonical.index(path))
-    assert positions == sorted(positions), (label, positions)
-    assert canonical.count(CORRECTION_SUBPLAN_PATH) == 0, label
-
-
 def _assert_task_4_3_closeout_state(surface: str, label: str) -> None:
     normalized = _normalized_routing_text(surface)
     assert GATE_P4_REVIEWED_STATE in normalized, label
@@ -1035,64 +1032,37 @@ def test_procedure_first_status_surfaces_close_stage_6_and_route_stage_7_v1_1() 
         / "plans"
         / "2026-07-09-procedure-first-roadmap-execution-sequence.md"
     ).read_text(encoding="utf-8")
-    docs_index_routing = (REPO_ROOT / "docs" / "index.md").read_text(
-        encoding="utf-8"
-    ).split("**Component-plan routing:**", 1)[1].split(
-        "**Current procedure-first substrate:**", 1
-    )[0]
-    routing_surfaces = {
-        "docs index": docs_index_routing,
-        "procedure sequence": _procedure_sequence_current_routing(),
-        "capability matrix": _markdown_table_row(
-            capability_matrix_path,
-            "Workflow Lisp procedure-first reuse contract",
-        ),
-    }
+    surface = _procedure_sequence_current_routing()
+    label = "procedure sequence"
+    canonical = _canonical_routing_paths(surface)
+    assert canonical.count(CURRENT_SELECTOR_PATH) == 1, label
+    normalized = _normalized_routing_text(surface)
+    assert "migration wave" in normalized and "complete" in normalized, label
+    assert re.search(
+        r"\bstage 6\b.{0,160}\bcomplete\w*\b"
+        r"|\byaml retirement\b.{0,160}\btask 7\b.{0,100}\bcomplete\w*\b",
+        normalized,
+    ), label
+    _assert_stage_7_v1_landed_and_v1_1_routed(surface, label)
+    assert "migration waves remain blocked" not in normalized, label
+    assert "runtime hardening remains pending" not in normalized, label
 
-    for label, surface in routing_surfaces.items():
-        canonical = _canonical_routing_paths(surface)
-        assert canonical.count(CURRENT_SELECTOR_PATH) == 1, label
-        normalized = _normalized_routing_text(surface)
-        assert "migration wave" in normalized and "complete" in normalized, label
-        assert re.search(
-            r"\bstage 6\b.{0,160}\bcomplete\w*\b"
-            r"|\byaml retirement\b.{0,160}\btask 7\b.{0,100}\bcomplete\w*\b",
-            normalized,
-        ), label
-        _assert_stage_7_v1_landed_and_v1_1_routed(surface, label)
-        assert "migration waves remain blocked" not in normalized, label
-        assert "runtime hardening remains pending" not in normalized, label
-
-    yaml_row = _markdown_table_row(capability_matrix_path, "YAML DSL v2.x")
-    normalized_yaml_row = _normalized_routing_text(yaml_row)
+    yaml_row = _markdown_table_row(capability_matrix_path, "YAML workflow DSL")
     assert "| Retired |" in yaml_row
-    assert "all five content addressed queues are drained" in normalized_yaml_row
-    assert "fresh run is orc only" in normalized_yaml_row
-    assert "tests/test_yaml_frontend_retirement.py" in yaml_row
+    assert "(../specs/dsl.md)" in yaml_row
     assert ".orc required" in yaml_row
-    assert "yaml workflow loader is removed" in normalized_yaml_row
-    assert "omp configuration" in normalized_yaml_row
     omp_row = _markdown_table_row(
-        capability_matrix_path, "OMP-I1 provider, prompt-scaffold, and session bridge"
+        capability_matrix_path, "OMP provider and session bridge"
     )
-    assert "specs/providers.md" in omp_row
-    assert "docs/omp_upgrade_runbook.md" in omp_row
-    assert "orchestrator/omp_assets/confs/" in omp_row
+    assert "| Implemented |" in omp_row
+    assert "(../specs/providers.md)" in omp_row
+    assert "(omp_upgrade_runbook.md)" in omp_row
     from orchestrator.providers.omp_conf import load_yaml_document
 
     config_path = REPO_ROOT / "orchestrator/omp_assets/confs/neutral/config.yml"
     assert isinstance(
         load_yaml_document(config_path.read_bytes(), source="config.yml"), dict
     )
-    assert "task 7" in normalized_yaml_row and "complete" in normalized_yaml_row
-    assert "1,020 passed" in normalized_yaml_row
-    assert "5 skipped" in normalized_yaml_row
-    assert "6,386 passed" in normalized_yaml_row
-    assert "15 skipped" in normalized_yaml_row
-    assert "four exact" in normalized_yaml_row and "zero new" in normalized_yaml_row
-    assert "d9baa120" in normalized_yaml_row
-    assert "pass" in normalized_yaml_row
-    assert "approved" in normalized_yaml_row
 
     stage_6 = _normalized_routing_text(
         sequence.split("### Stage 6: Resume YAML Retirement", 1)[1].split(
@@ -1193,9 +1163,7 @@ def test_list_traversal_closeout_status_is_consistent_across_doc_routes() -> Non
     language_server_plan = (REPO_ROOT / LANGUAGE_SERVER_PLAN_PATH).read_text(
         encoding="utf-8"
     )
-    design_router_path = REPO_ROOT / "docs/design/README.md"
     capability_matrix_path = REPO_ROOT / "docs/capability_status_matrix.md"
-    index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
 
     assert "status: implemented" in _normalized_routing_text(
         "\n".join(design.splitlines()[:30])
@@ -1203,21 +1171,15 @@ def test_list_traversal_closeout_status_is_consistent_across_doc_routes() -> Non
     assert "status: complete" in _normalized_routing_text(
         "\n".join(plan.splitlines()[:45])
     )
-    design_row = _markdown_table_row(
-        design_router_path,
-        "workflow_lisp_pure_list_traversal.md",
+    assert _design_index_entry("workflow_lisp_pure_list_traversal.md").endswith(
+        "*Implemented.*"
     )
-    assert "| Implemented |" in design_row
     capability_row = _markdown_table_row(
         capability_matrix_path,
-        "Workflow Lisp target-2.18 bounded list traversal",
+        "| List traversal (2.18) |",
     )
     assert "| Implemented |" in capability_row
-    list_index = index.split(
-        "### [Workflow Lisp Pure List Traversal]", 1
-    )[1].split("### [Workflow Lisp Language Server]", 1)[0]
-    assert "implemented target 2.18" in _normalized_routing_text(list_index)
-    assert "completed seven task" in _normalized_routing_text(list_index)
+    assert "(design/workflow_lisp_pure_list_traversal.md)" in capability_row
     normalized_language_server_plan = _normalized_routing_text(
         "\n".join(language_server_plan.splitlines()[:45])
     )
@@ -1254,21 +1216,18 @@ def test_stage_8_language_server_closeout_status_is_consistent() -> None:
         "status: closing verification" in normalized_plan_status
         or "status: complete" in normalized_plan_status
     )
-    assert "| Implemented |" in _markdown_table_row(
-        REPO_ROOT / "docs/design/README.md",
-        "workflow_lisp_language_server.md",
+    assert _design_index_entry("workflow_lisp_language_server.md").endswith(
+        "*Implemented.*"
     )
-    assert "| Implemented |" in _markdown_table_row(
+    capability_row = _markdown_table_row(
         REPO_ROOT / "docs/capability_status_matrix.md",
-        "Workflow Lisp language server v1",
+        "| Workflow Lisp language server |",
     )
+    assert "| Implemented |" in capability_row
+    assert "(workflow_lisp_language_server_setup.md)" in capability_row
+    assert "(design/workflow_lisp_language_server.md)" in capability_row
 
-    language_server_index = index.split(
-        "### [Workflow Lisp Language Server]", 1
-    )[1].split("### [Workflow Lisp Language Server Implementation Plan]", 1)[0]
-    normalized_index = _normalized_routing_text(language_server_index)
-    assert "implemented" in normalized_index
-    assert "workflow_lisp_language_server_setup.md" in language_server_index
+    assert "(workflow_lisp_language_server_setup.md)" in index
     assert "python -m orchestrator.lsp" in setup
 
     stage_8 = sequence.split(
@@ -1307,10 +1266,9 @@ def test_lean_pilot_a1_v7_closure_routes_exact_evidence_and_narrow_owner_handoff
     owner_decision = (REPO_ROOT / LEAN_PILOT_OWNER_DECISION_PATH).read_text(
         encoding="utf-8"
     )
-    index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
     capability_row = _markdown_table_row(
         REPO_ROOT / CAPABILITY_STATUS_MATRIX_PATH,
-        "| `.orc` effectiveness lean-pilot apparatus |",
+        "| `.orc` effectiveness pilot and study harness |",
     )
 
     lock_digest = (
@@ -1338,8 +1296,6 @@ def test_lean_pilot_a1_v7_closure_routes_exact_evidence_and_narrow_owner_handoff
         recovery,
         final_review,
         owner_decision,
-        index,
-        capability_row,
     ):
         assert lock_digest in surface
         assert summary_digest in surface
@@ -1387,22 +1343,8 @@ def test_lean_pilot_a1_v7_closure_routes_exact_evidence_and_narrow_owner_handoff
         normalized_decision
     )
 
-    for path in (
-        LEAN_PILOT_DESIGN_PATH,
-        LEAN_PILOT_IMPLEMENTATION_PLAN_PATH,
-        LEAN_PILOT_READINESS_AMENDMENT_PATH,
-        LEAN_PILOT_INCIDENT_RECOVERY_PATH,
-        LEAN_PILOT_REPORT_PATH,
-        LEAN_PILOT_FINAL_REVIEW_PATH,
-        LEAN_PILOT_OWNER_DECISION_PATH,
-    ):
-        assert Path(path).name in index
-    normalized_capability = _normalized_routing_text(capability_row)
-    assert "implemented" in normalized_capability
-    assert "direct won 3/3 against orc" in normalized_capability
-    assert "orc in 1/3" in normalized_capability
-    assert "exploratory only" in normalized_capability
-    assert "does not automatically select e1+" in normalized_capability
+    assert "| Implemented |" in capability_row
+    assert "`experiments/orc_effectiveness/`" in capability_row
 
 
 def test_e_series_routing_artifacts_exist_and_closed_reviews_are_content_addressed() -> None:
@@ -1454,25 +1396,27 @@ def test_e_series_routing_artifacts_exist_and_closed_reviews_are_content_address
     roadmap = (REPO_ROOT / EVOLUTION_FOLLOW_ON_ROADMAP_PATH).read_text(
         encoding="utf-8"
     )
-    index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
     es_plan = (REPO_ROOT / ES_COMPONENT_PLAN_PATH).read_text(encoding="utf-8")
     assert Path(ES_COMPONENT_PLAN_PATH).name in roadmap
-    assert Path(ES_COMPONENT_PLAN_PATH).name in index
     assert Path(ES_F1_LARGE_SCOPE_REFREEZE_PLAN_PATH).name in roadmap
     assert Path(ES_F1_LARGE_SCOPE_REFREEZE_PLAN_PATH).name in es_plan
     assert Path(OMP_INTEGRATION_DESIGN_PATH).name in roadmap
-    assert Path(OMP_INTEGRATION_DESIGN_PATH).name in index
     assert Path(ES_TASK5_EXECUTION_PLAN_PATH).name in es_plan
 
-    # Both capability rows remain routed (row lookup raises when missing).
-    assert _markdown_table_row(
+    # Both capability rows stay routed to their designs with a status label.
+    trial_row = _markdown_table_row(
         REPO_ROOT / CAPABILITY_STATUS_MATRIX_PATH,
-        "| Workflow Lisp canonical trial runs (E0-E3 direction) |",
+        "| Pinned child runs and trials (2.24, 2.25) |",
     )
-    assert _markdown_table_row(
+    assert "| Partial |" in trial_row
+    assert "(design/workflow_lisp_trial_runs.md)" in trial_row
+    assert "(../workflows/library/control/direct_task.orc)" in trial_row
+    gates_row = _markdown_table_row(
         REPO_ROOT / CAPABILITY_STATUS_MATRIX_PATH,
-        "| Workflow Lisp typed program gates (C1 companion) |",
+        "| Typed program gates |",
     )
+    assert "| Designed |" in gates_row
+    assert "(design/workflow_lisp_typed_program_gates.md)" in gates_row
 
     # Closed review records are content-addressed frozen evidence.
     for review_path, expected_digest in (
@@ -1593,9 +1537,7 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     l2_plan = (REPO_ROOT / LANGUAGE_SERVER_L2_PLAN_PATH).read_text(
         encoding="utf-8"
     )
-    design_router_path = REPO_ROOT / "docs" / "design" / "README.md"
     capability_matrix_path = REPO_ROOT / "docs" / "capability_status_matrix.md"
-    index = (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8")
     route_registry = json.loads(
         (
             REPO_ROOT / "docs" / "workflow_lisp_route_readiness_registry.json"
@@ -1758,28 +1700,16 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     )
     q4_capability_row = _markdown_table_row(
         capability_matrix_path,
-        "Workflow Lisp judgment views Q4",
-    )
-    normalized_q4_capability_row = _normalized_routing_text(
-        q4_capability_row
+        "| Judgment views (2.23) |",
     )
     assert "| Implemented |" in q4_capability_row
-    assert "| Designed |" not in q4_capability_row
-    assert "| Planned |" not in q4_capability_row
-    assert "original design and q5 era design amendment accepted" in (
-        normalized_q4_capability_row
+    assert "(design/workflow_lisp_judgment_views.md)" in q4_capability_row
+    assert (
+        "(../workflows/examples/review_revise_design_docs_judgment_panel.orc)"
+        in q4_capability_row
     )
-    assert "d7fe4549" in normalized_q4_capability_row
-    assert "3c21ceb4" in normalized_q4_capability_row
-    assert "reviewed amended plan 0f21636b" in normalized_q4_capability_row
-    assert "implementation not started" not in normalized_q4_capability_row
-    assert "target 2.23 explicit composed panel sibling" in normalized_q4_capability_row
-    assert "current target 2.23 phased" in normalized_q4_capability_row
-    assert "frozen target 2.21 control" in normalized_q4_capability_row
-    assert "never an import owner" in normalized_q4_capability_row
     normalized_q4_design = _normalized_routing_text(q4_design)
     normalized_q4_plan = _normalized_routing_text(q4_plan)
-    assert "adopted consumer binding" in normalized_q4_design
     assert "status: implemented" in normalized_q4_design
     assert "target 2.23 sibling" in normalized_q4_design
     assert ":delivery :composed" in normalized_q4_design
@@ -1859,50 +1789,17 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
         text.count("`q4_task2_export_compatibility.v1`")
         for text in (q4_design, q4_plan)
     ) == (1, 1)
-    normalized_q3_design_status = _normalized_routing_text(
-        "\n".join(q3_design.splitlines()[:24])
-    )
-    assert "status: accepted" in normalized_q3_design_status
-    assert "target: dsl 2.22" in normalized_q3_design_status
-    assert "q3_design_spec_approved" in normalized_q3_design_status
-    assert "q3_design_quality_approved" in normalized_q3_design_status
-    assert "fdf16f362f93eae89c05600e6954a118270fe7b7" in q3_design
-    q3_design_router_row = _markdown_table_row(
-        design_router_path,
-        "workflow_lisp_prompt_identity_diagnostics.md",
-    )
-    normalized_q3_design_router_row = _normalized_routing_text(
-        q3_design_router_row
-    )
-    assert "| Implemented |" in q3_design_router_row
-    assert "functional v2" in normalized_q3_design_router_row
-    assert "prelaunch publication" in normalized_q3_design_router_row
-    assert Path(PROMPT_IDENTITY_PLAN_PATH).name in q3_design_router_row
+    assert "Status: Implemented in target 2.22" in q3_design
+    assert _design_index_entry(
+        "workflow_lisp_prompt_identity_diagnostics.md"
+    ).endswith("*Implemented.*")
     q3_capability_row = _markdown_table_row(
         capability_matrix_path,
-        "Workflow Lisp prompt identity diagnostics Q3",
+        "| Prompt-attempt identity diagnostics (2.22) |",
     )
-    normalized_q3_capability_row = _normalized_routing_text(q3_capability_row)
     assert "| Implemented |" in q3_capability_row
-    assert "direct fragment backed target 2.22" in (
-        normalized_q3_capability_row
-    )
-    assert "functional v2" in normalized_q3_capability_row
-    assert "fixed order comparison" in normalized_q3_capability_row
-    assert Path(PROMPT_IDENTITY_PLAN_PATH).name in q3_capability_row
-    normalized_index = _normalized_routing_text(index)
-    prompt_identity_index = _normalized_routing_text(
-        _markdown_heading_section(
-            index,
-            "### [Workflow Lisp Prompt Identity Diagnostics]",
-        )
-    )
-    assert "implemented target 2.22 q3 design" in prompt_identity_index
-    assert "content free" in prompt_identity_index
-    assert "direct fragment only" in prompt_identity_index
-    assert Path(PROMPT_IDENTITY_PLAN_PATH).name in index
-    assert (
-        "2026-07-31-workflow-lisp-language-server-l6-utility-roadmap.md" in index
+    assert "(design/workflow_lisp_prompt_identity_diagnostics.md)" in (
+        q3_capability_row
     )
     assert "# Workflow Lisp Prompt Identity And Diagnostics Implementation Plan" in (
         q3_plan
@@ -1910,11 +1807,7 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     prompt_calculus = (
         REPO_ROOT / "docs" / "design" / "workflow_lisp_prompt_calculus.md"
     ).read_text(encoding="utf-8")
-    normalized_prompt_calculus = _normalized_routing_text(prompt_calculus)
-    assert "q3 prompt attempt identity/diagnostics are implemented" in (
-        normalized_prompt_calculus
-    )
-    assert 'target dsl "2.22"' in normalized_prompt_calculus
+    assert "Status: Implemented in targets 2.20–2.22" in prompt_calculus
     frontend = (
         REPO_ROOT
         / "docs"
@@ -1928,17 +1821,11 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "functional v2" in normalized_frontend
     q2_capability_row = _markdown_table_row(
         capability_matrix_path,
-        "Workflow Lisp prompt calculus Q2 output positions",
+        "| Prompt fragments and output positions (2.20, 2.21) |",
     )
-    normalized_q2_capability_row = _normalized_routing_text(q2_capability_row)
     assert "| Implemented |" in q2_capability_row
-    assert "target 2.21" in normalized_q2_capability_row
-    assert "6ae74a82" in q2_capability_row
-    assert "d0bb9a1d" in q2_capability_row
-    assert "a40b536c" in q2_capability_row
-    assert "4e2c4911" in q2_capability_row
-    assert "q2_final_spec_approved" in normalized_q2_capability_row
-    assert "q2_final_quality_approved" in normalized_q2_capability_row
+    assert "(design/workflow_lisp_prompt_calculus.md)" in q2_capability_row
+    assert "`:path :out`" in q2_capability_row
     l2_row = _markdown_table_row(
         REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH,
         "| L2 |",
@@ -1997,58 +1884,11 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "complete" in normalized_l1_row
     assert "implemented" in normalized_l1_row
     assert "active" not in normalized_l1_row
-    l1_capability_row = _markdown_table_row(
-        capability_matrix_path,
-        "Workflow Lisp language server L1 authored symbols/signatures",
-    )
-    assert "| Implemented |" in l1_capability_row
-    assert "ten symbol kinds" in _normalized_routing_text(l1_capability_row)
-    language_server_router_row = _markdown_table_row(
-        design_router_path,
-        "workflow_lisp_language_server.md",
-    )
-    normalized_language_server_router_row = _normalized_routing_text(
-        language_server_router_row
-    )
-    assert "l1 authored symbols/signatures are implemented" in (
-        normalized_language_server_router_row
-    )
-    assert "l2 recovery safe static completion is implemented" in (
-        normalized_language_server_router_row
-    )
-    assert "l2_final_spec_approved" in normalized_language_server_router_row
-    assert "l2_final_quality_approved" in normalized_language_server_router_row
-    l3_capability_row = _markdown_table_row(
-        capability_matrix_path,
-        "Workflow Lisp language server L3 per-source entry selection",
-    )
-    normalized_l3_capability_row = _normalized_routing_text(l3_capability_row)
-    assert "| Implemented |" in l3_capability_row
-    assert "entry_workflows" in l3_capability_row
-    assert "l3_task1_spec_approved" in normalized_l3_capability_row
-    assert "l3_task1_quality_approved" in normalized_l3_capability_row
-    assert "l3_task2_spec_approved" in normalized_l3_capability_row
-    assert "l3_task2_quality_approved" in normalized_l3_capability_row
-    assert "owner reordered l5 authored reference navigation are complete" in (
-        normalized_index
-    )
-    assert "l3 completed over mr 4 under its reviewed plan" in normalized_index
-    assert "l4 diagnostic lifecycle and compile progress" in normalized_index
-    assert "l4 closed at commit 251d9d53674e863fddae4535ea4f7022914287cd" in (
-        normalized_index
-    )
-    assert "focused selector reports 356 passed" in normalized_index
-    assert "broad comparison has zero new failures" in normalized_index
     assert "p1 diagnostic accumulation" in normalized_successor
     assert "p5 compile caching/incrementality" in normalized_successor
     assert "runtime debugging surface" in normalized_successor
 
-    normalized_value = _normalized_routing_text(
-        "\n".join(value_design.splitlines()[:35])
-    )
-    assert "status: accepted" in normalized_value
-    assert "target: dsl 2.19" in normalized_value
-    assert "selected consumer" in normalized_value
+    assert "Status: Implemented in target 2.19" in value_design
 
     normalized_plan = _normalized_routing_text(
         "\n".join(value_plan.splitlines()[:45])
@@ -2113,133 +1953,27 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "q3" in normalized_handoff
     assert "must not be selected again" in normalized_handoff
 
-    value_design_row = _markdown_table_row(
-        design_router_path,
-        "workflow_lisp_transportable_value_type.md",
-    )
-    assert "| Implemented |" in value_design_row
-    assert "target 2.19" in _normalized_routing_text(value_design_row)
+    assert _design_index_entry(
+        "workflow_lisp_transportable_value_type.md"
+    ).endswith("*Implemented.*")
     capability_row = _markdown_table_row(
         capability_matrix_path,
-        "Workflow Lisp transportable `Value`",
+        "| Transportable `Value` (2.19) |",
     )
     assert "| Implemented |" in capability_row
-    normalized_capability_row = _normalized_routing_text(capability_row)
-    assert "target 2.19" in normalized_capability_row
-    assert "not yet" not in normalized_capability_row
-    assert "pending" not in normalized_capability_row
+    assert "(design/workflow_lisp_transportable_value_type.md)" in capability_row
     provider_input_row = _markdown_table_row(
         capability_matrix_path,
-        "Workflow Lisp typed provider-input carriage",
+        "| Typed provider inputs |",
     )
-    normalized_provider_input_row = _normalized_routing_text(provider_input_row)
-    assert "target 2.19" in normalized_provider_input_row
-    assert "exact value" in normalized_provider_input_row
-    provider_result_row = _markdown_table_row(
-        capability_matrix_path,
-        "| `provider-result` | Implemented |",
+    assert "`Value`" in provider_input_row
+    assert _design_index_entry("workflow_lisp_prompt_calculus.md").endswith(
+        "*Implemented.*"
     )
-    normalized_provider_result_row = _normalized_routing_text(provider_result_row)
-    assert "target 2.19" in normalized_provider_result_row
-    assert "exact opaque value" in normalized_provider_result_row
-    assert "### [Workflow Lisp Transportable `Value` Type]" in index
-    assert (
-        "### [Workflow Lisp Language Quality And Domain Semantics Roadmap]"
-        in index
-    )
-    normalized_successor_index = _normalized_routing_text(
-        _markdown_heading_section(
-            index,
-            "### [Workflow Lisp Language Quality And Domain Semantics Roadmap]",
-        )
-    )
-    assert "completed post stage 8 roadmap" in normalized_successor_index
-    assert "q0 q5 and l0 l5 are complete" in normalized_successor_index
-    assert (
-        "q4's concrete review_revise_design_docs panel consumer is bound"
-        in normalized_successor_index
-    )
-    assert "its original design is accepted at d7fe4549" in normalized_successor_index
-    assert "q5 era design amendment is accepted at 3c21ceb4" in (
-        normalized_successor_index
-    )
-    assert "reviewed amended plan 0f21636b" in normalized_successor_index
-    assert (
-        "q4 closed at commit f3335637b90feb0a87ac4c538bafac7704ac0d87"
-        in normalized_successor_index
-    )
-    assert "tree ccec170be8757c9e4fd5ed8ece6f93b04fc03299" in normalized_successor_index
-    assert (
-        "85bc4ddfaa11915ad3d1066fdf736c1c5fd09ebb9ae65fc367f1038b685e258c"
-        in normalized_successor_index
-    )
-    assert "74 pass postcommit control" in normalized_successor_index
-    assert "q5 is complete at 70f4a759, tree fec729cb" in normalized_successor_index
-    assert Path(PROMPT_IDENTITY_PLAN_PATH).name in index
-    assert "owner reordered l5 authored reference navigation are complete" in (
-        normalized_successor_index
-    )
-    assert "l3 completed over mr 4 under its reviewed plan" in (
-        normalized_successor_index
-    )
-    assert "l4 diagnostic lifecycle and compile progress" in normalized_successor_index
-    assert "task 4 focused 356 passed and broad comparison has zero new failures" in (
-        normalized_successor_index
-    )
-    assert "### [Workflow Lisp Language Server L2 Implementation Plan]" in index
-    assert "do not select e0" in normalized_successor_index
-
-    prompt_design_row = _markdown_table_row(
-        design_router_path,
-        "workflow_lisp_prompt_calculus.md",
-    )
-    normalized_prompt_design_row = _normalized_routing_text(prompt_design_row)
-    assert "| Implemented |" in prompt_design_row
-    assert "bounded q1 q3 surfaces" in normalized_prompt_design_row
-    assert "target 2.22" in normalized_prompt_design_row
-    normalized_prompt_index = _normalized_routing_text(
-        _markdown_heading_section(
-            index,
-            "### [Workflow Lisp Prompt Calculus]",
-        )
-    )
-    assert "implemented target 2.20 q1 prompt core, target 2.21 q2 output positions, and target 2.22 q3 prompt attempt identity/diagnostics" in (
-        normalized_prompt_index
-    )
-    assert "authoring or reviewing the bounded q1 q3 surfaces" in (
-        normalized_prompt_index
-    )
-    assert "partial application" in normalized_prompt_index
-    assert "excludes" in normalized_prompt_index
-
-    normalized_value_index = _normalized_routing_text(
-        _markdown_heading_section(
-            index,
-            "### [Workflow Lisp Transportable `Value` Type]",
-        )
-    )
-    assert "implemented target 2.19" in normalized_value_index
-    assert "available for authoring" in normalized_value_index
-    assert "not yet available" not in normalized_value_index
 
 
-def test_historical_q2_index_routes_current_selection_to_evolution_entry_gates() -> None:
-    index = (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8")
-    q2_section = _markdown_heading_section(
-        index,
-        "### [Workflow Lisp Prompt Output Positions Implementation Plan]",
-    )
-    normalized_q2_section = _normalized_routing_text(q2_section)
-
-    assert "q3" in normalized_q2_section
-    assert "closed" in normalized_q2_section
-    index_owner = REPO_ROOT / "docs/index.md"
-    q2_links = {
-        (index_owner.parent / href.split("#", 1)[0]).resolve()
-        for href in re.findall(r"\[[^\]]*\]\(([^)]+)\)", q2_section)
-    }
+def test_evolution_roadmap_routes_current_selection_to_entry_gates() -> None:
     for path in (LANGUAGE_QUALITY_ROADMAP_PATH, EVOLUTION_FOLLOW_ON_ROADMAP_PATH):
-        assert (REPO_ROOT / path).resolve() in q2_links
         assert (REPO_ROOT / path).is_file()
     historical_roadmap = (REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH).read_text(
         encoding="utf-8"
@@ -2275,10 +2009,6 @@ def test_historical_q2_index_routes_current_selection_to_evolution_entry_gates()
         for href in pc1_links
     )
     assert "separate selection/funding" in pc1
-    assert (
-        "current q series selection starts with q3 implementation"
-        not in normalized_q2_section
-    )
 
 
 def test_transportable_value_normative_owners_close_the_public_contract() -> None:
@@ -2374,9 +2104,7 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
     guide = (REPO_ROOT / "docs/lisp_workflow_drafting_guide.md").read_text(
         encoding="utf-8"
     )
-    design_router_path = REPO_ROOT / "docs/design/README.md"
     capability_matrix_path = REPO_ROOT / "docs/capability_status_matrix.md"
-    index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
 
     normalized_frontend = _normalized_routing_text(frontend)
     for required in (
@@ -2419,69 +2147,15 @@ def test_prompt_core_normative_and_authoring_surfaces_close_q1() -> None:
     assert "partial application" in normalized_guide
     assert "prompt dependencies" in normalized_guide
 
-    prompt_design_row = _markdown_table_row(
-        design_router_path,
-        "workflow_lisp_prompt_calculus.md",
+    assert _design_index_entry("workflow_lisp_prompt_calculus.md").endswith(
+        "*Implemented.*"
     )
-    assert "| Implemented |" in prompt_design_row
     prompt_capability_row = _markdown_table_row(
         capability_matrix_path,
-        "Workflow Lisp prompt calculus Q1",
+        "| Prompt fragments and output positions (2.20, 2.21) |",
     )
     assert "| Implemented |" in prompt_capability_row
-
-    prompt_index = _normalized_routing_text(
-        _markdown_heading_section(
-            index,
-            "### [Workflow Lisp Prompt Calculus]",
-        )
-    )
-    assert "implemented target 2.20" in prompt_index
-    assert "authoring or reviewing the bounded q1 q3 surfaces" in prompt_index
-    assert "implementation plan next" not in prompt_index
-
-    active_roadmap_index = _normalized_routing_text(
-        _markdown_heading_section(
-            index,
-            "### [Workflow Lisp Language Quality And Domain Semantics Roadmap]",
-        )
-    )
-    assert "q0 q5 and l0 l5 are complete" in active_roadmap_index
-    assert "q4's concrete review_revise_design_docs panel consumer is bound" in (
-        active_roadmap_index
-    )
-    assert "its original design is accepted at d7fe4549" in active_roadmap_index
-    assert "q5 era design amendment is accepted at 3c21ceb4" in (
-        active_roadmap_index
-    )
-    assert "reviewed amended plan 0f21636b" in active_roadmap_index
-    assert (
-        "q4 closed at commit f3335637b90feb0a87ac4c538bafac7704ac0d87"
-        in active_roadmap_index
-    )
-    assert (
-        "85bc4ddfaa11915ad3d1066fdf736c1c5fd09ebb9ae65fc367f1038b685e258c"
-        in active_roadmap_index
-    )
-    assert "q5 is complete at 70f4a759, tree fec729cb" in active_roadmap_index
-    assert "owner reordered l5 authored reference navigation are complete" in (
-        active_roadmap_index
-    )
-    assert "mr 4 closed l3's compile path reentrancy prerequisite" in (
-        active_roadmap_index
-    )
-    assert "l3 immutable per source entry selection" in active_roadmap_index
-    assert "l4 diagnostic lifecycle and compile progress" in active_roadmap_index
-    assert "accepted editor evidence and ordered design reviews" in (
-        active_roadmap_index
-    )
-    assert "reviewed implementation plan" in active_roadmap_index
-    assert "current only diagnostic publication" in active_roadmap_index
-    assert "capability gated progress" in active_roadmap_index
-    assert "task 4 focused 356 passed and broad comparison has zero new failures" in (
-        active_roadmap_index
-    )
-    assert Path(LANGUAGE_SERVER_L4_PLAN_PATH).name in index
+    assert "`defprompt`" in prompt_capability_row
 
 
 def test_prompt_output_positions_normative_and_authoring_surfaces_ship_q2() -> None:
@@ -2497,9 +2171,6 @@ def test_prompt_output_positions_normative_and_authoring_surfaces_ship_q2() -> N
     executable_ir = (
         REPO_ROOT / "docs/design/workflow_lisp_executable_ir.md"
     ).read_text(encoding="utf-8")
-    prompt_design = (
-        REPO_ROOT / "docs/design/workflow_lisp_prompt_calculus.md"
-    ).read_text(encoding="utf-8")
     guide = (REPO_ROOT / "docs/lisp_workflow_drafting_guide.md").read_text(
         encoding="utf-8"
     )
@@ -2507,7 +2178,6 @@ def test_prompt_output_positions_normative_and_authoring_surfaces_ship_q2() -> N
     normalized_master = _normalized_routing_text(master)
     assert "target 2.21" in normalized_master
     assert "prompt output positions" in normalized_master
-    assert "v2.18 bounded list traversal tranche" in normalized_master
 
     version_rows = [
         line
@@ -2557,14 +2227,6 @@ def test_prompt_output_positions_normative_and_authoring_surfaces_ship_q2() -> N
         normalized_providers
     )
 
-    normalized_prompt_design = _normalized_routing_text(prompt_design)
-    assert "before q2, the generic owners assumed one output contract surface" in (
-        normalized_prompt_design
-    )
-    assert "q2 implemented the following generic correction" in (
-        normalized_prompt_design
-    )
-
     normalized_state = _normalized_routing_text(state)
     assert "target 2.21 prompt output position attempt state and resume" in (
         normalized_state
@@ -2588,7 +2250,6 @@ def test_prompt_output_positions_normative_and_authoring_surfaces_ship_q2() -> N
     assert ":path :out" in normalized_guide
     assert "review design docs" in normalized_guide
     assert "one structured result" in normalized_guide
-    assert "q3" in normalized_guide
 
 
 def test_prompt_identity_normative_and_authoring_surfaces_ship_q3() -> None:
@@ -2614,9 +2275,6 @@ def test_prompt_identity_normative_and_authoring_surfaces_ship_q3() -> None:
     guide = (REPO_ROOT / "docs/lisp_workflow_drafting_guide.md").read_text(
         encoding="utf-8"
     )
-    capability = (
-        REPO_ROOT / "docs/capability_status_matrix.md"
-    ).read_text(encoding="utf-8")
 
     normalized_master = _normalized_routing_text(master)
     from orchestrator.workflow.validation import DEFAULT_SUPPORTED_VERSIONS
@@ -2704,9 +2362,6 @@ def test_prompt_identity_normative_and_authoring_surfaces_ship_q3() -> None:
     assert "allocator derived json/markdown reporting" in normalized_frontend
 
     normalized_prompt_design = _normalized_routing_text(prompt_design)
-    assert "accepted and implemented q1, q2, and q3 designs" in (
-        normalized_prompt_design
-    )
     assert "functional v2 evidence" in normalized_prompt_design
     assert "provenance only" in normalized_prompt_design
 
@@ -2714,18 +2369,17 @@ def test_prompt_identity_normative_and_authoring_surfaces_ship_q3() -> None:
     assert "inspecting prompt attempt identity target 2.22" in normalized_guide
     assert "there is no new call keyword" in normalized_guide
     assert "legacy_snapshot" in guide
-    assert "coordinated provider and extern backed calls do not gain q3" in (
-        normalized_guide
-    )
+    assert (
+        "coordinated provider and extern backed calls do not gain prompt attempt "
+        "identity"
+    ) in normalized_guide
 
     q3_capability = _markdown_table_row(
         REPO_ROOT / "docs/capability_status_matrix.md",
-        "Workflow Lisp prompt identity diagnostics Q3",
+        "| Prompt-attempt identity diagnostics (2.22) |",
     )
     assert "| Implemented |" in q3_capability
-    assert "target-2.22" in q3_capability
-    assert "tests/test_workflow_lisp_prompt_identity_e2e.py" in q3_capability
-    assert "Q4 judgments remain excluded" in q3_capability
+    assert "direct fragment-backed calls" in q3_capability
 
 
 def test_judgment_views_normative_contracts_route_q4_only() -> None:
@@ -2763,7 +2417,9 @@ def test_judgment_views_normative_contracts_route_q4_only() -> None:
     assert {"result", "artifacts", "locator"} <= set(
         re.findall(r"[a-z]+", state_items[1].lower())
     )
-    assert "pre-Q4" in state_items[3]
+    assert "without it remains loadable and reusable" in " ".join(
+        state_items[3].split()
+    )
 
     observability_section = _markdown_heading_section(
         observability,
@@ -2950,14 +2606,14 @@ def test_judgment_views_normative_contracts_route_q4_only() -> None:
         "io.md",
     ):
         assert f"`{symbol}`" in provider_items[0]
-    assert "Q3" in provider_items[1]
+    assert "validated prompt-attempt record" in provider_items[1]
     assert provider_items[1].count("ordinal") >= 3
     for symbol in (
         "workflow_prompt_attempt_identity.v2",
         "workflow_prompt_fragment_snapshot.functional.v3",
     ):
         assert f"`{symbol}`" in provider_items[2]
-    assert "Q4-ineligible" in provider_items[2]
+    assert "ineligible for result binding" in " ".join(provider_items[2].split())
 
     dsl_section = dsl.split(
         "  - Workflow Lisp WCC child-call argument projection:",
@@ -3127,25 +2783,8 @@ def test_migration_wave_closeout_preserves_history_and_routes_yaml_task_7_verifi
     for commit in MIGRATION_TASK_1_IMPLEMENTATION_COMMITS:
         assert commit in task_1
 
-    docs_index_routing = (REPO_ROOT / "docs" / "index.md").read_text(
-        encoding="utf-8"
-    ).split("**Component-plan routing:**", 1)[1].split(
-        "**Current procedure-first substrate:**", 1
-    )[0]
-    capability_row = _markdown_table_row(
-        REPO_ROOT / "docs" / "capability_status_matrix.md",
-        "Workflow Lisp procedure-first reuse contract",
-    )
-    selector_surfaces = {
-        "docs index": docs_index_routing,
-        "capability matrix": capability_row,
-        **_procedure_sequence_selector_surfaces(),
-    }
-    for label, surface in selector_surfaces.items():
+    for label, surface in _procedure_sequence_selector_surfaces().items():
         _assert_migration_wave_complete_and_yaml_stage_closed(surface, label)
-
-    for label in ("docs index",):
-        _assert_exact_ordered_routing_paths(selector_surfaces[label], label)
 
 
 def test_task8_baseline_replay_is_content_addressed_and_bounded() -> None:
@@ -3513,7 +3152,6 @@ def test_task_2_step_1_closes_on_bounded_identity_retirement_ineligibility() -> 
         / "plans"
         / "2026-07-09-procedure-first-roadmap-execution-sequence.md"
     ).read_text(encoding="utf-8")
-    docs_index = (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8")
 
     assert prerequisite.is_file()
     assert TRACKED_DESIGN_RETIREMENT_PLAN_PATH not in ORDERED_ROADMAP_PATHS
@@ -3539,26 +3177,12 @@ def test_task_2_step_1_closes_on_bounded_identity_retirement_ineligibility() -> 
         "roadmap Stage 5": sequence.split(
             "### Stage 5: Implement Procedure-First Reuse In Waves", 1
         )[1].split("### Stage 6: Resume YAML Retirement", 1)[0],
-        "docs index component routing": docs_index.split(
-            "**Component-plan routing:**", 1
-        )[1].split("**Current procedure-first substrate:**", 1)[0],
     }.items():
         canonical = _canonical_routing_paths(surface)
         assert canonical.count(TRACKED_DESIGN_RETIREMENT_PLAN_PATH) == 1, label
         normalized = _normalized_routing_text(surface)
         assert "task 2" in normalized, label
         assert "consumer" in normalized, label
-
-    index_routing = docs_index.split("**Component-plan routing:**", 1)[1].split(
-        "**Current procedure-first substrate:**", 1
-    )[0]
-    canonical_index = _canonical_routing_paths(index_routing)
-    assert canonical_index.count(CURRENT_SELECTOR_PATH) == 1
-    assert "task 4" in _normalized_routing_text(index_routing)
-    _assert_migration_wave_complete_and_yaml_stage_closed(
-        index_routing,
-        "docs index component routing",
-    )
 
 
 def test_task_2_step_2_closes_on_bounded_identity_retirement_ineligibility() -> None:
@@ -3570,7 +3194,6 @@ def test_task_2_step_2_closes_on_bounded_identity_retirement_ineligibility() -> 
         / "plans"
         / "2026-07-09-procedure-first-roadmap-execution-sequence.md"
     ).read_text(encoding="utf-8")
-    docs_index = (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8")
 
     assert decision.is_file()
     assert STACK_IMPLEMENTATION_RETIREMENT_PLAN_PATH not in ORDERED_ROADMAP_PATHS
@@ -3596,9 +3219,6 @@ def test_task_2_step_2_closes_on_bounded_identity_retirement_ineligibility() -> 
         "roadmap Stage 5": sequence.split(
             "### Stage 5: Implement Procedure-First Reuse In Waves", 1
         )[1].split("### Stage 6: Resume YAML Retirement", 1)[0],
-        "docs index component routing": docs_index.split(
-            "**Component-plan routing:**", 1
-        )[1].split("**Current procedure-first substrate:**", 1)[0],
     }.items():
         canonical = _canonical_routing_paths(surface)
         assert canonical.count(STACK_IMPLEMENTATION_RETIREMENT_PLAN_PATH) == 1, label
@@ -3616,7 +3236,6 @@ def test_task_2_step_3_closes_on_live_route_strict_compatibility() -> None:
         / "plans"
         / "2026-07-09-procedure-first-roadmap-execution-sequence.md"
     ).read_text(encoding="utf-8")
-    docs_index = (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8")
 
     assert decision.is_file()
     assert SAME_FILE_BUILD_CHECKS_RETIREMENT_PLAN_PATH not in ORDERED_ROADMAP_PATHS
@@ -3652,9 +3271,6 @@ def test_task_2_step_3_closes_on_live_route_strict_compatibility() -> None:
         "roadmap Stage 5": sequence.split(
             "### Stage 5: Implement Procedure-First Reuse In Waves", 1
         )[1].split("### Stage 6: Resume YAML Retirement", 1)[0],
-        "docs index component routing": docs_index.split(
-            "**Component-plan routing:**", 1
-        )[1].split("**Current procedure-first substrate:**", 1)[0],
     }.items():
         canonical = _canonical_routing_paths(surface)
         assert canonical.count(SAME_FILE_BUILD_CHECKS_RETIREMENT_PLAN_PATH) == 1, label
@@ -3670,36 +3286,6 @@ def test_task_2_step_3_closes_on_live_route_strict_compatibility() -> None:
         assert "live" in normalized or "active" in normalized, label
 
 
-@pytest.mark.parametrize(
-    "replacement",
-    (
-        "Stage 6 YAML retirement Task 1 remains current.",
-        "Stage 6 YAML retirement Task 2 remains current.",
-        "Stage 6 YAML retirement Task 3 remains current.",
-        "Stage 6 YAML retirement Task 4 is current.",
-        "Stage 6 YAML retirement Task 5 is current.",
-        "Stage 6 YAML retirement Task 6 is current.",
-        "Stage 6 YAML retirement Task 7 is current.",
-        "Stage 7 has not started and awaits an owner-scheduled design review.",
-    ),
-)
-def test_stage_6_closeout_guard_rejects_stale_or_premature_routing(
-    replacement: str,
-) -> None:
-    docs_index_routing = (REPO_ROOT / "docs" / "index.md").read_text(
-        encoding="utf-8"
-    ).split("**Component-plan routing:**", 1)[1].split(
-        "**Current procedure-first substrate:**", 1
-    )[0]
-    mutated = docs_index_routing + "\n" + replacement
-
-    with pytest.raises(AssertionError):
-        _assert_migration_wave_complete_and_yaml_stage_closed(
-            mutated,
-            "mutated docs-index routing",
-        )
-
-
 def test_resume_projection_hardening_is_closed_without_claiming_migration() -> None:
     implementation_plan = (REPO_ROOT / HARDENING_PLAN_PATH).read_text(
         encoding="utf-8"
@@ -3707,12 +3293,13 @@ def test_resume_projection_hardening_is_closed_without_claiming_migration() -> N
     capability_matrix_path = REPO_ROOT / "docs" / "capability_status_matrix.md"
     hardening_row = _markdown_table_row(
         capability_matrix_path,
-        "Resume projection-integrity hardening",
+        "| Resume projection-integrity checks |",
     )
 
     assert re.search(r"(?m)^- \[ \] \*\*Step", implementation_plan) is None
     assert "complete" in _normalized_routing_text(implementation_plan[:1600])
     assert "| Implemented |" in hardening_row
+    assert "(design/resume_projection_integrity_hardening.md)" in hardening_row
     normalized_row = _normalized_routing_text(hardening_row)
     assert "migration waves remain blocked" not in normalized_row
     assert "migration waves are implemented" not in normalized_row
@@ -3769,11 +3356,6 @@ def test_historical_and_durable_authorities_do_not_claim_live_selector_ownership
     assert "historical" in _normalized_routing_text(activation)
     assert HARDENING_PLAN_PATH in activation
     assert "current selector" not in _normalized_routing_text(compatibility_design)
-    assert "durable compatibility design" in _normalized_routing_text(
-        compatibility_design
-    )
-    assert HARDENING_PLAN_PATH in compatibility_design
-    assert CURRENT_SELECTOR_PATH in compatibility_design
 
 
 def test_current_task_3_routes_only_the_authorized_same_id_recovery_selector() -> None:
@@ -3934,45 +3516,6 @@ def test_task_4_2_inventory_guard_rejects_incomplete_pipeline_contract(
         )
 
 
-def test_docs_index_preserves_completed_roadmap_order() -> None:
-    docs_index_routing = (REPO_ROOT / "docs" / "index.md").read_text(
-        encoding="utf-8"
-    ).split("**Component-plan routing:**", 1)[1].split(
-        "**Current procedure-first substrate:**", 1
-    )[0]
-    routing_surfaces = {"docs index": docs_index_routing}
-    for label, surface in routing_surfaces.items():
-        _assert_exact_ordered_routing_paths(surface, label)
-
-        missing = surface.replace(
-            "2026-07-13-procedure-first-migration-waves-plan.md",
-            "missing-migration-plan.md",
-            1,
-        )
-        with pytest.raises(AssertionError):
-            _assert_exact_ordered_routing_paths(missing, f"{label} missing migration")
-
-        duplicated = surface + " " + CURRENT_SELECTOR_PATH
-        with pytest.raises(AssertionError):
-            _assert_exact_ordered_routing_paths(duplicated, f"{label} duplicate selector")
-
-        correction_promoted = surface + " " + CORRECTION_SUBPLAN_PATH
-        with pytest.raises(AssertionError):
-            _assert_exact_ordered_routing_paths(
-                correction_promoted,
-                f"{label} correction promoted",
-            )
-
-        migration_name = Path(ORDERED_ROADMAP_PATHS[0]).name
-        yaml_name = Path(ORDERED_ROADMAP_PATHS[1]).name
-        reordered = (
-            surface.replace(migration_name, "__MIGRATION_PLAN__", 1)
-            .replace(yaml_name, migration_name, 1)
-            .replace("__MIGRATION_PLAN__", yaml_name, 1)
-        )
-        with pytest.raises(AssertionError):
-            _assert_exact_ordered_routing_paths(reordered, f"{label} reordered")
-
 def test_provider_call_policy_is_a_separate_generic_implemented_capability() -> None:
     gap_list_path = REPO_ROOT / "docs" / "workflow_yaml_orc_gap_list.md"
     row = _markdown_table_row(gap_list_path, "`common.provider-call-policy`")
@@ -4019,37 +3562,22 @@ def test_provider_invocation_profile_is_separate_generic_implemented_data() -> N
 
 
 def test_prompt_dependency_contract_is_routed_as_generic_implemented_capability() -> None:
-    matrix_path = REPO_ROOT / "docs" / "capability_status_matrix.md"
     matrix_row = _markdown_table_row(
-        matrix_path,
-        "Workflow Lisp provider prompt dependencies",
+        REPO_ROOT / "docs" / "capability_status_matrix.md",
+        "| Prompt dependencies |",
     )
     normalized_row = _normalized_routing_text(matrix_row)
-    docs_index = _normalized_routing_text(
-        (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8")
-    )
-    design_index = _normalized_routing_text(
-        (REPO_ROOT / "docs" / "design" / "README.md").read_text(encoding="utf-8")
+    normalized_spec = _normalized_routing_text(
+        (REPO_ROOT / "specs" / "dependencies.md").read_text(encoding="utf-8")
     )
 
-    assert "implemented" in normalized_row
-    assert "required and optional exact relpaths" in normalized_row
+    assert "| Implemented |" in matrix_row
+    assert "(../specs/dependencies.md)" in matrix_row
+    assert "required and optional relpath files" in normalized_row
     assert "262144 byte" in normalized_row
     assert "one immutable snapshot per attempt" in normalized_row
-    assert "fresh snapshot on retry" in normalized_row
-    assert "runtime plan remains topology only" in normalized_row
-    assert "evidence is non authoritative" in normalized_row
-    assert "historical yaml content mode behavior" in normalized_row
-    assert "no live authored frontend" in normalized_row
-    assert "yaml content mode remains legacy" not in normalized_row
-    assert "verified_iteration_drain" in matrix_row
-    assert "closed their family parity and promotion gates" in normalized_row
-    assert "generic_run_watchdog" in matrix_row
-    assert "both" in normalized_row and "parity and promotion" in normalized_row
-    assert "yaml twins are retired" in normalized_row
-    assert "all yaml deletion remains pending" not in normalized_row
-    assert "workflow lisp provider prompt dependencies" in docs_index
-    assert "workflow lisp provider prompt dependencies" in design_index
+    assert "a retry creates a fresh snapshot" in normalized_spec
+    assert "runtime_plan remains a topology/checkpoint projection" in normalized_spec
 
 
 def test_task_12_scope_is_functional_and_review_subject_is_frozen() -> None:
@@ -4216,18 +3744,6 @@ def test_language_server_l3_routes_shipped_per_source_entry_selection() -> None:
     roadmap_path = REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH
     l3_row = _markdown_table_row(roadmap_path, "| L3 |")
     normalized_l3_row = _normalized_routing_text(l3_row)
-    design = (
-        REPO_ROOT / "docs/design/workflow_lisp_language_server.md"
-    ).read_text(encoding="utf-8")
-    design_router_row = _markdown_table_row(
-        REPO_ROOT / "docs/design/README.md",
-        "workflow_lisp_language_server.md",
-    )
-    capability_row = _markdown_table_row(
-        REPO_ROOT / "docs/capability_status_matrix.md",
-        "Workflow Lisp language server L3 per-source entry selection",
-    )
-    index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
     setup = (
         REPO_ROOT / "docs/workflow_lisp_language_server_setup.md"
     ).read_text(encoding="utf-8")
@@ -4258,15 +3774,6 @@ def test_language_server_l3_routes_shipped_per_source_entry_selection() -> None:
         "xdist evidence correction 8c704f3f"
     ) in normalized_l3_row
     assert Path(LANGUAGE_SERVER_L3_PLAN_PATH).name in l3_row
-    assert LANGUAGE_SERVER_L3_PLAN_PATH in design
-    assert Path(LANGUAGE_SERVER_L3_PLAN_PATH).name in design_router_row
-    assert Path(LANGUAGE_SERVER_L3_PLAN_PATH).name in capability_row
-    assert "| Implemented |" in capability_row
-    assert Path(LANGUAGE_SERVER_L3_PLAN_PATH).name in index
-    assert (
-        "### [Workflow Lisp Language Server L3 Per-Source Entry Selection "
-        "Implementation Plan]" in index
-    )
     normalized_setup = _normalized_routing_text(setup)
     assert "entry_workflows" in normalized_setup
     assert "exact canonical source path" in normalized_setup
@@ -4289,7 +3796,6 @@ def test_language_server_l4_routes_completed_external_review() -> None:
     baseline_path = (
         REPO_ROOT / "docs" / "design" / "workflow_lisp_language_server.md"
     )
-    index_path = REPO_ROOT / "docs" / "index.md"
     setup_path = (
         REPO_ROOT / "docs" / "workflow_lisp_language_server_setup.md"
     )
@@ -4327,49 +3833,8 @@ def test_language_server_l4_routes_completed_external_review() -> None:
     assert "final review metadata correction" not in normalized_l4_row
     assert "completion requires fresh ordered" not in normalized_l4_row
 
-    capability_row = _markdown_table_row(
-        REPO_ROOT / "docs" / "capability_status_matrix.md",
-        "Workflow Lisp language server L4 diagnostic lifecycle/progress",
-    )
-    normalized_capability_row = _normalized_routing_text(capability_row)
-    assert "| Implemented |" in capability_row
-    assert "current only diagnostic" in normalized_capability_row
-    assert "capability gated" in normalized_capability_row
-    assert "logical serialized compile pump" in normalized_capability_row
-    assert "neovim" in normalized_capability_row
-    assert "356 passed" in normalized_capability_row
-    assert "zero new failures" in normalized_capability_row
-    assert "251d9d53674e863fddae4535ea4f7022914287cd" in (
-        normalized_capability_row
-    )
-    assert "e2417d395cbcabe9adaffb136759ebff3d42b677" in normalized_capability_row
-    assert (
-        "94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804"
-        in normalized_capability_row
-    )
-    assert "l4_final_spec_approved then l4_final_quality_approved" in (
-        normalized_capability_row
-    )
-    assert "completion requires fresh ordered" not in normalized_capability_row
-
     design = design_path.read_text(encoding="utf-8")
-    normalized_design_status = _normalized_routing_text(
-        "\n".join(design.splitlines()[:35])
-    )
-    assert "status: implemented, incorporated, and complete" in (
-        normalized_design_status
-    )
-    assert "11629551" in normalized_design_status
-    assert "0d5f7009" in normalized_design_status
-    assert "l4_task3_spec_approved" in normalized_design_status
-    assert "l4_task3_quality_approved" in normalized_design_status
-    assert "251d9d53674e863fddae4535ea4f7022914287cd" in normalized_design_status
-    assert "e2417d395cbcabe9adaffb136759ebff3d42b677" in normalized_design_status
-    assert (
-        "94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804"
-        in normalized_design_status
-    )
-    assert "implementation pending" not in normalized_design_status
+    assert "Status: Implemented" in "\n".join(design.splitlines()[:5])
 
     baseline = _normalized_routing_text(
         baseline_path.read_text(encoding="utf-8")
@@ -4407,49 +3872,6 @@ def test_language_server_l4_routes_completed_external_review() -> None:
     assert "l4_final_spec_approved then l4_final_quality_approved" in plan
     assert "completion requires fresh ordered" not in plan
 
-    index = index_path.read_text(encoding="utf-8")
-    normalized_index = _normalized_routing_text(index)
-    assert "l4 diagnostic lifecycle and compile progress" in normalized_index
-    assert "task 4 focused 356 passed and broad comparison has zero new failures" in (
-        normalized_index
-    )
-    assert "q5 is complete at 70f4a759, tree fec729cb" in normalized_index
-    assert "external ordered final reviews" in normalized_index
-    lifecycle_index = _normalized_routing_text(
-        _markdown_heading_section(
-            index,
-            "### [Workflow Lisp LSP Diagnostic Lifecycle And Compile Progress]",
-        )
-    )
-    assert "bdd1e822" in lifecycle_index
-    assert "356 passed" in lifecycle_index
-    assert "zero new failures" in lifecycle_index
-    assert "l4_task4_spec_approved then l4_task4_quality_approved" in (
-        lifecycle_index
-    )
-    assert "l4_final_spec_approved then l4_final_quality_approved" in lifecycle_index
-    assert "251d9d53674e863fddae4535ea4f7022914287cd" in lifecycle_index
-    assert "e2417d395cbcabe9adaffb136759ebff3d42b677" in lifecycle_index
-    assert "complete" in lifecycle_index
-    assert "completion requires fresh ordered" not in lifecycle_index
-    assert "task 4 broad comparison and final closure are next" not in lifecycle_index
-    plan_index = _normalized_routing_text(
-        _markdown_heading_section(
-            index,
-            "### [Workflow Lisp L4 Diagnostic Lifecycle And Compile Progress "
-            "Implementation Plan]",
-        )
-    )
-    assert "bdd1e822" in plan_index
-    assert "356 passed" in plan_index
-    assert "zero new failures" in plan_index
-    assert "l4_task4_spec_approved then l4_task4_quality_approved" in plan_index
-    assert "l4_final_spec_approved then l4_final_quality_approved" in plan_index
-    assert "251d9d53674e863fddae4535ea4f7022914287cd" in plan_index
-    assert "e2417d395cbcabe9adaffb136759ebff3d42b677" in plan_index
-    assert "complete" in plan_index
-    assert "completion requires fresh ordered" not in plan_index
-    assert "task 4 broad comparison and final closure are next" not in plan_index
     normalized_setup = _normalized_routing_text(setup_path.read_text())
     assert "old squiggles disappear on an unsaved edit" in normalized_setup
     assert "workdoneprogress" in normalized_setup
@@ -4496,72 +3918,17 @@ def test_language_server_l4_routes_completed_external_review() -> None:
 def test_language_server_l4_completion_routes_exact_external_review_record() -> None:
     roadmap_path = REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH
     roadmap = roadmap_path.read_text(encoding="utf-8")
-    capability_row = _markdown_table_row(
-        REPO_ROOT / "docs" / "capability_status_matrix.md",
-        "Workflow Lisp language server L4 diagnostic lifecycle/progress",
-    )
-    design_router_path = REPO_ROOT / "docs" / "design" / "README.md"
-    design_router_rows = [
-        _markdown_table_row(design_router_path, "workflow_lisp_language_server.md"),
-        _markdown_table_row(
-            design_router_path,
-            "workflow_lisp_lsp_diagnostic_lifecycle_and_progress.md",
-        ),
-    ]
-    design_headers = [
-        "\n".join(
-            (
-                REPO_ROOT / "docs" / "design" / "workflow_lisp_language_server.md"
-            )
-            .read_text(encoding="utf-8")
-            .splitlines()[:45]
-        ),
-        "\n".join(
-            (
-                REPO_ROOT
-                / "docs"
-                / "design"
-                / "workflow_lisp_lsp_diagnostic_lifecycle_and_progress.md"
-            )
-            .read_text(encoding="utf-8")
-            .splitlines()[:35]
-        ),
-    ]
     plan = (
         REPO_ROOT / LANGUAGE_SERVER_L4_PLAN_PATH
     ).read_text(encoding="utf-8")
-    index = (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8")
     roadmap_l4_stage = roadmap.split(
         "## Stage L4: Diagnostic Lifecycle And Compile Progress",
         1,
     )[1].split("\n## ", 1)[0]
-    index_sections = [
-        _markdown_heading_section(
-            index,
-            "### [Workflow Lisp Language Quality And Domain Semantics Roadmap]",
-        ),
-        _markdown_heading_section(
-            index,
-            "### [Workflow Lisp Language Server]",
-        ),
-        _markdown_heading_section(
-            index,
-            "### [Workflow Lisp LSP Diagnostic Lifecycle And Compile Progress]",
-        ),
-        _markdown_heading_section(
-            index,
-            "### [Workflow Lisp L4 Diagnostic Lifecycle And Compile Progress "
-            "Implementation Plan]",
-        ),
-    ]
     surfaces = [
         _markdown_table_row(roadmap_path, "| L4 |"),
         roadmap_l4_stage,
-        capability_row,
-        *design_router_rows,
-        *design_headers,
         plan,
-        *index_sections,
     ]
 
     for surface in surfaces:
@@ -4599,10 +3966,8 @@ def test_language_server_l5_routes_shipped_admitted_shapes_and_closes_stage() ->
         / "design"
         / "workflow_lisp_lsp_authored_reference_navigation.md"
     )
-    design_router_path = REPO_ROOT / "docs" / "design" / "README.md"
     capability_matrix_path = REPO_ROOT / "docs" / "capability_status_matrix.md"
     plan_path = REPO_ROOT / LANGUAGE_SERVER_L5_PLAN_PATH
-    index = (REPO_ROOT / "docs" / "index.md").read_text(encoding="utf-8")
 
     l5_row = _markdown_table_row(roadmap_path, "| L5 |")
     normalized_l5_row = _normalized_routing_text(l5_row)
@@ -4619,29 +3984,22 @@ def test_language_server_l5_routes_shipped_admitted_shapes_and_closes_stage() ->
     normalized_design_status = _normalized_routing_text(
         "\n".join(design.splitlines()[:20])
     )
-    assert "status: implemented and incorporated" in normalized_design_status
-    assert "95e05c01" in normalized_design_status
-    assert "041754e6" in normalized_design_status
-    assert "macro heads still defer shape wide" in normalized_design_status
-    assert Path(LANGUAGE_SERVER_L5_PLAN_PATH).name in design
-
-    design_router_row = _markdown_table_row(
-        design_router_path,
-        "workflow_lisp_lsp_authored_reference_navigation.md",
+    assert "status: implemented" in normalized_design_status
+    assert "macro heads and proc ref occurrences erased or consumed" in (
+        normalized_design_status
     )
-    assert "| Implemented and incorporated |" in design_router_row
-    assert Path(LANGUAGE_SERVER_L5_PLAN_PATH).name in design_router_row
+    assert "still return null" in normalized_design_status
+
+    assert _design_index_entry(
+        "workflow_lisp_lsp_authored_reference_navigation.md"
+    ).endswith("*Implemented.*")
 
     capability_row = _markdown_table_row(
         capability_matrix_path,
-        "Workflow Lisp language server L5 authored reference navigation",
+        "| Workflow Lisp language server |",
     )
-    normalized_capability_row = _normalized_routing_text(capability_row)
     assert "| Implemented |" in capability_row
-    assert "optional read only authored to authored" in normalized_capability_row
-    assert "macro heads remain null shape wide" in normalized_capability_row
-    assert "compiler catalog joins ship" in normalized_capability_row
-    assert Path(LANGUAGE_SERVER_L5_PLAN_PATH).name in capability_row
+    assert "prompt heads and authored proc-refs" in capability_row
 
     plan = plan_path.read_text(encoding="utf-8")
     normalized_plan = _normalized_routing_text(plan)
@@ -4659,15 +4017,6 @@ def test_language_server_l5_routes_shipped_admitted_shapes_and_closes_stage() ->
         normalized_plan
     )
     assert "macro heads remain null shape wide" in normalized_plan
-
-    assert (
-        "### [Workflow Lisp L5 Authored Reference Navigation Implementation Plan]"
-        in index
-    )
-    assert Path(LANGUAGE_SERVER_L5_PLAN_PATH).name in index
-    normalized_index = _normalized_routing_text(index)
-    assert "shipped execution and closure record" in normalized_index
-    assert "l3 completed over mr 4 under its reviewed plan" in normalized_index
 
     l3_row = _markdown_table_row(roadmap_path, "| L3 |")
     normalized_l3_row = _normalized_routing_text(l3_row)
@@ -4694,15 +4043,6 @@ def test_language_server_l6_routes_reviewed_plan_without_selecting_work() -> Non
     )
     plan_review_path = REPO_ROOT / LANGUAGE_SERVER_L6_PLAN_REVIEW_PATH
     plan_review = plan_review_path.read_text(encoding="utf-8")
-    design_index_row = _markdown_table_row(
-        REPO_ROOT / DESIGN_INDEX_PATH,
-        "workflow_lisp_language_server.md",
-    )
-    docs_index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
-    docs_index_section = _markdown_heading_section(
-        docs_index,
-        "### [Workflow Lisp Language Server L6 Utility Roadmap]",
-    )
 
     assert _git_is_ancestor(
         LANGUAGE_SERVER_L6_PROPOSAL_COMMIT,
@@ -4800,6 +4140,8 @@ def test_language_server_l6_routes_reviewed_plan_without_selecting_work() -> Non
         design,
         "## Accepted L6 Utility Design Amendment",
     )
+    assert "**Amendment status:** designed, not implemented." in design_status
+    assert "TextMate JSON grammar" in design_status
     roadmap_status = roadmap.split("## Scope", 1)[0]
     l6_rows = {
         item: _markdown_table_row(
@@ -4812,11 +4154,8 @@ def test_language_server_l6_routes_reviewed_plan_without_selecting_work() -> Non
     assert "tree-sitter or TextMate" not in l6_rows["L6c"]
 
     current_routed_surfaces = (
-        design_status,
         roadmap_status,
         *l6_rows.values(),
-        design_index_row,
-        docs_index_section,
         plan,
         plan_review,
     )
@@ -4840,13 +4179,7 @@ def test_language_server_l6_routes_reviewed_plan_without_selecting_work() -> Non
         assert "reviewed plan" in normalized
         assert "explicit owner activation is required" in normalized
 
-    for surface in (
-        design_status,
-        roadmap_status,
-        design_index_row,
-        docs_index_section,
-    ):
-        assert "explicit owner activation" in _normalized_routing_text(surface)
+    assert "explicit owner activation" in _normalized_routing_text(roadmap_status)
 
     normalized_plan = _normalized_routing_text(plan)
     assert "plan status: accepted and reviewed" in normalized_plan
@@ -4855,17 +4188,14 @@ def test_language_server_l6_routes_reviewed_plan_without_selecting_work() -> Non
         "L6_PLAN_QUALITY_APPROVED"
     )
 
-    for surface in (design_status, roadmap_status, design_index_row, docs_index_section):
-        assert LANGUAGE_SERVER_L6_ACCEPTED_COMMIT in surface
-        assert LANGUAGE_SERVER_L6_ACCEPTED_TREE in surface
-        assert LANGUAGE_SERVER_L6_ACCEPTED_DESIGN_SHA256 in surface
-        assert "L6_DESIGN_SPEC_APPROVED" in surface
-        assert "L6_DESIGN_QUALITY_APPROVED" in surface
-        assert surface.index("L6_DESIGN_SPEC_APPROVED") < surface.index(
-            "L6_DESIGN_QUALITY_APPROVED"
-        )
+    assert LANGUAGE_SERVER_L6_ACCEPTED_COMMIT in roadmap_status
+    assert LANGUAGE_SERVER_L6_ACCEPTED_TREE in roadmap_status
+    assert LANGUAGE_SERVER_L6_ACCEPTED_DESIGN_SHA256 in roadmap_status
+    assert roadmap_status.index("L6_DESIGN_SPEC_APPROVED") < roadmap_status.index(
+        "L6_DESIGN_QUALITY_APPROVED"
+    )
 
-    for surface in (design_status, roadmap_status, plan, plan_review):
+    for surface in (roadmap_status, plan, plan_review):
         assert LANGUAGE_SERVER_L6_REVIEWED_PLAN_COMMIT in surface
         assert LANGUAGE_SERVER_L6_REVIEWED_PLAN_TREE in surface
         assert "L6_PLAN_SPEC_APPROVED" in surface
@@ -4874,32 +4204,17 @@ def test_language_server_l6_routes_reviewed_plan_without_selecting_work() -> Non
             "L6_PLAN_QUALITY_APPROVED"
         )
 
-    for surface in (design_index_row, docs_index_section):
-        assert LANGUAGE_SERVER_L6_REVIEWED_PLAN_COMMIT[:8] in surface
-        assert LANGUAGE_SERVER_L6_REVIEWED_PLAN_TREE[:8] in surface
-        assert "L6_PLAN_SPEC_APPROVED" in surface
-        assert "L6_PLAN_QUALITY_APPROVED" in surface
-
 
 def test_phased_contract_delivery_routes_completed_surface() -> None:
     roadmap_path = REPO_ROOT / LANGUAGE_QUALITY_ROADMAP_PATH
     design_path = REPO_ROOT / PHASED_CONTRACT_DELIVERY_DESIGN_PATH
     plan_path = REPO_ROOT / PHASED_CONTRACT_DELIVERY_PLAN_PATH
-    design_router_path = REPO_ROOT / "docs/design/README.md"
     capability_matrix_path = REPO_ROOT / "docs/capability_status_matrix.md"
     dsl_spec = (REPO_ROOT / "specs/dsl.md").read_text(encoding="utf-8")
-    index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
 
-    normalized_design_status = _normalized_routing_text(
-        "\n".join(design_path.read_text(encoding="utf-8").splitlines()[:18])
+    assert "Status: Implemented in target 2.23" in design_path.read_text(
+        encoding="utf-8"
     )
-    assert "status: implemented and complete at target 2.23" in normalized_design_status
-    assert "bb67f680" in normalized_design_status
-    assert "70f4a759" in normalized_design_status
-    assert "fec729cb" in normalized_design_status
-    assert "3fc3a09e" in normalized_design_status
-    assert "superseded historical provenance" in normalized_design_status
-    assert "external ordered final reviews" in normalized_design_status
 
     q5_row = _markdown_table_row(roadmap_path, "| Q5 |")
     normalized_q5_row = _normalized_routing_text(q5_row)
@@ -4912,67 +4227,16 @@ def test_phased_contract_delivery_routes_completed_surface() -> None:
     assert "exact delta adjudication" in normalized_q5_row
     assert "external ordered q5_final_spec_approved then q5_final_quality_approved" in normalized_q5_row
 
-    design_router_row = _markdown_table_row(
-        design_router_path,
-        "workflow_lisp_phased_contract_delivery.md",
-    )
-    assert "| Implemented and complete at `70f4a759` |" in design_router_row
-    normalized_design_router_row = _normalized_routing_text(design_router_row)
-    assert "872a29af" in normalized_design_router_row
-    assert "45468c55" in normalized_design_router_row
-    assert "3fc3a09e" in normalized_design_router_row
-    assert "explicitly superseded history" in normalized_design_router_row
-    assert "external ordered final reviews" in normalized_design_router_row
-    assert "tree fec729cb" in normalized_design_router_row
+    assert _design_index_entry(
+        "workflow_lisp_phased_contract_delivery.md"
+    ).endswith("*Implemented.*")
 
     capability_row = _markdown_table_row(
         capability_matrix_path,
-        "Workflow Lisp phased contract delivery Q5",
+        "| Phased contract delivery (2.23) |",
     )
-    normalized_capability_row = _normalized_routing_text(capability_row)
     assert "| Implemented |" in capability_row
-    assert "accepted design 872a29af" in normalized_capability_row
-    assert "reviewed plan 45468c55" in normalized_capability_row
-    assert "complete at 70f4a759, tree fec729cb" in normalized_capability_row
-    assert "real invalid then valid attempt 10 passed" in normalized_capability_row
-    assert "3fc3a09e is superseded history" in normalized_capability_row
-    assert "external ordered final reviews closed task 14" in normalized_capability_row
-    assert Path(PHASED_CONTRACT_DELIVERY_PLAN_PATH).name in capability_row
-
-    normalized_design_index = _normalized_routing_text(
-        _markdown_heading_section(
-            index,
-            "### [Workflow Lisp Phased Contract Delivery]",
-        )
-    )
-    assert "implemented and closed target 2.23 stage q5 surface" in normalized_design_index
-    assert "bb67f680" in normalized_design_index
-    assert "70f4a759" in normalized_design_index
-    assert "fec729cb" in normalized_design_index
-    assert "3fc3a09e" in normalized_design_index
-    assert "superseded historical provenance" in normalized_design_index
-    assert "q5_final_spec_approved then q5_final_quality_approved" in (
-        normalized_design_index
-    )
-
-    assert (
-        "### [Workflow Lisp Phased Contract Delivery Implementation Plan]"
-        in index
-    )
-    normalized_plan_index = _normalized_routing_text(
-        _markdown_heading_section(
-            index,
-            "### [Workflow Lisp Phased Contract Delivery Implementation Plan]",
-        )
-    )
-    assert "reviewed q5 execution plan" in normalized_plan_index
-    assert "45468c55" in normalized_plan_index
-    assert "tasks 1 13 are complete through bb67f680" in normalized_plan_index
-    assert "task 14 closes at 70f4a759" in normalized_plan_index
-    assert "3fc3a09e" in normalized_plan_index
-    assert "explicitly superseded historical provenance" in normalized_plan_index
-    assert "external final exact tree reviews at 70f4a759" in normalized_plan_index
-    assert Path(PHASED_CONTRACT_DELIVERY_PLAN_PATH).name in index
+    assert "(design/workflow_lisp_phased_contract_delivery.md)" in capability_row
 
     plan = plan_path.read_text(encoding="utf-8")
     normalized_plan = _normalized_routing_text(plan)
@@ -5038,7 +4302,6 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     m1_plan = (REPO_ROOT / M1_ESTATE_SHRINK_PLAN_PATH).read_text(
         encoding="utf-8"
     )
-    index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
     pure_replay_design = (
         REPO_ROOT / PURE_RESULT_REPLAY_DESIGN_PATH
     ).read_text(encoding="utf-8")
@@ -5054,23 +4317,13 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     state_layout_design = (
         REPO_ROOT / WORKFLOW_LISP_STATE_LAYOUT_DESIGN_PATH
     ).read_text(encoding="utf-8")
-    design_index = (REPO_ROOT / DESIGN_INDEX_PATH).read_text(encoding="utf-8")
-    capability_matrix = (
-        REPO_ROOT / CAPABILITY_STATUS_MATRIX_PATH
-    ).read_text(encoding="utf-8")
     state_spec = (REPO_ROOT / STATE_SPEC_PATH).read_text(encoding="utf-8")
 
     assert Path(M0_GREEN_BASELINE_PLAN_PATH).name in track
-    assert Path(M0_GREEN_BASELINE_PLAN_PATH).name in index
     assert Path(M1_ESTATE_SHRINK_PLAN_PATH).name in track
-    assert Path(M1_ESTATE_SHRINK_PLAN_PATH).name in index
     assert Path(PURE_RESULT_REPLAY_PLAN_PATH).name in track
-    assert Path(PURE_RESULT_REPLAY_PLAN_PATH).name in index
     assert Path(PURE_RESULT_REPLAY_ACTIVATION_PLAN_PATH).name in track
-    assert Path(PURE_RESULT_REPLAY_ACTIVATION_PLAN_PATH).name in index
     assert Path(MC_COMMON_HELPER_PLAN_PATH).name in track
-    assert Path(MC_COMMON_HELPER_PLAN_PATH).name in index
-    assert "### [M1 Estate Shrink Implementation Plan]" in index
 
     m0_section = track.split("## Phase M0: Green Baseline", 1)[1].split(
         "## Phase M1: Estate Shrink",
@@ -5195,68 +4448,6 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     ):
         assert Path(component_plan).name in ml_section
 
-    substrate_index_route = index.split(
-        "**Current substrate status:**",
-        1,
-    )[1].split("\n\n", 1)[0]
-    normalized_substrate_index_route = _normalized_routing_text(
-        substrate_index_route
-    )
-    assert "m0 is historical complete" in normalized_substrate_index_route
-    assert "m1 is historical complete" in normalized_substrate_index_route
-    assert "phase ml is historical complete" in normalized_substrate_index_route
-    assert "is historical complete at commit" in (
-        normalized_substrate_index_route
-    )
-    assert "9c14dae37310755bd9cbd3de03b9256433acd9fe" in (
-        substrate_index_route
-    )
-    assert "0b149f96ace8873b0381a4cd530468b1d24a083f" in (
-        substrate_index_route
-    )
-    assert "postcommit control passed 72 tests" in (
-        normalized_substrate_index_route
-    )
-    assert "ml 2 allocator simplification" in normalized_substrate_index_route
-    assert "phase ml is historical complete" in normalized_substrate_index_route
-    assert "m2 component (a) is historical complete" in normalized_substrate_index_route
-    assert "m3a tasks 1 3 landed" in normalized_substrate_index_route
-    assert "first final quality and restarted final specification reviews then rejected cache hit witness/cursor bypasses" in (
-        normalized_substrate_index_route
-    )
-    assert (
-        "passes 122 owner tests, 259 production shape tests, 569 test collection, "
-        "968 focused tests, and 9,896 broad non security tests"
-    ) in normalized_substrate_index_route
-    assert "m3a is historical complete" in normalized_substrate_index_route
-    assert "76427bdedbbac300bbd82d45db7fa6e24a770f84" in (
-        substrate_index_route
-    )
-    assert "c5d8247ab6d47b209d14ee203513a0eda876acb1" in (
-        substrate_index_route
-    )
-    assert "189 pass postcommit control" in normalized_substrate_index_route
-    assert (
-        "fa8530a87a61f484e19ed1b3d5716f6e30b2061efb4ff12769bfc0b6051cf42b"
-        in substrate_index_route
-    )
-    assert "accepted m2 component (a) design" in _normalized_routing_text(index)
-    assert "evidence gated and unselected" in normalized_substrate_index_route
-    assert "mc implementation is complete through task 5" in (
-        normalized_substrate_index_route
-    )
-    assert "task 6 terminal status is resolved only by the deterministic external record" in (
-        normalized_substrate_index_route
-    )
-    assert "no successor substrate tranche is selected" in (
-        normalized_substrate_index_route
-    )
-    assert "mr 4 is historical complete at 836721ce" in (
-        normalized_substrate_index_route
-    )
-    for unselected_phase in ("remaining mr", "m3b", "m3c", "m4"):
-        assert unselected_phase in normalized_substrate_index_route
-
     m2_section = track.split(
         "## Phase M2: Persistence-Parsimony Design",
         1,
@@ -5282,8 +4473,7 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "one full workflow re execution" in normalized_m2
 
     normalized_pure_replay = _normalized_routing_text(pure_replay_design)
-    assert "status: accepted" in normalized_pure_replay
-    assert "m2 feasibility complete" in normalized_pure_replay
+    assert "Status: Implemented" in "\n".join(pure_replay_design.splitlines()[:5])
     assert "result_persistence_profile" in pure_replay_design
     assert "derived_pure_replay.v1" in pure_replay_design
     assert "value free completion shells" in normalized_pure_replay
@@ -5307,9 +4497,6 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "deterministic counted effect e1" in normalized_pure_replay
     assert "interrupted effect e2" in normalized_pure_replay
     assert "loop/recur" in normalized_pure_replay
-    assert "not selected" in normalized_pure_replay
-    assert "m2 component (a) is historical complete" in normalized_pure_replay
-    assert "m3a supported activation is implemented" in normalized_pure_replay
     assert "successfully compiled typed public .orc run" in normalized_pure_replay
     assert "new .orc root created by orchestrate resume force restart" in (
         normalized_pure_replay
@@ -5319,20 +4506,12 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "generic initialization remains explicit opt in" in (
         normalized_pure_replay
     )
-    assert "122 owner tests" in normalized_pure_replay
-    assert "569 test collection" in normalized_pure_replay
-    assert "968 focused tests" in normalized_pure_replay
-    assert "9,896 broad non security tests" in normalized_pure_replay
     assert "cursor targeting the same presentation name or step identity conflicts" in (
         normalized_pure_replay
     )
     assert "closure candidate passes its focused routing and broad gates" not in (
         normalized_pure_replay
     )
-    assert "component (b)" in normalized_pure_replay
-    assert "m3b" in normalized_pure_replay
-    assert "m3c" in normalized_pure_replay
-    assert Path(PURE_RESULT_REPLAY_DESIGN_PATH).name in index
 
     normalized_pure_replay_plan = _normalized_routing_text(pure_replay_plan)
     assert "status: historical complete" in (
@@ -5420,46 +4599,19 @@ def test_m1_estate_shrink_routes_the_completed_m0_boundary_and_bounded_deletion_
     assert "supported automatic creation policy" in normalized_state_layout
     assert "iteration owned" in normalized_state_layout
 
-    normalized_design_index = _normalized_routing_text(design_index)
-    assert "accepted; m2 feasibility complete; m3a activation historical complete" in (
-        normalized_design_index
+    assert _design_index_entry("workflow_lisp_pure_result_replay.md").endswith(
+        "*Implemented.*"
     )
-    assert "typed public" in normalized_design_index
-    assert "fresh non iterative" in normalized_design_index
 
-    normalized_capability_matrix = _normalized_routing_text(capability_matrix)
-    assert "workflow lisp derived pure result replay profile" in (
-        normalized_capability_matrix
+    capability_row = _markdown_table_row(
+        REPO_ROOT / CAPABILITY_STATUS_MATRIX_PATH,
+        "| Derived pure-result replay |",
     )
-    assert "| Workflow Lisp derived pure-result replay profile | Implemented |" in (
-        capability_matrix
-    )
-    assert "typed public new root" in (
-        normalized_capability_matrix
-    )
-    assert "fresh non iterative typed workflow lisp child" in (
-        normalized_capability_matrix
-    )
-    assert "106→98" in capability_matrix
-    assert "6,539→6,199" in capability_matrix
-    assert "622,815→611,912" in capability_matrix
-    assert "569 test collection" in normalized_capability_matrix
-    assert "968 focused tests" in normalized_capability_matrix
-    assert "cache witness/cursor fix" in normalized_capability_matrix
-    assert "9,896 broad non security tests with 19 skipped and 5 warnings" in (
-        normalized_capability_matrix
-    )
-    assert "exact closure 76427bde, tree c5d8247a" in normalized_capability_matrix
-    assert "passed ordered final review and a 189 pass postcommit control" in (
-        normalized_capability_matrix
-    )
-    assert (
-        "fa8530a87a61f484e19ed1b3d5716f6e30b2061efb4ff12769bfc0b6051cf42b"
-        in capability_matrix
-    )
-    assert "component (b)" in normalized_capability_matrix
-    assert "m3b" in normalized_capability_matrix
-    assert "m3c" in normalized_capability_matrix
+    assert "| Implemented |" in capability_row
+    assert "(design/workflow_lisp_pure_result_replay.md)" in capability_row
+    normalized_capability_row = _normalized_routing_text(capability_row)
+    assert "fresh non iterative typed children" in normalized_capability_row
+    assert "ordinary resume never backfills" in normalized_capability_row
 
     normalized_activation_plan = _normalized_routing_text(
         pure_replay_activation_plan
@@ -5679,19 +4831,14 @@ def test_mc_routes_external_resolution_and_nonsecurity_evidence() -> None:
     track = (REPO_ROOT / SUBSTRATE_MAINTENANCE_TRACK_PATH).read_text(
         encoding="utf-8"
     )
-    index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
     plan = (REPO_ROOT / MC_COMMON_HELPER_PLAN_PATH).read_text(encoding="utf-8")
     normalized_track = _normalized_routing_text(track)
-    normalized_index = _normalized_routing_text(index)
     normalized_plan = _normalized_routing_text(plan)
 
     assert Path(MC_COMMON_HELPER_PLAN_PATH).name in track
-    assert Path(MC_COMMON_HELPER_PLAN_PATH).name in index
     assert "terminal status: resolved only by the deterministic external record" in (
         normalized_track
     )
-    assert "auditing completed mc implementation" in normalized_index
-    assert "task 6's external resolution contract" in normalized_index
     assert "db01eb6a14e1c9c959b4359630667c62aeb4b507" in plan
     assert "fd6f54416f4f39090c679bb81d768b1fa7c7cff5" in plan
     for task_commit in (
@@ -5833,7 +4980,6 @@ def test_ml0_selects_at_least_once_recovery_with_reviewable_component_bounds() -
     track = (REPO_ROOT / SUBSTRATE_MAINTENANCE_TRACK_PATH).read_text(
         encoding="utf-8"
     )
-    index = (REPO_ROOT / "docs/index.md").read_text(encoding="utf-8")
     state_spec = (REPO_ROOT / "specs/state.md").read_text(encoding="utf-8")
     providers_spec = (REPO_ROOT / "specs/providers.md").read_text(
         encoding="utf-8"
@@ -5859,7 +5005,6 @@ def test_ml0_selects_at_least_once_recovery_with_reviewable_component_bounds() -
     }
     for path, plan in plans.items():
         assert Path(path).name in track
-        assert Path(path).name in index
         assert "superpowers:subagent-driven-development" in plan
         assert "RED" in plan
         assert "specification review" in plan
@@ -5912,32 +5057,20 @@ def test_ml0_selects_at_least_once_recovery_with_reviewable_component_bounds() -
     assert "adjudication mismatch" in normalized_acceptance
 
     normalized_versioning = _normalized_routing_text(versioning)
-    assert "ml 0 contract pivot" in normalized_versioning
-    assert "at least once runtime contract is implemented" in (
+    assert "at least once provider attempt recovery (every dsl version)" in (
         normalized_versioning
     )
-    assert "this closure does not select a successor phase" in (
+    assert "neither the dsl version nor the state schema version changes" in (
         normalized_versioning
     )
-    assert "provider isolation transfer journal remains unchanged" in (
+    assert "the provider isolation transfer journal is unchanged" in (
         normalized_versioning
     )
-
-    normalized_index = _normalized_routing_text(index)
-    assert "provider at least once recovery component plan" in normalized_index
-    assert "provider attempt allocator simplification component plan" in (
-        normalized_index
-    )
-    assert "adjudication rerun recovery component plan" in normalized_index
 
     normalized_track = _normalized_routing_text(track)
     assert "phase ml is historical complete" in normalized_track
     assert "ml 2 closed at commit" in normalized_track
     assert "ml 4 tasks 1 4 landed" in normalized_track
-    assert "phase ml is historical complete" in normalized_index
-    assert "m2 component" in normalized_index
-    assert "is selected" in normalized_index
-    assert "evidence gated and unselected" in normalized_index
 
     normalized_ml2_plan = _normalized_routing_text(
         plans[ML2_PROVIDER_ALLOCATOR_PLAN_PATH]
@@ -5957,21 +5090,8 @@ def test_ml0_selects_at_least_once_recovery_with_reviewable_component_bounds() -
 
     capability_row = _markdown_table_row(
         REPO_ROOT / "docs/capability_status_matrix.md",
-        "Provider at-least-once interrupted-visit recovery",
+        "| Interrupted provider-visit recovery |",
     )
-    assert (
-        "| Implemented | Automatic runtime behavior; not an authored surface |"
-        in capability_row
-    )
-    normalized_capability_row = _normalized_routing_text(capability_row)
-    for closure_fact in (
-        "b8783f66",
-        "b833b03c",
-        "c45928f4",
-        "b3370858",
-        "ed19624c",
-        "758c67e0",
-        "9,714 broad non security tests passed",
-        "no successor phase is selected",
-    ):
-        assert closure_fact in normalized_capability_row
+    assert "| Implemented | Automatic |" in capability_row
+    assert "(../specs/state.md)" in capability_row
+    assert "`provider_attempt_interrupted_rerun`" in capability_row

@@ -1,7 +1,6 @@
 # Workflow Drafting Guide
 
-Status: retired YAML authoring guide; historical translation/reference only
-New-author start: [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
+Historical record of the retired YAML frontend; for current authoring, use the [Workflow Lisp drafting guide](lisp_workflow_drafting_guide.md).
 
 This guide is informative. The normative contracts live under `specs/` (start at `specs/index.md`).
 The production YAML parser is retired. Fresh `run` accepts only a path whose

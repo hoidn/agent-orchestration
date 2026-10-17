@@ -1,10 +1,13 @@
 # Workflow Lisp Local ProcRef Bindings Delta
 
-Status: accepted bounded V1 and target-2.36 W3 contract
-Extends: `workflow_lisp_proc_refs_partial_application.md`
-Parent contract: `workflow_lisp_frontend_specification.md`
-Primary feature: `let-proc` local compile-time procedure bindings
-Non-goal: runtime closures, runtime first-class procedures, or bypassing unresolved effectful-composition lowering gaps
+Status: Implemented
+
+`let-proc` binds a local compile-time procedure that the compiler specializes
+through an ordinary generated `defproc`; it is not a runtime closure. Through
+target 2.35 it takes one typed binding with explicit captures; target 2.36 adds
+W3 local hooks (below). It extends the
+[ProcRef and partial application delta](workflow_lisp_proc_refs_partial_application.md)
+under the [frontend specification](workflow_lisp_frontend_specification.md).
 
 The accepted ProcRef / `bind-proc` delta remains the semantic base: `ProcRef[...]` targets named `defproc`s, `(proc-ref name)` is explicit, `bind-proc` is keyword-only partial application, specialization happens before Core AST / Semantic IR lowering, and executable/runtime artifacts must not contain unresolved procedure values.
 

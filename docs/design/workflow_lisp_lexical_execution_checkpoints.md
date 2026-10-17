@@ -1,51 +1,18 @@
 # Workflow Lisp Lexical Execution Checkpoints And Durable Resource Resumability
 
-Status: draft target design (future target; describes intended behavior, not
-the current checkout)
-Kind: architecture / runtime resumability target
-Created: 2026-06-12
-Scope: private lexical execution checkpoints over WCC program identity;
-effect-boundary resume policies; the separation between execution
-resumability and domain durability; retirement of authored resume plumbing
-from public `.orc` boundaries.
+Status: Partial
 
-Authority:
-
-- Normative runtime and DSL behavior remains in `specs/`. This document
-  defines a target; nothing here changes current resume semantics until its
-  tranches land with evidence.
-- `docs/design/workflow_lisp_core_calculus_middle_end.md` owns the WCC
-  calculus: structured control, second-class join points, scopes, proof
-  state, effect rows, and environment identity. This design consumes that
-  identity as the checkpoint substrate; it adds no calculus constructs.
-- `docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md`
-  owns `Resource<TState>`, `Transition<TRequest, TResult>`, idempotency,
-  audit, conflict handling, and boundary authority classes. This design
-  consumes those contracts unchanged; it does not redefine durability.
-- `docs/design/workflow_lisp_state_layout.md` owns generated path identity
-  and allocation rules. Checkpoint storage receives new allocation roles;
-  identity rules are not redefined here.
-- `docs/design/workflow_lisp_runtime_migration_foundation.md` owns validated
-  structured output and private value transport — the only channel through
-  which completed effect results may be reused.
-- Current resume/reuse behavior is owned by the runtime/state contracts and
-  direct owner behavioral tests. Route identity and copy safety are owned by
-  `docs/workflow_lisp_route_readiness_registry.json`; frozen promotion reports
-  are historical evidence only. This design remains the long-term checkpoint
-  substrate and must not be used to relitigate completed historical promotion
-  decisions.
-
-Related docs:
-
-- `docs/design/workflow_lisp_core_calculus_middle_end.md`
-- `docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md`
-- `docs/design/workflow_lisp_state_layout.md`
-- `docs/design/workflow_lisp_runtime_migration_foundation.md`
-- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
-- `docs/design/workflow_lisp_frontend_specification.md`
-- `docs/design/workflow_command_adapter_contract.md`
-- `docs/lisp_workflow_drafting_guide.md`
-- `specs/state.md`
+Private lexical execution checkpoints over WCC program identity, with
+effect-boundary resume policies, so execution position stops leaking into
+authored `.orc` boundaries while domain state stays in typed resources and
+transitions. Default lexical-checkpoint resume is implemented; retiring the
+authored resume plumbing is not. [State](../../specs/state.md) owns current
+resume behavior, and the
+[private runtime state and consumer value flow](workflow_lisp_private_runtime_state_and_consumer_value_flow.md)
+design tracks remaining work. See also the
+[core calculus middle-end](workflow_lisp_core_calculus_middle_end.md),
+[generic-core design](workflow_lisp_generic_core_expression_surface_adapter_retirement.md)
+and [state layout](workflow_lisp_state_layout.md).
 
 ## 1. Purpose
 

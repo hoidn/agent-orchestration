@@ -1,7 +1,13 @@
 # Workflow Lisp Proof Graph
 
-Status: draft internal design  
-Depends on: `docs/design/workflow_lisp_reference_catalog.md`
+Status: Partial
+
+Internal design for recording why a variant-specific value is available at a
+use site. Variant proof from `match`, `requires_variant`, typed transitions and
+target-2.26 `.variant` comparisons is implemented (see
+[strict Boolean control flow](workflow_lisp_strict_boolean_control_flow.md));
+there is no standalone `ProofGraph` component in the code. Depends on the
+[reference catalog](workflow_lisp_reference_catalog.md).
 
 ## Purpose
 

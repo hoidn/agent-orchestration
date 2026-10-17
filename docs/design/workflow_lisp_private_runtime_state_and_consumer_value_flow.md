@@ -1,65 +1,20 @@
 # Workflow Lisp Private Runtime State And Consumer Value Flow
 
-Status: partial implementation target. Track R default resume and the narrow
-Track C1 scalar/record/relpath provider-input carriage plus the required C6
-implicit-default slice are implemented. Remaining Track R cleanup, C2-C5, and
-the rest of C6 remain future.
-Kind: architecture / runtime plumbing and value-flow simplification target
-Created: 2026-06-13
-Scope: private lexical execution checkpoints; effect-boundary resume policy;
-consumer-side rendering of typed values; entry-boundary publication policy;
-compatibility bridge rendering; and retirement of authored path plumbing whose
-only purpose is runtime resume or consumer formatting.
+Status: Partial
 
-Authority:
+Two tracks: private lexical execution checkpoints with effect-boundary resume
+(Track R), and consumer-side rendering of typed values (Track C). Default
+resume, scalar/record/relpath provider-input carriage (C1) and the
+implicit-default slice of C6 are implemented; the remaining Track R cleanup,
+C2–C5 and the rest of C6 are not. Normative runtime behavior is owned by
+[providers](../../specs/providers.md) and [state](../../specs/state.md); the
+[frontend specification](workflow_lisp_frontend_specification.md) is the parent
+language contract.
 
-- Normative runtime and DSL behavior remains in `specs/`. Implemented claims in
-  this umbrella apply only to tranches that landed with tests and corresponding
-  spec deltas; all other sections remain target design.
-- `docs/design/workflow_lisp_frontend_specification.md` is the parent Workflow
-  Lisp language contract. It owns WCC lowering as the default route for the
-  migrated subset, `RunCtx`, `Resource[TState]`,
-  `Transition[TRequest,TResult]`, generated `pure_projection`,
-  `materialize-view`, structural private context recognition, and boundary
-  authority classes.
-- `docs/design/workflow_lisp_core_calculus_middle_end.md` owns WCC program
-  identity: ANF bindings, join points, scopes, proof state, effect rows,
-  lowering schema version, and defunctionalization. This document consumes that
-  identity for checkpoint keys and adds no control constructs.
-- `docs/design/workflow_lisp_state_layout.md` owns generated path allocation
-  identity. This document adds checkpoint and rendering roles; it does not
-  redefine path identity rules.
-- `docs/design/workflow_lisp_runtime_migration_foundation.md` owns validated
-  structured-output transport, private value transport, provider prompt
-  composition authority, and fail-closed structured-output behavior.
-- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
-  owns family promotion sequencing, parent-callable parity, and the
-  values-before-artifacts migration idiom. This document supplies a later
-  substrate for removing resume-only and render-only authored plumbing; it does
-  not replace promotion gates.
-- `docs/design/workflow_lisp_runtime_native_drain_authoring.md` is the
-  concrete Design Delta Drain reference-family acceptance target that consumes
-  this umbrella's private-checkpoint and consumer-rendering tracks; it does
-  not replace this umbrella's future-target substrate.
-- `docs/design/workflow_lisp_lexical_execution_checkpoints.md` and
-  `docs/design/workflow_lisp_consumer_side_rendering.md` are predecessor draft
-  targets whose contracts are absorbed here as two independent tracks. They
-  remain useful detailed notes until archived or superseded by this umbrella.
-
-Related docs:
-
-- `docs/design/workflow_lisp_frontend_specification.md`
-- `docs/design/workflow_lisp_core_calculus_middle_end.md`
-- `docs/design/workflow_lisp_state_layout.md`
-- `docs/design/workflow_lisp_runtime_migration_foundation.md`
-- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
-- `docs/design/workflow_lisp_runtime_native_drain_authoring.md`
-- `docs/design/workflow_lisp_lexical_execution_checkpoints.md`
-- `docs/design/workflow_lisp_consumer_side_rendering.md`
-- `docs/design/workflow_command_adapter_contract.md`
-- `docs/lisp_workflow_drafting_guide.md`
-- `specs/providers.md`
-- `specs/state.md`
+Related: [core calculus middle end](workflow_lisp_core_calculus_middle_end.md)
+(checkpoint identity), [state layout](workflow_lisp_state_layout.md) (path
+identity), [runtime migration foundation](workflow_lisp_runtime_migration_foundation.md)
+(structured-output and private value transport).
 
 ## 1. Purpose
 

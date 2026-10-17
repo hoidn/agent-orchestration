@@ -1,39 +1,13 @@
 # Workflow Lisp LSP Diagnostic Lifecycle And Compile Progress
 
-- **Status:** implemented, incorporated, and complete at
-  `251d9d53674e863fddae4535ea4f7022914287cd`, tree
-  `e2417d395cbcabe9adaffb136759ebff3d42b677`
-- **Kind:** developer-tooling architecture amendment
-- **Owner:** Workflow Lisp language server
-- **Reviewers:** independent specification review
-  `L4_DESIGN_SPEC_APPROVED`, then independent quality review
-  `L4_DESIGN_QUALITY_APPROVED`; Task 1
-  `L4_TASK1_SPEC_APPROVED` then `L4_TASK1_QUALITY_APPROVED`; Task 2
-  `L4_TASK2_SPEC_APPROVED` then `L4_TASK2_QUALITY_APPROVED`; Task 3
-  `L4_TASK3_SPEC_APPROVED` then `L4_TASK3_QUALITY_APPROVED`. Task 4 closure
-  diff `c41e2e756f1d0c6bc27bbd9a8b8bbbfc57c59fc121b0bd46dc548709c286b990`
-  received `L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED` before
-  commit `1f64f153`, tree `7790ee0e`. That exact tree received
-  `L4_FINAL_SPEC_APPROVED`; final quality returned `CHANGES_REQUIRED` solely
-  for stale review-status metadata. The corrected routing/status diff
-  `29e0bc01037058f0c29dac15c0d461798a5e47a836fe8b3e8336beb937410951`
-  landed at `251d9d53674e863fddae4535ea4f7022914287cd`, tree
-  `e2417d395cbcabe9adaffb136759ebff3d42b677`, then passed a 357-test focused
-  control. External closure-record SHA-256
-  `94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804`
-  records ordered `L4_FINAL_SPEC_APPROVED` then
-  `L4_FINAL_QUALITY_APPROVED`; the prior rejection is superseded history
-- **Created:** 2026-07-28
-- **Last material update:** 2026-07-28
-- **Related docs / plans:**
-  - `docs/design/workflow_lisp_language_server.md`
-  - `docs/design/workflow_language_design_principles.md`
-  - `docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md`
-  - `docs/reports/2026-07-28-workflow-lisp-l4-editor-lifecycle-probe.md`
-- **Implementation record:** current-only diagnostic publication at
-  `11629551`; transport-local compile progress at `0d5f7009`; repository-real
-  Neovim acceptance in
-  `tests/test_workflow_lisp_lsp_neovim_e2e.py`
+Status: Implemented
+
+The language server publishes only current diagnostics, hiding stale
+contributions without deleting them, and reports one capability-gated
+work-done progress lifecycle per compile busy interval. The
+[language server design](workflow_lisp_language_server.md) owns the durable
+contract; `tests/test_workflow_lisp_lsp_neovim_e2e.py` covers it end to end in
+Neovim.
 
 ## Summary
 

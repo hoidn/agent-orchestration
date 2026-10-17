@@ -1,8 +1,11 @@
 # Incremental Value And Continuation Composition
 
-Status: Increments 1–5 are implemented at targets 2.28–2.32. Human input includes
-normal public CLI admission and durable nested/loop recovery. Execution evidence
-and final compatibility results live in the linked plan.
+Status: Implemented in targets 2.28–2.32
+
+Five independent increments: union prompt inputs, rich loop values, pure helper
+expressions, portable provider context, and durable human input with public
+CLI admission and nested/loop recovery. Normative behavior is owned by the
+[frontend specification](workflow_lisp_frontend_specification.md) and `specs/`.
 
 Purpose: remove composition obstacles exposed by
 [progressive execution](workflow_lisp_progressive_execution.md), without adding
@@ -26,8 +29,7 @@ the existing [pure-call design](workflow_lisp_pure_call_composition.md) and
 rendering remains owned by the
 [value-flow architecture](workflow_lisp_private_runtime_state_and_consumer_value_flow.md).
 The [frontend baseline](workflow_lisp_frontend_specification.md) and `specs/`
-continue to own implemented behavior. None of these increments changes roadmap
-selection or research allocations.
+continue to own implemented behavior.
 
 The intended author model is: a value returned by one operation can be consumed
 by another without author-written serialization or wrapper taxonomies, wherever

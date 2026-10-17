@@ -1,8 +1,15 @@
 # Workflow Lisp Core Statement Taxonomy
 
-Status: draft internal design  
-Depends on: `docs/design/workflow_lisp_core_workflow_ast.md`,
-`docs/design/workflow_command_adapter_contract.md`
+Status: Implemented
+
+An internal inventory of the shared Core statement families in
+`orchestrator/workflow/core_ast.py` and how command, provider and control
+semantics attach to them. Families added later (`CoreProviderSupervisionStep`,
+`CoreProviderPeerGroupStep`, `CoreRunRefStep`, `CoreTrialStep`,
+`CoreRequestInputStep`, `CoreMaterializeViewStep`, `CoreFinally`) are not yet
+listed below; the source file is complete. See the
+[Core Workflow AST](workflow_lisp_core_workflow_ast.md) and the
+[command adapter contract](workflow_command_adapter_contract.md).
 
 ## Purpose
 

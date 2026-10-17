@@ -1,11 +1,13 @@
 # Workflow Lisp Macro Surface Contract
 
-Status: accepted current-surface contract  
-Scope: bounded `defmacro` behavior implemented in the current checkout  
-Relationship to other docs: this narrows the macro surface from
-`workflow_lisp_frontend_specification.md` to the implemented contract and does
-not promote the future macro work in
-`workflow_lisp_unified_frontend_design.md` into current behavior
+Status: Implemented
+
+The bounded, template-based `defmacro` surface that exists today: top-level
+hygienic expansion, imported macro visibility, validator ownership of
+macro-origin failures and source-map provenance. It narrows the macro surface
+of the [frontend specification](workflow_lisp_frontend_specification.md); the
+future macro work in the [unified frontend design](workflow_lisp_unified_frontend_design.md)
+is not current behavior.
 
 ## 1. Purpose And Scope Boundary
 

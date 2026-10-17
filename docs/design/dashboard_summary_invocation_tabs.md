@@ -1,6 +1,11 @@
 # Dashboard Summary Invocation Tabs
 
-Status: draft implementation design
+Status: Implemented
+
+The dashboard Summary Hub renders each authored step with collapsed
+`Invocation N` panels whose summaries and links resolve from that invocation's
+own call-frame state. [Observability](../../specs/observability.md) owns the
+dashboard summary page contract.
 
 ## Problem
 

@@ -1,44 +1,104 @@
 # Workflow Index
 
-This file is an informative catalog of Workflow Lisp `.orc` examples under
-`workflows/`. Fresh workflow execution is ORC-only: `run` accepts a
-case-insensitive `.orc` suffix and rejects every other source path with
-`.orc required` before creating state. The former authored YAML/YML estate and
-its production parser are retired.
+Catalog of the Workflow Lisp (`.orc`) workflows under `workflows/` and of the
+examples worth copying. `run` accepts only `.orc` sources (case-insensitive
+suffix); any other path fails with `.orc required` before run state is created.
+Run every command below from the repository root.
 
-Compile or dry-run a catalogued `.orc` entry from the repository root, supplying
-the entry's declared externs and inputs:
+The general shape of a compile or dry-run, supplying the entry's declared
+externs and inputs:
 
 ```bash
 python -m orchestrator run workflows/examples/<workflow>.orc \
   --entry-workflow <module::entry> \
   --provider-externs-file <providers.json> \
   --prompt-externs-file <prompts.json> \
+  --command-boundaries-file <commands.json> \
   --input-file <inputs.json> \
   --dry-run
 ```
 
-The Design Delta family (`workflows/library/lisp_frontend_design_delta/`) is
-deprecated, apart from its reusable library procedures. Do not start new work
-from it. Its drain entry keeps the Workflow Lisp launch route below; supply all
-of its declared typed inputs with `--input` or `--input-file`. The fully
-input-complete invocation is recorded by the Gate P3 evidence step.
+Omit `--command-boundaries-file` when the workflow runs no commands.
+
+## Which Example Should I Copy?
+
+The source target selects the profile ([architecture](../README.md#architecture)).
+Use typed 2.35/2.36 when you want types checked before execution and runs you
+can resume. Use [native 3.0](../specs/versioning.md#native-target-30) when you
+want ordinary functions and closures; every native run is fresh, with no
+resume, retries or result reuse. Flat targets through 2.34 run the existing
+library and the production drains below.
+
+| Profile | Example | What it shows |
+| --- | --- | --- |
+| Typed 2.35 | [`best_of_n.orc`](../experiments/orc_vs_single_call/workflows/best_of_n.orc) | Several implementers in separate clones, then a judge picks one. [Operating recipe](../experiments/orc_vs_single_call/README.md#run-the-maintained-best-of-n-workflow) |
+| Typed 2.35 | [`evaluate.orc`](../docs/lisp_library_reference.md#evaluate-with-an-external-command) | Score a candidate with a local command. No providers |
+| Typed 2.35 and 2.36 | [`improve_explicit.orc`, `improve_local.orc`](../docs/lisp_library_reference.md#complete-typed-examples) | `std/improve` review loop; at 2.36 local hooks capture context. No providers |
+| Native 3.0 | [Direct closure example](../docs/lisp_workflow_drafting_guide.md#2b-native-30-dynamic-composition) | A helper returns a closure; one fresh run. No providers |
+| Native 3.0 | [`improve.orc`](../tests/fixtures/workflow_lisp/dynamic/improve.orc), [`search.orc`](../tests/fixtures/workflow_lisp/dynamic/search.orc) | `std/dynamic/improve` and a budgeted search controller over local commands. The tests below stage their module layout and manifests |
+| 2.33 | [`improve_experiment_proposal.orc`](examples/improve_experiment_proposal.orc) | `std/improve` with provider-backed review and revise. A real run needs the workspace's `scripts/launch_experiment.py` ([drafting guide §13.7](../docs/lisp_workflow_drafting_guide.md#137-improve)) |
+| 2.28 | [`reviewed_change.orc`](../experiments/orc_vs_single_call/workflows/reviewed_change.orc) | A hand-written implement, review, revise loop |
+
+The linked guide sections carry complete command sequences for the
+`evaluate`, `improve_*` and direct closure examples. For the others:
 
 ```bash
-python -m orchestrator run workflows/library/lisp_frontend_design_delta/drain.orc \
-  --entry-workflow lisp_frontend_design_delta/drain::drain \
-  --provider-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.providers.json \
-  --prompt-externs-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.prompts.json \
-  --command-boundaries-file workflows/examples/inputs/workflow_lisp_migrations/design_delta_parent_drain.commands.json \
-  --input-file <design-delta-inputs.json>
+# Typed 2.35: compile best_of_n (a real run needs prepared clones; see its recipe)
+python -m orchestrator compile experiments/orc_vs_single_call/workflows/best_of_n.orc \
+  --entry-workflow best_of_n::best-of-n \
+  --source-root experiments/orc_vs_single_call/workflows \
+  --provider-externs-file experiments/orc_vs_single_call/workflows/best_of_n.providers.json
+
+# Native 3.0: stage and run the improve and search consumers
+pytest -q \
+  tests/test_workflow_dynamic_improve.py::test_public_compile_run_and_source_free_consumer_report \
+  tests/test_workflow_dynamic_search.py::test_US02_real_local_leaves_reproduce_the_ten_evaluation_trace
+
+# 2.33: dry-run the std/improve application
+python -m orchestrator run workflows/examples/improve_experiment_proposal.orc \
+  --entry-workflow improve_experiment_proposal::run-experiment \
+  --provider-externs-file workflows/examples/inputs/improve_experiment_proposal/providers.json \
+  --prompt-externs-file workflows/examples/inputs/improve_experiment_proposal/prompts.json \
+  --command-boundaries-file workflows/examples/inputs/improve_experiment_proposal/commands.json \
+  --input-file workflows/examples/inputs/improve_experiment_proposal/inputs.json \
+  --dry-run
+
+# 2.28: dry-run reviewed_change
+python -m orchestrator run experiments/orc_vs_single_call/workflows/reviewed_change.orc \
+  --entry-workflow reviewed_change::reviewed-change \
+  --source-root experiments/orc_vs_single_call/workflows \
+  --provider-externs-file experiments/orc_vs_single_call/workflows/reviewed_change.providers.json \
+  --input task="Fix add in calc.py" --input intent="add returns a + b" --input repo=. \
+  --dry-run
 ```
+
+None of these commands calls a provider. The
+[library task chooser](../docs/lisp_library_reference.md#choose-by-task) says
+which helper fits which task and what the caller must prepare.
+
+Fresh preferred starting points: the table above. Do not start from
+`workflows/library/lisp_frontend_design_delta/drain.orc`; the Design Delta
+family is deprecated apart from its reusable library procedures.
+
+Reference corpus, for reading rather than copying:
+
+- `workflows/examples/kiss_backlog_item.orc` (2.14): the smallest complete
+  plan, review, implement, fix stack for one backlog item.
+- `workflows/examples/review_revise_design_docs.orc` (2.23): a stdlib
+  review/fix loop over a design doc. It compiles without `--entry-workflow`;
+  selecting its entry explicitly fails dry-run with `workflow_signature_mismatch`.
+- `workflows/examples/review_revise_parametric_design_docs.orc` (2.14): the
+  one-off review/fix workflow used on the parametric design docs.
+- `workflows/examples/cycle_guard_demo.orc` and
+  `workflows/examples/design_plan_impl_review_stack_v2_call.orc` (2.14):
+  `.orc` ports of retired YAML workflows.
 
 ## Verified-Iteration Drain Launch
 
-New verified-iteration launches use the promoted Workflow Lisp primary. Supply
-the target-owned design and check-command paths together with any desired
-provider/model overrides. The historical YAML twin is retired; this `.orc`
-entry is the live family route.
+Production drain (target 2.15). A worker iterates toward a target design; each
+iteration runs the check commands and a review, and a final review decides
+whether the design's acceptance criteria hold. Supply the design and
+check-command paths, plus any provider or model overrides:
 
 ```bash
 python -m orchestrator run workflows/library/verified_iteration_drain/drain.orc \
@@ -50,12 +110,14 @@ python -m orchestrator run workflows/library/verified_iteration_drain/drain.orc 
   --input check_commands_path=<check-commands-relpath>
 ```
 
+`target_design_path` must exist under `docs/design/` and `check_commands_path`
+under `workflows/`. Add `--dry-run` to validate without calling providers.
+
 ## Generic Run Watchdog Launch
 
-New watchdog launches use the promoted Workflow Lisp primary. Supply the
-target run id, the target's workspace, and any desired provider or path
-overrides. The historical YAML twin is retired; this `.orc` entry is the live
-family route.
+Production watchdog (target 2.15). It probes a target run and has a repair
+agent resume or relaunch it. Supply the target run id, the target's workspace
+and any provider or path overrides.
 
 The watchdog is itself a run, and a workspace holds one active run at a time
 (`specs/cli.md`), so it runs in its own workspace, never in the target's:
@@ -81,91 +143,28 @@ python -m orchestrator run workflows/library/generic_run_watchdog/watchdog.orc \
   --input target_workspace=<absolute-path-of-the-target-workspace>
 ```
 
-## Which Example Should I Copy?
-
-Start with the [library task chooser](../docs/lisp_library_reference.md#choose-by-task)
-for candidate generation/selection, typed/native improvement, deterministic
-command evaluation and search. It states complete inputs and manifests and
-whether candidate clones/environments must already be prepared by the caller.
-The maintained best-of-n source targets 2.35; proposal and reviewed-change
-examples retain 2.33 and 2.28 respectively. W3 2.36 has separate complete examples
-in the reference. Source target, not catalogue placement, selects the API/runtime.
-Native examples remain branch-qualified with explicit setup and fresh-only
-execution; this catalogue does not authorize an application migration.
-
-| Goal | Starting point | Route status |
-| --- | --- | --- |
-| Start new authoring | [`improve_experiment_proposal.orc`](examples/improve_experiment_proposal.orc) for a `std/improve` review loop; [`best_of_n.orc`](../experiments/orc_vs_single_call/workflows/best_of_n.orc) and [`reviewed_change.orc`](../experiments/orc_vs_single_call/workflows/reviewed_change.orc) for generate-and-select and a hand-written review loop | Recent examples; each passes `--dry-run` through the command-line entry. The registry labels `improve_experiment_proposal.orc` `preferred_current_guidance`; the two experiment workflows have no registry entry. |
-| Translate or audit historical YAML | [Historical YAML reference](../docs/workflow_drafting_guide.md) | Translation/history only; YAML/YML is not runnable workflow source. |
-
-Fresh preferred starting points:
-
-- For a review loop, start with
-  `workflows/examples/improve_experiment_proposal.orc`, which calls
-  `std/improve`. For generate-and-select, or a review loop written by hand,
-  start with `experiments/orc_vs_single_call/workflows/best_of_n.orc` or
-  `reviewed_change.orc`.
-- Do not start from `workflows/library/lisp_frontend_design_delta/drain.orc`:
-  the Design Delta family is deprecated, apart from its reusable library
-  procedures. Its authored YAML family is archived; the historical promotion
-  report remains preserved as evidence of the route decision.
-- `workflows/examples/review_revise_design_docs.orc` compiles without
-  `--entry-workflow` ([compile-only command](../README.md#first-compile-check)).
-  Explicit selection of `review_revise_design_docs::review-revise-design-docs`
-  hits the bootstrap gate: `--dry-run` exits 2 with
-  `workflow_signature_mismatch` and `entry_bootstrap_name_gate_denied`. Its
-  registry role remains `not_current_guidance`; use it as a design-doc review
-  reference.
-- For the real-life-tested `.orc` review/fix path that revised the parametric
-  design docs, inspect
-  `workflows/examples/review_revise_parametric_design_docs.orc` as provenance.
-
-Reference corpus:
-
-- For the smallest Workflow Lisp `.orc` teaching example, read
-  `workflows/examples/kiss_backlog_item.orc` as a compact reference, not as a
-  direct template for new workflows.
-- For structured variant/materialization behavior, inspect the v2.14 drain
-  examples as reference corpus before copying patterns.
-- For historical migration review, preserve the recorded YAML baseline and
-  computed parity evidence; do not attempt to execute the retired source.
-- Avoid copying examples marked legacy, negative fixture, prompt asset issue, or
-  needs schema cleanup unless that status matches your purpose.
-
 ## Workflow Lisp Route/Readiness Labels
 
-Workflow Lisp `.orc` copy-safety is recorded in
-`docs/workflow_lisp_route_readiness_registry.json`. The registry labels, not
-filenames, modification dates, or prose status alone, determine whether an
-example is current WCC/schema-2 guidance, legacy compatibility evidence,
-migration-only evidence, historical negative coverage, or stale material.
-
-Use `wcc_default` entries as current WCC/schema-2 examples. Treat
-`legacy_schema1_compat` as compatibility evidence, not new authoring guidance.
-Treat `migration_candidate` as non-promoted until direct owner evidence and a
-reviewed registry update establish a stronger route. Do not cite
-`stale_needs_update` entries as current evidence. Markdown catalog rows are a
-view over that registry and direct owner evidence; route identity remains
-registry metadata. Preserved parity reports are frozen historical records.
+`docs/workflow_lisp_route_readiness_registry.json` records, for each `.orc`
+surface, whether to copy it. Copy `preferred_current_guidance` entries. Treat
+`legacy_compatibility_only`, `migration_evidence_only`, `test_evidence_only`
+and `compiler_characterization` entries as reference material, and do not cite
+`not_current_guidance` entries as current patterns. The catalog below follows
+the registry.
 
 ## Directory Map
 
-- `workflows/examples/`: `.orc` examples and validation fixtures
-- `workflows/examples/*.orc`: Workflow Lisp authoring examples that compile
-  through the frontend; check each catalog entry before treating one as a
-  runnable production route
-- `workflows/templates/`: frozen non-running compatibility-template inventory;
-  new template work starts from a registry-approved `.orc` example
+- `workflows/examples/`: `.orc` examples, with their externs and inputs under
+  `workflows/examples/inputs/`
+- `workflows/templates/`: points to the example to start a new workflow family from
 - `workflows/library/`: reusable imported subworkflows used by `call`-based examples
-- `workflows/library/prompts/`: repo-owned prompt assets bundled with reusable imported workflows
-- `workflows/examples/prompts/`: prompt files used only by example workflows stored under `workflows/examples/`
-- `prompts/workflows/`: shared prompt trees used by standalone or monolithic workflows
+- `workflows/library/prompts/`: prompt assets bundled with reusable imported workflows
+- `workflows/examples/prompts/`: prompt files used only by example workflows under `workflows/examples/`
+- `prompts/workflows/`: shared prompt trees used by standalone workflows
 
-When adapting a workflow from another repository checkout, inspect the relevant
-call-based stack together with its imported library workflows and bundled
-prompt directory. Revalidate the adapted workflow against current specs and
-guides before using it. Select the current structured route from the
-route-readiness registry rather than falling back to a retired YAML monolith.
+When adapting a workflow from another checkout, take the call-based stack
+together with its imported library workflows and bundled prompt directory, and
+revalidate it with compile and `--dry-run` before running it.
 
 ## Prompt Resolution
 
@@ -174,42 +173,34 @@ Resolution rules:
 - `asset_file` is relative to the workflow source file and is intended for prompt assets bundled with reusable workflows.
 - `asset_depends_on` follows the same workflow-source-relative rule as `asset_file`.
 
-## Catalog Status
-
-- **Current canonical**: current feature demos. Check the route-readiness
-  registry and its owner evidence before copying, and revalidate adaptations.
-- **Reusable call-based**: examples that exercise imported library workflows and bundled prompt assets.
-- **Legacy or migration**: historical `.orc` migration evidence, not the first place to copy patterns.
-- **Negative fixture**: expected to fail validation or runtime checks for a specific test purpose.
-- **Input-required**: requires `--input` or fixture files for dry-run validation.
-- **Prompt asset issue**: references missing or external prompt assets; inspect the source-relative bindings before running.
-- **Needs schema cleanup**: historical registry status for an `.orc` example
-  that predates the current compiler/shared-validation schema.
-
 ## Workflow Catalog
 
-| Path | Status | DSL | Workflow Name | Purpose |
-| --- | --- | --- | --- | --- |
-| `workflows/library/generic_run_watchdog/watchdog.orc` | Workflow Lisp production primary; input-required | `2.15` | `generic_run_watchdog/watchdog::watchdog` | Promoted generic watchdog primary with exact clean, repair, retry/resume, artifact-lineage, and typed parity evidence. New launches use this `.orc` route; the final report is `artifacts/work/YAML-RETIREMENT-TASK5/parity/generic-run-watchdog-final/generic_run_watchdog.json`. |
-| `workflows/library/lisp_frontend_design_delta/drain.orc` | Deprecated Workflow Lisp family entry; reusable library procedures kept; input-required | `2.14` | `lisp_frontend_design_delta/drain::drain` | Former primary Design Delta target/baseline drain. The family is deprecated, apart from its reusable library procedures; do not start new work from it. Its route-readiness entry is `wcc_default` / `promotion_eligible` with preferred-current-guidance copy safety. The retained parity report records the historical promotion decision and is not live routing state. Fresh current claims come from registry-cited direct owner tests. Phase 3 Tasks 3.1–3.4 are complete, and Gates P3 and P4 are independently reviewed and satisfied while retaining the historical report. Task 4.1 stripped the Design-Delta-only parity lanes, and Task 4.2 retired the temporary G8 build serializer. Task 4.1 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.2 is complete and independently reviewed, with SPEC PASS and CODE QUALITY PASS. Task 4.3 is complete. Phase 4 is complete. Gate S3 is satisfied. The semantic-migration freeze is lifted. The completed stage order remains historical evidence in `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`; current work selection is governed by `docs/plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md`. |
-| `workflows/library/verified_iteration_drain/drain.orc` | Workflow Lisp production primary; input-required | `2.15` | `verified_iteration_drain/drain::drain` | Promoted verified-iteration primary with exact compile/runtime/parity evidence. New launches use this `.orc` route; the final typed parity report is `artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/verified_iteration_drain.json`. |
-| `workflows/examples/kiss_backlog_item.orc` | Workflow Lisp shared-validation example; input-required | `2.14` | `run-backlog-item` | Minimal `.orc` single-backlog-item stack: typed backlog item inputs, plan provider result, plan review/revise loop, implementation provider result, implementation review/fix loop, and final structured summary output. It compiles through shared validation and dry-runs through the `.orc` runtime bridge; it is a single-item authoring example, not a production queue drain or parity replacement for the retired stack baselines. |
-| `workflows/examples/cycle_guard_demo.orc` | Historical Workflow Lisp migration surface; input-required | `2.14` | `cycle-guard-demo` | Preserved `.orc` surface from the cycle-guard migration tranche. Its certified command boundary and frozen historical contract/evidence remain useful migration context; it is not a live YAML-parity target or preferred authoring route. |
-| `workflows/examples/design_plan_impl_review_stack_v2_call.orc` | Historical Workflow Lisp migration surface; input-required | `2.14` | `design-plan-impl-review-stack` | Preserved `.orc` surface for the call-based design->plan->implementation family, with typed provider/prompt extern bindings and frozen historical YAML contract/evidence. Inspect it for stack migration context; it is not a live YAML-parity target or the real-life-tested design-doc review/fix workflow. |
-| `workflows/examples/review_revise_design_docs.orc` | Workflow Lisp generic review/fix workflow; input-required | `2.23` | `review_revise_design_docs::review-revise-design-docs` | Generic `.orc` workflow that runs a bounded stdlib review/fix loop over a parameterized `target_doc`, `context_docs`, and `review_focus`. Its review call uses explicit phased delivery. Compilation without `--entry-workflow` succeeds; selecting the listed entry explicitly makes `--dry-run` fail with `workflow_signature_mismatch` and `entry_bootstrap_name_gate_denied`. It remains a reference (`not_current_guidance`); it is not a production drain or YAML parity replacement. |
-| `workflows/examples/review_revise_parametric_design_docs.orc` | Workflow Lisp historical one-off review/fix workflow; input-required | `2.14` | `review-revise-parametric-design-docs` | Earlier one-off `.orc` workflow for the Workflow Lisp review/revise stdlib integration, structural parametric constraints, and compile-time parametric specialization docs. Keep it as provenance for the real-life-tested review path; start new authoring from a recent example. |
-| `workflows/examples/improve_experiment_proposal.orc` | Workflow Lisp `std/improve` evidence; input-required | `2.33` | `improve_experiment_proposal::run-experiment` | Drafts a typed experiment proposal, runs it through `std/improve`'s review/revise loop with provider-backed review and revise hooks, and hands the returned proposal to the workspace's `scripts/launch_experiment.py` in every outcome. Route-readiness `preferred_current_guidance` for this bounded review-loop shape; a real run requires the workspace launcher. Dry-run command and launcher protocol: [drafting guide](../docs/lisp_workflow_drafting_guide.md#137-improve). |
+All entries need `--input` values or an input file to dry-run.
+
+| Path | Target | Entry | Use |
+| --- | --- | --- | --- |
+| `workflows/library/generic_run_watchdog/watchdog.orc` | `2.15` | `generic_run_watchdog/watchdog::watchdog` | Production watchdog; see [launch](#generic-run-watchdog-launch). |
+| `workflows/library/verified_iteration_drain/drain.orc` | `2.15` | `verified_iteration_drain/drain::drain` | Production verified-iteration drain; see [launch](#verified-iteration-drain-launch). |
+| `workflows/library/lisp_frontend_design_delta/drain.orc` | `2.14` | `lisp_frontend_design_delta/drain::drain` | Deprecated Design Delta target/baseline drain. Its reusable library procedures are kept; do not start new work from it. |
+| `workflows/examples/improve_experiment_proposal.orc` | `2.33` | `improve_experiment_proposal::run-experiment` | Drafts a typed experiment proposal, runs `std/improve` with provider-backed review and revise, and hands the result to the workspace's `scripts/launch_experiment.py` in every outcome. Copy for this review-loop shape. |
+| `workflows/examples/kiss_backlog_item.orc` | `2.14` | `run-backlog-item` | One backlog item: plan, plan review/revise, implementation, implementation review/fix, structured summary. Teaching reference, not a queue drain. |
+| `workflows/examples/review_revise_design_docs.orc` | `2.23` | `review_revise_design_docs::review-revise-design-docs` | Bounded stdlib review/fix loop over `target_doc`, `context_docs` and `review_focus`, with phased delivery on the review call. Compiles without `--entry-workflow`; explicit entry selection fails dry-run. Reference only. |
+| `workflows/examples/review_revise_parametric_design_docs.orc` | `2.14` | `review-revise-parametric-design-docs` | One-off review/fix workflow for the parametric design docs. Reference only. |
+| `workflows/examples/cycle_guard_demo.orc` | `2.14` | `cycle-guard-demo` | `.orc` port of the retired cycle-guard demo. Reference only. |
+| `workflows/examples/design_plan_impl_review_stack_v2_call.orc` | `2.14` | `design-plan-impl-review-stack` | `.orc` port of the call-based design, plan, implementation stack with typed provider/prompt externs. Reference only. |
+
 ## Reusable Library Workflows
 
-| Path | DSL | Workflow Name | Purpose |
+| Path | Target | Entry | Use |
 | --- | --- | --- | --- |
-| `workflows/library/control/direct_task.orc` | `2.23` | `control/direct_task::direct-task` | E0 canonical direct control with typed inputs `task: String`, `model: String`, and `effort: String`, exactly one composed provider boundary, and a direct `Bool` result. `PASS_E0` makes it copy-safe only for this bounded one-call direct-task shape, not for trials, child runs, controllers, report-shaped results, or customized orchestration. |
-| `workflows/library/tracked_design_phase.orc` | `2.14` | `tracked-design-phase` | Additive Workflow Lisp migration-tranche counterpart for compile/surface-parity checks of the tracked design phase contract. |
-| `workflows/library/tracked_plan_phase.orc` | `2.14` | `tracked-plan-phase` | Additive Workflow Lisp migration-tranche counterpart for compile/surface-parity checks of the tracked plan phase contract. |
-| `workflows/library/design_plan_impl_implementation_phase.orc` | `2.14` | `design-plan-impl-implementation-phase` | Additive Workflow Lisp migration-tranche counterpart for compile/surface-parity checks of the implementation phase contract. |
+| `workflows/library/control/direct_task.orc` | `2.23` | `control/direct_task::direct-task` | One provider call with typed inputs `task`, `model` and `effort` and a `Bool` result. Copy only for that one-call shape, not for trials, child runs or report-shaped results. |
+| `workflows/library/tracked_design_phase.orc` | `2.14` | `tracked-design-phase` | Design phase: one draft call, then one review returning `APPROVE` or `REVISE` with tracked findings. |
+| `workflows/library/tracked_plan_phase.orc` | `2.14` | `tracked-plan-phase` | Plan phase: one draft call, then one review returning `APPROVE` or `REVISE`. |
+| `workflows/library/design_plan_impl_implementation_phase.orc` | `2.14` | `design-plan-impl-implementation-phase` | Implementation phase: one implementation call, then one review returning `APPROVE` or `REVISE`. |
 
 ## Related Docs
 
-- `docs/workflow_drafting_guide.md`: historical YAML-to-`.orc` translation reference
-- `docs/work_definition_model.md`: explanatory split between semantic specs, work instructions, workflow mechanics, work items, and run evidence
+- `docs/lisp_workflow_drafting_guide.md`: authoring guide for `.orc`
+- `docs/work_definition_model.md`: how specs, work instructions, workflow mechanics, work items and run evidence divide responsibility
 - `docs/runtime_execution_lifecycle.md`: runtime sequencing and state transitions
+- `docs/workflow_drafting_guide.md`: historical reference for the retired YAML frontend

@@ -1,7 +1,9 @@
 # Provider result delivery
 
+Status: Implemented in targets 2.35, 2.36 and 3.0
+
 This document describes ordinary composed-provider delivery shared by typed
-2.35/2.36 execution and the branch-qualified fresh-only native 3.0 profile.
+2.35/2.36 execution and the fresh-only native 3.0 profile.
 [Providers](../../specs/providers.md#composed-provider-result-delivery) and
 [State](../../specs/state.md#evaluated-provider-delivery-identity) own the
 normative delivery and replay rules.

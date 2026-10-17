@@ -1,9 +1,10 @@
 # Workflow Lisp Refactor Architecture
 
-Status: draft architecture guidance
-Scope: `orchestrator/workflow_lisp` maintainability and tech-debt reduction
-Parent contract: [Workflow Lisp Frontend Specification](workflow_lisp_frontend_specification.md)
-Execution plan: [Workflow Lisp Low-Hanging Refactor Implementation Plan](../plans/2026-06-02-workflow-lisp-low-hanging-refactor-plan.md)
+Status: Partial
+
+Target module boundaries and invariants for behavior-preserving refactors of
+`orchestrator/workflow_lisp`. It changes no `.orc` semantics; the parent
+[frontend specification](workflow_lisp_frontend_specification.md) owns those.
 
 ## Purpose
 

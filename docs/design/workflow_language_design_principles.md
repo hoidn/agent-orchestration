@@ -1,15 +1,13 @@
 # Workflow Language Design Principles
 
-Status: design guidance  
-Scope: workflow DSL, workflow frontends, macro systems, shared validation,
-semantic IR, executable IR
+Status: Partial
 
-These principles define the semantic direction for workflow authoring surfaces.
-They are not all normative runtime requirements today. Some describe current
-v2.14 guarantees, while others describe requirements for future frontends such
-as the Workflow Lisp frontend.
+Design principles for workflow authoring surfaces: the DSL, frontends, macros,
+shared validation and the semantic and executable IRs. Some are enforced today
+by the [`specs/`](../../specs/index.md) contracts and the compiler; others are
+direction for frontends that still needs a lowering or runtime substrate.
 
-Use these labels:
+Each section is labeled:
 
 - `current invariant`: already expected of the YAML DSL or runtime model.
 - `v2.14 invariant`: introduced or sharpened by the v2.14 materialization,

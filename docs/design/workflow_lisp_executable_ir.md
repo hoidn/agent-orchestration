@@ -1,7 +1,11 @@
 # Workflow Lisp Executable IR
 
-Status: current-checkout component contract  
-Scope: shared executable-layer authority implemented in this repository for Workflow Lisp and imported workflow bundles
+Status: Implemented
+
+Validated executable IR (`LoadedWorkflowBundle.ir`, an `ExecutableWorkflow`) is
+the shared runtime-facing authority after Core AST and shared validation, for
+Workflow Lisp and imported workflow bundles. [DSL](../../specs/dsl.md) owns
+workflow semantics.
 
 ## Purpose
 

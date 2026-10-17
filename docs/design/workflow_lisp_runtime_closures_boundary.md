@@ -1,9 +1,14 @@
 # Workflow Lisp Runtime Closures Boundary
 
-Status: deferred acceptance contract
-Extends: [Workflow Lisp ProcRef And Partial Application Delta](workflow_lisp_proc_refs_partial_application.md), [Workflow Lisp Local ProcRef Bindings Delta](workflow_lisp_let_proc_local_proc_refs.md)
-Parent contract: [Workflow Lisp Frontend Specification](workflow_lisp_frontend_specification.md)
-Implementation status: not an implementation target until the acceptance gate in this document is satisfied
+Status: Design only (not implemented)
+
+Typed targets have no runtime closures; they use compile-time
+[`ProcRef` / `bind-proc`](workflow_lisp_proc_refs_partial_application.md) and
+[`let-proc`](workflow_lisp_let_proc_local_proc_refs.md). Native target 3.0 runs
+ordinary functions and captured closures in a separate fresh-only profile
+([versioning](../../specs/versioning.md#native-target-30)); this gate concerns
+typed Workflow Lisp. Parent contract:
+[frontend specification](workflow_lisp_frontend_specification.md).
 
 This document defines the acceptance boundary for a future runtime-closure
 feature in Workflow Lisp. It is a spec-level guardrail, not an implementation

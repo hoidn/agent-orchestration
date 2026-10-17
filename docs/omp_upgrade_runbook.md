@@ -1,32 +1,25 @@
 # OMP Pin Upgrade Runbook
 
-Status: operator setup and upgrade procedure for the code-owned OMP-I1
-executable pin. For ordinary profile launches, use [Run prerequisites](#run-prerequisites);
-building and installing a new pin is a separate operation.
+How to set up the pinned OMP executable for ordinary launches, and how to
+build and install a new pin. For ordinary profile launches, only
+[Run prerequisites](#run-prerequisites) applies.
 
 This runbook changes one coupled release unit: the Orchestrator code, the
 `OmpBinaryPin`, the audited OMP source overlay, the packaged conf presets, and
 the installed `~/.local/bin/omp`. Never update only the version or final digest.
 
-## Current authority
+## Pinned executable
 
-The machine-readable authority is `orchestrator/providers/omp_pin.py`.
-The current pin is:
+The pin is `OMP_BINARY_PIN` in `orchestrator/providers/omp_pin.py`; print it
+with the first command under [Inspect the installed pin](#inspect-the-installed-pin).
+It records:
 
-- OMP tag `v17.3.4`, commit
-  `ffd53ff92a6f575d499730475a73460dd7cc2eea`;
-- Linux `x86_64`, AVX2, Landlock ABI 3 or newer;
-- pinned Bun, Bazelisk/Bazel, Rust, C/C++ and linker identities recorded in
-  `OMP_BINARY_PIN`;
-- audited source overlay
+- the OMP tag (`v17.3.4`) and source commit;
+- the platform: Linux `x86_64`, AVX2, Landlock ABI 3 or newer;
+- the pinned Bun, Bazelisk/Bazel, Rust, C/C++ and linker identities;
+- the audited source overlay
   `orchestrator/providers/omp_source_overlay.patch`;
-- final executable SHA-256
-  `df4c4d98b8a28c51651de79bc925449b6dcc3c57d2653b17aba7e5755f76dddb`.
-
-The design rationale and complete reproducible-build evidence are in
-`docs/plans/2026-08-14-omp-integration-design-and-roadmap.md`. The executable
-recipe is Task 1 of
-`docs/plans/2026-08-21-omp-i1-implementation-plan.md`.
+- the final executable SHA-256.
 
 ## Inspect the installed pin
 
@@ -139,12 +132,12 @@ Before installation:
 
 1. Update all fields of `OMP_BINARY_PIN`, not just `version` and
    `executable_sha256`.
-2. Update the design's source/build evidence and this runbook's current-pin
-   block.
+2. Record the new source/build evidence with the OMP integration design, and
+   update this runbook's version references.
 3. Update raw transport fixtures only when an audited protocol change requires
    it; never rewrite them merely to make a parser test pass.
 4. Run the pin, transport, conf, launch, observation, scaffold, session,
-   import, and resume selectors. Then run the real OMP-I1 gates below.
+   import, and resume selectors. Then run the real OMP acceptance tests below.
 
 Retain the previous admitted executable under a digest-qualified operator path.
 Install the new file by same-filesystem temporary name and atomic rename:
@@ -194,9 +187,9 @@ pytest -q -n 2 --dist=worksteal tests/test_omp_integration.py
 ```
 
 Never paste, print, or persist the token. Exact advisor or hub observation may
-fail closed on a transient provider failure. The OMP-I1 gate permits one fresh
-rerun of only that failed case; a second failure blocks the upgrade. Do not
-weaken the topology predicate.
+fail closed on a transient provider failure. Rerun only that failed case, once,
+from fresh; a second failure blocks the upgrade. Do not weaken the topology
+predicate.
 
 `omp_conf` cannot enforce this instruction against model-facing tools. Treat
 its provider output, live journals, snapshots, and run root as sensitive

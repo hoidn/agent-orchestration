@@ -1,7 +1,12 @@
 # Workflow Lisp State Layout
 
-Status: draft internal design  
-Depends on: `docs/design/workflow_lisp_semantic_workflow_ir.md`
+Status: Partial
+
+Internal design for deriving canonical state, bundle, snapshot, temp and
+artifact paths from high-level contexts such as `RunCtx` and `ItemCtx`;
+`orchestrator/workflow/state_layout.py` implements generated path allocation.
+Normative state behavior is owned by [state](../../specs/state.md). Depends on
+[Semantic Workflow IR](workflow_lisp_semantic_workflow_ir.md).
 
 ## Purpose
 

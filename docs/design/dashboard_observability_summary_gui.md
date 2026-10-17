@@ -1,6 +1,11 @@
 # Dashboard Observability Summary GUI
 
-Status: draft implemented plan
+Status: Implemented
+
+The read-only dashboard page at `/runs/<workspace_id>/<run_dir>/summaries`
+browses a run's summary hub (`RUN_ROOT/summaries/`) without call-frame paths.
+[Observability](../../specs/observability.md) owns the summary hub and the
+dashboard summary page contract.
 
 ## Goal
 

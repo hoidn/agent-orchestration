@@ -1,9 +1,13 @@
 # Workflow Lisp Frontend Standard Library Lowering
 
-Status: draft internal design  
-Depends on: `docs/design/workflow_lisp_core_stmt_taxonomy.md`,
-`docs/design/workflow_lisp_semantic_workflow_ir.md`,
-`docs/design/workflow_command_adapter_contract.md`
+Status: Partial
+
+When high-level library forms should be ordinary `.orc` stdlib code compiled
+through WCC, and when a form earns bespoke compiler lowering; see "Form Status"
+for each form. Depends on the
+[core statement taxonomy](workflow_lisp_core_stmt_taxonomy.md),
+[Semantic Workflow IR](workflow_lisp_semantic_workflow_ir.md) and
+[command adapter contract](workflow_command_adapter_contract.md).
 
 ## Purpose
 

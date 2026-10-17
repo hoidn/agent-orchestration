@@ -1,24 +1,13 @@
 # Workflow Lisp Numeric Surface
 
-## Metadata
+Status: Implemented in target 2.34
 
-- **Status:** implemented at target 2.34 (`specs/versioning.md`, v2.34
-  additions), except that a refusal at run time points at the generated
-  step's pure region, not at the failing application (N4). Literal tests do
-  not cover every position in the totality matrix. Targets through 2.33 keep
-  the pre-surface behaviour summarized in section 2.
-- **Kind:** pure expression surface and boundary contract
-- **Owner:** Workflow Lisp frontend; pure expression catalog
-- **Created:** 2026-09-29
-- **Evidence:** [execution facts](../reports/2026-09-29-workflow-lisp-execution-facts.md),
-  section E
-- **Plan:** [evaluated execution plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md),
-  Phase 0
-- **Updated at target 2.34:**
-  [expression surface and adapter retirement](workflow_lisp_generic_core_expression_surface_adapter_retirement.md)
-  §10.2, the drafting guide's section on pure expressions,
-  `specs/io.md`, `specs/versioning.md`
-- **Related:** [evaluated execution](workflow_lisp_evaluated_execution.md)
+Decimal literals, closed `Float` arithmetic, explicit `Int`/`Float` conversion
+and finite values at every boundary. Target admission and the normative
+surface are owned by [versioning](../../specs/versioning.md) (v2.34 additions)
+and the [DSL spec](../../specs/dsl.md); targets through 2.33 keep the behavior
+summarized in section 2. A run-time refusal points at the generated step's pure
+region, not at the failing application.
 
 ## 1. Summary
 

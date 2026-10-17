@@ -1,12 +1,17 @@
 # Progressive Execution From An Agreed Goal
 
-Status: draft target design; not an implemented framework or runnable example.
+Status: Design only (not implemented)
 
-Scope: a software-task demo and a small callable `.orc` coordinator.
-
-Authority: existing [language principles](workflow_language_design_principles.md),
-[frontend contract](workflow_lisp_frontend_specification.md), and runtime
-[provider](../../specs/providers.md) / [result](../../specs/io.md) contracts.
+A small callable `.orc` coordinator that takes an agreed goal from an
+interactive discussion, refines the next task just in time, dispatches workers,
+runs checks and replans, with no new language machinery. Nothing runnable
+exists yet; today, use
+[`direct_task.orc`](../../workflows/library/control/direct_task.orc) and
+[`verified_iteration_drain/drain.orc`](../../workflows/library/verified_iteration_drain/drain.orc)
+for the pieces described under "Existing Foundation". Governing contracts:
+[language principles](workflow_language_design_principles.md),
+[frontend specification](workflow_lisp_frontend_specification.md),
+[providers](../../specs/providers.md) and [IO](../../specs/io.md).
 
 ## Decision
 

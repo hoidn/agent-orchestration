@@ -1,9 +1,8 @@
 # Workflow Lisp Language Server Setup
 
-Status: implemented optional editor tooling
-
-The Workflow Lisp language server provides compiler-owned diagnostics and
-closed navigation for saved `.orc` files. It is a read-only stdio server: it
+The Workflow Lisp language server, implemented in `orchestrator/lsp/`,
+provides compiler-owned diagnostics and closed navigation for saved `.orc`
+files. It is a read-only stdio server: it
 does not execute workflows, create run state, or write build artifacts into the
 workspace.
 
@@ -65,7 +64,7 @@ configuration is conceptually:
 `command` and `workspaceRoot` are illustrative client-side keys; the protocol
 values sent to the server are the launch command, one local-file root URI, and
 the `initializationOptions` object. Do not add lint, lowering, validation, or
-completion-type options. V1 fixes validation to the production shared-callable
+completion-type options. The server fixes validation to the production shared-callable
 policy and lint/lowering to the unchanged production defaults; unsupported
 options fail initialization.
 
@@ -104,7 +103,7 @@ controls compilation; a client cancellation request ends only its
 presentation. Clients that omit or disable `workDoneProgress` receive no
 progress traffic.
 
-The implemented v1 surface is:
+The server provides:
 
 - compiler diagnostics on clean open/save, usually one blocking diagnostic
   because the production reader and typechecker remain fail-fast;
@@ -142,7 +141,7 @@ visibility and registry membership only; it does not impose or infer a nominal
 type taxonomy. Generated, expanded, specialized, or span-ambiguous definitions
 do not become best-effort symbols.
 
-Implemented L2 completion has a three-way surface. A current successful
+Completion has a three-way surface. A current successful
 snapshot keeps the full callable and form list with `isIncomplete=false`.
 Valid dirty, current-pending,
 language-failed, or server-failed open entries receive only the
@@ -171,19 +170,12 @@ unlatch it; restart the language server.
 
 ## Current Limits
 
-The implemented v1/L0/L1/L2/L3/L4/L5 surface intentionally has no unsaved-buffer
-analysis. It has no multi-diagnostic recovery,
-hover/type sidecar, compile cache or incrementality, rename, formatting, code
-actions, semantic tokens, multi-root workspace support, or non-default compile
-policy. These are not partial server features. L3 ships immutable exact
-per-source entry selection over the MR-4 reentrant compiler substrate. L4
-ships the
-[current-only diagnostic and compile-progress contract](design/workflow_lisp_lsp_diagnostic_lifecycle_and_progress.md)
-without adding dirty-buffer analysis, a second contribution store, progress
-percentages, public compiler cancellation, or editor-specific production
-code. The frontend
-prerequisites P1–P5 and any other successor work remain separately designed
-and scheduled.
+The server does not analyze unsaved buffers. It has no multi-diagnostic
+recovery, hover/type sidecar, compile cache or incrementality, rename,
+formatting, code actions, semantic tokens, multi-root workspace support,
+non-default compile policy, progress percentages, public compiler cancellation
+or editor-specific code. Diagnostics and progress follow the
+[current-only diagnostic and compile-progress contract](design/workflow_lisp_lsp_diagnostic_lifecycle_and_progress.md).
 
 For the owning contract and rationale, see
 [Workflow Lisp Language Server](design/workflow_lisp_language_server.md) and

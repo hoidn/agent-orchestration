@@ -1,8 +1,12 @@
 # Workflow Lisp Type Catalog
 
-Status: draft internal design; target-2.19 `Value` mapping implemented
+Status: Partial
 
-Depends on: `docs/design/workflow_lisp_semantic_workflow_ir.md`
+Internal design mapping frontend types to workflow contracts, JSON bundle
+schemas, variant-output contracts and Semantic IR values; the target-2.19
+`Value` mapping is implemented. Read it with the
+[frontend specification](workflow_lisp_frontend_specification.md) for current
+type forms. Depends on [Semantic Workflow IR](workflow_lisp_semantic_workflow_ir.md).
 
 ## Purpose
 

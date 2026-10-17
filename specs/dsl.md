@@ -20,8 +20,8 @@ snippets are structural notation for that mapping, not accepted fresh workflow
 source.
 
 - Top-level workflow keys
-  - `version`: string (admitted revisions extend through `"2.36"`; target 2.35 selects evaluated execution with implemented closed-program compilation, bounded public run/resume, path children and profile readers; external command input documents are delivered, while full Phase 3 qualification remains open (see `versioning.md`, v2.35 additions). Target 2.34 adds decimal literals in expressions, numeric operators, and refusal of non-finite `Float` values at run boundaries (see `versioning.md`, v2.34 additions); composition-package delivery status is recorded in the [implementation plan](../docs/plans/2026-09-22-value-and-continuation-composition-implementation-plan.md)). Strict gating: unknown fields at a given version -> validation error (exit 2).
-    Target 2.36 uses that existing typed evaluated route with the W3 local-hook
+  - `version`: string (admitted revisions extend through `"2.36"`; target 2.35 selects evaluated execution with closed-program compilation, bounded public run/resume, path children, profile readers and external command input documents (see `versioning.md`, v2.35 additions). Target 2.34 adds decimal literals in expressions, numeric operators, and refusal of non-finite `Float` values at run boundaries (see `versioning.md`, v2.34 additions)). Strict gating: unknown fields at a given version -> validation error (exit 2).
+    Target 2.36 uses that existing typed evaluated route with the local-hook
     and graph-selected helper additions owned by [versioning](versioning.md)
     and the [local-hook contract](../docs/design/workflow_lisp_write_once.md#63-language-changes-to-let-proc).
     This Core revision range does not admit the separate native 3.0 representation.
@@ -152,8 +152,7 @@ source.
       expressions remain unsupported. This does not widen workflow-input
       boundaries merely because a supported provider result can enter a loop.
       Targets through 2.28 retain their previous admission and emitted mappings.
-      State schema remains `2.1`; end-to-end root-state/resume evidence is recorded
-      in implementation-plan Task 4.
+      State schema remains `2.1`.
   - Workflow Lisp host input (target 2.32):
     - `(request-input question)` accepts exactly one `String` expression and
       returns the closed builtin `HumanReply` union:
@@ -231,7 +230,7 @@ source.
     - Variant selector execution form (v2.14):
       - `select_variant_output` is mutually exclusive with other execution forms.
       - It selects one tagged-union variant from durable `snapshot_diff` evidence, constructs a JSON bundle in memory, validates it against the embedded variant contract, writes it with an atomic temp-file/rename commit, and exposes only the discriminant plus selected-variant fields as artifacts.
-      - Phase 1 evidence mode is `snapshot_diff` with `sha256`; exactly one candidate must be created or content-changed relative to the producer step's `pre_snapshot`.
+      - The evidence mode is `snapshot_diff` with `sha256`; exactly one candidate must be created or content-changed relative to the producer step's `pre_snapshot`.
       - Variant field extractors are intentionally narrow in v2.14. The supported text extractor reads a line with an authored prefix and optional strip characters.
   - Structured control (v2.2+):
     - top-level `if: Condition|TypedPredicate`
@@ -645,7 +644,7 @@ source.
       named after the slot, with the same binding-ref or literal path source,
       `type: string`, and `required: true`. No caller-authored output
       declaration may override that row.
-    - A Q2 application carries
+    - A prompt application with `:out` carries
       `compiled_prompt_fragment_identity.v2` and
       `compiler_prompt_fragment_contract.v2`. The latter's ordered
       `output_positions[*].expected_output` objects are pair-validated against
@@ -681,7 +680,7 @@ source.
     - These carriers and records are compiler/runtime evidence surfaces, not
       caller-authored fields, workflow values, result contracts, checkpoint
       results, or resume guards. Coordinated-provider and non-fragment calls
-      are outside target 2.22 Q3.
+      are outside the target 2.22 prompt-attempt identity contract.
 
   - Workflow Lisp phased contract delivery (target 2.23):
     - Omitted delivery and explicit `:delivery :composed` execute the ordinary
@@ -808,9 +807,8 @@ source.
     - `run-ref` is admitted in ordinary workflow bodies, `let*`, `if`,
       `match`, reusable calls, and effectful procedures. Target 2.24 rejects it
       in pure functions, pure settlement/evaluation bodies, `loop/recur`,
-      `list/map-effect`, and generated repeat/for-each effect frames. A later
-      reviewed target owns effect-loop settlement.
-    - The closed structural refusal codes owned by E1 are
+      `list/map-effect`, and generated repeat/for-each effect frames.
+    - The closed structural refusal codes owned by `run-ref` are
       `trial_source_unresolvable`, `trial_source_submodules_unsupported`,
       `trial_source_lfs_unsupported`,
       `trial_source_revision_digest_mismatch`,
@@ -915,7 +913,7 @@ source.
       2–16 authored arms with unique non-empty literal string IDs, 1–64
       repetitions, at most 256 total `(arm, rep)` cells, and arm concurrency
       in 1–32 that does not exceed the cell count. Each `:run-ref` is nested
-      syntax elaborated into one static E1 configuration and retains E1's
+      syntax elaborated into one static `run-ref` configuration and retains its
       literal source, program, and policy identity plus ordinary dynamic input
       expressions. All arms must have the same normalized child `value`
       descriptor; exact `Value` is the opt-in common boundary for otherwise
@@ -983,7 +981,7 @@ source.
       }
       ```
 
-      Completed evidence retains the validated E1 workspace delta and
+      Completed evidence retains the validated `run-ref` workspace delta and
       accounting, deterministic checks, opaque evaluation label,
       packet/scorer identity, score, and exact run/attempt lineage. Partial
       evidence contains only facts that exist and never fills absent facts
@@ -995,7 +993,7 @@ source.
       and the sealed unblinding join; packets and trial score rows use opaque
       labels.
     - `TrialStaticConfig.digest` hashes target and lowering versions, source
-      site identity, authored arm order and E1 config digests, the common
+      site identity, authored arm order and `run-ref` config digests, the common
       result contract, repetitions, evaluation, budget, and compiler/runtime
       identity. The runtime request digest adds the complete parent
       run/frame/step/visit identity and resolved input values. Completion
@@ -1013,7 +1011,7 @@ source.
       `trial_concurrency_invalid`, `trial_budget_invalid`,
       `trial_packet_policy_invalid`, `trial_packet_limit_invalid`,
       `trial_blinding_policy_invalid`, and
-      `trial_packet_citation_invalid`. E1 source, program, environment, and
+      `trial_packet_citation_invalid`. `run-ref` source, program, environment, and
       runtime failures retain their existing closed codes per arm. Every
       refusal includes its `code`, rejected value, stable secondary causes,
       and source span when available; human prose is never routing authority.
@@ -1025,9 +1023,9 @@ source.
       the admitted WCC route.
 
   - reusable-call contract boundary:
-    - Task 10 reserves `imports`, `call`, `with`, `asset_file`, and `asset_depends_on` semantics before execution support lands.
-    - When Task 11 lands, those fields require `version: "2.5"` or higher.
-    - `version: "2.4"` is a documentation/contract boundary, not a promise that the current compiler/runtime executes reusable-call workflows.
+    - `version: "2.4"` reserves `imports`, `call`, `with`, `asset_file`, and `asset_depends_on` semantics without executing them.
+    - Those fields require `version: "2.5"` or higher.
+    - `version: "2.4"` is a contract boundary only; it does not execute reusable-call workflows.
 
 ### Retired YAML authoring surface
 
@@ -1056,7 +1054,7 @@ identity, execution, or exit codes.
   - The referenced value must resolve to an array; otherwise the step fails with exit 2 and error context.
   - Dot-paths do not support wildcards or advanced expressions.
 
-## Planned Reusable-Call Contract Boundary (v2.4 docs, v2.5 execution)
+## Reusable-Call Contract Boundary (v2.4 contract; v2.5 execution)
 
 - Path taxonomy
   - Workflow-source-relative paths:
@@ -1075,7 +1073,7 @@ identity, execution, or exit codes.
   - `call` does not reinterpret authored workspace-relative paths; it only introduces call-scoped identities for state, lineage, freshness, and logs.
 
 - Boundary semantics
-  - `call` executes inline within the same run once Task 11 lands.
+  - `call` executes inline within the same run.
   - Caller-visible results remain on the outer step at `steps.<CallStep>.artifacts.<output-name>`.
   - Only declared callee `outputs` cross back into the caller.
   - Imported workflow `providers`, `artifacts`, and `context` defaults remain private to the callee unless a future contract explicitly binds or exports them.

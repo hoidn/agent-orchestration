@@ -6,7 +6,7 @@ shape; YAML-fenced snippets are schema notation, not accepted workflow files.
 
 ## Dynamic composed-provider boundary
 
-The branch-qualified target-3.0 profile dispatches one ordinary composed
+The native target-3.0 profile dispatches one ordinary composed
 `ProviderExecutor` request per invocation through existing registry, permissions,
 prompt/materialization, dependency snapshot and output owners. It uses the
 shared native whole-root result path, not a per-effect workflow, child state or
@@ -24,9 +24,9 @@ required output/report check. Ordinary stdout does not substitute for
 materialization owner.
 
 Sessions, provider context/capture, phased/live/supervision/peer surfaces are
-not admitted by this dynamic profile; retained typed support is unchanged.
-Deterministic local transport qualification does not establish live-provider
-acceptance. [IO](io.md#dynamic-boundary-io) and
+not admitted by this dynamic profile; typed support for them is unchanged.
+This profile is tested with deterministic local transport, not live vendor
+providers. [IO](io.md#dynamic-boundary-io) and
 [State](state.md#dynamic-fresh-run-authority) own transport and fresh authority.
 
 ## Composed-provider result delivery
@@ -171,11 +171,11 @@ renderings. See [result delivery design](../docs/design/provider_result_delivery
   - `provider` may contain `${run|context|inputs|steps.*}` substitutions. The resolved provider name is validated immediately before provider template lookup and execution.
   - Provider aliases resolve in the active workflow provider namespace. Imported workflows do not inherit or merge caller provider templates; pass role choices through declared inputs and define supported aliases inside the callee.
   - v2.10 top-level provider steps may also declare `provider_session` to select either `session_support.fresh_command` or `session_support.resume_command`.
-  - In this tranche, `provider_session` steps require a static provider alias because frontend-build-time session-support validation must inspect the provider template.
+  - `provider_session` steps require a static provider alias because frontend-build-time session-support validation must inspect the provider template.
   - Except for `omp_json_stdout`, flat-route provider steps with `output_bundle.path` or
     `variant_output.path` receive the runtime-owned
     `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding for the resolved
-    workspace-relative bundle target. Evaluated target 2.35 and branch-qualified
+    workspace-relative bundle target. Evaluated target 2.35 and native
     3.0 use the absolute destination specified in
     [IO](io.md#evaluated-result-file-destination). Provider-session command selection
     preserves that binding. OMP JSON-transport children never receive the
@@ -366,8 +366,8 @@ renderings. See [result delivery design](../docs/design/provider_result_delivery
     promotion boundary, not an OS sandbox.
   - This section defines the staged policy contract only. The policy loader and
     schema do not make provider execution isolated; the feature must not be
-    described as available until the launcher, state, CLI, resume, and
-    attestation integration gates land.
+    described as available until launcher, state, CLI, resume, and
+    attestation integration is complete and verified.
 
 - Managed provider job policy JSON (v2.13)
   - `managed_jobs.policy` points to workspace-relative JSON that classifies payloads launched by the guarded provider process. It is separate from provider-template configuration.
@@ -597,12 +597,12 @@ renderings. See [result delivery design](../docs/design/provider_result_delivery
     output-position-then-structured-result order. Neither artifact mapping is
     published unless both contracts validate, after which their disjoint maps
     merge once into ordinary step artifacts.
-  - Q2 applications carry `compiled_prompt_fragment_identity.v2` and
+  - Applications with an output position carry `compiled_prompt_fragment_identity.v2` and
     `compiler_prompt_fragment_contract.v2`; every ordered
     `output_positions[*].expected_output` object must equal the corresponding
     executable provider-configuration `expected_outputs` row.
-    Q1-only applications retain exact v1 bytes and behavior at targets 2.20
-    and 2.21.
+    Applications without an output position retain exact v1 bytes and
+    behavior at targets 2.20 and 2.21.
 
 - Workflow Lisp prompt-attempt identity and diagnostics (target 2.22)
   - The surface is limited to a direct fragment-backed `provider-result`.
@@ -645,23 +645,23 @@ renderings. See [result delivery design](../docs/design/provider_result_delivery
     - its published evidence is exact
       `workflow_prompt_fragment_snapshot.functional.v2` and embeds that same
       identity-v1 schema;
-    - it has one root-owned provider-attempt scope and one unique immutable Q3
+    - it has one root-owned provider-attempt scope and one unique immutable prompt-attempt
       evidence record at that scope and ordinal's deterministic path; and
-    - it has one validated committed provider result after the unchanged Q2
+    - it has one validated committed provider result after the unchanged
       output-position and structured-result validation in `io.md`.
     Target version, workflow/module/provider/step/family names, result type,
     and field spelling never establish eligibility. Unknown delivery,
     identity, or evidence versions are ineligible rather than inferred.
   - One eligible committed result receives one association with the exact
-    successful attempt ordinal and that ordinal's exact validated Q3 record.
-    Every attempted launch retains its ordinary Q3 evidence, but a
+    successful attempt ordinal and that ordinal's exact validated prompt-attempt record.
+    Every attempted launch retains its ordinary prompt-attempt evidence, but a
     failed-then-successful retry binds only the successful attempt ordinal.
     The runtime never selects the newest, last allocated, or
     successful-looking attempt by proximity.
   - A target-2.23 phased call carries
     `workflow_prompt_attempt_identity.v2` and
-    `workflow_prompt_fragment_snapshot.functional.v3`; it is Q4-ineligible
-    before locator construction, receives no association, and does not later
+    `workflow_prompt_fragment_snapshot.functional.v3`; it is ineligible for result
+    binding before locator construction, receives no association, and does not later
     appear as a missing-binding judgment row. A target-2.23 explicit composed
     call remains eligible only when it satisfies the complete identity-v1 and
     functional-v2 predicate above.
@@ -830,7 +830,7 @@ renderings. See [result delivery design](../docs/design/provider_result_delivery
   - A packet contains only the observation members explicitly selected from
     `task_spec`, `validated_result`, `workspace_delta`, `check_results`,
     `declared_artifacts`, and `failure_evidence`. A completed cell may include
-    its validated result, bounded normalized E1 workspace delta, permitted
+    its validated result, bounded normalized `run-ref` workspace delta, permitted
     declared artifacts, and deterministic check results. A failed cell
     includes only explicit failure evidence and other selected facts that
     actually exist. In v1, a selected `task_spec` is the exact resolved input
@@ -894,10 +894,10 @@ renderings. See [result delivery design](../docs/design/provider_result_delivery
     median, ranking, success-rule disposition, or selection. Higher-authority
     child or required-check failures remain primary; later lower-authority
     failures are ordered secondary causes.
-  - `child_attempts` counts validated durable E1 `launched` transitions, not
+  - `child_attempts` counts validated durable `run-ref` `launched` transitions, not
     allocations or cells. Budget `elapsed_ms` is the sum of durable charged
-    E1-attempt durations and evaluator-attempt settlement durations. Failed
-    and discarded E1 attempts therefore persist their duration; absence is a
+    `run-ref` attempt durations and evaluator-attempt settlement durations. Failed
+    and discarded `run-ref` attempts therefore persist their duration; absence is a
     validation failure and is never replaced by zero or inferred from event
     timestamps. Token and cost totals use only validated bound facts; any
     missing or `UNKNOWN` charged fact makes the corresponding total `UNKNOWN`.
@@ -929,7 +929,7 @@ renderings. See [result delivery design](../docs/design/provider_result_delivery
   - Packet construction, exclusion, canonical byte limits, scorer identity,
     strict output parsing, citation validation, attempt accounting,
     aggregation, and the sealed join are deterministic runtime obligations,
-    not provider instructions. Source promotion is excluded: E2 emits one
+    not provider instructions. Source promotion is excluded: `trial` emits one
     validated verdict artifact and publishes no candidate workspace or source
     change.
 

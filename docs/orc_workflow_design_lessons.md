@@ -1,26 +1,21 @@
 # Designing `.orc` Workflows That Beat A Single Call
 
-Status: informative guidance
-Source: experiments of 2026-09-28, reported in
-[`.orc` Workflows Versus A Single Agent Call](reports/2026-09-28-orc-versus-single-call.md)
-Audience: workflow authors and reviewers
-Normative contracts: `specs/`
-
 A single call to a current agent already plans, edits, tests and corrects
 itself. A workflow improves on it only by supplying something the agent cannot
 give itself. This guide records what did and did not, and the authoring
-mistakes that cost runs.
+mistakes that cost runs. The measurements come from one bounded experiment
+(one task, six runs per configuration, model judges), described in the
+[experiment materials](../experiments/orc_vs_single_call/README.md).
 
 Working examples:
 [`best_of_n.orc`](../experiments/orc_vs_single_call/workflows/best_of_n.orc) and
 [`reviewed_change.orc`](../experiments/orc_vs_single_call/workflows/reviewed_change.orc).
 
 Use the [library task chooser](lisp_library_reference.md#choose-by-task) for
-complete sources, caller-prepared candidate repositories, bindings and execution
-profiles. Canonical best-of-n targets 2.35; reviewed_change and the proposal/search
-applications retain their declared older targets. The measurements and observed
-pitfalls below describe the original experiment, not a claim that every defect
-applies to typed 2.35/2.36 or native 3.0.
+complete sources, caller-prepared candidate repositories, bindings and
+profiles. `best_of_n.orc` targets 2.35 and `reviewed_change.orc` targets 2.28.
+The authoring pitfalls below were observed at targets up to 2.33; check the
+target you write for before assuming one applies.
 
 ## Before Drafting
 
@@ -139,7 +134,7 @@ that delivers nothing in a later loop iteration fails with
 | Write the success criterion before seeing scores | a secondary analysis looked like a win after the primary one had missed its bar; it took a second run to confirm it |
 | Judge blind: random ids, no stage, no grouping | an unblinded reading favoured the workflow; blind judges found the revised patches worse |
 | Use a judge that is not the workflow's own judge | otherwise the selector is scored by itself |
-| Predeclare the paired baseline and report the comparator actually used | the best-of-N criterion here compared the selected patch with its group mean, not its first call; see the [comparison report](reports/2026-09-28-orc-versus-single-call.md#workflow-1-generate-four-select-one) |
+| Predeclare the paired baseline and report the comparator actually used | the best-of-N criterion here compared the selected patch with its group mean, not its first call |
 | Repeat anchor patches across batches | judges used different parts of the scale; two anchors moved from 8.0 and 3.0 to 7.0 and 5.0 |
 | Do not score with tests the agent can run | agents test themselves until they pass; every arm reached 100 percent |
 | Report judge agreement | it ranged from 19 of 60 to 68 of 72 |

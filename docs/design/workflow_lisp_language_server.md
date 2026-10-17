@@ -1,102 +1,18 @@
 # Workflow Lisp Language Server
 
-- **Status:** implemented through L2/L3/L4/L5; L4 is complete at
-  `251d9d53674e863fddae4535ea4f7022914287cd`, tree
-  `e2417d395cbcabe9adaffb136759ebff3d42b677`
-- **Kind:** feature / developer tooling architecture decision
-- **Owner:** Workflow Lisp frontend (tooling consumer)
-- **Reviewers:** independent specification rereview
-  `STAGE8_DESIGN_SPEC_APPROVED`, then independent quality rereview
-  `STAGE8_DESIGN_QUALITY_APPROVED` (2026-07-25); L1 independent specification
-  review `L1_DESIGN_SPEC_APPROVED`, then independent quality review
-  `L1_DESIGN_QUALITY_APPROVED` (2026-07-26); L2 final specification review
-  `L2_FINAL_SPEC_APPROVED`, then independent final quality review
-  `L2_FINAL_QUALITY_APPROVED` (2026-07-27); L3 independent specification review
-  `L3_DESIGN_SPEC_APPROVED`, then independent quality review
-  `L3_DESIGN_QUALITY_APPROVED` (2026-07-28); L3 canonical-path refusal
-  correction `L3_CANONICAL_PATH_DESIGN_SPEC_APPROVED`, then independent
-  `L3_CANONICAL_PATH_DESIGN_QUALITY_APPROVED` (2026-07-28); L3 Task 1
-  `L3_TASK1_SPEC_APPROVED`, then `L3_TASK1_QUALITY_APPROVED`; L3 Task 2 and
-  its xdist-evidence correction each received restarted
-  `L3_TASK2_SPEC_APPROVED`, then `L3_TASK2_QUALITY_APPROVED`; final closure
-  `L3_FINAL_SPEC_APPROVED`, then `L3_FINAL_QUALITY_APPROVED` (2026-07-28);
-  L4 independent specification review `L4_DESIGN_SPEC_APPROVED`, then
-  independent quality review `L4_DESIGN_QUALITY_APPROVED`; L4 Task 1
-  `L4_TASK1_SPEC_APPROVED`, then `L4_TASK1_QUALITY_APPROVED`; L4 Task 2
-  `L4_TASK2_SPEC_APPROVED`, then `L4_TASK2_QUALITY_APPROVED`; L4 Task 3
-  `L4_TASK3_SPEC_APPROVED`, then `L4_TASK3_QUALITY_APPROVED`. Task 4 closure
-  diff `c41e2e756f1d0c6bc27bbd9a8b8bbbfc57c59fc121b0bd46dc548709c286b990`
-  received `L4_TASK4_SPEC_APPROVED` then `L4_TASK4_QUALITY_APPROVED` before
-  commit `1f64f153`, tree `7790ee0e`. That exact tree received
-  `L4_FINAL_SPEC_APPROVED`; final quality returned `CHANGES_REQUIRED` solely
-  for stale review-status metadata. The corrected routing/status diff
-  `29e0bc01037058f0c29dac15c0d461798a5e47a836fe8b3e8336beb937410951`
-  landed at `251d9d53674e863fddae4535ea4f7022914287cd`, tree
-  `e2417d395cbcabe9adaffb136759ebff3d42b677`, then passed a 357-test focused
-  control. External closure-record SHA-256
-  `94b47f87035549191d698c63bf93b706740791d1e3ec45a29750e662fa4bf804`
-  records ordered `L4_FINAL_SPEC_APPROVED` then
-  `L4_FINAL_QUALITY_APPROVED`; the prior rejection is superseded history
-- **Created:** 2026-07-13
-- **Last material update:** 2026-07-28
-- **Review history:** earlier design and quality changes-required rounds,
-  including the F2 source-root, payload-based read-only build, and optional
-  authored-call-provenance corrections, are incorporated. The latest quality
-  review additionally required a single-workspace-root v1 and exact-byte
-  compiler read tracing, then identified the production-injected builtin
-  stdlib root as the one required containment exception. The final correction
-  preserves current `Path.read_text(encoding="utf-8")` parser semantics,
-  including text I/O's implicit `newline=None` universal-newline translation,
-  while retaining raw-byte digest/editor identity. Ordered final rereviews
-  approved the exact amended design:
-  `STAGE8_DESIGN_SPEC_APPROVED`, then
-  `STAGE8_DESIGN_QUALITY_APPROVED`. The L3 immutable per-source-selection
-  amendment then passed ordered `L3_DESIGN_SPEC_APPROVED` and
-  `L3_DESIGN_QUALITY_APPROVED`. The implementation-discovered
-  uncanonicalizable-JSON-key correction then passed ordered
-  `L3_CANONICAL_PATH_DESIGN_SPEC_APPROVED` and
-  `L3_CANONICAL_PATH_DESIGN_QUALITY_APPROVED`.
-- **Related docs / plans:**
-  - `docs/design/workflow_lisp_frontend_specification.md` §76.1 "Editor And
-    Lint Tooling Compatibility" (parent authority for this design)
-  - `docs/design/workflow_lisp_frontend_mvp_specification.md` §9.1 "Linter And
-    LSP Compatibility" (historical prerequisite; current v1 status lives here)
-  - `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/lisp-frontend-cli-diagnostics-surface/`
-    (predecessor: built the machine-readable diagnostics surface "suitable for
-    future lint/LSP tooling" while explicitly excluding "editor/LSP
-    implementation, background daemons, or persistent compile servers")
-  - `docs/design/workflow_lisp_source_map.md` (source-map component contract)
-  - `docs/design/workflow_language_design_principles.md`
-  - `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`
-    (governing roadmap; see Dependencies And Sequencing)
-- **Implementation record:** Stage 8 (the final stage) is complete under
-  `docs/plans/2026-07-25-workflow-lisp-language-server-implementation-plan.md`.
-  The 2026-07-13 roadmap amendments initially named it Stage 7 and renumbered
-  it when provider live binding was inserted ahead of it. Generic client setup
-  lives in `docs/workflow_lisp_language_server_setup.md`. The bounded L0
-  reliability/actionability successor is also implemented under
-  `docs/plans/2026-07-26-workflow-lisp-language-server-l0-implementation-plan.md`;
-  L1 authored symbols and callable signatures are implemented under
-  `docs/plans/2026-07-26-workflow-lisp-language-server-l1-implementation-plan.md`
-  through `f1eecf65`, `ec2328dd`, `d174faf2`, and `66163dc0` plus its reviewed
-  repository-real stdio/status closure. L2 recovery-safe static completion is
-  implemented through `70b83f32`, `b399c041`, `ee213a43`, and `10e3ccc3`
-  under its reviewed five-task implementation plan, then closed by ordered
-  `L2_FINAL_SPEC_APPROVED` and `L2_FINAL_QUALITY_APPROVED`. L5 authored
-  reference navigation is implemented through `95e05c01`, `042c0bc3`,
-  `870f7db2`, `7233138a`, and `041754e6` under
-  `docs/plans/2026-07-27-workflow-lisp-l5-authored-reference-navigation-implementation-plan.md`.
-  L3 per-source entry selection is implemented after compiler-session
-  reentrancy closed under
-  `docs/plans/2026-07-27-workflow-lisp-compiler-session-state-implementation-plan.md`;
-  its reviewed three-task component plan is
-  `docs/plans/2026-07-28-workflow-lisp-language-server-l3-per-source-entry-selection-implementation-plan.md`.
-  The implementation landed through Task 1 `fc1b01ee`, Task 2 `9e59929d`,
-  and Task 2's xdist-evidence correction `8c704f3f`.
-  L4 current-only diagnostic publication is implemented at `11629551` and
-  transport-local serialized compile progress is implemented at `0d5f7009`
-  under
-  `docs/plans/2026-07-28-workflow-lisp-language-server-l4-diagnostic-lifecycle-progress-implementation-plan.md`.
+Status: Implemented
+
+A stdio LSP server for `.orc` in `orchestrator/lsp/` that consumes the existing
+compile entry points: diagnostics on clean open and save, go-to-definition,
+document symbols, completion with compiler-rendered signatures, per-source
+entry selection, current-only diagnostics with compile progress, and authored
+reference navigation. The
+[frontend specification §76.1](workflow_lisp_frontend_specification.md#761-editor-and-lint-tooling-compatibility)
+is the parent contract; editor setup is in the
+[setup guide](../workflow_lisp_language_server_setup.md). See also
+[diagnostic lifecycle and progress](workflow_lisp_lsp_diagnostic_lifecycle_and_progress.md),
+[authored reference navigation](workflow_lisp_lsp_authored_reference_navigation.md)
+and the [source map](workflow_lisp_source_map.md).
 
 ## Summary
 
@@ -1371,10 +1287,7 @@ Failure behavior:
 
 ## L0 Reliability And Diagnostic Actionability Amendment
 
-**Amendment status:** implemented 2026-07-26. The design was accepted after
-ordered independent review: `L0_DESIGN_SPEC_APPROVED`, then
-`L0_DESIGN_QUALITY_APPROVED`. The implementation and watcher-disabled
-real-stdio gate are recorded in the L0 implementation plan.
+**Amendment status:** implemented.
 
 This bounded post-v1 amendment corrects four reliability/presentation defects.
 It does not add a language feature, source overlay, incremental compiler,
@@ -1474,11 +1387,8 @@ retain this L0 reliability boundary.
 
 ## Accepted L1 Authored Symbols And Callable Signatures Amendment
 
-**Amendment status:** implemented after independent specification review
-`L1_DESIGN_SPEC_APPROVED`, independent quality review
-`L1_DESIGN_QUALITY_APPROVED`, the reviewed five-task implementation plan, and
-its repository-real stdio/status closure. The implementation does not change
-the v1/L0 freshness or compiler-authority bounds above.
+**Amendment status:** implemented. It does not change the v1/L0 freshness
+or compiler-authority bounds above.
 
 L1 extends only the successful-snapshot navigation index. It does not add a
 parser, source-text classifier, partial AST, hover surface, reference graph,
@@ -1645,12 +1555,7 @@ reviewed L1 plan.
 
 ## Implemented L2 Recovery-Safe Static Completion Amendment
 
-**Amendment status:** implemented after independent specification review
-`L2_DESIGN_SPEC_APPROVED` and independent quality review
-`L2_DESIGN_QUALITY_APPROVED`, the ordered
-`L2_PLAN_SPEC_APPROVED` / `L2_PLAN_QUALITY_APPROVED` plan gate, four reviewed
-implementation commits through `10e3ccc3`, and ordered final reviews
-`L2_FINAL_SPEC_APPROVED` then `L2_FINAL_QUALITY_APPROVED`.
+**Amendment status:** implemented.
 
 L2 adds one recovery-only completion source without weakening compiler,
 snapshot, or freshness authority. The server captures a **process-frozen form
@@ -1744,25 +1649,9 @@ state, driver, navigation, integration, stdio, and end-to-end test modules.
 
 ## Accepted L6 Utility Design Amendment
 
-**Amendment status:** accepted design at commit
-`e7de48e2710dddefbf14717575973b4ce41b5a06`, tree
-`0a2bb399c10b4242c314f9fcc924cf89f6a6b9b6`, with accepted design SHA-256
-`3c52e3d0fb9c5683eae80ae3d81aae7d6e75bef71ef72c7daf19e6da1ecee338`
-after ordered `L6_DESIGN_SPEC_APPROVED` then
-`L6_DESIGN_QUALITY_APPROVED`. The initial proposal was commit
-`848cee55b15a14189a54fd497ebbe24b37cba71d`; the exact binding and resolved
-findings are recorded in the
-[L6 design review](../../artifacts/review/workflow-lisp-language-server-l6-design-review.md).
-
-Acceptance does not change the implemented L0-L5 status or authorize L6
-implementation: no implementation is selected. The
+**Amendment status:** designed, not implemented. The
 [L6 utility component plan](../plans/2026-07-31-workflow-lisp-language-server-l6-utility-component-plan.md)
-is accepted at `df2b468c284585d7de3740e791df0eb427283148`, tree
-`f86be7c721a4fcd992c1572b88fdd2ebc94961b8`, after ordered
-`L6_PLAN_SPEC_APPROVED` then `L6_PLAN_QUALITY_APPROVED`; see the
-[plan review](../../artifacts/review/workflow-lisp-language-server-l6-plan-review.md).
-It selects nothing. Explicit owner activation must name the exact
-independently selected L6 unit or units before implementation begins.
+orders the work.
 
 L6 is three independently selectable utility units over already-retained
 compiler or navigation facts:
@@ -2258,7 +2147,7 @@ discover or load it. Node and the two lockfile-pinned JavaScript packages are
 acceptance-only dependencies when L6c is selected; no tree-sitter,
 editor-extension build, production JavaScript dependency, or network access
 during the tokenization test is required after the locked packages have been
-provisioned. Unselected L6a/L6b work does not provision or run this oracle.
+provisioned. L6a/L6b work alone does not provision or run this oracle.
 
 The expected L6a/L6b production owners are only
 `orchestrator/lsp/navigation.py` and `orchestrator/lsp/server.py`, plus focused
@@ -2271,14 +2160,8 @@ exact fixture and Python acceptance test named above, the minimal
 `tools/textmate-oracle/{package.json,package-lock.json,tokenize.mjs}` harness,
 and later setup/routing documentation.
 
-Implementation must proceed under one reviewed component plan after this
-exact amendment passes ordered independent specification then quality review.
-That plan must preserve L6a/L6b/L6c as separate selection units and may order
-shared navigation work without making an unselected unit implicit. Each
-selected unit uses TDD, narrow then broad non-security checks, its named
-repository-real gate where applicable, ordered implementation reviews, and
-capability-matrix/setup-doc closure. Accepted design or plan status alone is
-not evidence that any L6 capability ships.
+L6a, L6b and L6c stay separate delivery units: shared navigation work must
+not make one depend on another. None of them is implemented.
 
 ## Verification Strategy
 

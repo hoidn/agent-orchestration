@@ -1,27 +1,18 @@
 # Workflow Lisp: Dynamic Core With Explicit Boundary Contracts
 
-- **Status:** accepted bounded branch-qualified target-3.0 architecture in §9; broader proposal/historical spike sections remain contextual. Bounded qualification evidence belongs to the linked plan/report; DC-P adoption remains unselected.
-- **Kind:** architecture companion and decision record. Normative delivered profile contracts live in specs; this is not a release/adoption or implementation-status authority.
-- **Scope:** ordinary computation, callable values, boundary schemas, and the execution contracts those changes would require.
-- **Authority:** current behavior remains defined by the [frontend specification](workflow_lisp_frontend_specification.md), [capability matrix](../capability_status_matrix.md), and applicable `specs/` contracts. This proposal does not change an accepted target's semantics.
-- **Plan:** the [dynamic-core evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md) owns qualification, bounded experiments, decision gates and changes to prospective delivery. Selection for evaluation is not production adoption.
+Status: Implemented in target 3.0
 
-**Current port and frozen comparison:** the earlier comparison used native
-`b0b05d504d4b1be7b1cbaebfadf47ffdc3e66012`, target 3.0 and fresh-only.
-W3 at target 2.36 is now imported into this branch as a typed dependency of the
-[REPL port](../plans/2026-10-12-workflow-lisp-dynamic-repl-port-plan.md), alongside
-preserved 2.35 and native 3.0. Its current contract is
-[write-once §6](workflow_lisp_write_once.md#6-w3-hooks-see-their-context).
-The earlier [paired comparison](../../experiments/dynamic_core_evaluation/README.md#implemented-w3-comparison-opt-in)
-remains frozen to native runtime `b0b05d50`, packet `d87334f0` and typed
-`47e85a9c`; its two parity failures and approved reviews do not qualify the
-combined runtime. The selected REPL extension does not select application
-adoption, migration or a default profile. Earlier W3 counterfactuals below
-retain their historical scope.
-
-Native REPL declaration/source/type queries and result-file refusal follow the
-[accepted introspection boundary](workflow_lisp_repl_introspection.md) and
-[normative native inspection](../../specs/cli.md#native-target-30-inspection).
+Native target 3.0 runs ordinary dynamically typed functions and closures with
+strict schemas at provider, command and public workflow boundaries; runs are
+fresh-only (no resume, retries or result reuse). §9 records the implemented
+profile's architecture; the other sections are the broader proposal and earlier
+spike context. [Versioning](../../specs/versioning.md#native-target-30) owns the
+normative profile, the [drafting guide](../lisp_workflow_drafting_guide.md#2b-native-30-dynamic-composition)
+has runnable examples, and native REPL inspection follows the
+[introspection design](workflow_lisp_repl_introspection.md) and
+[CLI](../../specs/cli.md#native-target-30-inspection). Typed 2.35/2.36,
+including W3 hooks ([write-once §6](workflow_lisp_write_once.md#6-w3-hooks-see-their-context)),
+remains the profile for checked types and resume.
 
 ## 1. Recommendation
 
@@ -82,7 +73,7 @@ W1 removes repeated constructor type names; W3 removes context-only records and
 `inputs I`; W2/W4 simplify effects and provider options independently; W5 adds
 constraint inference only where a real caller needs it. Credit those gains to
 the incumbent before attributing all improvements to dynamic typing.
-Use the best executable typed control. The frozen DC-2 comparison labeled its
+Use the best executable typed control. The earlier source-assembly comparison labeled its
 then-unimplemented W1/W3 rewrites as counterfactual evidence; the current
 reevaluation must use real implemented W3, while W1 remains separate. Keep
 useful domain types and schemas in the comparison. Simpler binary decisions
@@ -97,8 +88,8 @@ interpreter qualifies only if its restricted embedding is demonstrably smaller.
 ## 3. Candidate Language And Boundary Model
 
 The conceptual syntax below is illustrative, not a complete runnable consumer.
-Section 9 owns the accepted branch-qualified profile; use the
-[actual guide examples](../lisp_workflow_drafting_guide.md#2b-dynamic-composition-on-the-qualified-branch)
+Section 9 owns the native 3.0 profile; use the
+[actual guide examples](../lisp_workflow_drafting_guide.md#2b-native-30-dynamic-composition)
 for implemented source forms, bindings and reproduction.
 Keep the existing module/import and effect vocabulary where they fit; do not add
 a second public launch API or hide a new evaluator inside old typed lowering.
@@ -456,7 +447,7 @@ capability belongs with its upstream owner, not a duplicate local performer.
 Do not fabricate typed artifacts, synthesize successful journal records, or use
 a test callback as evidence of an actual provider/command boundary. Ordinary
 `.orc` authoring and closures composed with real validated effects remain full
-DC-F/DC-U obligations; this pure subprofile cannot waive them. Its original
+feasibility and utility obligations; this pure subprofile cannot waive them. Its original
 value/schema/admission/budget cases do not change when resume is omitted.
 
 ### 6.2 Fresh Compiled-Leaf Boundary Contract
@@ -551,7 +542,7 @@ The [evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-
 owns the finite E01–E12 cases and the explicit shared-hook ownership transfer.
 Candidate code stays in `program.py`, `evaluator.py` and one `leaf_bridge.py`
 under `experiments/dynamic_core_evaluation/`; real leaf/provider fixtures and
-their test module belong to that finite scope. Full DC-F additionally requires
+their test module belong to that finite scope. Full feasibility additionally requires
 the immediately following authored-surface slice: reuse `reader.read_sexpr_text`
 for one experimental `.orc` composition specimen with unannotated ordinary
 helpers, inferred lexical captures and first-class closures, lowered to the
@@ -561,7 +552,7 @@ typed leaf syntax alone cannot satisfy this source-level obligation.
 
 ### 6.3 Minimal Authored Composition Contract
 
-The next source slice makes ordinary composition visible before DC-F. One
+The next source slice makes ordinary composition visible before the feasibility decision. One
 experimental `source.py` reuses `reader.read_sexpr_text`; it lowers to the same
 §6.2 artifact and calls `DynamicProgram.from_artifact` before returning it. No
 production parser, target, module system or alternate evaluator is introduced.
@@ -665,7 +656,7 @@ replaces in equivalent partial callback wiring, while retaining genuine
 domain/boundary declarations on both sides. Do not compare the complete improve
 implementation's size to this one-pass specimen. This is a
 finite source-and-boundary proof, not the complete improve utility comparison.
-The plan owns its case inventory and file scope; DC-U still requires full
+The plan owns its case inventory and file scope; the utility comparison still requires full
 improve and MLEvolve behavior, authoring and failure-cost comparisons.
 
 ### 6.4 Bounded Complete-Consumer Comparison
@@ -782,7 +773,7 @@ Use complete-consumer checks after each edit and include source/contract repair,
 internal errors before and after actual effects, fresh-restart repeated work,
 and the lack of static tracking/resume. Credit already available typed
 `record-update`, String context inputs and ordinary helpers; this historical
-DC-2 scope labels W1/W3 counterfactuals as proposed. Source size alone and
+comparison labels W1/W3 counterfactuals as proposed. Source size alone and
 removing legitimate domain types are not utility gains.
 
 For utility interpretation, distinguish value arguments from type parameters:
@@ -802,16 +793,11 @@ This cost is compatible with the proposed non-resuming profile but must remain
 visible. Every leaf still owns its compiled legacy state and startup work.
 Only actual production removal, with old-target and run dispositions, qualifies
 as net simplification; bypassing specialization inside experiment fixtures does
-not remove its production owner. The
-[single execution report's utility packet](../reports/2026-10-02-workflow-lisp-dynamic-core-evaluation.md#dc-u-evidence-packet)
-owns the observations and recommendation, and the plan owns readiness selection.
+not remove its production owner.
 
-The [evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md#dc-2-full-utility-comparison-and-gate-dc-u)
-owns the exact finite file/case handoff and receipts. Implementation is limited
-to the existing candidate files, these consumer fixtures, their shared test
-support and focused test modules; shared production owners need no change for
-this contract. Full consumer parity, authored edits and an independent utility
-review precede DC-U's owner disposition. No adoption follows automatically.
+The comparison is limited to the existing candidate files, these consumer
+fixtures, their shared test support and focused test modules; shared production
+owners need no change for this contract.
 
 ## 7. Errors, Owners, And Deletions
 
@@ -840,7 +826,7 @@ These are deletion obligations, not proven savings. Count old-target code and ne
 machinery too. Reject a permanent dynamic facade over equivalent new-target
 compiler paths or silent specialization back into the incumbent model.
 
-## 8. Compatibility And Evidence Required Before Adoption
+## 8. Compatibility And Evidence
 
 The [existing delivery plan](../plans/2026-09-29-workflow-lisp-evaluated-execution-plan.md#delivery-order-and-preserved-capabilities)
 provides useful composition, memo, performer, and caller evidence. Its Phase 4c
@@ -851,8 +837,8 @@ or this schema/budget model. Shared memo/recovery delivery remains valuable for
 the typed route but does not gate this non-resumable candidate.
 
 The [evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md)
-owns gates **DC-F** (feasibility), **DC-U** (utility) and **DC-P** (production
-readiness and migration), their order and owner dispositions. The obligations
+owns the feasibility, utility and production-readiness decisions, their order
+and owner dispositions. The obligations
 below distinguish mechanism proof, complete consumer benefit and production
 qualification: passing one supplies no automatic approval of the others.
 
@@ -897,19 +883,16 @@ amendments and net utility still govern adoption. The absence of effect tracking
 or resume is a permitted cost to assess, not an automatic rejection. Retain the
 incumbent when the measured tradeoffs exceed the gain over W1/W3.
 
-## 9. Complete-Consumer Production Candidate
+## 9. Native 3.0 Profile Architecture
 
-This section records the accepted bounded DC-3 candidate contract. Target 3.0
-is registered and its source/public route, shared boundaries, fresh authority
-and full native consumers are qualified on the development branch. Durable
-normative behavior is incorporated in [Versioning](../../specs/versioning.md#branch-qualified-target-30),
+This section records the native target 3.0 contract. Target 3.0 is registered
+with its source/public route, shared boundaries, fresh-run authority and full
+native consumers. Normative behavior lives in [Versioning](../../specs/versioning.md#native-target-30),
 [CLI](../../specs/cli.md#dynamic-execution), [State](../../specs/state.md#dynamic-fresh-run-authority),
 [IO](../../specs/io.md#dynamic-boundary-io) and
 [Providers](../../specs/providers.md#dynamic-composed-provider-boundary).
-The [readiness plan](../plans/2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md)
-and [evaluation plan](../plans/2026-10-02-workflow-lisp-dynamic-core-evaluation-plan.md#dc-3-production-readiness-and-gate-dc-p)
-own bounded qualification evidence and decisions. Branch qualification does not select a default,
-release/adoption or consumer migration; DC-P remains separate.
+Target 3.0 is not a default profile, and no existing consumer is migrated to
+it.
 
 ### 9.1 Scope And Choice Of Destination
 
@@ -933,11 +916,11 @@ unimplemented declaration forms. Do not remove their existing typed support.
 | Route | What it achieves | What remains to maintain |
 | --- | --- | --- |
 | Retain typed evaluated execution with implemented upstream W3 | Existing domain contracts, early checks and recovery; upstream W3 reduces context forwarding without dynamic values. | Typed specialization/proofs, upstream bounded composition limits and separate integration/qualification if this branch selects that route; the dynamic evaluation can remain historical evidence. |
-| Promote the experimental leaf bridge | Already executes both policies with fresh local effects; lowest immediate integration work. | Two frontends, source assembly, per-effect legacy workflows/state, caller wire reconstruction and all old compiler machinery. It preserves DC-2's adverse edit costs and removes no production owner. Reject as the final topology. |
-| Dynamic composition calling shared boundary owners directly | Ordinary functions plus one declared-schema pipeline; domain results return without wire reconstruction or per-effect child workflows. | A dynamic frontend/admission/evaluator and a small fresh-run state profile, shared performer work, and explicitly retained old-target compatibility. Qualified branch destination; DC-P adoption/migration remain unselected. |
+| Promote the experimental leaf bridge | Already executes both policies with fresh local effects; lowest immediate integration work. | Two frontends, source assembly, per-effect legacy workflows/state, caller wire reconstruction and all old compiler machinery. It preserves the earlier comparison's adverse edit costs and removes no production owner. Reject as the final topology. |
+| Dynamic composition calling shared boundary owners directly | Ordinary functions plus one declared-schema pipeline; domain results return without wire reconstruction or per-effect child workflows. | A dynamic frontend/admission/evaluator and a small fresh-run state profile, shared performer work, and explicitly retained old-target compatibility. Implemented as native 3.0; consumer migration is not done. |
 
 Name **`experiments/mlevolve_pair/search_compact.orc`, entry `run-search`**, as
-the single maintained application migration destination after DC-P. Preserve
+the single maintained application migration destination. Preserve
 its module identity, `commands_compact.json`, CLI entry, full `SearchResult`
 contract and the complete search policy. The frozen comparison sources remain
 historical evidence, not a second maintained runtime implementation. The
@@ -948,11 +931,11 @@ Do not also migrate the typed destination or the broader workflow estate.
 ### 9.2 Proposed Source And Public Use
 
 Use the existing `workflow-lisp` wrapper, language header, `defmodule`, `import`,
-`export`, boundary declarations, `defprompt` and `defworkflow`. Branch-qualified target
+`export`, boundary declarations, `defprompt` and `defworkflow`. Native target
 **`"3.0"`** selects dynamic composition; do not add a profile flag to each
 command or a second `dynamic run` entry. Its major target distinguishes the
 incompatible internal-call, validation and recovery contracts. Examples in this
-design explain the contract; use the [complete tested guide](../lisp_workflow_drafting_guide.md#2b-dynamic-composition-on-the-qualified-branch)
+design explain the contract; use the [complete tested guide](../lisp_workflow_drafting_guide.md#2b-native-30-dynamic-composition)
 for actual source, bindings and workspace prerequisites.
 
 The entry module supplies one positive integer `(:budget N)`; libraries omit it.
@@ -1104,7 +1087,7 @@ Target dispatch selects typed `2.35` and dynamic `3.0` exactly, with independent
 loaders/representations; known older targets retain their owners and unknown
 targets refuse before execution or creation. Persisted profile selection precedes
 `StateManager` or typed authority loading; no secondary target flag, fallback or
-conversion is introduced. [Versioning](../../specs/versioning.md#branch-qualified-target-30)
+conversion is introduced. [Versioning](../../specs/versioning.md#native-target-30)
 owns the durable profile routing.
 
 A public CLI source read/header failure before target selection refuses without invoking
@@ -1299,7 +1282,7 @@ An old-target source module can supply selected `defrecord`/`defunion`/`defpath`
 and `defprompt` declarations plus their declaration dependencies. Resolve that
 selected closure before executable-body checking; do not accidentally elaborate
 or copy every `defproc` in the source. This is a required module-loader delta,
-not a capability already proved by DC-2's source assembler. A prompt/declaration
+not a capability already proved by the earlier spike's source assembler. A prompt/declaration
 whose dependency requires an inadmissible executable form is refused with its
 import chain. Explicitly selecting an old `defproc`, workflow, macro, `ProcRef`
 or compiled typed bundle refuses `dynamic_import_incompatible`; there is no
@@ -1327,7 +1310,7 @@ their identities. No forwarding alias or mandatory later rename is needed.
 
 ### 9.7 Fresh Run Authority And Read-Only Inspection
 
-The branch-qualified profile uses exact state routing pair `schema_version: "3.1"` with
+The native 3.0 profile uses exact state routing pair `schema_version: "3.1"` with
 `result_persistence_profile: "dynamic_execution.v1"`. The immutable `run.json`
 pins the checked `closed_program.json`, target/entry, semantic and provenance
 digests, bound inputs, budget, workspace/configuration and runtime/interpreter
@@ -1420,7 +1403,7 @@ Retain the shared validator's field-path diagnostic without parsing its prose.
 | --- | --- |
 | Existing source/compiled artifact at targets through 2.34 | Original admission, bytes for identical identity inputs, workflow runtime and resume remain. Real package-pin changes remain visible. |
 | Typed target 2.35 and `evaluated_execution.v1` runs | Original typed program, memo and readers/recovery contract; no dynamic semantics or schema-strengthening applied retroactively. |
-| Branch-qualified target 3.0 / dynamic program major 1 | Only the classes and source forms in this profile; strict independent read-back and fresh-run public state. Unsupported forms fail before external work. |
+| Native target 3.0 / dynamic program major 1 | Only the classes and source forms in this profile; strict independent read-back and fresh-run public state. Unsupported forms fail before external work. |
 | Supplied compiled import of any profile; incompatible source import; unknown target/profile/schema; mixed header/program; forged provenance | Refuse explicitly without fallback, conversion, new run creation or dispatch. |
 | Existing interrupted or completed typed run | Keep its original environment/runtime pins and route it to its retained owner; never convert checkpoints to captures or restart it under the dynamic profile. |
 | Historical dynamic-spike artifact/leaf run | Preserve evidence under its experimental/legacy owner; not a migratable production dynamic run. |
@@ -1429,7 +1412,7 @@ The compatibility cost lasts until an explicit Phase 7 run-retirement decision.
 Branch registration does not delete retained typed code or promise that old runs can
 be resumed by a future binary after their original runtime is retired.
 
-### 9.9 Removal Ledger And Executable Qualification
+### 9.9 Removal Ledger And Executable Checks
 
 | Addition/revision | What it replaces; what remains |
 | --- | --- |
@@ -1457,7 +1440,7 @@ and exact shared owner tests; the readiness plan records selectors and outcomes.
 | Q4 — fresh state/public readers | Real public run/report/dashboard/monitor/probe/usage-limit readers; kill before dispatch, during execution and after output before state publication. Observe interruption, immutable old files, refused resume/invalidation and extra calls on a new run. No stale completed projection, dispatch from a reader or successful orphan adoption. |
 | Q5 — retained behavior/removal | Complete improve/search controls and the four author edits on the direct route, plus affected old-target artifact/run/resume selectors. Root-schema errors and source maps must improve the demonstrated wire/diagnostic costs without erasing late runtime failures. Inspect actual module/call-path removal and compatibility owners, not LOC alone. |
 
-DC-3 planning can close the contract while Q2–Q4 still require implementation;
+Planning can close the contract while Q2–Q4 still require implementation;
 it cannot mark those proofs passed or declare production readiness. Missing
 shared performers, a memo-free boundary call seam, declaration-only linking,
 dynamic source maps or profile-aware readers are named owner prerequisites.
@@ -1466,7 +1449,7 @@ shared progress; do not re-create shared runtimes to avoid waiting. Live-provide
 cost/quality and paid qualification remain a separately allocated gap before any
 release claim that needs them.
 
-The owner-facing DC-P choice is adoption of this exact fresh-only, sequential
+The owner-facing production choice is this exact fresh-only, sequential
 profile and the one application destination versus retaining the typed route.
 Proposed version numbers, strict input-document annotation, explicit stdlib name
 and state schema are reviewable design choices inside readiness work. They do

@@ -1,18 +1,11 @@
 # Workflow Lisp Program-Search Boundary Invariants
 
-- **Status:** adopted position statement (2026-07-24, owner-directed
-  extraction)
-- **Kind:** permanent architectural boundaries for any future program-search,
-  self-modification, or evolution feature over Workflow Lisp
-- **Provenance:** extracted from the parked
-  `docs/plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md`
-  ("Program-Wide Architectural Boundaries") on the recommendation of the
-  architectural critique at
-  `artifacts/review/roadmap-follow-on/architectural-critique.md`. The parked
-  roadmap's tranche ledger, gate lattice, and decision-record machinery are
-  deliberately not extracted.
-- **Authority:** these invariants constrain any future design in this space;
-  this document schedules no work and activates no program.
+Status: Design only (not implemented)
+
+Permanent boundary invariants that any future program-search,
+self-modification or evolution feature over Workflow Lisp must satisfy. It
+schedules no work; the implemented [trial runs](workflow_lisp_trial_runs.md)
+platform is written to comply with it.
 
 ## Why this document exists
 

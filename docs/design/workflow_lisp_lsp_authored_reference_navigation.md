@@ -1,35 +1,14 @@
 # Workflow Lisp LSP Authored Reference Navigation
 
-- **Status:** implemented and incorporated into
-  `docs/design/workflow_lisp_language_server.md` after the ordered design and
-  plan reviews. The implementation landed collision-safe rows at `95e05c01`,
-  prompt heads at `042c0bc3`, the direct-retained proc-ref shape at
-  `870f7db2`, visibility/preflight coverage at `7233138a`, and repository-real
-  stdio coverage at `041754e6`; the
-  [implementation plan](../plans/2026-07-27-workflow-lisp-l5-authored-reference-navigation-implementation-plan.md)
-  owns the complete execution and closure record. Macro heads still defer
-  shape-wide, and erased, macro-consumed, generated-owner, and
-  specialized-owner proc-refs remain retention gaps rather than partial
-  navigation.
-- **Kind:** L-series language-server amendment — definition-index extension
-  over already-retained compiler structure
-- **Owner:** `orchestrator/lsp` navigation index; read-only consumer of
-  existing compile results, per the standing L-series bounds
-- **Motivating evidence:** a successful live-stdio probe of
-  `workflows/examples/review_revise_design_docs.orc` on 2026-07-27 returned
-  null for the fragment application head, both macro-consumed `proc-ref`
-  arguments, and the macro head. The direct `(call ...)` callee already
-  resolved to its authored `defworkflow`; L5 preserves that implemented
-  behavior as regression coverage rather than claiming it as new work.
-- **Related authority:**
-  - `docs/design/workflow_lisp_language_server.md` (implemented v1 + L0–L2
-    amendments; the closed navigation contract this extends)
-  - `docs/design/workflow_lisp_prompt_calculus.md` (Q1 prompt catalog and
-    application identity)
-  - `docs/design/workflow_lisp_macro_surface_contract.md` (macro lookup and
-    expansion provenance)
-  - `docs/design/workflow_language_design_principles.md` principles 24
-    (source maps are semantic infrastructure), 28, 29, and 30
+Status: Implemented
+
+Go-to-definition also resolves authored prompt application heads and direct
+retained `proc-ref` names to their authored definitions. Macro heads and
+`proc-ref` occurrences erased or consumed by macro expansion, specialization or
+generated owners still return null. The
+[language server design](workflow_lisp_language_server.md) owns the durable
+navigation contract; see also [prompt calculus](workflow_lisp_prompt_calculus.md)
+and the [macro surface contract](workflow_lisp_macro_surface_contract.md).
 
 ## Problem
 

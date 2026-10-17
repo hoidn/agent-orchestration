@@ -1,58 +1,18 @@
 # Workflow Lisp Generic Core, Expression Surface, And Adapter Retirement
 
-Status: incorporated historical target
-Kind: architecture decision / runtime simplification and language-extension target
-Created: 2026-06-11
-Scope: generic runtime resource/context core; pure expression surface; typed
-projection; materialized value views; typed transitions; boundary authority
-classes; stdlib-owned domain contexts; adapter retirement for workflow
-semantics; and Design Delta Drain family cleanup.
+Status: Implemented
 
-Authority:
-
-The target and migration sequence below preserve the original design rationale.
-Landed contracts are incorporated into the frontend baseline and current
-component docs. Use the [capability matrix](../capability_status_matrix.md) and
-[route-readiness registry](../workflow_lisp_route_readiness_registry.json) for
-current availability and evidence; this document does not select new work or
-reactivate retired adapters or certification generators.
-
-- Normative runtime and DSL behavior remains in `specs/`.
-- `docs/design/workflow_lisp_frontend_specification.md` is the authoritative
-  Workflow Lisp language baseline. This document records the deltas incorporated
-  into that baseline; it does not fork it.
-- `docs/design/workflow_lisp_generic_resource_context_core.md` is the decision
-  record for the small runtime core. This document preserves the historical
-  implementation target for that decision.
-- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
-  records the historical family migration sequence, parent-callable parity
-  evidence, and promotion gates. Its live inventory/parity generator is retired;
-  current component contracts and direct owner tests govern later changes.
-- `docs/design/workflow_lisp_core_calculus_middle_end.md` owns WCC, ANF
-  normalization, scope/effect/proof analysis, and defunctionalization. This
-  document extends the atom/projection/effect surfaces only; it adds no
-  competing control-flow lowering route.
-- `docs/design/workflow_lisp_state_layout.md` owns generated path identity and
-  allocation rules. Pure-projection, materialized-view, and transition-audit
-  paths route through it.
-- `docs/design/workflow_command_adapter_contract.md` owns adapter certification
-  policy. This document owns the retirement taxonomy and evidence boundaries for
-  replacing workflow-semantics adapters.
-
-Related docs:
-
-- `docs/design/workflow_lisp_frontend_specification.md`
-- `docs/design/workflow_lisp_generic_resource_context_core.md`
-- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
-- `docs/design/workflow_lisp_core_calculus_middle_end.md`
-- `docs/design/workflow_lisp_runtime_migration_foundation.md`
-- `docs/design/workflow_lisp_state_layout.md`
-- `docs/design/workflow_command_adapter_contract.md`
-- `docs/design/workflow_language_design_principles.md`
-- `docs/lisp_workflow_drafting_guide.md`
-- `workflows/library/lisp_frontend_design_delta/drain.orc`
-- `specs/state.md`
-- `specs/dsl.md`
+The target that added the generic runtime resource/context core, closed
+pure-expression operators, generated typed projection, materialized value views
+(`materialize-view`), runtime-native typed transitions, boundary authority
+classes, stdlib phase/drain forms and the adapter-retirement policy. Those
+contracts now live in the [frontend specification](workflow_lisp_frontend_specification.md);
+this doc keeps the rationale and migration sequence, and retired adapters and
+certification generators stay retired. [`specs/`](../../specs/index.md) own
+runtime behavior; see also the [generic resource/context core](workflow_lisp_generic_resource_context_core.md),
+[core calculus middle-end](workflow_lisp_core_calculus_middle_end.md),
+[state layout](workflow_lisp_state_layout.md) and
+[command adapter contract](workflow_command_adapter_contract.md).
 
 ## 1. Purpose
 

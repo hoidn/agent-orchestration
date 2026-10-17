@@ -1,25 +1,14 @@
 # Workflow Lisp Native Transportable Returns And Typed Result Guidance
 
-- **Status:** accepted
-- **Kind:** feature and frontend architecture decision
-- **Owner:** Workflow Lisp frontend
-- **Reviewers:** independent design review approved after three review passes;
-  authoring surface approved by the user on 2026-07-10
-- **Created:** 2026-07-10
-- **Last material update:** 2026-07-13
-- **Related docs:**
-  - `docs/design/workflow_lisp_frontend_specification.md`
-  - `docs/design/workflow_language_design_principles.md`
-  - `docs/design/workflow_lisp_runtime_migration_foundation.md`
-  - `docs/design/workflow_lisp_source_map.md`
-  - `docs/reports/2026-06-19-workflow-lisp-type-runtime-boundary-issues.md`
-  - `docs/plans/2026-07-10-workflow-lisp-native-transportable-returns-plan.md`
-  - `docs/plans/2026-07-10-workflow-lisp-typed-result-guidance-plan.md`
-  - `specs/dsl.md`
-  - `specs/io.md`
-  - `specs/providers.md`
-- **Implementation status:** complete through both independently reviewed
-  implementation waves; DSL v2.15 is public
+Status: Implemented in target 2.15
+
+Every structured-result type is valid in every Workflow Lisp return position,
+with non-record results carried as a direct JSON root, plus optional typed
+result guidance that changes prompts but never value validity.
+[DSL](../../specs/dsl.md), [IO](../../specs/io.md) and
+[Providers](../../specs/providers.md) own bundle shape, validation and prompt
+delivery; the [frontend specification](workflow_lisp_frontend_specification.md)
+owns return semantics. See also the [source map](workflow_lisp_source_map.md).
 
 ## Summary
 

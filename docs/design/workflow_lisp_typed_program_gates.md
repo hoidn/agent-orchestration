@@ -1,67 +1,24 @@
 # Typed Program Gates: Staged Checking, Generational Execution, And The Parked Eval Terminal
 
-## Metadata
+Status: Design only (not implemented)
 
-- **Status:** accepted design; revision of an external exploratory draft
-  ("Typed Staged Eval And The Self-Hosting Runtime Roadmap", 2026-07-27)
-  into an accepted design under this repository's adopted boundaries; no
-  implementation is selected
-- **Kind:** target architecture, three-tranche
-- **Owner:** agent-orchestration maintainers
-- **Reviewers:** ordered independent `E_DESIGNS_SPEC_APPROVED`, then
-  `E_DESIGNS_QUALITY_APPROVED` on 2026-07-31
-- **Created:** 2026-07-27
-- **Related docs:**
-  - [Program-search boundary invariants](workflow_lisp_program_search_boundaries.md)
-    (binding; §Boundary Compliance is the governing section of this design)
-  - [Workflow Lisp trial runs](workflow_lisp_trial_runs.md) (the generational
-    experiment platform; C1 below is the concrete form of its
-    "diagnostics as machine API" substrate dependency, and C2 below is the
-    supervision surface its `run-ref` children share)
-  - [Provider at-least-once loosening amendment](../plans/2026-07-26-provider-at-least-once-loosening-amendment.md)
-    (landed through ML; supplies the at-least-once attempt and single-writer
-    run contract assumed by C2 and any future C3 work)
-  - [Pure-result replay](workflow_lisp_pure_result_replay.md)
-    (accepted M2 persistence boundary; C1's result/evidence contract below is
-    deliberately durable while derived projections remain replayable)
-  - [Workflow language design principles](workflow_language_design_principles.md)
-    (Principles 28, 29, and 30 bind diagnostics, type density, and provider
-    attention respectively)
-  - [Core calculus middle end](workflow_lisp_core_calculus_middle_end.md)
-    (owns the flattening route and the authority-inversion deferral C3
-    depends on; this document does not re-price that risk)
-  - [Lexical execution checkpoints](workflow_lisp_lexical_execution_checkpoints.md)
-    (draft target; consumed by C3 only)
-  - [Command adapter contract](workflow_command_adapter_contract.md)
-    (existing authority under which C2 proceeds)
-  - [Frontend specification](workflow_lisp_frontend_specification.md)
-    (diagnostics registries, version gating conventions)
-  - [MLEvolve system architecture](mlevolve_workflow_lisp_system_architecture.md)
-    (a consumer family — of C1 and of the trial-runs platform, deliberately
-    not of C3)
-  - Seeds: `workflows/library/generic_run_watchdog/`,
-    `workflows/library/scripts/probe_orchestrator_run.py`,
-    `orchestrator/workflow_lisp/compiler.py` (`compile_stage3_entrypoint`)
-- **Implementation target:** none selected. Ordered design review is complete;
-  C1 and C2 still require an explicitly reviewed component plan and selection
-  by the owning roadmap. C3 is parked with
-  named re-entry conditions and must not begin implementation planning on
-  this document's authority. Target 2.23 is already implemented; the first
-  admitted tranche must receive a new, currently unassigned post-2.23 target.
+A typed path through "generate a program, check it, run it, route on the
+outcome": typed full-compiler verdicts (C1), child-run adapters (C2), and an
+eval terminal (C3) that stays deferred until its named re-entry conditions
+hold. Today a workflow composes that loop from provider output, command steps
+and exit codes, with pinned child runs and trials from
+[trial runs](workflow_lisp_trial_runs.md). Each tranche would land as spec
+amendments at a new target after 2.23; where it touches program search, the
+[program-search boundaries](workflow_lisp_program_search_boundaries.md) win.
 
-Purpose: give workflows a typed, evidenced path through the full loop
-"generate a program, check it, run it, route on the outcome" — today an
-unchecked composition of provider text, shell glue, and exit codes —
-without runtime eval, without weakening any adopted invariant, and without
-depending on the authority-inversion rearchitecture.
+Copy safety: all `.orc` fragments and record shapes are conceptual and **not
+copy-safe**.
 
-Authority: normative behavior lives in `specs/`; each tranche lands as spec
-amendments first at a new post-2.23 DSL target chosen at admission. Where this document
-touches program search, `workflow_lisp_program_search_boundaries.md` wins;
-this design is written to satisfy it outright rather than amend it.
-
-Copy safety: all `.orc` fragments and record shapes are conceptual and
-**not copy-safe**.
+Related: [pure-result replay](workflow_lisp_pure_result_replay.md),
+[core calculus middle end](workflow_lisp_core_calculus_middle_end.md) (owns the
+authority-inversion deferral C3 depends on),
+[command adapter contract](workflow_command_adapter_contract.md) (C2),
+[frontend specification](workflow_lisp_frontend_specification.md).
 
 ## Revision Provenance
 

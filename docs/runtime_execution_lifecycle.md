@@ -2,8 +2,7 @@
 
 This document describes what the orchestrator does at runtime for a workflow run.
 It focuses on execution order and state transitions, not DSL authoring style.
-
-Normative behavior is defined by `specs/`. This file is explanatory.
+The contracts themselves are in `specs/`.
 
 ## Frontend And Compatibility Boundary
 
@@ -12,29 +11,37 @@ case-insensitively as `.orc`. YAML/YML and every other non-`.orc` path fail
 with `.orc required` before a run root or `state.json` is created. There is no
 production YAML parser.
 
-For legacy runs, `resume` loads the selected run's persisted state first. Once state is loaded,
-every recorded workflow suffix other than `.orc` fails closed with `.orc
-required`, regardless of run terminality or force-restart selection. A
-non-`.orc` source is neither compiled nor executed. `report` and dashboard
-views remain state-only observability for legacy runs; they do not parse
-authored source or reconstruct executable workflow structure from it.
+For runs recorded from a YAML source, `resume` loads the persisted state, then
+fails with `.orc required` for every recorded non-`.orc` suffix, whatever the
+run's terminal state or force-restart flag. Such a source is neither compiled
+nor executed. `report` and the dashboard still show those runs from
+`state.json` alone; they never parse the authored source.
 
-At target 2.35, public run/resume select the checked evaluated profile before
-legacy state handling. Ordinary resume rebuilds its recorded request, compares
-program and bound inputs, then replays the active committed prefix before
-mutable continuation; suffix invalidation uses stored authority without reading
-current sources. These operations use `run.json`, `closed_program.json` and
-`memo.jsonl`, independently of a derived `state.json` view. Path run-reference
-dispatch and derived report/dashboard/monitor/probe/watchdog readers are
-implemented. Readers reconstruct checked state in memory without writing or
-reconciling; phase-wide and actual-provider qualification remain open. The
-[evaluated execution contract](design/workflow_lisp_evaluated_execution.md)
-owns this separate route; the dynamic fresh-only candidate does not inherit its
-resume/invalidation behavior.
+The source target selects one of three runtime routes:
+
+- **Flat, targets through 2.34.** The compiler lowers source to executable IR,
+  and the [execution timeline](#execution-timeline) below runs it with
+  `state.json` as the execution record.
+- **Typed evaluated, targets 2.35 and 2.36.** `run` executes a checked closed
+  program, recorded in `run.json`, `closed_program.json` and `memo.jsonl`;
+  `state.json` is a derived view. `resume` rebuilds the recorded request,
+  compares program and bound inputs, replays the committed prefix, then
+  continues. Suffix invalidation uses the stored program, not current sources.
+  Report, dashboard, monitor, probe and watchdog readers reconstruct state in
+  memory without writing. See the
+  [evaluated execution contract](design/workflow_lisp_evaluated_execution.md).
+- **Native, target 3.0.** Each run is fresh, sequential and stops on the first
+  error, with zero retries. `run.json` pins the checked program and
+  `state.json` records progress and the result; there is no memo. `resume` refuses
+  with `dynamic_resume_unsupported` and invalidation with
+  `dynamic_invalidation_unsupported`, and a corrected fresh run
+  may repeat earlier provider calls, commands and writes. See
+  [native target 3.0](../specs/versioning.md#native-target-30) and
+  [dynamic fresh-run state](../specs/state.md#dynamic-fresh-run-authority).
 
 ## Execution Timeline
 
-The timeline below describes the legacy flat route through target 2.34.
+The timeline below describes the flat route through target 2.34.
 
 ```text
 1) Enforce the `.orc` source boundary, then parse/typecheck Workflow Lisp
@@ -67,7 +74,7 @@ The timeline below describes the legacy flat route through target 2.34.
 Identity note:
 - v2.0 assigns every step a durable internal `step_id`.
 - Surface AST is the authored-shape truth; executable IR is the execution-shape truth.
-- Presentation keys in `state.steps` remain name-oriented for compatibility, but lineage/freshness bookkeeping, resume planning, and report ordering now flow through the IR compatibility projection rather than raw lowered dict layout.
+- Presentation keys in `state.steps` remain name-oriented for compatibility, but lineage/freshness bookkeeping, resume planning, and report ordering flow through the IR compatibility projection rather than raw lowered dict layout.
 - `for_each` iterations derive qualified identities such as `root.loop_publish#0.produce_in_loop`.
 - v2.2 structured `if/else` lowers to branch markers, lowered branch-body nodes, and a join node that keeps the authored statement presentation key.
 - v2.3 structured `finally` lowers to stable cleanup-step identities under `finally.<StepName>` while keeping durable ancestry rooted under `root.finally.<block-id-or-finally>`.
@@ -91,10 +98,10 @@ Identity note:
 - Missing, malformed, conflicting, ambiguous, or checksum-incompatible
   provider-recovery state still fails closed before provider launch.
 - During such revisits, `state.steps.<StepName>` still stores the latest completed/skipped/failed result for that top-level name, while `current_step` may refer to a later in-flight visit of the same step. The visit ordinals distinguish them: `current_step.visit_count` is the active visit, and `steps.<StepName>.visit_count` is the last persisted result visit.
-- Runtime code no longer needs workflow-path/import magic fields or helper-key inspection to resume/report typed runs; typed provenance/import metadata plus the compatibility projection are the maintained bridge back to the persisted compatibility surfaces.
-- `expanded.debug.yaml` is an intentionally historical filename for an optional
-  JSON-rendered projection. It is never source authority and is not read by
-  fresh execution or legacy compatibility views.
+- Resume and report for typed runs use typed provenance/import metadata plus the compatibility projection to reach the persisted compatibility surfaces, not workflow-path/import magic fields or helper-key inspection.
+- `expanded.debug.yaml` is an optional JSON-rendered projection; the filename is
+  historical. It is never source authority and is not read by fresh execution
+  or by compatibility views.
 
 ## Run Artifacts
 

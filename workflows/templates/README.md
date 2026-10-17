@@ -1,11 +1,6 @@
 # Workflow Templates
 
-New workflow families start from a registry-approved Workflow Lisp `.orc`
-example and adapt typed procedures and contracts; do not create another
-YAML/YML template here.
-
-## Template Routes
-
-| Purpose | Starting point | Status |
-| --- | --- | --- |
-| New template | [Workflow Lisp review/revise example](../examples/review_revise_design_docs.orc) | Registry-approved current `.orc` guidance; adapt it only when its typed review/fix shape fits. |
+There are no template files here. Start a new workflow family from an example
+in [Which Example Should I Copy?](../README.md#which-example-should-i-copy)
+and adapt its types, procedures and contracts. YAML/YML templates are not
+runnable; do not add one.

@@ -1,39 +1,23 @@
 # Workflow Lisp Phased Contract Delivery
 
-- **Status:** implemented and complete at target 2.23. Tasks 1–13, including
-  the combined invalid-then-valid real-provider consumer, close through
-  `bb67f680`; Task 14 closes at commit `70f4a759`, tree `fec729cb`, after the
-  post-correction broad comparison and external ordered final reviews. The
-  2026-07-28 stop at `3fc3a09e` remains superseded historical provenance.
-  The original interrupted-visit quarantine paragraphs are pre-ML behavior
-  superseded by `specs/state.md`; historical-complete ML-1 implements runtime
-  recovery without reopening Q5.
-- **Kind:** target-2.23 frontend and provider-runtime design
-- **Owner:** Workflow Lisp call policy, prompt composition, and provider
-  attempt runtime
-- **Target:** DSL 2.23
-- **Depends on:** implemented Q1/Q2 prompt calculus, the landed and accepted
-  Q3 attempt-identity/evidence substrate, and the deadline-aware target-2.17
-  interactive-adapter extension with its closed start outcome/proof defined
-  below
-- **Motivating consumer:**
-  `workflows/examples/review_revise_design_docs.orc`
-- **Related authority:**
-  - `docs/design/workflow_lisp_prompt_calculus.md` (implemented Q1/Q2
-    fragment, result, output-position, validation, identity, and resume
-    contracts)
-  - `docs/design/workflow_lisp_prompt_identity_diagnostics.md` (accepted Q3
-    canonical-composition identity contract)
-  - `docs/design/workflow_lisp_provider_peer_messaging.md` (implemented
-    `interactive_terminal_turn_queue.v1` capability and adapter primitives,
-    but not an ordinary-call coordinator)
-  - `docs/design/workflow_language_design_principles.md` principles 27–30
-  - `specs/providers.md` and `specs/state.md`
-- **Normative recovery note (2026-07-30):** same-attempt
-  materialization-only retry, turn receipts, candidate freeze, natural
-  close/join, and joint result publication remain unchanged. Only a
-  controller-interrupted whole visit moves from sticky quarantine to guarded
-  fresh-attempt rerun under ML-1.
+Status: Implemented in target 2.23
+
+Opt-in phased task/materialization delivery for one canonical fragment prompt,
+for direct fragment-backed calls whose provider declares the interactive
+turn-queue capability. Normative behavior is owned by
+[providers](../../specs/providers.md) and [state](../../specs/state.md). A
+controller-interrupted visit reruns as a guarded fresh attempt under the state
+spec's at-least-once contract, which replaces the quarantine wording in the
+sections below; materialization retry, turn receipts and joint result
+publication are unchanged.
+
+Motivating consumer:
+[`review_revise_design_docs.orc`](../../workflows/examples/review_revise_design_docs.orc).
+Related: [prompt calculus](workflow_lisp_prompt_calculus.md) (fragment,
+result, output-position and identity contracts),
+[prompt identity diagnostics](workflow_lisp_prompt_identity_diagnostics.md),
+[provider peer messaging](workflow_lisp_provider_peer_messaging.md) (turn-queue
+capability and adapter primitives).
 
 ## Summary
 

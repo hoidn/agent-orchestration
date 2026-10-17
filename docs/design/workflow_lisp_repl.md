@@ -1,16 +1,17 @@
 # Workflow Lisp REPL
 
-## Metadata
+Status: Implemented in typed targets 2.35/2.36 and native target 3.0
 
-- **Title:** Workflow Lisp REPL
-- **Status:** contract; delivery and evidence are tracked in the execution plan
-- **Kind:** feature
-- **Owner:** Workflow Lisp frontend and evaluated-runtime maintainers
-- **Reviewers:** Independent code and design reviewers
-- **Created:** 2026-10-12
-- **Last material update:** 2026-10-12
-- **Related docs / issues / plans:** [Execution plan](../plans/2026-10-12-workflow-lisp-dynamic-repl-port-plan.md), [evaluated execution](workflow_lisp_evaluated_execution.md), [frontend baseline](workflow_lisp_frontend_specification.md)
-- **Implementation target:** Evaluated entries at DSL 2.35 and 2.36, plus branch-qualified native target 3.0
+`orchestrator repl` loads a Workflow Lisp module, runs it through the public
+run service, attaches to a run, inspects lexical bindings and the result, and
+evaluates pure expressions against them; inspection never dispatches effects
+or writes run state. Normative behavior is owned by the
+[CLI spec](../../specs/cli.md#workflow-lisp-repl) and
+[state spec](../../specs/state.md).
+
+Related: [evaluated execution](workflow_lisp_evaluated_execution.md),
+[frontend specification](workflow_lisp_frontend_specification.md),
+[REPL introspection](workflow_lisp_repl_introspection.md).
 
 ## Summary
 
@@ -25,10 +26,9 @@ This is a new interactive CLI surface over existing compilation and run
 contracts. It creates no persistence profile, expression language, operator
 implementation, or alternate execution authority.
 
-The sections below retain the typed upstream contract from commit
-`a761b1c62bb2e492eb30e9f03bbe416468ce31b0`. The final section specifies
+The sections below specify the typed contract. The final section specifies
 the native target-3.0 extension and its explicit profile differences.
-The accepted [introspection extension](workflow_lisp_repl_introspection.md)
+The [introspection extension](workflow_lisp_repl_introspection.md)
 adds loaded-only declaration/source/type queries and attached result-file lookup;
 its profile-specific metadata and refusal rules govern those commands.
 
@@ -312,8 +312,7 @@ loaded module. `:help` describes these commands and the pure-expression limit.
 ## Dependencies And Sequencing
 
 The evaluated 2.35/2.36 authority, public build/run services, closed evaluator
-and W3 compiler are prerequisites. This proposal does not select broader
-runtime roadmap work. Implement the transient compile products before the
+and W3 compiler are prerequisites. Implement the transient compile products before the
 expression bridge, and capture before CLI attachment. The bounded
 [execution checklist](../plans/2026-10-12-workflow-lisp-dynamic-repl-port-plan.md) owns work
 ordering and verification records; this durable design owns the contracts.
@@ -466,9 +465,9 @@ feedback.findings
 ### Contract and retained boundaries
 
 One `orchestrator repl` supports the existing typed 2.35/2.36 contract and the
-branch-qualified [dynamic profile](../../specs/versioning.md#branch-qualified-target-30).
+[native target 3.0 profile](../../specs/versioning.md#native-target-30).
 Its native source, values and state remain governed by
-[dynamic architecture §9](workflow_lisp_dynamic_core_proposal.md#9-complete-consumer-production-candidate),
+[native 3.0 architecture](workflow_lisp_dynamic_core_proposal.md) §9,
 [CLI](../../specs/cli.md#dynamic-execution) and
 [state](../../specs/state.md#dynamic-fresh-run-authority). This extension authorizes
 explicit, read-only lexical reconstruction for the REPL; it does not alter the
@@ -476,8 +475,8 @@ source-free, nonreplaying contract of ordinary dynamic report/status readers.
 The execution plan owns implementation ordering, prerequisites and evidence.
 
 Retaining 2.36 includes its actual W3 compiler prerequisites, not merely admitting
-a version string. Importing those prerequisites does not select the dynamic
-profile as the default or authorize application migrations. Flat profiles,
+a version string. Importing those prerequisites does not make native 3.0
+the default. Flat profiles,
 interactive effects, resume, new persistent definitions and multiline input
 remain outside this REPL.
 

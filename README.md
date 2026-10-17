@@ -3,10 +3,14 @@
 A compiler and runtime for LLM-agent workflows. Workflow Lisp (`.orc`) programs
 compose coding-agent calls, shell commands and ordinary computation with declared
 input/output contracts. The compiler and runtime manage intermediate files,
-validate results and record execution evidence. Typed profiles provide checked
-recovery; this branch also supports an explicit native 3.0 profile with internal
-functions and closures, strict boundary schemas and fresh-only execution.
-The default run root is `.orchestrate/runs/<run_id>/`.
+validate results and record execution evidence.
+
+A source file's declared target picks one of two kinds of profile. Typed
+profiles (through 2.36) check types before execution and support resume. The
+native 3.0 profile runs ordinary functions and closures, validates declared
+boundaries strictly, and runs fresh only, with no resume. Choose by need; see
+[Architecture](#architecture). The default run root is
+`.orchestrate/runs/<run_id>/`.
 
 ## The Missing Toolchain
 
@@ -26,7 +30,7 @@ This project's thesis is that those are compiler and runtime responsibilities,
 and that workflow authoring should use declared contracts against an
 unreliable, effectful coprocessor. Typed profiles also check internal values
 before execution; native 3.0 checks declared workflow, prompt and command
-boundaries. Supported forms and recovery depend on the selected profile:
+boundaries. Supported forms and recovery depend on the profile:
 
 | A CPU toolchain gives you | Hand-rolled in agent pipelines today | Owned by the compiler and runtime here |
 | --- | --- | --- |
@@ -139,8 +143,8 @@ What the typed declarations buy:
   wrong-shape or wrong-path result fails closed instead of flowing onward.
 - `match` establishes the variant proof needed to reach `c.execution-report`
   or `b.blocker-class`. Touching a variant field without proof is a compile
-  error; the lowered graph keeps a runtime guard. Target 2.26 also supports
-  proof from typed discriminant comparisons in conditionals.
+  error; the lowered graph keeps a runtime guard. From target 2.26, typed
+  discriminant comparisons in conditionals also establish proof.
 - The bookkeeping — phase state bundles, snapshots, candidate and result
   paths — never appears in the source. It is allocated, tracked, and kept
   private by the runtime; the agent's human-readable report is a view, not
@@ -160,10 +164,9 @@ semantics for that route, not a second authored frontend.
 - Validation precedes canonical state. Contracts may narrow downstream,
   never weaken.
 - Effects are visible: provider use, command execution, writes, state
-  updates, and queue/ledger movement are declared or inferred — semantics
-  hidden inside inline shell or Python glue is treated as migration debt,
-  with certified command adapters as the sanctioned FFI for genuine
-  external tools.
+  updates, and queue/ledger movement are declared or inferred. Semantics
+  hidden inside inline shell or Python glue is a defect to remove; certified
+  command adapters are the sanctioned FFI for genuine external tools.
 - Pure computation uses in-language operators with shared deterministic
   semantics and defined runtime errors; native 3.0 also admits ordinary internal
   functions and closures. It does not require a helper script for arithmetic.
@@ -172,76 +175,75 @@ semantics for that route, not a second authored frontend.
 
 ## Workflow Source And Core Contract
 
-- **Workflow Lisp** (`.orc`) — the only fresh workflow frontend. The declared
-  target selects typed flat, typed evaluated or native dynamic compilation.
-- **Core workflow contract** (`specs/dsl.md`) — the normalized mapping for the
-  flat route. Evaluated typed and native programs have separate checked
-  representations. The former authored YAML/YML frontend and its production
-  parser are retired.
+- **Workflow Lisp** (`.orc`) is the only workflow frontend. The declared target
+  selects typed flat, typed evaluated or native compilation.
+- **Core workflow contract** ([`specs/dsl.md`](specs/dsl.md)) is the normalized
+  mapping for the flat typed route. Evaluated typed and native programs have
+  their own checked representations. The former YAML/YML frontend is retired.
 
-Fresh `run` accepts only a path whose suffix compares case-insensitively as
-`.orc`; every other source path fails with `.orc required` before run state is
-created. Reports and dashboards may render persisted legacy state without
-parsing its source. Resume rejects every recorded non-`.orc` source with
-`.orc required`, regardless of run terminality or force-restart selection.
+`run` accepts only a source path whose suffix is `.orc` (case-insensitive);
+any other path fails with `.orc required` before run state is created.
+`resume` rejects every recorded non-`.orc` source the same way. Reports and
+dashboards can still render persisted legacy state without parsing its source.
 
 Use [`docs/capability_status_matrix.md`](docs/capability_status_matrix.md) to
-check whether a given surface is implemented, partial, designed, or legacy
-before copying it.
+check whether a surface is implemented, partial, designed or legacy before
+copying it.
 
 ## Architecture
 
-Choose the execution profile explicitly; source target selects the representation
-and runtime. Availability is bounded by each profile's admitted forms/effects:
+The source target selects the representation and runtime. Each profile admits
+its own forms and effects:
 
 | Source target | Compilation and execution | Recovery |
 | --- | --- | --- |
-| Typed through 2.34 | Typed elaboration, ANF and compile-time procedure specialization/defunctionalization lower to flat Core, Semantic IR and Executable IR; no runtime closures | Legacy checked state and profile-specific resume |
-| Typed 2.35/2.36 | Checked closed program executed with lexical values and a memo; 2.36 adds bounded W3 local hooks and capture/signature inference | Checked committed-result replay, ordinary resume and suffix invalidation within the implemented subset |
-| Branch-qualified native 3.0 | Ordinary `define`/`fn`, immutable captures and real imports; strict declared workflow/prompt/command boundary schemas; entry operation budget | Fresh sequential runs, zero retries, stop-on-error; no resume, invalidation or result reuse |
+| Typed through 2.34 | Typed elaboration, ANF and compile-time procedure specialization/defunctionalization lower to flat Core, Semantic IR and Executable IR; no runtime closures | Checked state and profile-specific resume |
+| Typed 2.35/2.36 | A checked closed program runs with lexical values and a memo; 2.36 adds bounded local hooks and capture/signature inference | Checked committed-result replay, resume and suffix invalidation |
+| Native 3.0 | Ordinary `define`/`fn`, immutable captures and real imports; strict declared workflow/prompt/command boundary schemas; an entry operation budget | Fresh sequential runs, zero retries, stop-on-error; no resume, invalidation or result reuse |
 
-Native functions/captures are internal values, not serialized capabilities at
-external boundaries. Native parallel/child/trial/resource/host-input and
-session/context/phased/live-provider surfaces remain unavailable. An operation
-error may occur after earlier effects; a corrected fresh run may repeat those
-calls and writes. Target 3.0 remains branch-qualified: it selects neither a new
-default nor application adoption.
+Choose a typed target when you want types checked before execution and the
+ability to resume a run. Choose native 3.0 when you want ordinary internal
+functions and closures and can rerun from scratch.
 
-Identity and compatibility are checked by the selected profile's program,
-runtime and persistence contracts. Legacy parametric lowering can retain
-path-sensitive identity; do not assume source relocation preserves artifact
-identity or makes an existing run resumable. Reports and debug projections do
-not replace execution authority.
+Native 3.0 limits:
 
-For the governing contracts, use [versioning](specs/versioning.md),
-[evaluated execution](docs/design/workflow_lisp_evaluated_execution.md), the
-[native profile](specs/versioning.md#branch-qualified-target-30) and
+- Functions and captures are internal values; they cannot cross an external
+  boundary.
+- Parallel, child-run, trial, resource, view and host-input effects, and provider
+  session, context, phased and live surfaces, are not available.
+- An operation error can occur after earlier effects. A corrected fresh run may
+  repeat those provider calls, commands and writes.
+
+Identity and compatibility are checked by each profile's program, runtime and
+persistence contracts. Flat parametric lowering can retain path-sensitive
+identity, so moving source files does not necessarily preserve artifact
+identity or keep an existing run resumable. Reports and debug projections are
+views, not execution state.
+
+Contracts: [versioning](specs/versioning.md), the
+[native profile](specs/versioning.md#native-target-30),
+[evaluated execution](docs/design/workflow_lisp_evaluated_execution.md) and
 [capability status](docs/capability_status_matrix.md). The
 [middle-end design](docs/design/workflow_lisp_core_calculus_middle_end.md)
-describes the typed flat substrate; it is not the architecture of every profile.
+describes the flat typed route only.
 
 ## Start Here
 
 | Goal | Read or run |
 | --- | --- |
-| Understand the repo map | [`docs/index.md`](docs/index.md) |
+| Find any doc | [`docs/index.md`](docs/index.md) |
 | Learn the execution model | [`docs/orchestration_start_here.md`](docs/orchestration_start_here.md) |
-| Choose a copy-safe Workflow Lisp example | [`Which Example Should I Copy?`](workflows/README.md#which-example-should-i-copy) |
+| Choose an example to copy | [Which Example Should I Copy?](workflows/README.md#which-example-should-i-copy) |
 | Author Workflow Lisp `.orc` | [`docs/lisp_workflow_drafting_guide.md`](docs/lisp_workflow_drafting_guide.md) |
-| Choose APIs for generation/selection, review/revise, evaluation or search | [Library task chooser](docs/lisp_library_reference.md#choose-by-task), including caller-prepared repositories and complete setup |
-| Use typed 2.36 local hooks | [W3 contract](docs/design/workflow_lisp_write_once.md#63-language-changes-to-let-proc) and [complete typed examples](docs/lisp_library_reference.md#complete-typed-examples) |
-| Author native 3.0 functions/captures | [Dynamic composition](docs/lisp_workflow_drafting_guide.md#2b-dynamic-composition-on-the-qualified-branch) and [complete native improvement consumer with setup](docs/lisp_workflow_drafting_guide.md#complete-imported-improvement-consumer) |
+| Choose APIs for generation/selection, review/revise, evaluation or search | [Library task chooser](docs/lisp_library_reference.md#choose-by-task), with complete examples and setup |
+| Use typed 2.36 local hooks | [Local hook contract](docs/design/workflow_lisp_write_once.md#63-language-changes-to-let-proc) and [complete typed examples](docs/lisp_library_reference.md#complete-typed-examples) |
+| Author native 3.0 functions and closures | [Native 3.0 dynamic composition](docs/lisp_workflow_drafting_guide.md#2b-native-30-dynamic-composition) and the [complete imported improvement consumer](docs/lisp_workflow_drafting_guide.md#complete-imported-improvement-consumer) |
 | Inspect typed 2.35/2.36 or native 3.0 run bindings | [REPL recipes and prerequisites](docs/lisp_workflow_drafting_guide.md#inspect-a-run-with-the-workflow-lisp-repl) |
-| Translate or audit historical YAML | [Historical YAML reference](docs/workflow_drafting_guide.md) |
-| Check the normative DSL contract | [`specs/index.md`](specs/index.md) and [`specs/dsl.md`](specs/dsl.md) |
+| Check the normative contracts | [`specs/index.md`](specs/index.md) and [`specs/dsl.md`](specs/dsl.md) |
 | Find runnable examples | [`workflows/README.md`](workflows/README.md) |
 | Compare Workflow Lisp to YAML | [`docs/workflow_lisp_mvp_comparison.md`](docs/workflow_lisp_mvp_comparison.md) |
 | Author or run a target-2.25 trial | [Pinned child runs and trials](docs/lisp_workflow_drafting_guide.md#pinned-child-runs-and-trials); [CLI contract](specs/cli.md#workflow-lisp-trials-target-225) |
-
-If you are new to the repo, start at the documentation index, choose a profile
-and use the library reference or workflow catalog for complete examples. The
-compile-only check below uses a targeted review/fix reference; use the catalog for current copy guidance and the compile check
-only to validate source.
+| Read plans, reports or the retired YAML references | [History](docs/index.md#history) |
 
 ## Install
 
@@ -276,75 +278,85 @@ The installed executable is `orchestrator`; examples use
 
 ## First Compile Check
 
-Run the compile-only source check for the targeted review/fix reference:
+From the repository root, compile the `std/improve` review-loop example, then
+dry-run it with its checked-in inputs:
 
 ```bash
-python -m orchestrator compile \
-  workflows/examples/review_revise_design_docs.orc \
-  --provider-externs-file workflows/examples/inputs/review_revise_design_docs/providers.json \
-  --prompt-externs-file workflows/examples/inputs/review_revise_design_docs/prompts.json
+python -m orchestrator compile workflows/examples/improve_experiment_proposal.orc \
+  --entry-workflow improve_experiment_proposal::run-experiment \
+  --provider-externs-file workflows/examples/inputs/improve_experiment_proposal/providers.json \
+  --prompt-externs-file workflows/examples/inputs/improve_experiment_proposal/prompts.json \
+  --command-boundaries-file workflows/examples/inputs/improve_experiment_proposal/commands.json
+
+python -m orchestrator run workflows/examples/improve_experiment_proposal.orc \
+  --entry-workflow improve_experiment_proposal::run-experiment \
+  --provider-externs-file workflows/examples/inputs/improve_experiment_proposal/providers.json \
+  --prompt-externs-file workflows/examples/inputs/improve_experiment_proposal/prompts.json \
+  --command-boundaries-file workflows/examples/inputs/improve_experiment_proposal/commands.json \
+  --input-file workflows/examples/inputs/improve_experiment_proposal/inputs.json \
+  --dry-run
 ```
 
-This compile-only command deliberately omits `--entry-workflow` and runs no
-provider. It is a source-check reference, not copy-safety or explicit-entry
-evidence. Supplying
-`--entry-workflow review_revise_design_docs::review-revise-design-docs` to the
-run/dry-run route currently fails with `workflow_signature_mismatch`
-(`entry_bootstrap_name_gate_denied`). Choose a new starting point from the
-[workflow catalog](workflows/README.md#which-example-should-i-copy).
+Both commands exit 0 without calling a provider. The dry-run prints `[LINT]`
+warnings about generated write-root inputs; they do not affect the result. A
+real run also needs `scripts/launch_experiment.py` in the workspace; the
+[drafting guide](docs/lisp_workflow_drafting_guide.md#137-improve) describes
+its protocol.
 
 ## Run For Real
 
-Only run provider workflows after compile and dry-run checks succeed and your
-provider CLI works in the same shell. Supply the selected `.orc` entrypoint's
-declared typed inputs and extern files; the
-[workflow catalog](workflows/README.md) records runnable and input-required
-routes.
+Run provider workflows only after compile and dry-run succeed and your provider
+CLI works in the same shell. Supply the entrypoint's declared typed inputs and
+extern files; the [workflow catalog](workflows/README.md) lists what each
+example needs.
 
 ```bash
 python -m orchestrator run \
   <workflow.orc> --entry-workflow <module::entry> \
   --provider-externs-file <providers.json> \
   --prompt-externs-file <prompts.json> \
+  --command-boundaries-file <commands.json> \
   --input-file <inputs.json> \
   --stream-output
 ```
 
-For a resumable typed run that stops partway through, use its recorded run ID:
+Omit `--command-boundaries-file` when the workflow runs no commands.
+
+To continue a typed run that stopped partway through, use its run ID:
 
 ```bash
 python -m orchestrator resume <run_id> --stream-output
 ```
 
-Typed retry/replay behavior follows its persisted profile and configured policy;
-committed evaluated results are checked and reused. Native 3.0 fixes retries at
-zero and refuses resume/invalidation. Correct the failure and launch a fresh run
-only when repeating earlier external work is acceptable. See the
+Typed retry and replay follow the run's persisted profile and configured
+policy; committed evaluated results are checked and reused. Native 3.0 fixes
+retries at zero and refuses resume and invalidation: fix the failure and start
+a fresh run, accepting that earlier external work may repeat. See the
 [CLI contract](specs/cli.md#dynamic-execution) for profile-specific options.
 
 ## Observability
 
-Inspect the run's persisted profile before interpreting files. Paths below are
-relative to the selected run root (by default `.orchestrate/runs/<run_id>/`):
+Check the run's persisted profile before interpreting files. Paths are relative
+to the run root (by default `.orchestrate/runs/<run_id>/`):
 
-| Profile | State authority | Prompt and execution logs |
+| Profile | State | Prompt and execution logs |
 | --- | --- | --- |
-| Flat typed through 2.34 | Legacy `state.json` and its profile-owned artifacts | `logs/<Step>.prompt.txt`, `logs/<Step>.stdout` / `.stderr` as produced |
+| Flat typed through 2.34 | `state.json` and its profile-owned artifacts | `logs/<Step>.prompt.txt`, `logs/<Step>.stdout` / `.stderr` as produced |
 | Evaluated typed 2.35/2.36 | Checked `run.json`, `closed_program.json` and `memo.jsonl`; `state.json` is a derived view | Reached attempts under `effects/<effect-hash>/attempt-<n>/`: provider `prompt.txt`, `stdout.txt`, `stderr.txt`, `result.json` |
-| Native 3.0 | Immutable `run.json` / `closed_program.json` pins and authoritative schema-3.1 `state.json`; no memo | Follow each state effect row's paths under `effects/<ordinal>/attempt-1/`; provider prompt and stdout/stderr/result files |
+| Native 3.0 | Immutable `run.json` / `closed_program.json` pins and schema-3.1 `state.json`; no memo | Each state effect row's paths under `effects/<ordinal>/attempt-1/`: provider prompt and stdout/stderr/result files |
 
-The [state contract](specs/state.md) owns authority and recovery. Logs and reports
-are observations, not replacement state. The
+The [state contract](specs/state.md) defines state and recovery; logs and
+reports are observations. The
 [REPL guide](docs/lisp_workflow_drafting_guide.md#inspect-a-run-with-the-workflow-lisp-repl)
-provides typed 2.35/2.36 and native 3.0 recipes for `:bindings`, `:result` and pure
-expressions. With a loaded module, `:browse`, `:info` and `:source` expose declarations and
-immutable source snapshots; `:type` analyzes typed expressions without execution,
-while native queries report kinds and refuse compound expressions. Attached
-`:where` locates checked typed performed-result files; native values retain no
-file provenance. See the [introspection contract](docs/design/workflow_lisp_repl_introspection.md)
-for limits. Inspection is read-only; explicit `:run` executes the workflow in
-either profile. Native `:run` always creates a fresh run and may repeat external
-effects.
+has typed 2.35/2.36 and native 3.0 recipes for `:bindings`, `:result` and pure
+expressions. With a loaded module, `:browse`, `:info` and `:source` show
+declarations and immutable source snapshots. `:type` analyzes typed
+expressions without running them; native queries report kinds and refuse
+compound expressions. Attached `:where` locates checked typed result files;
+native values carry no file provenance. Inspection is read-only; `:run`
+executes the workflow, and a native `:run` always starts a fresh run that may
+repeat external effects. Limits are in the
+[introspection design](docs/design/workflow_lisp_repl_introspection.md).
 
 Generate a readable run report:
 
@@ -358,11 +370,10 @@ Serve the local read-only dashboard:
 python -m orchestrator dashboard --workspace "$(pwd)"
 ```
 
-On profiles that support them, optional step summaries make long-run review
-easier (`--step-summaries --summary-profile phase-performance`); native 3.0
-refuses these options. Summary files are
-observability artifacts only; they must not drive workflow routing or
-recovery decisions. For headless email alerts across workspaces, see
+Profiles that support them accept optional step summaries
+(`--step-summaries --summary-profile phase-performance`); native 3.0 refuses
+these options. Summaries are for reading only and never drive routing or
+recovery. For headless email alerts across workspaces, see
 [`docs/workflow_monitoring.md`](docs/workflow_monitoring.md).
 
 ## What The Repo Contains
@@ -371,7 +382,7 @@ recovery decisions. For headless email alerts across workspaces, see
 | --- | --- |
 | [`orchestrator/`](orchestrator/) | Workflow Lisp frontend/compiler, validator, executor, CLI, dashboard, and observability. |
 | [`specs/`](specs/) | Normative DSL, CLI, state, provider, observability, and acceptance contracts. |
-| [`docs/`](docs/) | Informative guides, design docs, runbooks, and implementation plans. |
+| [`docs/`](docs/) | Guides, design docs and runbooks; `docs/plans/` and `docs/reports/` are historical records. |
 | [`workflows/examples/`](workflows/examples/) | Runnable examples and validation fixtures. |
 | [`workflows/library/`](workflows/library/) | Reusable imported subworkflows and bundled prompt assets. |
 | [`prompts/`](prompts/) | Shared prompt catalog. |
@@ -380,7 +391,7 @@ recovery decisions. For headless email alerts across workspaces, see
 ## Common Commands
 
 ```bash
-# Resume an existing resumable typed run (native 3.0 refuses)
+# Resume a typed run (native 3.0 refuses)
 python -m orchestrator resume <run_id> --stream-output
 
 # Render the latest run report
@@ -401,27 +412,24 @@ pytest -q -n 16 --dist=worksteal -m "not e2e"
 
 ## Versioning
 
-The Core/runtime contract spans older `1.x` and typed `2.x` targets, including
-flat and evaluated execution. This branch also admits the distinct, explicitly
-selected native `3.0` profile; capabilities do not transfer automatically between
-profiles. Typed 2.36 W3 hooks remain compile-time composition, distinct from
-native runtime closures. Fresh authored source is `.orc`; authoritative versioning details live in
-[`specs/index.md`](specs/index.md) and
-[`specs/versioning.md`](specs/versioning.md).
+Targets span `1.x`, typed `2.x` (flat through 2.34, evaluated 2.35/2.36) and
+native `3.0`. Capabilities do not transfer between profiles: typed 2.36 local
+hooks are compile-time composition, not native runtime closures. Workflow
+source is `.orc`. Version details are in [`specs/index.md`](specs/index.md)
+and [`specs/versioning.md`](specs/versioning.md).
 
 ## Debugging Rule Of Thumb
 
 If agent behavior looks wrong, inspect the composed provider prompt before
-changing workflow logic. Use the prompt path for the run's profile in the observability table above;
-`logs/<Step>.prompt.txt` applies to the flat route, while evaluated/native
-providers keep `prompt.txt` in their attempt directory.
+changing workflow logic. Use the prompt path for the run's profile from the
+observability table above: `logs/<Step>.prompt.txt` on the flat route,
+`prompt.txt` in the attempt directory for evaluated and native runs.
 
 If routing or artifact lineage looks wrong, inspect the profile's
-[state authority](specs/state.md) and the
-workflow's declared input/result and path contracts before changing prompts.
-Flat-profile artifact lineage additionally uses `outputs`, `publishes`,
-`consumes`, `expected_outputs` and `output_bundle`; those surfaces must not be
-assumed available in native 3.0.
+[state](specs/state.md) and the workflow's declared input, result and path
+contracts before changing prompts. Flat-profile artifact lineage also uses
+`outputs`, `publishes`, `consumes`, `expected_outputs` and `output_bundle`;
+native 3.0 does not have those surfaces.
 
 ## License
 

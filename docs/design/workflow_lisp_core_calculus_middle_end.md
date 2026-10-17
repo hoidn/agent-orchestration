@@ -1,50 +1,18 @@
 # Workflow Lisp Core Calculus And Compiler Middle-End
 
-Status: accepted architecture / implemented for the M0-M5 migrated route subset
-Kind: architecture decision / compiler architecture
-Created: 2026-06-09
-Updated: 2026-06-10
-Scope: re-founding Workflow Lisp lowering on a minimal workflow core calculus
-with a real compiler middle-end — ANF normalization, second-class join-point
-control, scope/effect/proof analysis, and defunctionalization into the
-existing validated flat workflow model — so that effectful composition holds
-by construction and no surface form ever needs a one-off lowerer.
+Status: Partial
 
-Authority:
-
-- `docs/design/workflow_lisp_frontend_specification.md` remains the umbrella
-  Workflow Lisp frontend contract; this document refines its compilation
-  pipeline, not its language surface or authority rule.
-- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
-  owns the near-term migration tranches; this document is the structural
-  architecture its Tranche 1 must use for compiler-lane nested-control work.
-- Normative DSL/runtime behavior remains in `specs/`.
-- Shared validation and the existing runtime remain the execution authority;
-  this document changes how lowered output is produced, not what validates or
-  executes it.
-- This document does not by itself promote any `.orc` workflow to primary
-  surface.
-- A behavior described here is implementation-complete only when the listed
-  verification evidence passes.
-
-Related docs:
-
-- `docs/design/workflow_lisp_frontend_specification.md`
-- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
-- `docs/design/workflow_lisp_runtime_migration_foundation.md`
-- `docs/design/workflow_lisp_unified_frontend_design.md`
-- `docs/design/workflow_lisp_stdlib_lowering.md`
-- `docs/design/workflow_lisp_semantic_workflow_ir.md`
-- `docs/design/workflow_lisp_executable_ir.md`
-- `docs/design/workflow_lisp_state_layout.md`
-- `docs/design/workflow_lisp_proc_refs_partial_application.md`
-- `docs/design/workflow_lisp_compile_time_parametric_specialization.md`
-- `docs/design/workflow_lisp_runtime_closures_boundary.md`
-- `docs/design/workflow_language_design_principles.md`
-- `docs/reports/2026-06-09-design-delta-drain-orc-migration-frontend-runtime-findings.md`
-- `specs/dsl.md`
-- `specs/io.md`
-- `specs/state.md`
+Workflow Lisp lowering runs through a minimal workflow core calculus (WCC) and a
+compiler middle-end: ANF normalization, second-class join points,
+scope/effect/proof analysis and defunctionalization into the flat validated
+workflow model. WCC schema 2 is the default for new compiles in the migrated
+route subset; legacy schema-1 lowering remains for compatibility and resume of
+older runs, and a runtime that executes nesting-preserving IR directly is
+deferred. The [frontend specification](workflow_lisp_frontend_specification.md)
+owns the language surface, [`specs/`](../../specs/index.md) own runtime
+behavior, and shared validation and the runtime stay the execution authority;
+see also the [semantic workflow IR](workflow_lisp_semantic_workflow_ir.md) and
+[executable IR](workflow_lisp_executable_ir.md).
 
 ## 1. Purpose
 

@@ -1,9 +1,8 @@
 # Orchestration Start Here
 
-This document is the conceptual entry point for `agent-orchestration`.
-It explains how orchestration, workflow DSL authoring, and runtime execution fit together.
-
-Normative behavior lives in `specs/`. This file is explanatory.
+This document explains how orchestration, Workflow Lisp authoring and runtime
+execution fit together in `agent-orchestration`. Normative behavior lives in
+`specs/`.
 
 ## Read Order
 
@@ -24,9 +23,14 @@ Configure queue conventions in workflow -----------> Execute IR nodes / enforce 
 Use runbook/CLI flags -----------------------------> Emit state/logs/reports through compatibility surfaces
 ```
 
+This picture is the typed flat route (targets through 2.34). Typed evaluated
+targets (2.35/2.36) compile a checked closed program instead of executable IR,
+and native 3.0 compiles a dynamic program that runs fresh-only; see
+[Versioning](../specs/versioning.md).
+
 Short version:
-- DSL authoring defines intended behavior.
-- Runtime execution applies that behavior step by step.
+- Authoring defines intended behavior.
+- Runtime execution applies that behavior.
 - Orchestration is the full system around both.
 
 ## Glossary
@@ -143,7 +147,7 @@ Change specs when you need to change:
 ## Frequent Confusions
 
 Confusion: "Runbook controls execution semantics."
-- Correction: workflow DSL controls executable semantics; runbook explains usage.
+- Correction: workflow source controls executable semantics; a runbook explains usage.
 
 Confusion: "Every workflow needs the same git-safety rules."
 - Correction: most workflows do not treat git history or checkout state as runtime data. Special coexistence rules are repo-local operational policy only for workflows with DSL-level git rollback/checkpoint behavior, such as candidate-commit loops that record a base ref and later reset/restore against it.
@@ -166,10 +170,11 @@ present."
   through state-only report/dashboard observability.
 
 Confusion: "Execution runs the authored source tree directly."
-- Correction: execution runs validated executable IR. Persisted/reporting
-  compatibility surfaces are reconstructed through the projection layer.
-  `expanded.debug.yaml` is a JSON-rendered debug view despite its historical
-  filename.
+- Correction: execution runs a validated compiled form: executable IR on the
+  flat route, a checked closed program for typed 2.35/2.36, a checked dynamic
+  program for native 3.0. On the flat route, persisted and reporting surfaces
+  are reconstructed through the projection layer. `expanded.debug.yaml` is a
+  JSON-rendered debug view despite its filename.
 
 Confusion: "Informative docs are normative."
 - Correction: `specs/` are normative; docs are guidance.
@@ -178,7 +183,6 @@ Confusion: "Informative docs are normative."
 
 - Runtime sequence details: `docs/runtime_execution_lifecycle.md`
 - Workflow authoring guidance: `docs/lisp_workflow_drafting_guide.md`
-- Historical YAML translation reference: `docs/workflow_drafting_guide.md`
 - DSL reference (normative): `specs/dsl.md`
 - State schema (normative): `specs/state.md`
 - Provider/prompt contract (normative): `specs/providers.md`

@@ -1,12 +1,13 @@
 # Workflow Command Adapter Contract
 
-Status: draft design guidance
-Scope: workflow YAML, v2.14+ deterministic surfaces, future frontend lowering,
-legacy migration adapters, command steps
+Status: Partial
 
-This document defines how workflow-authored command behavior should be treated
-when it carries semantic meaning. It does not ban Python, shell, or command
-steps. It bans hidden workflow semantics embedded in opaque command text.
+Policy for command behavior that carries workflow semantics: command steps are
+allowed, but state, routing, lineage, resource movement and resume decisions
+must live in typed procedures, typed calls, certified command adapters or
+runtime-native effects. Certified adapters and their signature-owned contracts
+exist today ([IO](../../specs/io.md)); the classification and migration rules
+below are design guidance.
 
 ## Core Policy
 

@@ -1,14 +1,15 @@
 # Workflow Lisp Source Map
 
-- **Status:** accepted
-- **Kind:** architecture decision and component contract
-- **Created:** 2026-05-30
-- **Last material update:** 2026-07-14
-- **Related docs / plans:** `workflow_lisp_frontend_specification.md`,
-  `workflow_lisp_core_workflow_ast.md`,
-  `../plans/2026-07-08-boundary-report-followups.md`
-- **Implementation target:** canonical build source-map sidecar and runtime
-  diagnostic remapping, including authored union variant fields
+Status: Implemented
+
+The canonical build source-map sidecar and runtime diagnostic remapping that
+connect authored forms, including union variant fields, to generated IR,
+runtime steps and contract violations. The source map adds origin information
+without changing bundle validity, which `specs/` owns; language-level
+provenance obligations are in the
+[frontend specification](workflow_lisp_frontend_specification.md).
+
+Related: [core workflow AST](workflow_lisp_core_workflow_ast.md).
 
 ## Summary
 

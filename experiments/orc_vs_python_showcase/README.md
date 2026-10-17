@@ -1,17 +1,18 @@
 # Two contracts, in ORC and in Python
 
-The useful comparison is what connects an agent's instructions to the values
-and files a workflow can trust. These two conceptual showcases make that
-connection visible: a typed review result, then a prompt signature that also
-owns document delivery and a report postcondition.
+A side-by-side reading of the same two contracts in ORC (target 2.34) and in
+Python: a typed review result, then a prompt signature that also owns document
+delivery and a report postcondition. The useful comparison is what connects an
+agent's instructions to the values and files a workflow can trust.
 
-The first example includes a complete workflow body and its Python counterpart;
-provider configuration, transport, and shared application handlers are supplied
-separately. The later snippets are conceptual fragments. These examples explain
-the authoring model, not full runtime equivalence or benchmark results. Both
-languages use a reusable provider transport, which is assumed rather than
-implemented or counted here. There is no general claim that ORC needs fewer
-lines or offers more reuse than Python.
+This is a conceptual comparison, not a benchmark, and it has no result report.
+The first example includes a complete workflow body and its Python
+counterpart; provider configuration, transport and shared application handlers
+are supplied separately. The later snippets are fragments. Both languages use
+a reusable provider transport, assumed rather than implemented or counted
+here. Nothing here claims that ORC needs fewer lines or offers more reuse than
+Python. The Python specimen and its self-check are under
+[Supporting examples](#supporting-examples-and-contract-references).
 
 ## 1. One result declaration, from agent instructions to routing
 
@@ -70,8 +71,8 @@ Here are concrete structured answers and their consequences:
 | `{"variant":"REVISE","findings":["Clarify retries",7]}` | Wrong list element type; reject. |
 | `{"variant":"APPROVE","notes":"Fine","findings":[]}` | Field belonging to the inactive variant; reject. |
 
-Malformed JSON is also rejected. At the current target-2.34-and-earlier
-`variant_output` boundary, unrelated unknown keys are ignored: an additional
+Malformed JSON is also rejected. At the `variant_output` boundary of targets
+through 2.34, unrelated unknown keys are ignored: an additional
 `"debug":"x"` is not the same as including the other variant's `findings`.
 This is validation of the declared union, not a promise to reject every extra
 JSON key.
@@ -382,15 +383,21 @@ path field in `Review`. Neither `:doc` nor `:out` establishes registry
 
 ## Supporting examples and contract references
 
-The earlier experiment-proposal comparison remains in
+An experiment-proposal comparison is in
 [`improve_naive.py`](improve_naive.py) and
 [`improve_equivalent.py`](improve_equivalent.py). The latter is a deliberately
 handwritten validator and sequential journal specimen, not the best possible
 Python architecture or an implementation of all orchestrator guarantees.
-[`selfcheck.py`](selfcheck.py) checks its specific committed-effect resume,
-malformed-answer, and missing-answer cases. An interrupted external effect
-that has not been committed can repeat; those checks do not prove exactly-once
-agent execution across arbitrary crashes.
+[`selfcheck.py`](selfcheck.py) checks its committed-effect resume,
+malformed-answer and missing-answer cases with a scripted stand-in agent. From
+the repository root:
+
+```bash
+python -m experiments.orc_vs_python_showcase.selfcheck
+```
+
+An interrupted external effect that has not been committed can repeat; these
+checks do not prove exactly-once agent execution across arbitrary crashes.
 
 For a complete ORC consumer, see
 [`improve_experiment_proposal.orc`](../../workflows/examples/improve_experiment_proposal.orc)
@@ -399,9 +406,9 @@ and the library it uses,
 [`review_revise_design_docs.orc`](../../workflows/examples/review_revise_design_docs.orc)
 shows a real document-review prompt with an output position.
 
-The conceptual contracts above are implemented surfaces, but the current
-lowerer still restricts some combinations and expression positions. A valid
-fragment is not evidence that every surrounding program shape executes; use
+The contracts above are implemented, but the lowerer restricts some
+combinations and expression positions. A valid fragment is not evidence that
+every surrounding program shape executes; use
 the [drafting guide's current program shapes](../../docs/lisp_workflow_drafting_guide.md#2a-program-shapes-what-runs-today)
 and [capability matrix](../../docs/capability_status_matrix.md) before building
 a complete workflow.

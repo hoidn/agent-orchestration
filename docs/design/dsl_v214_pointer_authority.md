@@ -1,10 +1,11 @@
 # DSL v2.14 Pointer Authority
 
-## Status
+Status: Implemented in target 2.14
 
-This is a Phase 1 design-authority note for the v2.14 materialization tranche.
-It clarifies planning and documentation authority only. It does not change
-runtime behavior, loader behavior, or public DSL support.
+Published relpath artifacts have one canonical pointer surface: lineage stores
+the artifact value, and a local publishing pointer must be omitted or equal the
+top-level artifact pointer. [DSL](../../specs/dsl.md) owns the artifact and
+`materialize_artifacts` pointer rules.
 
 ## Decision Summary
 

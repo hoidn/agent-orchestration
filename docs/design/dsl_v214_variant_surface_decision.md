@@ -1,10 +1,10 @@
 # DSL v2.14 Variant Surface Decision
 
-## Status
+Status: Implemented in target 2.14
 
-This note is the durable design authority for the Phase 1 tagged-union output
-validation surface review. It does not implement runtime support or advertise
-public `version: "2.14"` availability.
+Tagged-union output validation uses a dedicated `variant_output` contract
+beside fixed-shape `output_bundle`, with `select_variant_output` as a separate
+selection surface. [DSL](../../specs/dsl.md) owns their normative behavior.
 
 ## Decision
 

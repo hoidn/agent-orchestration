@@ -7,7 +7,7 @@ not apply, or mark them `N/A` with one sentence explaining why.
 
 Do not use this as the default structure for a bounded design-gap architecture
 or `implementation_architecture.md` file. A gap architecture is narrower: it
-applies an accepted design to one selected missing slice. Use
+applies an accepted design to one missing slice. Use
 [`design_gap_implementation_architecture_template.md`](design_gap_implementation_architecture_template.md)
 for that case.
 
@@ -17,16 +17,15 @@ enough that implementation and review do not have to infer missing architecture.
 ## Metadata
 
 - **Title:**
-- **Status:** draft | proposed | accepted | implemented | deferred | superseded
+- **Status:** Implemented | Partial | Designed | Future | Retired (with the target version when relevant)
 - **Kind:** feature | architecture decision | clarification | migration | operational design | finding
-- **Owner:**
-- **Reviewers:**
-- **Created:**
-- **Last material update:**
-- **Related docs / issues / plans:**
-- **Implementation target:**
+- **Related specs, designs and examples:**
+- **Plan:** (only while the design is not implemented)
 
-Do not put live implementation status, current blockers, or next-work sequencing in durable specs/designs; route those to active planning or evidence-tracking documents.
+Follow the status line with one or two sentences saying what the design
+covers and which spec owns the normative behavior. Keep blockers, scheduling,
+review history and delivery narration out of the design; they belong in a plan
+or in git history.
 
 ## Summary
 
@@ -35,9 +34,9 @@ what changes for users, callers, maintainers, or operators.
 
 Aim for one to three paragraphs.
 
-## Context And Authority
+## Context
 
-Identify the source of truth for this design.
+Name the specs, code, tests and prior designs this design builds on.
 
 - Existing behavior, docs, specs, code paths, tests, or external constraints.
 - Prior decisions this document accepts, narrows, replaces, or supersedes.
@@ -225,7 +224,6 @@ Include:
 - Required tests.
 - Required docs or examples.
 - Required migration, compatibility, operational, or metric evidence.
-- Required review signoff.
 - Declarative acceptance / integration scenarios for the primary behavior.
 - Negative acceptance scenarios for behavior that must be rejected, blocked, impossible, or visibly diagnosed.
 - Evidence that acceptance scenarios exercise the intended integration path rather than a helper, fixture-only, mock-only, or fallback path.
@@ -274,7 +272,7 @@ List unresolved questions with owner, impact, deadline or blocking status, and
 whether implementation may proceed before resolution.
 
 Do not hide major design uncertainty here. If an open question affects the core
-decision, the design may still be draft rather than accepted.
+decision, resolve it before implementation starts.
 
 ## Appendix
 

@@ -20,7 +20,7 @@
 
 ## Evaluated result-file destination
 
-At target 2.35 and branch-qualified target 3.0, the shared provider performer
+At target 2.35 and native target 3.0, the shared provider performer
 sets `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` to the exact absolute, lexically normalized
 join of the execution workspace and the pinned attempt's workspace-relative
 `result.json` path. It derives this destination from the logical run root,
@@ -42,7 +42,7 @@ contract is [evaluated execution §9.4 R2–R3](../docs/design/workflow_lisp_eva
 
 ## Dynamic boundary IO
 
-The branch-qualified target-3.0 profile uses the existing shared input/output
+The native target-3.0 profile uses the existing shared input/output
 owners with strict declared boundaries. For external `command-result`, supplying
 `:inputs` requires a declared record `:input-type`, including `:inputs ()`;
 `:input-type` without inputs or on a certified adapter refuses. Exact fields
@@ -94,7 +94,7 @@ and [Providers](providers.md#dynamic-composed-provider-boundary).
       the credential-minimized projection; OMP journals remain separate
       observations as defined in `state.md`.
   - Deterministic artifact contracts:
-    - Target 2.35 and branch-qualified 3.0 command boundary manifests accept `closure`, an array of
+    - Target 2.35 and native 3.0 command boundary manifests accept `closure`, an array of
       literal file or directory paths for both `external_tool` and
       `certified_adapter`. C1 requires it on every supplied declaration
       (including unused rows) and every used compiler-injected binding;
@@ -109,8 +109,8 @@ and [Providers](providers.md#dynamic-composed-provider-boundary).
       symlinks or hash closure file bytes. Command runtime content hashes,
       command-local output disjointness,
       post-dispatch read-only checks and pinned interpreter launch are implemented.
-      Typed target-2.35 public resume enforces committed-prefix and pending-retry checks;
-      complete Phase 3 qualification remains open. See
+      Typed target-2.35 public resume enforces committed-prefix and pending-retry checks.
+      See
       [command closure declaration](../docs/design/workflow_command_adapter_contract.md#command-closure-declaration),
       `closed/effects.py::require_command_closures`,
       `closed/program.py::_canonical_closure` (under
@@ -274,7 +274,7 @@ and [Providers](providers.md#dynamic-composed-provider-boundary).
       contribution exactly once. Immutable in-memory traces identify only
       canonical values, selected bytes, ordering, and digests; prompt bodies,
       resolved values, dependency content, argv, and environment are not
-      persisted in Q3 evidence.
+      persisted in prompt-attempt evidence.
     - After successful invocation preparation and before provider launch, the
       attempt publishes one closed
       `workflow_prompt_fragment_snapshot.functional.v2` record. Invocation
@@ -471,7 +471,7 @@ and [Providers](providers.md#dynamic-composed-provider-boundary).
   - `consume_bundle.path`
   - authored `state/*`, `artifacts/*`, and other deterministic `relpath` paths
 
-- First-tranche reusable-library rule
+- Reusable-library rule
   - Do not treat `input_file` or plain `depends_on` as workflow-bundled asset mechanisms.
   - Use the source-relative asset surface for library-owned prompts, rubrics, templates, and schemas.
 

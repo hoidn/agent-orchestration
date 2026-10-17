@@ -1,62 +1,20 @@
 # Workflow Lisp Runtime-Native Drain Authoring
 
-Status: reference target / regression checklist
-Kind: architecture decision / authoring and migration target
-Created: 2026-06-15
-Scope: Workflow Lisp authoring ergonomics for parent drain workflows; typed
-prompt inputs; private runtime context; consumer-side rendering; typed
-projection; resource transitions; certified adapter retirement; and a working
-Design Delta Drain `.orc` family as the acceptance target.
+Status: Partial
 
-Current implementation status is tracked in
-`docs/capability_status_matrix.md`. This document defines the desired
-authoring shape and acceptance/regression checklist; it is not live completion
-state.
+Target authoring shape for runtime-native parent drain workflows: typed prompt
+inputs, private runtime context, consumer-side rendering, typed projections and
+resource transitions. It serves as the regression checklist for the Design
+Delta Drain `.orc` family in
+[`workflows/library/lisp_frontend_design_delta/`](../../workflows/library/lisp_frontend_design_delta/);
+its family-specific compile certification bundle is retired. Normative
+behavior is owned by `specs/` and the
+[frontend specification](workflow_lisp_frontend_specification.md).
 
-Authority:
-
-- Normative runtime and DSL behavior remains in `specs/`.
-- `docs/design/workflow_lisp_frontend_specification.md` owns the parent
-  Workflow Lisp language contract and WCC lowering route.
-- `docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md`
-  records the incorporated generic-core target for pure projection,
-  materialized views, typed transitions, boundary authority classes, adapter
-  retirement, and Design Delta cleanup; current contracts live in the frontend
-  specification where incorporated.
-- `docs/design/workflow_lisp_private_runtime_state_and_consumer_value_flow.md`
-  owns the private-checkpoint and consumer value-flow substrate.
-- `docs/design/workflow_lisp_generic_resource_context_core.md` owns the
-  simplified generic resource/context model.
-- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
-  owns parent-callable workflow-family migration and promotion gates.
-- `docs/design/workflow_lisp_shared_owner_lane_prerequisites.md` owns the
-  shared owner-lane prerequisite ledger consumed by Section 9.1.
-- `docs/design/workflow_command_adapter_contract.md` owns certified adapter
-  boundaries.
-- Private binding and provider target binding grammar are owned by the
-  frontend/value-flow specs.
-- This document does not by itself promote any `.orc` workflow to primary
-  surface.
-
-Related docs:
-
-- `docs/design/workflow_lisp_frontend_specification.md`
-- `docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md`
-- `docs/design/workflow_lisp_private_runtime_state_and_consumer_value_flow.md`
-- `docs/design/workflow_lisp_consumer_side_rendering.md`
-- `docs/design/workflow_lisp_lexical_execution_checkpoints.md`
-- `docs/design/workflow_lisp_generic_resource_context_core.md`
-- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
-- `docs/design/workflow_lisp_shared_owner_lane_prerequisites.md`
-- `docs/design/workflow_lisp_core_calculus_middle_end.md`
-- `docs/design/workflow_lisp_state_layout.md`
-- `docs/design/workflow_language_design_principles.md`
-- `docs/design/workflow_command_adapter_contract.md`
-- `docs/lisp_workflow_drafting_guide.md`
-- `specs/dsl.md`
-- `specs/io.md`
-- `specs/providers.md`
-- `specs/state.md`
+Related: [private runtime state and consumer value flow](workflow_lisp_private_runtime_state_and_consumer_value_flow.md),
+[shared owner-lane prerequisites](workflow_lisp_shared_owner_lane_prerequisites.md)
+(the prerequisite ledger for Section 9.1),
+[command adapter contract](workflow_command_adapter_contract.md).
 
 ## 1. Purpose
 

@@ -1,22 +1,16 @@
 # Workflow Lisp Transportable `Value` Type
 
-- **Status:** accepted prerequisite (owner-selected 2026-07-26)
-- **Review:** `VALUE_DESIGN_SPEC_APPROVED`, then
-  `VALUE_DESIGN_QUALITY_APPROVED`
-- **Kind:** language and transport contract
-- **Owner:** Workflow Lisp frontend plus shared output-contract runtime
-- **Target:** DSL `2.19`
-- **Selected consumer:** the first prompt-calculus tranche, whose unstated
-  return type defaults to `Value`
-- **Related authority:**
-  - `docs/design/workflow_language_design_principles.md`, principle 29
-  - `docs/design/workflow_lisp_native_transportable_returns.md`
-  - `docs/design/workflow_lisp_frontend_specification.md`
-  - `docs/design/workflow_lisp_prompt_calculus.md`
-  - `specs/dsl.md`
-  - `specs/io.md`
-  - `specs/providers.md`
-  - `specs/versioning.md`
+Status: Implemented in target 2.19
+
+`Value`, an opt-in, exact and opaque top type for strict JSON that crosses
+Workflow Lisp transport boundaries, with public `type: value` / `kind: value`.
+Normative behavior is owned by [DSL](../../specs/dsl.md), [IO](../../specs/io.md),
+[providers](../../specs/providers.md) and [versioning](../../specs/versioning.md).
+
+Related: [design principles](workflow_language_design_principles.md) (principle
+29), [native transportable returns](workflow_lisp_native_transportable_returns.md),
+[frontend specification](workflow_lisp_frontend_specification.md),
+[prompt calculus](workflow_lisp_prompt_calculus.md).
 
 ## Decision
 

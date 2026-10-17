@@ -1,7 +1,11 @@
 # Workflow Lisp Semantic Workflow IR
 
-Status: current-checkout component contract
-Scope: shared semantic-layer contract implemented in this repository for Workflow Lisp and imported workflow bundles
+Status: Implemented
+
+The durable Semantic IR contract for validated Workflow Lisp and imported
+workflow bundles, used for provenance, diagnostics, build artifacts and
+inspection. It is an implementation and verification contract, not an
+authoring guide; normative workflow behavior is in [DSL](../../specs/dsl.md).
 
 ## Purpose
 

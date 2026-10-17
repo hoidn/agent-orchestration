@@ -1,13 +1,17 @@
 # Workflow Lisp Frontend Specification and Design
 
-Status: accepted baseline / umbrella frontend contract
-Target substrates: typed WCC/schema-2 lowering through target 2.34; typed
-closed execution at 2.35/2.36; independent branch-qualified dynamic execution at 3.0
-Primary purpose: composable, typed, procedural authoring of deterministic workflows  
-Non-purpose: replacing the runtime, weakening validation, or generating brittle YAML-shaped code
+Status: Partial
 
-Lifecycle note: this document is the parent language contract for Workflow
-Lisp. Focused companion contracts refine current ProcRef, compiler
+The parent language contract for Workflow Lisp `.orc`: composable, typed,
+procedural authoring of deterministic workflows that lowers into the existing
+validated pipeline without weakening validation. Typed source lowers through
+WCC/schema 2 through target 2.34, targets 2.35/2.36 use typed closed-program
+execution, and target 3.0 is the separate native dynamic profile; not every
+surface described here exists, so check the
+[capability matrix](../capability_status_matrix.md). [`specs/`](../../specs/index.md)
+own runtime behavior.
+
+Focused companion contracts refine current ProcRef, compiler
 middle-end, runtime migration, and composition/stdlib behavior:
 [Workflow Lisp ProcRef And Partial Application Delta](workflow_lisp_proc_refs_partial_application.md),
 [Workflow Lisp Core Calculus And Compiler Middle-End](workflow_lisp_core_calculus_middle_end.md),
@@ -59,11 +63,10 @@ The pipeline described here remains the runnable route through 2.34.
 Targets 2.35 and 2.36 select [typed evaluated execution](workflow_lisp_evaluated_execution.md):
 public closed-program compile/dry-run, bounded pure/command/portable-provider
 execution, memo-based resume/suffix invalidation, path children and checked
-readers are implemented. Its admitted effects and remaining phase-wide/live
-qualification are owned by [Versioning](../../specs/versioning.md) and the
-[Phase 3 plan](../plans/2026-10-02-workflow-lisp-evaluated-execution-phase-3-plan.md).
+readers are implemented. [Versioning](../../specs/versioning.md) owns its
+admitted effects.
 
-### Branch-qualified dynamic companion route
+### Native 3.0 dynamic companion route
 
 Explicit target 3.0 selects an independent checked dynamic representation,
 ordinary functions/immutable captures and real source imports. Internal helpers
@@ -72,16 +75,13 @@ and command boundaries retain strict declaration-owned schemas. Sequential
 command/portable composed-provider calls use shared performers and native root
 results. Schema-3.1 fresh state is authoritative; no memo/reuse/resume is added.
 Unsupported effects and compiled imports refuse, including unreachable forms.
-This is branch qualification, not a default/adoption or migration decision;
-bounded qualification and its evidence are owned by the
-[readiness plan](../plans/2026-10-02-workflow-lisp-dynamic-core-readiness-plan.md).
-[Proposal §9](workflow_lisp_dynamic_core_proposal.md#9-complete-consumer-production-candidate)
-records architecture; [Versioning](../../specs/versioning.md#branch-qualified-target-30),
+[Proposal §9](workflow_lisp_dynamic_core_proposal.md#9-native-30-profile-architecture)
+records architecture; [Versioning](../../specs/versioning.md#native-target-30),
 [CLI](../../specs/cli.md#dynamic-execution),
 [State](../../specs/state.md#dynamic-fresh-run-authority),
 [IO](../../specs/io.md#dynamic-boundary-io) and
 [Providers](../../specs/providers.md#dynamic-composed-provider-boundary) own
-normative behavior. The [drafting guide](../lisp_workflow_drafting_guide.md#2b-dynamic-composition-on-the-qualified-branch)
+normative behavior. The [drafting guide](../lisp_workflow_drafting_guide.md#2b-native-30-dynamic-composition)
 provides reproducible examples. The typed rules below keep their original scope.
 
 Design principles: this specification follows the language-wide principles in
@@ -1373,9 +1373,7 @@ application, or slot keyword there fails with
 
 ### 8.7.2 Implemented `:path :out` Slots (Target 2.21)
 
-**Status:** accepted Q2 design after `Q2_DESIGN_SPEC_REAPPROVED` then
-`Q2_DESIGN_QUALITY_APPROVED`, then implemented under the reviewed Q2 plan.
-The additive target-2.21 assumption preserves target-2.20 Q1 source, compiled
+**Status:** implemented. The additive target-2.21 assumption preserves target-2.20 Q1 source, compiled
 bytes, runtime behavior, and resume semantics unchanged.
 
 Q2 adds exactly one slot spelling:
@@ -2659,9 +2657,7 @@ snapshot, or resume channel.
 
 ### 22.7 Implemented Prompt Output Positions (Target 2.21)
 
-**Status:** accepted Q2 design after `Q2_DESIGN_SPEC_REAPPROVED` then
-`Q2_DESIGN_QUALITY_APPROVED`, then implemented under the reviewed Q2 plan.
-The owning detailed contract is the implemented Q2 amendment in
+**Status:** implemented. The owning detailed contract is the implemented Q2 amendment in
 `workflow_lisp_prompt_calculus.md`.
 
 For every `(slot :path :out [PathType])`, the compiler projects one ordinary
@@ -4788,9 +4784,7 @@ freshness or any P1–P5 boundary.
 
 ### Accepted L1 Authored Symbol And Completion Compatibility
 
-This L1 contract is implemented after `L1_DESIGN_SPEC_APPROVED` then
-`L1_DESIGN_QUALITY_APPROVED`, the reviewed L1 implementation plan, and its
-repository-real stdio/status closure. It does not change the implemented v1 or
+This L1 contract is implemented. It does not change the implemented v1 or
 L0 freshness and compiler-authority bounds.
 
 The compiler, not the language server, must derive one closed original-syntax
@@ -4906,9 +4900,6 @@ state/driver/navigation/server evidence for
 all three branches, frozen-snapshot stability, no stale callable leakage,
 malformed-state and index-failure closure, plus one repository-real stdio
 transition from recovery-static completion to current full completion.
-Implementation landed through `70b83f32`, `b399c041`, `ee213a43`, and
-`10e3ccc3`, followed by ordered `L2_FINAL_SPEC_APPROVED` then
-`L2_FINAL_QUALITY_APPROVED`.
 
 ## Part XIII. CLI
 

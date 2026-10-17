@@ -1,39 +1,16 @@
 # Workflow Lisp Shared Owner-Lane Prerequisites
 
-Status: reference target / prerequisite ledger
-Kind: shared capability contracts gating imported stdlib adoption claims
-Created: 2026-07-01
-Scope: shared stdlib/compiler/runtime capability contracts that must exist
-before a parent-callable workflow family may claim imported `std/drain`,
-`std/phase`, or `std/resource` adoption; each prerequisite states a minimum
-contract, a minimum behavior check, and an adoption-claim rule.
+Status: Partial
 
-Current implementation status is tracked in
-`docs/capability_status_matrix.md`. This document defines prerequisite
-contracts and checks; it is not live completion state.
+Shared stdlib/compiler/runtime contracts a parent-callable workflow family
+needs before it may rely on imported `std/drain`, `std/phase` or
+`std/resource`, each with a minimum contract and behavior check. Not every
+prerequisite here is implemented. Normative behavior is owned by `specs/` and
+the [frontend specification](workflow_lisp_frontend_specification.md).
 
-Authority:
-
-- Normative runtime and DSL behavior remains in `specs/`.
-- `docs/design/workflow_lisp_runtime_native_drain_authoring.md` owns the
-  runtime-native drain authoring target, its invariants, and the Design Delta
-  reference-family acceptance; this ledger owns the shared owner-lane
-  prerequisites that document's adoption claims depend on.
-- `docs/design/workflow_lisp_frontend_specification.md` owns the parent
-  Workflow Lisp language contract and WCC lowering route.
-- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
-  owns parent-callable workflow-family migration and promotion gates.
-- This document does not by itself promote any `.orc` workflow to primary
-  surface.
-
-Related docs:
-
-- `docs/design/workflow_lisp_runtime_native_drain_authoring.md`
-- `docs/design/workflow_lisp_frontend_specification.md`
-- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
-- `docs/design/workflow_lisp_private_runtime_state_and_consumer_value_flow.md`
-- `docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md`
-- `docs/lisp_workflow_drafting_guide.md`
+Related: [runtime-native drain authoring](workflow_lisp_runtime_native_drain_authoring.md)
+(origin of this ledger),
+[private runtime state and consumer value flow](workflow_lisp_private_runtime_state_and_consumer_value_flow.md).
 
 ## 1. How To Read This Ledger
 

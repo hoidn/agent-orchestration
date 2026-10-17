@@ -1,66 +1,11 @@
 # Workflow Lisp Post-Foundation Composition And Stdlib Migration
 
-Status: incorporated historical target
-Kind: historical architecture decision / migration target design
-Created: 2026-06-08
-Updated: 2026-06-10
-Scope: post-foundation Workflow Lisp composition: nested structured control,
-typed result translation, imported/std `.orc` reuse, `review-revise-loop`
-first-class composition, private executable context, typed projection,
-certified adapter/resource-transition ownership, entrypoint
-bootstrap/defaults, canonical `resume-or-start` validation, parent-callable
-workflow-family migration, and promotion evidence.
+Status: Historical (retired surface)
 
-The landed WCC/composition/stdlib contracts are reflected in the current
-frontend and component docs. The generated post-WCC inventory/reconciliation
-views and manifest-driven parity generator are retired; use route readiness and
-direct owner tests for current claims.
-
-Authority:
-
-- `docs/design/workflow_lisp_runtime_migration_foundation.md` is the hard
-  prerequisite for this document.
-- Normative DSL/runtime behavior remains in `specs/`.
-- `docs/design/workflow_lisp_frontend_specification.md` remains the umbrella
-  Workflow Lisp frontend contract.
-- `docs/design/workflow_lisp_core_calculus_middle_end.md` is the accepted
-  compiler architecture for Tranche 1 nested structured-control composition.
-- `docs/design/workflow_lisp_state_layout.md` owns state/path layout
-  principles and context-derived path namespaces.
-- `docs/design/workflow_command_adapter_contract.md` owns adapter
-  certification, legacy glue classification, and lint policy.
-- This document does not by itself promote any `.orc` workflow to primary
-  surface.
-- A behavior described here is implementation-complete only when the listed
-  verification evidence passes.
-
-Related docs:
-
-- `docs/design/workflow_lisp_runtime_migration_foundation.md`
-- `docs/design/workflow_lisp_core_calculus_middle_end.md`
-- `docs/design/workflow_lisp_frontend_specification.md`
-- `docs/design/workflow_lisp_unified_frontend_design.md`
-- `docs/design/workflow_lisp_key_migration_parity_architecture.md`
-- `docs/design/workflow_lisp_stdlib_lowering.md`
-- `docs/design/workflow_lisp_review_revise_stdlib_parametric_integration.md`
-- `docs/design/workflow_lisp_state_layout.md`
-- `docs/design/workflow_lisp_proc_refs_partial_application.md`
-- `docs/design/workflow_lisp_compile_time_parametric_specialization.md`
-- `docs/design/workflow_lisp_structural_parametric_constraints.md`
-- `docs/design/workflow_lisp_runtime_closures_boundary.md`
-- `docs/design/workflow_command_adapter_contract.md`
-- `docs/reports/2026-06-09-design-delta-drain-orc-migration-frontend-runtime-findings.md`
-- `docs/reports/2026-06-10-wcc-post-foundation-unplanned-architecture-findings.md`
-- `docs/plans/2026-06-09-post-foundation-composition-design-extension-plan.md`
-  (revision provenance folded into this target; not separate implementation
-  authority)
-- `docs/plans/2026-06-10-wcc-post-foundation-reconciliation-inventory.md`
-- `docs/plans/LISP-FRONTEND-DESIGN-DELTA-DRAIN-ORC-MIGRATION/parent_drain_readiness_blockers.md`
-- `docs/lisp_workflow_drafting_guide.md`
-- `specs/dsl.md`
-- `specs/io.md`
-- `specs/providers.md`
-- `specs/state.md`
+Its landed composition and stdlib contracts now live in the
+[frontend specification](workflow_lisp_frontend_specification.md); the
+generated inventory views and manifest-driven parity gate it describes are
+retired.
 
 ## 1. Purpose
 

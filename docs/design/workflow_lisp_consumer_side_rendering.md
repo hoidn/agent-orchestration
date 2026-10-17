@@ -1,53 +1,19 @@
 # Workflow Lisp Consumer-Side Rendering
 
-Status: draft target design (future target; describes intended behavior, not
-the current checkout)
-Kind: architecture / ergonomics and materialization-reduction target
-Created: 2026-06-12
-Scope: rendering typed values at consumer seams — prompt injection,
-observability, entry-boundary publication, and compatibility bridges — so
-producer-authored materialization shrinks to a small residue and native
-typed values remain the default carrier everywhere.
+Status: Partial
 
-Authority:
-
-- Normative runtime and DSL behavior remains in `specs/`. This document
-  defines a target; nothing here changes current behavior until its
-  tranches land with evidence.
-- `docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md`
-  owns the `materialize-view` kernel (its Tranche G4), the boundary
-  authority classes, and the census discipline. Every surface in this
-  design lowers to that kernel; this design adds no second rendering
-  semantics. Its G4 carries the one guard-rail this design needs in
-  advance: the renderer interface stays invocable independently of file
-  allocation.
-- `docs/design/workflow_lisp_frontend_specification.md` is the
-  authoritative language baseline; language-visible changes here are
-  normative spec deltas to merge on tranche acceptance.
-- `docs/design/workflow_lisp_runtime_migration_foundation.md` owns prompt
-  composition and structured-output authority; the prompt-injection lane
-  extends composition, not output authority.
-- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
-  owns family promotion sequencing and the family idiom (its 10A
-  values-before-artifacts discipline, which this design operationalizes).
-- `docs/design/workflow_lisp_state_layout.md` owns allocation identity;
-  durable-view roles are unchanged; ephemeral renderings allocate nothing.
-- `docs/design/workflow_lisp_lexical_execution_checkpoints.md` is a sibling
-  future target. Neither depends on the other; both treat views as
-  regenerable from typed values.
-
-Related docs:
-
-- `docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md`
-- `docs/design/workflow_lisp_frontend_specification.md`
-- `docs/design/workflow_lisp_runtime_migration_foundation.md`
-- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
-- `docs/design/workflow_lisp_state_layout.md`
-- `docs/design/workflow_lisp_lexical_execution_checkpoints.md`
-- `docs/design/workflow_command_adapter_contract.md`
-- `docs/lisp_workflow_drafting_guide.md`
-- `specs/providers.md`
-- `specs/state.md`
+A target design for rendering typed values at consumer seams (prompt inputs,
+observability, entry-boundary publication and compatibility bridges) so
+producers publish typed values instead of files. Typed provider-input carriage
+(§10) and the implicit-default slice of §15 are implemented; the other lanes are
+not.
+[`specs/`](../../specs/index.md) own runtime behavior, the
+[frontend specification](workflow_lisp_frontend_specification.md) is the
+language baseline, the
+[generic-core design](workflow_lisp_generic_core_expression_surface_adapter_retirement.md)
+owns the `materialize-view` kernel every lane lowers to, and the
+[private runtime state and consumer value flow](workflow_lisp_private_runtime_state_and_consumer_value_flow.md)
+design tracks remaining work.
 
 ## 1. Purpose
 

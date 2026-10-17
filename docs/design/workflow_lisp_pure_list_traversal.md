@@ -1,27 +1,17 @@
 # Workflow Lisp Pure List Traversal
 
-- **Status:** implemented at target 2.18; source interstage complete
-  (2026-07-25)
-- **Design review:** ordered `LIST_DESIGN_SPEC_APPROVED` then
-  `LIST_DESIGN_QUALITY_APPROVED`
-- **Kind:** closed pure-expression surface extension plus one bounded
-  effectful binder
-- **Owner:** Workflow Lisp frontend + pure evaluator
-- **Minimum target:** `(:target-dsl "2.18")`
-- **Motivating consumer:** runtime-cardinality fan-out — for example, a
-  review panel whose ordered lens names are workflow input data, whose
-  provider calls each return a review-report path, and whose synthesis call
-  consumes the ordered list of paths. Before target 2.18, `List[T]` could
-  cross selected contracts but could not be constructed or traversed
-  in-language, so authors had to duplicate static call sites whenever
-  cardinality was data.
-- **Related docs:**
-  - `docs/design/workflow_lisp_frontend_specification.md` (§10.2 closed
-    pure-expression surface and §10.3 bounded list traversal)
-  - `docs/design/workflow_language_design_principles.md` (principles 17,
-    27, 28, and 29)
-  - `docs/design/workflow_lisp_state_layout.md` (loop state)
-  - `docs/design/workflow_lisp_native_transportable_returns.md`
+Status: Implemented in target 2.18
+
+List construction, total list operators, pure `list/map`, bounded effectful
+`list/map-effect`, rooted path joining, and `List[T]` as `loop/recur` state, so
+fan-out can follow runtime cardinality instead of duplicated call sites. The
+pure-expression contract is in
+[frontend specification](workflow_lisp_frontend_specification.md) §10.2–10.3;
+target admission is in [versioning](../../specs/versioning.md).
+
+Related: [design principles](workflow_language_design_principles.md) 17 and
+27–29, [state layout](workflow_lisp_state_layout.md) (loop state),
+[native transportable returns](workflow_lisp_native_transportable_returns.md).
 
 ## Decision summary
 

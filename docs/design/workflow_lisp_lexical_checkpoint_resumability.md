@@ -1,54 +1,10 @@
 # Workflow Lisp Lexical Checkpoint Resumability
 
-Status: predecessor draft; not current next-work routing
-Kind: architecture decision / runtime target
-Created: 2026-06-12
-Scope: Workflow Lisp execution resume based on lexical execution checkpoints,
-continuation identity, typed value snapshots, effect-boundary replay, and the
-separation of execution resumability from workflow-domain resource state.
+Status: Historical (retired surface)
 
-Routing note: use `workflow_lisp_private_runtime_state_and_consumer_value_flow.md`
-for current future-target routing and
-`workflow_lisp_lexical_execution_checkpoints.md` for the detailed private
-lexical-checkpoint source note. This document remains historical context for
-the checkpoint/resume direction.
-
-Authority:
-
-- Normative runtime and DSL behavior remains in `specs/`.
-- `docs/design/workflow_lisp_frontend_specification.md` remains the
-  authoritative Workflow Lisp language baseline.
-- `docs/design/workflow_lisp_core_calculus_middle_end.md` owns WCC, ANF,
-  second-class join points, effect rows, proof scopes, and current
-  defunctionalization into the flat validated runtime model.
-- `docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md`
-  owns the near-term generic runtime core target: `RunCtx`,
-  `Resource<TState>`, `Transition<TRequest, TResult>`, pure projection,
-  materialized views, and adapter retirement.
-- `docs/design/workflow_lisp_state_layout.md` owns generated path and
-  allocation identity. This document consumes that identity model for
-  checkpoint storage and value-bundle references.
-- `docs/design/workflow_lisp_semantic_workflow_ir.md` and
-  `docs/design/workflow_lisp_executable_ir.md` own current semantic and
-  executable authority surfaces. This document proposes a future executable
-  runtime target; it does not change the current checkout contract.
-- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
-  owns parent-callable migration evidence and promotion policy. This document
-  supplies a possible later simplification target for resume mechanics after
-  WCC and the generic core are established.
-
-Related docs:
-
-- `docs/design/workflow_lisp_frontend_specification.md`
-- `docs/design/workflow_lisp_core_calculus_middle_end.md`
-- `docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md`
-- `docs/design/workflow_lisp_runtime_migration_foundation.md`
-- `docs/design/workflow_lisp_state_layout.md`
-- `docs/design/workflow_lisp_semantic_workflow_ir.md`
-- `docs/design/workflow_lisp_executable_ir.md`
-- `docs/design/workflow_language_design_principles.md`
-- `specs/state.md`
-- `specs/dsl.md`
+Superseded by [lexical execution checkpoints](workflow_lisp_lexical_execution_checkpoints.md)
+and the [private runtime state and consumer value flow](workflow_lisp_private_runtime_state_and_consumer_value_flow.md)
+design.
 
 ## 1. Purpose
 

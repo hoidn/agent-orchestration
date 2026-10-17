@@ -12,7 +12,7 @@ is a workflow that can inspect and repair a target run; launch it from its own
 workspace because each workspace admits one active run. The separate
 [`watch_workflow_usage_limit.sh`](../scripts/watch_workflow_usage_limit.sh)
 script watches a tmux pane and may send resume or run commands. It has a known
-F50 edge: after a late refusal, an admitted fresh run can leave the watcher
+limit: after a late refusal, an admitted fresh run can leave the watcher
 following the old completed run. Check the fresh run ID manually; the behavior
 is captured by strict-xfail test
 [`test_a_late_refusal_of_a_fresh_run_retries_with_the_fresh_run_id`](../tests/test_watch_workflow_usage_limit.py).

@@ -85,8 +85,7 @@ Note: These safety checks apply to paths the orchestrator resolves (e.g., `input
     to make an isolated provider work. If the provider cannot run from the
     sealed environment and narrow grants, implementation must stop for a
     reviewed versioned extension.
-  - This staged contract is not an implementation-status claim. Provider
-    execution remains unrestricted until the production launcher, state,
+  - Provider execution is unrestricted until the production launcher, state,
     CLI/resume, and attestation integration is complete and verified.
 
 - Adjudicated provider child workspaces (v2.11)
@@ -98,12 +97,12 @@ Note: These safety checks apply to paths the orchestrator resolves (e.g., `input
   - Baseline snapshots, candidate workspaces, composed prompts, evaluator packets, score ledgers, logs, and promotion staging can contain sensitive source or prompt material. Retain and share run roots using the same confidentiality assumptions as the original workspace.
   - `evaluator.evidence_confidentiality: same_trust_boundary` is an explicit author attestation that the evaluator provider may receive complete score-critical evidence. The runtime may scan declared secret values before packet persistence, but this is not a substitute for choosing providers within the right trust boundary.
 
-- Reusable-call operational-risk boundary (Task 10 contract; v2.5 execution)
+- Reusable-call operational-risk boundary (v2.4 contract; v2.5 execution)
   - The first `call` tranche is intentionally non-isolating.
   - The loader/runtime must not claim proof of arbitrary child-process filesystem effects from imported `command` / `provider` steps.
   - Every DSL-managed reusable-workflow write root that must remain distinct across invocations is expected to be surfaced as a typed workflow `input` with `type: relpath`.
   - Call sites are expected to bind distinct per-invocation values for those write-root inputs whenever repeated or concurrent calls could otherwise alias the same managed paths.
-  - Reusable workflows that hard-code DSL-managed write roots instead of parameterizing them as typed `relpath` inputs are outside the first shippable reusable-library subset and should be rejected once Task 11 implements `call`.
+  - Reusable workflows that hard-code DSL-managed write roots instead of parameterizing them as typed `relpath` inputs are outside the supported reusable-library subset and should be rejected.
   - This contract covers orchestrator-managed paths only. Undeclared child-process reads/writes remain an accepted operational risk until a later execution-boundary change exists.
 
 - Secrets handling

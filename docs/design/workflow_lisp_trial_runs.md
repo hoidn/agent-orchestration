@@ -1,71 +1,28 @@
 # Workflow Lisp Trial Runs: Controlled Experiments Over Pinned Repository Workspaces
 
-## Metadata
+Status: Partial
 
-- **Status:** accepted design; E0 direct control, E1 pinned child
-  runs, and E2 trials are implemented and complete. E3's external evolution
-  controller is not implemented. Its separate owner-selected pending state is
-  recorded in the [evolution roadmap](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md);
-  that selection is not execution authority. See the [Capability Status
-  Matrix](../capability_status_matrix.md) for current status and copy safety.
-- **Kind:** target architecture and experiment-platform design
-- **Owner:** agent-orchestration maintainers
-- **Reviewers:** ordered independent `E_DESIGNS_SPEC_APPROVED`, then
-  `E_DESIGNS_QUALITY_APPROVED` on 2026-07-31
-- **Created:** 2026-07-27
-- **Related docs:**
-  - [Program-search boundary invariants](workflow_lisp_program_search_boundaries.md)
-    (binding; compliance table below)
-  - [Lean ORC-effectiveness pilot design](../superpowers/specs/2026-07-26-orc-effectiveness-lean-pilot-design.md)
-    (accepted; this design's Layer 0 and admission gate)
-  - [Parked evolution substrate and feature design](../superpowers/specs/2026-07-22-workflow-lisp-evolution-substrate-and-feature-design.md)
-    (parked by owner decision `8aeb2949`; this design deliberately does not
-    revive its substrate layer — see
-    [Deliberately Not Selected](#deliberately-not-selected))
-  - [Lean-pilot deterministic report](../reports/2026-07-26-orc-effectiveness-lean-pilot.md)
-    (completed Layer-0 evidence and claim limits)
-  - [Provider at-least-once loosening amendment](../plans/2026-07-26-provider-at-least-once-loosening-amendment.md)
-    (landed through ML; supplies the at-least-once attempt and single-writer
-    run contract this design assumes)
-  - [Pure-result replay](workflow_lisp_pure_result_replay.md)
-    (accepted M2 persistence-parsimony boundary; trial state and replay must
-    remain subordinate to it)
-  - [Workflow language design principles](workflow_language_design_principles.md)
-    (Principles 28, 29, and 30 bind refusals, type density, and provider
-    attention respectively)
-  - [Substrate maintenance track](../plans/2026-07-26-substrate-maintenance-track.md)
-    and the Q/L roadmap (MR-4 and L3 own the compiler-session/reentrancy
-    substrate needed only by a later in-process compilation optimization, not
-    by the E0-E3 tranche gates)
-  - `specs/dsl.md`, `specs/providers.md`, `specs/state.md`, and
-    `specs/versioning.md` target-2.11 `adjudicated_provider` sections (the
-    historical origin of the reuse candidate, not this design's target)
-- **Implementation targets:** the original unassigned-target wording below is
-  historical. E1 `run-ref` is implemented at target 2.24 and E2 `trial` at
-  target 2.25. The E3 design remains pending and does not itself authorize
-  execution or follow-on work.
+A platform for measuring `.orc` orchestration against controls on real
+repository tasks and, later, for bounded generational program evolution,
+without runtime `eval` or code values. Direct control (E0), pinned child runs
+(E1, `run-ref`, target 2.24) and blinded trials (E2, `trial`, target 2.25) are
+implemented; the external evolution controller (E3) is not. Normative behavior
+is owned by the [DSL](../../specs/dsl.md), [state](../../specs/state.md),
+[versioning](../../specs/versioning.md) and [CLI](../../specs/cli.md) specs;
+where this document conflicts with the
+[program-search boundaries](workflow_lisp_program_search_boundaries.md), the
+boundaries document wins.
 
-Purpose: define the smallest coherent platform on which (1) the effectiveness
-of `.orc` orchestration can be measured against controls on real repository
-tasks, and (2) bounded, generational program evolution can later be run —
-without adding runtime `eval`, code values, or a parallel evaluation system.
-
-Authority: normative runtime behavior remains in `specs/`. Current E1/E2
-contracts are in [the DSL spec](../../specs/dsl.md), [state
-spec](../../specs/state.md), [versioning spec](../../specs/versioning.md), and
-[CLI contract](../../specs/cli.md); authoring guidance is in the [drafting
-guide](../lisp_workflow_drafting_guide.md#pinned-child-runs-and-trials).
-This document preserves the design rationale and original pre-implementation
-gates; its target-assignment language is not current admission guidance.
-Where this document conflicts with
-`workflow_lisp_program_search_boundaries.md`, the boundaries document wins.
-
-Copy safety: `.orc` fragments and record shapes here are design sketches, not
-copy-safe templates. Use the current specs and drafting guide for implemented
-syntax. The matrix identifies
+Copy safety: `.orc` fragments and record shapes here are design sketches. Use
+the specs and the [drafting guide](../lisp_workflow_drafting_guide.md) for
+implemented syntax.
 [`workflows/library/control/direct_task.orc`](../../workflows/library/control/direct_task.orc)
-as copy-safe for E0's bounded direct-control shape; E1/E2 have no checked-in
-production `.orc` template, and test fixtures are not authoring templates.
+is the copy-safe direct-control shape; there is no checked-in `.orc` template
+for `run-ref` or `trial`, and test fixtures are not authoring templates.
+
+Related: [pure-result replay](workflow_lisp_pure_result_replay.md) (trial
+state stays subordinate to it),
+[design principles](workflow_language_design_principles.md) 28–30.
 
 ## Provenance And Inputs
 
@@ -80,7 +37,7 @@ Three inputs, reconciled here:
    incremental compilation) are named dependencies on existing tracks rather
    than speculative work in this design. Generated-candidate execution remains
    governed without exception by invariant 6 below.
-2. **External thesis memo (2026-07-27, baseline `f29aab84`):** contributes the
+2. **External thesis memo (2026-07-27):** contributes the
    three-treatment experiment separation, the evaluation-methodology package
    (blinding, authority hierarchy, preregistration, ablations, stop rules),
    repository-identity normalization, gene-bounded mutation surfaces, and
@@ -679,7 +636,7 @@ Named dependencies on existing tracks; this design builds none of them.
   (`SubjectManifest`/`RewriteProposal`/`CertifiedVariant` registries). Git
   commits are the variant registry (content-addressed, diffable, admission =
   commit); the ordinary compiler is certification; diff-span policy checks
-  enforce gene bounds. Owner decision `8aeb2949` stands; this design is a
+  enforce gene bounds. The owner decision against that substrate stands; this design is a
   revival of the *direction* under the boundaries document, not of that
   substrate.
 - **Isolation/security implementation.** Not selected by this design.

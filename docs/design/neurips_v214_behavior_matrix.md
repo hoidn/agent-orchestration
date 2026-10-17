@@ -1,9 +1,11 @@
 # Minimal NeurIPS v2.14 Behavior Matrix
 
-## Status
+Status: Implemented in target 2.14
 
-This matrix records the Phase 0 oracle scenarios used to freeze current
-NeurIPS-style backlog-drain behavior before v2.14 semantics land.
+This matrix lists the oracle scenarios that pinned NeurIPS-style backlog-drain
+behavior before the 2.14 materialization and variant surfaces landed; the
+primitive scenarios run in `tests/test_v214_primitive_oracle.py`.
+[DSL](../../specs/dsl.md) owns the 2.14 behavior.
 
 ## Primitive Oracle Scenarios
 

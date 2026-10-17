@@ -1,24 +1,18 @@
 # Workflow Lisp Procedure-First Reuse Contract
 
-- **Status:** accepted
-- **Kind:** frontend architecture decision and migration contract
-- **Owner:** Workflow Lisp frontend specification
-- **Reviewers:** Stage 4 specification and quality review
-- **Created:** 2026-07-13
-- **Last material update:** 2026-07-13
-- **Related docs:**
-  - `docs/design/workflow_lisp_frontend_specification.md`
-  - `docs/design/workflow_lisp_parametric_type_system.md`
-  - `docs/design/workflow_lisp_proc_refs_partial_application.md`
-  - `docs/design/workflow_lisp_native_transportable_returns.md`
-  - `docs/design/workflow_lisp_effect_graph.md`
-  - `docs/design/workflow_lisp_state_layout.md`
-  - `docs/design/workflow_lisp_source_map.md`
-  - `docs/design/workflow_lisp_key_migration_parity_architecture.md`
-  - `docs/design/workflow_lisp_procedure_migration_identity_compatibility.md`
-  - `docs/plans/2026-07-13-procedure-first-stage4-design-and-planning.md`
-- **Implementation target:** independently reviewed substrate, pilot, and
-  migration-wave plans selected by the procedure-first roadmap
+Status: Partial
+
+Boundary roles of workflows and typed procedures, `:lowering` modes, resolved
+direct and transitive effects, and the rules for migrating workflows to
+procedures. The resolved-effect substrate and lowering modes are implemented;
+not every reusable effect adapter has been migrated to a procedure. The
+[frontend specification](workflow_lisp_frontend_specification.md) owns durable
+language semantics.
+
+Related: [parametric type system](workflow_lisp_parametric_type_system.md),
+[ProcRef and partial application](workflow_lisp_proc_refs_partial_application.md),
+[effect graph](workflow_lisp_effect_graph.md),
+[procedure-migration identity compatibility](workflow_lisp_procedure_migration_identity_compatibility.md).
 
 ## Summary
 

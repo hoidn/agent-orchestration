@@ -1,19 +1,16 @@
 # Workflow Lisp Strict Boolean Control Flow
 
-## Metadata
+Status: Implemented in target 2.26
 
-- **Status:** accepted; implemented at target DSL 2.26
-- **Kind:** feature and frontend architecture decision
-- **Owner:** repository owner
-- **Created:** 2026-08-14
-- **Last material update:** 2026-08-20
-- **Related:**
-  [`workflow_lisp_frontend_specification.md`](workflow_lisp_frontend_specification.md),
-  [`workflow_lisp_proof_graph.md`](workflow_lisp_proof_graph.md),
-  [`workflow_language_design_principles.md`](workflow_language_design_principles.md),
-  [`specs/versioning.md`](../../specs/versioning.md)
-- **Implementation target:** Workflow Lisp target DSL 2.26; state schema 2.1
-  and existing Semantic/Executable IR envelope versions remain unchanged
+`if` and `cond` accept any expression whose exact type is `Bool`; condition
+effects run left to right at most once, `and`/`or` short-circuit, and
+discriminant comparisons yield union proof. State schema 2.1 and the Semantic
+and Executable IR envelope versions are unchanged. Target admission is owned
+by [versioning](../../specs/versioning.md).
+
+Related: [frontend specification](workflow_lisp_frontend_specification.md),
+[proof graph](workflow_lisp_proof_graph.md),
+[design principles](workflow_language_design_principles.md).
 
 ## Summary
 

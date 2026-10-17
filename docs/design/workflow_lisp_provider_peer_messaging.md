@@ -1,27 +1,17 @@
 # Workflow Lisp Provider Peer Messaging
 
-- **Status:** implemented Stage-7 v1.1 contract for target DSL `2.17`
-- **Kind:** feature / recorded provider-to-provider messaging and static
-  provider-group composition
-- **Owner:** Workflow Lisp frontend + provider runtime
-- **Created:** 2026-07-24
-- **Review:** independent specification `DESIGN_SPEC_APPROVED`; ordered
-  quality `DESIGN_QUALITY_APPROVED` on 2026-07-24
-- **Execution plan:**
-  `docs/plans/2026-07-24-provider-peer-messaging-v1.1-implementation-plan.md`
-  (`PLAN_SPEC_APPROVED`, then `PLAN_QUALITY_APPROVED`)
-- **Implementation:** structural capability through real-provider proof landed
-  in `4f28ffde` through `b08c04a6`; every implementation task received
-  specification review followed by quality review
-- **Related design:**
-  - `docs/design/workflow_lisp_provider_live_binding.md`
-  - `docs/design/workflow_lisp_frontend_specification.md`
-  - `docs/design/workflow_lisp_executable_ir.md`
-  - `docs/design/workflow_lisp_provider_prompt_queue.md`
-  - `specs/providers.md`, `specs/io.md`, `specs/state.md`,
-    `specs/versioning.md`, and `specs/observability.md`
-- **Roadmap owner:** Stage 7 v1.1 in
-  `docs/plans/2026-07-09-procedure-first-roadmap-execution-sequence.md`
+Status: Implemented in target 2.17
+
+`with-live-provider-peers`: static groups of two to eight provider members with
+recorded turn-boundary peer messaging, lowered to `provider_peer_group.v1`.
+Normative behavior is owned by [providers](../../specs/providers.md),
+[IO](../../specs/io.md), [state](../../specs/state.md),
+[versioning](../../specs/versioning.md) and
+[observability](../../specs/observability.md).
+
+Related: [provider live binding](workflow_lisp_provider_live_binding.md),
+[executable IR](workflow_lisp_executable_ir.md),
+[frontend specification](workflow_lisp_frontend_specification.md).
 
 ## Summary
 
@@ -714,9 +704,7 @@ The implementation follows the reviewed sequence:
 7. Normative specs, authoring guidance, routing, broad comparison, and
    ordered independent reviews.
 
-The capability, adapter, contracts, protocol, coordinator, executable node,
-frontend, projections, deterministic integration, and real-provider gates
-landed in `4f28ffde` through `b08c04a6`. The focused evidence suites are:
+The focused evidence suites are:
 
 - `tests/test_provider_interactive_terminal.py`;
 - `tests/test_provider_peer_group_contracts.py`;

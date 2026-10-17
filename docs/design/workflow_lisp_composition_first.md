@@ -1,29 +1,22 @@
 # Workflow Lisp Composition-First Procedures
 
-- **Status:** generic unions and `std/improve` (§§3–6) are implemented at
-  target 2.33, with the effect behavior §7 describes for the period before
-  EL-1; the reference module is
-  [`std/improve.orc`](../../orchestrator/workflow_lisp/stdlib_modules/std/improve.orc)
-  and its rules and known defects are in §11. Not implemented: the EL-1 effect
-  rules that §7 adopts, and the §8 consumer migration. The roadmap owns their
-  entry conditions.
-- **Kind:** language and standard-library architecture decision
-- **Owner:** Workflow Lisp frontend (parametric type system) and standard library
-- **Created:** 2026-09-28
-- **Implementation target:** 2.33 for generic unions and `std/improve`
-  together; [versioning](../../specs/versioning.md) owns target admission
-- **Roadmap:** [CF-1](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#cf-1--composition-first-procedures-pending-unselected)
-  owns selection, ordering, entry conditions, and consequences. Effect
-  contracts remain owned by
-  [EL-1](../plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md#el-1--effect-contracts-and-analysis-cleanup-pending-unselected).
-- **Type-system delta:** [first-order generic unions](workflow_lisp_parametric_type_system.md#proposed-cf-1-first-order-generic-unions)
-  in the parametric type-system design; it owns application, argument
-  binding, constructor identity, and diagnostics.
-- **Evidence record:** the [design review](../reports/2026-09-28-workflow-lisp-composition-first-review.md)
-  and the [exhaustion projection check](../reports/2026-09-28-cf1a-exhaustion-projection-check.md).
-- **Notation:** signatures below are schematic. They use the `:forall`,
-  `:where`, `ProcRef[(A B) -> C]`, and `(variant ...)` spellings that exist
-  today, but they are not copy-safe `.orc` syntax.
+Status: Partial
+
+Reusable agent procedures compose as ordinary typed programs that return their
+computed value with a domain outcome. First-order generic unions and the
+value-returning `std/improve` helper (§§3–6) are implemented at target 2.33
+([reference module](../../orchestrator/workflow_lisp/stdlib_modules/std/improve.orc);
+rules and known defects in §11); target 2.36 selects a four-argument
+`std/improve` per [versioning](../../specs/versioning.md), which owns target
+admission; `improve` uses the current effect regime described in §7. Not
+implemented: the inference-default effect rules §7 takes from
+[effect-ledger simplification](workflow_lisp_effect_ledger_simplification.md),
+and the §8 consumer migration. The
+[parametric type system](workflow_lisp_parametric_type_system.md#proposed-cf-1-first-order-generic-unions)
+owns generic-union application, argument binding, constructor identity and
+diagnostics. Signatures below are schematic: they use real `:forall`,
+`:where`, `ProcRef[(A B) -> C]` and `(variant ...)` spellings but are not
+copy-safe `.orc`.
 
 ## 1. Decision
 
@@ -420,6 +413,6 @@ Labels are those of the totality matrix, or the case letters of the
 | Resume after an interrupted command in a later call or loop iteration | The interrupted ordinary command is rerun at its own call frame and recorded as a rerun; a `must_not_repeat` command refuses with its source location | `tests/test_workflow_resume_known_defects.py::test_interrupted_command_in_a_later_loop_iteration_runs_again`; `tests/test_workflow_resume_known_defects.py::test_interrupted_command_across_called_workflow_iterations_and_callsites_runs_again` |
 | Resume after an interrupted command whose nearest earlier effect is a provider group | New checkpoints let resume rerun the interrupted command without rerunning the provider group. `must_not_repeat` still refuses with a location. Older state without the provider-group checkpoint fails closed with `lexical_default_resume_prior_boundary_not_restorable`. | `tests/test_workflow_resume_known_defects.py::test_interrupted_command_after_a_provider_group_runs_again`; `tests/test_workflow_resume_known_defects.py::test_pre_repair_provider_group_state_refuses_at_the_interrupted_command` |
 | Resume after a failed or interrupted `run-ref` attempt | Resume reruns the child once, preserves the committed prior site, and records one `workflow_effect_rerun` row with `effect_kind: run_ref` | `tests/test_workflow_resume_known_defects.py::test_run_ref_rerun_diagnostic_preserves_committed_prior_site_and_command` |
-| Explicitly selecting `review_revise_design_docs::review-revise-design-docs` makes `--dry-run` exit 2 with `workflow_signature_mismatch` ("call is missing required binding `run`") and `entry_bootstrap_name_gate_denied`. Compilation without entry selection succeeds ([command](../../README.md#first-compile-check)) | The entry bootstrap accepts only entries named `entry`, `drain` or `promoted-entry-resume-plan-gate-wrapper` | No test yet |
+| Explicitly selecting `review_revise_design_docs::review-revise-design-docs` makes `--dry-run` exit 2 with `workflow_signature_mismatch` ("call is missing required binding `run`") and `entry_bootstrap_name_gate_denied`. Compilation without entry selection succeeds ([command](../lisp_workflow_drafting_guide.md#choosing-an-example)) | The entry bootstrap accepts only entries named `entry`, `drain` or `promoted-entry-resume-plan-gate-wrapper` | No test yet |
 | A fresh run is retried after a late refusal | The ordinary late-refusal retry is repaired. One strict-`xfail` case remains: after the fresh run is admitted, the watcher can continue following the old completed run ID. | `tests/test_watch_workflow_usage_limit.py::test_a_refusal_printed_after_two_polls_is_retried`; `tests/test_watch_workflow_usage_limit.py::test_a_late_refusal_of_a_fresh_run_retries_with_the_fresh_run_id` |
 | The generic run watchdog cannot resume a stalled target while the stalled process holds the target's workspace lock | One run at a time in a workspace (`specs/cli.md`) | No test of a stalled target |

@@ -1,22 +1,15 @@
 # Verified-Iteration Drain
 
-Status: implemented; Workflow Lisp production primary (does not replace the
-`lisp_frontend_*` drain family)
-Created: 2026-07-02
-Implementation plan: `docs/plans/2026-07-02-verified-iteration-drain.md`
+Status: Implemented in target 2.15
 
-The promoted authoring and launch surface is
+A single fused-session select/plan/implement/verify loop that treats the repo,
+git history and check exit codes as its only authority. Launch
 `workflows/library/verified_iteration_drain/drain.orc`, entry
-`verified_iteration_drain/drain::drain`. Its final typed parity report is
-`artifacts/work/YAML-RETIREMENT-TASK5/parity/verified-iteration-final/verified_iteration_drain.json`.
-The historical YAML twin was retired after its Stage 6 Task 6 reference and
-supported-run deletion gates passed.
-
-The sections below describe the implemented baseline. The
-[accepted history-input extension](#accepted-extension-prepare-selected-history-input)
-changes the canonical consumer in both execution routes; its implementation
-and verification remain pending in Phase 3 Tasks 13D/14. Historical parity
-evidence above does not verify that extension.
+`verified_iteration_drain/drain::drain`; it runs beside, not instead of, the
+`lisp_frontend_*` drain family, and the public evaluated fixture copies its
+source at target 2.35. The
+[prepare-selected history input](#accepted-extension-prepare-selected-history-input)
+applies to both routes. Its YAML twin is retired.
 
 ## Problem
 

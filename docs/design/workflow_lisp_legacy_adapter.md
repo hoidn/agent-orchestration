@@ -1,8 +1,13 @@
 # Workflow Lisp Legacy Adapter
 
-Status: draft internal design  
-Depends on: `docs/design/workflow_language_design_principles.md`,
-`docs/design/workflow_command_adapter_contract.md`
+Status: Partial
+
+A legacy adapter is a certified command adapter that quarantines old scripts,
+pointer conventions, markdown parsers and report-derived fields, with a
+compatibility-debt label and replacement path. The frontend enforces adapter
+fixtures (`legacy_adapter_missing_fixture`); the full metadata list below is
+design guidance. See the [command adapter contract](workflow_command_adapter_contract.md)
+and [design principles](workflow_language_design_principles.md).
 
 ## Purpose
 

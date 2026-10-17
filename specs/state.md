@@ -84,7 +84,7 @@ public execution.
 
 ## Dynamic fresh-run authority
 
-The branch-qualified target-3.0 profile routes exactly by
+The native target-3.0 profile routes exactly by
 `schema_version: "3.1"` and `result_persistence_profile: "dynamic_execution.v1"`
 before typed memo or legacy loading. Its immutable `run.json` pins the checked
 `closed_program.json`; mutable `state.json` is fresh progress/terminal authority,
@@ -282,9 +282,9 @@ read-only. This authority does not change typed memo/recovery or legacy schema
   - v2.10 fresh provider-session steps publish their runtime-owned session handle on that same `steps.<Step>.artifacts.<publish_artifact>` surface only after the exact visit's atomic state finalization succeeds.
   - v1.7 `set_scalar` / `increment_scalar` reuse that same `steps.<Step>.artifacts` surface for local produced scalar values; successful publication still advances `artifact_versions` only through `publishes.from`.
   - v1.8 cycle-guard failures use `error.type: "cycle_guard_exceeded"` with `outcome.phase: "pre_execution"` and `outcome.class: "pre_execution_failed"`.
-  - Tasks 1-5 of the DSL evolution roadmap were additive under schema `1.1.1`; v2.0 is the explicit stable-ID migration boundary.
-  - Resume from pre-v2.0 state is rejected unless a dedicated upgrader is introduced in a later tranche.
-  - v2.1 workflow signatures append `bound_inputs` / `workflow_outputs`; the later v2.5 reusable-call tranche moves the top-level schema to `2.1`.
+  - DSL versions v1.5 through v1.8 are additive under schema `1.1.1`; v2.0 is the explicit stable-ID migration boundary.
+  - Resume from pre-v2.0 state is rejected; no upgrader is provided.
+  - v2.1 workflow signatures append `bound_inputs` / `workflow_outputs`; v2.5 reusable calls move the top-level schema to `2.1`.
   - v2.2 structured `if/else` also reuses schema `2.0`; lowered branch markers/join metadata are additive `steps.*` payload fields rather than a new schema boundary.
   - v2.6 structured `match` also reuses schema `2.0`; lowered case markers/join metadata are additive `steps.*` payload fields rather than a new schema boundary.
   - v2.3 structured finalization also reuses schema `2.0`; finalization bookkeeping and lowered `finally.*` step entries are additive fields.
@@ -497,8 +497,8 @@ creates or asks a replacement question.
   call-frame, phased, supervision, peer-group, and adjudicated execution;
   nested state managers do not maintain competing counters.
 - Each allocation entry is a plain monotonic counter: its closed current form
-  contains the exact scope plus `last_allocated_ordinal`, and a Q3-bound scope
-  additionally retains its existing optional
+  contains the exact scope plus `last_allocated_ordinal`, and a scope bound to
+  target-2.22 prompt-attempt identity additionally retains its existing optional
   `prompt_fragment_identity_schema_version` authority. The current form never
   contains lifecycle events. One exclusive run-lifetime lock serializes all
   state writers for `run` or `resume`; inside it, an in-process lock increments
@@ -531,10 +531,9 @@ creates or asks a replacement question.
   discard-and-rerun applies only to a validated in-flight visit. Missing,
   malformed, ambiguous, foreign, or checksum-incompatible state still fails
   closed before any provider launch.
-- The Provider-Isolation Bundle-Transfer Journal section is not amended by this
-  contract pivot. Its transfer reconciliation and implementation remain
-  unchanged until the separately owner-gated ML-3 tranche; recovery may not
-  discard or bypass isolation-transfer authority.
+- The Provider-Isolation Bundle-Transfer Journal section is not amended by
+  at-least-once recovery. Its transfer reconciliation and implementation are
+  unchanged; recovery may not discard or bypass isolation-transfer authority.
 
 ## Workflow Lisp Prompt Fragment Attempt State And Resume
 
@@ -586,7 +585,7 @@ creates or asks a replacement question.
   returns the committed result without a second provider call. Identity or
   projected-contract drift is ordinary program drift. Runtime does not reopen
   the output file or reconstruct the v2 carrier from current source.
-- Target-2.20 Q1 applications retain exact v1 identity/carrier bytes,
+- Target-2.20 prompt applications retain exact v1 identity/carrier bytes,
   snapshot evidence, runtime behavior, and compatible completed result reuse.
   This additive contract does not change state schema `2.1` or create another
   result, artifact, checkpoint, snapshot, or recovery channel.
@@ -600,8 +599,8 @@ creates or asks a replacement question.
 - The root-owned counter-only provider-attempt allocation remains the sole
   ordinal authority. Each successfully prepared attempt writes one closed
   `workflow_prompt_fragment_snapshot.functional.v2` before launch. A provider
-  policy that cannot be prepared publishes the closed Q3 preparation-failure
-  record; failed publication leaves an ordinary allocation-only gap.
+  policy that cannot be prepared publishes the closed prompt-attempt
+  preparation-failure record; failed publication leaves an ordinary allocation-only gap.
 - The v2 snapshot retains and validates the complete v1 projection, then adds
   the five-role attempt identity with exact cross-field equality for final
   prompt, compiled fragment, document rows, shown groups, and injection.
@@ -610,10 +609,11 @@ creates or asks a replacement question.
 - Attempt identity records, role digests, comparisons, and `prompt_context`
   reports are non-authoritative. Compatible completed-result reuse uses the
   existing source, root, call-frame, bound-input, checkpoint,
-  result-contract, and completed-boundary guards without reading Q3 evidence.
+  result-contract, and completed-boundary guards without reading prompt-attempt
+  evidence.
   A pending or failed boundary allocates a fresh attempt and evidence record.
 - Target-2.20/2.21 state, checkpoints, functional-v1 evidence, and reuse stay
-  byte-compatible. Q3 does not change state schema `2.1`.
+  byte-compatible. Prompt-attempt identity does not change state schema `2.1`.
 
 ## Workflow Prompt-Attempt Result Binding State And Resume
 
@@ -621,7 +621,7 @@ creates or asks a replacement question.
   satisfies the complete ordinary identity-v1 eligibility predicate in
   `providers.md` carries one runtime-owned
   `StepResult.debug.prompt_attempt_result_binding`. The member is optional at
-  the state-schema level so ineligible and pre-Q4 results remain valid, but it
+  the state-schema level so ineligible and pre-binding results remain valid, but it
   is required for every newly executed eligible result. The closed locator has
   exactly these fields:
   - `schema_version`:
@@ -640,7 +640,7 @@ creates or asks a replacement question.
 - Runtime constructs the locator from the retained in-memory publication result
   only after the provider result and every
   prompt output-position and structured-result contract have passed the
-  unchanged state-atomic Q2 validation boundary in `io.md`, and after the
+  unchanged state-atomic output-position validation boundary in `io.md`, and after the
   evidence path and digest agree with the retained scope and successful attempt
   ordinal. It attaches the locator to that same result dictionary before the
   normal reached-state commit. Top-level, call-frame, and generated loop-step
@@ -654,7 +654,7 @@ creates or asks a replacement question.
   without preparing a provider or reopening evidence.
 - The locator is optional, non-authoritative debug state and does not
   participate in source, program, checkpoint, result-contract, or
-  completed-boundary compatibility. A compatible pre-Q4 completed result
+  completed-boundary compatibility. A compatible pre-binding completed result
   without it remains loadable and reusable. Its judgment view reports the
   association as unavailable; runtime and reporting never backfill the
   locator, select the last attempt, or make missing or damaged evidence
@@ -786,7 +786,7 @@ creates or asks a replacement question.
   `(arm, rep)` cell domain. Sequence numbers are contiguous and rows use a
   closed event grammar.
 - The ledger records only validated effect and public-boundary facts: each
-  cell allocation and disjoint trial-scoped E1 root/ledger; prepared E1
+  cell allocation and disjoint trial-scoped `run-ref` root/ledger; prepared `run-ref`
   settlement and committed-edge digests; completed or failed cell settlement;
   one sealed opaque-label map and digest; the frozen admitted evidence-set
   digest; deterministic check results; packet, scorer-attempt, and score
@@ -795,17 +795,17 @@ creates or asks a replacement question.
   elapsed-time, token, and cost counters. Missing facts remain absent rather
   than receiving default values.
 - The trial coordinator is the sole writer of the trial ledger, every
-  trial-scoped E1 ledger, and parent state. Workers may perform blocking child
+  trial-scoped `run-ref` ledger, and parent state. Workers may perform blocking child
   stages and emit immutable lifecycle events, but they cannot allocate
-  ordinals, append rows, settle a cell, write parent state, or finalize an E1
-  edge. Each child remains an ordinary E1 run with its own state root and
+  ordinals, append rows, settle a cell, write parent state, or finalize a `run-ref`
+  edge. Each child remains an ordinary `run-ref` child run with its own state root and
   run-lifetime writer lock.
-- Per-cell settlement has one order: allocate the cell and fresh E1 ordinal;
-  validate and acknowledge each E1 lifecycle event; receive the prepared E1
-  settlement; append the exact cell settlement bound to that pending E1 row;
-  then append the adjacent E1 `committed` transition. A cell settled before
+- Per-cell settlement has one order: allocate the cell and fresh `run-ref` ordinal;
+  validate and acknowledge each `run-ref` lifecycle event; receive the prepared `run-ref`
+  settlement; append the exact cell settlement bound to that pending `run-ref` row;
+  then append the adjacent `run-ref` `committed` transition. A cell settled before
   that adjacent transition is reconciled from the exact validated trial row
-  with zero launch. A child or E1 attempt that completed before cell settlement
+  with zero launch. A child or `run-ref` attempt that completed before cell settlement
   remains incomplete and non-authoritative: retain available incident facts,
   discard only its exact workspace, and rerun the cell with a fresh ordinal.
 - After every admitted cell is terminal, the coordinator appends the frozen
@@ -819,7 +819,7 @@ creates or asks a replacement question.
   final gap reconciles from the exact parent result and prepared row without
   launching a child, check, or evaluator again.
 - Resume validates the source/executable/projection, parent run/frame/visit,
-  `TrialStaticConfig`, runtime request, ordered cell domain, E1 roots and rows,
+  `TrialStaticConfig`, runtime request, ordered cell domain, `run-ref` roots and rows,
   sealed map, evidence freeze, check/score/verdict chain, result contract, and
   artifact digests before reuse. An exact settled cell is reused with no child
   launch. Missing, corrupt, ambiguous, escaping, cross-cell, or multiply bound
@@ -832,14 +832,14 @@ creates or asks a replacement question.
   The trial result is a durable effect/public-boundary fact; replay never
   recomputes or substitutes it from a report, packet, score summary, or
   verdict view.
-- M2's `derived_pure_replay.v1` boundary applies without exception. Pure
+- The `derived_pure_replay.v1` boundary applies without exception. Pure
   ordering, median and ranking, rendered packet views, and report projections
   are reconstructed transiently from validated durable facts. An eligible
   successful compiler-generated pure projection persists the exact value-free
   completion shell and no value-bearing row, bundle, private lineage value, or
   pure checkpoint. Trial state creates no second derived-value cache, no
   effect-identity memo key, no memo-first path, no cross-run memo, and no
-  persisted optimizer state. Failed/skipped pure rows, E1 effects, checks,
+  persisted optimizer state. Failed/skipped pure rows, `run-ref` effects, checks,
   evaluator attempts, scores, the verdict artifact, and the outer trial
   settlement keep their owning durable contracts.
 
@@ -1044,7 +1044,7 @@ creates or asks a replacement question.
   - `since_last_consume` freshness inside a call frame is therefore enforced against the callee-private ledgers persisted under that frame.
 
 - Resume boundary
-  - Because call frames add new durable lineage and resume keys, resume from pre-`schema_version: "2.1"` state is rejected unless a tested upgrader ships with the same tranche.
+  - Because call frames add new durable lineage and resume keys, resume from pre-`schema_version: "2.1"` state is rejected; no tested upgrader is provided.
 
 ## State File Schema (example)
 
@@ -1188,7 +1188,7 @@ Checksum-compatible resume projection integrity:
   - Projection-integrity diagnostics use `error.type: "resume_projection_integrity_error"`, a stable bounded `error.message`, and a stable bounded context. `diagnostic_schema` is exactly `"resume_projection_integrity_error.v1"`. `reason` is exactly one of `unknown_explicit_step_id`, `presentation_slot_mismatch`, `out_of_scope_step_id`, `unclaimed_explicit_step_row`, `missing_required_identity`, `missing_call_boundary`, `ambiguous_call_boundary`, `ambiguous_resumable_call_frame`, `persisted_import_alias_mismatch`, `missing_imported_bundle`, `unsupported_shape`, or `invalid_loop_progress`.
   - The context always includes ordered identity-only `scope_path`, `field`, `offending_value` (JSON `null` when absent), `expected_owner` with exactly `workflow_file`, `workflow_checksum`, and `projection_scope`, `candidate_count` (integer or JSON `null`), and `call_boundary_step_id` (string or JSON `null`). These fields are present rather than omitted.
   - Diagnostics do not expose bound inputs, context values, artifacts, prompts, provider output, secrets, whole frame state, or whole projections.
-  - This contract is additive under state schema `2.1`. Pre-v2.0 state and pre-`schema_version: "2.1"` reusable-call state remain rejected unless a tested atomic upgrader ships with the same tranche.
+  - This contract is additive under state schema `2.1`. Pre-v2.0 state and pre-`schema_version: "2.1"` reusable-call state remain rejected; no tested atomic upgrader is provided.
   - Resume projection integrity does not read, require, or interpret procedure-migration, identity-retirement, or other migration evidence, and it does not select behavior by workflow/module/procedure name, basename, family, or persisted alias.
 
 Workflow Lisp lexical-checkpoint default resume:

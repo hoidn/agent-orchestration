@@ -1,53 +1,19 @@
 # Workflow Lisp Procedure-Migration Identity Compatibility
 
-- **Status:** accepted durable compatibility contract; generic runtime
-  prerequisites remain implemented, while the served-purpose retirement
-  generator and exactly one reviewed internal pilot are historical after M1
-- **Kind:** migration architecture decision and compatibility clarification
-- **Owner:** Workflow Lisp frontend and runtime-state owners
-- **Reviewers:** procedure-first specification review, runtime-state review, and
-  the owner of each known state store named by a retirement record
-- **Created:** 2026-07-13
-- **Last material update:** 2026-07-30
-- **Related docs / plans:**
-  - `docs/design/workflow_lisp_procedure_first_reuse_contract.md`
-  - `docs/design/workflow_lisp_state_layout.md`
-  - `docs/design/workflow_lisp_source_map.md`
-  - `docs/design/workflow_language_design_principles.md`
-  - `docs/plans/2026-07-13-procedure-migration-identity-compatibility-plan.md`
-  - `docs/plans/2026-07-14-procedure-identity-store-match-scoped-counts-plan.md`
-  - `docs/plans/2026-07-13-procedure-first-pilot-plan.md`
-  - `docs/design/resume_projection_integrity_hardening.md`
-  - `docs/plans/2026-07-13-resume-projection-integrity-hardening-design-plan.md`
-  - `docs/plans/2026-07-13-resume-projection-integrity-hardening-implementation-plan.md`
-  - `docs/plans/2026-07-13-procedure-first-migration-waves-plan.md`
-  - `specs/state.md`
-- **Implementation dependency:** satisfied at `fdf1e06b`; the accepted resume
-  projection-integrity design and its reviewed implementation plan define the
-  separate runtime hardening gate. The migration-wave plan completed as
-  historical execution evidence after its Task 1 rebaseline at `4983afff`
-  plus correction `fa16bcf0`.
+Status: Partial
 
-Acceptance establishes the compatibility contract and reviewed implementation
-sequence. Generic prerequisite Tasks 1-8 completed at handoff `f5adcb79`. The
-tracked-plan pilot then completed through `0769e837`, with exactly two
-completed dedicated runs and holistic specification/quality approval. This is
-not a general cross-source resume/compatibility, family-wave, promotion, or
-YAML-retirement claim. The separate generic projection-integrity hardening
-completed later at `fdf1e06b`; it satisfies a production-wave prerequisite but
-does not broaden the pilot's claim.
-Live roadmap selection is owned by the active roadmap tracks, not this durable
-compatibility design or the completed numbered execution sequence.
+Identity-compatibility rules for workflow-to-procedure migrations: strict
+compatibility, plus a narrow evidence-only internal identity retirement. The
+strict root/callee checksum rules and projection-integrity hardening are
+current runtime behavior, owned by [state](../../specs/state.md). The
+retirement record generator and scanner specified in later sections were
+removed after one internal pilot; those sections are not commands, and a new
+identity retirement would need its own implementation.
 
-M1 later removed the served-purpose retirement record/scanner implementation
-and its dedicated tests and fixtures. Sections below that specify its record,
-scan, and validation contract describe the historically executed pilot
-machinery; they are not commands or a selectable implementation in the current
-checkout. The frozen pilot and YAML-retirement evidence plus Git history remain
-the audit route. The strict root/callee checksum rules and generic
-projection-integrity hardening remain current runtime behavior. A future
-identity retirement would therefore need its own reviewed implementation
-authority rather than assuming the historical generator still exists.
+Related: [procedure-first reuse contract](workflow_lisp_procedure_first_reuse_contract.md),
+[state layout](workflow_lisp_state_layout.md),
+[source map](workflow_lisp_source_map.md),
+[resume projection integrity hardening](resume_projection_integrity_hardening.md).
 
 ## Summary
 
@@ -77,10 +43,8 @@ The four generic prerequisites are implemented: lowering mode is resolved once
 and carried by Stage 3; inline checkpoint policy is caller-owned; persisted
 source maps connect generated steps to both procedure definition and consuming
 call site; and stable retirement evidence plus fail-closed checksum negative
-proof exist. The tracked-plan pilot used the reviewed retirement class only
-after the prerequisite final reviews and pre-edit store/owner gate passed; its
-evidence landed at `63e03330`, `e6a85cb7`, `de522c76`, `f5dbac88`, `76205d4f`,
-and `0769e837`. No
+proof exist. One internal tracked-plan pilot used the reviewed retirement
+class after its pre-edit store/owner gate passed. No
 prerequisite or compatibility decision may be keyed to this pilot's family,
 module, procedure, workflow, provider, or step names.
 
@@ -148,18 +112,17 @@ the tension with an unconditional stop whenever a persisted checkpoint
 identifier could not be preserved exactly. That pre-acceptance rule correctly
 protected public, live, and promoted identities, but it did not yet express the
 narrow reviewed-internal retirement class for an evidence-only callee with no
-supported old-state consumer. Acceptance commit `61c79cb4` has since landed the
-strict-default/retirement-exception qualification in the reuse contract. The
-prerequisites and first reviewed pilot are now complete; generalization remains
-separately gated.
+supported old-state consumer. The reuse contract now states the strict default
+with this retirement exception; a new identity retirement needs its own
+implementation.
 
 The pilot exposed generic compiler/runtime defects that could not be accepted
 as migration differences. The module-level lowering-mode, inline checkpoint,
 and WCC procedure/call-site provenance defects were corrected before the pilot.
 At pilot closeout, resume planning still did not audit every explicit persisted
 completed-step and call-frame caller identity against the current state
-projection. That gap remained outside the pilot and was subsequently closed by
-the separate generic hardening implementation at `fdf1e06b`.
+projection. That gap remained outside the pilot and is closed by the separate
+generic resume projection integrity hardening.
 
 ## Goals And Non-Goals
 
@@ -201,9 +164,8 @@ An external store that was not enumerated remains **unknown**, not absent.
 
 ### Accepted procedure-first contract amendment
 
-Acceptance commit `61c79cb4` amended
-`workflow_lisp_procedure_first_reuse_contract.md` to the following governing
-rule:
+`workflow_lisp_procedure_first_reuse_contract.md` states the following
+governing rule:
 
 > A procedure-first migration is strict-compatible by default. If it cannot
 > preserve a persisted identity exactly, it must stop unless a separately
@@ -331,8 +293,7 @@ Review discovered a broader integrity gap on checksum-compatible resumes:
 explicit completed-step and call-frame caller identities were not exhaustively
 audited against their scoped current projections. This was not required for the
 internal pilot because changed source is rejected earlier by the root checksum
-guard. The gap was routed to the named hardening design and implementation plan
-and completed at `fdf1e06b` before production migration waves.
+guard. The separate resume projection integrity hardening closes this gap.
 
 That follow-up's goal is to audit explicit completed/call-frame identities on
 checksum-compatible resumes using the applicable scoped projection: retained
@@ -490,9 +451,8 @@ retained and no supported resume/consumer contract is claimed.
 
 ## Dependencies And Sequencing
 
-1. Treat acceptance of this clarification and the procedure-first contract
-   amendment as a completed historical prerequisite from commit `61c79cb4`;
-   do not re-amend either accepted authority during implementation.
+1. Treat this clarification and the procedure-first contract amendment as
+   settled; do not re-amend either during implementation.
 2. Implement prerequisite A and prove normalized semantic identity stability
    on generic fixtures and both lowering routes.
 3. Implement B and C; prove policy ownership and persisted two-note provenance
@@ -694,36 +654,13 @@ Stop and revise this design if:
 
 ## Documentation And Normative Impact
 
-The following acceptance-level changes already landed in commit `61c79cb4`:
-
-- this design became accepted without claiming its prerequisites implemented;
-- `docs/design/workflow_lisp_procedure_first_reuse_contract.md` gained the
-  strict-default/reviewed-internal-retirement qualification and the same
-  qualification on Migration Test item 6; and
-- the frontend specification gained the concise compatibility qualification
-  and link, while routing/status surfaces selected the prerequisite plan and
-  paused the pilot.
-
 With the generic prerequisites and one pilot implemented, the contract references
 describe the observed behavior: `specs/state.md` and `specs/acceptance/index.md`
 own the distinct root/callee checksum and future-upgrader rules;
 `docs/design/workflow_lisp_source_map.md` owns WCC propagation of the existing
 procedure-definition and consuming-call-site notes without a schema change;
 and the pilot plan owns the detailed pre-edit store/owner and retirement-record
-production gates. The recorded Task 8 approval and pilot evidence, rather than
-these references alone, authorized the completed source edit.
-
-The capability matrix, authoring guide, route-readiness registry, and other
-implementation-status surfaces remain gated on their own required evidence.
-
-The separate projection-integrity audit was routed into its named follow-on
-design and implementation plan and completed at `fdf1e06b` before production
-migration waves. It was not a pilot prerequisite or a normative impact of this
-design. Its capability and routing status changed only after focused acceptance
-evidence, deterministic public smoke, broad baseline equivalence, and final
-independent reviews passed. The completed
-`docs/plans/2026-07-13-procedure-first-migration-waves-plan.md` is historical
-execution evidence; current selection belongs to the active roadmap tracks.
+production gates.
 
 ## Open Questions
 

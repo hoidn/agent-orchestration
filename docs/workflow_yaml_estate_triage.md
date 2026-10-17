@@ -1,5 +1,7 @@
 # YAML Workflow Estate Triage
 
+Historical record of the retired YAML frontend; for current authoring, use the [Workflow Lisp drafting guide](lisp_workflow_drafting_guide.md).
+
 Frozen human projection of `docs/plans/2026-07-13-procedure-first-reuse-inventory.json` → `yaml_retirement_handoff`. The handoff remains capture authority; Task 6's separately checked execution index and live projection will own deletion progress.
 
 Capture commit: `56a832bffc11ea4572eae3e6285690a74db7d990`.  Normalized estate-path digest: `sha256:ca994efbfba9c69836821b99239b7fb9d90656979701c3d679cdcb5b519fe2b5`.

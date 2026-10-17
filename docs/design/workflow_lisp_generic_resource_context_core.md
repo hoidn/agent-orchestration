@@ -1,39 +1,15 @@
 # Workflow Lisp Generic Resource And Context Core
 
-Status: incorporated historical direction (historical implementation target:
-`docs/design/workflow_lisp_generic_core_expression_surface_adapter_retirement.md`)
-Kind: architecture decision / simplification target
-Created: 2026-06-09
-Scope: Workflow Lisp private context, resource state, typed transitions, and
-the runtime/library boundary for post-foundation composition work.
+Status: Implemented
 
-Authority:
-
-- Current semantics live in `docs/design/workflow_lisp_frontend_specification.md`
-  and its component contracts. Use `docs/capability_status_matrix.md` for
-  availability; this decision record does not select new migration work.
-
-- Normative runtime and DSL behavior remains in `specs/`.
-- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
-  records the historical post-foundation migration sequence.
-- `docs/design/workflow_lisp_state_layout.md` owns generated path and state
-  layout principles.
-- `docs/design/workflow_command_adapter_contract.md` owns adapter
-  certification and hidden glue policy.
-- This document narrows the post-foundation context/resource target. It does
-  not by itself add runtime primitives or promote any `.orc` workflow.
-
-Related docs:
-
-- `docs/design/workflow_lisp_post_foundation_composition_stdlib_migration.md`
-- `docs/design/workflow_lisp_runtime_migration_foundation.md`
-- `docs/design/workflow_lisp_state_layout.md`
-- `docs/design/workflow_language_design_principles.md`
-- `docs/design/workflow_command_adapter_contract.md`
-- `docs/reports/2026-06-09-design-delta-drain-orc-migration-frontend-runtime-findings.md`
-- `docs/lisp_workflow_drafting_guide.md`
-- `specs/state.md`
-- `specs/dsl.md`
+The runtime owns a small generic core (`RunCtx`, `Resource<TState>`,
+`Transition<TRequest, TResult>`); phase, item, drain, selection and recovery
+contexts are Workflow Lisp library records on top of it (see `std/context` and
+`std/drain`). The [frontend specification](workflow_lisp_frontend_specification.md)
+owns the current semantics and [`specs/`](../../specs/index.md) own runtime
+behavior; the [generic-core design](workflow_lisp_generic_core_expression_surface_adapter_retirement.md)
+was its implementation target. See also [state layout](workflow_lisp_state_layout.md)
+and the [command adapter contract](workflow_command_adapter_contract.md).
 
 ## 1. Purpose
 

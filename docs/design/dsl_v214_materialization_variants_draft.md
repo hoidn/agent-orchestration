@@ -1,9 +1,12 @@
 # DSL v2.14 Materialization And Variant Draft
 
-## Status
+Status: Implemented in target 2.14
 
-This is a Phase 0 characterization reference. It is non-normative and does not
-advertise public `version: "2.14"` support.
+This note maps the pre-2.14 command/provider patterns to the 2.14
+`materialize_artifacts`, `pre_snapshot`, `variant_output` and
+`select_variant_output` surfaces, and lists the characterization tests written
+before those surfaces existed. [DSL](../../specs/dsl.md) owns their normative
+behavior.
 
 ## Current Brittle Patterns To Freeze
 
