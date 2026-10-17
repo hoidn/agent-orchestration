@@ -76,5 +76,14 @@ Rehearsal on a disposable worktree at `74fae634` with the target's byte-verified
 (21 dirty docs, one untracked plan): `git stash push --include-untracked`
 (OID `d9a48898`), `git merge --ff-only` to `51ec4905`, `git stash apply --index`: no
 conflicts; the overlay's `specs/providers.md` and `workflow_lisp_dynamic_core_proposal.md`
-hunks do not overlap the ported ones. Target integration: pending the full campaign and the
-integrated review; recorded below when performed.
+hunks do not overlap the ported ones. The rehearsal was rebuilt on the final tip
+(`34f5cbcf`, stash `cedb9192`) with the same result and a 12-test public smoke.
+
+Target integration, performed as rehearsed on 2026-10-17: the target at `74fae634` with its
+21 dirty docs and one untracked plan was stashed as
+`dynamic-shared-port-original-preserved-20261017` (OID `5f029dad`), fast-forwarded to
+`34f5cbcf`, and the stash re-applied with `--index`. Verified: HEAD equals the integration
+tip; status, every dirty file's bytes and the overlay patch equal the rehearsal; original
+main's HEAD, index and worktree are unchanged. The stash and backups are kept; nothing was
+reset, cleaned or pushed. This paragraph lands through one further docs-only fast-forward,
+which needs no stash because the report is not among the target's dirty files.
