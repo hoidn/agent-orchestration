@@ -168,13 +168,13 @@ Starts only after Task 2 has committed (shared files).
   coordinator inspects `git diff --check`, `git diff --stat 74fae634..HEAD` and receipts.
 
 ### Task 6: Report, rehearse, then fast-forward the target
-- [ ] Write `docs/reports/2026-10-17-dynamic-shared-upstream-port.md` (pins,
+- [x] Write `docs/reports/2026-10-17-dynamic-shared-upstream-port.md` (pins,
   final hash, receipts, attributed failures, deferred scope) and tick this plan;
   commit both before integration.
-- [ ] Refresh the target snapshot (status, overlay patch, untracked bytes, modes)
+- [x] Refresh the target snapshot (status, overlay patch, untracked bytes, modes)
   and compare with `target-overlay-20261017.patch`; if the owner changed files,
   use the newer state. Verify main's HEAD/index/worktree inventory for later comparison.
-- [ ] Disposable rehearsal worktree at target HEAD `74fae634`; restore the overlay
+- [x] Disposable rehearsal worktree at target HEAD `74fae634`; restore the overlay
   and untracked plan; verify byte equality with the target. Rehearse
   `git stash push --include-untracked -m dynamic-shared-port-rehearsal` (record
   the OID), `git merge --ff-only integrate/dynamic-shared-port-20261017`,
@@ -183,7 +183,7 @@ Starts only after Task 2 has committed (shared files).
   by a reviewed patch; verify the result against both inputs; run
   `git diff --check`, the doc link check (`python scripts/check_doc_links.py`
   on changed docs if present) and the Task 4 public smoke on the rehearsed tree.
-- [ ] Recheck the target is unchanged since the refreshed snapshot, then perform
+- [x] Recheck the target is unchanged since the refreshed snapshot, then perform
   the rehearsed sequence there with a named stash (`dynamic-shared-port-original-preserved-20261017`,
   OID recorded). Verify target HEAD equals the integration tip and the
   content/status manifest equals the rehearsal; verify main unchanged. If index
