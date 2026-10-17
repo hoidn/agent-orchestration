@@ -14,9 +14,9 @@ from orchestrator.workflow.evaluated.closure_evidence import validate_implementa
 
 _RECORDS = {"started", "committed", "failed", "suspended", "settled", "invalidated", "terminal"}
 
-_CLASSES = {"command", "provider", "run_ref", "agent", "agent_turn"}
+_CLASSES = {"command", "provider", "provider_phased", "run_ref", "agent", "agent_turn"}
 
-COORDINATOR_CLASSES = frozenset({"run_ref", "agent_turn"})
+COORDINATOR_CLASSES = frozenset({"run_ref", "agent_turn", "provider_phased"})
 
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 
@@ -228,6 +228,8 @@ class _Reducer:
         expected = self.next_ordinal.get(identity, 1)
         if attempt != expected or identity in self.active:
             raise _inconsistent("started attempt ordinal is not the next available ordinal")
+        if any(item.data["effect_class"] == "provider_phased" for item in self.unsettled.values()):
+            raise _inconsistent("phased coordinator must settle before another effect starts")
         agents.check_started(self, identity, kind)
         if self.terminal is not None and self.terminal.data.get("outcome") != "failed":
             raise _inconsistent("a completed terminal cannot be reopened by started")
@@ -272,6 +274,9 @@ class _Reducer:
         if expected_class == "run_ref":
             self._run_ref_proof(row.get("proof"), identity)
             self.unsettled[(identity, attempt)] = entry
+        elif expected_class == "provider_phased":
+            self._phased_proof(row)
+            self.unsettled[(identity, attempt)] = entry
         elif expected_class == "agent_turn":
             agents.check_committed_proof(self, row, identity)
             self.unsettled[(identity, attempt)] = entry
@@ -281,6 +286,22 @@ class _Reducer:
             raise _inconsistent("effect identity already has an active commit")
         self.active[identity] = entry
         self.pending.pop(identity)
+
+    def _phased_proof(self, row):
+        try:
+            from .phased_providers import validate_phased_commit_proof
+            from orchestrator.workflow.run_ref.contracts import canonical_sha256
+            if row["result_digest"] != canonical_sha256(row["value"]):
+                raise ValueError("phased value digest differs from committed result")
+            prompt = row["input_parts"].get("prompt")
+            if prompt is None:
+                raise ValueError("phased canonical prompt digest missing")
+            validate_phased_commit_proof(row.get("proof"), identity=row["identity"],
+                attempt=row["attempt"], input_digest=row["input_digest"],
+                result_path=row["result_path"], result_digest=row["result_digest"],
+                canonical_prompt_sha256=prompt)
+        except (TypeError, ValueError, OSError) as exc:
+            raise _inconsistent(f"invalid phased coordinator proof: {exc}") from exc
 
     def _same_input(self, started: dict[str, Any], committed: dict[str, Any]) -> None:
         fields = ("input_digest", "input_parts", "implementation_files", "result_path")
@@ -296,6 +317,9 @@ class _Reducer:
             self.site_class(dependency)
             if dependency not in self.active:
                 raise _inconsistent("depends_on names an effect without an active commit")
+            if any(key[0] == dependency and entry.data["effect_class"] == "provider_phased"
+                    for key, entry in self.unsettled.items()):
+                raise _inconsistent("dependency names an unsettled phased coordinator")
 
     def _run_ref_proof(self, value: Any, identity: str) -> None:
         proof = _object(value, "coordinator proof")

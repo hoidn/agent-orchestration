@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import math
 from pathlib import Path, PurePosixPath
 import re
 from typing import Mapping, Protocol
@@ -760,19 +761,6 @@ class FrozenCandidateVerification:
 
 
 @dataclass(frozen=True, slots=True)
-class AtomicSuccessCommitReceipt:
-    evidence_sha256: str
-    frozen_sha256: str
-    status: str
-
-    def __post_init__(self) -> None:
-        _digest(self.evidence_sha256, field="evidence_sha256")
-        _digest(self.frozen_sha256, field="frozen_sha256")
-        if self.status != "authoritative_state_committed":
-            raise ValueError("atomic success commit status is invalid")
-
-
-@dataclass(frozen=True, slots=True)
 class PreparedSuccessCommit:
     allocation: AttemptAllocation
     output: OutputPositionValidation
@@ -815,54 +803,6 @@ class SerializedAttemptEvent:
 
 
 @dataclass(frozen=True, slots=True)
-class PhasedProviderAttemptSuccess:
-    allocation: AttemptAllocation
-    lifecycle: PhasedLifecycleState
-    submission_ordinal: int
-    actual_deliveries: tuple[RenderedProtocolTurn, ...]
-    frozen: FrozenCandidate
-    evidence: FunctionalEvidencePublication
-    commit: AtomicSuccessCommitReceipt
-
-    def __post_init__(self) -> None:
-        if type(self.allocation) is not AttemptAllocation:
-            raise TypeError("allocation must be exact")
-        if (
-            type(self.lifecycle) is not PhasedLifecycleState
-            or self.lifecycle.phase != "PUBLISHED"
-        ):
-            raise TypeError("lifecycle must be an exact published state")
-        _positive(self.submission_ordinal, field="submission_ordinal")
-        deliveries_sha256 = _deliveries_sha256(self.actual_deliveries)
-        final_submission = _validate_delivery_grammar(
-            self.actual_deliveries
-        )
-        if type(self.frozen) is not FrozenCandidate:
-            raise TypeError("frozen must be exact")
-        if (
-            self.submission_ordinal != self.frozen.manifest.submission_ordinal
-            or self.submission_ordinal != final_submission
-        ):
-            raise ValueError(
-                "submission ordinal must bind frozen and final delivery"
-            )
-        if (
-            type(self.evidence) is not FunctionalEvidencePublication
-            or self.evidence.frozen_sha256 != self.frozen.frozen_sha256
-            or self.evidence.actual_deliveries_sha256 != deliveries_sha256
-        ):
-            raise ValueError(
-                "evidence must bind the frozen candidate and deliveries"
-            )
-        if (
-            type(self.commit) is not AtomicSuccessCommitReceipt
-            or self.commit.evidence_sha256 != self.evidence.evidence_sha256
-            or self.commit.frozen_sha256 != self.frozen.frozen_sha256
-        ):
-            raise ValueError("commit must bind the evidence and frozen candidate")
-
-
-@dataclass(frozen=True, slots=True)
 class PhasedNaturalShutdownEvidence:
     disposition: str
     return_code: int
@@ -888,6 +828,57 @@ class PhasedNaturalShutdownEvidence:
             "server_absent": self.server_absent,
             "proof_complete": self.proof_complete,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class PhasedProviderAttemptPrepared:
+    prepared: PreparedSuccessCommit
+    lifecycle: PhasedLifecycleState
+    submission_ordinal: int
+    actual_deliveries: tuple[RenderedProtocolTurn, ...]
+    natural_shutdown: PhasedNaturalShutdownEvidence
+    deadline: float
+
+    def __post_init__(self) -> None:
+        if type(self.prepared) is not PreparedSuccessCommit:
+            raise TypeError("prepared must be exact")
+        if (
+            type(self.lifecycle) is not PhasedLifecycleState
+            or self.lifecycle.phase != "JOINED_PENDING_COMMIT"
+        ):
+            raise TypeError("lifecycle must be joined and pending commit")
+        _positive(self.submission_ordinal, field="submission_ordinal")
+        final_submission = _validate_delivery_grammar(
+            self.actual_deliveries
+        )
+        frozen = self.prepared.frozen
+        if (
+            self.submission_ordinal != frozen.manifest.submission_ordinal
+            or self.submission_ordinal != final_submission
+        ):
+            raise ValueError(
+                "submission ordinal must bind frozen and final delivery"
+            )
+        if (
+            self.prepared.output.snapshot_sha256 != frozen.snapshot_sha256
+            or not self.prepared.output.valid
+            or self.prepared.structured.snapshot_sha256
+            != frozen.snapshot_sha256
+            or self.prepared.structured.result is None
+            or self.prepared.verification.frozen_sha256
+            != frozen.frozen_sha256
+        ):
+            raise ValueError("prepared values do not bind the frozen candidate")
+        if (
+            self.prepared.evidence.frozen_sha256 != frozen.frozen_sha256
+            or self.prepared.evidence.actual_deliveries_sha256
+            != _deliveries_sha256(self.actual_deliveries)
+        ):
+            raise ValueError("prepared evidence does not bind this delivery")
+        if type(self.natural_shutdown) is not PhasedNaturalShutdownEvidence:
+            raise TypeError("natural shutdown evidence must be exact")
+        if type(self.deadline) is not float or not math.isfinite(self.deadline):
+            raise TypeError("deadline must be a finite float")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1180,13 +1171,6 @@ class PhasedProviderAttemptCoordinatorBindings(Protocol):
         verification: FrozenCandidateVerification,
     ) -> PreparedSuccessCommit: ...
 
-    def atomic_success_commit(
-        self,
-        prepared: PreparedSuccessCommit,
-        *,
-        deadline: float,
-    ) -> AtomicSuccessCommitReceipt: ...
-
     def finalize_failure(
         self,
         first_diagnostic: PhasedDeliveryDiagnostic,
@@ -1195,7 +1179,6 @@ class PhasedProviderAttemptCoordinatorBindings(Protocol):
 
 
 __all__ = [
-    "AtomicSuccessCommitReceipt",
     "AttemptAllocation",
     "AttemptComposition",
     "CandidatePathBinding",
@@ -1212,7 +1195,7 @@ __all__ = [
     "PhasedOperationFailure",
     "PhasedNaturalShutdownEvidence",
     "PhasedProviderAttemptFailure",
-    "PhasedProviderAttemptSuccess",
+    "PhasedProviderAttemptPrepared",
     "PreparedSuccessCommit",
     "SerializedAttemptEvent",
     "PhasedProviderAttemptCoordinatorBindings",

@@ -135,7 +135,8 @@ def test_payload_walks_runtime_values_and_preserves_static_guidance(kind):
     payload = ({"adapter_inputs": (("input", block),), "return_spec": guidance,
         "argv_transport": [{"kind": "template", "parts": [{"kind": "slot", "value": argument}]}]}
         if kind == "command_result" else {"return_spec": guidance, "model": argument,
-            "prompt_application": {"template": "", "fills": ({"value": block},)}})
+            "prompt_application": {"template": "", "fills": ({"value": block},)},
+            **({"materialization_attempts": argument} if kind == "provider_result" else {})})
     perform = WccPerform(metadata=metadata, perform_kind=kind, target_name="target", prompt_name=None,
         positional_args=(), keyword_args=(), returns_type_name="Int", operation_payload=payload)
     assert [node for node, _ in _wcc_call_nodes(perform)] == [call]

@@ -7,8 +7,9 @@ An `agent` perform's result descriptor object is recorded by identity, so an
 alias; the checker's environment carries the same descriptor object) must list
 that perform's provider among its `origins`; any other operand (parameter, field,
 `select` result, join) must list every allocation provider in the tree
-(`agent_origin_mismatch`). No `par-map` worker may reach an agent effect through
-any call edge (`parallel_agent_boundary`).
+(`agent_origin_mismatch`). No `par-map` worker may reach an agent or phased
+provider effect through any call edge (`parallel_agent_boundary` or
+`parallel_provider_boundary`).
 """
 
 from __future__ import annotations
@@ -91,10 +92,13 @@ def _tree_nodes(tree):
         yield from _ast_nodes(body)
 
 
-def find_parallel_agent(tree) -> tuple[Mapping[str, Any], Mapping[str, Any]] | None:
-    """The first `par-map` whose worker reaches an agent effect, with that effect.
+def find_parallel_effect(
+    tree, effect_classes: set[str] | frozenset[str]
+) -> tuple[Mapping[str, Any], Mapping[str, Any]] | None:
+    """Find the first parallel worker that reaches one of these effect classes.
 
-    Calls are followed through `tree["definitions"]` transitively (memoised).
+    Calls are followed through `tree["definitions"]` transitively (memoised),
+    including imported and specialized definitions already present in the tree.
     """
 
     definitions = tree["definitions"]
@@ -102,7 +106,7 @@ def find_parallel_agent(tree) -> tuple[Mapping[str, Any], Mapping[str, Any]] | N
 
     def reach(body):
         for node in _ast_nodes(body):
-            if node.get("k") == "perform" and node.get("class") in {"agent", "agent_turn"}:
+            if node.get("k") == "perform" and node.get("class") in effect_classes:
                 return node
             if node.get("k") == "call" and node.get("callee") in definitions:
                 callee = node["callee"]
@@ -119,12 +123,22 @@ def find_parallel_agent(tree) -> tuple[Mapping[str, Any], Mapping[str, Any]] | N
     return None
 
 
-def check_parallel_agents(checker) -> None:
-    """Backstop: no agent may be allocated or turned inside a parallel worker."""
+def check_parallel_effects(checker) -> None:
+    """Backstop: agent and phased provider effects cannot run in parallel workers."""
 
-    found = find_parallel_agent(checker.tree)
+    found = find_parallel_effect(checker.tree, {"agent", "agent_turn", "provider_phased"})
     if found is not None:
-        checker.fail("parallel_agent_boundary", "a parallel worker reaches an agent effect", found[0])
+        rule = (
+            "parallel_provider_boundary"
+            if found[1].get("class") == "provider_phased"
+            else "parallel_agent_boundary"
+        )
+        message = (
+            "a parallel worker reaches a phased provider effect"
+            if rule == "parallel_provider_boundary"
+            else "a parallel worker reaches an agent effect"
+        )
+        checker.fail(rule, message, found[0])
 
 
 def _configured(providers: Any, provider: Any) -> bool:

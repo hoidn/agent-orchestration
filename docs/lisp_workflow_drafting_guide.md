@@ -1808,12 +1808,82 @@ results or workflow-readable state. See the
 [capability matrix](capability_status_matrix.md) for the panel's exact scope;
 older-profile snapshot evidence does not qualify evaluated readers.
 
-### Authoring Phased Contract Delivery
+### Authoring Phased Contract Delivery (Target 2.39)
 
-Phased provider delivery and materialization attempts are unavailable at
-2.35/2.36 and refuse with `closed_program_gap`. Use ordinary composed delivery
-for admitted calls. The [prompt-calculus contract](design/workflow_lisp_prompt_calculus.md)
-preserves the historical phased lifecycle; no current executable port is selected.
+Compile a fragment-backed phased provider call, then exercise its public
+lifecycle with a deterministic interactive provider. You get a validated review,
+its report file and a downstream typed result without credentials or paid calls.
+
+Phased delivery offers the task once, then the generated result contract in a
+second turn of the same client. Invalid submissions receive bounded correction
+in that client. The [provider contract](../specs/providers.md#evaluated-phased-provider-delivery-target-239)
+and [phased design](design/workflow_lisp_phased_contract_delivery.md#target-239-evaluated-migration)
+own admission and lifecycle; the [migration plan](plans/2026-10-16-phased-execution-239-plan.md)
+tracks deterministic evidence separately from live-provider qualification.
+
+1. Use a checkout containing
+   [`tests/fixtures/phased_239/main.orc`](../tests/fixtures/phased_239/main.orc)
+   and its sibling provider/command manifests and `after.py`. Follow the
+   [repository setup](../README.md#try-it) for Python 3.11+ and development
+   dependencies (including pytest-xdist), and have tmux installed. Run from the
+   repository root. No external input files, provider CLI or authentication are
+   needed: the tests supply a temporary Codex shim backed by
+   [`fake_phased_interactive.py`](../tests/fixtures/providers/fake_phased_interactive.py).
+   The fixture takes a subject string and a report path under `outputs` that
+   must initially be absent. Its typed review contains an approval Boolean;
+   the declared downstream command converts that value to an integer.
+2. Inspect the fixture's call shape. This is an excerpt, not a standalone module:
+
+   ```lisp
+   (provider-result providers.review
+     :prompt (review :subject subject :report report)
+     :delivery :phased
+     :materialization-attempts 2
+     :timeout-sec 60
+     :model "bound-model"
+     :effort "low")
+   ```
+
+   The defining module must target exactly 2.39; importing an older definition
+   from a 2.39 caller does not admit it. The prompt must be a fragment application
+   with a generated nonempty result contract. Materialization attempts must be
+   an integer literal from 1 through 3, defaulting to 2 when omitted. This counts
+   **total submissions**, including the first, within one provider attempt.
+   It is legal only with phased delivery. An explicit positive integer literal
+   timeout is required; booleans, expressions and inherited defaults do not
+   supply it. Task, correction, shutdown and first commit share that one deadline.
+3. Run this complete command sequence from the repository root. Compilation
+   needs no external provider. The second command is the deterministic public
+   smoke and should run in a tmux session, as required for multi-module suites:
+
+   ```bash
+   python -m orchestrator compile tests/fixtures/phased_239/main.orc --entry-workflow main::run --source-root tests/fixtures/phased_239 --provider-externs-file tests/fixtures/phased_239/providers.json --command-boundaries-file tests/fixtures/phased_239/commands.json
+   pytest -q -n 16 --dist=worksteal tests/test_workflow_evaluated_phased.py tests/test_workflow_evaluated_phased_recovery.py -k public_phased
+   ```
+
+What happens:
+
+- Compilation validates the source, named provider binding and declared command
+  closure, and writes the checked build artifacts at its reported build root.
+- The tests create temporary workspaces and report/result candidates, exercise
+  public run/resume with the interactive shim and inspect the memo and typed
+  downstream result. Successful publication requires joint file/result
+  validation, natural zero exit and complete ingress/transport shutdown before
+  the evaluator commits; forced termination cannot establish success.
+- Correction stays in the same client. Exhaustion publishes no result. A crash
+  before commit follows K4: prove exact old-attempt cleanup, discard provisional
+  candidates, then rerun the **whole visit** at a fresh ordinal. It may repeat
+  paid work in a real provider. Ambiguous cleanup blocks redispatch. A committed
+  visit follows K3: validate its inline memo proof and finish settlement without
+  launching the provider or requiring diagnostic ledgers/candidate files.
+
+A passing smoke establishes this deterministic lifecycle, not paid-provider
+qualification. For a real call, bind the named provider to a template explicitly
+validated for interactive_terminal_turn_queue.v1; a provider name, TTY or native
+session support is insufficient. Missing/malformed capability refuses before
+launch without composed fallback. Agent-valued calls, session/context capture,
+parallel phased workers, supervision/peer groups and confined phased providers
+remain excluded. Historical target-2.23 Q5 fixtures and results remain historical.
 
 ## 8A. Bounded Live Provider Supervision
 
@@ -2883,8 +2953,8 @@ Before running a new `.orc` workflow, confirm:
 | Frontend choice | This belongs in `.orc`; there is no alternate fresh authored frontend. |
 | Types | Every boundary has its actual transportable type; no wrapper is required. Exact `Value` remains opaque. Typed result guidance does not alter validation. |
 | Paths | Path contracts are reusable `defpath` definitions. |
-| Authority | Structured bundles/artifacts are authority; reports are views. |
-| Providers | Portable composed calls return validated structured state. Sessions, context capture, phased delivery, supervision and peer groups are unavailable at evaluated targets. |
+| Authority | Validated typed values, checked artifacts and the committed memo own runtime meaning; provisional provider files await validation/commit. Reports are views. |
+| Providers | Portable composed calls return validated structured state. Bounded Agent Sessions require 2.38; [fragment-backed phased delivery](#authoring-phased-contract-delivery-target-239) requires 2.39 and an explicitly capable interactive provider. Context capture, supervision and peer groups remain unavailable. |
 | Commands | Command semantics use `command-result` or certified adapters. |
 | Reports | No markdown report is parsed for semantic state in new high-level code. |
 | Pointers | Pointer files are not treated as artifact values. |

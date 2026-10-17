@@ -85,7 +85,7 @@ def _effect_value_children(node: dict[str, Any]) -> list[dict[str, Any]]:
         return _command_value_children(node)
     if kind == "agent":
         return [value for value in (node.get("policy") or {}).values() if isinstance(value, dict)]
-    if kind in {"provider", "agent_turn"}:
+    if kind in {"provider", "provider_phased", "agent_turn"}:
         return _provider_value_children(node)
     if kind == "run_ref":
         commit = [node["commit"]] if "commit" in node else []

@@ -29,9 +29,9 @@ def _turn_commit(identity=TURN, **over):
     return row
 
 
-def test_predicate_names_both_coordinators() -> None:
-    assert COORDINATOR_CLASSES == frozenset({"run_ref", "agent_turn"})
-    assert [is_coordinator_class(c) for c in ("command", "provider", "agent", "run_ref", "agent_turn")] == [False, False, False, True, True]
+def test_predicate_names_all_coordinators() -> None:
+    assert COORDINATOR_CLASSES == frozenset({"run_ref", "agent_turn", "provider_phased"})
+    assert [is_coordinator_class(c) for c in ("command", "provider", "agent", "run_ref", "agent_turn", "provider_phased")] == [False, False, False, True, True, True]
 
 
 def test_allocation_is_ordinary_and_turn_is_an_unsettled_coordinator_until_settled(tmp_path: Path) -> None:

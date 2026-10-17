@@ -5,9 +5,11 @@ and [evaluated IO](#evaluated-command-and-provider-io-target-235). The retiremen
 cutoff follows the selected retirement contract; implementation and delivery
 status live in the [closeout](../docs/reports/2026-10-13-best-of-n-and-executor-retirement-closeout.md).
 Old-profile IO/persistence details below are historical contracts, while shared validation and provider
-services remain in use for admitted evaluated effects. Definitions of session,
-supervision, peers, phased or adjudicated IO do not admit those excluded
-workflow effects. Targets 2.35/2.36 retain current support; registered 2.37
+services remain in use for admitted evaluated effects. Historical definitions of
+session, supervision, peers, target-2.23 phased or adjudicated IO do not admit
+those retired profiles. Target-2.39 phased delivery uses the existing IO
+validators with the separate [provider publication contract](providers.md#evaluated-phased-provider-delivery-target-239).
+Targets 2.35/2.36 retain current support; registered 2.37
 and bounded 2.38 (Agent Sessions and command-only confined run-ref children) retain only their
 [bounded qualification](versioning.md#version-gating-summary).
 Target 2.39 retains these IO and qualification contracts; its procedure

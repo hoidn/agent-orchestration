@@ -118,7 +118,7 @@ def _assert_retry_attempt_directories(authority, starts):
 
 def _assert_retry_dispatch_once(tmp_path, caplog, identity):
     assert (tmp_path / "dispatches.txt").read_text(encoding="utf-8").splitlines() == ["x"]
-    reruns = [record.getMessage() for record in caplog.records if record.msg.startswith("[effect_rerun]")]
+    reruns = [record.getMessage() for record in caplog.records if record.getMessage().startswith("[effect_rerun]")]
     assert reruns == [f"[effect_rerun] {identity} attempts=[1]", f"[effect_rerun] {identity} attempts=[1, 2]"]
 
 

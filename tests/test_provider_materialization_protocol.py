@@ -210,20 +210,21 @@ def test_partial_start_unlink_failure_is_retried_by_shutdown(
     from orchestrator.workflow.provider_phased_delivery import endpoint as owner
 
     original_start = owner.Thread.start
-    original_unlink = Path.unlink
+    from orchestrator.workflow.workspace_files import WorkspaceFiles
+    original_unlink = WorkspaceFiles.unlink
 
     def fail_listener_start(thread: Thread) -> None:
         if thread.name.startswith("provider-phased-submit-listener-"):
             raise RuntimeError("listener thread start failed")
         original_start(thread)
 
-    def fail_owned_unlink(path: Path, missing_ok: bool = False) -> None:
-        if path == locator.socket_path:
+    def fail_owned_unlink(files, path) -> None:
+        if files.workspace / path == locator.socket_path:
             raise OSError("owned path unlink blocked")
-        original_unlink(path, missing_ok=missing_ok)
+        original_unlink(files, path)
 
     monkeypatch.setattr(owner.Thread, "start", fail_listener_start)
-    monkeypatch.setattr(Path, "unlink", fail_owned_unlink)
+    monkeypatch.setattr(WorkspaceFiles, "unlink", fail_owned_unlink)
 
     with pytest.raises(RuntimeError, match="listener thread start failed"):
         endpoint.start()
@@ -234,7 +235,7 @@ def test_partial_start_unlink_failure_is_retried_by_shutdown(
     assert first.endpoint_zero_survivor_proven is False
     assert locator.socket_path.exists()
 
-    monkeypatch.setattr(Path, "unlink", original_unlink)
+    monkeypatch.setattr(WorkspaceFiles, "unlink", original_unlink)
     second = endpoint.shutdown()
     assert second.listener_closed is True
     assert second.endpoint_zero_survivor_proven is True
@@ -1154,21 +1155,22 @@ def test_shutdown_unlink_failure_is_incomplete_and_retried(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _binding_value, locator, endpoint = _open_endpoint(tmp_path)
-    original_unlink = Path.unlink
+    from orchestrator.workflow.workspace_files import WorkspaceFiles
+    original_unlink = WorkspaceFiles.unlink
 
-    def fail_owned_unlink(path: Path, missing_ok: bool = False) -> None:
-        if path == locator.socket_path:
+    def fail_owned_unlink(owner, path) -> None:
+        if owner.workspace / path == locator.socket_path:
             raise OSError("owned path unlink blocked")
-        original_unlink(path, missing_ok=missing_ok)
+        original_unlink(owner, path)
 
-    monkeypatch.setattr(Path, "unlink", fail_owned_unlink)
+    monkeypatch.setattr(WorkspaceFiles, "unlink", fail_owned_unlink)
 
     first = endpoint.shutdown()
     assert first.listener_closed is True
     assert first.endpoint_zero_survivor_proven is False
     assert locator.socket_path.exists()
 
-    monkeypatch.setattr(Path, "unlink", original_unlink)
+    monkeypatch.setattr(WorkspaceFiles, "unlink", original_unlink)
     second = endpoint.shutdown()
     assert second.listener_closed is True
     assert second.endpoint_zero_survivor_proven is True

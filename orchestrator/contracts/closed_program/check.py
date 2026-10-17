@@ -333,7 +333,7 @@ class _Checker:
         self._check_call_graph()
         self._compute_effectful_definitions()
         self._check_effect_configurations()
-        check_agents.check_parallel_agents(self)
+        check_agents.check_parallel_effects(self)
         self._validate_run_ref_origins()
         self._check_run_ref_signatures_and_digests()
         self._check_confined_children()
@@ -596,7 +596,7 @@ class _Checker:
             if isinstance(rows, list):
                 children.extend(row[1] for row in rows if isinstance(row, (list, tuple)) and len(row) == 2)
             return children
-        if effect_class == "provider":
+        if effect_class in {"provider", "provider_phased"}:
             children = []
             rows = node.get("inputs", [])
             if isinstance(rows, list):
@@ -922,7 +922,7 @@ class _Checker:
                 if effect_class == "command":
                     self._check_command_configuration(node, scope, owner)
                     continue
-                if effect_class == "provider":
+                if effect_class in {"provider", "provider_phased"}:
                     providers = scope["providers"]
                     provider = node.get("provider")
                     if not isinstance(providers, Mapping):
@@ -3427,7 +3427,7 @@ class _Checker:
             self._validate_descriptor(result, node=node)
             self.performs.setdefault(owner, []).append(node)
             self._check_effect_node(node, env, owner=owner, loops=loops, scope=scope, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
-            return result, node.get("class") in {"provider", "agent_turn"}
+            return result, node.get("class") in {"provider", "provider_phased", "agent_turn"}
         if kind == "call":
             return self._call(node, env, owner=owner, loops=loops, scope=scope, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index), False
         return self._value(node, env, owner=owner, loops=loops, scope=scope, allow_effect=True, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index), False
@@ -4496,7 +4496,7 @@ class _Checker:
                 scope=scope, provider_origins=provider_origins,
                 command_roots=command_roots, command_index=command_index)
             return
-        if effect_class == "provider":
+        if effect_class in {"provider", "provider_phased"}:
             if set(node) - {"k", "class", "result", "repeat", "site", "@", "provider", "prompt", "inputs", "dependencies", "policy", "contract"}:
                 self.fail("effect_shape", "provider effect has class-inappropriate fields", node)
             if not {"provider", "prompt", "inputs", "dependencies", "policy", "contract", "repeat"}.issubset(node):
@@ -4508,6 +4508,19 @@ class _Checker:
             if not isinstance(node.get("contract"), Mapping) or set(node["contract"]) != {"kind", "payload"} or not isinstance(node["contract"]["kind"], str) or not isinstance(node["contract"]["payload"], Mapping):
                 self.fail("effect_contract", "provider output contract is malformed", node)
             self._check_effect_result_contract(node)
+            if effect_class == "provider_phased":
+                expected = self._checked_effect_result_contract(node["result"])
+                payload = expected["payload"]
+                if expected["kind"] == "output_bundle":
+                    has_result_content = bool(payload["fields"])
+                elif expected["kind"] == "variant_output":
+                    # A union's discriminant is meaningful result content even
+                    # when one or more variants contain no fields.
+                    has_result_content = bool(payload["discriminant"]["allowed"])
+                else:
+                    has_result_content = False
+                if not has_result_content:
+                    self.fail("effect_contract", "phased provider requires a nonempty result contract", node)
             rows = node.get("inputs", [])
             if not isinstance(rows, list):
                 self.fail("effect_shape", "provider inputs must be an array", node)
@@ -4567,12 +4580,33 @@ class _Checker:
                         self.fail("effect_shape", "provider timeout must be a positive Int literal", node)
                 if "delivery" in policy:
                     value = policy["delivery"]
+                    expected_delivery = "phased" if effect_class == "provider_phased" else "composed"
+                    if not isinstance(value, Mapping) or value.get("k") != "lit" or value.get("v") != expected_delivery:
+                        self.fail("effect_shape", f"{effect_class} delivery policy is mismatched", node)
                     actual = self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
                     self._require_type(actual, string_type, "effect_shape", node)
-                    if not isinstance(value, Mapping) or value.get("k") != "lit" or value.get("v") != "composed":
-                        self.fail("effect_shape", "checked providers support only composed delivery", node)
-                if "materialization_attempts" in policy:
-                    self.fail("effect_shape", "materialization attempts are outside the composed provider surface", node)
+                elif effect_class == "provider_phased":
+                    self.fail("effect_shape", "phased provider requires a literal delivery policy", node)
+                if effect_class == "provider_phased":
+                    if "materialization_attempts" not in policy:
+                        self.fail("effect_shape", "phased provider requires materialization attempts", node)
+                    value = policy.get("materialization_attempts")
+                    if not isinstance(value, Mapping) or value.get("k") != "lit" or type(value.get("v")) is not int or value["v"] not in {1, 2, 3}:
+                        self.fail("effect_shape", "phased provider materialization attempts must be a literal in 1..3", node)
+                    actual = self._value(value, env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
+                    self._require_type(actual, int_type, "effect_shape", node)
+                    if "timeout_sec" not in policy:
+                        self.fail("effect_shape", "phased provider requires a positive timeout literal", node)
+                elif "materialization_attempts" in policy:
+                    self.fail("effect_shape", "materialization attempts require the phased provider class", node)
+            elif effect_class == "provider_phased":
+                self.fail("effect_shape", "phased provider requires a literal policy", node)
+            if effect_class == "provider_phased":
+                if self.tree["target"] != "2.39":
+                    self.fail("effect_class", "phased provider requires target 2.39", node)
+                prompt = node.get("prompt")
+                if not isinstance(prompt, Mapping) or set(prompt) != {"template", "fills"}:
+                    self.fail("effect_shape", "phased provider requires a fragment-backed prompt", node)
             prompt = node.get("prompt")
             if not isinstance(prompt, Mapping):
                 self.fail("effect_shape", "provider prompt must be an object", node)

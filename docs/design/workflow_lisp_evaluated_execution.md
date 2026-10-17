@@ -9,7 +9,11 @@
   has bounded Agent Sessions and command-only confined run-ref admission.
   Target 2.39 changes procedure authoring and finite source admission under the
   [frontend contract](workflow_lisp_frontend_specification.md#106-procedure-lowering-policy-resolved),
-  without changing evaluation, memo identity or replay.
+  using the existing evaluation and identity model. Its separately selected
+  [phased provider contract](workflow_lisp_phased_contract_delivery.md#target-239-evaluated-migration)
+  adds one coordinator class with inline commit proof, settlement and exact-attempt
+  recovery; the [migration plan](../plans/2026-10-16-phased-execution-239-plan.md)
+  owns deterministic evidence and remaining verification.
 - **Current limits:** old executable entries and old-profile resume are retired
   before writes; source compilation/import/tooling requires every module to
   target 2.35 or newer; evaluated `resume --force-restart` refuses with
@@ -108,8 +112,9 @@ admitted. This input precondition does not authorize a new call-form gap.
 Portable composed providers include both prompt
 extern source kinds and the admitted `defprompt` slot kinds (§9.4).
 Since this decision, parallel map entered as bounded target 2.37 (§11),
-agent sessions as target 2.38 (§9.2), and trials and requests for human
-input were retired without a port (§9.2).
+agent sessions as target 2.38 (§9.2), and fragment-backed phased delivery as
+target 2.39 under its [own contract](workflow_lisp_phased_contract_delivery.md#target-239-evaluated-migration).
+Trials and requests for human input were retired without a port (§9.2).
 
 The conditions of the gate report, section 6, bind the first release. Each
 is a rule of this design.
@@ -1007,8 +1012,8 @@ the ordinal rule's moves are measured against the alternative (gate report,
 A failed terminal does not require the failed effect to have committed.
 Failure during settlement leaves a committed, unsettled effect and no new
 terminal; resume must reconcile it. The checked program maps each
-`effect_class` to ordinary or coordinator execution (`run_ref` and, at
-target 2.38, `agent_turn` are the admitted coordinators; the agent
+`effect_class` to ordinary or coordinator execution (`run_ref`, target-2.38
+`agent_turn` and target-2.39 `provider_phased` are the admitted coordinators; the agent
 attempt-history guard is `invalidate_agent_session_advanced` (Agent Sessions,
 Persistence)). The record's class must agree with its
 site, and coordinator proof is required, not inferred from an optional field.
@@ -1725,7 +1730,7 @@ does not bypass that guard.
 
 | Rule | Statement |
 | --- | --- |
-| C8 | `invalidate <run> <identity>` atomically cancels the chosen active commit and every later active commit in journal order with **one** synchronized `invalidated` range record. The next resume runs those effects again; every earlier commit stays. Under the writer lock, validate the whole suffix before writing anything. Refuse `memo_busy` for another writer, `invalidate_not_committed` for a chosen identity without an active commit, and `invalidate_coordinator_committed` if the suffix contains any committed coordinator: a committed child run or agent turn is never superseded (K8); at target 2.38 refuse `invalidate_agent_session_advanced` for agent turn attempt history the cut would cancel that was dispatched, advanced or is of uncertain outcome (Agent Sessions, Persistence) |
+| C8 | `invalidate <run> <identity>` atomically cancels the chosen active commit and every later active commit in journal order with **one** synchronized `invalidated` range record. The next resume runs those effects again; every earlier commit stays. Under the writer lock, validate the whole suffix before writing anything. Refuse `memo_busy` for another writer, `invalidate_not_committed` for a chosen identity without an active commit, and `invalidate_coordinator_committed` if the suffix contains any committed coordinator: a committed child run, agent turn or phased provider call is never superseded (K8); at target 2.38 refuse `invalidate_agent_session_advanced` for agent turn attempt history the cut would cancel that was dispatched, advanced or is of uncertain outcome (Agent Sessions, Persistence) |
 | C9 | Each `committed` record keeps `depends_on`: the identities whose results its resolved input read, through names, arguments, results, loop state, join parameters, `case` bindings and the conditions that chose a value; an effect inside a branch does not depend on the branch's condition. `depends_on` is computed per value, not per field: a record, list or loop state carries the union of its parts' dependencies and a field or item taken from it keeps them all (§4.2.3). It is therefore a superset of the identities actually read and never omits one; in a serial `list/map-effect`, whose items pass through a loop state that also accumulates their results, each item depends on every earlier item. Evidence that one effect consumed another's output rests on C6 read digests, not on `depends_on` alone. Narrowing `depends_on` to the parts actually read is an entry condition of the release that scopes invalidation by C9. In the first release this is evidence, not the scope of an invalidation: a dependence through a file, where one effect writes a path that a later one reads, leaves no trace in values, and a shipped workflow has that shape (`workflows/library/verified_iteration_drain/drain.orc`). Narrowing an invalidation to dependents through values and declared files is a later release, entered when command boundaries declare the files they read and write, with the file-dependence fixture of §17 as its evidence |
 
 The range's `from_commit` names the chosen commit's immutable byte offset in
@@ -2607,14 +2612,16 @@ coordinator (§9.3) is a performer with a ledger of its own.
 | Resource transition | Later | `execute_transition` | Independent today. Its idempotency key stays |
 | Materialized view | Later | The existing step function | Reads its value from the environment |
 | Trial | Later | The trial runtime behind the coordinator protocol | Has the pair of commits today (K6) |
-| Provider, phased delivery; supervision; peer group; adjudication | Later | The existing coordinators, each changed to expose the pair of commits (K6) | One effect, one identity, its own ledger |
+| Provider, phased delivery | No; target 2.39 only | Retained phased coordinator behind the evaluated prepare/settle/reconcile binding | [Accepted phased contract](workflow_lisp_phased_contract_delivery.md#target-239-evaluated-migration); one effect, one identity, inline memo proof; [migration plan](../plans/2026-10-16-phased-execution-239-plan.md) owns deterministic evidence and remaining checks |
+| Provider supervision; peer group; adjudication | Later | The existing coordinators, each changed to expose the pair of commits (K6) | One effect, one identity, its own ledger |
 | Run-local agent allocation and sequential native-session turns | No; implemented at 2.38 | Ordinary non-coordinator allocation with its own checked class; existing session/turn transports behind one bounded `agent_turn` coordinator | [Agent Sessions](workflow_lisp_agent_sessions.md) commits each typed turn separately; E3 reuses the prefix and pending-turn recovery uses the scoped K4 exception (§9.3). [PQ-1a](../reports/2026-10-14-agent-sessions-pq1a-qualification.md) owns deterministic proofs and bounded real-adapter smoke evidence; `prompt-queue` is superseded for first delivery, and the separate acceptance comparison remains pending |
 
 At first-release target 2.35, a program using a class marked later is refused
 at build (§1.1). Target 2.38 additionally admits the command-only confined
 named-workflow run-reference row and, independently, the bounded Agent allocation
-and turn row above; target 2.37 admits bounded `par-map` (§11); confined providers
-remain closed and other exclusions remain target-aware. No port is selected for
+and turn row above; target 2.37 admits bounded `par-map` (§11); target 2.39
+admits fragment-backed phased delivery through its own checked coordinator.
+Confined providers remain closed and other exclusions remain target-aware. No port is selected for
 the other rows marked later: trials and requests for human input are retired, and
 the flat performers named for resource transitions and materialized views were
 removed with the flat route. Older executable
@@ -2623,8 +2630,9 @@ entries are retired; no old-route fallback is available.
 ### 9.3 Coordinators
 
 A coordinator runs an effect that has a ledger of its own and a child that
-the run must never start twice. Today each coordinator commits into the
-run's state; the memo replaces that commit.
+the run must never start twice after commit. The historical coordinators
+committed into parent state; admitted evaluated coordinators instead publish
+through the evaluator memo and settle under the protocol below.
 
 | Rule | Statement |
 | --- | --- |
@@ -2633,7 +2641,7 @@ run's state; the memo replaces that commit.
 | K3 | On a memo hit, `reconcile(node, resolved, identity, proof)` completes a pending final commit from the proof, and the evaluator appends `settled` (`by: reconcile`) when the memo lacks it |
 | K4 | The memo's `committed` record lies between the coordinator's two commits. Killed after the pending commit, resume discards the pending attempt and starts one more child; killed after the memo's commit, resume starts none. A coordinator that makes its final commit before the memo's is a defect: killed between the two, the run cannot continue (spike iteration 2, D1). Agent turns (target 2.38) are the scoped exception: a pending turn is reconciled from its receipt and native store; only an agent with no committed turn may be restarted, by explicit public `resume`, abandoning the old candidate first ([Agent Sessions](workflow_lisp_agent_sessions.md), Bootstrap retry policy); later turns refuse |
 | K5 | The proof is the coordinator's settled result record and its artifacts, stored inline in the `committed` record. It is what `settle` and `reconcile` need, and nothing else |
-| K6 | Which coordinators have the pair of commits today, and which must change, by the inventory of the execution facts, B.1, and the gate report, §7: run references reuse pending ledger record, final commit and reconcile call through the K7 adapter; trials (prepared and final parent settlement) need their own adapter; phased providers make one authoritative commit, supervision and peer groups finalize directly into parent state, adjudication's parent result is committed by the caller, and human input commits reply and result together into `state.json`. Each of these five must give that up and expose `prepare`, `settle` and `reconcile` before it enters a release |
+| K6 | Which coordinators have the pair of commits today, and which must change, by the inventory of the execution facts, B.1, and the gate report, §7: run references reuse pending ledger record, final commit and reconcile call through the K7 adapter; trials (prepared and final parent settlement) need their own adapter; phased providers make one authoritative commit, supervision and peer groups finalize directly into parent state, adjudication's parent result is committed by the caller, and human input commits reply and result together into `state.json`. Each of these five must give that up and expose `prepare`, `settle` and `reconcile` before it enters a release. This is the original inventory; the target-2.39 [phased migration](workflow_lisp_phased_contract_delivery.md#evaluated-prepare-commit-and-settlement) replaces its parent-state publication with that protocol |
 | K7 | A run reference: its static configuration is built at build time, each input bound as the reference `inputs.<name>`; the name rule of the child's inputs is the reference rule, so no valid name is unsafe. The coordinator resolves the references against a parent state that holds only the resolved input values. The visit key is derived from the identity: parent run id the run root's name, execution frame `root`, no call frame, step id `root.<digest of the identity>`, visit count 1. The runtime's ledger, `run-ref-attempts.jsonl`, retains its wire contract; physical IO and child authority follow §9.3.1 |
 | K8 | A committed coordinator effect is never superseded in the first release: no new visit key or attempt for an identity that committed through a coordinator, and no rollback of the child's workspace delta (§3) |
 | K9 | Every coordinator in a release has evidence through the public run and resume entries: a compiled program killed from outside at each of its two gaps, resumed to the uninterrupted value, with no committed child started twice, and refused before any launch after a declared file changes |
@@ -2742,9 +2750,10 @@ and establish an explicit interrupted-judge budget policy, settlement against
 the actual memo commit/proof, distinct per-arm input bindings, and location-independent
 child capsules built by the parent's compiler. A trial's sealed-label salt
 may remain in its own durable ledger; K5's proof must bind the ledger authority
-needed for replay, rather than redraw it. Phased delivery still needs its own
-adapter: treating it as an ordinary composed call, as the spike did, proves
-no parity and must be refused at admission. None of this changes C3's
+needed for replay, rather than redraw it. Phased delivery uses its own
+[target-2.39 adapter](workflow_lisp_phased_contract_delivery.md#evaluated-prepare-commit-and-settlement):
+treating it as an ordinary composed call, as the spike did, proves no parity
+and must be refused at admission. None of this changes C3's
 diagnostic-only interpreter upgrade rule or K8's no-supersession rule.
 
 Authored native-session turns retain completed turn progress before the
@@ -2777,6 +2786,17 @@ value, given by a rule. A field not listed here is equal on both routes.
 | R10 | `command.env` | The command clause of R2 and `PYTHONDONTWRITEBYTECODE=1` (C4) |
 | R11 | Generated helper commands | None. The present route runs inline Python steps that write managed write roots under `.orchestrate/workflow_lisp/`; the model has no write roots and no call frames, so nothing writes them |
 | R12 | A value in a command argument | Rendered by §§9.1/9.1.3 with checked static-template/value classification and explicit scope captures; preserve successful legacy bytes, including literal `True`/`False` versus substituted `true`/`false`, single-pass runtime strings and selected native/private scope resets |
+
+**Amendment for target 2.39 phased delivery, R4/R7:** the
+[phased contract](workflow_lisp_phased_contract_delivery.md#one-render-task-once-materialization-retry)
+retains R4's one canonical composition, split at the generated contract into
+exact task and materialization bytes. That canonical prompt is input identity,
+not one wire delivery: the same interactive client receives separately framed
+task, materialization and bounded correction turns; actual offered turns have
+separate evidence. R7 additionally carries runtime-only `delivery: phased` and
+literal `materialization_attempts`, plus the required positive literal timeout.
+Model/effort still use normal provider-template bindings; phased policy is not
+forwarded as a provider CLI option. Composed R4/R7 requests remain unchanged.
 
 **Amendment for target 2.38 confined children, R2/R3 guest
 spelling** (confined profile; provider admission follows [Providers](../../specs/providers.md); [run-ref design D5](workflow_lisp_run_ref_expression_environments.md#semantic-identity-source-maps-and-ee-amendments)): for a confined attempt, R2 in

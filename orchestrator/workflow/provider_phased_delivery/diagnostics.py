@@ -269,6 +269,12 @@ _STATIC_ROWS = (
         "S_RESULT",
     ),
     _static(
+        "target_below_2_39",
+        "provider_phased_delivery_policy_invalid",
+        "P_SCHEMA_EXACT",
+        "S_DELIVERY",
+    ),
+    _static(
         "interactive_capability_absent",
         "provider_phased_interactive_capability_missing",
         "P_ABSENT",

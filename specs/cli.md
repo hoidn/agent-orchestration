@@ -8,8 +8,9 @@ closeout](../docs/reports/2026-10-13-best-of-n-and-executor-retirement-closeout.
 own qualification and delivery, not a published package-version claim.
 
 Only evaluated entries at 2.35/2.36, bounded 2.37, bounded 2.38 (command-only
-confined run-ref and agent sessions), and target 2.39 procedure authoring are
-executable, with their existing admission and qualification limits
+confined run-ref and agent sessions), and target 2.39 procedure authoring and
+bounded phased provider delivery are executable, with their existing admission
+and qualification limits
 ([versioning](versioning.md#version-gating-summary)).
 `compile`, `run` and `run --dry-run` reject entry targets through 2.34 with
 `workflow_execution_target_retired`, exit 2, before build/run publication or
@@ -245,8 +246,14 @@ the historical detail format and retained read-only boundary.
 
 This contract applies to evaluated entries at 2.35/2.36, the admitted
 bounded 2.37 surface, bounded 2.38 Agent Sessions and command-only confined
-run-ref children, and target-2.39 procedure authoring. The 2.39 source contract
-changes no lifecycle, profile, transport or confinement qualification. See the
+run-ref children, and target-2.39 procedure authoring and bounded phased provider
+delivery. Procedure authoring itself changes no lifecycle or transport; the
+[phased provider contract](providers.md#evaluated-phased-provider-delivery-target-239)
+and [attempt-state contract](state.md#evaluated-phased-provider-attempts-target-239)
+own the additive phased coordinator, memo commit/settlement and exact-attempt
+recovery under the same profile. Use the [phased recipe](../docs/lisp_workflow_drafting_guide.md#authoring-phased-contract-delivery-target-239)
+for deterministic public checks; paid-provider qualification remains unselected.
+Neither extension changes confinement qualification. See the
 [procedure guide](../docs/lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239). The [confined-command recipe](../docs/lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only)
 records host/image prerequisites; public confined providers remain closed. W3 changes
 authoring, not command/provider IO or the public lifecycle; 2.37 registration

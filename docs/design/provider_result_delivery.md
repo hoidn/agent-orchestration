@@ -31,6 +31,19 @@ integration. The shared `orchestrator/workflow/prompting.py` composer remains
 available; preserving its rendering contract is distinct from admitting flat
 execution. Original qualification results remain in the linked closeout.
 
+## Scope At Target 2.39
+
+This design's delivery-rendering and ordinary replay rules describe composed
+provider calls. Fragment-backed phased calls retain the `file/1` renderer for
+their generated materialization contract even when ordinary calls select
+`file/2`. The phased result file is a provisional candidate:
+joint validation, natural shutdown and the evaluator's inline-proof memo commit
+precede typed-result publication. The [phased contract](workflow_lisp_phased_contract_delivery.md#target-239-evaluated-migration)
+and [State](../../specs/state.md#evaluated-phased-provider-attempts-target-239)
+own phased commit, settlement and whole-visit recovery. The rendering selector
+and authored phased-delivery policy are separate choices; this design does not
+supply phased admission or its retry policy.
+
 ## Summary
 
 Every ordinary file-transport provider call on the evaluated route delivers
@@ -347,7 +360,9 @@ must-exist checks keep their diagnostics.
   providers must create it; OMP's parent exclusively creates it from successful
   normalized transport output. Raw stdout, stderr and an ordinary provider's
   reply cannot substitute for the file. Existing or provider-planted leaves
-  are never overwritten or accepted by OMP materialization.
+  are never overwritten or accepted by OMP materialization. Phased candidates
+  follow the separate publication contract above; the evaluated memo owns
+  committed reuse.
 - The contract block is appended exactly once (`specs/providers.md`).
 - A committed effect is reused on resume if and only if its recorded input
   parts equal the recomputed ones, with the recomputation using the recorded

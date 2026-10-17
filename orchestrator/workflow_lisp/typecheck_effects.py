@@ -39,7 +39,7 @@ from .prompts import (
     typecheck_prompt_application,
     with_phased_prompt_attempt_identity,
 )
-from .type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, UnionTypeRef, type_refs_compatible
+from .type_env import PathTypeRef, PrimitiveTypeRef, UnionTypeRef, type_refs_compatible
 from .typecheck_context import (
     raise_error,
     raise_required_lint,
@@ -633,7 +633,10 @@ def typecheck_provider_result_expr(
     recurse,
     typed_factory,
 ):
-    from .contracts import is_transportable_result_type
+    from .contracts import (
+        derive_prompt_guided_structured_result_contract,
+        is_transportable_result_type,
+    )
     from .workflows import PromptExtern, ProviderExtern
 
     def phased_diagnostic(
@@ -828,26 +831,52 @@ def typecheck_provider_result_expr(
             form_path=expr.delivery.form_path,
             expansion_stack=expr.delivery.expansion_stack,
         )
-    if (
-        phased
-        and isinstance(return_type, RecordTypeRef)
-        and not return_type.field_types
-    ):
-        raise_error(
-            "contract_suffix_required: phased delivery requires a non-empty generated result contract",
-            code="provider_phased_delivery_policy_invalid",
-            span=expr.prompt.span,
-            form_path=expr.prompt.form_path,
-            expansion_stack=expr.prompt.expansion_stack,
-            phased_delivery_diagnostic=phased_diagnostic(
-                "contract_suffix_required",
-                canonical_value=None,
-                primary_owner="result_contract_suffix",
-                primary_span=(
-                    expr.prompt.prompt.declaration.return_spec.span
-                    if isinstance(expr.prompt, PromptApplicationExpr)
-                    else expr.prompt.span
+    if phased:
+        result_contract = derive_prompt_guided_structured_result_contract(
+            return_type,
+            workflow_name="phased-provider",
+            step_id="result",
+            type_env=context.type_env,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        payload = result_contract.payload
+        if result_contract.contract_kind == "output_bundle":
+            has_result_content = bool(payload.get("fields"))
+        else:
+            # The discriminant is meaningful result content even when a union
+            # variant intentionally has no fields.
+            has_result_content = bool(payload.get("discriminant", {}).get("allowed"))
+        if not has_result_content:
+            raise_error(
+                "contract_suffix_required: phased delivery requires a non-empty generated result contract",
+                code="provider_phased_delivery_policy_invalid",
+                span=expr.prompt.span,
+                form_path=expr.prompt.form_path,
+                expansion_stack=expr.prompt.expansion_stack,
+                phased_delivery_diagnostic=phased_diagnostic(
+                    "contract_suffix_required",
+                    canonical_value=None,
+                    primary_owner="result_contract_suffix",
+                    primary_span=(
+                        expr.prompt.prompt.declaration.return_spec.span
+                        if isinstance(expr.prompt, PromptApplicationExpr)
+                        else expr.prompt.span
+                    ),
                 ),
+            )
+    if phased and getattr(context.type_env, "target_dsl_version", None) != "2.39":
+        raise_error(
+            "provider-result phased delivery requires its defining source to target DSL 2.39",
+            code="provider_phased_delivery_policy_invalid",
+            span=expr.delivery.span,
+            form_path=expr.delivery.form_path,
+            expansion_stack=expr.delivery.expansion_stack,
+            phased_delivery_diagnostic=phased_diagnostic(
+                "target_below_2_39",
+                canonical_value=getattr(context.type_env, "target_dsl_version", None),
+                primary_owner="delivery_keyword",
+                primary_span=expr.delivery.span,
             ),
         )
     if phased:
@@ -1022,6 +1051,14 @@ def typecheck_provider_result_expr(
                 expansion_stack=expr.timeout_sec.expansion_stack,
             )
         policy_summaries.append(typed_timeout.effect_summary)
+    if phased and expr.timeout_sec is None:
+        raise_error(
+            "`provider-result :timeout-sec` is required for phased delivery",
+            code="provider_phased_timeout_required",
+            span=expr.delivery.span,
+            form_path=expr.delivery.form_path,
+            expansion_stack=expr.delivery.expansion_stack,
+        )
     prompt_dependency_summaries = []
     if expr.prompt_dependencies is not None:
         for dependency_expr in (

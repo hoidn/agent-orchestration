@@ -19,7 +19,8 @@ and [command-only confined children](workflow_lisp_run_ref_expression_environmen
 do not open public confined providers. See [CLI admission](../../specs/cli.md#executable-support-boundary)
 and [retirement](workflow_lisp_executor_retirement.md). Target 2.39 adds
 [inference-default procedure contracts](workflow_lisp_effect_ledger_simplification.md),
-caller-owned composition and finite source admission; it changes no runtime
+caller-owned composition, finite source admission and bounded
+[phased provider delivery](workflow_lisp_phased_contract_delivery.md#target-239-evaluated-migration); it changes no runtime
 profile or qualification gate.
 
 ## Current Component Contracts
@@ -81,6 +82,7 @@ profile or qualification gate.
 | [workflow_lisp_native_transportable_returns.md](workflow_lisp_native_transportable_returns.md) | Uniform native returns and optional typed result guidance | Implemented typed return contract | Admitted 2.35–2.39 source; introduced at 2.15 |
 | [workflow_lisp_transportable_value_type.md](workflow_lisp_transportable_value_type.md) | Opt-in transport-contract top `Value`, strict JSON wire validation, exact source compatibility, and target-gated public `type: value` / `kind: value` | Implemented | Yes in admitted 2.35–2.39 source; introduced at 2.19 |
 | [workflow_lisp_agent_sessions.md](workflow_lisp_agent_sessions.md) | Stable run-scoped agent identity and interleaved native-session turns | First slice implemented at 2.38; PQ-1a evidence recorded; PQ-1c pending | Opt-in bounded first slice |
+| [workflow_lisp_phased_contract_delivery.md](workflow_lisp_phased_contract_delivery.md#target-239-evaluated-migration) | Target-2.39 fragment-backed task/materialization delivery, evaluated commit/settlement and exact-attempt recovery | Accepted 2.39 contract; deterministic implementation/evidence in the [migration plan](../plans/2026-10-16-phased-execution-239-plan.md); paid-provider qualification unselected; target-2.23 protocol historical | Bounded [deterministic recipe](../lisp_workflow_drafting_guide.md#authoring-phased-contract-delivery-target-239); explicit interactive capability required |
 | [workflow_lisp_prompt_calculus.md](workflow_lisp_prompt_calculus.md) | Target-2.20 prompt core, target-2.21 output positions, and target-2.22 attempt diagnostics | Implemented | Yes for admitted evaluated bounded Q1–Q3 surfaces; old-profile diagnostic readers remain historical |
 | [workflow_lisp_prompt_identity_diagnostics.md](workflow_lisp_prompt_identity_diagnostics.md) | Target-2.22 attempt-scoped, role-separated prompt identity and comparison diagnostics | Implemented | Yes for direct fragment-backed provider calls |
 | [workflow_lisp_pure_list_traversal.md](workflow_lisp_pure_list_traversal.md) | Target-2.18 list construction/traversal, pure and bounded-effectful mapping, list loop state, and rooted path joining | Implemented | Yes in admitted 2.35–2.39 source; the 2.18 runtime recipe is history |
@@ -143,7 +145,6 @@ pointers; their original commands and status do not select work.
 | [Workflow Lisp evolution substrate and feature design](../superpowers/specs/2026-07-22-workflow-lisp-evolution-substrate-and-feature-design.md) | Compiler-certified immutable variants, context-stratified subject adjudication, inert fragment archives, role-separated prompt environments, prompt/code evolution, and the substrate/feature boundary | Historical; current owner linked in the record | No |
 | [workflow_lisp_provider_prompt_queue.md](workflow_lisp_provider_prompt_queue.md) | Historical analysis of native transport and recovery within one queue effect | Historical; current owner linked in the record | No |
 | [workflow_lisp_provider_context_values.md](workflow_lisp_provider_context_values.md) | First-class context, explicit transformations and rebinding | Historical execution; retained reader/shared-service scope only | No |
-| [workflow_lisp_phased_contract_delivery.md](workflow_lisp_phased_contract_delivery.md) | Target-2.23 opt-in task/materialization delivery for one canonical fragment prompt | Historical execution; retained reader/shared-service scope only | No |
 | [workflow_lisp_judgment_views.md](workflow_lisp_judgment_views.md) | Q4 read-only result-plus-Q3-provenance inspection and deterministic judgment views | Historical execution; retained reader/shared-service scope only | No |
 | [workflow_lisp_provider_live_binding.md](workflow_lisp_provider_live_binding.md) | Live provider supervision through observation panes and one bounded provider-session correction | Historical execution; retained reader/shared-service scope only | No |
 | [workflow_lisp_provider_peer_messaging.md](workflow_lisp_provider_peer_messaging.md) | Recorded turn-boundary peer messaging and static provider-peer groups | Historical execution; retained reader/shared-service scope only | No |

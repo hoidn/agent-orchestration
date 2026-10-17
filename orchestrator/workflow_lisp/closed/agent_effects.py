@@ -71,26 +71,32 @@ def _translate_agent_turn(builder: Any, perform: WccPerform, d: Any, env: Mappin
     return node
 
 
-def refuse_parallel_agents(tree: Mapping[str, Any]) -> None:
-    """Refuse a parallel worker that reaches an agent allocation or turn through any callee.
+def refuse_parallel_effects(tree: Mapping[str, Any]) -> None:
+    """Refuse parallel workers that reach a disallowed effect through any callee.
 
     The closed tree is the one place where macro expansion, specialized helpers, ProcRef
-    callees and child workflows are all explicit `call` edges.
+    callees and child workflows are all explicit `call` edges. This shares the same
+    transitive call-graph walk as the independent checker.
     """
 
-    from orchestrator.contracts.closed_program.check_agents import find_parallel_agent
+    from orchestrator.contracts.closed_program.check_agents import find_parallel_effect
     from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
     from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 
-    found = find_parallel_agent(tree)
+    found = find_parallel_effect(tree, {"agent", "agent_turn", "provider_phased"})
     if found is None:
         return
     worker, _effect = found
+    rule = "parallel_provider_boundary" if _effect.get("class") == "provider_phased" else "parallel_agent_boundary"
     path, line, column = worker["@"]["span"].rsplit(":", 2)
     position = SourcePosition(path=path, line=int(line), column=int(column), offset=0)
     raise LispFrontendCompileError((LispFrontendDiagnostic(
-        code="parallel_agent_boundary",
-        message="a parallel worker cannot allocate or turn an `Agent`, including through called helpers or workflows",
+        code=rule,
+        message=(
+            "a parallel worker cannot reach a phased provider effect, including through called helpers or workflows"
+            if rule == "parallel_provider_boundary"
+            else "a parallel worker cannot allocate or turn an `Agent`, including through called helpers or workflows"
+        ),
         span=SourceSpan(start=position, end=position),
         form_path=tuple(worker["@"]["form"]),
         phase="lowering",

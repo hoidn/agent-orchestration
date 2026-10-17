@@ -28,6 +28,48 @@ different claims. A collected test, mock provider or private transport proof
 cannot qualify native authentication/TLS or public admission. Later target
 features retain their own gates; this index selects no research or migration.
 
+## Acceptance Scope (Phased Provider Delivery, Target 2.39)
+
+The [provider contract](../providers.md#evaluated-phased-provider-delivery-target-239),
+[attempt-state contract](../state.md#evaluated-phased-provider-attempts-target-239)
+and [accepted design](../../docs/design/workflow_lisp_phased_contract_delivery.md#target-239-evaluated-migration)
+govern these requirements. The [migration plan](../../docs/plans/2026-10-16-phased-execution-239-plan.md)
+records deterministic implementation evidence and remaining checks; this entry
+neither claims paid live-provider qualification nor closes unrelated gates.
+
+1. Admit only a target-2.39 defining source, fragment-backed result contract,
+   explicitly capable interactive template, positive integer-literal timeout
+   and phased-only integer-literal total-submission cap from 1 through 3
+   (default 2). Older imported definitions, malformed capability and excluded
+   Agent/session/capture/parallel/confinement routes refuse before dispatch.
+   Source-free closed checking rejects forged class/policy shapes; memo
+   validation independently rejects malformed or substituted inline proofs.
+2. Through public compile/run, deliver the task once and materialization in
+   the same client; jointly validate report and typed result. Correct a rejected
+   submission within the total cap and original deadline, without repeating the
+   task or restarting the client. Exhaustion, timeout, candidate mutation or
+   abnormal exit publishes no result. Natural zero exit and complete shutdown
+   precede preparation; evaluator commit precedes settlement and downstream work.
+3. Through public interrupted resume, perform exact resource and candidate
+   cleanup before a fresh ordinal reruns the whole visit (K4), including a
+   prepared-but-uncommitted visit. Ambiguous ownership/cleanup preserves
+   candidates and blocks redispatch. Diagnostic-ledger loss is not authority.
+4. On committed resume, validate the inline proof and finish idempotent
+   settlement (K3), including absent/torn operational receipt or absent attempt
+   directory, without provider dispatch or reopening candidates. Foreign-bound
+   receipts and unsafe paths refuse; settlement failure preserves the commit.
+   Committed phased coordinators remain non-invalidatable.
+5. Preserve composed delivery's artifact/memo behavior, original 2.35–2.38
+   definition semantics and historical Q5 evidence. Deterministic public CLI
+   coverage uses the interactive shim; it makes no paid-provider claim.
+
+Current proof owners: `tests/test_workflow_lisp_phased_239.py`,
+`tests/test_workflow_evaluated_phased.py` and
+`tests/test_workflow_evaluated_phased_recovery.py`. Use the
+[recipe](../../docs/lisp_workflow_drafting_guide.md#authoring-phased-contract-delivery-target-239)
+and [test selectors](../../tests/README.md#target-239-phased-provider-checks)
+for reproducible deterministic checks.
+
 ## Retained Source, Format And Reader Conformance
 
 Historical versions still constrain registered syntax, imported typed signatures,

@@ -56,6 +56,31 @@ modules still construct retired YAML workflows and refer to the removed root
 acceptance evidence. Selecting every `e2e` marker with live opt-in includes
 those legacy cases; use the explicit current selectors above.
 
+## Target 2.39 Phased Provider Checks
+
+These checks cover the accepted [phased contract](../docs/design/workflow_lisp_phased_contract_delivery.md#target-239-evaluated-migration),
+not paid-provider qualification. Use the [drafting recipe](../docs/lisp_workflow_drafting_guide.md#authoring-phased-contract-delivery-target-239)
+for the fixture's exact public compile command and prerequisites. The public
+cases require tmux and install a temporary Codex shim; no provider credentials
+or external CLI are needed. Run the multi-module commands below in tmux.
+
+```bash
+# Narrow deterministic public CLI lifecycle: normal, correction, exhaustion and recovery
+pytest -q -n 16 --dist=worksteal tests/test_workflow_evaluated_phased.py tests/test_workflow_evaluated_phased_recovery.py -k public_phased
+
+# Source/closed-artifact admission and tampering controls
+pytest -q tests/test_workflow_lisp_phased_239.py
+
+# Full evaluated phased binding/recovery owner checks
+pytest -q -n 16 --dist=worksteal tests/test_workflow_evaluated_phased.py tests/test_workflow_evaluated_phased_recovery.py
+```
+
+The [migration plan](../docs/plans/2026-10-16-phased-execution-239-plan.md)
+owns completion evidence and broader regression selectors. A passing compile
+or deterministic smoke does not qualify live authentication, paid-provider
+behavior, public confinement or parallel phased execution. Historical Q5
+fixtures and results do not supply current executable acceptance.
+
 ## Artifact-Contract Selectors
 
 Use these selectors for shared output validation and prompt rendering; their

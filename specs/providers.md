@@ -4,7 +4,7 @@ Fresh authored workflows reach this contract through compiled `.orc` source
 only, within the [CLI execution support boundary](cli.md#executable-support-boundary)
 and [evaluated IO admission](io.md#evaluated-command-and-provider-io-target-235).
 The retirement candidate retains shared provider services and typed contracts;
-old session/supervision/peer/phased/adjudicated workflow execution and recovery
+old session/supervision/peer/target-2.23 phased/adjudicated workflow execution and recovery
 descriptions below are historical, not an evaluated port. Native
 `prompt resume [--in-place]` remains a separate compiler-free session continuation.
 The mapping snippets describe validated Core/provider shapes; YAML fences are
@@ -191,7 +191,7 @@ schema notation, not authored workflow files.
     ([State](state.md#memo-records)); commands, and every target through
     2.34, keep the workspace-relative spelling above. See
     [Step IO](io.md#evaluated-command-and-provider-io-target-235).
-  - On the evaluated route the output-contract block states the delivery the
+  - On the ordinary evaluated route the output-contract block states the delivery the
     runtime selected. A provider that receives `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`
     gets the file action first, pointing at the `- path:` line that names its
     attempt's result file (rendering `file/2`), followed by a nested JSON-shaped
@@ -1137,6 +1137,83 @@ schema notation, not authored workflow files.
   ["codex","exec","resume","${SESSION_ID}","--json",...]`, and
   `session_support.turn_boundary_resume: true`. This is an explicit property
   of that template, not a capability inferred from the `codex` name.
+
+## Evaluated Phased Provider Delivery (Target 2.39)
+
+This is the selected target contract, not an implementation or qualification
+claim. The [phased design](../docs/design/workflow_lisp_phased_contract_delivery.md#target-239-evaluated-migration)
+owns architecture and required evidence; historical target-2.23 execution
+remains retired. Evaluated admission adds existing `provider-result` policy
+`:delivery :phased`, with literal `:materialization-attempts` in `1..3`
+(default `2`). It requires a fragment-backed prompt and a generated nonempty
+result-contract suffix. Omitted/explicit composed delivery remains unchanged.
+
+Phased delivery additionally requires explicit `:timeout-sec` as a positive
+`Int` literal. Source and source-free closed validation refuse omission,
+booleans, nonpositive values and nonliteral operands. Reuse the existing timeout
+policy field; no schema change or inherited finite default is introduced.
+Composed delivery retains its optional timeout contract.
+
+- One `provider_phased` checked effect owns one interactive attempt and one
+  normal typed result. Explicit capability validation requires
+  `interactive_terminal_turn_queue.v1`; absent/malformed capability never
+  selects composed fallback. Agent-valued calls, capture/session publication,
+  isolation/confinement, supervision/peers and reachable parallel-worker
+  phased effects remain excluded.
+- Compose the evaluated request once using the pinned `file/1` rendering for
+  both fresh phased calls and committed replay, independently of the ordinary
+  renderer's current version. Split exactly at the generated
+  output-contract insertion: task bytes `T1` and separator-inclusive contract
+  bytes `T2` concatenate to canonical `C`. Start one client with the separately
+  framed task, queue its materialization turn, and retry only framed `T2` in
+  that client. The task is offered once per attempt. Total materialization
+  submissions are bounded by the authored cap. Canonical prompt bytes and
+  actual-delivery bytes are separate identities.
+- Preserve the shared phased submit protocol, exact-request idempotence,
+  serialized candidate validation, receipt-flush-before-close ordering,
+  candidate absence/reset/freeze rules and deadline/cleanup proof grammar.
+  Every submit runs expected-output and structured-result validation; neither
+  becomes authoritative independently. Endpoint resources are allocated only
+  after successful provider start. No candidate cleanup may delete an
+  unrelated or pre-existing file.
+- Natural zero-exit shutdown, a naturally empty registered provider group,
+  bound private-server absence and complete ingress cleanup precede frozen
+  restoration/verification and evaluated preparation. The existing Timeouts
+  group-ownership limit applies: escaped descendants are outside that proof.
+  A natural leader exit with residual group members is failure even if forced
+  cleanup later succeeds. Strengthen `proof_complete` to require group emptiness
+  without changing existing natural-proof fields or ledger grammar.
+  `prepare` never writes
+  parent state or memo. The evaluator validates and commits the typed result
+  with the versioned phased proof, then `settle` finalizes the attempt. After
+  natural shutdown, failure never authorizes another abort of that client.
+- One original absolute monotonic deadline bounds the live attempt through
+  pre-commit preparation, including lease waits, command/pre-exec helpers,
+  termination, reap and output settlement. Capture `t0` once at the start of
+  live preparation, before request composition or transport allocation, and
+  compute `deadline = t0 + authored_timeout_seconds`. Conversion and addition
+  must be finite and yield `deadline > t0`; otherwise fail before allocation.
+  Task delivery and all corrections share this deadline. Parent death,
+  wrappers and phase changes never
+  renew it; reserve cleanup time within its remaining interval. The evaluator
+  checks it before the first memo commit. Committed settlement and
+  interrupted-attempt cleanup are bounded recovery operations, not permission
+  to continue an expired interactive attempt. Only a fresh K4 attempt receives
+  a fresh live budget after old-attempt cleanup completes.
+- New attempts use the evaluated identity, ordinal, exclusive directory,
+  ordinary provider IO/result contracts and environment binding. Recovery is
+  [evaluated at-least-once](state.md#evaluated-phased-provider-attempts-target-239),
+  with exact prior-attempt resource/candidate ownership checked before a fresh
+  attempt. No old state allocator, checkpoint, quarantine, phase-cursor
+  replay or provider transcript becomes execution authority.
+- Failed/interrupted cleanup must settle every resource-creating tmux client,
+  revoke delayed provider launch, prove the owned group empty and prove the
+  exact bound private server absent before candidate cleanup or redispatch.
+  Unknown helper/reap state or missing socket after failed/timed-out creation
+  remains unresolved; neither client exit nor socket absence proves no backend
+  allocation. Foreign/replaced resources refuse cleanup. The private
+  [adapter ownership protocol](../docs/design/workflow_lisp_phased_contract_delivery.md#adapter-reservation-and-resource-ownership)
+  defines the durable lease, identity and guarded server checks.
 
 ## Direct CLI Integration (details)
 

@@ -11,7 +11,7 @@ from .authority import RunAuthority
 from .commands import CommandPerformerError, launch_command, workspace_relative_path
 from .confined_dispatch import EFFECT_UNSUPPORTED, ConfinedDispatchRefusal, ConfinedLeafContext, dispatch_confined
 from .interpreters import is_image_pin
-from . import agent_turn_recovery, agent_turns
+from . import agent_turn_recovery, agent_turns, phased_providers
 from .agent_sessions import perform_allocation
 from .providers import launch_provider
 from .run_ref import perform_evaluated_run_ref
@@ -39,6 +39,7 @@ class PreparedAttempt:
     confined: ConfinedLeafContext | None = None  # set for run_ref_confinement.v1 children only
     views: Any = None
     recovered: bool = False
+    phased_deadline: float | None = None
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,7 @@ class ExternalOutcome:
     result_path: str | None = None
     run_ref: Any = None
     agent_turn: Any = None
+    phased: Any = None
 
 
 def perform_external(attempt: PreparedAttempt) -> ExternalOutcome:
@@ -70,6 +72,9 @@ def perform_external(attempt: PreparedAttempt) -> ExternalOutcome:
         return agent_turn_recovery.recover_pending_turn(attempt)
     if node['class'] == 'agent_turn':
         return agent_turns.perform_turn(attempt, views=attempt.views)
+    if node['class'] == 'provider_phased':
+        return ExternalOutcome(phased=phased_providers.prepare_phased_provider_attempt(
+            attempt, deadline=attempt.phased_deadline, transport_root=Path('/tmp')))
     if node['class'] == 'run_ref':
         result = perform_evaluated_run_ref(attempt.authority, attempt.resolved,
             attempt.identity, attempt.ordinal, attempt.workspace)

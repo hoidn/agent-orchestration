@@ -8,12 +8,23 @@ authority.
 from __future__ import annotations
 
 from concurrent.futures import Future, TimeoutError as FutureTimeout
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 import hashlib
+import json
+import os
 import socket
+import stat
 from threading import Condition, Lock, Thread, current_thread
 import time
 from typing import Any, Literal
+
+from orchestrator.providers import _interactive_terminal_lifecycle as ownership
+from orchestrator.providers.interactive_terminal import PhasedFailedCleanupEvidence
+from orchestrator.monitor.process import process_start_time_token
+from orchestrator.workflow.workspace_files import WorkspaceFiles
+from orchestrator.workflow.run_ref.contracts import canonical_json_bytes
+from orchestrator._common.safe_tree import SafeTreeRejectionError
 
 from .diagnostics import (
     DiagnosticSource,
@@ -40,6 +51,82 @@ _ADMISSION_LIFECYCLES = frozenset(
     {"INITIAL_MATERIALIZATION_QUEUED", "RETRY_QUEUED"}
 )
 _PathOwnership = Literal["none", "owned", "maybe_owned"]
+_OWNED_RECORD_FIELDS = {"schema_version", "adapter_token", "boot_id", "controller_pid",
+    "controller_start_ticks", "state", "socket_dev", "socket_ino"}
+
+
+def _socket_name(reservation):
+    return "phased-" + reservation.adapter_token + ".sock"
+
+
+def _socket_identity(files, name):
+    try:
+        info = files.stat(name)
+    except FileNotFoundError:
+        return None
+    if not stat.S_ISSOCK(info.st_mode) or info.st_uid != os.getuid():
+        raise ValueError("foreign submit socket type or owner")
+    return info.st_dev, info.st_ino
+
+
+def _read_owned_record(reservation, files):
+    try:
+        info = files.stat("submit.json")
+    except FileNotFoundError:
+        return None
+    if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1):
+        raise ValueError("foreign submit record file")
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("duplicate submit record key")
+            result[key] = value
+        return result
+    record = json.loads(files.read("submit.json", max_bytes=8192), object_pairs_hook=unique)
+    if (not isinstance(record, dict) or set(record) != _OWNED_RECORD_FIELDS
+            or record["schema_version"] != "phased_submit_endpoint.v1"
+            or record["adapter_token"] != reservation.adapter_token
+            or record["boot_id"] != reservation.boot_id
+            or any(type(record[key]) is not int or record[key] <= 0
+                for key in ("controller_pid", "controller_start_ticks"))
+            or record["state"] not in {"binding", "bound", "closed"}):
+        raise ValueError("foreign or invalid submit ownership record")
+    pair = record["socket_dev"], record["socket_ino"]
+    valid_pair = type(pair[0]) is int and pair[0] >= 0 and type(pair[1]) is int and pair[1] > 0
+    if not ((pair == (None, None) and record["state"] != "bound")
+            or valid_pair and record["state"] != "binding"):
+        raise ValueError("invalid submit socket identity domains")
+    return record
+
+
+def _controller_dead(record):
+    token = process_start_time_token(record["controller_pid"])
+    if token is not None:
+        if int(token) == record["controller_start_ticks"]:
+            raise ValueError("submit controller is still alive")
+        return
+    try:
+        os.kill(record["controller_pid"], 0)
+    except ProcessLookupError:
+        return
+    except OSError as exc:
+        raise ValueError("submit controller death cannot be proven") from exc
+    raise ValueError("submit controller identity is unreadable")
+
+
+@contextmanager
+def _owned_files(reservation, deadline=None):
+    with ownership.opened(reservation) as files:
+        lease = None
+        try:
+            if deadline is not None:
+                lease = ownership.acquire(reservation, files, deadline)
+            yield files
+        finally:
+            if lease is not None:
+                os.close(lease)
 
 
 def _monotonic_now() -> float:
@@ -143,6 +230,7 @@ class PhasedSubmitEndpoint:
         binding: PhasedSubmitBinding,
         locator: SubmitEndpointLocator,
         configured_total: int,
+        reservation=None,
     ) -> None:
         if type(binding) is not PhasedSubmitBinding:
             raise TypeError("binding must be an exact PhasedSubmitBinding")
@@ -162,6 +250,12 @@ class PhasedSubmitEndpoint:
         self._binding = binding
         self._locator = locator
         self._configured_total = configured_total
+        if reservation is not None and locator.socket_path != reservation.path / _socket_name(reservation):
+            raise ValueError("submit locator does not bind its private reservation")
+        self._reservation = reservation
+        self._socket_identity = None
+        self._ownership_record = None
+        self._path_files = None
         self._lock = Lock()
         self._shutdown_lock = Lock()
         self._condition = Condition(self._lock)
@@ -202,12 +296,37 @@ class PhasedSubmitEndpoint:
                 raise RuntimeError("submit endpoint already started")
             if self._closed:
                 raise RuntimeError("submit endpoint is closed")
-            if self._locator.socket_path.exists():
+            try:
+                self._path_files = WorkspaceFiles(self._locator.socket_path.parent)
+            except SafeTreeRejectionError as exc:
+                raise OSError("submit endpoint parent is unavailable or unsafe") from exc
+            if self._path_files.exists(self._locator.socket_path.name):
                 raise FileExistsError(self._locator.socket_path)
             listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             bound = False
             try:
-                listener.bind(str(self._locator.socket_path))
+                if self._reservation is not None:
+                    with _owned_files(self._reservation, self._binding.deadline) as files:
+                        if files.exists("submit.json") or files.exists(_socket_name(self._reservation)):
+                            raise ValueError("submit ownership already allocated")
+                        ticks = process_start_time_token(os.getpid())
+                        if ticks is None:
+                            raise ValueError("submit controller identity unavailable")
+                        self._ownership_record = {"schema_version": "phased_submit_endpoint.v1",
+                            "adapter_token": self._reservation.adapter_token, "boot_id": self._reservation.boot_id,
+                            "controller_pid": os.getpid(), "controller_start_ticks": int(ticks),
+                            "state": "binding", "socket_dev": None, "socket_ino": None}
+                        files.write_atomic("submit.json", canonical_json_bytes(self._ownership_record))
+                        listener.bind(f"/proc/self/fd/{files.root_fd}/{_socket_name(self._reservation)}")
+                        bound = True
+                        self._socket_identity = _socket_identity(files, _socket_name(self._reservation))
+                        self._path_ownership = "owned"
+                        self._ownership_record = {**self._ownership_record, "state": "bound",
+                            "socket_dev": self._socket_identity[0], "socket_ino": self._socket_identity[1]}
+                        files.write_atomic("submit.json", canonical_json_bytes(self._ownership_record))
+                else:
+                    listener.bind(str(self._locator.socket_path))
+                    self._socket_identity = _socket_identity(self._path_files, self._locator.socket_path.name)
                 bound = True
                 self._path_ownership = "maybe_owned"
                 listener.listen(8)
@@ -237,7 +356,7 @@ class PhasedSubmitEndpoint:
                 listener.close()
                 if bound:
                     try:
-                        self._locator.socket_path.unlink()
+                        self._unlink_observed_socket(self._binding.deadline)
                     except FileNotFoundError:
                         self._path_ownership = "none"
                     except OSError:
@@ -245,6 +364,78 @@ class PhasedSubmitEndpoint:
                     else:
                         self._path_ownership = "none"
                 raise
+
+    def _unlink_observed_socket(self, deadline):
+        def remove(files, name):
+            actual = _socket_identity(files, name)
+            if actual is not None:
+                if actual != self._socket_identity:
+                    raise OSError("submit socket identity changed")
+                if _socket_identity(files, name) != actual:
+                    raise OSError("submit socket identity changed before unlink")
+                files.unlink(name)
+            if files.exists(name):
+                raise OSError("submit socket absence unproven")
+        if self._reservation is not None:
+            with _owned_files(self._reservation, deadline) as files:
+                record = _read_owned_record(self._reservation, files)
+                if (record is None or self._ownership_record is None
+                        or any(record[key] != self._ownership_record[key]
+                            for key in ("controller_pid", "controller_start_ticks"))
+                        or record["state"] == "closed"):
+                    raise OSError("submit ownership changed before unlink")
+                if record["state"] == "bound" and self._socket_identity != (
+                        record["socket_dev"], record["socket_ino"]):
+                    raise OSError("submit observation changed before unlink")
+                remove(files, _socket_name(self._reservation))
+        else:
+            linked = os.stat(self._path_files.workspace, follow_symlinks=False)
+            pinned = os.fstat(self._path_files.root_fd)
+            if (linked.st_dev, linked.st_ino) != (pinned.st_dev, pinned.st_ino):
+                raise OSError("submit parent replaced")
+            remove(self._path_files, self._locator.socket_path.name)
+
+    @staticmethod
+    def inspect_owned(reservation, *, deadline):
+        """Read-only restart admission, before any provider cleanup mutation."""
+        ownership.remaining(deadline)
+        with _owned_files(reservation) as files:
+            record = _read_owned_record(reservation, files)
+            observed = _socket_identity(files, _socket_name(reservation))
+            if record is None:
+                if observed is not None:
+                    raise ValueError("submit socket without ownership record")
+            elif record["state"] == "closed":
+                if observed is not None:
+                    raise ValueError("unexpected socket after closed submit record")
+            else:
+                if record["state"] == "bound" and observed is not None and observed != (
+                        record["socket_dev"], record["socket_ino"]):
+                    raise ValueError("submit socket was replaced")
+                _controller_dead(record)
+            ownership.remaining(deadline)
+            return record, observed
+
+    @staticmethod
+    def recover_owned(reservation, *, deadline, provider_cleanup, admission=None):
+        """Remove only the fixed owned endpoint after proven provider cleanup."""
+        if type(provider_cleanup) is not PhasedFailedCleanupEvidence or not provider_cleanup.cleanup_complete:
+            raise ValueError("provider cleanup must precede endpoint recovery")
+        current = PhasedSubmitEndpoint.inspect_owned(reservation, deadline=deadline)
+        if admission is not None and current != admission:
+            raise ValueError("submit ownership changed during provider cleanup")
+        record, observed = current
+        with _owned_files(reservation, deadline) as files:
+            if (_read_owned_record(reservation, files), _socket_identity(files, _socket_name(reservation))) != current:
+                raise ValueError("submit ownership changed before cleanup")
+            if observed is not None:
+                files.unlink(_socket_name(reservation))
+            if files.exists(_socket_name(reservation)):
+                raise ValueError("submit socket remains after cleanup")
+            if record is not None:
+                files.write_atomic("submit.json", canonical_json_bytes({**record, "state": "closed"}))
+            ownership.remaining(deadline)
+        return True
 
     def open_admission(self, lifecycle: str) -> None:
         if lifecycle not in _ADMISSION_LIFECYCLES:
@@ -450,11 +641,11 @@ class PhasedSubmitEndpoint:
             path_ownership = self._path_ownership
         if path_ownership != "none":
             try:
-                self._locator.socket_path.unlink()
+                self._unlink_observed_socket(cutoff)
             except FileNotFoundError:
                 with self._lock:
                     self._path_ownership = "none"
-            except OSError:
+            except (OSError, ValueError, RuntimeError):
                 with self._lock:
                     self._path_ownership = "maybe_owned"
             else:
@@ -475,6 +666,17 @@ class PhasedSubmitEndpoint:
             and not any(worker_liveness)
             and owned_path_cleared
         )
+        if zero_survivors and self._reservation is not None and self._ownership_record is not None:
+            try:
+                with _owned_files(self._reservation, cutoff) as files:
+                    record = _read_owned_record(self._reservation, files)
+                    if (record is None or record["controller_pid"] != os.getpid()
+                            or record["controller_start_ticks"] != int(process_start_time_token(os.getpid()))
+                            or files.exists(_socket_name(self._reservation))):
+                        raise ValueError("submit ownership changed before closed publication")
+                    files.write_atomic("submit.json", canonical_json_bytes({**record, "state": "closed"}))
+            except (OSError, ValueError, RuntimeError, TypeError):
+                zero_survivors = False
         outcome = SubmitEndpointShutdownOutcome(
             queued_requests_rejected=self._queued_rejected,
             active_requests_drained=self._active_drained,
@@ -484,6 +686,8 @@ class PhasedSubmitEndpoint:
         )
         with self._lock:
             self._shutdown_outcome = outcome
+        if zero_survivors and self._path_files is not None:
+            self._path_files.close()
         return outcome
 
     def _effective_ordinal_locked(self) -> int:
