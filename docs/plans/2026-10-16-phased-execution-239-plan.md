@@ -183,6 +183,17 @@ evidence, not production acceptance; the implementation checks below remain open
   accepting Task 5. Mechanism evidence is in
   `/tmp/orc-phased-239-evidence/task5-public/sigchld-probe.log`; it is not yet
   implementation acceptance.
+- [ ] Full-suite follow-up: an already-subreaping controller must reap only its
+  exact recorded private server after a positive matching start-token check,
+  using nonblocking `waitpid`; retain actual PID absence, namespace/socket
+  checks and the original deadline. Prove natural completion and failed cleanup
+  under an isolated subreaper, unrelated child status preservation, token
+  refusal and non-child handling. Separately restore the prior process-wide
+  subreaper flag after the native-session experiment tests' existing cleanup;
+  retain their real child-adoption behavior during the tests. Reproduce the
+  actual experiment-test to phased-test ordering, then verify both fixes without
+  extending deadlines or weakening receipt/cleanup assertions. This closes a
+  private-server reap gap; it does not select a general child supervisor.
 - [x] Demonstrate that zero exit follows normal graceful close; timeout, nonzero
   exit, explicit abort, failed freeze and incomplete cleanup cannot produce a
   prepared success. Validate prestart failure and partial start cleanup too.
@@ -509,5 +520,20 @@ accurate current routing. Ordinary composed behavior remains compatible.
   cases, exit zero; exact command/result are in
   `/tmp/orc-phased-239-evidence/task7-full/collect-new-result.json` and
   `collect-new.log`. The full suite and its baseline comparison remain pending.
+- Task 7 full campaigns remain open. The first campaign recorded **79 failed,
+  16,115 passed, 117 skipped, 2 xfailed**: six new failures were corrected at
+  `2cf415fe`, with independent compliance/quality approval, **6** focused cases
+  and **40** affected cases passing, and **106** collected. The second campaign
+  recorded **78 failed, 16,116 passed, 117 skipped, 2 xfailed** in 986.07 seconds
+  with unchanged source hashes. It fixed the first six but exposed six different
+  local phased lifecycle failures; **72** baseline failure IDs remained and
+  three were not reproduced (not established as resolved). An ordered experiment
+  test then phased test reproduces the leaked subreaper state; an isolated
+  subreaper probe identifies the matching private server as a controller-owned
+  zombie awaiting exact-child reap. The Task 2 follow-up above is selected; no
+  failure is waived. Evidence: `/tmp/orc-phased-239-evidence/task7-corrections/`,
+  `task7-full-final/` and `task7-lifecycle-regression/` under the same evidence
+  root. Four nanoBragg baseline failures separately require the absent external
+  `/tmp/nanoBragg/golden_suite_generator/nanoBragg.c`; they are not new regressions.
 - Live-provider qualification: not selected; deterministic fixtures do not claim
   it and do not establish improved provider task quality.

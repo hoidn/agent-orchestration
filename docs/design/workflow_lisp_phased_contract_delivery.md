@@ -398,6 +398,16 @@ remove the recorded leader before escalation. Continue to require actual group
 absence before closing the server. Failed signalling, ambiguous ownership or a
 group still present at the original deadline cannot authorize candidate cleanup
 or redispatch.
+When the controller is already a Linux subreaper, its terminated private server
+can become a direct child that only the controller can reap. In the existing
+server-exit wait, a positive matching recorded server start token permits
+`waitpid(server_pid, WNOHANG)` for that exact PID. The kernel child relationship
+supplies reaping authority; `ECHILD` means only that this controller cannot reap
+it. Reobserve actual PID absence within the original deadline and retain the
+namespace/socket checks. Neither a zombie state nor a successful wait result
+alone proves complete cleanup. Do not enable subreaping, enumerate children,
+reap an arbitrary child or renew the deadline. Unrelated child exit statuses
+remain owned by their existing callers.
 Natural completion likewise requires successful exit status, naturally empty
 registered group and removal of the inert private server; a residual group
 is a failure even if forced cleanup later succeeds. Exit-status publication can
