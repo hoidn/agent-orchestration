@@ -262,3 +262,30 @@ def test_identity_recheck_confirms_original_death_and_closes_pidfd(
     with pytest.raises(OSError):
         os.fstat(descriptor)
     assert not tracker.pidfds
+
+
+@pytest.mark.parametrize('prior', [0, 1])
+@pytest.mark.parametrize('failed_test', [False, True])
+def test_experiment_fixture_restores_prior_subreaper_after_cleanup(prior, failed_test):
+    script = r'''
+import ctypes,sys
+import pytest
+libc=ctypes.CDLL(None)
+prior,failed=int(sys.argv[1]),int(sys.argv[2])
+assert libc.prctl(36,prior,0,0,0)==0
+class FailAfterCleanup:
+ @pytest.hookimpl(hookwrapper=True)
+ def pytest_runtest_call(self,item):
+  outcome=yield
+  if failed:
+   outcome.force_exception(AssertionError('synthetic exception after tracker cleanup'))
+code=pytest.main(['-q','tests/experiments/test_native_session_cli_process.py::test_failure_after_popen_cleans_registered_leader'],plugins=[FailAfterCleanup()])
+assert int(code)==failed
+current=ctypes.c_int()
+assert libc.prctl(37,ctypes.byref(current),0,0,0)==0
+assert current.value==prior,(prior,current.value)
+'''
+    result = subprocess.run([sys.executable, '-c', script, str(prior), str(int(failed_test))],
+        cwd=ROOT, env={**os.environ, 'PYTHONPATH': str(ROOT)}, capture_output=True,
+        text=True, timeout=15)
+    assert result.returncode == 0, result.stdout + result.stderr

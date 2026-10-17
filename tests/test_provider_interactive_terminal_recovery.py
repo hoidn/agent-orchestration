@@ -907,3 +907,104 @@ def test_recovery_interrupted_after_reap_notification_remains_retryable(monkeypa
             assert adapter.recover_failed(reservation, deadline=time.monotonic()+2).cleanup_complete
         finally:
             assert adapter.recover_failed(reservation, deadline=time.monotonic()+4).cleanup_complete
+
+
+@pytest.mark.parametrize('mode', ['natural', 'failed'])
+def test_subreaper_controller_reaps_only_its_exact_owned_server(tmp_path, mode):
+    script = r'''
+import ctypes,json,os,subprocess,sys,tempfile,time
+from pathlib import Path
+from orchestrator.providers import _interactive_terminal_lifecycle as life
+from orchestrator.providers.interactive_terminal import InteractiveTerminalTurnQueueAdapter
+from tests.test_provider_interactive_terminal_recovery import _invocation
+assert ctypes.CDLL(None).prctl(36,1,0,0,0)==0
+mode=sys.argv[1]
+unrelated=subprocess.Popen([sys.executable,'-c','raise SystemExit(0)'])
+with tempfile.TemporaryDirectory(prefix='orc-subreap-') as path:
+ root=Path(path)
+ reservation=InteractiveTerminalTurnQueueAdapter.reserve_recoverable(root)
+ adapter=InteractiveTerminalTurnQueueAdapter(root,socket_root=root,reservation=reservation)
+ outcome=adapter.start(_invocation(root,'import sys;sys.stdin.readline()' + ('' if mode=='natural' else ';raise SystemExit(7)')),deadline=time.monotonic()+8)
+ assert outcome.status=='started'
+ print('test-owned server',json.loads((reservation.path/'server.json').read_text()),flush=True)
+ try:
+  if mode=='natural':
+   adapter.offer_close(outcome.handle,deadline=time.monotonic()+5)
+   proof=adapter.join(outcome.handle,deadline=time.monotonic()+5)
+   assert proof.return_code==0 and proof.proof_complete
+  else:
+   adapter.offer_close(outcome.handle,deadline=time.monotonic()+5)
+   client=json.loads((reservation.path/'client.json').read_text())
+   exited=time.monotonic()+3
+   leader=Path('/proc')/str(client['leader_pid'])/'stat'
+   while leader.exists():
+    try:state=leader.read_text().rsplit(') ',1)[1].split()[0]
+    except FileNotFoundError:break
+    if state=='Z':break
+    assert time.monotonic()<exited
+    time.sleep(.01)
+   assert (reservation.path/'provider.exit-status').read_text().strip()=='7'
+   assert adapter.recover_failed(reservation,deadline=time.monotonic()+5).cleanup_complete
+  server=json.loads((reservation.path/'server.json').read_text())
+  assert life.start_token(server['server_pid']) is None
+  assert not (reservation.path/'tmux.sock').exists()
+  assert adapter.recover_failed(reservation,deadline=time.monotonic()+2).cleanup_complete
+  assert adapter.recover_failed(reservation,deadline=time.monotonic()+2).cleanup_complete
+  limit=time.monotonic()+2
+  stat_path=Path('/proc')/str(unrelated.pid)/'stat'
+  while stat_path.read_text().rsplit(') ',1)[1].split()[0]!='Z':
+   assert time.monotonic()<limit
+   time.sleep(.01)
+  pid,status=os.waitpid(unrelated.pid,os.WNOHANG)
+  assert pid==unrelated.pid and os.waitstatus_to_exitcode(status)==0
+  unrelated.returncode=0
+ finally:
+  server_path=reservation.path/'server.json'
+  if server_path.exists():
+   server=json.loads(server_path.read_text())
+   if life.start_token(server['server_pid'])==str(server['server_start_ticks']):
+    try:os.waitpid(server['server_pid'],os.WNOHANG)
+    except ChildProcessError:pass
+  cleanup=adapter.recover_failed(reservation,deadline=time.monotonic()+3)
+  print('final exact-reservation cleanup',cleanup,flush=True)
+  unrelated.wait(timeout=2)
+  assert cleanup.cleanup_complete
+'''
+    result = subprocess.run([sys.executable, '-c', script, mode], capture_output=True, text=True,
+        cwd=Path(__file__).resolve().parents[1], timeout=30,
+        env={**os.environ, 'PYTHONPATH': str(Path(__file__).resolve().parents[1])})
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize('identity', ['absent', 'mismatched', 'unreadable', 'expired', 'live-child', 'non-child', 'wait-error'])
+def test_server_exit_wait_reaps_only_matching_children_and_never_assumes_absence(monkeypatch, identity):
+    from orchestrator.providers import interactive_terminal as terminal
+    from orchestrator.providers import _interactive_terminal_lifecycle as life
+    backend = terminal._TmuxInteractiveTerminalBackend()
+    server = {'server_pid': 12345, 'server_start_ticks': 100}
+    calls = []
+    def token(pid):
+        assert pid == server['server_pid']
+        if identity == 'unreadable':
+            raise life.OwnershipError('cannot read server token')
+        return None if identity == 'absent' else '101' if identity == 'mismatched' else '100'
+    def waitpid(pid, flags):
+        calls.append((pid, flags))
+        if identity == 'wait-error':
+            raise PermissionError('cannot reap')
+        if identity == 'live-child':
+            return 0, 0
+        raise ChildProcessError('not a child')
+    with monkeypatch.context() as patch:
+        patch.setattr(life, 'start_token', token)
+        patch.setattr(os, 'waitpid', waitpid)
+        if identity == 'absent':
+            backend._wait_server_exit(server, deadline=time.monotonic()+.04)
+        else:
+            expected = PermissionError if identity == 'wait-error' else (life.OwnershipError, terminal.InteractiveTerminalError)
+            with pytest.raises(expected):
+                backend._wait_server_exit(server, deadline=time.monotonic()+(-.01 if identity == 'expired' else .04))
+    if identity in {'absent', 'mismatched', 'unreadable', 'expired'}:
+        assert not calls
+    else:
+        assert calls and set(calls) == {(server['server_pid'], os.WNOHANG)}

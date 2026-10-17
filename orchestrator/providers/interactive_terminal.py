@@ -649,6 +649,11 @@ class _TmuxInteractiveTerminalBackend:
                 return
             if current != str(server["server_start_ticks"]):
                 raise lifecycle.OwnershipError("server PID reused")
+            self._remaining(deadline)
+            try:
+                os.waitpid(server["server_pid"], os.WNOHANG)
+            except ChildProcessError:
+                pass
             time.sleep(min(.01, self._remaining(deadline)))
 
     def _verify_server_absence(self, reservation, files, server, *, deadline):
