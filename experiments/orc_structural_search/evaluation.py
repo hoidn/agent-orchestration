@@ -14,8 +14,8 @@ also `run_arm`'s work root:
 
 Outcome: the memo's terminal row `completed` -> completed, another terminal -> failed (the runtime writes a
 failed terminal when a provider exits nonzero), no terminal (the run died, or never started) -> incident; an
-incident is resumed under the same evaluation id, never replicated. With `timeout_sec`, a launch still running
-after that many seconds has its process group killed (SIGKILL), which leaves no terminal: an incident.
+incident is resumed under the same evaluation id, never replicated. A launch still running after `timeout_sec`
+seconds (required) has its process group killed (SIGKILL), which leaves no terminal: an incident.
 
 Dependencies: git and bwrap on PATH; `env` (the launch environment) must put the real or scripted
 `claude`/`codex` on PATH; the runtime checkout must be clean (run_arm refuses it otherwise).
@@ -51,6 +51,7 @@ class EvaluationRecord:
     evaluation_id: str
     run_id: str  # UNAVAILABLE when no run started
     state_dir: Path
+    records_dir: Path  # <evidence>/records/<evaluation_id>/run-1
     outcome: str  # "completed" | "failed" | "incident"
     value: object | None  # the terminal value when completed
     wall_clock_sec: float | str  # summed over launch and resumes
@@ -81,8 +82,7 @@ def record_env_manifest(evidence_root: Path) -> str:
 
 
 def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Path, evidence_root: Path,
-             replicate: int, runtime: Path, env: Mapping[str, str],
-             timeout_sec: float | None = None) -> EvaluationRecord:
+             replicate: int, runtime: Path, env: Mapping[str, str], timeout_sec: float) -> EvaluationRecord:
     """Run the accepted candidate once in a fresh clone of the task package; see the module docstring."""
     candidate_root, evidence_root = candidate_root.resolve(), evidence_root.resolve()
     compiled = compile_candidate(candidate_root, config)
@@ -93,8 +93,9 @@ def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Pa
     eid = evaluation_id(candidate, task_package.name, EVALUATOR_VERSION, record_env_manifest(evidence_root),
                         replicate)
     state_dir = evidence_root / "runs" / eid
-    if state_dir.exists():
-        raise FileExistsError(f"{state_dir}: evaluation {eid} already ran; resume it rather than rerun it")
+    if (evidence_root / "records" / eid).exists():  # even a launch that died before its run started
+        raise FileExistsError(f"{evidence_root / 'records' / eid}: evaluation {eid} already ran; "
+                              "resume it rather than rerun it")
     source_root = candidate_root / config.source_root
     spec = ArmSpec(
         source=(source_root / config.entry_workflow.split("::")[0]).with_suffix(".orc"),
@@ -106,24 +107,24 @@ def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Pa
     shutil.copyfile(DEV_CHECK, clone / DEV_CHECK.name)
     with (clone / ".git" / "info" / "exclude").open("a") as exclude:  # not part of the agent's patch
         exclude.write(f"/{DEV_CHECK.name}\n")
-    pending = EvaluationRecord(eid, UNAVAILABLE, state_dir, "incident", None, 0.0, 0, 0, ())
-    return _launch(pending, records, ["bash", str(records / "command.sh")], env, timeout_sec)
+    pending = EvaluationRecord(eid, UNAVAILABLE, state_dir, records, "incident", None, 0.0, 0, 0, ())
+    return _launch(pending, ["bash", str(records / "command.sh")], env, timeout_sec)
 
 
-def resume(record: EvaluationRecord, *, env: Mapping[str, str], timeout_sec: float | None = None) -> EvaluationRecord:
+def resume(record: EvaluationRecord, *, env: Mapping[str, str], timeout_sec: float) -> EvaluationRecord:
     """Resume an incident's run (`orchestrator resume <run_id> --state-dir <state_dir>` through resume.sh)
     under the same evaluation id; resume_count goes up by one."""
     if record.outcome != "incident" or record.run_id == UNAVAILABLE:
         raise ValueError(f"evaluation {record.evaluation_id} is {record.outcome} with run id {record.run_id}: "
                          "only an incident with a started run can be resumed")
-    records = record.state_dir.parents[1] / "records" / record.evaluation_id / "run-1"
     resumed = replace(record, resume_count=record.resume_count + 1)
-    return _launch(resumed, records, ["bash", str(records / "resume.sh"), record.run_id], env, timeout_sec)
+    return _launch(resumed, ["bash", str(record.records_dir / "resume.sh"), record.run_id], env, timeout_sec)
 
 
-def _launch(record: EvaluationRecord, records: Path, argv: list[str], env: Mapping[str, str],
-            timeout_sec: float | None) -> EvaluationRecord:
+def _launch(record: EvaluationRecord, argv: list[str], env: Mapping[str, str],
+            timeout_sec: float) -> EvaluationRecord:
     """Run `argv` (output in launch-<resume_count>.log) and fold its run's memo into `record`."""
+    records = record.records_dir
     log = records / f"launch-{record.resume_count}.log"
     started = time.monotonic()
     with log.open("w") as out:
@@ -131,6 +132,8 @@ def _launch(record: EvaluationRecord, records: Path, argv: list[str], env: Mappi
         try:
             status = launcher.wait(timeout=timeout_sec)
         except subprocess.TimeoutExpired:
+            # ponytail: kills the launcher's process group only; agent-turn providers start their own session and
+            # would escape it (provider-result calls die with the run); kill by session when agent turns are used
             os.killpg(launcher.pid, signal.SIGKILL)
             status = launcher.wait()
     elapsed = time.monotonic() - started

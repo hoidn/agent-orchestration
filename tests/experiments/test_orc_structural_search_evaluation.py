@@ -21,6 +21,7 @@ CHANGE = {"match": "Implement this change", "result": {"summary": "set VALUE", "
 # terminal, here by evaluate's wall-clock limit while the provider sleeps
 HANG = {"match": "Implement this change", "sleep": 600, "exit": 1}
 KILL_AFTER_SEC = 20
+NO_KILL_SEC = 600
 
 
 @pytest.fixture
@@ -28,7 +29,7 @@ def sandboxed():
     skip_without_sandbox()
 
 
-def run(world, timeout_sec=None):
+def run(world, timeout_sec=NO_KILL_SEC):
     env = {**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}", "SCRIPTED_RESULTS_FILE": str(world.results)}
     record = evaluate(world.candidate, CONFIG, task_package=world.task, evidence_root=world.evidence,
                       replicate=1, runtime=world.runtime, env=env, timeout_sec=timeout_sec)
@@ -42,15 +43,17 @@ def memo_rows(record):
 def test_direct_seed_runs_in_fresh_clone_and_records_run_id(sandboxed, world):
     script(world, [CHANGE])
     record, _ = run(world)
-    assert (record.outcome, record.value, record.state_dir, memo_rows(record)[-1]["record"], record.provider_calls) == (
+    assert (record.outcome, record.value, record.state_dir, record.records_dir, memo_rows(record)[-1]["record"],
+            record.provider_calls) == (
         "completed", {"variant": "DONE", "summary": "set VALUE"},
-        world.evidence.resolve() / "runs" / record.evaluation_id, "terminal", 1)
+        world.evidence.resolve() / "runs" / record.evaluation_id,
+        world.evidence.resolve() / "records" / record.evaluation_id / "run-1", "terminal", 1)
 
 
 def test_direct_seed_runs_in_the_clone_with_dev_check_beside_it(sandboxed, world):
     script(world, [CHANGE])
     record, _ = run(world)
-    calls = world.evidence / "records" / record.evaluation_id / "run-1" / "calls"
+    calls = record.records_dir / "calls"
     patch = (calls / "1" / "patch-cand-1.diff").read_text()
     inputs = json.loads((calls.parent / "inputs.json").read_text())
     assert (Path(inputs["repo"]) / "dev_check.py").is_file() and (Path(inputs["repo"]) / "dev-check.json").is_file()
@@ -63,6 +66,18 @@ def test_provider_failure_terminal_is_recorded_as_failed(sandboxed, world):
     assert (record.outcome, record.value, memo_rows(record)[-1]["outcome"]) == ("failed", None, "failed")
 
 
+def surviving(marker):
+    """Pids of live processes whose command line mentions `marker`."""
+    found = []
+    for cmdline in Path("/proc").glob("[0-9]*/cmdline"):
+        try:
+            if str(marker).encode() in cmdline.read_bytes():
+                found.append(cmdline.parent.name)
+        except OSError:  # the process exited while we looked
+            continue
+    return found
+
+
 def test_unfinished_memo_is_recorded_as_incident(sandboxed, world):
     script(world, [HANG])
     record, _ = run(world, timeout_sec=KILL_AFTER_SEC)
@@ -70,11 +85,24 @@ def test_unfinished_memo_is_recorded_as_incident(sandboxed, world):
         "incident", 0, 1, True)
 
 
+def test_killed_launch_leaves_no_process_of_the_run(sandboxed, world):
+    script(world, [HANG])
+    run(world, timeout_sec=KILL_AFTER_SEC)
+    assert surviving(world.fakebin) == []
+
+
+def test_launch_killed_before_its_run_started_still_blocks_a_rerun(sandboxed, world):
+    script(world, [CHANGE])
+    record, _ = run(world, timeout_sec=0)
+    with pytest.raises(FileExistsError, match=str(record.records_dir.parent)):
+        run(world)
+
+
 def test_resume_keeps_evaluation_id_and_completes(sandboxed, world):
     script(world, [HANG])
     first, env = run(world, timeout_sec=KILL_AFTER_SEC)
     script(world, [CHANGE])
-    resumed = resume(first, env=env)
+    resumed = resume(first, env=env, timeout_sec=NO_KILL_SEC)
     assert (resumed.evaluation_id, resumed.run_id, resumed.outcome, resumed.resume_count, resumed.incidents) == (
         first.evaluation_id, first.run_id, "completed", 1, first.incidents)
 
