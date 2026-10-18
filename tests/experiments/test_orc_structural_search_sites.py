@@ -2,8 +2,11 @@
 
 import hashlib
 import random
+import re
 import shutil
 from pathlib import Path
+
+import pytest
 
 from experiments.orc_structural_search.candidates import (
     _child_forms, _owner_form, _site_path, _subform, canonical_form, validate_one_site)
@@ -124,3 +127,32 @@ def test_slot_type_reads_the_canonical_identity_at_a_position(world):
     manifest = site_manifest(world.candidate, CONFIG, runtime=world.runtime)
     assert (slot_type(manifest, OWNER, FILE, 29, 19), slot_type(manifest, OWNER, FILE, 29, 20)) == (
         "plan_then_implement::Plan", None)
+
+
+def test_derived_receipt_replaces_invalid_hypothesis_bytes_and_caps_the_line(tmp_path):
+    parent, child = helper_child(tmp_path)
+    (child / "HYPOTHESIS.txt").write_bytes(b"bad \xff" + b"x" * 600 + b"\n")
+    receipt = derive_receipt(parent, child, {"site_id": DRAFT_SITE}, CONFIG, parent_candidate_id="sha256:p")
+    assert (receipt.hypothesis[:5], len(receipt.hypothesis)) == ("bad �", 500)
+
+
+def test_derived_receipt_of_a_crlf_child_is_lf_normalized_and_validates(tmp_path):
+    parent, child = helper_child(tmp_path)
+    (child / FILE).write_bytes((child / FILE).read_bytes().replace(b"\n", b"\r\n"))
+    receipt = derive_receipt(parent, child, {"site_id": DRAFT_SITE}, CONFIG, parent_candidate_id="sha256:p")
+    assert (receipt.replacement_expression, receipt.supporting_declarations,
+            validate_one_site(parent, child, receipt, CONFIG).accepted) == ("(fresh-steps task)", (HELPER,), True)
+
+
+def test_derive_receipt_of_an_unreadable_child_file_is_empty(tmp_path):
+    parent, child = helper_child(tmp_path)
+    (child / FILE).unlink()
+    (child / FILE).mkdir()  # reading it raises an OSError other than FileNotFoundError
+    receipt = derive_receipt(parent, child, {"site_id": DRAFT_SITE}, CONFIG, parent_candidate_id="sha256:p")
+    assert (receipt.replacement_expression, receipt.supporting_declarations) == ("", ())
+
+
+def test_derive_receipt_names_the_parent_file_when_the_site_does_not_resolve(tmp_path):
+    parent, child = helper_child(tmp_path)
+    with pytest.raises(ValueError, match=re.escape(str(parent / FILE))):
+        derive_receipt(parent, child, {"site_id": f"{OWNER}@{FILE}:29:21"}, CONFIG, parent_candidate_id="sha256:p")

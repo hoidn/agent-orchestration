@@ -31,6 +31,7 @@ from orchestrator.workflow_lisp.reader import read_sexpr_text
 
 HYPOTHESIS = "HYPOTHESIS.txt"
 STDERR_TAIL_CHARS = 4000
+HYPOTHESIS_CHARS = 500
 
 
 def site_manifest(root: Path, config: ExperimentConfig, *, runtime: Path) -> dict:
@@ -46,10 +47,11 @@ def site_manifest(root: Path, config: ExperimentConfig, *, runtime: Path) -> dic
     command += ["--files", *[name for name in config.mutable_files if name.endswith(".orc")]]
     result = subprocess.run(command, cwd=runtime, env={**os.environ, "PYTHONPATH": str(runtime)},
                             capture_output=True, text=True)
-    if result.returncode != 0:
-        raise RuntimeError(f"site manifest of {root} failed (exit {result.returncode}): "
+    lines = result.stdout.strip().splitlines()
+    if result.returncode != 0 or not lines:
+        raise RuntimeError(f"site manifest of {root} failed (exit {result.returncode}, {len(lines)} stdout lines): "
                            f"{result.stderr[-STDERR_TAIL_CHARS:]}")
-    return json.loads(result.stdout.strip().splitlines()[-1])
+    return json.loads(lines[-1])
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -67,11 +69,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = parser.parse_args(argv)
     root = Path(args.root).resolve()
     source_root = root / args.source_root
-    boundaries = args.command_boundaries_file and root / args.command_boundaries_file
+    boundaries = root / args.command_boundaries_file if args.command_boundaries_file else None
     result = prepare_closed_program_bundle(FrontendBuildRequest(
         source_path=(source_root / args.entry_workflow.split("::")[0]).with_suffix(".orc"), source_roots=(source_root,),
         entry_workflow=args.entry_workflow, provider_externs_path=root / args.provider_externs_file,
-        command_boundaries_path=boundaries or None, workspace_root=root), source_read_trace=SourceReadTrace())
+        command_boundaries_path=boundaries, workspace_root=root), source_read_trace=SourceReadTrace())
     print(json.dumps(build_manifest(result, root=root, files=[Path(name) for name in args.files]), sort_keys=True))
 
 
@@ -112,7 +114,7 @@ def _forms_and_text(path: Path) -> tuple[tuple, str] | None:
     try:
         text = path.read_bytes().decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
         return _top_level_forms(read_sexpr_text(text, source_path=str(path))), text
-    except (FileNotFoundError, UnicodeDecodeError, LispFrontendCompileError):
+    except (OSError, UnicodeDecodeError, LispFrontendCompileError):
         return None  # the receipt stays empty; validate_one_site reports the child
 
 
@@ -120,19 +122,32 @@ def _slice(text: str, node) -> str:
     return text[node.span.start.offset:node.span.end.offset]
 
 
+def _parent_site(parent: Path, site_id: str) -> tuple[str, str, tuple, tuple[int, ...]]:
+    """(owner name, file name, the parent file's forms, index path of the site in the owner); ValueError naming
+    the parent file when the site id, the file, the owner or the form at the site cannot be resolved."""
+    parts = _parse_site(site_id)
+    if parts is None:
+        raise ValueError(f"malformed site id {site_id!r}")
+    owner_name, file_name, line, column = parts
+    read = _forms_and_text(parent / file_name)
+    owner = _owner_form(read[0], owner_name) if read is not None else None
+    path = _site_path(owner, line, column) if owner is not None else None
+    if path is None:
+        raise ValueError(f"site {site_id!r} does not resolve in the parent file {parent / file_name}")
+    return owner_name, file_name, read[0], path
+
+
 def derive_receipt(parent: Path, child: Path, site: Mapping, config: ExperimentConfig, *,
                    parent_candidate_id: str) -> Receipt:
     """The I2 receipt of `child` against the parent's `site`, read from the child's files (see module doc)."""
-    owner_name, file_name, line, column = _parse_site(site["site_id"])
+    owner_name, file_name, parent_forms, path = _parent_site(parent, site["site_id"])
     parent_bytes = (parent / file_name).read_bytes()
-    parent_forms = _forms_and_text(parent / file_name)[0]
-    path = _site_path(_owner_form(parent_forms, owner_name), line, column)
     replacement, helpers = "", ()
     child_read = _forms_and_text(child / file_name)
     if child_read is not None:
         child_forms, text = child_read
         child_owner = _owner_form(child_forms, owner_name)
-        node = _subform(child_owner, path) if child_owner is not None and path is not None else None
+        node = _subform(child_owner, path) if child_owner is not None else None
         replacement = _slice(text, node) if node is not None else ""
         present = _split_forms(parent_forms)[1].keys()
         helpers = tuple(_slice(text, form) for key, form in _split_forms(child_forms)[1].items()
@@ -144,9 +159,14 @@ def derive_receipt(parent: Path, child: Path, site: Mapping, config: ExperimentC
 
 
 def _hypothesis(path: Path) -> str:
-    """The first line of the optional hypothesis file, else "unavailable"."""
-    lines = path.read_text().splitlines() if path.is_file() else []
-    return lines[0].strip() if lines and lines[0].strip() else UNAVAILABLE
+    """The first line of the optional hypothesis file (agent-written: invalid UTF-8 replaced, at most
+    HYPOTHESIS_CHARS characters), else "unavailable"."""
+    try:
+        lines = path.read_bytes().decode("utf-8", errors="replace").splitlines()
+    except OSError:
+        return UNAVAILABLE
+    first = lines[0].strip()[:HYPOTHESIS_CHARS] if lines else ""
+    return first or UNAVAILABLE
 
 
 def slot_type(manifest: Mapping, owner: str, path: str, line: int, column: int) -> str | None:
