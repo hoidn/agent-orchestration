@@ -13,6 +13,11 @@ shims' sandbox (not under /tmp, /dev/shm or /var/tmp) and outside the main check
   <work>/agents/<16 hex>/cand-1/          the clone (the run's working directory)
   <work>/env-manifests/<digest>.json      the environment manifest whose digest is in the identity
 
+The environment manifest holds Python, the platform, the installed distributions and the `--version` output of
+claude, codex, bwrap and git as the launch environment's PATH finds them (a directory holding `model-guard`, the
+shims', is skipped), so the evaluation id changes with a CLI version. Model names need no entry: they are the
+candidate's provider bindings and `:model` values, already in its candidate id.
+
 Outcome: the memo's terminal row `completed` -> completed, another terminal -> failed (the runtime writes a
 failed terminal when a provider exits nonzero), no terminal (the run died, or never started) -> incident; an
 incident is resumed under the same evaluation id, never replicated. A launch still running after `timeout_sec`
@@ -45,6 +50,8 @@ from experiments.orc_structural_search.records import UNAVAILABLE
 EVALUATOR_VERSION = "public-run-1"
 DEV_CHECK = "dev_check.py"  # in the candidate root
 INPUTS = ("task", "intent", "repo")
+CLIS = ("claude", "codex", "bwrap", "git")
+CLI_VERSION_TIMEOUT_SEC = 60
 
 
 @dataclass(frozen=True)
@@ -69,12 +76,24 @@ def evaluation_id(candidate: str, task_id: str, evaluator_version: str, env_mani
     return hashlib.sha256(json.dumps(fields).encode()).hexdigest()
 
 
-def record_env_manifest(work_root: Path) -> str:
-    """Write this interpreter's environment manifest (Python, platform, installed distributions) under the
-    work root; return its sha256 digest."""
+def cli_version(name: str, env: Mapping[str, str]) -> str:
+    """`<name> --version` output as `env`'s PATH finds it outside the shims' directory, or UNAVAILABLE."""
+    path = os.pathsep.join(d for d in env.get("PATH", "").split(os.pathsep) if not (Path(d) / "model-guard").exists())
+    found = shutil.which(name, path=path)
+    if found is None:
+        return UNAVAILABLE
+    done = subprocess.run([found, "--version"], env=dict(env), stdin=subprocess.DEVNULL, capture_output=True,
+                          text=True, timeout=CLI_VERSION_TIMEOUT_SEC)
+    return (done.stdout + done.stderr).strip()
+
+
+def record_env_manifest(work_root: Path, env: Mapping[str, str]) -> str:
+    """Write the environment manifest (Python, platform, installed distributions, CLI versions under `env`) under
+    the work root; return its sha256 digest."""
     manifest = {"python": sys.version, "executable": sys.executable, "platform": platform.platform(),
                 "distributions": sorted({f"{d.metadata['Name']}=={d.version}"
-                                         for d in importlib.metadata.distributions()})}
+                                         for d in importlib.metadata.distributions()}),
+                "cli": {name: cli_version(name, env) for name in CLIS}}
     text = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
     digest = hashlib.sha256(text.encode()).hexdigest()
     path = work_root / "env-manifests" / f"{digest}.json"
@@ -95,7 +114,7 @@ def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Pa
     if not (candidate_root / DEV_CHECK).is_file():
         raise FileNotFoundError(f"{candidate_root} has no {DEV_CHECK}: the clone's dev-check boundary would not run")
     candidate = candidate_id(candidate_root, orchestrator_commit=runtime_commit(runtime))
-    env_digest = record_env_manifest(work_root)
+    env_digest = record_env_manifest(work_root, env)
     eid = evaluation_id(candidate, task_package.name, EVALUATOR_VERSION, env_digest, replicate)
     state_dir = work_root / "runs" / eid
     if (work_root / "records" / eid).exists():  # even a launch that died before its run started

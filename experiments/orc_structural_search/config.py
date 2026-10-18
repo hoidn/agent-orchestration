@@ -32,8 +32,11 @@ class ExperimentConfig:
 
 
 def load_config(path: Path) -> ExperimentConfig:
-    """Read an ExperimentConfig from JSON; unknown or missing keys raise TypeError."""
+    """Read an ExperimentConfig from JSON; a list field that is missing or not a JSON list raises ValueError
+    naming the field, another unknown or missing key TypeError."""
     data = json.loads(path.read_text())
     for key in ("mutable_files", "mutable_definitions"):
+        if not isinstance(data.get(key), list):
+            raise ValueError(f"{path}: {key} must be a JSON list of strings, not {data.get(key)!r}")
         data[key] = tuple(data[key])
     return ExperimentConfig(**data)

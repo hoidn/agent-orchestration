@@ -14,28 +14,45 @@ allocation, which do not count as terminal-only).
 | `records.py` | Append-only JSONL log, skeleton hash, provider allocation, final-choice rule |
 | `evaluation.py` | One evaluation through the public `run` route in a fresh clone behind the comparison-harness shims |
 | `metering.py` | Consumption receipts (not yet wired into the driver: consumption is recorded `unavailable`) |
-| `driver.py` | Mode 1: catalog enumeration, unguided I1 episodes, scans, readout |
+| `ledger.py` | The provider-call ledger `E/calls.json` and each launch's planned maximum of provider calls |
+| `driver.py` | Mode 1: catalog enumeration (bounded concurrency), unguided I1 episodes behind the shims, scans, call cap, readout |
 | `seeds/` | The 2.39 seed catalog sharing one entry contract (`run ((task String) (intent String) (repo String)) -> Outcome`) |
 
 ## Offline recipe
 
-Prerequisites: the comparison harness's (`experiments/compare/README.md`): git and bwrap on `PATH`, a frozen
-runtime checkout `RT` outside the main checkout's prefix, and the shims first on `PATH` for every agent CLI. Each
+Prerequisites: the comparison harness's (`experiments/compare/README.md`): git and bwrap on `PATH` and a frozen
+runtime checkout `RT` outside the main checkout's prefix. The driver puts `$RT`'s shims first on `PATH` for every
+evaluation and episode itself; the launch environment's `PATH` must reach the real `claude` and `codex`. Each
 task package holds `task.txt`, `intent.txt`, `base_commit` and `seed/`, and `seed/` must hold `dev-check.json`
 (`{"argv": [...], "timeout_sec": N}`, the agent-visible checks): without it the `dev-check` boundary fails
 closed, so `implement_check_diagnose_repair` always repairs. The operator passes each task's solution commit
 (the scan's solution hash) with `--solution TASK=HASH`, keyed by the package directory's name; a task without
 one, or whose hash has fewer than 7 hex characters or is not a commit of `$RT` (`git cat-file -t`), is refused
-before anything runs. The hash never goes into the package, which sits in the runtime agents can read. The mutator command runs with the episode copy as its working directory; see "Not
-implemented" for what it must provide itself.
+before anything runs; hashes are lowercased before use. The hash never goes into the package, which sits in the
+runtime agents can read.
+
+The mutator command (`--agent-cmd`, e.g. `claude -p --model claude-opus-5-5`) runs from the episode's `cand-1`
+with the brief (`EPISODE.md`) on stdin, behind the shim prefix: each `claude` or `codex` call it makes is recorded
+under `E/episodes/<episode_id>/calls/<n>/` with its patch against the parent snapshot, runs under bubblewrap and
+passes the model guard (a Fable model is refused; the command then exits nonzero and the episode is an
+`incident`).
 
 ```bash
 python -m experiments.orc_structural_search.driver --config config.json \
   --seeds experiments/orc_structural_search/seeds/{direct,plan_then_implement,implement_review_revise,best_of_n,implement_check_diagnose_repair}.orc \
   --tasks $RT/experiments/compare/tasks/<task> --runtime $RT \
   --work-root $W --evidence $E --episodes N --agent-cmd '<mutator command>' \
-  --eval-timeout-sec 7200 --solution <task>=$SOL [--replicates K] [--holdout PATH ...]
+  --eval-timeout-sec 7200 --solution <task>=$SOL --call-cap 160 [--concurrency 4] [--replicates K] [--holdout PATH ...]
 ```
+
+`--concurrency` bounds the evaluations in flight (a thread pool; each has its own clone, records and state
+directories; log and ledger writes are serialized; episodes run one at a time). `--call-cap` bounds the provider
+calls of evaluations and episodes in `E/calls.json`: before each launch the driver reserves its planned maximum
+(an evaluation: every `provider-result` of the entry module times the `:max` of each enclosing `loop/recur` or
+`list/map-effect`; an episode: 1) and refuses it (`CallCapExceeded`) when the ledger total (counted calls of
+finished launches, planned maxima of unfinished ones) plus that maximum would exceed the cap; after the launch it
+records the calls the shims recorded. A refused evaluation does not stop the others in the pool; the refusal is
+raised once all have ended. Judge calls are not in the ledger.
 
 `config.json` is an `ExperimentConfig` (see `config.py`); its `entry_workflow` (e.g. `direct::run`) names the
 seed the episodes start from, and every seed is evaluated under `<seed stem>::<entry definition>`. The tests
@@ -54,10 +71,15 @@ hashes to its directory name.
 W/records/<evaluation_id>/run-1/   run_arm's records: record.json (with the scan), inputs.json, command.sh, calls/
 W/runs/<evaluation_id>/<run_id>/   the run's state (memo.jsonl)
 W/agents/<tree>/cand-1/            the clone the run works in
-W/episodes/episode-<n>/            the mutator's copy of the parent (the child is its final files)
+W/env-manifests/<digest>.json      Python, platform, distributions and claude/codex/bwrap/git --version output
+W/episodes/episode-<n>/cand-1/     the mutator's copy of the parent, a git repository whose one commit is the parent
+                                   snapshot (the shims' COMPARE_BASE); the child is its final files (.git removed)
+W/episodes/episode-<n>/tmp/        the mutator's private /tmp under the shims
 E/log.jsonl                        episode and evaluation records, append-only
+E/calls.json                       the provider-call ledger, one entry per evaluation and episode
 E/candidates/<candidate_id>/       the archive: catalog seeds and accepted children
 E/episodes/episode-<n>.log         the mutator command's output
+E/episodes/<episode_id>/           the episode's shim records: calls/<n>/, record.json (with the scan)
 E/episodes/<episode_id>.diff       the episode's final diff against its parent, accepted or refused
 E/readout.json                     per-seed outcomes, episode outcomes and refusals, skeleton diversity
 ```
@@ -68,16 +90,21 @@ record `scan_pending`. The log is append-only, so that flag is never cleared: th
 (`prepare.py scan --run R --verdict ...`) lives in the run's `<records_dir>/record.json`, which is the record to
 read before using a flagged evaluation.
 
+After every episode `prepare.scan` runs over `E/episodes/<episode_id>/` with `E` named `archive`, `E/log.jsonl`
+`lineage` and each `--holdout` `holdout` (other episodes' trees are the scan's sibling trees), once per distinct
+solution hash until a scan hits; hits mark the episode `scan_pending`. Its `record.json` holds the scan that hit:
+after clearing it, rescan with the remaining hashes (`prepare.py scan --run E/episodes/<episode_id> --hash ...`).
+
+The evaluation id covers the environment manifest, so it changes with a CLI version; model names are the
+candidate's provider bindings and `:model` values, already in its candidate id.
+
 ## Not implemented
 
 - Mode 2 (the adaptive loop), the site manifest and I2/I3 episodes.
-- Paid runs: no live evaluation has been made; model revisions and CLI versions are not yet in the evaluation
-  identity.
+- Paid runs: no live evaluation has been made; the server-side model revision is recorded `unavailable`.
 - Consumption metering in the log (`metering.py` exists; the driver records `unavailable`).
-- Episode scans: only evaluations are scanned; the mutator's own session is not.
-- Mutator isolation: the driver runs `--agent-cmd` with the given environment and no shim environment (no
-  `COMPARE_ROOT`, `COMPARE_TREE`, `COMPARE_BASE`, no sandbox). A real agent mutator must be wrapped by the
-  operator so its CLI runs behind the shims with that environment set.
+- Isolation of the mutator command itself: only the agent CLIs it starts through `PATH` run in the sandbox; the
+  command (e.g. a wrapper script) runs unsandboxed with the shim environment.
 
 ## Deviations (`ponytail:`)
 
@@ -85,3 +112,8 @@ read before using a flagged evaluation.
   application yet.
 - A wall-clock kill (evaluation launch or mutator command) kills the launcher's process group only; a process
   that starts its own session escapes it.
+- The call ledger's lock is per driver process: two drivers on one evidence root are not serialized.
+- An evaluation's planned maximum counts a provider call in a definition the entry calls several times once (the
+  seeds call none of their own definitions), and provider retries are not in it; the ledger records the actual
+  calls afterwards.
+- An episode scan stops at the first solution hash that hits (see Layout).

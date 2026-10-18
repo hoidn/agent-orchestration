@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from experiments.orc_structural_search.config import ExperimentConfig
-from experiments.orc_structural_search.evaluation import evaluate, evaluation_id, resume
+from experiments.orc_structural_search.evaluation import evaluate, evaluation_id, record_env_manifest, resume
 from tests.experiments.compare_harness_support import skip_without_sandbox
 from tests.experiments.orc_structural_search_support import script, world  # noqa: F401 (fixture)
 
@@ -126,3 +126,21 @@ def test_evaluation_id_changes_with_replicate_and_env_manifest():
     ids = {evaluation_id("sha256:c", "task-1", "v1", digest, replicate)
            for digest in ("sha256:e1", "sha256:e2") for replicate in (1, 2)}
     assert len(ids) == 4
+
+
+def fake_cli(directory: Path, name: str, output: str) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / name).write_text(f"#!/bin/sh\necho '{output}'\n")
+    (directory / name).chmod(0o755)
+    return directory
+
+
+def test_env_manifest_digest_changes_with_cli_versions(tmp_path):
+    shim = fake_cli(tmp_path / "shim", "claude", "the shim")  # a directory holding model-guard is skipped
+    (shim / "model-guard").write_text("")
+    digests = [record_env_manifest(tmp_path / "work", {"PATH": f"{shim}:{fake_cli(tmp_path / v, 'claude', v)}:"
+                                                               f"{os.environ['PATH']}"})
+               for v in ("claude 1.0.0", "claude 1.0.1")]
+    manifest = json.loads((tmp_path / "work" / "env-manifests" / f"{digests[1].removeprefix('sha256:')}.json").read_text())
+    assert (digests[0] != digests[1], manifest["cli"]["claude"], sorted(manifest["cli"])) == (
+        True, "claude 1.0.1", ["bwrap", "claude", "codex", "git"])

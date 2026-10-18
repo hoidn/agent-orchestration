@@ -5,11 +5,15 @@ Design: docs/design/orc_structural_search_driver.md ("Search Modes" mode 1, "Pro
 
   work root (sandbox-visible; `run_arm`'s work root)
     records/, runs/, agents/, env-manifests/   evaluations (see evaluation.py)
-    episodes/episode-<n>/                      the mutator's working copy of the parent
+    episodes/episode-<n>/cand-1/               the mutator's working copy of the parent: a git repository whose
+                                               one commit (the shims' COMPARE_BASE) is the parent snapshot
+    episodes/episode-<n>/tmp/                  the mutator's private /tmp under the shims
   evidence root (never shown to an agent)
     log.jsonl                                  every episode and evaluation record, append-only
+    calls.json                                 the provider-call ledger (ledger.py)
     candidates/<candidate_id>/                 the archive: catalog seeds and accepted children
     episodes/episode-<n>.log                   the mutator command's output
+    episodes/<episode_id>/                     the episode's shim records (COMPARE_ROOT): calls/<n>/, record.json
     episodes/<episode_id>.diff                 the episode's final diff against its parent, whatever the outcome
     readout.json                               the mode 1 readout
 
@@ -20,16 +24,17 @@ its directory name (archive tamper check).
 A seed is one `.orc` file of a catalog directory; its candidate root holds that file, the `.orc` modules it
 imports (transitively) and every other regular file of the directory, and its entry is `<stem>::<entry
 definition of the configuration>`. After every evaluation `prepare.scan` runs over its records with the
-evidence root and the episode copies named `archive`, the log `lineage` and the holdout roots `holdout`;
-the solution commit of each task comes from the operator's `solutions` mapping (task package name -> hash, at
-least 7 hex characters naming a commit of the runtime), never from the package, which sits in the runtime agents
-can read. A nonzero hit count marks the
-evaluation record `scan_pending`; the log is append-only, so the adjudicated verdict lives in the run's
-<records_dir>/record.json.
+evidence root and the episode copies named `archive`, the log `lineage` and the holdout roots `holdout`, and
+after every episode (scan_episode) over the episode's shim records; the solution commits come from the
+operator's `solutions` mapping (task package name -> hash, checked by check_solutions), never from the package,
+which agents can read. Hits mark the record `scan_pending`; the log is append-only, so the adjudicated verdict
+lives in the scanned records' record.json. The mutator runs behind the shims (run_agent). Evaluations run at most
+`concurrency` at a time (evaluate_all; log and ledger writes are serialized); every launch is refused beyond the
+call cap (ledger.py).
 
 Dependencies: everything evaluation.py needs (git, bwrap, a clean runtime checkout, the shims); `env` is the
-launch environment of evaluations and of the mutator command, which must reach any agent CLI through the
-shims. Consumption is not metered here: it is recorded "unavailable".
+launch environment of evaluations and of the mutator command (the driver adds the shims itself). Consumption is
+not metered here: it is recorded "unavailable".
 """
 
 import argparse
@@ -39,17 +44,22 @@ import json
 import os
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import tempfile
+import threading
 import time
 from collections import Counter
 from collections.abc import Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, replace
 from pathlib import Path
 
 from experiments.compare import prepare
-from experiments.compare.repos import runtime_commit
+from experiments.compare.repos import (
+    SEED_COMMIT, SEED_DATES, dump, git, guard, main_checkout, runtime_commit, shim_prefix, visible_in_sandbox)
+from experiments.orc_structural_search import ledger
 from experiments.orc_structural_search.candidates import (
     _file_names, candidate_id, compile_candidate, imports, snapshot, validate_frozen_surfaces)
 from experiments.orc_structural_search.config import ExperimentConfig, load_config
@@ -58,6 +68,7 @@ from experiments.orc_structural_search.records import (
     UNAVAILABLE, append_record, provider_allocation, read_records, skeleton_hash)
 
 EPISODE = "EPISODE.md"
+_LOG_LOCK = threading.Lock()  # concurrent evaluations append to one log
 COLLAPSE_THRESHOLD = 0.75  # design default: a terminal-only share above it means the interface collapsed
 
 
@@ -109,14 +120,22 @@ def seed_config(seed: Path, config: ExperimentConfig) -> ExperimentConfig:
     return replace(config, entry_workflow=f"{seed.stem}::{entry}", mutable_files=(seed.name,))
 
 
+def entry_source(root: Path, config: ExperimentConfig) -> Path:
+    return (root / config.source_root / config.entry_workflow.split("::")[0]).with_suffix(".orc")
+
+
 def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, replicate: int, work_root: Path,
                       evidence_root: Path, runtime: Path, env: Mapping[str, str], timeout_sec: float,
-                      solutions: Mapping[str, str], holdouts: Sequence[Path], fields: Mapping[str, object]) -> dict:
-    """Evaluate the archived `root` once, scan the run and append the evaluation record (with `fields`) to the
-    log."""
-    check_archived(root, runtime_commit(runtime))
+                      solutions: Mapping[str, str], holdouts: Sequence[Path], fields: Mapping[str, object],
+                      call_cap: int) -> dict:
+    """Evaluate the archived `root` once (refused beyond the call cap), scan the run and append the evaluation
+    record (with `fields`) to the log."""
+    cid = check_archived(root, runtime_commit(runtime))
+    slot = ledger.reserve(evidence_root, kind="evaluation", key=f"{cid} {task.name} replicate {replicate}",
+                          planned=ledger.max_provider_calls(entry_source(root, config)), cap=call_cap)
     record = evaluate(root, config, task_package=task, work_root=work_root, replicate=replicate,
                       runtime=runtime, env=env, timeout_sec=timeout_sec)
+    ledger.settle(evidence_root, slot, record.records_dir, evaluation_id=record.evaluation_id)
     roots = [("archive", evidence_root), ("archive", work_root / "episodes"), ("lineage", evidence_root / "log.jsonl"),
              *(("holdout", holdout) for holdout in holdouts)]
     hits = prepare.scan(record.records_dir, solutions[task.name], roots=roots)
@@ -124,7 +143,8 @@ def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, repli
            "kind": "evaluation", "task_id": task.name, "replicate": replicate, "split": UNAVAILABLE,
            "evaluator_version": EVALUATOR_VERSION,
            "consumption": UNAVAILABLE, "scan_hits": len(hits), "scan_pending": bool(hits)}
-    append_record(evidence_root / "log.jsonl", row)
+    with _LOG_LOCK:
+        append_record(evidence_root / "log.jsonl", row)
     return row
 
 
@@ -134,43 +154,52 @@ def object_type(repo: Path, name: str) -> str:
     return done.stdout.strip()
 
 
-def check_solutions(tasks: Sequence[Path], solutions: Mapping[str, str], runtime: Path) -> None:
-    """Refuse a task package without the operator's solution hash (its runs could not be scanned), or whose hash
-    has fewer than 7 hex characters or names no commit of the runtime (where the task's base commit lives)."""
+def check_solutions(tasks: Sequence[Path], solutions: Mapping[str, str], runtime: Path) -> dict[str, str]:
+    """The solution hashes lowercased (the scan matches the hash's prefix case-sensitively); refuse a task package
+    without the operator's solution hash (its runs could not be scanned), or whose hash has fewer than 7 hex
+    characters or names no commit of the runtime (where the task's base commit lives)."""
+    solutions = {task: commit.lower() for task, commit in solutions.items()}
     missing = sorted(task.name for task in tasks if not solutions.get(task.name))
     if missing:
         raise ValueError(f"no solution hash for task packages {missing}; pass --solution TASK=HASH for each")
     for task in tasks:
         given = solutions[task.name]
-        if not re.fullmatch(r"[0-9a-fA-F]{7,64}", given) or object_type(runtime, given) != "commit":
+        if not re.fullmatch(r"[0-9a-f]{7,64}", given) or object_type(runtime, given) != "commit":
             raise ValueError(f"--solution {task.name}={given} is not a commit of the runtime {runtime}: give at "
                              "least 7 hex characters of the task's solution commit")
+    return solutions
 
 
-def evaluate_on_tasks(root: Path, config: ExperimentConfig, *, tasks: Sequence[Path], replicates: int,
-                      fields: Mapping[str, object], **launch) -> list[dict]:
-    return [evaluate_and_scan(root, config, task=task, replicate=replicate, fields=fields, **launch)
-            for task in tasks for replicate in range(1, replicates + 1)]
+def evaluate_all(jobs: Sequence[tuple[Path, ExperimentConfig, Mapping[str, object]]], *, tasks: Sequence[Path],
+                 replicates: int, concurrency: int, **launch) -> list[dict]:
+    """Evaluate each (root, config, fields) job once per task and replicate with at most `concurrency`
+    evaluations in flight; rows in job order. Every evaluation is attempted before the first failure (a launch
+    refused at the call cap among them) is raised."""
+    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+        futures = [pool.submit(evaluate_and_scan, root, config, task=task, replicate=replicate, fields=fields, **launch)
+                   for root, config, fields in jobs for task in tasks for replicate in range(1, replicates + 1)]
+    return [future.result() for future in futures]
 
 
 def enumerate_catalog(seeds: Sequence[Path], config: ExperimentConfig, *, tasks: Sequence[Path], work_root: Path,
                       evidence_root: Path, replicates: int, runtime: Path, env: Mapping[str, str],
-                      timeout_sec: float, solutions: Mapping[str, str], holdouts: Sequence[Path] = ()) -> list[dict]:
-    """Archive every seed and evaluate it once per task and replicate (`mode: "catalog"`)."""
+                      timeout_sec: float, solutions: Mapping[str, str], call_cap: int, concurrency: int = 1,
+                      holdouts: Sequence[Path] = ()) -> list[dict]:
+    """Archive every seed and evaluate it once per task and replicate (`mode: "catalog"`), at most `concurrency`
+    evaluations at a time."""
     work_root, evidence_root = check_roots(work_root, evidence_root)
-    check_solutions(tasks, solutions, runtime)
-    rows = []
+    solutions = check_solutions(tasks, solutions, runtime)
+    jobs = []
     for seed in seeds:
         with tempfile.TemporaryDirectory() as staging:
             for name, data in seed_files(seed).items():
                 (Path(staging) / name).write_bytes(data)
             cid, root = archive(Path(staging), evidence_root, runtime)
-        fields = {"mode": "catalog", "seed": seed.stem, "candidate_id": cid, "candidate_root": str(root)}
-        rows += evaluate_on_tasks(root, seed_config(seed, config), tasks=tasks, replicates=replicates,
-                                  fields=fields, work_root=work_root, evidence_root=evidence_root,
-                                  runtime=runtime, env=env, timeout_sec=timeout_sec, solutions=solutions,
-                                  holdouts=holdouts)
-    return rows
+        jobs.append((root, seed_config(seed, config),
+                     {"mode": "catalog", "seed": seed.stem, "candidate_id": cid, "candidate_root": str(root)}))
+    return evaluate_all(jobs, tasks=tasks, replicates=replicates, concurrency=concurrency, work_root=work_root,
+                        evidence_root=evidence_root, runtime=runtime, env=env, timeout_sec=timeout_sec,
+                        solutions=solutions, holdouts=holdouts, call_cap=call_cap)
 
 
 def episode_brief(config: ExperimentConfig, index: int) -> str:
@@ -195,12 +224,32 @@ def episode_brief(config: ExperimentConfig, index: int) -> str:
             f"Check an edit with: {shlex.join(compile_args)}\n")
 
 
-def run_agent(agent_cmd: Sequence[str], cwd: Path, log: Path, env: Mapping[str, str],
-              wall_clock_sec: float) -> tuple[str | None, int | str]:
-    """(None when the command exited 0, else "incident"; or "exhausted" after the wall clock), exit status."""
+def episode_workspace(parent_root: Path, tree: Path, brief: str, runtime: Path) -> tuple[Path, str]:
+    """(<tree>/cand-1, its commit): a git repository holding the parent snapshot in one commit, with the brief
+    in EPISODE.md (excluded from patches, like the build cache), and <tree>/tmp."""
+    guard(main_checkout(runtime), tree)
+    visible_in_sandbox(tree)
+    copy = snapshot(parent_root, {}, tree / "cand-1")
+    git(copy, "init", "-q")
+    git(copy, "add", "-A", "-f", ".")
+    git(copy, *SEED_COMMIT, env=SEED_DATES)
+    (copy / ".git" / "info").mkdir(exist_ok=True)
+    with (copy / ".git" / "info" / "exclude").open("a") as exclude:
+        exclude.write(f"/{EPISODE}\n/.orchestrate/\n")
+    (copy / EPISODE).write_text(brief)
+    (tree / "tmp").mkdir()
+    return copy, git(copy, "rev-parse", "HEAD")
+
+
+def run_agent(agent_cmd: Sequence[str], cwd: Path, log: Path, env: Mapping[str, str], wall_clock_sec: float, *,
+              runtime: Path, shim_env: Mapping[str, object]) -> tuple[str | None, int | str]:
+    """Run the command from `cwd` behind the shim prefix (`shim_env`: COMPARE_ROOT, COMPARE_TREE, COMPARE_BASE,
+    TMPDIR) with <cwd>/EPISODE.md on stdin: (None when it exited 0, else "incident"; or "exhausted" after the
+    wall clock), exit status."""
     log.parent.mkdir(parents=True, exist_ok=True)
-    with log.open("w") as out:
-        agent = subprocess.Popen(list(agent_cmd), cwd=cwd, env=dict(env), stdout=out, stderr=subprocess.STDOUT,
+    argv = ["bash", "-c", shim_prefix(cwd, runtime, shim_env) + shlex.join(agent_cmd)]
+    with log.open("w") as out, (cwd / EPISODE).open() as brief:
+        agent = subprocess.Popen(argv, cwd=cwd, env=dict(env), stdin=brief, stdout=out, stderr=subprocess.STDOUT,
                                  start_new_session=True)
         try:
             status = agent.wait(timeout=wall_clock_sec)
@@ -257,32 +306,58 @@ def episode_diff(parent: Path, child: Path) -> str:
                    for line in difflib.unified_diff(lines(parent / name), lines(child / name), f"a/{name}", f"b/{name}"))
 
 
+def scan_episode(records: Path, tree: Path, *, runtime: Path, evidence_root: Path, solutions: Mapping[str, str],
+                 holdouts: Sequence[Path], created_at: float) -> list[dict]:
+    """`prepare.scan` over the episode's shim records, once per distinct solution hash until one scan hits; its
+    record.json then holds the scan that hit (or the last one)."""
+    dump(records / "record.json", {"tree": str(tree), "main": str(main_checkout(runtime)), "runtime": str(runtime),
+                                   "created_at": created_at})
+    roots = [("archive", evidence_root), ("lineage", evidence_root / "log.jsonl"),
+             *(("holdout", holdout) for holdout in holdouts)]
+    # ponytail: stops at the first hit; after clearing that scan, rescan with the remaining hashes (prepare.py scan)
+    for solution in sorted(set(solutions.values())):
+        hits = prepare.scan(records, solution, roots=roots)
+        if hits:
+            return hits
+    return []
+
+
 def unguided_episode(parent_root: Path, config: ExperimentConfig, *, agent_cmd: Sequence[str], work_root: Path,
-                     evidence_root: Path, episode_index: int, runtime: Path, env: Mapping[str, str]) -> dict:
-    """One I1 episode against the archived parent: the agent command edits a copy of it (cwd, with EPISODE.md);
-    the child is the copy's final files, whose diff is kept. An accepted child is archived; the episode record
-    is appended to the log."""
+                     evidence_root: Path, episode_index: int, runtime: Path, env: Mapping[str, str],
+                     solutions: Mapping[str, str], call_cap: int, holdouts: Sequence[Path] = ()) -> dict:
+    """One I1 episode against the archived parent (refused beyond the call cap): the agent command edits a copy
+    of it behind the shims (see the module docstring); the child is the copy's final files, whose diff is kept.
+    The episode is scanned; an accepted child is archived; the episode record is appended to the log."""
     work_root, evidence_root = check_roots(work_root, evidence_root)
     commit = runtime_commit(runtime)
     parent_id = check_archived(parent_root, commit)
     episode_id = "sha256:" + hashlib.sha256(json.dumps(
         [parent_id, config.interface, config.condition, config.episode_wall_clock_sec, episode_index]).encode()
     ).hexdigest()
+    slot = ledger.reserve(evidence_root, kind="episode", key=episode_id, planned=1, cap=call_cap)
     parent_shape = {"parent_skeleton": skeleton(parent_root, config),  # before the episode, which may be paid
                     "parent_provider_allocation": allocation(parent_root, config)}
-    copy = snapshot(parent_root, {EPISODE: episode_brief(config, episode_index).encode()},
-                    work_root / "episodes" / f"episode-{episode_index}")
-    started = time.monotonic()
+    tree, records = work_root / "episodes" / f"episode-{episode_index}", evidence_root / "episodes" / episode_id
+    copy, base = episode_workspace(parent_root, tree, episode_brief(config, episode_index), runtime)
+    records.mkdir(parents=True)
+    created_at, started = time.time(), time.monotonic()
     stopped, status = run_agent(agent_cmd, copy, evidence_root / "episodes" / f"episode-{episode_index}.log", env,
-                                config.episode_wall_clock_sec)
+                                config.episode_wall_clock_sec, runtime=runtime, shim_env={
+                                    "COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": base,
+                                    "TMPDIR": tree / "tmp"})
     elapsed = time.monotonic() - started
+    calls = ledger.settle(evidence_root, slot, records)
+    hits = scan_episode(records, tree, runtime=runtime, evidence_root=evidence_root, solutions=solutions,
+                        holdouts=holdouts, created_at=created_at)
     (copy / EPISODE).unlink(missing_ok=True)
+    shutil.rmtree(copy / ".git")  # the child is the copy's content files; the shims kept every call's patch
     (evidence_root / "episodes" / f"{episode_id}.diff").write_text(episode_diff(parent_root, copy))
     row = {"kind": "episode", "mode": "unguided", "interface": config.interface, "condition": config.condition,
            "episode_id": episode_id, "episode_index": episode_index, "parent_candidate_id": parent_id,
            "candidate_id": candidate_id(copy, orchestrator_commit=commit), "agent_cmd": list(agent_cmd),
            "agent_exit": status, "envelope": {"wall_clock_sec": config.episode_wall_clock_sec},
-           "wall_clock_sec": elapsed, "consumption": UNAVAILABLE, "model_revision": UNAVAILABLE,
+           "wall_clock_sec": elapsed, "provider_calls": calls, "scan_hits": len(hits), "scan_pending": bool(hits),
+           "consumption": UNAVAILABLE, "model_revision": UNAVAILABLE,
            "hypothesis": UNAVAILABLE, "refusal_code": None, "diagnostics_class": None, "skeleton": None,
            "provider_allocation": None, **parent_shape}
     row.update({"outcome": stopped} if stopped else judge_child(parent_root, copy, config, runtime=runtime))
@@ -290,7 +365,8 @@ def unguided_episode(parent_root: Path, config: ExperimentConfig, *, agent_cmd: 
         _, root = archive(copy, evidence_root, runtime)
         row.update(candidate_root=str(root), skeleton=skeleton(root, config),
                    provider_allocation=allocation(root, config))
-    append_record(evidence_root / "log.jsonl", row)
+    with _LOG_LOCK:
+        append_record(evidence_root / "log.jsonl", row)
     return row
 
 
@@ -339,30 +415,32 @@ def diversity(accepted: Sequence[Mapping]) -> dict:
 
 def readout(rows: Sequence[Mapping]) -> dict:
     """Per-seed outcomes, episode outcomes and refusals, skeleton diversity and provider allocation among
-    accepted children, their evaluation outcomes and the evaluations pending a scan verdict."""
+    accepted children, their evaluation outcomes and the evaluations and episodes pending a scan verdict."""
     episodes = [row for row in rows if row["kind"] == "episode"]
     accepted = [row for row in episodes if row["outcome"] == "accepted"]
     return {"catalog": catalog_outcomes(rows), "episodes": dict(Counter(row["outcome"] for row in episodes)),
             "refused": dict(Counter(row["refusal_code"] or row["diagnostics_class"]
                                     for row in episodes if row["outcome"] == "rejected")),
             **diversity(accepted), "child_outcomes": child_outcomes(rows),
-            "scan_pending": [row["evaluation_id"] for row in rows if row.get("scan_pending")]}
+            "scan_pending": [row.get("evaluation_id") or row["episode_id"] for row in rows if row.get("scan_pending")]}
 
 
 def run_mode1(config_path: Path, *, seeds: Sequence[Path], tasks: Sequence[Path], work_root: Path,
               evidence_root: Path, episodes: int, agent_cmd: Sequence[str], replicates: int, runtime: Path,
-              env: Mapping[str, str], timeout_sec: float, solutions: Mapping[str, str],
-              holdouts: Sequence[Path] = ()) -> dict:
+              env: Mapping[str, str], timeout_sec: float, solutions: Mapping[str, str], call_cap: int,
+              concurrency: int = 1, holdouts: Sequence[Path] = ()) -> dict:
     """Enumerate the catalog, run `episodes` unguided I1 episodes against the seed the configuration's entry
-    names, evaluate every accepted child like a seed (`mode: "unguided"`) and write <evidence>/readout.json."""
+    names, evaluate every accepted child like a seed (`mode: "unguided"`) and write <evidence>/readout.json.
+    Evaluations run at most `concurrency` at a time; every launch is refused beyond `call_cap` provider calls."""
     config = load_config(config_path)
     work_root, evidence_root = check_roots(work_root, evidence_root)
     if (evidence_root / "log.jsonl").exists():
         raise FileExistsError(f"{evidence_root / 'log.jsonl'} exists: give every mode 1 run a fresh evidence root "
                               "(the driver never resumes or appends to an earlier run)")
+    solutions = check_solutions(tasks, solutions, runtime)
     launch = {"work_root": work_root, "evidence_root": evidence_root, "runtime": runtime, "env": env,
-              "timeout_sec": timeout_sec, "solutions": solutions, "holdouts": holdouts}
-    catalog = enumerate_catalog(seeds, config, tasks=tasks, replicates=replicates, **launch)
+              "timeout_sec": timeout_sec, "solutions": solutions, "holdouts": holdouts, "call_cap": call_cap}
+    catalog = enumerate_catalog(seeds, config, tasks=tasks, replicates=replicates, concurrency=concurrency, **launch)
     module = config.entry_workflow.split("::")[0]
     parents = {row["candidate_root"] for row in catalog if row["seed"] == module}
     if len(parents) != 1:
@@ -370,12 +448,13 @@ def run_mode1(config_path: Path, *, seeds: Sequence[Path], tasks: Sequence[Path]
     parent = Path(parents.pop())
     for index in range(episodes):
         episode = unguided_episode(parent, config, agent_cmd=agent_cmd, work_root=work_root,
-                                   evidence_root=evidence_root, episode_index=index, runtime=runtime, env=env)
+                                   evidence_root=evidence_root, episode_index=index, runtime=runtime, env=env,
+                                   solutions=solutions, call_cap=call_cap, holdouts=holdouts)
         if episode["outcome"] == "accepted":
             fields = {"mode": "unguided", "episode_id": episode["episode_id"], "candidate_id": episode["candidate_id"],
                       "parent_candidate_id": episode["parent_candidate_id"], "candidate_root": episode["candidate_root"]}
-            evaluate_on_tasks(Path(episode["candidate_root"]), config, tasks=tasks, replicates=replicates,
-                              fields=fields, **launch)
+            evaluate_all([(Path(episode["candidate_root"]), config, fields)], tasks=tasks, replicates=replicates,
+                         concurrency=concurrency, **launch)
     result = readout(read_records(evidence_root / "log.jsonl"))
     (evidence_root / "readout.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     return result
@@ -403,10 +482,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--solution", type=solution, action="append", default=[], metavar="TASK=HASH", required=True,
                         help="a task package's solution commit for the scan (repeatable, one per task)")
     parser.add_argument("--holdout", type=Path, action="append", default=[], help="a holdout root (repeatable)")
+    parser.add_argument("--call-cap", type=int, required=True,
+                        help="provider calls (evaluations and episodes) recorded in <evidence>/calls.json, at most")
+    parser.add_argument("--concurrency", type=int, default=1, help="evaluations in flight, at most")
     a = parser.parse_args(argv)
     run_mode1(a.config, seeds=a.seeds, tasks=a.tasks, work_root=a.work_root, evidence_root=a.evidence,
               episodes=a.episodes, agent_cmd=shlex.split(a.agent_cmd), replicates=a.replicates, runtime=a.runtime,
-              env=os.environ, timeout_sec=a.eval_timeout_sec, solutions=dict(a.solution), holdouts=a.holdout)
+              env=os.environ, timeout_sec=a.eval_timeout_sec, solutions=dict(a.solution), call_cap=a.call_cap,
+              concurrency=a.concurrency, holdouts=a.holdout)
     print(a.evidence / "readout.json")
 
 
