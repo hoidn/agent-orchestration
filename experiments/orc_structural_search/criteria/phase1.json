@@ -19,7 +19,7 @@
       "best_of_n",
       "implement_check_diagnose_repair"
     ],
-    "unguided": "unguided:<candidate_id>, one policy per accepted I1 child of direct"
+    "unguided": "unguided:<candidate_id> per accepted I1 child of direct, reported descriptively; all children's evaluations of a task are also pooled as one arm named unguided"
   },
   "phase1_scale": {
     "catalog_seeds": 5,
@@ -38,41 +38,44 @@
     "gpt-6-sol": "experiments/compare/providers/score_codex.json"
   },
   "anchors": {
-    "resume-projection-integrity": [
-      "resume-projection-integrity-upstream",
-      "resume-projection-integrity-stub"
-    ],
-    "pure-result-replay": [
-      "pure-result-replay-upstream",
-      "pure-result-replay-stub"
-    ]
+    "resume-projection-integrity": {
+      "upstream": "resume-projection-integrity-upstream",
+      "stub": "resume-projection-integrity-stub"
+    },
+    "pure-result-replay": {
+      "upstream": "pure-result-replay-upstream",
+      "stub": "pure-result-replay-stub"
+    }
   },
-  "batches": "one pool per task (scoring.pool_evaluations): the final patch of every completed, uncontaminated evaluation of that task, dealt at random into the fewest batches of at most ten clones (at most eight evaluations, sizes differing by at most one) with both anchors repeated in every batch (harness D4 batch size)",
+  "batches": "one pool per task (scoring.pool_evaluations): the final patch of every completed, uncontaminated evaluation of that task, shuffled, stable-sorted by policy and dealt round-robin into the fewest batches of at most ten clones (at most eight evaluations, sizes differing by at most one, a policy's replicates in different batches when there are several) with both anchors repeated in every batch (harness D4 batch size)",
   "scale": "each clone scores 0-8, the sum of score.orc's four rubric criteria (root_cause, scope, generality, layering), each 0-2, averaged over the judges not excluded; an evaluation's value is its final clone's (summarize's run value)",
-  "primary_measure": "the blind rubric mean per task and policy: the mean of summarize's run values over the policy's valued evaluations, computed by scoring.phase1_readout from results.json joined by scoring.join_scores",
+  "primary_measure": "the blind rubric mean per task and arm: the mean of summarize's run values over the arm's valued evaluations, computed by scoring.phase1_readout from results.json joined by scoring.join_scores; arms are the catalog policies and the pooled unguided arm",
   "primary": [],
   "primary_note": "empty: summarize measures are per arm, here per evaluation, so no summarize measure names a policy; summarize reads only judges, primary and secondary from a criterion and accepts empty lists. The primary measure and the rules below are applied by scoring.phase1_readout",
   "secondary": [],
   "separation": {
     "tolerance_sd": 2.0,
-    "rule": "a task is separated when the largest difference between two policy means exceeds the threshold max(tolerance_sd times the pooled within-arm SD, min_tolerance rubric points); the pooled SD is sqrt(sum((n-1) s^2) / sum(n-1)) over policies with two or more valued evaluations; with no such policy it is unavailable and the task is not separated",
+    "min_tolerance": 0.5,
+    "anchor_spread_limit": 2.0,
     "min_tasks": 2,
-    "min_tolerance": 0.5
+    "arms": "catalog policies and the pooled unguided arm with two or more valued evaluations on the task; a single child is reported only",
+    "rule": "a task is separated when the largest difference between two compared arms' means exceeds the threshold max(tolerance_sd times the pooled within-arm SD, min_tolerance rubric points) and its anchor spread is within anchor_spread_limit for every judge; the pooled SD is sqrt(sum((n-1) s^2) / sum(n-1)) over the compared arms; with none it is unavailable and the task is not separated"
   },
-  "direct_sole_winner": "on a task, DIRECT's mean exceeds every other policy's mean by more than the separation threshold",
+  "direct_sole_winner": "on a task, DIRECT is a compared arm and its mean exceeds every other compared arm's mean by more than the separation threshold; DIRECT's rank is its competition rank among compared arms",
   "collapse_threshold": 0.75,
-  "decision": "first rule that fires: fewer than two separated tasks -> within_tolerance; DIRECT the sole winner on every separated task -> direct_sole_winner; the driver readout's I1 collapse figure unavailable (no accepted child: the adaptive claim is untested) -> collapse_unavailable; I1 collapsed (terminal-only share above collapse_threshold) -> collapsed; otherwise separated and phase2_selected is true. Phase 2 needs separation on at least two tasks and an available collapse figure below the threshold for at least one interface; I1 is the only Phase 1 interface",
+  "decision": "first rule that fires: any pool with anchors_ok false -> anchors_inverted; fewer than min_tasks separated tasks -> within_tolerance; DIRECT the sole winner on every separated task -> direct_sole_winner; the I1 collapse figure unavailable (no accepted child: the adaptive claim is untested) -> collapse_unavailable; I1 collapsed -> collapsed; otherwise separated and phase2_selected is true. Phase 2 needs trusted anchors, separation on at least min_tasks tasks and an available collapse figure at or below the threshold for at least one interface; I1 is the only Phase 1 interface",
   "reported": [
-    "per task and policy: runs, mean, within-arm SD, hidden_mean, calls_mean, wall_clock_mean",
-    "per task: pooled SD, threshold, largest gap, separated, DIRECT's rank",
-    "unguided I1: episode outcomes, distinct skeletons, revisit rate, terminal-only share, allocation_distinct, collapsed (driver readout)",
-    "anchor scores per judge and judge agreement (summarize results.json)"
+    "per task: catalog policy, child and pooled unguided runs, mean, within-arm SD, hidden_mean, calls_mean, wall_clock_mean",
+    "per task: compared arms, pooled SD, threshold, largest gap, separated, DIRECT's rank, anchors_ok, anchor_spread per judge, judge agreement, excluded judges, unpooled completed evaluations",
+    "unguided I1: episode outcomes, distinct skeletons, revisit rate, terminal-only share, allocation_distinct, collapsed",
+    "anchor scores per batch and judge (summarize results.json)"
   ],
   "hidden_acceptance": "descriptive only: reported per policy, never a threshold, gate, rank or selection",
   "known_differences": [
-    "unguided children may have one valued evaluation per task: their means count in the largest gap but contribute nothing to the pooled SD",
     "with more than eight evaluations of a task, policies are rated in different batches; anchors are repeated in each batch and their scores reported per batch and judge"
   ],
   "model_policy": "no call uses a Fable model (owner, 2026-10-15): arms, mutators, judges and in-process subagents run behind the shims' model guard",
-  "written_before_scoring": true
+  "written_before_scoring": true,
+  "anchor_trust": "from each pool's results.json anchors: anchors_ok when, in every batch and for every judge not excluded, the upstream anchor's total is strictly above the stub's (a missing anchor fails); anchor_spread per judge is the largest difference of one anchor's total across batches. Each pool's results.json criterion_sha256 must equal this file's SHA-256",
+  "collapse": "collapsed when the driver readout's terminal_only_share exceeds collapse_threshold; terminal_only_share is the roadmap's collapse share: the share of accepted children whose skeleton and provider allocation both equal the parent's (children with the parent's skeleton but another allocation count as allocation_distinct, not as collapsed); unavailable without an accepted child"
 }

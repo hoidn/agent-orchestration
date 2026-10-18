@@ -7,8 +7,11 @@ from pathlib import Path
 import pytest
 
 from experiments.compare import pool as pooling, prepare, summarize
+from experiments.compare.repos import sha256_file
 from experiments.orc_structural_search.records import UNAVAILABLE, append_record
-from experiments.orc_structural_search.scoring import join_scores, phase1_readout, pool_evaluations, split_batches
+from experiments.orc_structural_search.scoring import (
+    join_scores, phase1_readout, pool_evaluations, read_pool, split_batches,
+)
 from tests.experiments.compare_harness_support import (  # noqa: F401 (world is a fixture)
     REPO, call, edit, skip_without_sandbox, world, write_memo,
 )
@@ -57,16 +60,18 @@ def evaluations(world):
     return out, json.loads((out / "records" / "mapping.json").read_text()), runs, log, criterion
 
 
-def test_pool_evaluations_pools_the_tasks_completed_evaluations_in_one_batch_with_both_anchors(evaluations):
+def test_pool_evaluations_pools_the_tasks_completed_evaluations_with_both_anchors_in_every_batch(evaluations):
     _, mapping, runs, _, _ = evaluations
     assert sorted((mapping["clones"][cid]["arm"], tuple(mapping["clones"][cid]["labels"]))
                   for batch in mapping["batches"] for cid in batch) == [
         ("anchor", ("symptom",)), ("anchor", ("upstream",)), ("e1", ("final",)), ("e2", ("final",))]
 
 
-def test_split_batches_deals_finals_into_batches_of_at_most_eight_beside_the_two_anchors():
-    batches = split_batches(list(range(17)))
-    assert (sorted(len(b) for b in batches), sorted(x for b in batches for x in b)) == ([5, 6, 6], list(range(17)))
+def test_split_batches_keeps_at_most_eight_per_batch_and_spreads_a_policys_replicates():
+    finals = [(policy, k) for policy in "abcdefghi" for k in (1, 2)]
+    batches = split_batches(finals, key=lambda final: final[0])
+    assert ([len(b) for b in batches], [len({p for p, _ in b}) for b in batches],
+            sorted(f for b in batches for f in b)) == ([6, 6, 6], [6, 6, 6], sorted(finals))
 
 
 def score(out, mapping, judge, home):
@@ -81,19 +86,20 @@ def score(out, mapping, judge, home):
     pooling.scan_judge(out, judge, "f" * 40, home=home)
 
 
-def test_join_scores_maps_summarized_runs_to_their_evaluation_records(evaluations, world):
+def test_read_pool_joins_summarized_runs_to_their_evaluation_records(evaluations, world):
     out, mapping, runs, log, criterion = evaluations
     for judge in ("judge-a", "judge-b"):
         score(out, mapping, judge, world.tmp / "home")
     summarize.summarize(out, criterion)
-    rows = join_scores(out / "records" / "results.json", log)
-    assert sorted((r["policy"], r["task"], r["replicate"], r["value"], r["calls"]) for r in rows) == [
-        ("best_of_n", "task", 1, 4, 1), ("direct", "task", 1, 4, 1)]
+    pool = read_pool(out / "records" / "results.json", log, criterion)
+    assert (sorted((r["policy"], r["task"], r["replicate"], r["value"], r["calls"]) for r in pool["rows"]),
+            pool["unpooled"]) == ([("best_of_n", "task", 1, 4, 1), ("direct", "task", 1, 4, 1)], [])
 
 
-def results_file(tmp_path, runs):
+def results_file(tmp_path, runs, sha="0" * 64):
     path = tmp_path / "results.json"
-    path.write_text(json.dumps({"runs": runs}))
+    path.write_text(json.dumps({"runs": runs, "criterion_sha256": sha, "anchors": [], "agreement": {},
+                                "excluded_judges": {}}))
     return path
 
 
@@ -105,8 +111,9 @@ def test_join_scores_reports_policy_identity_and_harness_values(tmp_path):
     log = tmp_path / "log.jsonl"
     append_record(log, log_row(tmp_path / "records" / "e9" / "run-1", eid="e9", mode="unguided", replicate=2))
     rows = join_scores(results_file(tmp_path, [run_row(tmp_path / "records" / "e9" / "run-1", "e9")]), log)
-    assert rows == [{"candidate_id": "sha256:e9", "policy": "unguided:sha256:e9", "task": "task", "replicate": 2,
-                     "value": 5.0, "hidden": 0.5, "calls": 2, "wall_clock_sec": 30.0}]
+    assert rows == [{"evaluation_id": "e9", "candidate_id": "sha256:e9", "mode": "unguided",
+                     "policy": "unguided:sha256:e9", "task": "task", "replicate": 2, "value": 5.0, "hidden": 0.5,
+                     "calls": 2, "wall_clock_sec": 30.0}]
 
 
 def test_scoring_refuses_unmapped_clone(tmp_path):
@@ -125,65 +132,116 @@ def test_join_scores_refuses_a_run_whose_arm_is_not_its_evaluation_id(tmp_path):
         join_scores(results_file(tmp_path, [run_row(tmp_path / "records" / "e1" / "run-1", "e2")]), log)
 
 
-def rows_of(task, values):
-    """Joined rows: `values` maps policy -> its replicate values on `task`."""
-    return [{"candidate_id": f"sha256:{policy}", "policy": policy, "task": task, "replicate": k + 1, "value": v,
-             "hidden": None, "calls": 1, "wall_clock_sec": 10.0}
-            for policy, vs in values.items() for k, v in enumerate(vs)]
+def test_read_pool_refuses_results_summarized_under_another_criterion(tmp_path):
+    log = tmp_path / "log.jsonl"
+    append_record(log, log_row(tmp_path / "records" / "e1" / "run-1", eid="e1"))
+    results = results_file(tmp_path, [run_row(tmp_path / "records" / "e1" / "run-1", "e1")])
+    with pytest.raises(ValueError, match="summarized under criterion sha256 0{64}, not"):
+        read_pool(results, log, CRITERION)
 
 
+def test_read_pool_lists_completed_evaluations_of_the_task_that_no_run_names(tmp_path):
+    log = tmp_path / "log.jsonl"
+    for eid, outcome in (("e1", "completed"), ("e2", "completed"), ("e3", "incident")):
+        append_record(log, log_row(tmp_path / "records" / eid / "run-1", eid=eid, outcome=outcome))
+    results = results_file(tmp_path, [run_row(tmp_path / "records" / "e1" / "run-1", "e1")],
+                           sha=sha256_file(CRITERION))
+    assert read_pool(results, log, CRITERION)["unpooled"] == ["e2"]
+
+
+CRIT = json.loads(CRITERION.read_text()) | {  # the frozen rules with two synthetic tasks
+    "tasks": ["tasks/t1", "tasks/t2"], "anchors": {t: {"upstream": "up", "stub": "stub"} for t in ("t1", "t2")}}
+TRUSTED = [{"batch": 0, "judge": "j", "anchor": "up", "total": 8},
+           {"batch": 0, "judge": "j", "anchor": "stub", "total": 1}]
 DIVERSE = {"episodes": {"accepted": 4}, "distinct_skeletons": 3, "revisit_rate": 0.25, "terminal_only_share": 0.25,
            "allocation_distinct": 0, "collapsed": False, "catalog": {}}
 WIDE = {"direct": [4, 5], "best_of_n": [7, 8], "plan_then_implement": [5, 6]}  # pooled SD 0.71, gap 3
 
 
+def pool_of(task, values, *, children=None, anchors=TRUSTED):
+    """A read_pool result: `values` maps catalog policy -> its replicate values, `children` child -> its values."""
+    rows = [{"evaluation_id": f"{policy}-{k}", "candidate_id": f"sha256:{policy}", "mode": mode, "policy": policy,
+             "task": task, "replicate": k + 1, "value": v, "hidden": None, "calls": 1, "wall_clock_sec": 10.0}
+            for mode, group in (("catalog", values), ("unguided", children or {}))
+            for policy, vs in group.items() for k, v in enumerate(vs)]
+    return {"task": task, "rows": rows, "anchors": anchors, "agreement": {}, "excluded_judges": {}, "unpooled": []}
+
+
+def readout(t1, t2=None, driver=DIVERSE, **pool):
+    return phase1_readout([pool_of("t1", t1, **pool), pool_of("t2", t2 or t1)], driver, CRIT)
+
+
 def test_phase1_readout_within_tolerance_is_not_separated():
     close = {"direct": [4, 6], "best_of_n": [5, 7]}  # pooled SD sqrt(2), gap 1 < 2 * sqrt(2)
-    readout = phase1_readout(rows_of("t1", close) + rows_of("t2", close), DIVERSE)
-    assert (readout["tasks"]["t1"]["separated"], readout["phase2_selected"], readout["rule"]) == (
+    result = readout(close)
+    assert (result["tasks"]["t1"]["separated"], result["phase2_selected"], result["rule"]) == (
         False, False, "within_tolerance")
 
 
 def test_phase1_readout_tolerance_never_falls_below_half_a_rubric_point():
     flat = {"direct": [4, 4], "best_of_n": [4.4, 4.4]}  # pooled SD 0: 2 x SD would separate any gap
-    task = phase1_readout(rows_of("t1", flat), DIVERSE)["tasks"]["t1"]
+    task = readout(flat)["tasks"]["t1"]
     assert (task["threshold"], task["separated"]) == (0.5, False)
 
 
 def test_phase1_readout_reports_mean_sd_and_direct_rank_per_task():
-    task = phase1_readout(rows_of("t1", WIDE), DIVERSE)["tasks"]["t1"]
+    task = readout(WIDE)["tasks"]["t1"]
     assert (task["policies"]["best_of_n"]["mean"], task["policies"]["best_of_n"]["sd"], task["pooled_sd"],
             task["direct_rank"]) == (7.5, pytest.approx(0.7071, abs=1e-4), pytest.approx(0.7071, abs=1e-4), 3)
 
 
 def test_phase1_readout_selects_phase2_when_both_tasks_separate_without_a_direct_winner():
-    readout = phase1_readout(rows_of("t1", WIDE) + rows_of("t2", WIDE), DIVERSE)
-    assert (readout["phase2_selected"], readout["rule"]) == (True, "separated")
+    result = readout(WIDE)
+    assert (result["phase2_selected"], result["rule"]) == (True, "separated")
 
 
 def test_phase1_readout_does_not_select_phase2_when_direct_is_the_sole_winner():
-    direct_wins = {"direct": [8, 8], "best_of_n": [3, 4]}
-    readout = phase1_readout(rows_of("t1", direct_wins) + rows_of("t2", direct_wins), DIVERSE)
-    assert (readout["tasks"]["t1"]["direct_rank"], readout["phase2_selected"], readout["rule"]) == (
+    result = readout({"direct": [8, 8], "best_of_n": [3, 4]})
+    assert (result["tasks"]["t1"]["direct_rank"], result["phase2_selected"], result["rule"]) == (
         1, False, "direct_sole_winner")
 
 
 def test_phase1_readout_does_not_select_phase2_when_unguided_i1_collapsed():
-    readout = phase1_readout(rows_of("t1", WIDE) + rows_of("t2", WIDE), DIVERSE | {"collapsed": True})
-    assert (readout["unguided"]["collapsed"], readout["phase2_selected"], readout["rule"]) == (
-        True, False, "collapsed")
+    result = readout(WIDE, driver=DIVERSE | {"terminal_only_share": 0.8})
+    assert (result["unguided"]["collapsed"], result["phase2_selected"], result["rule"]) == (True, False, "collapsed")
 
 
 def test_phase1_readout_does_not_select_phase2_without_a_collapse_figure():
-    readout = phase1_readout(rows_of("t1", WIDE) + rows_of("t2", WIDE), DIVERSE | {"collapsed": UNAVAILABLE})
-    assert (readout["phase2_selected"], readout["rule"]) == (False, "collapse_unavailable")
+    result = readout(WIDE, driver=DIVERSE | {"terminal_only_share": UNAVAILABLE})
+    assert (result["phase2_selected"], result["rule"]) == (False, "collapse_unavailable")
 
 
 def test_phase1_readout_leaves_out_unvalued_runs_and_has_no_sd_for_a_single_value():
-    rows = rows_of("t1", {"direct": [4, None], "best_of_n": [6]})
-    task = phase1_readout(rows, DIVERSE)["tasks"]["t1"]
+    task = readout({"direct": [4, None], "best_of_n": [6]})["tasks"]["t1"]
     assert (task["policies"]["direct"]["runs"], task["policies"]["direct"]["sd"], task["pooled_sd"],
             task["separated"]) == (1, UNAVAILABLE, UNAVAILABLE, False)
+
+
+def test_phase1_readout_singleton_child_outlier_does_not_separate_a_null_catalog():
+    null = {"direct": [4, 4.5], "best_of_n": [4.5, 4], "plan_then_implement": [4, 4.5]}
+    task = readout(null, children={"unguided:c1": [8]})["tasks"]["t1"]
+    assert (task["compared"], task["children"]["unguided:c1"]["mean"], task["unguided"]["runs"], task["separated"]) == (
+        ["best_of_n", "direct", "plan_then_implement"], 8, 1, False)
+
+
+def test_phase1_readout_refuses_phase2_when_a_pools_anchors_are_inverted():
+    inverted = [{"batch": 0, "judge": "j", "anchor": "up", "total": 1},
+                {"batch": 0, "judge": "j", "anchor": "stub", "total": 5}]
+    result = readout(WIDE, anchors=inverted)
+    assert (result["tasks"]["t1"]["anchors_ok"], result["phase2_selected"], result["rule"]) == (
+        False, False, "anchors_inverted")
+
+
+def test_phase1_readout_an_anchor_spread_above_the_limit_cannot_separate_its_task():
+    drifting = TRUSTED + [{"batch": 1, "judge": "j", "anchor": "up", "total": 5},
+                          {"batch": 1, "judge": "j", "anchor": "stub", "total": 1}]
+    task = readout(WIDE, anchors=drifting)["tasks"]["t1"]
+    assert (task["anchor_spread"], task["gap_separated"], task["separated"]) == ({"j": 3}, True, False)
+
+
+def test_phase1_readout_refuses_pools_that_are_not_one_per_criterion_task():
+    with pytest.raises(ValueError, match="one pool per criterion task"):
+        phase1_readout([pool_of("t1", WIDE)], DIVERSE, CRIT)
 
 
 def test_phase1_criterion_is_frozen_for_both_packages_with_their_anchors_and_judges():
@@ -192,5 +250,5 @@ def test_phase1_criterion_is_frozen_for_both_packages_with_their_anchors_and_jud
     assert ([(p / "base_commit").read_text().strip() for p in packages],
             [sorted(a.stem for a in (p / "anchors").glob("*.diff")) for p in packages],
             criterion["judges"], criterion["primary"], criterion["written_before_scoring"]) == (
-        [criterion["base_commits"][p.name] for p in packages], [sorted(criterion["anchors"][p.name]) for p in packages],
-        ["claude-opus-5-5", "gpt-6-sol"], [], True)
+        [criterion["base_commits"][p.name] for p in packages],
+        [sorted(criterion["anchors"][p.name].values()) for p in packages], ["claude-opus-5-5", "gpt-6-sol"], [], True)
