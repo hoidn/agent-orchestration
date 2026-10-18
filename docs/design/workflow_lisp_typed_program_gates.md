@@ -306,6 +306,10 @@ available to that purpose; a trial or evolution controller invoking it on
 candidate source is a policy violation, reviewable in the same way as a
 gene-bound breach. Lifting this rule is the amendment debate, to be had
 then, explicitly, against recorded C1/C2 usage evidence — not implied now.
+The rule governs candidate execution started inside a workflow; public runs
+launched by an external controller are outside it
+([program-search boundaries](workflow_lisp_program_search_boundaries.md) §1 as
+amended 2026-10-18).
 
 ## C3 — `eval-workflow`, Parked Terminal Tranche
 

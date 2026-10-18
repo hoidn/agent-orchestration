@@ -2,10 +2,12 @@
 
 ## Metadata
 
-- **Status:** proposed research apparatus design; unselected; not copy-safe.
-  Partial: the mode-1 offline apparatus (`experiments/orc_structural_search/`)
-  is implemented and tested with scripted providers only; mode 2, I2 episodes,
-  I3 and live runs are not implemented. Fixed-workflow comparisons use
+- **Status:** research apparatus design; roadmap Phases 0 and 1 selected
+  2026-10-18 ([live plan](../plans/2026-10-18-orc-structural-search-live-phase1-plan.md));
+  not copy-safe. Partial: the mode-1 offline apparatus
+  (`experiments/orc_structural_search/`) is implemented and tested with
+  scripted providers only; mode 2, I2 episodes, I3 and live runs are not
+  implemented. Fixed-workflow comparisons use
   [`experiments/compare/`](../../experiments/compare/README.md) today.
 - **Kind:** experiment-side apparatus contract: controller modes, proposal
   interfaces, edit validation and transactions, candidate identities,
@@ -17,8 +19,8 @@
   [Experiment O](orc_reuse_introspection_search_experiment.md#experiment-o--program-space-then-search),
   [Conditional Task 6](../plans/2026-09-08-orc-research-demonstration-plan.md#conditional-task-6--test-search-and-representation-value),
   the [program-search boundary invariants](workflow_lisp_program_search_boundaries.md)
-  (binding; a pending amendment block is appended to that document and
-  changes nothing until the owner records it; its rationale is below), the [design lessons](../orc_workflow_design_lessons.md) and the
+  (binding, as amended 2026-10-18 for invariants 1 and 6; the amendment's
+  rationale is below), the [design lessons](../orc_workflow_design_lessons.md) and the
   [normal-session boundary](orc_reuse_introspection_search_experiment.md#normal-agent-sessions-and-evaluation-boundary).
 - **Companion:** [source-site inspection](workflow_lisp_source_site_inspection.md)
   owns the read-only site manifest over a successful compilation. This
@@ -487,14 +489,12 @@ execution; records note what the agent retrieved itself. These measure the
 value of packaging assistance, not of removing compiler knowledge; a stricter
 information-removal condition is a disclosed custom profile.
 
-## Proposed Amendment To The Boundary Invariants
+## Amendment To The Boundary Invariants
 
-The proposed text is a dated block appended to the boundaries document
-([proposed amendment](workflow_lisp_program_search_boundaries.md#proposed-amendment-2026-10-17)),
-pending owner approval; this design carries the rationale and changes
-nothing until the owner records it. Until then, invariant 6 as written allows
-provider-in-the-loop evaluation only through text-only/no-tool, mock, replay
-or genuinely sandboxed calls, and the driver is limited to those.
+The amendment was applied in place in the boundaries document on 2026-10-18
+under the owner's directive to execute the structural search roadmap
+([change note](workflow_lisp_program_search_boundaries.md#proposed-amendment-2026-10-17));
+this design carries the rationale.
 
 Rationale. Invariant 1 names a registered child run, but no route executes a
 provider-bearing candidate as a child at `90ae778c`: `run/spawn` is
@@ -508,7 +508,7 @@ execution safety outside the research assessment and the normal-session
 boundary rejects no-tool or mock-only defaults, and neither amended the
 invariant. The block replaces the child-run sentence of invariant 1 and both
 restricting sentences of invariant 6 together, so no contradictory sentence
-survives approval, and states the disclosed boundary: ordinary configured
+survives, and states the disclosed boundary: ordinary configured
 agent sessions under experiment hygiene (separate clones, the
 comparison-harness shims and contamination scan, finite envelopes), with
 evaluator truth outside every tree an agent can reach; hygiene, not
@@ -524,20 +524,19 @@ workflow, and the typed-gates design ties lifting it to recorded C1/C2
 usage evidence. An external controller's public runs execute nothing
 inside a workflow, so that evidence condition is not invoked, and
 in-workflow candidate execution stays restricted to generational child
-runs exactly as written. If the owner reads the rule as covering external
-launches too, the sentence above becomes a proposed diff to that paragraph
-of the typed-gates design, and the driver waits for it.
+runs exactly as written. The typed-gates design records this scoping in its
+§Boundary Compliance.
 
 ## Boundary Compliance
 
 | Invariant | Driver |
 | --- | --- |
-| 1 Immutable generations, full compiler, registered runs, no eval | **Amendment required** for external launch; children are new snapshots compiled by the ordinary pipeline; each evaluation is a new public run; no eval, hot swap or checkpoint import |
+| 1 Immutable generations, full compiler, registered runs, no eval | Satisfied under the 2026-10-18 amendment: external launch through public `run`; children are new snapshots compiled by the ordinary pipeline; each evaluation is a new public run; no eval, hot swap or checkpoint import |
 | 2 Provider output is untrusted data | The final diff is data until validation and the compiler accept it |
 | 3 Neutral substrate versus feature | Archive, selection, validation, transactions, skeleton hashing and fitness live in `experiments/`; the companion exposes read-only facts |
 | 4 Whole-candidate evidence | Only whole-run evidence retains or promotes; local observations are diagnostic |
 | 5 Evidence separation | Adaptive, validation and sealed held-out splits are disjoint; the sealed split opens once after generation, choice, evaluator and analysis freeze; near-duplicate defects share a split |
-| 6 Honest security boundary | **Amendment required**; until recorded, only text-only/no-tool, mock, replay or genuinely sandboxed provider calls |
+| 6 Honest security boundary | Satisfied under the 2026-10-18 amendment: ordinary configured sessions behind the comparison-harness shims, sandbox and contamination scan, reported as hygiene, not isolation |
 | 7 Typed-operation parity without kind erasure | Interfaces move expressions, never runtime callables; provider calls, procedures and workflows stay distinct kinds |
 | 8 Role-separated prompt identity | Inherited unchanged; prompt changes allowed only when the condition permits |
 
@@ -572,7 +571,7 @@ scores it. No prompt-text assertions.
 
 New: `experiments/orc_structural_search/` and `tests/experiments/` coverage.
 Reused: `experiments/compare/` shims, scan, pool and layout rules.
-Prerequisites outside this design: an OMP shim before OMP sessions; the boundary amendment; the
+Prerequisites outside this design: an OMP shim before OMP sessions; the
 harness extension above; the 2.39 catalog port; R2 qualification. Routing (`docs/index.md`,
 `docs/design/README.md`, the capability matrix) belongs to the roadmap
 change. This design accepts no allocation and selects no study.

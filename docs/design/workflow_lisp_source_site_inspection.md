@@ -244,26 +244,24 @@ Against [the program-search boundary invariants](workflow_lisp_program_search_bo
 
 | Invariant | This design |
 | --- | --- |
-| 1 — immutable generations; full pipeline; no eval; child runs | **Amendment required** for the consumer's execution model; this design itself executes nothing and edits nothing |
+| 1 — immutable generations; full pipeline; no eval; child runs | Consumer's execution model covered by the 2026-10-18 amendment; this design itself executes nothing and edits nothing |
 | 2 — provider output is untrusted data | Satisfied: the manifest is read-only output; proposals are the consumer's data |
 | 3 — neutral substrate versus feature | Satisfied: the record carries sites, kinds, types, bindings, dependencies, effects and diagnostics; no selection, score or archive vocabulary |
 | 4 — whole-candidate evidence | Not implicated: `executable_sites` is a join for diagnosis, never a score carrier |
 | 5 — evidence separation | Not implicated; consumer-owned |
-| 6 — honest security boundary | **Amendment required**; the manifest adds no isolation and no execution |
+| 6 — honest security boundary | Consumer covered by the 2026-10-18 amendment; the manifest adds no isolation and no execution |
 | 7 — typed-operation parity without kind erasure | Satisfied: `kind` is mandatory and distinct per operation; equal `result_type` never implies substitutability across kinds; no runtime callable or closure |
 | 8 — role-separated prompt identity | Inherited unchanged: prompts appear as resolved dependencies, never as an ambient hash |
 
-The boundaries document carries a dated
-[pending amendment block](workflow_lisp_program_search_boundaries.md#proposed-amendment-2026-10-17)
+The boundaries document was
+[amended in place on 2026-10-18](workflow_lisp_program_search_boundaries.md#proposed-amendment-2026-10-17)
 covering invariant 1 (ordinary registered runs launched by an external
 controller and owned by an experiment record), invariant 6 (ordinary
 configured agent sessions under experiment hygiene) and the
 [typed program gates](workflow_lisp_typed_program_gates.md#boundary-compliance)
 rule "generational child runs only" (scoped to candidate execution started
 from inside a workflow); the [driver design](orc_structural_search_driver.md)
-carries its rationale. Until the owner accepts that amendment, a consumer is
-limited to what invariant 6 allows today: text-only/no-tool, mock, replay or
-genuinely sandboxed provider calls.
+carries its rationale.
 
 ## 9. Verification
 
@@ -301,4 +299,4 @@ example; the repository's broad suite follows for any `orchestrator/` change.
   sessions, evaluation, records and selection.
 - Routing: the design index, capability matrix and the roadmap list this
   document as proposed; the §7 fixtures pass, but nothing here is admitted
-  or copy-safe until the owner records the boundary amendment.
+  or copy-safe.

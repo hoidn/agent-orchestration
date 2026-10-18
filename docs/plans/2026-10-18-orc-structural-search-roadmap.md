@@ -2,9 +2,10 @@
 
 Status: proposed implementation roadmap for research unit R3 (search and
 representation), drafted 2026-10-18 against `main` at `90ae778c` (target 2.39
-merged) and revised after an independent design review. It selects no work,
-allocates no budget and launches no study; owner selection and a finite
-allocation are required before Phase 0 starts. It replaces an earlier
+merged) and revised after an independent design review. Phases 0 and 1 were
+selected on 2026-10-18 under the owner's directive to execute the roadmap,
+with the allocation below; Phases 2–5 remain conditional on the Phase 1
+decision. It replaces an earlier
 external draft ("ORC as a Searchable Workflow Language", 2026-10-16, not in
 the repository).
 
@@ -22,7 +23,7 @@ places R3 after R2. Two companion designs carry the contracts: the
 (a read-only compiler-side manifest) and the
 [structural search driver](../design/orc_structural_search_driver.md)
 (proposal interfaces, edit validation, execution, records, controls and the
-proposed boundary amendment). Nothing here is copy-safe; the offline
+rationale of the boundary amendment applied 2026-10-18). Nothing here is copy-safe; the offline
 apparatus status is in [Phase 0 Status](#phase-0-status). Use
 today: `experiments/compare/` for fixed-workflow comparisons and the REPL
 `:info` / `:type` / `:source` commands for static inspection.
@@ -78,7 +79,7 @@ Checked against code at `90ae778c`. Each fact constrains the phases below.
 | `experiments/compare/` is implemented: PATH shims for `claude` and `codex` under bubblewrap, a model guard refusing Fable, a contamination scan, a blind pool and `score.orc`, a frozen hashed criterion; there is no OMP shim | Reused for hygiene; mutators run through shimmed CLIs; an OMP shim is a prerequisite before OMP sessions |
 | Experiment O's catalog `workflows/experiments/qa_placement_effectiveness/qa_placement_arms.orc` is at a retired target; the linear-classifier hard-oracle seed lacks a verified green baseline | Both are Phase 0 cost items, not assumed assets |
 | Owner rules: no Fable model in any experiment call; tasks calibrated before treatment runs; missing receipts are unavailable, never zero | Adopted for every arm, control, judge and mutator |
-| The boundaries document requires an explicit amendment before a design departs from invariants 1 and 6, and the typed-program-gates design adds a "generational child runs only" rule | Phase 0 gate: owner-accepted amendment, recorded as a pending block appended to the boundaries document, with its rationale in the driver design |
+| The boundaries document requires an explicit amendment before a design departs from invariants 1 and 6, and the typed-program-gates design adds a "generational child runs only" rule | Phase 0 gate: owner-accepted amendment, applied in place 2026-10-18, with its rationale in the driver design |
 
 Consistency items surfaced by this review, to be filed with their owners as
 spec-versus-code contradictions outside this roadmap's gates: `specs/cli.md`
@@ -111,10 +112,9 @@ corrected in the change that adds this roadmap.
 10. The proposal interface is an experimental factor: I1 whole-file edit, I2
     locus-plus-fragment, I3 matched Python diff; I4 named certified
     transforms deferred to compositional work.
-11. The boundary amendment precedes implementation; the boundaries document
-    carries the pending amendment block, the driver design carries its
-    rationale, and both designs mark invariants 1 and 6 "amendment
-    required" until the owner records it.
+11. The boundary amendment precedes implementation; it was applied in place
+    in the boundaries document on 2026-10-18 and the driver design carries
+    its rationale.
 
 ## Search Space And Proposal Interfaces
 
@@ -159,21 +159,30 @@ The [offline apparatus plan](2026-10-18-orc-structural-search-phase0-offline-pla
 metering) and the
 [source-site feasibility plan](2026-10-18-source-site-inspection-feasibility-plan.md)
 (read-only manifest module) are implemented and tested with scripted
-providers only. P-1 and F-a passed. Built: the offline apparatus, which the
-gates below do not block. Gated: selection and allocation, the boundary
-amendment, the task-family choice, and every live run; the gates below govern
-those.
+providers only. P-1 and F-a passed. Selection, the boundary amendment and
+the allocation were recorded on 2026-10-18; the task-family choice and every
+live run follow the
+[live Phase 0 gates and Phase 1 plan](2026-10-18-orc-structural-search-live-phase1-plan.md), whose allocation, all limits
+first-exhausted, is:
+
+| Limit | Value |
+| --- | --- |
+| Provider calls, all roles (arms, judges, mutators, smoke) | 160 |
+| Concurrent evaluations | 4 |
+| Per-evaluation wall clock | 14,400 s (the harness's executor ceiling) |
+| Per-episode wall clock | 3,600 s |
+| Models | `claude-opus-5-5`, `claude-sonnet-5-5`, `gpt-6-sol`; never Fable |
 
 ### Phase 0 Gates
 
 - R2 task-family qualification keeps its own selection, review and
   allocation; this phase starts after it and inherits its family, or the
   owner records a merge of the two decisions.
-- The owner accepts the pending amendment block in the boundaries document,
-  covering invariant 1 for externally launched registered runs, invariant 6
-  for ordinary configured sessions under experiment hygiene, and the scope
-  of the typed-program-gates rule; the driver design carries the rationale.
-  Until then the driver is limited to what invariant 6 allows today.
+- The owner accepts the boundary amendment, covering invariant 1 for
+  externally launched registered runs, invariant 6 for ordinary configured
+  sessions under experiment hygiene, and the scope of the typed-program-gates
+  rule; the driver design carries the rationale. Met 2026-10-18: applied in
+  place in the boundaries document.
 - Task family: review/planning improvement on the comparison-harness family,
   or hard-oracle repair (`examples/demo_task_linear_classifier_port/` with
   `orchestrator/demo/evaluators/linear_classifier.py`, or a small Python
@@ -376,7 +385,7 @@ the operator-freedom bet fails and the report says so. An inconclusive pilot
 calls for a better-targeted experiment, not a verdict. A DIRECT winner is
 valid.
 
-The immediate commitment, once selected, is **Phases 0 and 1**: the
+The immediate commitment, selected 2026-10-18, is **Phases 0 and 1**: the
 governance and integration spike, then the catalog, enumeration and unguided
 search that establish whether the space is worth adaptive work. Phase 2 and
 the three-arm test follow only on that evidence.
@@ -388,9 +397,9 @@ or queue is added. Code placement: the manifest module near
 `orchestrator/workflow_lisp/`, everything else under
 `experiments/orc_structural_search/` with immutable candidate files and one
 append-only JSONL episode and evaluation log. Fitness, archives and selection
-never enter `orchestrator/`. The pending amendment block lives in the
-boundaries document under its own anchor; the driver design carries its
-rationale. Limits carried into every phase: one active run
+never enter `orchestrator/`. The boundary amendment is applied in the
+boundaries document, whose change note keeps its anchor; the driver design
+carries its rationale. Limits carried into every phase: one active run
 per workspace, no persisted usage in the evaluated runtime, no span-to-type
 table in the checker, and no OMP shim.
 
