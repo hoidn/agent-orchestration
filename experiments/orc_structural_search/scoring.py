@@ -21,10 +21,7 @@ own arm and knows nothing of policies. This module adds the three steps around t
                      I1 diversity figures of the driver's readout (<evidence>/readout.json), collapse against the
                      criterion's threshold, and the roadmap decision. Every rule parameter comes from
                      criteria/phase1.json.
-  phase2_readout     per mode 2 run and interface (never pooled): completed and accepted episodes, improvements
-                     over the parent's archived mean, diversity and collapse, control-flow changes; the archive
-                     trajectory; the validation table with shrinkage, the final choice and the validation anchors.
-                     Every rule parameter comes from criteria/phase2.json.
+  readout --phase 2  scoring_phase2.phase2_readout (criteria/phase2.json), built on read_pool and anchor_checks.
 
 A policy is the seed stem for a catalog evaluation and `unguided:<candidate_id>` for an accepted I1 child.
 
@@ -49,8 +46,7 @@ from statistics import mean, stdev, variance
 
 from experiments.compare import pool as pooling, prepare
 from experiments.compare.repos import dump, guard, load, runtime_commit, sha256_file, visible_in_sandbox
-from experiments.orc_structural_search.readout import diversity, share
-from experiments.orc_structural_search.records import UNAVAILABLE, control_heads, final_choice, read_records
+from experiments.orc_structural_search.records import UNAVAILABLE, read_records
 
 DIRECT = "direct"  # the DIRECT seed's stem
 UNGUIDED = "unguided"  # the one arm pooling every accepted I1 child's evaluations
@@ -149,7 +145,8 @@ def join_scores(results_json: Path, log: Path) -> list[dict]:
 
 
 def read_pool(results_json: Path, log: Path, criterion: Path) -> dict:
-    """One task's pool for phase1_readout (and the validation pool for phase2_readout): joined rows, summarize's anchors, agreement and excluded judges, and the
+    """One task's pool for phase1_readout (and each pool of scoring_phase2): joined rows, summarize's anchors,
+    agreement and excluded judges, the criterion hash it was checked against, and the
     completed evaluations of the task in the log that no run row names (`unpooled`). Refuses results summarized
     under another criterion file, and runs of several tasks."""
     results, sha = json.loads(Path(results_json).read_text()), sha256_file(criterion)
@@ -277,157 +274,18 @@ def phase1_readout(pools: Sequence[Mapping], driver_readout: Mapping, criterion:
             **decision(tasks, collapsed, criterion["separation"]["min_tasks"])}
 
 
-# Phase 2. A run is its log and its archive directory (<E2>/archive/gen-<n>.json, each a list of archive entries
-# {candidate_id, candidate_root, mean_value, mean_calls, ...}); judged values come from the log's `judging` rows
-# ({generation, task, pool, results}: that pool's results.json), joined by join_scores.
-COMPLETED = ("accepted", "rejected")  # an episode that reached a verdict; stopped ones (exhausted, incident) did not
-
-
-def archive_files(directory: Path) -> list[tuple[int, list[dict]]]:
-    """(generation, entries) per gen-<n>.json, in generation order."""
-    files = [(int(p.stem.removeprefix("gen-")), json.loads(p.read_text())) for p in Path(directory).glob("gen-*.json")]
-    if not files:
-        raise ValueError(f"no gen-<n>.json archive file in {directory}")
-    return sorted(files, key=lambda f: f[0])
-
-
-def leader(entries: Sequence[Mapping]) -> Mapping:
-    """The incumbent (Decision 6): highest mean_value, then fewer mean_calls, then the earlier candidate_id."""
-    return min(entries, key=lambda e: (-e["mean_value"], e["mean_calls"], e["candidate_id"]))
-
-
-def adaptive_means(log: Path, rows: Sequence[Mapping], tasks: Sequence[str]) -> dict[str, float]:
-    """candidate_id -> the mean over `tasks` of its per-task mean judged value, for candidates valued on every task."""
-    values: dict[str, dict[str, list]] = {}
-    for judging in (row for row in rows if row["kind"] == "judging"):
-        for row in join_scores(Path(judging["results"]), log):
-            if row["task"] in tasks and row["value"] is not None:
-                values.setdefault(row["candidate_id"], {}).setdefault(row["task"], []).append(row["value"])
-    return {cid: mean(mean(per[t]) for t in tasks) for cid, per in values.items() if set(per) >= set(tasks)}
-
-
-def gain(row: Mapping, child_means: Mapping[str, float], archive: Mapping[int, list]) -> float | str:
-    """The child's adaptive mean minus its parent's mean_value in the archive it was drawn from (gen-<g-1>)."""
-    parent = [e["mean_value"] for e in archive.get(row["generation"] - 1, ())
-              if e["candidate_id"] == row["parent_candidate_id"]]
-    child = child_means.get(row["candidate_id"])
-    return UNAVAILABLE if not parent or child is None else child - parent[0]
-
-
-def heads(root: str, definitions: Sequence[str]) -> dict[str, int]:
-    source = "\n".join(path.read_text() for path in sorted(Path(root).glob("*.orc")))
-    return control_heads(source, definitions=definitions)
-
-
-def control_flow_changes(accepted: Sequence[Mapping], roots: Mapping[str, str], definitions: Sequence[str]) -> list:
-    changes = []
-    for row in accepted:
-        parent, child = (heads(roots[row[key]], definitions) for key in ("parent_candidate_id", "candidate_id"))
-        if parent != child:
-            changes.append({"candidate_id": row["candidate_id"], "parent_candidate_id": row["parent_candidate_id"],
-                            "parent": parent, "child": child})
-    return changes
-
-
-def interface_figures(episodes: Sequence[Mapping], *, child_means: Mapping[str, float], archive: Mapping[int, list],
-                      roots: Mapping[str, str], criterion: Mapping) -> dict:
-    """One interface's episodes of one run: completed, accepted, improvements (gain above min_gain) per completed
-    episode, diversity over its accepted children, collapse against the criterion, control-flow changes."""
-    completed = [row for row in episodes if row["outcome"] in COMPLETED]
-    accepted = [row for row in completed if row["outcome"] == "accepted"]
-    gains = {row["candidate_id"]: gain(row, child_means, archive) for row in accepted}
-    improved = sorted(c for c, g in gains.items() if g != UNAVAILABLE and g > criterion["improvement"]["min_gain"])
-    figures = diversity(accepted)
-    terminal = figures["terminal_only_share"]
-    return {"completed": len(completed), "accepted": len(accepted), "gains": gains, "improved": improved,
-            "improvements": len(improved), "improvements_per_episode": share(len(improved), len(completed)),
-            **figures, "collapsed": terminal if terminal == UNAVAILABLE else terminal > criterion["collapse_threshold"],
-            "control_flow_changes": control_flow_changes(accepted, roots, criterion["control_flow"]["definitions"])}
-
-
-def run_readout(log: Path, files: Sequence[tuple[int, list]], criterion: Mapping) -> dict:
-    rows = read_records(log)
-    episodes = [row for row in rows if row["kind"] == "episode"]
-    roots = {e["candidate_id"]: e["candidate_root"] for _, entries in files for e in entries}
-    roots |= {row["candidate_id"]: row["candidate_root"] for row in episodes if row["outcome"] == "accepted"}
-    means = adaptive_means(log, rows, [Path(task).name for task in criterion["adaptive_tasks"]])
-    context = {"child_means": means, "archive": dict(files), "roots": roots, "criterion": criterion}
-    interfaces = {name: interface_figures([row for row in episodes if row["interface"] == name], **context)
-                  for name in dict.fromkeys(criterion["scale"]["interfaces"])}
-    trajectory = [{"generation": n, "incumbent": leader(entries)["candidate_id"],
-                   "mean_value": leader(entries)["mean_value"]} for n, entries in files]
-    return {"log": str(log), "interfaces": interfaces, "trajectory": trajectory}
-
-
-def reference(runs: Sequence[Sequence[tuple[int, list]]]) -> str:
-    """The reference seed: the incumbent of every run's earliest archive file (the initial incumbent)."""
-    found = {leader(files[0][1])["candidate_id"] for files in runs}
-    if len(found) != 1:
-        raise ValueError(f"the runs' earliest archives name different incumbents {sorted(found)}")
-    return found.pop()
-
-
-def screening_mean(cid: str, runs: Sequence[Sequence[tuple[int, list]]]) -> float | str:
-    """The mean over runs of the candidate's mean_value in the latest archive file that holds it."""
-    latest = [next((e["mean_value"] for _, entries in reversed(files) for e in entries if e["candidate_id"] == cid),
-                   None) for files in runs]
-    found = [value for value in latest if value is not None]
-    return mean(found) if found else UNAVAILABLE
-
-
-def validation_rows(pool: Mapping, runs: Sequence[Sequence[tuple[int, list]]]) -> list[dict]:
-    grouped: dict[str, list] = {}
-    for row in pool["rows"]:
-        grouped.setdefault(row["candidate_id"], []).append(row)
-    ref, table = reference(runs), []
-    for cid, rows in sorted(grouped.items()):
-        valued = [row["value"] for row in rows if row["value"] is not None]
-        screening, validation = screening_mean(cid, runs), mean(valued) if valued else UNAVAILABLE
-        table.append({"candidate_id": cid, "is_reference": cid == ref, "screening_mean": screening,
-                      "validation_mean": validation,
-                      "shrinkage": UNAVAILABLE if UNAVAILABLE in (screening, validation) else screening - validation,
-                      "mean_cost": mean(row["wall_clock_sec"] for row in rows),
-                      "provider_calls": mean(row["calls"] for row in rows)})
-    return table
-
-
-def validation_readout(pool: Mapping, runs: Sequence[Sequence[tuple[int, list]]], criterion: Mapping) -> dict:
-    """The validation table, records.final_choice over its valued rows under the criterion, and anchor checks."""
-    if pool["task"] != Path(criterion["validation_task"]).name:
-        raise ValueError(f"the validation pool is of {pool['task']}, not {criterion['validation_task']}")
-    table = validation_rows(pool, runs)
-    valued = [row | {"validation_success": row["validation_mean"]} for row in table
-              if row["validation_mean"] != UNAVAILABLE]
-    rules = criterion["final_choice"] | {"criterion_sha256": pool["criterion_sha256"]}
-    return {"validation": table, "final_choice": final_choice(valued, criterion=rules),
-            **anchor_checks(pool["anchors"], criterion["anchors"][pool["task"]], criterion["anchor_spread_limit"])}
-
-
-def phase2_readout(logs: Sequence[Path], archives: Sequence[Path], validation_pool: Mapping | None,
-                   criterion: Mapping) -> dict:
-    """`logs` and `archives` pair up per run (each run's log.jsonl and archive directory); `validation_pool` is
-    read_pool's result for the validation task's pool, or None before validation; `criterion` is
-    criteria/phase2.json. Figures are per run and interface; nothing is pooled across interfaces."""
-    runs = [archive_files(directory) for directory in archives]
-    result = {"min_gain": criterion["improvement"]["min_gain"], "collapse_threshold": criterion["collapse_threshold"],
-              "runs": [run_readout(Path(log), files, criterion) for log, files in zip(logs, runs, strict=True)]}
-    if validation_pool is None:
-        return result | dict.fromkeys(("validation", "final_choice", "anchors_ok", "anchor_spread", "spread_ok"),
-                                      UNAVAILABLE)
-    return result | validation_readout(validation_pool, runs, criterion)
-
 
 def readout_command(a: argparse.Namespace) -> dict:
-    criterion = json.loads(a.criterion.read_text())
     if a.phase == 2:
+        from experiments.orc_structural_search.scoring_phase2 import phase2_readout  # it imports this module
         if len(a.results) > 1 or bool(a.results) != bool(a.validation_log):
             raise SystemExit("--phase 2 takes at most one results.json, the validation pool's, with --validation-log")
         pool = read_pool(a.results[0], a.validation_log, a.criterion) if a.results else None
-        return phase2_readout(a.log, a.archive, pool, criterion)
+        return phase2_readout(a.log, a.archive, pool, a.criterion)
     if len(a.log) != 1 or a.driver_readout is None or not a.results:
         raise SystemExit("--phase 1 takes one --log, --driver-readout and each task pool's results.json")
     pools = [read_pool(results, a.log[0], a.criterion) for results in a.results]
-    return phase1_readout(pools, json.loads(a.driver_readout.read_text()), criterion)
+    return phase1_readout(pools, json.loads(a.driver_readout.read_text()), json.loads(a.criterion.read_text()))
 
 
 def main(argv: Sequence[str] | None = None) -> None:

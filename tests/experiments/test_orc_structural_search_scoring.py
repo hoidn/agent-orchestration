@@ -9,9 +9,11 @@ import pytest
 from experiments.compare import pool as pooling, prepare, summarize
 from experiments.compare.repos import sha256_file
 from experiments.orc_structural_search.records import UNAVAILABLE, append_record
+from experiments.orc_structural_search.scoring import DIRECT
 from experiments.orc_structural_search.scoring import (
-    join_scores, phase1_readout, phase2_readout, pool_evaluations, read_pool, split_batches,
+    join_scores, main, phase1_readout, pool_evaluations, read_pool, split_batches,
 )
+from experiments.orc_structural_search.scoring_phase2 import phase2_readout
 from tests.experiments.compare_harness_support import (  # noqa: F401 (world is a fixture)
     REPO, call, edit, skip_without_sandbox, world, write_memo,
 )
@@ -267,14 +269,28 @@ def program(body=BODY):
     return f"(workflow-lisp (defmodule direct) (defworkflow run ((task String)) -> Outcome {body}))"
 
 
-class Run:
-    """One Phase 2 run: its log, archive directory and candidate roots under `root`."""
+def anchors_of(task, up=8, stub=1, batch=0):
+    roles = CRIT2["anchors"][task]
+    return [{"batch": batch, "judge": "j", "anchor": roles["upstream"], "total": up},
+            {"batch": batch, "judge": "j", "anchor": roles["stub"], "total": stub}]
 
-    def __init__(self, root: Path):
+
+def results_json(path, runs, anchors):
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"runs": runs, "criterion_sha256": sha256_file(CRITERION2), "anchors": anchors,
+                                "agreement": {}, "excluded_judges": {}}))
+    return path
+
+
+class Run:
+    """One Phase 2 run: its log (with the reference row), archive directory and candidate roots under `root`."""
+
+    def __init__(self, root: Path, reference="P"):
         self.root, self.log, self.archive = root, root / "log.jsonl", root / "archive"
         self.archive.mkdir(parents=True)
-        self.archive_files: dict[int, list] = {}
-        self.parent = self.candidate("P", program())
+        self.candidate("P", program())
+        if reference:
+            append_record(self.log, {"kind": "reference", "candidate_id": reference, "run": root.name})
 
     def candidate(self, cid, source):
         path = self.root / "candidates" / cid
@@ -284,15 +300,16 @@ class Run:
         return path
 
     def archived(self, generation, *entries):
-        """gen-<n>.json: (candidate_id, mean_value, mean_calls) entries."""
-        self.archive_files[generation] = [
-            {"candidate_id": cid, "candidate_root": str(self.root / "candidates" / cid), "seed": None,
-             "values": {t: [value] for t in ADAPTIVE}, "mean_value": value, "mean_calls": calls,
-             "evidence": "adaptive", "generation": generation} for cid, value, calls in entries]
-        (self.archive / f"gen-{generation}.json").write_text(json.dumps(self.archive_files[generation]))
+        """gen-<n>.json: (candidate_id, mean_value, mean_calls) entries; P is the direct seed."""
+        (self.archive / f"gen-{generation}.json").write_text(json.dumps([
+            {"candidate_id": cid, "candidate_root": str(self.root / "candidates" / cid),
+             "seed": DIRECT if cid == "P" else None, "values": {t: [value] for t in ADAPTIVE}, "mean_value": value,
+             "mean_calls": calls, "evidence": "adaptive", "generation": generation} for cid, value, calls in entries]))
 
-    def episode(self, cid, *, interface, outcome="accepted", value=None, source=None, generation=1, skeleton=None):
-        """An episode against P; an accepted child with `value` is evaluated and judged on both adaptive tasks."""
+    def episode(self, cid, *, interface, outcome="accepted", value=None, source=None, generation=1, skeleton=None,
+                up=8):
+        """An episode against P; an accepted child with `value` is evaluated and judged on both adaptive tasks
+        in pools whose upstream anchor scores `up` (the stub 1)."""
         if outcome == "accepted":
             self.candidate(cid, source or program())
         append_record(self.log, {
@@ -304,34 +321,27 @@ class Run:
             "parent_provider_allocation": {"run": ["coder"]}})
         if value is not None:
             for task in ADAPTIVE:
-                self.judged(cid, task, value, generation=generation)
+                self.judged(cid, task, value, generation=generation, up=up)
 
-    def judged(self, cid, task, value, *, generation, calls=2, wall=30.0):
+    def judged(self, cid, task, value, *, generation, up):
         eid = f"{cid}-{task}"
         records = self.root / "records" / eid / "run-1"
         append_record(self.log, {"kind": "evaluation", "mode": "adaptive", "evaluation_id": eid, "candidate_id": cid,
                                  "records_dir": str(records), "task_id": task, "replicate": 1,
                                  "outcome": "completed", "split": "adaptive", "generation": generation})
-        results = self.root / "pools" / eid / "results.json"
-        results.parent.mkdir(parents=True)
-        results.write_text(json.dumps({"runs": [run_row(records, eid, value) | {"calls": calls,
-                                                                                "wall_clock_sec": wall}],
-                                       "criterion_sha256": sha256_file(CRITERION2), "anchors": [],
-                                       "agreement": {}, "excluded_judges": {}}))
+        results = results_json(self.root / "pools" / eid / "results.json", [run_row(records, eid, value)],
+                               anchors_of(task, up))
         append_record(self.log, {"kind": "judging", "generation": generation, "task": task,
                                  "pool": str(results.parent), "results": str(results)})
 
 
-def validation_pool(values, anchors=TRUSTED):
+def validation_pool(values, anchors=None):
     """A read_pool result for the validation task: candidate -> [(value, calls, wall_clock_sec)]."""
     rows = [{"evaluation_id": f"v-{cid}-{k}", "candidate_id": cid, "mode": "validation", "policy": cid,
              "task": VALIDATION, "replicate": k + 1, "value": v, "hidden": None, "calls": c, "wall_clock_sec": w}
             for cid, runs in values.items() for k, (v, c, w) in enumerate(runs)]
-    return {"task": VALIDATION, "rows": rows, "anchors": anchors, "agreement": {}, "excluded_judges": {},
-            "unpooled": [], "criterion_sha256": sha256_file(CRITERION2)}
-
-
-CRIT2_TEST = CRIT2 | {"anchors": CRIT2["anchors"] | {VALIDATION: {"upstream": "up", "stub": "stub"}}}
+    return {"task": VALIDATION, "rows": rows, "anchors": anchors_of(VALIDATION) if anchors is None else anchors,
+            "agreement": {}, "excluded_judges": {}, "unpooled": [], "criterion_sha256": sha256_file(CRITERION2)}
 
 
 @pytest.fixture
@@ -342,7 +352,17 @@ def run(tmp_path):
 
 
 def readout2(runs, pool=None):
-    return phase2_readout([r.log for r in runs], [r.archive for r in runs], pool, CRIT2_TEST)
+    return phase2_readout([r.log for r in runs], [r.archive for r in runs], pool, CRITERION2)
+
+
+def finalists(run):
+    """gen-1 archive: C1 and C2 are the top two; P (direct, the reference) joins them on validation."""
+    run.episode("C1", interface="I1", value=6.0)
+    run.episode("C2", interface="I2", value=5.5)
+    run.archived(1, ("P", 4.0, 2), ("C1", 6.0, 3), ("C2", 5.5, 1), ("C3", 4.5, 1))
+
+
+WITHIN = {"P": [(4.0, 2, 3000.0)] * 2, "C1": [(4.4, 3, 2000.0)] * 2, "C2": [(5.0, 1, 20000.0)] * 2}
 
 
 def test_phase2_readout_counts_improvements_per_completed_episode_per_interface(run):
@@ -355,6 +375,31 @@ def test_phase2_readout_counts_improvements_per_completed_episode_per_interface(
     assert [(figures[i]["completed"], figures[i]["accepted"], figures[i]["improvements"],
              figures[i]["improvements_per_episode"]) for i in ("I1", "I2")] == [(3, 2, 1, pytest.approx(1 / 3)),
                                                                                 (1, 1, 1, 1.0)]
+
+
+def test_phase2_readout_marks_improvements_untrusted_when_a_generations_anchors_are_inverted(run):
+    run.episode("C1", interface="I1", value=6.0)
+    run.episode("C2", interface="I2", value=6.0, up=0)  # the stub (1) above the upstream anchor
+    result = readout2([run])["runs"][0]
+    assert (result["improvement_rule"], result["interfaces"]["I1"]["improvements"],
+            result["anchors"][ADAPTIVE[0]]["generations"]) == ("anchors_inverted", "untrusted", {1: False})
+
+
+def test_phase2_readout_marks_improvements_untrusted_when_anchors_spread_across_generations(run):
+    run.episode("C1", interface="I1", value=6.0, generation=1)
+    run.archived(1, ("P", 4.0, 2), ("C1", 6.0, 3))
+    run.episode("C2", interface="I2", value=6.0, generation=2, up=5)  # upstream 8 then 5: spread 3 > 2
+    result = readout2([run])["runs"][0]
+    assert (result["improvement_rule"], result["interfaces"]["I2"]["improvements_per_episode"],
+            result["anchors"][ADAPTIVE[0]]["anchor_spread"]) == ("anchor_spread", "untrusted", {"j": 3})
+
+
+def test_phase2_readout_refuses_an_adaptive_pool_summarized_under_another_criterion(run, tmp_path):
+    run.episode("C1", interface="I1", value=6.0)
+    other = tmp_path / "other.json"
+    other.write_text(CRITERION2.read_text() + " ")
+    with pytest.raises(ValueError, match="summarized under criterion sha256"):
+        phase2_readout([run.log], [run.archive], None, other)
 
 
 def test_phase2_readout_reports_a_control_flow_change_when_a_child_adds_a_branch(run):
@@ -376,13 +421,53 @@ def test_phase2_readout_shrinkage_is_screening_minus_validation(run):
 
 
 def test_phase2_readout_final_choice_follows_the_frozen_criterion_and_includes_the_reference(run):
-    run.episode("C1", interface="I1", value=6.0)
-    run.episode("C2", interface="I2", value=5.5)
-    run.archived(1, ("P", 4.0, 2), ("C1", 6.0, 3), ("C2", 5.5, 1))
-    within = {"P": [(4.0, 2, 3000.0)] * 2, "C1": [(4.4, 3, 2000.0)] * 2, "C2": [(5.0, 1, 20000.0)] * 2}
-    result = readout2([run], validation_pool(within))
-    assert (result["final_choice"], [(r["candidate_id"], r["is_reference"]) for r in result["validation"]],
-            result["anchors_ok"]) == ("C1", [("C1", False), ("C2", False), ("P", True)], True)
+    finalists(run)
+    result = readout2([run], validation_pool(WITHIN))  # C2 is above the cost ceiling; C1 within 0.5 of P, cheaper
+    assert (result["final_choice"], result["rule"],
+            [(r["candidate_id"], r["is_reference"]) for r in result["validation"]], result["anchors_ok"]) == ("C1", "chosen", [("C1", False), ("C2", False), ("P", True)], True)
+
+
+@pytest.mark.parametrize("anchors, rule", [
+    (anchors_of(VALIDATION, up=0), "anchors_inverted"),
+    (anchors_of(VALIDATION) + anchors_of(VALIDATION, up=5, batch=1), "anchor_spread")])
+def test_phase2_readout_withholds_the_final_choice_when_the_validation_anchors_fail(run, anchors, rule):
+    finalists(run)
+    result = readout2([run], validation_pool(WITHIN, anchors=anchors))
+    assert (result["rule"], result["final_choice"]) == (rule, UNAVAILABLE)
+
+
+def test_phase2_readout_refuses_a_validation_pool_that_is_not_the_finalists_reference_and_direct(run):
+    finalists(run)
+    with pytest.raises(ValueError, match="validation pool holds"):
+        readout2([run], validation_pool(WITHIN | {"C3": [(4.0, 1, 10.0)] * 2}))
+
+
+def test_phase2_readout_refuses_a_validation_candidate_without_its_replicates(run):
+    finalists(run)
+    with pytest.raises(ValueError, match="without 2 replicates"):
+        readout2([run], validation_pool(WITHIN | {"C1": [(4.4, 3, 2000.0)]}))
+
+
+def test_phase2_readout_reports_a_finalist_without_a_valued_run_as_unvalued(run):
+    finalists(run)
+    result = readout2([run], validation_pool(WITHIN | {"C1": [(None, 3, 2000.0)] * 2}))
+    assert (result["unvalued"], result["final_choice"]) == (["C1"], "P")
+
+
+def test_phase2_readout_reads_the_reference_from_the_logs_and_refuses_disagreement(tmp_path):
+    runs = [Run(tmp_path / "run-1"), Run(tmp_path / "run-2", reference="C1")]
+    for r in runs:
+        r.archived(0, ("P", 4.0, 2))
+    with pytest.raises(ValueError, match="runs disagree on the reference seed"):
+        readout2(runs)
+
+
+def test_phase2_readout_refuses_a_run_without_a_reference_row(tmp_path):
+    run = Run(tmp_path / "run-1", reference=None)
+    run.archived(0, ("P", 4.0, 2))
+    run.episode("C1", interface="I1", outcome="rejected")
+    with pytest.raises(ValueError, match="expected one reference candidate"):
+        readout2([run])
 
 
 def test_phase2_readout_never_pools_interfaces(run):
@@ -399,9 +484,9 @@ def test_phase2_readout_reports_the_incumbent_mean_per_generation_and_no_validat
     run.episode("C1", interface="I1", value=6.0)
     run.archived(1, ("P", 4.0, 2), ("C1", 6.0, 3))
     result = readout2([run])
-    assert (result["runs"][0]["trajectory"], result["validation"], result["final_choice"], result["anchors_ok"]) == (
-        [{"generation": 0, "incumbent": "P", "mean_value": 4.0}, {"generation": 1, "incumbent": "C1", "mean_value": 6.0}],
-        UNAVAILABLE, UNAVAILABLE, UNAVAILABLE)
+    assert (result["runs"][0]["trajectory"], result["reference"], result["final_choice"], result["rule"]) == (
+        [{"generation": 0, "incumbent_mean": 4.0}, {"generation": 1, "incumbent_mean": 6.0}], "P",
+        UNAVAILABLE, UNAVAILABLE)
 
 
 def test_phase2_criterion_is_frozen_with_three_packages_and_their_anchors():
@@ -413,3 +498,46 @@ def test_phase2_criterion_is_frozen_with_three_packages_and_their_anchors():
         [CRIT2["base_commits"][p.name] for p in packages],
         [sorted(CRIT2["anchors"][p.name].values()) for p in packages], ["claude-opus-5-5", "gpt-6-sol"],
         0.5, 0.75, 14400, True)
+
+
+# CLI: the live Phase 1 readout passes one --log; Phase 2 passes a run and the validation pool.
+def test_readout_cli_phase1_takes_one_log_and_each_tasks_results(tmp_path, capsys):
+    criterion, log, results = json.loads(CRITERION.read_text()), tmp_path / "log.jsonl", []
+    for task in (Path(t).name for t in criterion["tasks"]):
+        roles = criterion["anchors"][task]
+        runs = []
+        for policy, values in WIDE.items():
+            for k, value in enumerate(values):
+                records = tmp_path / "records" / f"{task}-{policy}-{k}" / "run-1"
+                append_record(log, log_row(records, eid=f"{task}-{policy}-{k}", task=task, seed=policy,
+                                           replicate=k + 1))
+                runs.append(run_row(records, f"{task}-{policy}-{k}", value))
+        path = tmp_path / task / "results.json"
+        path.parent.mkdir()
+        path.write_text(json.dumps({"runs": runs, "criterion_sha256": sha256_file(CRITERION), "agreement": {},
+                                    "excluded_judges": {}, "anchors": [
+                                        {"batch": 0, "judge": "j", "anchor": roles["upstream"], "total": 8},
+                                        {"batch": 0, "judge": "j", "anchor": roles["stub"], "total": 1}]}))
+        results.append(str(path))
+    (tmp_path / "readout.json").write_text(json.dumps(DIVERSE))
+    main(["readout", "--log", str(log), "--driver-readout", str(tmp_path / "readout.json"), "--criterion",
+          str(CRITERION), *results])
+    result = json.loads(capsys.readouterr().out)
+    assert (result["rule"], result["phase2_selected"]) == ("separated", True)
+
+
+def test_readout_cli_phase2_reads_runs_and_the_validation_pool(run, tmp_path, capsys):
+    finalists(run)
+    vlog, runs = tmp_path / "validation" / "log.jsonl", []
+    vlog.parent.mkdir()
+    for cid, rows in WITHIN.items():
+        for k, (value, _, _) in enumerate(rows):
+            records = tmp_path / "validation" / "records" / f"v-{cid}-{k}" / "run-1"
+            append_record(vlog, log_row(records, eid=f"v-{cid}-{k}", task=VALIDATION, mode="validation",
+                                        replicate=k + 1) | {"candidate_id": cid})
+            runs.append(run_row(records, f"v-{cid}-{k}", value) | {"calls": rows[k][1], "wall_clock_sec": rows[k][2]})
+    results = results_json(tmp_path / "validation" / "pool" / "results.json", runs, anchors_of(VALIDATION))
+    main(["readout", "--phase", "2", "--criterion", str(CRITERION2), "--log", str(run.log), "--archive",
+          str(run.archive), "--validation-log", str(vlog), str(results)])
+    result = json.loads(capsys.readouterr().out)
+    assert (result["final_choice"], result["runs"][0]["interfaces"]["I1"]["improvements"]) == ("C1", 1)
