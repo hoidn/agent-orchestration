@@ -1,6 +1,6 @@
 """Provider-call ledger <evidence>/calls.json and the planned maximum of one launch.
 
-The ledger is a JSON list with one entry per evaluation or episode launch, and (mode 2, adaptive.judge_generation)
+The ledger is a JSON list with one entry per evaluation or episode launch, and (mode 2, judging.judge_generation)
 one per judge scoring a pool: {kind, key, planned, calls, ...}; a judge entry (`kind: "judge"`, key
 "gen <n> <task> <judge>") plans one call per batch of the pool (score.orc calls the judge once per batch) and
 settles on the shim calls under <pool>/records/judges/<judge>.

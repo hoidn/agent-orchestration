@@ -64,10 +64,10 @@ swap (invariant 1); a population database before a query needs one.
 
 | Responsibility | Lives in | Notes |
 | --- | --- | --- |
-| Driver | `experiments/orc_structural_search/driver.py` | Mode 1, episode launch (I1, I2), parent/site selection, episode launch and envelopes, archive and its tamper check, scans, readout |
+| Driver | `experiments/orc_structural_search/driver.py` | Mode 1 (catalog enumeration, unguided I1 episodes), the episode function I1 and I2 share (`run_episode`: workspace, envelope, child judging), evaluation launches under the call cap, the archive and its tamper check, scans, the mode 1 readout; mode 2 parent and site selection live in `adaptive.py` |
 | Candidates | `.../candidates.py` | Candidate identity, snapshots, compilation with the runtime's orchestrator, frozen-surface validation and the one-site transaction |
-| Sites | `.../sites.py` | The candidate's source-site manifest, eligible sites, seeded site selection, the site brief and receipt derivation from the episode's diff |
-| Adaptive loop | `.../adaptive.py` | Mode 2: archive, generations, per-generation blind judging (`judge_generation`), finalist validation (`validate_finalists`) |
+| Sites | `.../sites.py` | The candidate's source-site manifest, eligible sites, seeded site selection, the site brief and receipt derivation from the child's final files |
+| Adaptive loop | `.../adaptive.py`, `.../judging.py` | Mode 2: archive, generations, parent and site selection, finalist validation (`validate_finalists`); per-generation blind judging, scan-verdict waits and the judge retry (`judging.judge_generation`) |
 | Scoring | `.../scoring.py`, `.../scoring_phase2.py` | Blind pools, the join of judge scores to evaluation records, primary values, the Phase 1 and Phase 2 readouts |
 | Evaluation | `.../evaluation.py` | Fresh clones, public `run`/`resume`, public check operation, final evaluator |
 | Metering | `.../metering.py` | Consumption receipts (not yet wired into the driver's log) |
@@ -271,13 +271,18 @@ terminal variants, calls and wall clock as feedback, evaluates fresh
 accepted children once per adaptive task and offers each fully valued
 child to the archive (`retain`); `E/archive/gen-<n>.json` records the
 archive after each generation. Judging is per generation and task
-(`judge_generation`): one blind pool under a pools root outside the
-evidence and work roots, every judge's ledger entry reserved before any
-judge runs, and one `judging` log row per pool. A generation whose planned
-evaluation and judge calls would exceed the call cap is refused before any
-evaluation starts. `validate_finalists` evaluates the top two archive
-entries, the reference seed and `direct` on the validation task, a holdout
-root of every earlier scan.
+(`judging.judge_generation`): one blind pool under a pools root outside
+the evidence and work roots (and holding neither), every judge's ledger
+entry reserved before any judge runs, and one `judging` log row per pool.
+Scan hits without a verdict make the run wait for the operator's verdict
+(before pooling and before summarizing), never stop it; a judge that fails
+is resumed once, and a second failure is a logged judge incident after
+which the next generation runs. A generation whose planned episode,
+evaluation and judge calls would exceed the call cap is refused before its
+episodes, and again before its evaluations. The validation task is a
+holdout root of every episode and adaptive evaluation scan.
+`validate_finalists` evaluates the top two archive entries, the reference
+and `direct` on the validation task.
 
 **Skeleton diversity (both modes).** LLM mutation chains over a Lisp-like
 DSL converge to a few recurring forms with mostly terminal variation
@@ -354,14 +359,17 @@ python -m orchestrator run <candidate entry .orc> [frontend flags] \
   reach, under the harness layout rules, with hidden files copied onto a
   `.git`-less copy only at scoring. The boundary is the layout plus the
   contamination scan, never an instruction not to read a file.
-- The comparison shims (`experiments/compare/shim/claude`) strip the
-  attempt's `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`,
-  `ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY` and `ORCHESTRATOR_WORKSPACE_ROOT`
-  from the agent and its tool processes. Incident of 2026-10-18: the task
-  repository is the orchestrator itself, whose own code and tests read these
-  variables, so an agent running the task's tests overwrote its attempt's
-  result file. The prompt's `- path:` line names the result file relative
-  to the agent's working directory, so nothing needs the variables.
+- For an ordinary attempt (`ORCHESTRATOR_WORKSPACE_ROOT` unset) the
+  comparison shims (`experiments/compare/shim/claude`) strip its
+  `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` and
+  `ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY` from the agent and its tool
+  processes. Incident of 2026-10-18: the task repository is the orchestrator
+  itself, whose own code and tests read these variables, so an agent running
+  the task's tests overwrote its attempt's result file; the prompt's
+  `- path:` line names the result file relative to the agent's working
+  directory. A launch-workspace attempt keeps all three variables, because
+  its prompt tells the agent to use them; there the overwrite risk remains
+  and is disclosed, not prevented.
 
 ## Task Family And Evaluator
 

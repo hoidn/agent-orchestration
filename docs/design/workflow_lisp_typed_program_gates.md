@@ -295,7 +295,7 @@ program-search, self-modification, or evolution feature:
 | 3 — neutral substrate vs feature | Satisfied: verdicts/enums carry no optimizer vocabulary | Satisfied | Satisfied |
 | 4 — whole-candidate evidence | Not implicated (no fitness authority here) | Satisfied: child-run evidence is whole-run | Not implicated |
 | 5 — evidence separation | Not implicated | Controller-owned, per trial-runs | Not implicated |
-| 6 — honest security boundary | Nothing executes | Adapters add no isolation. Search/evolution candidates use only deterministic effect-free, text-only/no-tool, mock/replay, or genuinely sandboxed execution as required by the trial-runs design; ordinary authored runs retain their existing contract. | C3 remains closed to search/evolution candidates and adds no selected isolation work. |
+| 6 — honest security boundary | Nothing executes | Adapters add no isolation. Search/evolution candidates run under invariant 6 as amended 2026-10-18: provider-in-the-loop evaluation is permitted behind the comparison harness's shims and bubblewrap sandbox, with its disclosed non-isolation, contamination scan and adjudication, and finite envelopes (hygiene, not isolation); effect-free deterministic, mock/replay or genuinely sandboxed execution stays preferred where it suffices. Ordinary authored runs retain their existing contract. | C3 remains closed to search/evolution candidates and adds no selected isolation work. |
 | 7 — no runtime code values | Satisfied: `:source` is a path, verdicts are data | Satisfied | C3 executes fragments but never reifies them as values |
 | 8 — role-separated prompt identity | Inherited unchanged | Inherited unchanged | Inherited unchanged |
 

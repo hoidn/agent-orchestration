@@ -25,7 +25,8 @@ are implemented and tested with scripted providers only.
 | `readout.py` | The mode 1 readout (`E/readout.json`): outcomes, refusals, skeleton diversity, collapse, scan-pending records |
 | `sites.py` | I2: the candidate's source-site manifest, eligible sites, seeded site selection, the site brief, receipt derivation |
 | `briefs.py` | The mutator's `EPISODE.md` (I1, I2, and mode 2 feedback) |
-| `adaptive.py` | Mode 2: `run_mode2` (archive, generations, per-generation judging) and `validate_finalists` |
+| `adaptive.py` | Mode 2: `run_mode2` (archive, generations, parent and site selection) and `validate_finalists` |
+| `judging.py` | Mode 2 per-generation blind judging: pools, judge ledger entries, waiting for scan verdicts, judge retry |
 | `scoring.py` | Blind judging pools, the join of judge scores to evaluation records, the Phase 1 readout and `--joined-out` |
 | `scoring_phase2.py` | The Phase 2 readout (`scoring readout --phase 2`) |
 | `criteria/` | The frozen Phase 1 and Phase 2 criteria (`phase1.json`, `phase2.json`) |
@@ -58,11 +59,13 @@ runtime's path out of the session. A mutator that removes or replaces `cand-1/.g
 `incident` (`workspace_intact: false`). The driver adds `DISABLE_AUTOUPDATER=1` to the environment of every
 evaluation and episode, so no CLI updates itself mid-run.
 
-The shims (`experiments/compare/shim/claude`, see `experiments/compare/README.md`) also strip the attempt's
-`ORCHESTRATOR_OUTPUT_BUNDLE_PATH`, `ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY` and `ORCHESTRATOR_WORKSPACE_ROOT` from the
-agent and every process it starts. The task repositories are the orchestrator itself, whose code and tests read
-these variables, so an agent running the task's tests overwrote its own result file (the 2026-10-18 incident). The
-prompt's `- path:` line already names the result file relative to the agent's working directory.
+For an ordinary attempt (`ORCHESTRATOR_WORKSPACE_ROOT` unset) the shims (`experiments/compare/shim/claude`, see
+`experiments/compare/README.md`) also strip its `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` and
+`ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY` from the agent and every process it starts. The task repositories are the
+orchestrator itself, whose code and tests read these variables, so an agent running the task's tests overwrote its
+own result file (the 2026-10-18 incident); the prompt's `- path:` line names the result file relative to the
+agent's working directory. A launch-workspace attempt keeps all three variables, because its prompt tells the agent
+to use them; the overwrite risk remains there and is disclosed, not prevented.
 
 ```bash
 python -m experiments.orc_structural_search.driver --config config.json \
@@ -106,7 +109,7 @@ from pathlib import Path
 from experiments.orc_structural_search.adaptive import run_mode2
 
 tasks = Path(RT) / "experiments/compare/tasks"
-run_mode2(Path("config.json"), phase1_joined=Path(J) / "joined.json",
+readout, launch = run_mode2(Path("config.json"), phase1_joined=Path(J) / "joined.json",
           seeds=sorted(Path("experiments/orc_structural_search/seeds").glob("*.orc")),
           adaptive_tasks=[tasks / "resume-projection-integrity", tasks / "pure-result-replay"],
           validation_task=tasks / "cf1-generic-unions",
@@ -118,25 +121,40 @@ run_mode2(Path("config.json"), phase1_joined=Path(J) / "joined.json",
           judges=["claude-opus-5-5", f"gpt-6-sol={RT}/experiments/compare/providers/score_codex.json"])
 ```
 
+`E` and `W` must both be fresh for each run: the driver refuses an existing `E/log.jsonl`, and episode trees are
+named by index (`W/episodes/episode-<n>`), so a second run in the same `W` collides with the first.
+
 `run_mode2` refuses tasks other than the criterion's `adaptive_tasks` and `validation_task` (`check_splits`), a pools
-root inside `E` or `W` or holding `E` (`check_pools_root`), and an existing `E/log.jsonl`. Generation 0 archives the
+root inside `E` or `W` or holding either (`check_pools_root`), and an existing `E/log.jsonl`. Generation 0 archives the
 seeds, builds the initial archive from the Phase 1 rows (refused without `direct` valued on every adaptive task),
 logs the reference row and re-evaluates and judges the incumbent once per adaptive task. Each generation `n` runs
 `episodes_per_generation` episodes alternating I1 and I2, each against a parent drawn uniformly from the archive (I2:
 at a seeded uniform eligible site) with the parent's own evidence as feedback; fresh accepted children are evaluated
-once per adaptive task, judged, and offered to the archive. Before a generation's evaluations start, their planned
-calls plus one planned call per judge per batch must fit under `call_cap`, or the generation is refused
-(`CallCapExceeded`) with no evaluation started. The validation task is a holdout root of every scan.
+once per adaptive task, judged, and offered to the archive. Before a generation's episodes, one planned call per
+episode plus the evaluations and judges of as many children (each at the largest planned maximum in the archive),
+and again before its evaluations, the children's own planned calls plus one planned call per judge per batch, must
+fit under `call_cap`, or the generation is refused (`CallCapExceeded`); `E/readout.json` is still written. A
+planned maximum counts the provider calls of the module's own definitions the entry calls, times every enclosing
+literal `:max`; a non-literal `:max` around a provider call makes it unbounded and refuses the launch. The validation
+task is a holdout root of every episode scan and adaptive evaluation scan (judge scans take no holdout root).
 
-Afterwards `validate_finalists(E, E/archive/gen-<n>.json, config=..., reference_seed=..., validation_task=...,
-launch=..., judge=...)` evaluates the top two archive entries, the reference seed and `direct` twice each on the
-validation task (`split: "validation"`) and judges them in one pool; the Phase 2 readout is
+Mode 2 does not stop on routine scan hits: before pooling a task's evaluations and before summarizing a pool, it
+waits for a verdict on every run or judge scan with hits, printing once the hit summary and the exact
+`prepare.py scan --run R` (or `--pool P --judge MODEL`) `--verdict contaminated|cleared --reason TEXT` command, and
+rereads the scan every 60 s. Contaminated runs stay out of the pool. A judge whose scoring command exits nonzero is
+retried once through its resume script; a second failure is a judge incident (a `judge_incident` log row, no
+`gen-<n>.json` for that generation) and the run continues with the next generation.
+
+Afterwards `validate_finalists(E/archive/gen-<n>.json, config=..., validation_task=..., launch=launch, judge=...)`
+(`launch` as `run_mode2` returned it; the reference comes from the log's `reference` row) evaluates the top two
+archive entries, the reference and `direct` twice each on the validation task (`split: "validation"`) and judges
+them in one pool at `P/validation/<task>`; the Phase 2 readout is
 
 ```bash
 python -m experiments.orc_structural_search.scoring readout --phase 2 \
   --criterion experiments/orc_structural_search/criteria/phase2.json \
   --log $E/log.jsonl --archive $E/archive [--log ... --archive ...] \
-  [--validation-log V/log.jsonl V/pool/records/results.json]
+  --validation-log $E/log.jsonl $P/validation/cf1-generic-unions/records/results.json
 ```
 
 **Failure rule.** The primary value of an evaluation (`scoring.primary_value`) is its judged value when completed and
@@ -176,8 +194,9 @@ P/gen-<n>/<task>/                  mode 2: the generation's blind judging pool (
                                    log, and mutators and evaluated agents must not find the pools at a known place
 ```
 
-Mode 2 adds three kinds of log rows: one `{"kind": "reference", "candidate_id", "run"}` row naming the initial
-incumbent; one `{"kind": "judging", "generation", "task", "pool", "results"}` row per judged pool; and every
+Mode 2 adds four kinds of log rows: one `{"kind": "reference", "candidate_id", "run"}` row naming the initial
+incumbent; one `{"kind": "judging", "generation", "task", "pool", "results"}` row per judged pool; one
+`{"kind": "judge_incident", "generation", "detail"}` row per generation a judge failed twice; and every
 evaluation row carries `generation` and `split` (`adaptive`, or `validation` with generation -1). Each judge of a
 pool has a `kind: "judge"` entry in `E/calls.json`, reserved (one planned call per batch) before any judge runs; the
 judging records (`mapping.json`, each judge's records, `results.json`) are under `P/.../records/`.
