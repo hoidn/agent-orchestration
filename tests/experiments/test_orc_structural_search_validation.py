@@ -236,3 +236,20 @@ def test_receipt_condition_differing_from_config_is_refused(tmp_path):
     parent, child = pair(tmp_path, SOURCE, edit(REVIEW_CALL, REVIEW_REPLACEMENT))
     other = receipt(parent, site_of(SOURCE, REVIEW_SITE), REVIEW_REPLACEMENT, condition="joint")
     assert validate_one_site(parent, child, other, config()).code == "condition_mismatch"
+
+
+TUNED_HELPER = ('(defworkflow fresh-helper ((task String)) -> Execution\n  (provider-result providers.codex :model "{model}"'
+                ' :effort "high" :prompt (execute-plan :task task :steps (list task))))')
+PROMPT_HELPER = '(defprompt fresh-prompt (:fills (task :text)) -> Plan "A new prompt body: {task}")'
+HELPER_CASES = [(TUNED_HELPER.format(model="claude-opus-5-5"), None),  # reuses the parent module's values
+                (TUNED_HELPER.format(model="claude-sonnet-5-5"), "frozen_surface_changed"),  # a value new to it
+                (PROMPT_HELPER, "frozen_surface_changed")]  # a new prompt under topology-only
+
+
+@pytest.mark.parametrize("helper, code", HELPER_CASES, ids=["parent-values", "new-model", "new-defprompt"])
+def test_a_fresh_helper_obeys_the_conditions_tuning_and_prompt_rules(tmp_path, helper, code):
+    child_source = edit("  (defworkflow run", f"  {helper}\n\n  (defworkflow run", edit(REVIEW_CALL, REVIEW_REPLACEMENT))
+    parent, child = pair(tmp_path, SOURCE, child_source)
+    verdict = validate_one_site(
+        parent, child, receipt(parent, site_of(SOURCE, REVIEW_SITE), REVIEW_REPLACEMENT, [helper]), config())
+    assert verdict.code == code, verdict

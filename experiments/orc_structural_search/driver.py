@@ -63,15 +63,14 @@ from experiments.compare.repos import (
 from experiments.orc_structural_search import ledger
 from experiments.orc_structural_search.briefs import episode_brief
 from experiments.orc_structural_search.candidates import (
-    _file_names, _owner_form, _subform, candidate_id, compile_candidate, imports, snapshot, validate_frozen_surfaces,
-    validate_one_site)
+    _file_names, candidate_id, compile_candidate, imports, snapshot, validate_frozen_surfaces, validate_one_site)
 from experiments.orc_structural_search.config import ExperimentConfig, load_config
 from experiments.orc_structural_search.evaluation import EVALUATOR_VERSION, evaluate
 from experiments.orc_structural_search.readout import readout
 from experiments.orc_structural_search.records import (
     UNAVAILABLE, append_record, provider_allocation, read_records, skeleton_hash)
 from experiments.orc_structural_search.sites import (
-    HYPOTHESIS, _forms_and_text, _parent_site, derive_receipt, site_manifest, slot_type)
+    HYPOTHESIS, derive_receipt, drop_hypothesis, replacement_start, site_manifest, slot_type)
 
 EPISODE = "EPISODE.md"
 _LOG_LOCK = threading.Lock()  # concurrent evaluations append to one log
@@ -210,9 +209,9 @@ def enumerate_catalog(seeds: Sequence[Path], config: ExperimentConfig, *, tasks:
 
 def episode_workspace(parent_root: Path, tree: Path, brief: str, runtime: Path) -> tuple[Path, str]:
     """(<tree>/cand-1, its commit): a git repository holding the parent snapshot in one commit, with the brief
-    in EPISODE.md (excluded from patches, like the build cache and the I2 HYPOTHESIS.txt); <tree>/tmp; and <tree>/py/orchestrator, a copy
-    of the runtime's orchestrator for the brief's compile line (the shims strip PYTHONPATH, and naming the
-    runtime would be a scan hit)."""
+    in EPISODE.md (excluded from patches, like the build cache and the I2 HYPOTHESIS.txt); <tree>/tmp; and
+    <tree>/py/orchestrator, a copy of the runtime's orchestrator for the brief's compile line (the shims strip
+    PYTHONPATH, and naming the runtime would be a scan hit)."""
     guard(main_checkout(runtime), tree)
     visible_in_sandbox(tree)
     shutil.copytree(runtime / "orchestrator", tree / "py" / "orchestrator",
@@ -264,7 +263,7 @@ def judge_child(parent: Path, child: Path, config: ExperimentConfig, *, runtime:
         verdict = validate_frozen_surfaces(parent, child, config)
     else:
         receipt = derive_receipt(parent, child, site, config, parent_candidate_id=parent_candidate_id)
-        (child / HYPOTHESIS).unlink(missing_ok=True)
+        drop_hypothesis(child)
         verdict = validate_one_site(parent, child, receipt, config)
     shown = {"receipt": asdict(receipt) if receipt else None}
     if not verdict.accepted:
@@ -291,15 +290,12 @@ def slot_refusal(parent: Path, child: Path, site: Mapping, config: ExperimentCon
     """The slot check of an accepted one-site child: the child manifest's type at the replacement's start against
     the parent site's (`slot_type_changed`; `slot_type_unavailable` when the manifest reports none, e.g. for a
     literal replacement), or None when they are equal."""
-    owner_name, file_name, _, path = _parent_site(parent, site["site_id"])
-    child_forms, _ = _forms_and_text(child / file_name)  # readable: the one-site transaction parsed it
-    start = _subform(_owner_form(child_forms, owner_name), path).span.start
-    found = slot_type(site_manifest(child, config, runtime=runtime), site["owner"]["name"], file_name, start.line,
-                      start.column)
+    file_name, line, column = replacement_start(parent, child, site)  # the one-site transaction located it
+    found = slot_type(site_manifest(child, config, runtime=runtime), site["owner"]["name"], file_name, line, column)
     expected = site["result_type"]["canonical"]
     if found is None:
         return {"refusal_code": "slot_type_unavailable",
-                "detail": f"the manifest reports no type at {file_name}:{start.line}:{start.column}"}
+                "detail": f"the manifest reports no type at {file_name}:{line}:{column}"}
     if found != expected:
         return {"refusal_code": "slot_type_changed", "detail": f"the replacement is {found}, the site {expected}"}
     return None
@@ -396,7 +392,7 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
     stopped = stopped or (None if intact else "incident")  # the shims' patches were taken against a lost base
     verdict = {"outcome": stopped, "receipt": None} if stopped else judge_child(
         parent_root, copy, config, runtime=runtime, site=site, parent_candidate_id=parent_id)
-    (copy / HYPOTHESIS).unlink(missing_ok=True)  # judge_child read it into the receipt; it is never in the child
+    drop_hypothesis(copy)  # judge_child read it into the receipt; it is never part of the child
     (evidence_root / "episodes" / f"{episode_id}.diff").write_text(episode_diff(parent_root, copy))
     row = {"kind": "episode", "mode": mode, "interface": interface, "condition": config.condition,
            "episode_id": episode_id, "episode_index": episode_index, "generation": generation, "run_seed": run_seed,
@@ -426,6 +422,8 @@ def run_mode1(config_path: Path, *, seeds: Sequence[Path], tasks: Sequence[Path]
     names, evaluate every accepted child like a seed (`mode: "unguided"`) and write <evidence>/readout.json.
     Evaluations run at most `concurrency` at a time; every launch is refused beyond `call_cap` provider calls."""
     config = load_config(config_path)
+    if config.interface != "I1":
+        raise ValueError(f"mode 1 runs I1 episodes only; {config_path} names interface {config.interface}")
     work_root, evidence_root = check_roots(work_root, evidence_root)
     if (evidence_root / "log.jsonl").exists():
         raise FileExistsError(f"{evidence_root / 'log.jsonl'} exists: give every mode 1 run a fresh evidence root "

@@ -274,8 +274,8 @@ def _definition_verdict(key: tuple[str, str], before: SExpr | None, after: SExpr
                         mutable: tuple, condition: str, parent_tuning: set, allowed_new: frozenset) -> Verdict:
     """One definition of a module, parent `before` and child `after` (None where it does not exist)."""
     head, name = key
-    if before is None and name in allowed_new:
-        return ACCEPTED
+    if before is None and name in allowed_new:  # a fresh I2 helper: a change from an empty form of its kind
+        return _condition_verdict(head, name, ListExpr(after.items[:1], after.span), after, condition, parent_tuning)
     if before is None or after is None:
         return _refuse("scope_exceeded", f"{head} {name} was {'added' if before is None else 'removed'}")
     if canonical_form(before) == canonical_form(after):

@@ -12,7 +12,7 @@ from experiments.orc_structural_search.candidates import (
     _child_forms, _owner_form, _site_path, _subform, canonical_form, validate_one_site)
 from experiments.orc_structural_search.config import ExperimentConfig
 from experiments.orc_structural_search.sites import (
-    derive_receipt, eligible_sites, select_site, site_brief, site_manifest, slot_type)
+    derive_receipt, eligible_sites, replacement_start, select_site, site_brief, site_manifest, slot_type)
 from tests.experiments.orc_structural_search_support import SEEDS, world  # noqa: F401 (fixture)
 
 FILE = "plan_then_implement.orc"
@@ -156,3 +156,11 @@ def test_derive_receipt_names_the_parent_file_when_the_site_does_not_resolve(tmp
     parent, child = helper_child(tmp_path)
     with pytest.raises(ValueError, match=re.escape(str(parent / FILE))):
         derive_receipt(parent, child, {"site_id": f"{OWNER}@{FILE}:29:21"}, CONFIG, parent_candidate_id="sha256:p")
+
+
+def test_replacement_start_is_where_the_childs_form_at_the_parent_site_begins(tmp_path):
+    parent, child = helper_child(tmp_path)
+    text = (child / FILE).read_text()
+    index = text.index("(fresh-steps task)")
+    expected = (FILE, text.count("\n", 0, index) + 1, index - text.rfind("\n", 0, index))
+    assert replacement_start(parent, child, {"site_id": DRAFT_SITE}) == expected

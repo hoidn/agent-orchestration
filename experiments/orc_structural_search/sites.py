@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 import random
+import shutil
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
@@ -167,6 +168,25 @@ def _hypothesis(path: Path) -> str:
         return UNAVAILABLE
     first = lines[0].strip()[:HYPOTHESIS_CHARS] if lines else ""
     return first or UNAVAILABLE
+
+
+def replacement_start(parent: Path, child: Path, site: Mapping) -> tuple[str, int, int] | None:
+    """(file, line, column) where the child's form at the parent site's index path starts, or None when the child
+    file, its owner definition or that form cannot be read; ValueError as `derive_receipt` for the parent site."""
+    owner_name, file_name, _, path = _parent_site(parent, site["site_id"])
+    read = _forms_and_text(child / file_name)
+    owner = _owner_form(read[0], owner_name) if read is not None else None
+    node = _subform(owner, path) if owner is not None else None
+    return (file_name, node.span.start.line, node.span.start.column) if node is not None else None
+
+
+def drop_hypothesis(root: Path) -> None:
+    """Remove <root>/HYPOTHESIS.txt, whatever the agent left there (a file, a link or a directory)."""
+    path = root / HYPOTHESIS
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path)
+    else:
+        path.unlink(missing_ok=True)
 
 
 def slot_type(manifest: Mapping, owner: str, path: str, line: int, column: int) -> str | None:

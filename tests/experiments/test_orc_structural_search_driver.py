@@ -454,3 +454,20 @@ def test_i1_episodes_still_run_through_run_episode_with_no_site(sandboxed, world
     row, _ = episode(world, MUTATOR, config_of())
     assert (row["interface"], row["mode"], row["outcome"], row["site_id"], row["receipt"]) == (
         "I1", "unguided", "accepted", None, None)
+
+
+def test_an_i2_hypothesis_directory_is_removed_and_reads_as_unavailable(world):
+    mutator = MUTATOR_I2.replace('Path("HYPOTHESIS.txt").write_text(', 'Path("HYPOTHESIS.txt/notes").mkdir(parents=True) or (')
+    config = config_of(interface="I2")
+    row, evidence = episode(world, mutator, config, site=provider_site(world.candidate, config, world.runtime))
+    assert (row["outcome"], row["hypothesis"], (Path(row["candidate_root"]) / "HYPOTHESIS.txt").exists()) == (
+        "accepted", "unavailable", False)
+
+
+def test_mode1_refuses_a_configuration_whose_interface_is_not_i1(tmp_path):
+    (tmp_path / "config.json").write_text(json.dumps(CONFIG | {"interface": "I2"}))
+    with pytest.raises(ValueError, match="I1"):
+        run_mode1(tmp_path / "config.json", seeds=[], tasks=[], work_root=tmp_path / "work",
+                  evidence_root=tmp_path / "evidence", episodes=0, agent_cmd=[], replicates=1,
+                  runtime=tmp_path / "runtime", env={}, timeout_sec=1, solutions={}, call_cap=160)
+    assert not (tmp_path / "evidence").exists()
