@@ -1,0 +1,80 @@
+"""Fixtures for the structural search evaluation tests: scripted `claude`/`codex` and a tiny task package.
+
+The scripted executables stand in for the real CLIs behind the comparison-harness shims (no provider is
+called). Each reads its prompt on stdin, takes the first entry of the JSON list in $SCRIPTED_RESULTS_FILE
+whose `match` substring occurs in the prompt, sleeps its `sleep` seconds (default 0) and either writes its `result` (JSON) to
+$ORCHESTRATOR_OUTPUT_BUNDLE_PATH or, with `exit`, exits with that status without writing anything.
+They are named `claude` and `codex` because the provider templates run those names.
+
+The runtime is a detached worktree of a shared clone of this checkout's HEAD (the real orchestrator,
+committed and clean; `run_arm` refuses a runtime that is its own main checkout) into which the task
+repository's base commit is fetched, so `run_arm` can resolve and fetch it.
+"""
+
+import json
+import shutil
+import sys
+import tempfile
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from tests.experiments.compare_harness_support import OUTSIDE_SANDBOX_MOUNTS, commit, git, open_up
+
+REPO = Path(__file__).resolve().parents[2]
+SEEDS = REPO / "experiments" / "orc_structural_search" / "seeds"
+SCRIPTED = f"""#!{sys.executable} -I
+import json, os, sys, time
+prompt = sys.stdin.read()
+for entry in json.load(open(os.environ["SCRIPTED_RESULTS_FILE"])):
+    if entry["match"] in prompt:
+        break
+else:
+    sys.exit("scripted provider: no entry matches the prompt")
+time.sleep(entry.get("sleep", 0))
+if "exit" in entry:
+    sys.exit(entry["exit"])
+with open(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"], "w") as out:
+    json.dump(entry["result"], out)
+"""
+DEV_CHECK = {"argv": [sys.executable, "-c", "import pkg"], "timeout_sec": 30}
+
+
+def script(world, entries):
+    """Make `entries` (match/result or match/exit) the scripted providers' answers."""
+    world.results.write_text(json.dumps(entries))
+
+
+@pytest.fixture
+def world(tmp_path):
+    """A clean runtime clone holding a tiny task repository's base commit, its task package, the seed catalog
+    as a candidate root, an evidence root and the scripted providers (all but the runtime, task and candidate
+    outside the shims' sandbox mounts)."""
+    task_repo = tmp_path / "task-repo"
+    task_repo.mkdir()
+    git(task_repo, "init", "-q")
+    base = commit(task_repo, {".gitignore": ".orchestrate/\n", "pkg/__init__.py": "VALUE = 1\n"}, "base")
+    main, runtime = tmp_path / "main", tmp_path / "runtime"
+    git(REPO, "clone", "-q", "--shared", "--no-checkout", str(REPO), str(main))
+    git(main, "fetch", "-q", str(task_repo), base)
+    git(main, "worktree", "add", "-q", "--detach", str(runtime), "HEAD")
+    task = tmp_path / "task-1"
+    for name, text in {"task.txt": "Set VALUE to 2.\n", "intent.txt": "VALUE is 2.\n", "base_commit": base + "\n",
+                       "seed/dev-check.json": json.dumps(DEV_CHECK)}.items():
+        (task / name).parent.mkdir(parents=True, exist_ok=True)
+        (task / name).write_text(text)
+    candidate = tmp_path / "candidate"
+    shutil.copytree(SEEDS, candidate, ignore=shutil.ignore_patterns("__pycache__"))
+    OUTSIDE_SANDBOX_MOUNTS.mkdir(parents=True, exist_ok=True)
+    outside = Path(tempfile.mkdtemp(dir=OUTSIDE_SANDBOX_MOUNTS))
+    fakebin = outside / "fakebin"
+    fakebin.mkdir()
+    for name in ("claude", "codex"):
+        (fakebin / name).write_text(SCRIPTED)
+        (fakebin / name).chmod(0o755)
+    yield SimpleNamespace(tmp=tmp_path, runtime=runtime, task=task, candidate=candidate, fakebin=fakebin,
+                          results=outside / "results.json", evidence=outside / "evidence", outside=outside)
+    open_up(tmp_path)
+    open_up(outside)
+    shutil.rmtree(outside)
