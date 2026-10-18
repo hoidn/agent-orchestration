@@ -4,13 +4,16 @@
 import json
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
 from experiments.orc_structural_search.config import ExperimentConfig
-from experiments.orc_structural_search.driver import check_roots, enumerate_catalog, judge_child, run_mode1
+from experiments.orc_structural_search.driver import (
+    archive, check_roots, enumerate_catalog, episode_brief, evaluate_and_scan, judge_child, readout, run_mode1,
+    unguided_episode)
 from experiments.orc_structural_search.records import read_records
 from tests.experiments.compare_harness_support import skip_without_sandbox
 from tests.experiments.orc_structural_search_support import MUTATOR, REPO, SEEDS, script, world  # noqa: F401 (fixture)
@@ -30,7 +33,18 @@ ANSWERS = [
     {"match": "You are writing proposal", "result": {"approach": "edit pkg"}},
     {"match": "Two engineers", "result": {"winner": 1, "reason": "first"}},
 ]
-SOLUTION = "5a1d0c0ffee5a1d0c0ffee5a1d0c0ffee5a1d0c0"
+# a prompt-only child: the coder prompt's wording changes, nothing else
+PROMPT_EDIT = f"""#!{sys.executable} -I
+from pathlib import Path
+source = Path("direct.orc").read_text()
+Path("direct.orc").write_text(source.replace("Implement this change there", "Make this change there"))
+"""
+# a role swap: the same skeleton, another provider extern
+ROLE_SWAP = f"""#!{sys.executable} -I
+from pathlib import Path
+source = Path("direct.orc").read_text()
+Path("direct.orc").write_text(source.replace("providers.coder", "providers.planner"))
+"""
 
 
 @pytest.fixture
@@ -48,7 +62,7 @@ def mode1(world, seeds):
     readout = run_mode1(world.tmp / "config.json", seeds=[SEEDS / f"{name}.orc" for name in seeds], tasks=[world.task],
                         work_root=world.outside / "work", evidence_root=evidence, episodes=3,
                         agent_cmd=[sys.executable, "-I", str(mutator)], replicates=1, runtime=world.runtime, env=env,
-                        timeout_sec=600, solutions={world.task.name: SOLUTION})
+                        timeout_sec=600, solutions={world.task.name: world.solution})
     return readout, read_records(evidence / "log.jsonl"), evidence
 
 
@@ -108,3 +122,85 @@ def test_a_child_whose_unexported_entry_changes_result_type_is_refused(tmp_path)
         "(variant Outcome DONE :summary change.summary)", "change"))
     config = ExperimentConfig(**CONFIG | {"mutable_files": ("direct.orc",), "mutable_definitions": ("run",)})
     assert judge_child(parent, child, config, runtime=REPO)["refusal_code"] == "slot_type_changed"
+
+
+def config_of(**overrides) -> ExperimentConfig:
+    data = CONFIG | overrides
+    return ExperimentConfig(**data | {key: tuple(data[key]) for key in ("mutable_files", "mutable_definitions")})
+
+
+def episode(world, mutator_source, config, tamper=False):
+    """One unguided episode (compile only, no evaluation) against the archived seed catalog."""
+    evidence = world.tmp / "evidence"
+    _, parent = archive(world.candidate, evidence, world.runtime)
+    if tamper:
+        (parent / "direct.orc").write_text((parent / "direct.orc").read_text() + "\n;; edited in the archive\n")
+    mutator = world.outside / "mutator.py"
+    mutator.write_text(mutator_source)
+    row = unguided_episode(parent, config, agent_cmd=[sys.executable, "-I", str(mutator)],
+                           work_root=world.outside / "work", evidence_root=evidence, episode_index=0,
+                           runtime=world.runtime, env=os.environ)
+    return row, evidence
+
+
+def test_a_prompt_only_child_is_accepted_with_its_parents_skeleton(world):
+    row, _ = episode(world, PROMPT_EDIT, config_of(condition="prompt-only",
+                                                   mutable_definitions=["run", "implement-prompt"]))
+    assert (row["outcome"], row["skeleton"] == row["parent_skeleton"]) == ("accepted", True)
+
+
+def test_each_episode_diff_is_kept_in_the_evidence_root(world):
+    row, evidence = episode(world, PROMPT_EDIT, config_of(condition="prompt-only",
+                                                          mutable_definitions=["run", "implement-prompt"]))
+    diff = (evidence / "episodes" / f"{row['episode_id']}.diff").read_text()
+    assert "+++ b/direct.orc" in diff and "Make this change there" in diff
+
+
+def test_a_role_swap_child_counts_as_allocation_distinct_not_terminal_only(world):
+    row, _ = episode(world, ROLE_SWAP, config_of())
+    result = readout([row])
+    assert (row["outcome"], row["provider_allocation"], row["parent_provider_allocation"],
+            result["allocation_distinct"], result["terminal_only_share"]) == (
+        "accepted", {"run": ["providers.planner"]}, {"run": ["providers.coder"]}, 1, 0.0)
+
+
+def test_a_tampered_archived_parent_is_refused_before_the_episode(world):
+    with pytest.raises(RuntimeError, match="archive"):
+        episode(world, ROLE_SWAP, config_of(), tamper=True)
+    assert not (world.outside / "work" / "episodes").exists()
+
+
+def test_a_tampered_archived_candidate_is_refused_before_its_evaluation(world):
+    evidence = world.tmp / "evidence"
+    _, root = archive(world.candidate, evidence, world.runtime)
+    (root / "providers.json").write_text("{}\n")
+    with pytest.raises(RuntimeError, match="archive"):
+        evaluate_and_scan(root, config_of(), task=world.task, replicate=1, work_root=world.outside / "work",
+                          evidence_root=evidence, runtime=world.runtime, env=os.environ, timeout_sec=1,
+                          solutions={world.task.name: world.solution}, holdouts=(), fields={})
+    assert not (world.outside / "work").exists()
+
+
+def test_an_evidence_root_that_already_holds_a_log_is_refused(tmp_path):
+    (tmp_path / "config.json").write_text(json.dumps(CONFIG))
+    (tmp_path / "evidence").mkdir()
+    (tmp_path / "evidence" / "log.jsonl").write_text("")
+    with pytest.raises(FileExistsError, match="log.jsonl"):
+        run_mode1(tmp_path / "config.json", seeds=[], tasks=[], work_root=tmp_path / "work",
+                  evidence_root=tmp_path / "evidence", episodes=0, agent_cmd=[], replicates=1,
+                  runtime=tmp_path / "runtime", env={}, timeout_sec=1, solutions={})
+
+
+@pytest.mark.parametrize("solution", ["abc12", "deadbeefdeadbeef", "tree"])
+def test_a_solution_hash_that_is_not_a_runtime_commit_is_refused(world, solution):
+    if solution == "tree":
+        solution = subprocess.run(["git", "-C", str(world.runtime), "rev-parse", "HEAD^{tree}"], check=True,
+                                  capture_output=True, text=True).stdout.strip()
+    with pytest.raises(ValueError, match="not a commit"):
+        enumerate_catalog([SEEDS / "direct.orc"], config_of(), tasks=[world.task], work_root=world.outside / "work",
+                          evidence_root=world.tmp / "evidence", replicates=1, runtime=world.runtime, env={},
+                          timeout_sec=1, solutions={world.task.name: solution})
+
+
+def test_the_episode_brief_omits_the_command_boundary_when_none_is_configured():
+    assert "None" not in episode_brief(config_of(command_boundaries_file=None), 0)

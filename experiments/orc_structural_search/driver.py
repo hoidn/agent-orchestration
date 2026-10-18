@@ -10,14 +10,20 @@ Design: docs/design/orc_structural_search_driver.md ("Search Modes" mode 1, "Pro
     log.jsonl                                  every episode and evaluation record, append-only
     candidates/<candidate_id>/                 the archive: catalog seeds and accepted children
     episodes/episode-<n>.log                   the mutator command's output
+    episodes/<episode_id>.diff                 the episode's final diff against its parent, whatever the outcome
     readout.json                               the mode 1 readout
+
+The evidence root must be fresh: `run_mode1` refuses one that already holds a log, and the driver never resumes
+an incident. An archived candidate is checked before each episode and evaluation: its content must still hash to
+its directory name (archive tamper check).
 
 A seed is one `.orc` file of a catalog directory; its candidate root holds that file, the `.orc` modules it
 imports (transitively) and every other regular file of the directory, and its entry is `<stem>::<entry
 definition of the configuration>`. After every evaluation `prepare.scan` runs over its records with the
 evidence root and the episode copies named `archive`, the log `lineage` and the holdout roots `holdout`;
-the solution commit of each task comes from the operator's `solutions` mapping (task package name -> hash),
-never from the package, which sits in the runtime agents can read. A nonzero hit count marks the
+the solution commit of each task comes from the operator's `solutions` mapping (task package name -> hash, at
+least 7 hex characters naming a commit of the runtime), never from the package, which sits in the runtime agents
+can read. A nonzero hit count marks the
 evaluation record `scan_pending`; the log is append-only, so the adjudicated verdict lives in the run's
 <records_dir>/record.json.
 
@@ -27,9 +33,11 @@ shims. Consumption is not metered here: it is recorded "unavailable".
 """
 
 import argparse
+import difflib
 import hashlib
 import json
 import os
+import re
 import shlex
 import signal
 import subprocess
@@ -43,10 +51,11 @@ from pathlib import Path
 from experiments.compare import prepare
 from experiments.compare.repos import runtime_commit
 from experiments.orc_structural_search.candidates import (
-    candidate_id, compile_candidate, imports, snapshot, validate_frozen_surfaces)
+    _file_names, candidate_id, compile_candidate, imports, snapshot, validate_frozen_surfaces)
 from experiments.orc_structural_search.config import ExperimentConfig, load_config
 from experiments.orc_structural_search.evaluation import EVALUATOR_VERSION, evaluate
-from experiments.orc_structural_search.records import UNAVAILABLE, append_record, read_records, skeleton_hash
+from experiments.orc_structural_search.records import (
+    UNAVAILABLE, append_record, provider_allocation, read_records, skeleton_hash)
 
 EPISODE = "EPISODE.md"
 COLLAPSE_THRESHOLD = 0.75  # design default: a terminal-only share above it means the interface collapsed
@@ -74,6 +83,14 @@ def archive(root: Path, evidence_root: Path, runtime: Path) -> tuple[str, Path]:
     return cid, dest
 
 
+def check_archived(root: Path, commit: str) -> str:
+    """The archived candidate's id; refuse one whose content no longer hashes to its directory name."""
+    cid = candidate_id(root, orchestrator_commit=commit)
+    if cid != root.name:
+        raise RuntimeError(f"the archived candidate {root} now hashes to {cid}: the archive was modified")
+    return cid
+
+
 def seed_files(seed: Path) -> dict[str, bytes]:
     """The seed, the `.orc` modules it imports transitively, and every other regular file of its directory."""
     files = {p.name: p.read_bytes() for p in seed.parent.iterdir() if p.is_file() and p.suffix != ".orc"}
@@ -95,7 +112,9 @@ def seed_config(seed: Path, config: ExperimentConfig) -> ExperimentConfig:
 def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, replicate: int, work_root: Path,
                       evidence_root: Path, runtime: Path, env: Mapping[str, str], timeout_sec: float,
                       solutions: Mapping[str, str], holdouts: Sequence[Path], fields: Mapping[str, object]) -> dict:
-    """Evaluate `root` once, scan the run and append the evaluation record (with `fields`) to the log."""
+    """Evaluate the archived `root` once, scan the run and append the evaluation record (with `fields`) to the
+    log."""
+    check_archived(root, runtime_commit(runtime))
     record = evaluate(root, config, task_package=task, work_root=work_root, replicate=replicate,
                       runtime=runtime, env=env, timeout_sec=timeout_sec)
     roots = [("archive", evidence_root), ("archive", work_root / "episodes"), ("lineage", evidence_root / "log.jsonl"),
@@ -109,11 +128,23 @@ def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, repli
     return row
 
 
-def check_solutions(tasks: Sequence[Path], solutions: Mapping[str, str]) -> None:
-    """Refuse a task package without the operator's solution hash: its runs could not be scanned."""
+def object_type(repo: Path, name: str) -> str:
+    """`git cat-file -t` of `name` in `repo`, or "" when git cannot resolve it."""
+    done = subprocess.run(["git", "-C", str(repo), "cat-file", "-t", name], capture_output=True, text=True)
+    return done.stdout.strip()
+
+
+def check_solutions(tasks: Sequence[Path], solutions: Mapping[str, str], runtime: Path) -> None:
+    """Refuse a task package without the operator's solution hash (its runs could not be scanned), or whose hash
+    has fewer than 7 hex characters or names no commit of the runtime (where the task's base commit lives)."""
     missing = sorted(task.name for task in tasks if not solutions.get(task.name))
     if missing:
         raise ValueError(f"no solution hash for task packages {missing}; pass --solution TASK=HASH for each")
+    for task in tasks:
+        given = solutions[task.name]
+        if not re.fullmatch(r"[0-9a-fA-F]{7,64}", given) or object_type(runtime, given) != "commit":
+            raise ValueError(f"--solution {task.name}={given} is not a commit of the runtime {runtime}: give at "
+                             "least 7 hex characters of the task's solution commit")
 
 
 def evaluate_on_tasks(root: Path, config: ExperimentConfig, *, tasks: Sequence[Path], replicates: int,
@@ -127,7 +158,7 @@ def enumerate_catalog(seeds: Sequence[Path], config: ExperimentConfig, *, tasks:
                       timeout_sec: float, solutions: Mapping[str, str], holdouts: Sequence[Path] = ()) -> list[dict]:
     """Archive every seed and evaluate it once per task and replicate (`mode: "catalog"`)."""
     work_root, evidence_root = check_roots(work_root, evidence_root)
-    check_solutions(tasks, solutions)
+    check_solutions(tasks, solutions, runtime)
     rows = []
     for seed in seeds:
         with tempfile.TemporaryDirectory() as staging:
@@ -147,8 +178,10 @@ def episode_brief(config: ExperimentConfig, index: int) -> str:
     compile_args = ["python", "-m", "orchestrator", "compile", f"{module}.orc", "--entry-workflow",
                     config.entry_workflow, "--source-root", config.source_root, "--provider-externs-file",
                     config.providers_file]
+    boundary = ""
     if config.command_boundaries_file:
         compile_args += ["--command-boundaries-file", config.command_boundaries_file]
+        boundary = f"the command boundary file {config.command_boundaries_file}; "
     return (f"# Episode {index}\n\n"
             f"Objective: rewrite the workflow `{config.entry_workflow}` in this directory into a policy you expect "
             "to complete coding tasks in a git repository more reliably or with fewer provider calls. The "
@@ -156,8 +189,7 @@ def episode_brief(config: ExperimentConfig, index: int) -> str:
             f"Mutable scope: files {', '.join(config.mutable_files)}; definitions "
             f"{', '.join(config.mutable_definitions)}; condition {config.condition}.\n\n"
             "Frozen surfaces: imports; deftype, defrecord, defunion and defenum declarations; export, module and "
-            f"language forms; exported signatures; the command boundary file {config.command_boundaries_file}; "
-            "and what the condition does not permit (topology-only freezes prompts, the providers file and any "
+            f"language forms; exported signatures; {boundary}and what the condition does not permit (topology-only freezes prompts, the providers file and any "
             ":model/:effort value the module does not already use). Adding or removing files or definitions, "
             "or changing a frozen surface, refuses the proposal.\n\n"
             f"Check an edit with: {shlex.join(compile_args)}\n")
@@ -203,21 +235,41 @@ def judge_child(parent: Path, child: Path, config: ExperimentConfig, *, runtime:
     return {"outcome": "accepted", "program_digest": compiled.program_digest, "build_key": compiled.build_key}
 
 
+def mutable_source(root: Path, config: ExperimentConfig) -> str:
+    return "\n".join((root / name).read_text() for name in config.mutable_files if name.endswith(".orc"))
+
+
 def skeleton(root: Path, config: ExperimentConfig) -> str:
-    source = "\n".join((root / name).read_text() for name in config.mutable_files if name.endswith(".orc"))
-    return skeleton_hash(source, definitions=config.mutable_definitions)
+    """The skeleton hash of the mutable definitions; prompts contribute nothing (records.skeleton_hash)."""
+    return skeleton_hash(mutable_source(root, config), definitions=config.mutable_definitions)
+
+
+def allocation(root: Path, config: ExperimentConfig) -> dict[str, list[str]]:
+    """The provider externs each non-prompt mutable definition names, in source order."""
+    return provider_allocation(mutable_source(root, config), definitions=config.mutable_definitions)
+
+
+def episode_diff(parent: Path, child: Path) -> str:
+    """Unified diff of the content files, parent to child; a file missing on one side diffs against nothing."""
+    def lines(path: Path) -> list[str]:
+        return path.read_text(errors="replace").splitlines(keepends=True) if path.is_file() else []
+    return "".join(line for name in _file_names(parent, child)
+                   for line in difflib.unified_diff(lines(parent / name), lines(child / name), f"a/{name}", f"b/{name}"))
 
 
 def unguided_episode(parent_root: Path, config: ExperimentConfig, *, agent_cmd: Sequence[str], work_root: Path,
                      evidence_root: Path, episode_index: int, runtime: Path, env: Mapping[str, str]) -> dict:
-    """One I1 episode: the agent command edits a copy of the parent (cwd, with EPISODE.md); the child is the
-    copy's final files. An accepted child is archived; the episode record is appended to the log."""
+    """One I1 episode against the archived parent: the agent command edits a copy of it (cwd, with EPISODE.md);
+    the child is the copy's final files, whose diff is kept. An accepted child is archived; the episode record
+    is appended to the log."""
     work_root, evidence_root = check_roots(work_root, evidence_root)
     commit = runtime_commit(runtime)
-    parent_id = candidate_id(parent_root, orchestrator_commit=commit)
+    parent_id = check_archived(parent_root, commit)
     episode_id = "sha256:" + hashlib.sha256(json.dumps(
         [parent_id, config.interface, config.condition, config.episode_wall_clock_sec, episode_index]).encode()
     ).hexdigest()
+    parent_shape = {"parent_skeleton": skeleton(parent_root, config),  # before the episode, which may be paid
+                    "parent_provider_allocation": allocation(parent_root, config)}
     copy = snapshot(parent_root, {EPISODE: episode_brief(config, episode_index).encode()},
                     work_root / "episodes" / f"episode-{episode_index}")
     started = time.monotonic()
@@ -225,17 +277,19 @@ def unguided_episode(parent_root: Path, config: ExperimentConfig, *, agent_cmd: 
                                 config.episode_wall_clock_sec)
     elapsed = time.monotonic() - started
     (copy / EPISODE).unlink(missing_ok=True)
+    (evidence_root / "episodes" / f"{episode_id}.diff").write_text(episode_diff(parent_root, copy))
     row = {"kind": "episode", "mode": "unguided", "interface": config.interface, "condition": config.condition,
            "episode_id": episode_id, "episode_index": episode_index, "parent_candidate_id": parent_id,
            "candidate_id": candidate_id(copy, orchestrator_commit=commit), "agent_cmd": list(agent_cmd),
            "agent_exit": status, "envelope": {"wall_clock_sec": config.episode_wall_clock_sec},
            "wall_clock_sec": elapsed, "consumption": UNAVAILABLE, "model_revision": UNAVAILABLE,
            "hypothesis": UNAVAILABLE, "refusal_code": None, "diagnostics_class": None, "skeleton": None,
-           "parent_skeleton": skeleton(parent_root, config)}
+           "provider_allocation": None, **parent_shape}
     row.update({"outcome": stopped} if stopped else judge_child(parent_root, copy, config, runtime=runtime))
     if row["outcome"] == "accepted":
         _, root = archive(copy, evidence_root, runtime)
-        row.update(candidate_root=str(root), skeleton=skeleton(root, config))
+        row.update(candidate_root=str(root), skeleton=skeleton(root, config),
+                   provider_allocation=allocation(root, config))
     append_record(evidence_root / "log.jsonl", row)
     return row
 
@@ -244,32 +298,54 @@ def share(count: int, total: int) -> float | str:
     return count / total if total else UNAVAILABLE
 
 
-def readout(rows: Sequence[Mapping]) -> dict:
-    """Per-seed outcomes, episode outcomes and refusals, and skeleton diversity among accepted children."""
+def catalog_outcomes(rows: Sequence[Mapping]) -> dict[str, dict]:
     catalog: dict[str, dict] = {}
     for row in rows:
         if row["kind"] == "evaluation" and row["mode"] == "catalog":
             entry = catalog.setdefault(row["seed"], {"candidate_id": row["candidate_id"], "outcomes": []})
             entry["outcomes"].append(row["outcome"])
-    episodes = [row for row in rows if row["kind"] == "episode"]
-    accepted = [row for row in episodes if row["outcome"] == "accepted"]
+    return catalog
+
+
+def child_outcomes(rows: Sequence[Mapping]) -> dict[str, list]:
+    children: dict[str, list] = {}
+    for row in rows:
+        if row["kind"] == "evaluation" and row["mode"] == "unguided":
+            children.setdefault(row["candidate_id"], []).append(row["outcome"])
+    return children
+
+
+def revisit_count(accepted: Sequence[Mapping]) -> int:
     seen, revisits = set(), 0
     for row in accepted:
         seen.add(row["parent_skeleton"])
         revisits += row["skeleton"] in seen
         seen.add(row["skeleton"])
-    terminal_only = share(sum(row["skeleton"] == row["parent_skeleton"] for row in accepted), len(accepted))
-    children = {}
-    for row in rows:
-        if row["kind"] == "evaluation" and row["mode"] == "unguided":
-            children.setdefault(row["candidate_id"], []).append(row["outcome"])
-    return {"catalog": catalog, "episodes": dict(Counter(row["outcome"] for row in episodes)),
+    return revisits
+
+
+def diversity(accepted: Sequence[Mapping]) -> dict:
+    """Skeleton diversity among accepted children. A child is terminal-only when both its skeleton and its
+    provider allocation equal the parent's; one with the parent's skeleton but another allocation is
+    `allocation_distinct`."""
+    same_skeleton = [row for row in accepted if row["skeleton"] == row["parent_skeleton"]]
+    terminal = sum(row["provider_allocation"] == row["parent_provider_allocation"] for row in same_skeleton)
+    terminal_only = share(terminal, len(accepted))
+    return {"distinct_skeletons": len({row["skeleton"] for row in accepted}),
+            "revisit_rate": share(revisit_count(accepted), len(accepted)), "terminal_only_share": terminal_only,
+            "allocation_distinct": len(same_skeleton) - terminal,
+            "collapsed": terminal_only if terminal_only == UNAVAILABLE else terminal_only > COLLAPSE_THRESHOLD}
+
+
+def readout(rows: Sequence[Mapping]) -> dict:
+    """Per-seed outcomes, episode outcomes and refusals, skeleton diversity and provider allocation among
+    accepted children, their evaluation outcomes and the evaluations pending a scan verdict."""
+    episodes = [row for row in rows if row["kind"] == "episode"]
+    accepted = [row for row in episodes if row["outcome"] == "accepted"]
+    return {"catalog": catalog_outcomes(rows), "episodes": dict(Counter(row["outcome"] for row in episodes)),
             "refused": dict(Counter(row["refusal_code"] or row["diagnostics_class"]
                                     for row in episodes if row["outcome"] == "rejected")),
-            "distinct_skeletons": len({row["skeleton"] for row in accepted}),
-            "revisit_rate": share(revisits, len(accepted)), "terminal_only_share": terminal_only,
-            "collapsed": terminal_only if terminal_only == UNAVAILABLE else terminal_only > COLLAPSE_THRESHOLD,
-            "child_outcomes": children,
+            **diversity(accepted), "child_outcomes": child_outcomes(rows),
             "scan_pending": [row["evaluation_id"] for row in rows if row.get("scan_pending")]}
 
 
@@ -281,6 +357,9 @@ def run_mode1(config_path: Path, *, seeds: Sequence[Path], tasks: Sequence[Path]
     names, evaluate every accepted child like a seed (`mode: "unguided"`) and write <evidence>/readout.json."""
     config = load_config(config_path)
     work_root, evidence_root = check_roots(work_root, evidence_root)
+    if (evidence_root / "log.jsonl").exists():
+        raise FileExistsError(f"{evidence_root / 'log.jsonl'} exists: give every mode 1 run a fresh evidence root "
+                              "(the driver never resumes or appends to an earlier run)")
     launch = {"work_root": work_root, "evidence_root": evidence_root, "runtime": runtime, "env": env,
               "timeout_sec": timeout_sec, "solutions": solutions, "holdouts": holdouts}
     catalog = enumerate_catalog(seeds, config, tasks=tasks, replicates=replicates, **launch)

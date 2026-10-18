@@ -26,6 +26,7 @@ from orchestrator.workflow_lisp.sexpr import (
 
 UNAVAILABLE = "unavailable"
 _DEFINITION_HEADS = {"defworkflow", "defproc", "defun"}
+_PROMPT_HEAD = "defprompt"  # a named prompt is found but contributes nothing to the skeleton or allocation
 _LITERAL_KEYWORDS = {":model", ":effort"}
 _PROVIDER_PREFIX = "providers."
 
@@ -55,17 +56,40 @@ def skeleton_hash(source: str, *, definitions: Sequence[str]) -> str:
     string and numeric literals and `:model`/`:effort` values become `#lit`;
     a `:prompt` name (bare, or the head of a prompt call whose fill keywords
     and values are kept) becomes `#prompt`; `providers.*` externs become
-    `#provider`. Form heads, keywords and arity are kept. Raises ValueError
-    when a named definition is absent.
+    `#provider`. Form heads, keywords and arity are kept. A named `defprompt`
+    contributes nothing, so a prompt-only child hashes equal to its parent.
+    Raises ValueError when a named definition is absent.
     """
 
-    found = {}
+    canonical = "\n".join(_normalize_definition(d) for d in _named_definitions(source, definitions))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def provider_allocation(source: str, *, definitions: Sequence[str]) -> dict[str, list[str]]:
+    """Return, per named non-prompt definition, the `providers.*` externs it
+    names in source order (the role allocation the skeleton hash masks).
+    Raises ValueError when a named definition is absent."""
+
+    return {d.items[1].value: _provider_externs(d) for d in _named_definitions(source, definitions)}
+
+
+def _named_definitions(source: str, definitions: Sequence[str]) -> list[ListExpr]:
+    """The named definitions of `source` in `definitions` order, prompts left out."""
+
+    found: dict[str, ListExpr] = {}
     _collect_definitions(read_sexpr_text(source, source_path="<skeleton>"), found)
     missing = [name for name in definitions if name not in found]
     if missing:
         raise ValueError(f"definitions not found in source: {missing}")
-    canonical = "\n".join(_normalize_definition(found[name]) for name in definitions)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return [found[name] for name in definitions if found[name].items[0].value != _PROMPT_HEAD]
+
+
+def _provider_externs(expr: SExpr) -> list[str]:
+    if isinstance(expr, ListExpr):
+        return [name for item in expr.items for name in _provider_externs(item)]
+    if isinstance(expr, SymbolAtom) and expr.value.startswith(_PROVIDER_PREFIX):
+        return [expr.value]
+    return []
 
 
 def _collect_definitions(expr: SExpr, found: dict[str, ListExpr]) -> None:
@@ -75,7 +99,7 @@ def _collect_definitions(expr: SExpr, found: dict[str, ListExpr]) -> None:
     if (
         len(items) >= 2
         and isinstance(items[0], SymbolAtom)
-        and items[0].value in _DEFINITION_HEADS
+        and items[0].value in _DEFINITION_HEADS | {_PROMPT_HEAD}
         and isinstance(items[1], SymbolAtom)
     ):
         found[items[1].value] = expr

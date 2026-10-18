@@ -8,7 +8,8 @@ They are named `claude` and `codex` because the provider templates run those nam
 
 The runtime is a detached worktree of a shared clone of this checkout's HEAD (the real orchestrator,
 committed and clean; `run_arm` refuses a runtime that is its own main checkout) into which the task
-repository's base commit is fetched, so `run_arm` can resolve and fetch it.
+repository's solution commit and its parent, the base commit, are fetched, so `run_arm` can resolve and fetch
+the base and the driver can check the operator's solution hash.
 """
 
 import json
@@ -74,9 +75,10 @@ def world(tmp_path):
     task_repo.mkdir()
     git(task_repo, "init", "-q")
     base = commit(task_repo, {".gitignore": ".orchestrate/\n", "pkg/__init__.py": "VALUE = 1\n"}, "base")
+    solution = commit(task_repo, {"pkg/__init__.py": "VALUE = 2\n"}, "solution")
     main, runtime = tmp_path / "main", tmp_path / "runtime"
     git(REPO, "clone", "-q", "--shared", "--no-checkout", str(REPO), str(main))
-    git(main, "fetch", "-q", str(task_repo), base)
+    git(main, "fetch", "-q", str(task_repo), solution)  # and its parent, the base
     git(main, "worktree", "add", "-q", "--detach", str(runtime), "HEAD")
     task = tmp_path / "task-1"
     for name, text in {"task.txt": "Set VALUE to 2.\n", "intent.txt": "VALUE is 2.\n", "base_commit": base + "\n",
@@ -92,7 +94,7 @@ def world(tmp_path):
     for name in ("claude", "codex"):
         (fakebin / name).write_text(SCRIPTED)
         (fakebin / name).chmod(0o755)
-    yield SimpleNamespace(tmp=tmp_path, runtime=runtime, task=task, candidate=candidate, fakebin=fakebin,
+    yield SimpleNamespace(tmp=tmp_path, runtime=runtime, task=task, candidate=candidate, fakebin=fakebin, solution=solution,
                           results=outside / "results.json", evidence=outside / "evidence", outside=outside)
     open_up(tmp_path)
     open_up(outside)
