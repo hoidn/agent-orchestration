@@ -16,6 +16,11 @@ Inputs per mode 2 run (written by adaptive.py):
                             mean_value, mean_calls, ...}
 The validation pool is scoring.read_pool's result for the validation task's results.json and its log.
 
+Means are failure-inclusive (criteria amendment of 2026-10-18): a failed evaluation counts FAILED_POINTS (0) and an
+incident is left out (scoring.primary_value). Adaptive failures come from each run's log (`kind: evaluation`,
+`split: adaptive`, `outcome: failed`), not from the pools: a generation whose evaluations of a task all failed has no
+pool, and each pool's read_pool rows hold every generation's failures of its task.
+
 Gates come before decisions: a generation's adaptive pool with inverted anchors, or an anchor spread across
 generations above the limit, marks the run's improvements untrusted; inverted validation anchors or a validation
 spread above the limit withhold the final choice.
@@ -29,7 +34,9 @@ from statistics import mean
 from experiments.compare.repos import sha256_file
 from experiments.orc_structural_search.readout import diversity, share
 from experiments.orc_structural_search.records import UNAVAILABLE, control_heads, final_choice, read_records
-from experiments.orc_structural_search.scoring import DIRECT, anchor_checks, read_pool
+from experiments.orc_structural_search.scoring import (
+    DIRECT, FAILED_POINTS, anchor_checks, policy_stats, read_pool,
+)
 
 COMPLETED = ("accepted", "rejected")  # an episode that reached a verdict; stopped ones (exhausted, incident) did not
 UNTRUSTED = "untrusted"
@@ -57,13 +64,19 @@ def reference(logs: Sequence[Path], rows: Sequence[Sequence[Mapping]]) -> str:
     return next(iter(found))
 
 
-def adaptive_means(pools: Sequence[tuple[int, Mapping]], tasks: Sequence[str]) -> dict[str, float]:
-    """candidate_id -> the mean over `tasks` of its per-task mean judged value, for candidates valued on every task."""
+def adaptive_means(pools: Sequence[tuple[int, Mapping]], log_rows: Sequence[Mapping],
+                   tasks: Sequence[str]) -> dict[str, float]:
+    """candidate_id -> the mean over `tasks` of its per-task primary mean (pooled completed runs' values, and
+    FAILED_POINTS per failed adaptive evaluation in `log_rows`), for candidates with a primary value on every task."""
     values: dict[str, dict[str, list]] = {}
     for _, pool in pools:
         for row in pool["rows"]:
-            if row["value"] is not None:
+            if row["outcome"] == "completed" and row["value"] is not None:
                 values.setdefault(row["candidate_id"], {}).setdefault(row["task"], []).append(row["value"])
+    failed = [row for row in log_rows if row["kind"] == "evaluation" and row.get("split") == "adaptive"
+              and row["outcome"] == "failed" and row["task_id"] in tasks]
+    for row in failed:
+        values.setdefault(row["candidate_id"], {}).setdefault(row["task_id"], []).append(FAILED_POINTS)
     return {cid: mean(mean(per[t]) for t in tasks) for cid, per in values.items() if set(per) >= set(tasks)}
 
 
@@ -144,7 +157,7 @@ def run_readout(log: Path, rows: Sequence[Mapping], files: Sequence[tuple[int, l
     episodes = [row for row in rows if row["kind"] == "episode"]
     roots = {e["candidate_id"]: e["candidate_root"] for _, entries in files for e in entries}
     roots |= {row["candidate_id"]: row["candidate_root"] for row in episodes if row["outcome"] == "accepted"}
-    context = {"child_means": adaptive_means(pools, tasks), "archive": dict(files), "roots": roots,
+    context = {"child_means": adaptive_means(pools, rows, tasks), "archive": dict(files), "roots": roots,
                "criterion": criterion, "trusted": rule == "trusted"}
     interfaces = {name: interface_figures([row for row in episodes if row["interface"] == name], **context)
                   for name in dict.fromkeys(criterion["scale"]["interfaces"])}
@@ -173,27 +186,31 @@ def validation_rows(grouped: Mapping[str, list], runs: Sequence[Sequence[tuple[i
         held = [next((e["mean_value"] for _, entries in reversed(files) for e in entries if e["candidate_id"] == cid),
                      None) for files in runs]  # its mean_value in each run's latest archive file that holds it
         screening = mean(v for v in held if v is not None) if any(v is not None for v in held) else UNAVAILABLE
-        valued = [row["value"] for row in rows if row["value"] is not None]
-        validation = mean(valued) if valued else UNAVAILABLE
+        stats = policy_stats(rows)
+        validation = stats["mean"]
         table.append({"candidate_id": cid, "is_reference": cid == ref, "screening_mean": screening,
                       "validation_mean": validation,
                       "shrinkage": UNAVAILABLE if UNAVAILABLE in (screening, validation) else screening - validation,
-                      "mean_cost": mean(row["wall_clock_sec"] for row in rows),
-                      "provider_calls": mean(row["calls"] for row in rows)})
+                      "mean_cost": stats["wall_clock_mean"], "provider_calls": stats["calls_mean"],
+                      **{key: stats[key] for key in ("valued_mean", "failed", "failure_rate", "incidents",
+                                                     "excluded")}})
     return table
 
 
 def grouped_validation(pool: Mapping, expected: set[str], replicates: int) -> dict[str, list]:
+    """candidate_id -> its validation rows (any outcome); the candidates with a completed or failed evaluation must
+    be `expected`, each with `replicates` of them (incidents do not count)."""
     grouped: dict[str, list] = {}
     for row in pool["rows"]:
         grouped.setdefault(row["candidate_id"], []).append(row)
-    if set(grouped) != expected:
-        raise ValueError(f"the validation pool holds {sorted(grouped)}, not the finalists, reference and direct "
-                         f"{sorted(expected)}")
-    counts = {cid: len(rows) for cid, rows in grouped.items() if len(rows) != replicates}
+    runs = {cid: sum(row["outcome"] in ("completed", "failed") for row in rows) for cid, rows in grouped.items()}
+    if {cid for cid, n in runs.items() if n} != expected:
+        raise ValueError(f"the validation pool holds {sorted(c for c, n in runs.items() if n)}, not the finalists, "
+                         f"reference and direct {sorted(expected)}")
+    counts = {cid: runs[cid] for cid in expected if runs[cid] != replicates}
     if counts:
         raise ValueError(f"validation candidates without {replicates} replicates: {counts}")
-    return grouped
+    return {cid: grouped[cid] for cid in expected}
 
 
 def validation_readout(pool: Mapping, runs: Sequence[Sequence[tuple[int, list]]], ref: str, criterion: Mapping,

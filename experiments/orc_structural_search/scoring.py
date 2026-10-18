@@ -14,10 +14,13 @@ own arm and knows nothing of policies. This module adds the three steps around t
                      record whose `records_dir` it is; values, hidden fractions, calls and wall clock are
                      summarize's, never re-derived. An unmapped run, or one whose arm is not the record's
                      evaluation id, raises.
-  read_pool          one task's pool: joined rows plus summarize's anchors, agreement and excluded judges, and
-                     the completed evaluations no run row names (`unpooled`); refuses another criterion's results.
+  read_pool          one task's pool: joined rows plus the task's failed and incident evaluations from the log
+                     (collect records no patch for them, so summarize has no run row), summarize's anchors,
+                     agreement and excluded judges, and the completed evaluations no run row names (`unpooled`);
+                     refuses another criterion's results.
   phase1_readout     per task: catalog policy, child and pooled `unguided` stats; separation over arms with two or
-                     more valued evaluations; DIRECT's rank; anchor order and cross-batch spread per judge; the
+                     more primary values (primary_value: a completed run's value, 0 for a failed run; criterion
+                     amendment of 2026-10-18); DIRECT's rank; anchor order and cross-batch spread per judge; the
                      I1 diversity figures of the driver's readout (<evidence>/readout.json), collapse against the
                      criterion's threshold, and the roadmap decision. Every rule parameter comes from
                      criteria/phase1.json.
@@ -47,12 +50,14 @@ from statistics import mean, stdev, variance
 
 from experiments.compare import pool as pooling, prepare
 from experiments.compare.repos import dump, guard, load, runtime_commit, sha256_file, visible_in_sandbox
+from experiments.orc_structural_search.readout import share
 from experiments.orc_structural_search.records import UNAVAILABLE, read_records
 
 DIRECT = "direct"  # the DIRECT seed's stem
 UNGUIDED = "unguided"  # the one arm pooling every accepted I1 child's evaluations
 BATCH_CLONES = 10  # harness D4: at most ten clones per batch, both anchors included and repeated in each
 ANCHORS_PER_BATCH = 2
+FAILED_POINTS = 0.0  # a failed evaluation's primary value (criteria amendment of 2026-10-18)
 DIVERSITY = ("episodes", "distinct_skeletons", "revisit_rate", "terminal_only_share",
              "allocation_distinct")  # driver readout keys reported as they are; collapse is judged on the criterion
 
@@ -127,9 +132,23 @@ def build_pool(task: Path, criterion: Path, out: Path, judges: Sequence[str], re
           f"each followed by: prepare.py verify-pool --pool {out}")
 
 
+def evaluation_row(record: Mapping, **measures) -> dict:
+    """A log evaluation record as a scored row: identity, outcome, then `measures` (value, hidden, calls,
+    wall_clock_sec)."""
+    return {"evaluation_id": record["evaluation_id"], "candidate_id": record["candidate_id"], "mode": record["mode"],
+            "policy": policy(record), "task": record["task_id"], "replicate": record["replicate"],
+            "outcome": record["outcome"], **measures}
+
+
+def primary_value(row: Mapping) -> float | None:
+    """A completed run's value (None when summarize excluded it), FAILED_POINTS for a failed run, None for an
+    incident."""
+    return {"completed": row["value"], "failed": FAILED_POINTS}.get(row["outcome"])
+
+
 def join_scores(results_json: Path, log: Path) -> list[dict]:
-    """One row per summarize run: {evaluation_id, candidate_id, mode, policy, task, replicate, value, hidden, calls,
-    wall_clock_sec}."""
+    """One row per summarize run: {evaluation_id, candidate_id, mode, policy, task, replicate, outcome, value, hidden,
+    calls, wall_clock_sec}."""
     evaluations = {str(Path(row["records_dir"]).resolve()): row
                    for row in read_records(log) if row["kind"] == "evaluation"}
     rows = []
@@ -140,16 +159,15 @@ def join_scores(results_json: Path, log: Path) -> list[dict]:
         if run["arm"] != record["evaluation_id"]:
             raise ValueError(f"{results_json}: run {run['run']} has arm {run['arm']} but its records directory is "
                              f"evaluation {record['evaluation_id']}'s")
-        rows.append({"evaluation_id": record["evaluation_id"], "candidate_id": record["candidate_id"],
-                     "mode": record["mode"], "policy": policy(record), "task": record["task_id"],
-                     "replicate": record["replicate"], "value": run["value"], "hidden": run.get("hidden_value"),
-                     "calls": run["calls"], "wall_clock_sec": run["wall_clock_sec"]})
+        rows.append(evaluation_row(record, value=run["value"], hidden=run.get("hidden_value"), calls=run["calls"],
+                                   wall_clock_sec=run["wall_clock_sec"]))
     return rows
 
 
 def read_pool(results_json: Path, log: Path, criterion: Path) -> dict:
-    """One task's pool for phase1_readout (and each pool of scoring_phase2): joined rows, summarize's anchors,
-    agreement and excluded judges, the criterion hash it was checked against, and the
+    """One task's pool for phase1_readout (and each pool of scoring_phase2): joined rows followed by a row (value
+    and hidden None; calls and wall clock the log's) per failed or incident evaluation of the task in the log,
+    summarize's anchors, agreement and excluded judges, the criterion hash it was checked against, and the
     completed evaluations of the task in the log that no run row names (`unpooled`). Refuses results summarized
     under another criterion file, and runs of several tasks."""
     results, sha = json.loads(Path(results_json).read_text()), sha256_file(criterion)
@@ -161,8 +179,12 @@ def read_pool(results_json: Path, log: Path, criterion: Path) -> dict:
     if len(tasks) != 1:
         raise ValueError(f"{results_json}: expected the runs of one task, found {sorted(tasks)}")
     task, pooled = tasks.pop(), {row["evaluation_id"] for row in rows}
-    unpooled = sorted(r["evaluation_id"] for r in read_records(log) if r["kind"] == "evaluation"
-                      and r["task_id"] == task and r["outcome"] == "completed" and r["evaluation_id"] not in pooled)
+    mine = [r for r in read_records(log) if r["kind"] == "evaluation" and r["task_id"] == task]
+    unpooled = sorted(r["evaluation_id"] for r in mine
+                      if r["outcome"] == "completed" and r["evaluation_id"] not in pooled)
+    rows += [evaluation_row(r, value=None, hidden=None, calls=r.get("provider_calls", UNAVAILABLE),
+                            wall_clock_sec=r.get("wall_clock_sec", UNAVAILABLE))
+             for r in mine if r["outcome"] in ("failed", "incident")]
     return {"task": task, "results": str(results_json), "rows": rows, "anchors": results["anchors"],
             "agreement": results["agreement"], "excluded_judges": results["excluded_judges"], "unpooled": unpooled,
             "criterion_sha256": sha}
@@ -175,11 +197,31 @@ def pooled_sd(groups: Sequence[Sequence[float]]) -> float | str:
     return math.sqrt(sum((len(g) - 1) * variance(g) for g in multi) / df) if df else UNAVAILABLE
 
 
+def known_mean(values: Sequence) -> float | str:
+    """The mean of the numeric `values` (a log's UNAVAILABLE calls or wall clock left out); unavailable without."""
+    known = [v for v in values if isinstance(v, (int, float)) and not isinstance(v, bool)]
+    return mean(known) if known else UNAVAILABLE
+
+
+def primary_values(rows: Sequence[Mapping]) -> list[float]:
+    return [v for v in map(primary_value, rows) if v is not None]
+
+
 def policy_stats(rows: Sequence[Mapping]) -> dict:
-    values, hidden = [r["value"] for r in rows], [r["hidden"] for r in rows if r["hidden"] is not None]
-    return {"runs": len(values), "mean": mean(values), "sd": stdev(values) if len(values) > 1 else UNAVAILABLE,
-            "hidden_mean": mean(hidden) if hidden else UNAVAILABLE,
-            "calls_mean": mean(r["calls"] for r in rows), "wall_clock_mean": mean(r["wall_clock_sec"] for r in rows)}
+    """One arm's rows (any outcome): runs, mean and sd over primary values; valued_runs and valued_mean over
+    completed runs' values; failed, failure_rate (failed over completed and failed), incidents, excluded (completed
+    without a value); hidden, calls and wall clock means over the rows with a primary value."""
+    values, counted = primary_values(rows), [r for r in rows if primary_value(r) is not None]
+    valued = [r["value"] for r in counted if r["outcome"] == "completed"]
+    outcomes = [r["outcome"] for r in rows]
+    failed, completed = outcomes.count("failed"), outcomes.count("completed")
+    return {"runs": len(values), "mean": known_mean(values), "sd": stdev(values) if len(values) > 1 else UNAVAILABLE,
+            "valued_runs": len(valued), "valued_mean": known_mean(valued), "failed": failed,
+            "failure_rate": share(failed, failed + completed), "incidents": outcomes.count("incident"),
+            "excluded": completed - len(valued),
+            "hidden_mean": known_mean([r["hidden"] for r in counted if r["hidden"] is not None]),
+            "calls_mean": known_mean([r["calls"] for r in counted]),
+            "wall_clock_mean": known_mean([r["wall_clock_sec"] for r in counted])}
 
 
 def anchor_checks(anchors: Sequence[Mapping], roles: Mapping[str, str], spread_limit: float) -> dict:
@@ -212,23 +254,23 @@ def separation(means: Mapping[str, float], sd: float | str, rules: Mapping) -> d
 
 
 def arms(rows: Sequence[Mapping]) -> tuple[dict, dict]:
-    """(catalog policy -> valued rows, unguided child -> valued rows)."""
+    """(catalog policy -> rows, unguided child -> rows), rows of every outcome."""
     catalog: dict[str, list] = {}
     children: dict[str, list] = {}
     for row in rows:
-        if row["value"] is not None:
-            (catalog if row["mode"] == "catalog" else children).setdefault(row["policy"], []).append(row)
+        (catalog if row["mode"] == "catalog" else children).setdefault(row["policy"], []).append(row)
     return catalog, children
 
 
 def task_readout(pool: Mapping, criterion: Mapping) -> dict:
     """Descriptive stats per catalog policy, per child and for the pooled `unguided` arm; separation over the arms
-    with two or more valued evaluations (catalog policies and the pooled unguided arm), counted only when the
+    with two or more primary values (catalog policies and the pooled unguided arm), counted only when the
     anchors' cross-batch spread is within the limit; anchor checks, agreement, excluded judges, unpooled runs."""
     rules = criterion["separation"]
     catalog, children = arms(pool["rows"])
     unguided = [row for group in children.values() for row in group]
-    compared = {p: [r["value"] for r in g] for p, g in [*catalog.items(), (UNGUIDED, unguided)] if len(g) > 1}
+    primary = {p: primary_values(g) for p, g in [*catalog.items(), (UNGUIDED, unguided)]}
+    compared = {p: values for p, values in primary.items() if len(values) > 1}
     sd = pooled_sd(list(compared.values()))
     split = separation({p: mean(v) for p, v in compared.items()}, sd, rules)
     checks = anchor_checks(pool["anchors"], criterion["anchors"][pool["task"]], rules["anchor_spread_limit"])
