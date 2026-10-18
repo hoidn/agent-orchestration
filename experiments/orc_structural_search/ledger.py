@@ -17,11 +17,13 @@ import math
 import threading
 from pathlib import Path
 
+from experiments.orc_structural_search.config import ExperimentConfig
 from orchestrator.workflow_lisp.reader import read_sexpr_file
 from orchestrator.workflow_lisp.sexpr import IntAtom, KeywordAtom, ListExpr, SExpr, SymbolAtom
 
 LEDGER = "calls.json"
 DEFINITIONS = ("defproc", "defworkflow", "defun")
+BINDING_FORMS = ("let*", "list/map", "list/map-effect")  # (form ((name value) ...) body ...)
 _LOCK = threading.Lock()  # ponytail: per process; two driver processes on one evidence root are not serialized
 
 
@@ -61,28 +63,55 @@ def settle(evidence_root: Path, index: int, records: Path, **fields: object) -> 
     return calls
 
 
+def entry_of(root: Path, config: ExperimentConfig) -> tuple[Path, str]:
+    """(the entry module's source, the entry definition's name) of the candidate at `root`."""
+    module, entry = config.entry_workflow.split("::")
+    return (root / config.source_root / module).with_suffix(".orc"), entry
+
+
+def planned_calls(root: Path, config: ExperimentConfig) -> int:
+    """The planned maximum of one evaluation of the candidate at `root` (max_provider_calls of its entry)."""
+    return max_provider_calls(*entry_of(root, config))
+
+
+def unbounded_refusal(root: Path, config: ExperimentConfig) -> dict | None:
+    """The `unbounded_calls` refusal of a candidate whose planned maximum is unbounded, else None: such a child
+    is refused at episode acceptance, so it never reaches an evaluation."""
+    try:
+        planned_calls(root, config)
+    except CallCapExceeded as error:
+        return {"refusal_code": "unbounded_calls", "detail": str(error)}
+    return None
+
+
 def max_provider_calls(source: Path, entry: str) -> int:
     """An upper bound on the provider calls one run of the definition `entry` of the module `source` makes: every
-    `provider-result` counts once, a call of one of the module's own definitions (by name, or through `call`)
-    counts that definition's calls, each times the `:max` of every enclosing form that has one (`loop/recur`,
-    `list/map-effect`). Refuses (CallCapExceeded) a maximum that is unbounded: a provider call under a non-literal
-    `:max`, or a recursive definition."""
-    # ponytail: any list headed by a definition's name counts as its call (a `let*` binding of that name too);
-    # an overcount only plans more calls
+    `provider-result` counts once, a call of one of the module's own definitions (by name, or through `call`, in
+    an expression position: binder names, parameter lists and match patterns are none) counts that definition's
+    calls, each times the `:max` of every enclosing form that has one (`loop/recur`, `list/map-effect`). Refuses
+    (CallCapExceeded) a maximum that is unbounded: a provider call under a non-literal `:max`, or a recursive call
+    path that reaches a provider call (a recursion reaching none plans 0)."""
+    # ponytail: a list in expression position headed by a definition's name counts as its call; a local function
+    # shadowing that name would overcount, which only plans more calls
     definitions: dict[str, ListExpr] = {}
     _collect(read_sexpr_file(source), definitions)
     if entry not in definitions:
         raise ValueError(f"{source} defines no {entry}: no planned maximum")
     calls = _calls(definitions[entry], definitions, (entry,))
     if calls == math.inf:
-        raise CallCapExceeded(f"{source}::{entry}: a provider call under a non-literal :max (or a recursive "
-                              "definition) makes the planned maximum unbounded; the launch is refused")
+        raise CallCapExceeded(f"{source}::{entry}: a provider call under a non-literal :max, or a recursion reaching "
+                              "one, makes the planned maximum unbounded; the launch is refused")
     return int(calls)
 
 
 def _head(form: SExpr) -> str | None:
     items = form.items if isinstance(form, ListExpr) else ()
     return items[0].value if items and isinstance(items[0], SymbolAtom) else None
+
+
+def _callee(form: ListExpr) -> str | None:
+    items, head = form.items, _head(form)
+    return items[1].value if head == "call" and len(items) > 1 and isinstance(items[1], SymbolAtom) else head
 
 
 def _collect(form: SExpr, definitions: dict[str, ListExpr]) -> None:
@@ -94,6 +123,27 @@ def _collect(form: SExpr, definitions: dict[str, ListExpr]) -> None:
         _collect(item, definitions)
 
 
+def _pairs(forms: tuple, skip: int) -> list:
+    """The values of binder entries (each a list whose first `skip` items are a name and a type)."""
+    return [x for entry in forms if isinstance(entry, ListExpr) for x in entry.items[skip:]]
+
+
+def _children(form: ListExpr) -> list:
+    """The forms of `form` in expression position: binder names, parameter lists and match patterns left out."""
+    items, head = form.items, _head(form)
+    if head in DEFINITIONS:  # (defproc name params ...)
+        return list(items[3:])
+    if head == "fn":
+        return list(items[2:])
+    if head in BINDING_FORMS and len(items) > 1 and isinstance(items[1], ListExpr):
+        return _pairs(items[1].items, 1) + list(items[2:])
+    if head == "loop-state":  # (loop-state (name Type init) ...)
+        return _pairs(items[1:], 2)
+    if head == "match":  # (match subject ((Pattern binder) body) ...)
+        return list(items[1:2]) + _pairs(items[2:], 1)
+    return list(items)
+
+
 def _bound(items: tuple) -> float:
     """The form's `:max` (inf when it is not an integer literal), or 1 without one."""
     for key, value in zip(items, items[1:]):
@@ -102,12 +152,30 @@ def _bound(items: tuple) -> float:
     return 1
 
 
+def _reaches_provider(form: SExpr, definitions: dict[str, ListExpr], seen: frozenset) -> bool:
+    if not isinstance(form, ListExpr):
+        return False
+    callee = _callee(form)
+    if _head(form) == "provider-result" or (
+            callee in definitions and callee not in seen and _head(form) not in DEFINITIONS
+            and _reaches_provider(definitions[callee], definitions, seen | {callee})):
+        return True
+    return any(_reaches_provider(item, definitions, seen) for item in _children(form))
+
+
+def _call(callee: str, definitions: dict[str, ListExpr], stack: tuple[str, ...]) -> float:
+    """The calls of one call of `callee`: its definition's, or for a recursive call inf when it reaches a provider
+    call, else 0."""
+    if callee in stack:
+        return math.inf if _reaches_provider(definitions[callee], definitions, frozenset({callee})) else 0
+    return _calls(definitions[callee], definitions, (*stack, callee))
+
+
 def _calls(form: SExpr, definitions: dict[str, ListExpr], stack: tuple[str, ...]) -> float:
     if not isinstance(form, ListExpr):
         return 0
-    items, head = form.items, _head(form)
-    callee = items[1].value if head == "call" and len(items) > 1 and isinstance(items[1], SymbolAtom) else head
-    inner = sum(_calls(item, definitions, stack) for item in items)
+    head, callee = _head(form), _callee(form)
+    inner = sum(_calls(item, definitions, stack) for item in _children(form))
     if callee in definitions and head not in DEFINITIONS:
-        inner += math.inf if callee in stack else _calls(definitions[callee], definitions, (*stack, callee))
-    return (head == "provider-result") + (_bound(items) * inner if inner else 0)
+        inner += _call(callee, definitions, stack)
+    return (head == "provider-result") + (_bound(form.items) * inner if inner else 0)

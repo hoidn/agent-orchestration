@@ -134,8 +134,10 @@ once per adaptive task, judged, and offered to the archive. Before a generation'
 episode plus the evaluations and judges of as many children (each at the largest planned maximum in the archive),
 and again before its evaluations, the children's own planned calls plus one planned call per judge per batch, must
 fit under `call_cap`, or the generation is refused (`CallCapExceeded`); `E/readout.json` is still written. A
-planned maximum counts the provider calls of the module's own definitions the entry calls, times every enclosing
-literal `:max`; a non-literal `:max` around a provider call makes it unbounded and refuses the launch. The validation
+planned maximum (`ledger.max_provider_calls`) counts the provider calls of the module's own definitions the entry
+calls (in expression positions; binder names are no calls), times every enclosing literal `:max`. A non-literal
+`:max` around a provider call, or a recursion reaching one, makes it unbounded: such a child is refused at episode
+acceptance (`unbounded_calls`, in both modes) and never evaluated. The validation
 task is a holdout root of every episode scan and adaptive evaluation scan (judge scans take no holdout root).
 
 Mode 2 does not stop on routine scan hits: before pooling a task's evaluations and before summarizing a pool, it

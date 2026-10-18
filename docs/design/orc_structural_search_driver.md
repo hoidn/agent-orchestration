@@ -180,7 +180,10 @@ rule, refused as `frozen_surface_changed`. When the child's manifest
 reports no type at the replacement's start (for example a literal
 replacement), the driver refuses with `slot_type_unavailable`
 (`slot_refusal` in `experiments/orc_structural_search/driver.py`), since
-the slot check cannot be made. Declared helpers obey the condition as a
+the slot check cannot be made. Any child (I1 or I2) whose planned maximum
+of provider calls is unbounded (a provider call under a non-literal
+`:max`, or a recursion reaching one; `ledger.max_provider_calls`) is
+refused as `unbounded_calls`, so it never reaches an evaluation. Declared helpers obey the condition as a
 change from an empty form of their kind (`_definition_verdict` and
 `_condition_verdict` in `candidates.py`): a new helper `defprompt` adds a
 prompt signature, so it is accepted only under joint; a non-prompt helper

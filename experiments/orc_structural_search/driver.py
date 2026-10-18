@@ -133,12 +133,6 @@ def seed_config(seed: Path, config: ExperimentConfig) -> ExperimentConfig:
     return replace(config, entry_workflow=f"{seed.stem}::{entry}", mutable_files=(seed.name,))
 
 
-def planned_calls(root: Path, config: ExperimentConfig) -> int:
-    """The ledger's planned maximum for one evaluation of the candidate at `root` (ledger.max_provider_calls)."""
-    module, entry = config.entry_workflow.split("::")
-    return ledger.max_provider_calls((root / config.source_root / module).with_suffix(".orc"), entry)
-
-
 def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, replicate: int, work_root: Path,
                       evidence_root: Path, runtime: Path, env: Mapping[str, str], timeout_sec: float,
                       solutions: Mapping[str, str], holdouts: Sequence[Path], fields: Mapping[str, object],
@@ -147,7 +141,7 @@ def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, repli
     record (with `fields`) to the log."""
     cid = check_archived(root, runtime_commit(runtime))
     slot = ledger.reserve(evidence_root, kind="evaluation", key=f"{cid} {task.name} replicate {replicate}",
-                          planned=planned_calls(root, config), cap=call_cap)
+                          planned=ledger.planned_calls(root, config), cap=call_cap)
     record = evaluate(root, config, task_package=task, work_root=work_root, replicate=replicate,
                       runtime=runtime, env={**env, **LAUNCH_ENV}, timeout_sec=timeout_sec)
     ledger.settle(evidence_root, slot, record.records_dir, evaluation_id=record.evaluation_id)
@@ -261,7 +255,8 @@ def entry_result(root: Path, build_key: str) -> object:
 def judge_child(parent: Path, child: Path, config: ExperimentConfig, *, runtime: Path, site: Mapping | None = None,
                 parent_candidate_id: str | None = None) -> dict:
     """Validation, full compilation with the runtime's orchestrator (a compiler crash is a rejection), the I2 slot
-    check, then the entry's result type against the parent's. Without `site`: frozen-surface validation. With
+    check, a bounded planned maximum of provider calls (`unbounded_calls`), then the entry's result type against
+    the parent's. Without `site`: frozen-surface validation. With
     `site` (I2): the receipt is derived from the child (`receipt` in the verdict), <child>/HYPOTHESIS.txt is then
     removed, and the one-site transaction validates the child; it applies the frozen-surface rule itself with the
     receipt's helpers allowed (a plain frozen-surface check would refuse any helper)."""
@@ -281,6 +276,7 @@ def judge_child(parent: Path, child: Path, config: ExperimentConfig, *, runtime:
         return {**shown, "outcome": "rejected", "diagnostics_class": first.get("code", UNAVAILABLE),
                 "detail": first.get("message") or first.get("stderr", "")}
     refusal = slot_refusal(parent, child, site, config, runtime=runtime) if site else None
+    refusal = refusal or ledger.unbounded_refusal(child, config)  # an unbounded child never reaches an evaluation
     # Fires only when the entry is not exported or lacks a result annotation: frozen-surface validation already
     # freezes an exported signature and every type declaration.
     if refusal is None and entry_result(parent, compile_candidate(parent, config, runtime=runtime).build_key) != \

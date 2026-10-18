@@ -152,6 +152,23 @@ def episode(world, mutator_source, config, tamper=False, env=os.environ, call_ca
     return row, evidence
 
 
+# a child that compiles but whose loop bound is a variable around the coder call: its planned maximum is unbounded
+UNBOUNDED = f"""#!{sys.executable} -I
+from pathlib import Path
+source = Path("direct.orc").read_text()
+call = source[source.index("(provider-result"):source.index(":timeout-sec 5400)") + len(":timeout-sec 5400)")]
+loop = ("(loop/recur :max tries :state (record Change :summary \\"none\\" :account \\"none\\") :on-exhausted state "
+        f"(fn (state) (let* ((next {{call}})) (done next))))")
+Path("direct.orc").write_text(source.replace("(let* ((change " + call, "(let* ((tries 2) (change " + loop))
+"""
+
+
+def test_a_child_with_an_unbounded_planned_maximum_is_refused_and_never_archived(world):
+    row, evidence = episode(world, UNBOUNDED, config_of())
+    assert (row["outcome"], row["refusal_code"], (evidence / "candidates" / row["candidate_id"]).exists()) == (
+        "rejected", "unbounded_calls", False)
+
+
 def test_a_prompt_only_child_is_accepted_with_its_parents_skeleton(world):
     row, _ = episode(world, PROMPT_EDIT, config_of(condition="prompt-only",
                                                    mutable_definitions=["run", "implement-prompt"]))

@@ -98,12 +98,16 @@ def excluded(scan: Mapping) -> bool:
 
 def await_verdict(path: Path, scan_of: Callable[[dict], dict], command: str) -> dict:
     """The scan (`scan_of` the JSON file at `path`) once it has no unadjudicated hit; until then print `command`
-    and the hit summary once and reread the file every POLL_SEC seconds."""
-    shown = False
+    and the hit summary once (and once that the file is not JSON, if it is not) and reread the file every POLL_SEC
+    seconds."""
+    shown = garbled = False
     while True:
         try:
             scan = scan_of(json.loads(path.read_text()))
-        except json.JSONDecodeError:  # the verdict is being written (repos.dump is not atomic): reread
+        except json.JSONDecodeError as error:  # being written (repos.dump is not atomic), or broken: say so, reread
+            if not garbled:
+                print(f"{path} is not JSON ({error}); rereading it every {POLL_SEC} s", flush=True)
+                garbled = True
             scan = None
         if scan is not None and not unadjudicated(scan):
             return scan
