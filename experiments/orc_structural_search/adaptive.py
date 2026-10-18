@@ -28,41 +28,40 @@ A run (run_mode2) on a fresh evidence root E:
   readout        E/readout.json: per interface the mode 1 readout of its episodes (outcomes, refusals,
                  readout.diversity, scan_pending), and the archive trajectory.
 Every evaluation row carries `generation` and `split` ("adaptive", or "validation" from validate_finalists). The
-validation task is a holdout root of every scan and never an episode's or an adaptive evaluation's task.
+validation task is a holdout root of every episode scan and adaptive evaluation scan (judge scans take none) and
+never an episode's or an adaptive evaluation's task. W must be fresh per run as E is: episode trees are named by
+index (W/episodes/episode-<n>).
 
-Judging (judge_generation): one pool per (generation, task) at P/gen-<n>/<task> (validation: P/validation/<task>),
-P the pools root, outside the evidence root E and the work root W (judges must not see the archive or the log,
-mutators and evaluated agents must not find the pools at a known place); through scoring.pool_evaluations, batches of at most eight evaluations plus both
-anchors; one ledger entry per judge (`kind: "judge"`, one planned call per batch) reserved before any judge runs;
-each judge's scoring, verify_pool and scan_judge (pool.scan_judge takes no extra root, so E is not among the judge
-scan's patterns; keeping P outside E is the guard), then summarize; one {"kind": "judging", "generation", "task",
-"pool", "results"} log row per pool. Before a generation's evaluations the planned calls of its evaluations and
-judges must fit under the call cap, or the generation is refused (CallCapExceeded) with no evaluation started:
-its episodes stay logged and no archive file is written for it.
+Judging is judging.judge_generation: one blind pool per (generation, task) under the pools root P, outside E and
+the work root W; it waits for the operator's verdict on scan hits and retries a failed judge once through its resume
+script. A judge that fails again is a judge incident: one {"kind": "judge_incident", "generation", "detail"} log
+row, no archive file for that generation (generation 0 keeps the prior values and still writes gen-0.json), and the
+loop continues with the next generation. Before a generation's episodes, at most one planned call per episode plus
+the evaluations and judges of as many children (each at the largest planned maximum in the archive), and again
+before its evaluations, the children's own planned calls plus their judges, must fit under the call cap, or the
+generation is refused (CallCapExceeded): before its evaluations, its episodes stay logged; no archive file is
+written for it, and E/readout.json is still written.
 """
 
 import json
 import math
 import random
-import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from statistics import mean
 
-from experiments.compare import pool as pooling, summarize
 from experiments.orc_structural_search import ledger
 from experiments.orc_structural_search.config import ExperimentConfig, load_config
 from experiments.orc_structural_search.driver import (
     archive_seed, check_roots, check_solutions, evaluate_all, planned_calls, run_episode, seed_config)
+from experiments.orc_structural_search.judging import VALIDATION, JudgeIncident, judge_generation
 from experiments.orc_structural_search.readout import readout
 from experiments.orc_structural_search.records import UNAVAILABLE, append_record, read_records
-from experiments.orc_structural_search.scoring import (
-    ANCHORS_PER_BATCH, BATCH_CLONES, DIRECT, join_scores, latest_evaluations, outcome_rows, pool_evaluations,
-    primary_value)
-from experiments.orc_structural_search.scoring_phase2 import archive_files
+from experiments.orc_structural_search.scoring import ANCHORS_PER_BATCH, BATCH_CLONES, DIRECT, primary_value
+from experiments.orc_structural_search.scoring_phase2 import archive_files, reference
 from experiments.orc_structural_search.sites import eligible_sites, select_site, site_manifest
 
-ADAPTIVE, VALIDATION, PRIOR = "adaptive", "validation", "phase1-prior"
+ADAPTIVE, PRIOR = "adaptive", "phase1-prior"
 ARCHIVE_SIZE = 6
 EVALUATION_KEYS = ("work_root", "evidence_root", "runtime", "env", "timeout_sec", "solutions", "call_cap")
 
@@ -148,56 +147,6 @@ def feedback(entry: Mapping, evaluations: Sequence[Mapping]) -> dict:
                       "provider_calls": r["provider_calls"], "wall_clock_sec": r["wall_clock_sec"]} for r in mine]}
 
 
-def run_judge(pool: Path, judge: str) -> None:
-    """The judge's scoring command behind the shims, as prepare.py pool wrote it."""
-    subprocess.run(["bash", str(pool / "records" / f"score-{judge}.sh")], check=True)
-
-
-def score_pool(evidence_root: Path, pool: Path, key: str, *, names: Sequence[str], solution: str, call_cap: int,
-               scorer: Callable[[Path, str], None]) -> None:
-    """Reserve every judge's ledger entry (one planned call per batch), then per judge: score, settle, verify the
-    clones, scan the judge."""
-    batches = len(json.loads((pool / "records" / "mapping.json").read_text())["batches"])
-    slots = {name: ledger.reserve(evidence_root, kind="judge", key=f"{key} {name}", planned=batches, cap=call_cap)
-             for name in names}
-    for name, slot in slots.items():
-        scorer(pool, name)
-        ledger.settle(evidence_root, slot, pool / "records" / "judges" / name)
-        pooling.verify_pool(pool)
-        pooling.scan_judge(pool, name, solution)
-
-
-def judge_generation(evidence_root: Path, generation: int, tasks: Sequence[Path], *, criterion: Path,
-                     judges: Sequence[str], solutions: Mapping[str, str], call_cap: int, pool_root: Path,
-                     scorer: Callable[[Path, str], None] | None = None,
-                     include: Callable[[Mapping], bool] | None = None) -> list[dict]:
-    """Judge each task's completed evaluations of `generation` (or those `include` keeps) in one blind pool (see
-    the module docstring); the joined rows of every pool followed by the kept failed and incident evaluations of
-    each task from the log (scoring.outcome_rows; once per evaluation id). A task without a completed evaluation
-    has no pool, only those rows."""
-    log, scorer = evidence_root / "log.jsonl", scorer or run_judge
-    include = include or (lambda row: row.get("generation") == generation)
-    names = [spec.partition("=")[0] for spec in judges]
-    joined = []
-    for task in tasks:
-        kept = [r for r in latest_evaluations(read_records(log)) if include(r)]
-        failures = outcome_rows(kept, task.name)
-        if not any(r["task_id"] == task.name and r["outcome"] == "completed" for r in kept):
-            joined += failures
-            continue
-        label = f"gen-{generation}" if generation >= 0 else VALIDATION
-        pool = pool_evaluations(evidence_root, task, out=pool_root / label / task.name, judges=judges,
-                                criterion=criterion, include=include)
-        score_pool(evidence_root, pool, f"gen {generation} {task.name}", names=names, solution=solutions[task.name],
-                   call_cap=call_cap, scorer=scorer)
-        summarize.summarize(pool, criterion)
-        results = pool / "records" / "results.json"
-        joined += join_scores(results, log) + failures
-        append_record(log, {"kind": "judging", "generation": generation, "task": task.name, "pool": str(pool),
-                            "results": str(results)})
-    return joined
-
-
 def lineage_config(entry: Mapping, config: ExperimentConfig) -> ExperimentConfig:
     return seed_config(Path(f"{entry['module']}.orc"), config)
 
@@ -207,7 +156,14 @@ def check_budget(evidence_root: Path, planned: int, cap: int, what: str) -> None
     used = ledger.total(json.loads(path.read_text()) if path.exists() else [])
     if used + planned > cap:
         raise ledger.CallCapExceeded(f"{what}: {used} provider calls recorded or reserved in {path} plus at most "
-                                     f"{planned} for its evaluations and judges exceed the call cap {cap}")
+                                     f"{planned} planned for it exceed the call cap {cap}")
+
+
+def planned_judged(calls: Sequence[int], tasks: int, replicates: int, judges: int) -> int:
+    """The planned calls of evaluating jobs with planned maxima `calls` `replicates` times on each of `tasks`
+    tasks, and of their judges (one call per judge per batch of each task's pool)."""
+    batches = math.ceil(len(calls) * replicates / (BATCH_CLONES - ANCHORS_PER_BATCH))
+    return tasks * (replicates * sum(calls) + batches * judges)
 
 
 def evaluate_and_judge(jobs: Sequence[tuple[Path, ExperimentConfig, Mapping]], generation: int, tasks: Sequence[Path],
@@ -217,10 +173,9 @@ def evaluate_and_judge(jobs: Sequence[tuple[Path, ExperimentConfig, Mapping]], g
     times per task (at most launch["concurrency"] at a time) and judge them; the joined rows."""
     if not jobs:
         return []
-    batches = math.ceil(len(jobs) * replicates / (BATCH_CLONES - ANCHORS_PER_BATCH))
-    calls = sum(planned_calls(root, config) for root, config, _ in jobs)
-    planned = len(tasks) * (replicates * calls + batches * len(judge["judges"]))
-    check_budget(launch["evidence_root"], planned, launch["call_cap"], f"generation {generation}")
+    planned = planned_judged([planned_calls(root, config) for root, config, _ in jobs], len(tasks), replicates,
+                             len(judge["judges"]))
+    check_budget(launch["evidence_root"], planned, launch["call_cap"], f"generation {generation}'s evaluations")
     evaluate_all(jobs, tasks=tasks, replicates=replicates, concurrency=launch["concurrency"],
                  holdouts=launch.get("holdouts", ()), **{key: launch[key] for key in EVALUATION_KEYS})
     return judge_generation(launch["evidence_root"], generation, tasks, solutions=launch["solutions"],
@@ -252,7 +207,12 @@ def episode(parent: Mapping, config: ExperimentConfig, *, interface: str, index:
 def generation(n: int, archive: list[dict], config: ExperimentConfig, *, rng: random.Random,
                adaptive_tasks: Sequence[Path], interfaces: Sequence[str] = ("I1", "I2", "I1", "I2"),
                launch: Mapping, judge: Mapping) -> list[dict]:
-    """Generation `n` (see the module docstring); the archive after it, also written to gen-<n>.json."""
+    """Generation `n` (see the module docstring); the archive after it, also written to gen-<n>.json (unless a
+    judge incident ends it)."""
+    largest = max(planned_calls(Path(e["candidate_root"]), lineage_config(e, config)) for e in archive)
+    check_budget(launch["evidence_root"], len(interfaces) + planned_judged(
+        [largest] * len(interfaces), len(adaptive_tasks), 1, len(judge["judges"])), launch["call_cap"],
+        f"generation {n}'s episodes")
     children: dict[str, tuple[Mapping, Mapping]] = {}
     for k, interface in enumerate(interfaces):
         parent = select_parent(archive, rng)
@@ -269,7 +229,9 @@ def generation(n: int, archive: list[dict], config: ExperimentConfig, *, rng: ra
               "candidate_root": row["candidate_root"], "episode_id": row["episode_id"],
               "parent_candidate_id": row["parent_candidate_id"], "interface": row["interface"]})
             for cid, (parent, row) in fresh.items()]
-    rows = evaluate_and_judge(jobs, n, adaptive_tasks, replicates=1, launch=launch, judge=judge)
+    rows = judged_or_incident(jobs, n, adaptive_tasks, launch=launch, judge=judge)
+    if rows is None:
+        return archive
     for cid, (parent, row) in fresh.items():
         child = make_entry([r for r in rows if r["candidate_id"] == cid], [t.name for t in adaptive_tasks],
                            candidate_id=cid, candidate_root=row["candidate_root"], seed=None, module=parent["module"],
@@ -277,6 +239,17 @@ def generation(n: int, archive: list[dict], config: ExperimentConfig, *, rng: ra
         archive = retain(archive, child) if child else archive
     write_archive(launch["evidence_root"], n, archive)
     return archive
+
+
+def judged_or_incident(jobs: Sequence[tuple[Path, ExperimentConfig, Mapping]], n: int, tasks: Sequence[Path], *,
+                       launch: Mapping, judge: Mapping) -> list[dict] | None:
+    """evaluate_and_judge once per task; None after a judge incident, which is logged."""
+    try:
+        return evaluate_and_judge(jobs, n, tasks, replicates=1, launch=launch, judge=judge)
+    except JudgeIncident as error:
+        append_record(launch["evidence_root"] / "log.jsonl",
+                      {"kind": "judge_incident", "generation": n, "detail": str(error)})
+        return None
 
 
 def initial_generation(entries: list[dict], config: ExperimentConfig, adaptive_tasks: Sequence[Path], *,
@@ -288,10 +261,10 @@ def initial_generation(entries: list[dict], config: ExperimentConfig, adaptive_t
                   {"kind": "reference", "candidate_id": ref["candidate_id"], "run": evidence_root.name})
     identity = {key: ref[key] for key in ("candidate_id", "candidate_root", "seed")}
     fields = {"mode": ADAPTIVE, "split": ADAPTIVE, "generation": 0, **identity}
-    rows = evaluate_and_judge([(Path(ref["candidate_root"]), lineage_config(ref, config), fields)], 0, adaptive_tasks,
-                              replicates=1, launch=launch, judge=judge)
-    fresh = make_entry(rows, [t.name for t in adaptive_tasks], **identity, module=ref["module"], evidence=ADAPTIVE,
-                       generation=0)
+    rows = judged_or_incident([(Path(ref["candidate_root"]), lineage_config(ref, config), fields)], 0,
+                              adaptive_tasks, launch=launch, judge=judge)
+    fresh = make_entry(rows or [], [t.name for t in adaptive_tasks], **identity, module=ref["module"],
+                       evidence=ADAPTIVE, generation=0)
     entries = sorted([fresh if fresh and e is ref else e for e in entries], key=rank)
     write_archive(evidence_root, 0, entries)
     return prune(entries)
@@ -322,13 +295,12 @@ def check_splits(adaptive_tasks: Sequence[Path], validation_task: Path, criterio
 
 
 def check_pools_root(pools_root: Path, work_root: Path, evidence_root: Path) -> Path:
-    """The resolved pools root; refuse one inside the evidence or the work root, or holding the evidence root."""
+    """The resolved pools root; refuse one inside the evidence or the work root, or holding either."""
     pools_root = Path(pools_root).resolve()
-    nested = [name for name, root in (("evidence", evidence_root.resolve()), ("work", work_root.resolve()))
-              if pools_root.is_relative_to(root)]
-    if nested or evidence_root.resolve().is_relative_to(pools_root):
+    roots = (Path(evidence_root).resolve(), Path(work_root).resolve())
+    if any(pools_root.is_relative_to(root) or root.is_relative_to(pools_root) for root in roots):
         raise ValueError(f"the pools root {pools_root} must lie outside the evidence root {evidence_root} and the "
-                         f"work root {work_root}, and must not hold the evidence root")
+                         f"work root {work_root}, and must hold neither")
     return pools_root
 
 
@@ -337,8 +309,9 @@ def run_mode2(config_path: Path, *, phase1_joined: Path, seeds: Sequence[Path], 
               evidence_root: Path, agent_cmd: Sequence[str], runtime: Path, env: Mapping[str, str],
               timeout_sec: float, solutions: Mapping[str, str], call_cap: int, concurrency: int, criterion: Path,
               judges: Sequence[str], pools_root: Path,
-              scorer: Callable[[Path, str], None] | None = None) -> dict:
-    """One mode 2 run on a fresh evidence root (see the module docstring); the readout, also <evidence>/readout.json.
+              scorer: Callable[[Path, str, str], None] | None = None) -> tuple[dict, dict]:
+    """One mode 2 run on a fresh evidence root (see the module docstring): (the readout, also
+    <evidence>/readout.json even when a generation is refused; the launch mapping, validate_finalists' `launch`).
     `phase1_joined` is Phase 1's joined.json (each task pool's scoring.read_pool rows: join_scores rows plus the
     failed and incident evaluations); judges are MODEL[=PROVIDERS_JSON]; the
     tasks must be the criterion's; judge pools go under `pools_root` (check_pools_root)."""
@@ -356,27 +329,35 @@ def run_mode2(config_path: Path, *, phase1_joined: Path, seeds: Sequence[Path], 
     roots = {seed.stem: str(archive_seed(seed, evidence_root, runtime)[1]) for seed in seeds}
     entries = initial_archive(json.loads(Path(phase1_joined).read_text()), roots,
                               tasks=[t.name for t in adaptive_tasks])
-    archive = initial_generation(entries, config, adaptive_tasks, launch=launch, judge=judge)
     rng = random.Random(run_seed)
     interfaces = [("I1", "I2")[k % 2] for k in range(episodes_per_generation)]
-    for n in range(1, generations + 1):
-        archive = generation(n, archive, config, rng=rng, adaptive_tasks=adaptive_tasks, interfaces=interfaces,
-                             launch=launch, judge=judge)
-    result = mode2_readout(read_records(evidence_root / "log.jsonl"), evidence_root / "archive")
-    (evidence_root / "readout.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
-    return result
+    try:
+        archive = initial_generation(entries, config, adaptive_tasks, launch=launch, judge=judge)
+        for n in range(1, generations + 1):
+            archive = generation(n, archive, config, rng=rng, adaptive_tasks=adaptive_tasks, interfaces=interfaces,
+                                 launch=launch, judge=judge)
+    finally:  # a refused generation (CallCapExceeded) keeps the trajectory so far
+        if (evidence_root / "archive").is_dir():
+            result = mode2_readout(read_records(evidence_root / "log.jsonl"), evidence_root / "archive")
+            (evidence_root / "readout.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+    return result, launch
 
 
-def validate_finalists(evidence_root: Path, archive_path: Path, *, config: ExperimentConfig, reference_seed: str,
-                       validation_task: Path, replicates: int = 2, finalists: int = 2, launch: Mapping,
-                       judge: Mapping) -> list[dict]:
-    """Evaluate the top `finalists` of the archive file by rank, the reference seed's and `direct`'s gen-0 entries
-    (each candidate once) `replicates` times on the validation task (`split: "validation"`, no holdout root: the
-    task is no longer held out) and judge them in one pool; the joined rows. `launch` as for evaluate_and_judge."""
+def validate_finalists(archive_path: Path, *, config: ExperimentConfig, validation_task: Path, launch: Mapping,
+                       judge: Mapping, replicates: int = 2, finalists: int = 2) -> list[dict]:
+    """Evaluate the top `finalists` of the archive file by rank, and the gen-0 entries of the reference (the log's
+    `reference` row) and `direct` (each candidate once), `replicates` times on the validation task (`split:
+    "validation"`, no holdout root: the task is no longer held out) and judge them in one pool; the joined rows.
+    `launch` is run_mode2's; its pools root and the validation task's solution are checked again."""
+    evidence_root = Path(launch["evidence_root"])
+    check_pools_root(launch["pools_root"], launch["work_root"], evidence_root)
+    solutions = check_solutions([validation_task], launch["solutions"], launch["runtime"])
+    log = evidence_root / "log.jsonl"
+    ref = reference([log], [read_records(log)])
     initial = json.loads((Path(archive_path).parent / "gen-0.json").read_text())
-    named = [e for e in initial if e["seed"] in (reference_seed, DIRECT)]
-    if {e["seed"] for e in named} != {reference_seed, DIRECT}:
-        raise ValueError(f"gen-0.json beside {archive_path} lacks the {reference_seed} or {DIRECT} seed entry")
+    named = [e for e in initial if e["candidate_id"] == ref or e["seed"] == DIRECT]
+    if not ({ref} <= {e["candidate_id"] for e in named} and any(e["seed"] == DIRECT for e in named)):
+        raise ValueError(f"gen-0.json beside {archive_path} lacks the reference {ref} or the {DIRECT} seed entry")
     candidates: dict[str, Mapping] = {}
     for entry in sorted(json.loads(Path(archive_path).read_text()), key=rank)[:finalists] + named:
         candidates.setdefault(entry["candidate_id"], entry)
@@ -384,5 +365,5 @@ def validate_finalists(evidence_root: Path, archive_path: Path, *, config: Exper
              {"mode": ADAPTIVE, "split": VALIDATION, "generation": -1, "seed": e["seed"], "candidate_id": cid,
               "candidate_root": e["candidate_root"]}) for cid, e in candidates.items()]
     return evaluate_and_judge(jobs, -1, [validation_task], replicates=replicates,
-                              launch={**launch, "evidence_root": Path(evidence_root), "holdouts": ()}, judge=judge,
+                              launch={**launch, "holdouts": (), "solutions": solutions}, judge=judge,
                               include=lambda row: row.get("split") == VALIDATION)

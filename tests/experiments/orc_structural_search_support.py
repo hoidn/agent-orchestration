@@ -2,7 +2,8 @@
 
 The scripted executables stand in for the real CLIs behind the comparison-harness shims (no provider is
 called). Each reads its prompt on stdin, takes the first entry of the JSON list in $SCRIPTED_RESULTS_FILE
-whose `match` substring occurs in the prompt, sleeps its `sleep` seconds (default 0) and either writes its `result` (JSON) to
+whose `match` substring occurs in the prompt, sleeps its `sleep` seconds (default 0), prints its `print` text (default
+none) and either writes its `result` (JSON) to
 the file on the prompt's last `- path:` line (the shims hide $ORCHESTRATOR_OUTPUT_BUNDLE_PATH) or, with `exit`, exits
 with that status without writing anything.
 They are named `claude` and `codex` because the provider templates run those names.
@@ -35,6 +36,7 @@ for entry in json.load(open(os.environ["SCRIPTED_RESULTS_FILE"])):
 else:
     sys.exit("scripted provider: no entry matches the prompt")
 time.sleep(entry.get("sleep", 0))
+print(entry.get("print", ""), flush=True)
 if "exit" in entry:
     sys.exit(entry["exit"])
 with open(re.findall(r"^- path: (.+)$", prompt, re.M)[-1], "w") as out:
