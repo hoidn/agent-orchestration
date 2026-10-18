@@ -120,6 +120,14 @@ def seed_files(seed: Path) -> dict[str, bytes]:
     return files
 
 
+def archive_seed(seed: Path, evidence_root: Path, runtime: Path) -> tuple[str, Path]:
+    """(candidate id, archived root) of the seed's candidate root (seed_files)."""
+    with tempfile.TemporaryDirectory() as staging:
+        for name, data in seed_files(seed).items():
+            (Path(staging) / name).write_bytes(data)
+        return archive(Path(staging), evidence_root, runtime)
+
+
 def seed_config(seed: Path, config: ExperimentConfig) -> ExperimentConfig:
     entry = config.entry_workflow.split("::")[1]
     return replace(config, entry_workflow=f"{seed.stem}::{entry}", mutable_files=(seed.name,))
@@ -144,9 +152,9 @@ def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, repli
     roots = [("archive", evidence_root), ("archive", work_root / "episodes"), ("lineage", evidence_root / "log.jsonl"),
              *(("holdout", holdout) for holdout in holdouts)]
     hits = prepare.scan(record.records_dir, solutions[task.name], roots=roots)
-    row = {**fields, **{k: str(v) if isinstance(v, Path) else v for k, v in asdict(record).items()},
-           "kind": "evaluation", "task_id": task.name, "replicate": replicate, "split": UNAVAILABLE,
-           "evaluator_version": EVALUATOR_VERSION,
+    row = {"split": UNAVAILABLE, **fields,  # mode 2 names the split
+           **{k: str(v) if isinstance(v, Path) else v for k, v in asdict(record).items()},
+           "kind": "evaluation", "task_id": task.name, "replicate": replicate, "evaluator_version": EVALUATOR_VERSION,
            "consumption": UNAVAILABLE, "scan_hits": len(hits), "scan_pending": bool(hits)}
     with _LOG_LOCK:
         append_record(evidence_root / "log.jsonl", row)
@@ -196,10 +204,7 @@ def enumerate_catalog(seeds: Sequence[Path], config: ExperimentConfig, *, tasks:
     solutions = check_solutions(tasks, solutions, runtime)
     jobs = []
     for seed in seeds:
-        with tempfile.TemporaryDirectory() as staging:
-            for name, data in seed_files(seed).items():
-                (Path(staging) / name).write_bytes(data)
-            cid, root = archive(Path(staging), evidence_root, runtime)
+        cid, root = archive_seed(seed, evidence_root, runtime)
         jobs.append((root, seed_config(seed, config),
                      {"mode": "catalog", "seed": seed.stem, "candidate_id": cid, "candidate_root": str(root)}))
     return evaluate_all(jobs, tasks=tasks, replicates=replicates, concurrency=concurrency, work_root=work_root,

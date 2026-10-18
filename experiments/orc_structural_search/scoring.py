@@ -23,7 +23,8 @@ own arm and knows nothing of policies. This module adds the three steps around t
                      criteria/phase1.json.
   readout --phase 2  scoring_phase2.phase2_readout (criteria/phase2.json), built on read_pool and anchor_checks.
 
-A policy is the seed stem for a catalog evaluation and `unguided:<candidate_id>` for an accepted I1 child.
+A policy is the seed stem for a catalog evaluation and `<mode>:<candidate_id>` otherwise (`unguided:` for an accepted
+I1 child of mode 1, `adaptive:` for every mode 2 evaluation).
 
   python -m experiments.orc_structural_search.scoring pool --evidence E --task T --out P --criterion C \
       --judge claude-opus-5-5 --judge gpt-6-sol=$RT/experiments/compare/providers/score_codex.json
@@ -57,20 +58,22 @@ DIVERSITY = ("episodes", "distinct_skeletons", "revisit_rate", "terminal_only_sh
 
 
 def policy(record: Mapping) -> str:
-    return record["seed"] if record["mode"] == "catalog" else f"unguided:{record['candidate_id']}"
+    return record["seed"] if record["mode"] == "catalog" else f"{record['mode']}:{record['candidate_id']}"
 
 
 def pool_evaluations(evidence_root: Path, task_package: Path, *, out: Path, judges: Sequence[str],
-                     criterion: Path) -> Path:
-    """Collect every completed evaluation of `task_package` in the log and build the blind pool at `out` (batches of
-    at most ten clones, anchors repeated); return the pool directory. Judges are MODEL[=PROVIDERS_JSON] as for
-    `prepare.py pool` and must be the criterion's."""
+                     criterion: Path, include: Callable[[Mapping], bool] = lambda row: True) -> Path:
+    """Collect every completed evaluation of `task_package` in the log that `include` keeps (mode 2: one
+    generation's, or the validation split's) and build the blind pool at `out` (batches of at most ten clones,
+    anchors repeated); return the pool directory. Judges are MODEL[=PROVIDERS_JSON] as for `prepare.py pool` and
+    must be the criterion's."""
     task, out = Path(task_package).resolve(), Path(out).resolve()
     names = sorted(spec.partition("=")[0] for spec in judges)
     if names != sorted(json.loads(Path(criterion).read_text())["judges"]):
         raise ValueError(f"judges {names} are not the criterion's {criterion}")
     completed = [row for row in read_records(Path(evidence_root) / "log.jsonl")
-                 if row["kind"] == "evaluation" and row["task_id"] == task.name and row["outcome"] == "completed"]
+                 if row["kind"] == "evaluation" and row["task_id"] == task.name and row["outcome"] == "completed"
+                 and include(row)]
     if not completed:
         raise ValueError(f"no completed evaluation of {task.name} in {evidence_root}/log.jsonl")
     records, policies = {}, {}

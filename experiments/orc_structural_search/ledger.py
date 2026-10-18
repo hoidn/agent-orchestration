@@ -1,6 +1,9 @@
 """Provider-call ledger <evidence>/calls.json and the planned maximum of one launch.
 
-The ledger is a JSON list with one entry per evaluation or episode launch: {kind, key, planned, calls, ...}.
+The ledger is a JSON list with one entry per evaluation or episode launch, and (mode 2, adaptive.judge_generation)
+one per judge scoring a pool: {kind, key, planned, calls, ...}; a judge entry (`kind: "judge"`, key
+"gen <n> <task> <judge>") plans one call per batch of the pool (score.orc calls the judge once per batch) and
+settles on the shim calls under <pool>/records/judges/<judge>.
 `reserve` appends an entry with the launch's planned maximum before it starts; `settle` records the calls the
 shims recorded for it (the calls/<n>/ directories under its records directory) after it ends. The ledger total
 counts a settled entry's calls and an unsettled entry's planned maximum (a launch in flight, or one that died
