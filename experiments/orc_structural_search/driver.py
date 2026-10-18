@@ -133,8 +133,10 @@ def seed_config(seed: Path, config: ExperimentConfig) -> ExperimentConfig:
     return replace(config, entry_workflow=f"{seed.stem}::{entry}", mutable_files=(seed.name,))
 
 
-def entry_source(root: Path, config: ExperimentConfig) -> Path:
-    return (root / config.source_root / config.entry_workflow.split("::")[0]).with_suffix(".orc")
+def planned_calls(root: Path, config: ExperimentConfig) -> int:
+    """The ledger's planned maximum for one evaluation of the candidate at `root` (ledger.max_provider_calls)."""
+    module, entry = config.entry_workflow.split("::")
+    return ledger.max_provider_calls((root / config.source_root / module).with_suffix(".orc"), entry)
 
 
 def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, replicate: int, work_root: Path,
@@ -145,7 +147,7 @@ def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, repli
     record (with `fields`) to the log."""
     cid = check_archived(root, runtime_commit(runtime))
     slot = ledger.reserve(evidence_root, kind="evaluation", key=f"{cid} {task.name} replicate {replicate}",
-                          planned=ledger.max_provider_calls(entry_source(root, config)), cap=call_cap)
+                          planned=planned_calls(root, config), cap=call_cap)
     record = evaluate(root, config, task_package=task, work_root=work_root, replicate=replicate,
                       runtime=runtime, env={**env, **LAUNCH_ENV}, timeout_sec=timeout_sec)
     ledger.settle(evidence_root, slot, record.records_dir, evaluation_id=record.evaluation_id)

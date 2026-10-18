@@ -307,7 +307,7 @@ def test_an_episode_beyond_the_call_cap_is_refused_before_its_workspace(world):
 
 
 def test_planned_maximum_counts_provider_calls_under_loop_and_map_bounds():
-    assert {seed: max_provider_calls(SEEDS / f"{seed}.orc") for seed in CATALOG} == {
+    assert {seed: max_provider_calls(SEEDS / f"{seed}.orc", "run") for seed in CATALOG} == {
         "direct": 1, "plan_then_implement": 4, "implement_review_revise": 10, "best_of_n": 4,
         "implement_check_diagnose_repair": 3}
 

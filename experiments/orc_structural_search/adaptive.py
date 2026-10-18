@@ -53,7 +53,7 @@ from experiments.compare import pool as pooling, summarize
 from experiments.orc_structural_search import ledger
 from experiments.orc_structural_search.config import ExperimentConfig, load_config
 from experiments.orc_structural_search.driver import (
-    archive_seed, check_roots, check_solutions, entry_source, evaluate_all, run_episode, seed_config)
+    archive_seed, check_roots, check_solutions, evaluate_all, planned_calls, run_episode, seed_config)
 from experiments.orc_structural_search.readout import readout
 from experiments.orc_structural_search.records import UNAVAILABLE, append_record, read_records
 from experiments.orc_structural_search.scoring import (
@@ -218,7 +218,7 @@ def evaluate_and_judge(jobs: Sequence[tuple[Path, ExperimentConfig, Mapping]], g
     if not jobs:
         return []
     batches = math.ceil(len(jobs) * replicates / (BATCH_CLONES - ANCHORS_PER_BATCH))
-    calls = sum(ledger.max_provider_calls(entry_source(root, config)) for root, config, _ in jobs)
+    calls = sum(planned_calls(root, config) for root, config, _ in jobs)
     planned = len(tasks) * (replicates * calls + batches * len(judge["judges"]))
     check_budget(launch["evidence_root"], planned, launch["call_cap"], f"generation {generation}")
     evaluate_all(jobs, tasks=tasks, replicates=replicates, concurrency=launch["concurrency"],
