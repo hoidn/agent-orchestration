@@ -96,7 +96,7 @@ def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, repli
                       evidence_root: Path, runtime: Path, env: Mapping[str, str], timeout_sec: float,
                       solutions: Mapping[str, str], holdouts: Sequence[Path], fields: Mapping[str, object]) -> dict:
     """Evaluate `root` once, scan the run and append the evaluation record (with `fields`) to the log."""
-    record = evaluate(root, config, task_package=task, evidence_root=work_root, replicate=replicate,
+    record = evaluate(root, config, task_package=task, work_root=work_root, replicate=replicate,
                       runtime=runtime, env=env, timeout_sec=timeout_sec)
     roots = [("archive", evidence_root), ("archive", work_root / "episodes"), ("lineage", evidence_root / "log.jsonl"),
              *(("holdout", holdout) for holdout in holdouts)]
@@ -183,19 +183,20 @@ def entry_result(root: Path, build_key: str) -> object:
     return json.loads((root / ".orchestrate" / "build" / build_key / "closed_program.json").read_text())["result"]
 
 
-def judge_child(parent: Path, child: Path, config: ExperimentConfig) -> dict:
-    """Frozen-surface validation, full compilation, then the entry's result type against the parent's."""
+def judge_child(parent: Path, child: Path, config: ExperimentConfig, *, runtime: Path) -> dict:
+    """Frozen-surface validation, full compilation with the runtime's orchestrator (a compiler crash is a
+    rejection), then the entry's result type against the parent's."""
     verdict = validate_frozen_surfaces(parent, child, config)
     if not verdict.accepted:
         return {"outcome": "rejected", "refusal_code": verdict.code, "detail": verdict.detail}
-    compiled = compile_candidate(child, config)
+    compiled = compile_candidate(child, config, runtime=runtime)
     if compiled.status != "accepted":
         first = compiled.diagnostics[0] if compiled.diagnostics else {}
         return {"outcome": "rejected", "diagnostics_class": first.get("code", UNAVAILABLE),
-                "detail": first.get("message", "")}
+                "detail": first.get("message") or first.get("stderr", "")}
     # Fires only when the entry is not exported or lacks a result annotation: frozen-surface validation already
     # freezes an exported signature and every type declaration.
-    parent_build = compile_candidate(parent, config)
+    parent_build = compile_candidate(parent, config, runtime=runtime)
     if entry_result(parent, parent_build.build_key) != entry_result(child, compiled.build_key):
         return {"outcome": "rejected", "refusal_code": "slot_type_changed",
                 "detail": f"the result type of {config.entry_workflow} differs from the parent's"}
@@ -231,7 +232,7 @@ def unguided_episode(parent_root: Path, config: ExperimentConfig, *, agent_cmd: 
            "wall_clock_sec": elapsed, "consumption": UNAVAILABLE, "model_revision": UNAVAILABLE,
            "hypothesis": UNAVAILABLE, "refusal_code": None, "diagnostics_class": None, "skeleton": None,
            "parent_skeleton": skeleton(parent_root, config)}
-    row.update({"outcome": stopped} if stopped else judge_child(parent_root, copy, config))
+    row.update({"outcome": stopped} if stopped else judge_child(parent_root, copy, config, runtime=runtime))
     if row["outcome"] == "accepted":
         _, root = archive(copy, evidence_root, runtime)
         row.update(candidate_root=str(root), skeleton=skeleton(root, config))

@@ -1,8 +1,9 @@
 """Candidate identity, immutable snapshots, compilation and edit validation.
 
 A candidate is a directory. The top-level `.orchestrate/` (the compiler's build cache) is derived, not content.
-`compile_candidate` runs this checkout's orchestrator (`python -P -m orchestrator` with PYTHONPATH set to the
-repository root) with cwd=root, so the build cache lands inside the candidate.
+`compile_candidate` runs the frozen runtime's orchestrator (`python -P -m orchestrator` with PYTHONPATH set to the
+runtime checkout, the commit `candidate_id` binds and evaluations run) with cwd=root, so the build cache lands inside
+the candidate.
 
 Edit validation (docs/design/orc_structural_search_driver.md, "Edit Validation And Transactions") reads parent and
 child with the ordinary reader (`read_sexpr_file`, which normalizes CRLF) and compares forms modulo spans, so
@@ -25,8 +26,8 @@ from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.reader import read_sexpr_file, read_sexpr_text
 from orchestrator.workflow_lisp.sexpr import KeywordAtom, ListExpr, SExpr, StringAtom, SymbolAtom
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 BUILD_CACHE = ".orchestrate"
+CRASH_TAIL_CHARS = 4000
 
 
 @dataclass(frozen=True)
@@ -72,7 +73,9 @@ def snapshot(parent: Path, edited_files: Mapping[str, bytes], dest: Path) -> Pat
     return dest
 
 
-def compile_candidate(root: Path, config: ExperimentConfig) -> CompileOutcome:
+def compile_candidate(root: Path, config: ExperimentConfig, *, runtime: Path) -> CompileOutcome:
+    """Compile the candidate's entry with the runtime checkout's orchestrator. Output that is not JSON (the
+    compiler crashed) is a rejection with one `compiler_crash` diagnostic holding the stderr tail."""
     source_root = root / config.source_root
     module = config.entry_workflow.split("::")[0]
     command = [
@@ -84,12 +87,14 @@ def compile_candidate(root: Path, config: ExperimentConfig) -> CompileOutcome:
     if config.command_boundaries_file is not None:
         command += ["--command-boundaries-file", str(root / config.command_boundaries_file)]
     command.append("--diagnostics-json")
-    env = {**os.environ, "PYTHONPATH": str(REPO_ROOT)}
+    env = {**os.environ, "PYTHONPATH": str(runtime)}
     result = subprocess.run(command, cwd=root, env=env, capture_output=True, text=True)
     lines = result.stdout.strip().splitlines()
-    if not lines:
-        raise RuntimeError(f"compile printed nothing (exit {result.returncode}): {result.stderr}")
-    document = json.loads(lines[-1])
+    try:
+        document = json.loads(lines[-1])
+    except (IndexError, ValueError):
+        return CompileOutcome("rejected", None, None, (
+            {"code": "compiler_crash", "exit": result.returncode, "stderr": result.stderr[-CRASH_TAIL_CHARS:]},))
     if document.get("status") == "accepted" and result.returncode == 0:
         return CompileOutcome("accepted", document["build_key"], document["program_digest"], ())
     if document.get("status") == "rejected" and result.returncode != 0:

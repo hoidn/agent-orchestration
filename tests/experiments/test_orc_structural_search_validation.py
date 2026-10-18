@@ -71,7 +71,7 @@ def receipt(parent: Path, site_id: str, replacement: str, helpers=(), digest=Non
 def test_whitespace_only_child_passes_validation_and_keeps_program_digest(tmp_path):
     child_source = edit("  (defworkflow run", "\n  ;; reflowed\n  (defworkflow   run").replace("\n", "\n  ")
     parent, child = pair(tmp_path, SOURCE, child_source)
-    digests = {compile_candidate(root, config()).program_digest for root in (parent, child)}
+    digests = {compile_candidate(root, config(), runtime=REPO).program_digest for root in (parent, child)}
     assert (validate_frozen_surfaces(parent, child, config()).accepted, len(digests), None in digests) == (
         True, 1, False)
 

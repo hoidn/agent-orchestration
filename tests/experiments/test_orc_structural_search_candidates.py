@@ -74,7 +74,7 @@ def test_snapshot_never_writes_parent_and_refuses_existing_dest(tmp_path):
 
 def test_compile_candidate_reports_accepted_build_key_and_digest(tmp_path):
     root = make_candidate(tmp_path / "c", {"plan_review_execute.orc": SOURCE, "providers.json": PROVIDERS})
-    outcome = compile_candidate(root, make_config(tmp_path))
+    outcome = compile_candidate(root, make_config(tmp_path), runtime=REPO)
     assert (outcome.status, bool(outcome.build_key), outcome.program_digest.startswith("sha256:"),
             outcome.diagnostics) == ("accepted", True, True, ())
 
@@ -84,9 +84,32 @@ def test_compile_candidate_reports_rejected_diagnostics(tmp_path):
                             ":prompt (execute-plan :task task :steps task)")
     assert broken != SOURCE
     root = make_candidate(tmp_path / "c", {"plan_review_execute.orc": broken, "providers.json": PROVIDERS})
-    outcome = compile_candidate(root, make_config(tmp_path))
+    outcome = compile_candidate(root, make_config(tmp_path), runtime=REPO)
     assert (outcome.status, outcome.build_key, outcome.program_digest, len(outcome.diagnostics) > 0) == (
         "rejected", None, None, True)
+
+
+def fake_runtime(root: Path, main: str) -> Path:
+    """A runtime checkout whose `orchestrator` package is `main` alone."""
+    (root / "orchestrator").mkdir(parents=True)
+    (root / "orchestrator" / "__init__.py").write_text("")
+    (root / "orchestrator" / "__main__.py").write_text(main)
+    return root
+
+
+def test_compile_candidate_runs_the_runtime_orchestrator(tmp_path):
+    runtime = fake_runtime(tmp_path / "runtime", "import json\nprint(json.dumps({'status': 'accepted', "
+                                                 "'build_key': 'from-runtime', 'program_digest': 'sha256:0'}))\n")
+    root = make_candidate(tmp_path / "c", {"plan_review_execute.orc": SOURCE, "providers.json": PROVIDERS})
+    assert compile_candidate(root, make_config(tmp_path), runtime=runtime).build_key == "from-runtime"
+
+
+def test_compile_candidate_reports_non_json_compiler_output_as_a_crash(tmp_path):
+    runtime = fake_runtime(tmp_path / "runtime", "import sys\nprint('Traceback')\nsys.exit('boom')\n")
+    root = make_candidate(tmp_path / "c", {"plan_review_execute.orc": SOURCE, "providers.json": PROVIDERS})
+    outcome = compile_candidate(root, make_config(tmp_path), runtime=runtime)
+    assert (outcome.status, outcome.diagnostics[0]["code"], "boom" in outcome.diagnostics[0]["stderr"]) == (
+        "rejected", "compiler_crash", True)
 
 
 def test_load_config_rejects_unknown_condition(tmp_path):

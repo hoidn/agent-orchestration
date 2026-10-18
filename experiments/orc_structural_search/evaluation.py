@@ -1,16 +1,17 @@
 """One evaluation: an accepted candidate run through the public `run` route in a fresh task clone.
 
 Design: docs/design/orc_structural_search_driver.md, "Execution Contract". `evaluate` compiles the candidate
-(a rejected one is refused: only accepted children are evaluated), lets the comparison harness's `run_arm`
-build the clone and write `command.sh`/`resume.sh` behind the shims, copies the frozen `dev_check.py` into
-the clone (excluded from its patches), runs `command.sh` and classifies the run's memo. The evidence root is
-also `run_arm`'s work root:
+with the runtime's orchestrator (a rejected one is refused: only accepted children are evaluated), lets the
+comparison harness's `run_arm` build the clone and write `command.sh`/`resume.sh` behind the shims, copies the
+candidate root's `dev_check.py` (covered by its candidate id) into the clone (excluded from its patches), runs
+`command.sh` and classifies the run's memo. The work root is `run_arm`'s work root, so it must be visible in the
+shims' sandbox (not under /tmp, /dev/shm or /var/tmp) and outside the main checkout's prefix:
 
-  <evidence>/runs/<evaluation_id>/<run_id>/   the orchestrator's state (--state-dir): run.json, memo.jsonl
-  <evidence>/records/<evaluation_id>/run-1/   record.json, inputs.json, command.sh, resume.sh, calls/<n>/,
-                                              launch-<k>.log (k = resume count)
-  <evidence>/agents/<16 hex>/cand-1/          the clone (the run's working directory)
-  <evidence>/env-manifests/<digest>.json      the environment manifest whose digest is in the identity
+  <work>/runs/<evaluation_id>/<run_id>/   the orchestrator's state (--state-dir): run.json, memo.jsonl
+  <work>/records/<evaluation_id>/run-1/   record.json, inputs.json, command.sh, resume.sh, calls/<n>/,
+                                          launch-<k>.log (k = resume count)
+  <work>/agents/<16 hex>/cand-1/          the clone (the run's working directory)
+  <work>/env-manifests/<digest>.json      the environment manifest whose digest is in the identity
 
 Outcome: the memo's terminal row `completed` -> completed, another terminal -> failed (the runtime writes a
 failed terminal when a provider exits nonzero), no terminal (the run died, or never started) -> incident; an
@@ -42,7 +43,7 @@ from experiments.orc_structural_search.config import ExperimentConfig
 from experiments.orc_structural_search.records import UNAVAILABLE
 
 EVALUATOR_VERSION = "public-run-1"
-DEV_CHECK = Path(__file__).resolve().parent / "seeds" / "dev_check.py"
+DEV_CHECK = "dev_check.py"  # in the candidate root
 INPUTS = ("task", "intent", "repo")
 
 
@@ -51,7 +52,7 @@ class EvaluationRecord:
     evaluation_id: str
     run_id: str  # UNAVAILABLE when no run started
     state_dir: Path
-    records_dir: Path  # <evidence>/records/<evaluation_id>/run-1
+    records_dir: Path  # <work>/records/<evaluation_id>/run-1
     env_manifest_digest: str  # "sha256:..." of the environment manifest in the evaluation id
     outcome: str  # "completed" | "failed" | "incident"
     value: object | None  # the terminal value when completed
@@ -68,34 +69,37 @@ def evaluation_id(candidate: str, task_id: str, evaluator_version: str, env_mani
     return hashlib.sha256(json.dumps(fields).encode()).hexdigest()
 
 
-def record_env_manifest(evidence_root: Path) -> str:
+def record_env_manifest(work_root: Path) -> str:
     """Write this interpreter's environment manifest (Python, platform, installed distributions) under the
-    evidence root; return its sha256 digest."""
+    work root; return its sha256 digest."""
     manifest = {"python": sys.version, "executable": sys.executable, "platform": platform.platform(),
                 "distributions": sorted({f"{d.metadata['Name']}=={d.version}"
                                          for d in importlib.metadata.distributions()})}
     text = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
     digest = hashlib.sha256(text.encode()).hexdigest()
-    path = evidence_root / "env-manifests" / f"{digest}.json"
+    path = work_root / "env-manifests" / f"{digest}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
     return f"sha256:{digest}"
 
 
-def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Path, evidence_root: Path,
+def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Path, work_root: Path,
              replicate: int, runtime: Path, env: Mapping[str, str], timeout_sec: float) -> EvaluationRecord:
-    """Run the accepted candidate once in a fresh clone of the task package; see the module docstring."""
-    candidate_root, evidence_root = candidate_root.resolve(), evidence_root.resolve()
-    compiled = compile_candidate(candidate_root, config)
+    """Run the accepted candidate once in a fresh clone of the task package; `work_root` is the sandbox-visible
+    work root (see the module docstring)."""
+    candidate_root, work_root = candidate_root.resolve(), work_root.resolve()
+    compiled = compile_candidate(candidate_root, config, runtime=runtime)
     if compiled.status != "accepted":
         raise ValueError(f"{candidate_root} does not compile; only accepted candidates are evaluated: "
                          f"{compiled.diagnostics}")
+    if not (candidate_root / DEV_CHECK).is_file():
+        raise FileNotFoundError(f"{candidate_root} has no {DEV_CHECK}: the clone's dev-check boundary would not run")
     candidate = candidate_id(candidate_root, orchestrator_commit=runtime_commit(runtime))
-    env_digest = record_env_manifest(evidence_root)
+    env_digest = record_env_manifest(work_root)
     eid = evaluation_id(candidate, task_package.name, EVALUATOR_VERSION, env_digest, replicate)
-    state_dir = evidence_root / "runs" / eid
-    if (evidence_root / "records" / eid).exists():  # even a launch that died before its run started
-        raise FileExistsError(f"{evidence_root / 'records' / eid}: evaluation {eid} already ran; "
+    state_dir = work_root / "runs" / eid
+    if (work_root / "records" / eid).exists():  # even a launch that died before its run started
+        raise FileExistsError(f"{work_root / 'records' / eid}: evaluation {eid} already ran; "
                               "resume it rather than rerun it")
     source_root = candidate_root / config.source_root
     spec = ArmSpec(
@@ -103,11 +107,11 @@ def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Pa
         entry=config.entry_workflow, source_root=source_root, providers=candidate_root / config.providers_file,
         inputs=INPUTS, state_dir=state_dir,
         command_boundaries=config.command_boundaries_file and candidate_root / config.command_boundaries_file)
-    records = run_arm(task_package, eid, evidence_root, runtime, spec=spec)
+    records = run_arm(task_package, eid, work_root, runtime, spec=spec)
     clone = Path(load(records / "record.json")["candidates"][0])
-    shutil.copyfile(DEV_CHECK, clone / DEV_CHECK.name)
+    shutil.copyfile(candidate_root / DEV_CHECK, clone / DEV_CHECK)
     with (clone / ".git" / "info" / "exclude").open("a") as exclude:  # not part of the agent's patch
-        exclude.write(f"/{DEV_CHECK.name}\n")
+        exclude.write(f"/{DEV_CHECK}\n")
     pending = EvaluationRecord(eid, UNAVAILABLE, state_dir, records, env_digest, "incident", None, 0.0, 0, 0, ())
     return _launch(pending, ["bash", str(records / "command.sh")], env, timeout_sec)
 

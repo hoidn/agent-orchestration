@@ -13,7 +13,7 @@ from experiments.orc_structural_search.config import ExperimentConfig
 from experiments.orc_structural_search.driver import check_roots, enumerate_catalog, judge_child, run_mode1
 from experiments.orc_structural_search.records import read_records
 from tests.experiments.compare_harness_support import skip_without_sandbox
-from tests.experiments.orc_structural_search_support import MUTATOR, SEEDS, script, world  # noqa: F401 (fixture)
+from tests.experiments.orc_structural_search_support import MUTATOR, REPO, SEEDS, script, world  # noqa: F401 (fixture)
 
 CATALOG = ["direct", "plan_then_implement", "implement_review_revise", "best_of_n", "implement_check_diagnose_repair"]
 CONFIG = {"mutable_files": ["direct.orc"], "mutable_definitions": ["run"], "condition": "topology-only",
@@ -107,4 +107,4 @@ def test_a_child_whose_unexported_entry_changes_result_type_is_refused(tmp_path)
     (child / "direct.orc").write_text(source.replace("    -> Outcome\n", "    -> Change\n").replace(
         "(variant Outcome DONE :summary change.summary)", "change"))
     config = ExperimentConfig(**CONFIG | {"mutable_files": ("direct.orc",), "mutable_definitions": ("run",)})
-    assert judge_child(parent, child, config)["refusal_code"] == "slot_type_changed"
+    assert judge_child(parent, child, config, runtime=REPO)["refusal_code"] == "slot_type_changed"

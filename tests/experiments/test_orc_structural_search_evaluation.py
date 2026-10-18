@@ -31,7 +31,7 @@ def sandboxed():
 
 def run(world, timeout_sec=NO_KILL_SEC):
     env = {**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}", "SCRIPTED_RESULTS_FILE": str(world.results)}
-    record = evaluate(world.candidate, CONFIG, task_package=world.task, evidence_root=world.evidence,
+    record = evaluate(world.candidate, CONFIG, task_package=world.task, work_root=world.evidence,
                       replicate=1, runtime=world.runtime, env=env, timeout_sec=timeout_sec)
     return record, env
 
@@ -65,6 +65,14 @@ def test_direct_seed_runs_in_the_clone_with_dev_check_beside_it(sandboxed, world
     inputs = json.loads((calls.parent / "inputs.json").read_text())
     assert (Path(inputs["repo"]) / "dev_check.py").is_file() and (Path(inputs["repo"]) / "dev-check.json").is_file()
     assert "dev_check.py" not in patch
+
+
+def test_dev_check_comes_from_the_candidate_root(sandboxed, world):
+    (world.candidate / "dev_check.py").write_text((world.candidate / "dev_check.py").read_text() + "# candidate copy\n")
+    script(world, [CHANGE])
+    record, _ = run(world)
+    repo = Path(json.loads((record.records_dir / "inputs.json").read_text())["repo"])
+    assert (repo / "dev_check.py").read_text() == (world.candidate / "dev_check.py").read_text()
 
 
 def test_provider_failure_terminal_is_recorded_as_failed(sandboxed, world):
