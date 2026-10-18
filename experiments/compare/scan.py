@@ -57,7 +57,7 @@ def patterns(*, main, runtime, solution, home, others=(), roots=()):
         bounded = spelled(path, home) + BOUNDARY
         found[name] = f"{found[name]}|{bounded}" if name in found else bounded
     if others:
-        found["other tree or judge"] = "|".join(re.escape(name) for name in others)
+        found["other tree or judge"] = "|".join(re.escape(name) + BOUNDARY for name in others)  # not episode-10
     return found
 
 

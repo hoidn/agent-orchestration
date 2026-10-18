@@ -186,14 +186,26 @@ def test_shim_hides_the_runtime_and_the_records_from_the_agent(world):
         [], [], [], "claude-opus-5-5", "1")
 
 
-def test_shim_hides_the_attempts_result_variables_from_the_agent(world, monkeypatch):
+ATTEMPT = ("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY", "ORCHESTRATOR_WORKSPACE_ROOT")
+
+
+def test_shim_hides_an_ordinary_attempts_result_variables_from_the_agent(world, monkeypatch):
     # an orchestrator task repository's own tests read these, so an agent running them overwrote its result
-    attempt = ("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY", "ORCHESTRATOR_WORKSPACE_ROOT")
-    for name in attempt:
+    for name in ATTEMPT[:2]:  # an ordinary attempt: no workspace root; the prompt's `- path:` line names the file
+        monkeypatch.setenv(name, "set-by-the-provider-executor")
+    monkeypatch.delenv(ATTEMPT[2], raising=False)
+    _, record = start(world, "direct_task")
+    env = call(world, record, "env").stdout
+    assert [name for name in ATTEMPT if f"{name}=" in env] == []
+
+
+def test_shim_keeps_a_launch_workspace_attempts_result_variables(world, monkeypatch):
+    # a launch-workspace attempt's prompt tells the agent to resolve paths and write its result through them
+    for name in ATTEMPT:
         monkeypatch.setenv(name, "set-by-the-provider-executor")
     _, record = start(world, "direct_task")
     env = call(world, record, "env").stdout
-    assert [name for name in attempt if f"{name}=" in env] == []
+    assert [name for name in ATTEMPT if f"{name}=set-by-the-provider-executor" in env] == list(ATTEMPT)
 
 
 def test_shim_gives_the_agent_a_private_tmp_and_process_list(world):
@@ -588,6 +600,14 @@ def test_scan_root_patterns_stop_at_a_path_boundary(world):
     compiled = scan.patterns(main=world.main, runtime=world.runtime, solution=world.solution, home=world.tmp,
                              roots=[("holdout", Path("/a/ss"))])
     assert [bool(re.search(compiled["holdout"], text)) for text in ("/a/ss", "/a/ss/t", "/a/ss-work", "/a/ss.x")] == [
+        True, True, False, False]
+
+
+def test_scan_sibling_tree_names_stop_at_a_name_boundary(world):
+    compiled = scan.patterns(main=world.main, runtime=world.runtime, solution=world.solution, home=world.tmp,
+                             others=["episode-1"])
+    assert [bool(re.search(compiled["other tree or judge"], text))
+            for text in ("ls ../episode-1", "ls ../episode-1/cand-1", "ls ../episode-10", "episode-1.log")] == [
         True, True, False, False]
 
 

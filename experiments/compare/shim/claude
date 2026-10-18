@@ -3,10 +3,12 @@
 # PATH with the same arguments and stdin, tees stdout and stderr live, records the call in
 # $COMPARE_ROOT/calls/<n>/ with each $COMPARE_TREE/cand-* patch against $COMPARE_BASE, taken through a
 # copy of the candidate's index so what the agent staged stays staged. The agent loses PYTHONPATH,
-# OLDPWD, COMPARE_* and this directory on PATH (they name the runtime, main checkout and records), and
-# the attempt's ORCHESTRATOR_OUTPUT_BUNDLE_PATH, ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY and ORCHESTRATOR_WORKSPACE_ROOT
-# (an orchestrator task repository's own code and tests read them, so its test runs overwrote the result;
-# the prompt's `- path:` line names the result file), and
+# OLDPWD, COMPARE_* and this directory on PATH (they name the runtime, main checkout and records), and,
+# for an ordinary attempt (ORCHESTRATOR_WORKSPACE_ROOT unset), its ORCHESTRATOR_OUTPUT_BUNDLE_PATH and
+# ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY (an orchestrator task repository's own code and tests read them, so its
+# test runs overwrote the result; the prompt's `- path:` line names the result file relative to the working
+# directory). A launch-workspace attempt keeps all three: its prompt tells the agent to use them, so the
+# overwrite risk remains there (disclosed in experiments/compare/README.md). It
 # runs under bubblewrap with a private /tmp ($COMPARE_TREE/tmp), an empty /var/tmp (other sessions keep
 # worktrees there), a private /dev/shm and process list;
 # the rest of the filesystem, home and network stay shared: reads there are only detected (R35).
@@ -34,6 +36,8 @@ until mkdir "$COMPARE_ROOT/calls/$n" 2>/dev/null; do
   n=$((n + 1))
 done
 call="$COMPARE_ROOT/calls/$n"
+attempt=(-u ORCHESTRATOR_OUTPUT_BUNDLE_PATH -u ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY)
+[ -n "${ORCHESTRATOR_WORKSPACE_ROOT+set}" ] && attempt=()
 guard="$COMPARE_TREE/.model-guard"; staged=
 cmp -s "$here/model-guard" "$guard/claude" || {
   mkdir -p "$guard" && staged=$(mktemp "$guard/.claude.XXXXXX") && cp "$here/model-guard" "$staged" &&
@@ -44,8 +48,7 @@ cmp -s "$here/model-guard" "$guard/claude" || {
 [ "$name" = claude ] && real="$guard/claude"
 cat > "$call/prompt.txt"
 exec 3> >(tee "$call/stderr.txt" >&2); errors=$!
-env -u PYTHONPATH -u OLDPWD -u COMPARE_ROOT -u COMPARE_TREE -u COMPARE_BASE -u ORCHESTRATOR_OUTPUT_BUNDLE_PATH \
-  -u ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY -u ORCHESTRATOR_WORKSPACE_ROOT PATH="$guard:$path" \
+env -u PYTHONPATH -u OLDPWD -u COMPARE_ROOT -u COMPARE_TREE -u COMPARE_BASE "${attempt[@]}" PATH="$guard:$path" \
   CLAUDE_CODE_SUBAGENT_MODEL=claude-opus-5-5 CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 "$sandbox" \
   --dev-bind / / --bind "$COMPARE_TREE/tmp" /tmp --tmpfs /dev/shm --tmpfs /var/tmp --unshare-pid --proc /proc --die-with-parent \
   "$real" "$@" < "$call/prompt.txt" 2>&3 3>&- | tee "$call/stdout.txt" 3>&-
