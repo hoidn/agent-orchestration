@@ -25,8 +25,9 @@ def check() -> dict:
     try:
         proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired as exc:
-        output = (exc.stdout or "") + (exc.stderr or "")
-        output = output.decode(errors="replace") if isinstance(output, bytes) else output
+        output = "".join(
+            stream.decode(errors="replace") if isinstance(stream, bytes) else (stream or "")
+            for stream in (exc.stdout, exc.stderr))
         return {"passed": False, "failing": [f"timeout after {timeout}s"], "excerpt": output[-EXCERPT_CHARS:]}
     output = proc.stdout + proc.stderr
     failing = [] if proc.returncode == 0 else [f"{' '.join(argv)} exited {proc.returncode}"]

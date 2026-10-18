@@ -25,7 +25,10 @@ def compile_seed(seed):
          "--command-boundaries-file", str(rel / "commands.json"), "--diagnostics-json"],
         cwd=ROOT, env={**os.environ, "PYTHONPATH": str(ROOT)}, capture_output=True, text=True,
     )
-    return json.loads(proc.stdout)
+    try:
+        return json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        pytest.fail(f"compile of {seed} printed no JSON; stdout={proc.stdout!r} stderr={proc.stderr!r}")
 
 
 def _forms(seed):
@@ -67,7 +70,7 @@ def test_seed_compiles_at_2_39_with_the_common_entry_contract(seed):
 
 
 def test_no_seed_names_a_fable_model():
-    for path in SEEDS_DIR.iterdir():
+    for path in (p for p in SEEDS_DIR.iterdir() if p.is_file()):
         assert "fable" not in path.read_text().lower(), path
 
 
@@ -90,6 +93,13 @@ def test_dev_check_writes_typed_report(tmp_path):
 def test_dev_check_passes_on_zero_exit(tmp_path):
     (tmp_path / "dev-check.json").write_text(json.dumps({"argv": ["python", "-c", "pass"], "timeout_sec": 30}))
     assert _run_dev_check(tmp_path)["passed"] is True
+
+
+def test_dev_check_timeout_with_output_on_one_stream_writes_report(tmp_path):
+    (tmp_path / "dev-check.json").write_text(json.dumps(
+        {"argv": ["python", "-c", "import time; print('partial', flush=True); time.sleep(5)"], "timeout_sec": 1}))
+    report = _run_dev_check(tmp_path)
+    assert (report["passed"], report["failing"]) == (False, ["timeout after 1s"])
 
 
 def test_dev_check_without_config_fails_closed(tmp_path):
