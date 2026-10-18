@@ -8,7 +8,7 @@ import pytest
 
 from experiments.compare import pool as pooling, prepare, summarize
 from experiments.orc_structural_search.records import UNAVAILABLE, append_record
-from experiments.orc_structural_search.scoring import join_scores, phase1_readout, pool_evaluations
+from experiments.orc_structural_search.scoring import join_scores, phase1_readout, pool_evaluations, split_batches
 from tests.experiments.compare_harness_support import (  # noqa: F401 (world is a fixture)
     REPO, call, edit, skip_without_sandbox, world, write_memo,
 )
@@ -62,6 +62,11 @@ def test_pool_evaluations_pools_the_tasks_completed_evaluations_in_one_batch_wit
     assert sorted((mapping["clones"][cid]["arm"], tuple(mapping["clones"][cid]["labels"]))
                   for batch in mapping["batches"] for cid in batch) == [
         ("anchor", ("symptom",)), ("anchor", ("upstream",)), ("e1", ("final",)), ("e2", ("final",))]
+
+
+def test_split_batches_deals_finals_into_batches_of_at_most_eight_beside_the_two_anchors():
+    batches = split_batches(list(range(17)))
+    assert (sorted(len(b) for b in batches), sorted(x for b in batches for x in b)) == ([5, 6, 6], list(range(17)))
 
 
 def score(out, mapping, judge, home):
@@ -139,6 +144,12 @@ def test_phase1_readout_within_tolerance_is_not_separated():
         False, False, "within_tolerance")
 
 
+def test_phase1_readout_tolerance_never_falls_below_half_a_rubric_point():
+    flat = {"direct": [4, 4], "best_of_n": [4.4, 4.4]}  # pooled SD 0: 2 x SD would separate any gap
+    task = phase1_readout(rows_of("t1", flat), DIVERSE)["tasks"]["t1"]
+    assert (task["threshold"], task["separated"]) == (0.5, False)
+
+
 def test_phase1_readout_reports_mean_sd_and_direct_rank_per_task():
     task = phase1_readout(rows_of("t1", WIDE), DIVERSE)["tasks"]["t1"]
     assert (task["policies"]["best_of_n"]["mean"], task["policies"]["best_of_n"]["sd"], task["pooled_sd"],
@@ -161,6 +172,11 @@ def test_phase1_readout_does_not_select_phase2_when_unguided_i1_collapsed():
     readout = phase1_readout(rows_of("t1", WIDE) + rows_of("t2", WIDE), DIVERSE | {"collapsed": True})
     assert (readout["unguided"]["collapsed"], readout["phase2_selected"], readout["rule"]) == (
         True, False, "collapsed")
+
+
+def test_phase1_readout_does_not_select_phase2_without_a_collapse_figure():
+    readout = phase1_readout(rows_of("t1", WIDE) + rows_of("t2", WIDE), DIVERSE | {"collapsed": UNAVAILABLE})
+    assert (readout["phase2_selected"], readout["rule"]) == (False, "collapse_unavailable")
 
 
 def test_phase1_readout_leaves_out_unvalued_runs_and_has_no_sd_for_a_single_value():

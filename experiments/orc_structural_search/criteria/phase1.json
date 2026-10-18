@@ -12,20 +12,42 @@
   "solutions": "not recorded here: this file sits in the runtime agents can read; the operator passes each task's solution commit with --solution and the scan uses it",
   "arms": "one per evaluation: each evaluation runs through prepare.run_arm with its evaluation id as the arm, so summarize reports one arm per evaluation; evaluation ids depend on the environment manifest and are not known before the runs, so none is listed. Policies are joined to evaluations by scoring.join_scores through each run row's records directory",
   "policies": {
-    "catalog": ["direct", "plan_then_implement", "implement_review_revise", "best_of_n", "implement_check_diagnose_repair"],
+    "catalog": [
+      "direct",
+      "plan_then_implement",
+      "implement_review_revise",
+      "best_of_n",
+      "implement_check_diagnose_repair"
+    ],
     "unguided": "unguided:<candidate_id>, one policy per accepted I1 child of direct"
   },
-  "phase1_scale": {"catalog_seeds": 5, "tasks": 2, "replicates": 2, "unguided_episodes": 6, "interface": "I1", "condition": "topology-only"},
-  "judges": ["claude-opus-5-5", "gpt-6-sol"],
+  "phase1_scale": {
+    "catalog_seeds": 5,
+    "tasks": 2,
+    "replicates": 2,
+    "unguided_episodes": 6,
+    "interface": "I1",
+    "condition": "topology-only"
+  },
+  "judges": [
+    "claude-opus-5-5",
+    "gpt-6-sol"
+  ],
   "judge_bindings": {
     "claude-opus-5-5": "experiments/compare/score.providers.json",
     "gpt-6-sol": "experiments/compare/providers/score_codex.json"
   },
   "anchors": {
-    "resume-projection-integrity": ["resume-projection-integrity-upstream", "resume-projection-integrity-stub"],
-    "pure-result-replay": ["pure-result-replay-upstream", "pure-result-replay-stub"]
+    "resume-projection-integrity": [
+      "resume-projection-integrity-upstream",
+      "resume-projection-integrity-stub"
+    ],
+    "pure-result-replay": [
+      "pure-result-replay-upstream",
+      "pure-result-replay-stub"
+    ]
   },
-  "batches": "one pool per task (scoring.pool_evaluations): one batch holding the final patch of every completed, uncontaminated evaluation of that task plus both anchors",
+  "batches": "one pool per task (scoring.pool_evaluations): the final patch of every completed, uncontaminated evaluation of that task, dealt at random into the fewest batches of at most ten clones (at most eight evaluations, sizes differing by at most one) with both anchors repeated in every batch (harness D4 batch size)",
   "scale": "each clone scores 0-8, the sum of score.orc's four rubric criteria (root_cause, scope, generality, layering), each 0-2, averaged over the judges not excluded; an evaluation's value is its final clone's (summarize's run value)",
   "primary_measure": "the blind rubric mean per task and policy: the mean of summarize's run values over the policy's valued evaluations, computed by scoring.phase1_readout from results.json joined by scoring.join_scores",
   "primary": [],
@@ -33,12 +55,13 @@
   "secondary": [],
   "separation": {
     "tolerance_sd": 2.0,
-    "rule": "a task is separated when the largest difference between two policy means exceeds tolerance_sd times the pooled within-arm SD, sqrt(sum((n-1) s^2) / sum(n-1)) over policies with two or more valued evaluations; with no such policy the pooled SD is unavailable and the task is not separated",
-    "min_tasks": 2
+    "rule": "a task is separated when the largest difference between two policy means exceeds the threshold max(tolerance_sd times the pooled within-arm SD, min_tolerance rubric points); the pooled SD is sqrt(sum((n-1) s^2) / sum(n-1)) over policies with two or more valued evaluations; with no such policy it is unavailable and the task is not separated",
+    "min_tasks": 2,
+    "min_tolerance": 0.5
   },
   "direct_sole_winner": "on a task, DIRECT's mean exceeds every other policy's mean by more than the separation threshold",
   "collapse_threshold": 0.75,
-  "decision": "first rule that fires: fewer than two separated tasks -> within_tolerance; DIRECT the sole winner on every separated task -> direct_sole_winner; the driver readout's I1 collapsed is true -> collapsed (an unavailable collapse figure does not fire); otherwise separated and phase2_selected is true. Only separated selects Phase 2",
+  "decision": "first rule that fires: fewer than two separated tasks -> within_tolerance; DIRECT the sole winner on every separated task -> direct_sole_winner; the driver readout's I1 collapse figure unavailable (no accepted child: the adaptive claim is untested) -> collapse_unavailable; I1 collapsed (terminal-only share above collapse_threshold) -> collapsed; otherwise separated and phase2_selected is true. Phase 2 needs separation on at least two tasks and an available collapse figure below the threshold for at least one interface; I1 is the only Phase 1 interface",
   "reported": [
     "per task and policy: runs, mean, within-arm SD, hidden_mean, calls_mean, wall_clock_mean",
     "per task: pooled SD, threshold, largest gap, separated, DIRECT's rank",
@@ -47,9 +70,8 @@
   ],
   "hidden_acceptance": "descriptive only: reported per policy, never a threshold, gate, rank or selection",
   "known_differences": [
-    "one batch per task holds up to 18 clones (10 catalog evaluations, up to 6 children, 2 anchors), above the ten-clone batches of earlier experiments",
     "unguided children may have one valued evaluation per task: their means count in the largest gap but contribute nothing to the pooled SD",
-    "a pooled SD of 0 makes any difference of means a separation"
+    "with more than eight evaluations of a task, policies are rated in different batches; anchors are repeated in each batch and their scores reported per batch and judge"
   ],
   "model_policy": "no call uses a Fable model (owner, 2026-10-15): arms, mutators, judges and in-process subagents run behind the shims' model guard",
   "written_before_scoring": true

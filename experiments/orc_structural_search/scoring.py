@@ -5,9 +5,10 @@ comparison harness's `run_arm` with the evaluation id as its arm, so `summarize.
 own arm and knows nothing of policies. This module adds the three steps around the harness:
 
   pool_evaluations   collects (`prepare.collect`) every completed evaluation of one task in the driver's log
-                     (<evidence>/log.jsonl) and builds the harness's blind pool with ONE batch of all final
-                     patches plus the package's anchors. The harness's `pool` composes batches only for its own
-                     named arms (`pool.compose`), so this function reuses `pool`'s helpers with that one batch;
+                     (<evidence>/log.jsonl) and builds the harness's blind pool: final patches dealt at random
+                     into batches of at most ten clones, both anchors repeated in each. The harness's `pool`
+                     composes batches only for its own named arms (`pool.compose`), so this function reuses
+                     `pool`'s helpers with its own batches;
                      every other refusal (uncollected, unscanned, hits without a verdict, Fable, mixed bases,
                      paths under the main checkout or a sandbox mount) is the harness's.
   join_scores        maps each `summarize` run row (its `run` path, the records directory) to the evaluation
@@ -29,6 +30,7 @@ A policy is the seed stem for a catalog evaluation and `unguided:<candidate_id>`
 import argparse
 import json
 import math
+import random
 import secrets
 import time
 from collections.abc import Mapping, Sequence
@@ -41,6 +43,9 @@ from experiments.orc_structural_search.records import UNAVAILABLE, read_records
 
 DIRECT = "direct"  # the DIRECT seed's stem
 MIN_SEPARATED_TASKS = 2  # roadmap "Phase 1 separation": required on at least two tasks
+MIN_TOLERANCE = 0.5  # rubric points: the separation threshold never falls below it (criteria/phase1.json)
+BATCH_CLONES = 10  # harness D4: at most ten clones per batch, both anchors included and repeated in each
+ANCHORS_PER_BATCH = 2
 DIVERSITY = ("episodes", "distinct_skeletons", "revisit_rate", "terminal_only_share", "allocation_distinct",
              "collapsed")  # driver readout keys reported as they are
 
@@ -51,8 +56,8 @@ def policy(record: Mapping) -> str:
 
 def pool_evaluations(evidence_root: Path, task_package: Path, *, out: Path, judges: Sequence[str],
                      criterion: Path) -> Path:
-    """Collect every completed evaluation of `task_package` in the log and build the blind pool at `out` with one
-    batch (all final patches plus anchors); return the pool directory. Judges are MODEL[=PROVIDERS_JSON] as for
+    """Collect every completed evaluation of `task_package` in the log and build the blind pool at `out` (batches of
+    at most ten clones, anchors repeated); return the pool directory. Judges are MODEL[=PROVIDERS_JSON] as for
     `prepare.py pool` and must be the criterion's."""
     task, out = Path(task_package).resolve(), Path(out).resolve()
     names = sorted(spec.partition("=")[0] for spec in judges)
@@ -71,8 +76,19 @@ def pool_evaluations(evidence_root: Path, task_package: Path, *, out: Path, judg
     return out
 
 
+def split_batches(finals: Sequence, size: int = BATCH_CLONES - ANCHORS_PER_BATCH) -> list[list]:
+    """`finals` in random order, dealt into the fewest batches of at most `size` members, sizes differing by at
+    most one (the anchors join every batch in pool.build_batches)."""
+    shuffled = list(finals)
+    random.SystemRandom().shuffle(shuffled)
+    count = math.ceil(len(shuffled) / size)
+    return [shuffled[k::count] for k in range(count)]
+
+
+# ponytail: copy of experiments/compare/pool.py::pool with split_batches in place of pool.compose (which batches
+# only the harness's named arms); keep the mapping and checks in sync with that function.
 def build_pool(task: Path, criterion: Path, out: Path, judges: Sequence[str], records: dict[str, dict]) -> None:
-    """`pool.pool` with one batch of every usable run's final patch (pool.compose names only the harness's arms)."""
+    """`pool.pool` with every usable run's final patch in batches of at most ten clones, anchors repeated."""
     ref = next(iter(records.values()))
     if {(r["task"], r["compare_base"]) for r in records.values()} != {(str(task), ref["compare_base"])}:
         raise SystemExit("runs in one pool must share the task and the seeded commit")
@@ -85,7 +101,7 @@ def build_pool(task: Path, criterion: Path, out: Path, judges: Sequence[str], re
         raise SystemExit("no completed, uncontaminated evaluation to pool")
     for directory in (out / "clones", out / "judges", out / "records" / "patches"):
         directory.mkdir(parents=True)
-    clones, members = pooling.build_batches(out, task, ref, [finals])
+    clones, members = pooling.build_batches(out, task, ref, split_batches(finals))
     default = Path(ref["runtime"]) / "experiments/compare/score.providers.json"
     mapping = {"task": str(task), "criterion_sha256": sha256_file(criterion), "compare_base": ref["compare_base"],
                "main": ref["main"], "runtime": ref["runtime"], "runtime_commit": commit, "created_at": time.time(),
@@ -95,7 +111,7 @@ def build_pool(task: Path, criterion: Path, out: Path, judges: Sequence[str], re
     dump(out / "records" / "mapping.json", mapping)
     pooling.write_score_inputs(out, mapping, (task / "intent.txt").read_text(), Path(ref["runtime"]))
     (out / "clones").chmod(pooling.HIDDEN_DIR)
-    print(f"# {len(clones)} clones in one batch; run the judges one after another, "
+    print(f"# {len(clones)} clones in {len(members)} batches; run the judges one after another, "
           f"each followed by: prepare.py verify-pool --pool {out}")
 
 
@@ -134,7 +150,7 @@ def policy_stats(values: Sequence[float], rows: Sequence[Mapping]) -> dict:
 def separation(means: Mapping[str, float], sd: float | str, tolerance_sd: float) -> dict:
     """Separation (largest gap between policy means above tolerance_sd x pooled SD), DIRECT's competition rank
     (1 = best) and whether DIRECT alone is separated above every other policy."""
-    threshold = UNAVAILABLE if sd == UNAVAILABLE else tolerance_sd * sd
+    threshold = UNAVAILABLE if sd == UNAVAILABLE else max(tolerance_sd * sd, MIN_TOLERANCE)
     gap = max(means.values()) - min(means.values()) if means else 0.0
     others = [m for p, m in means.items() if p != DIRECT]
     direct = means.get(DIRECT)
@@ -159,14 +175,16 @@ def task_readout(rows: Sequence[Mapping], tolerance_sd: float) -> dict:
 def decision(tasks: Mapping[str, Mapping], unguided: Mapping) -> dict:
     """Roadmap "Decision Points And Stop Rules", first rule that fires: fewer than two separated tasks
     (within_tolerance), DIRECT the sole winner on every separated task (direct_sole_winner), the only Phase 1
-    interface (I1) collapsed (collapsed); otherwise separated and Phase 2 is selected. An unavailable collapse
-    figure (no accepted child) does not fire."""
+    interface (I1) without a collapse figure, no accepted child, so the adaptive claim is untested
+    (collapse_unavailable), or collapsed (collapsed); otherwise separated and Phase 2 is selected."""
     separated = sorted(t for t, r in tasks.items() if r["separated"])
     if len(separated) < MIN_SEPARATED_TASKS:
         rule = "within_tolerance"
     elif all(tasks[t]["direct_sole_winner"] for t in separated):
         rule = "direct_sole_winner"
-    elif unguided["collapsed"] is True:
+    elif unguided["collapsed"] == UNAVAILABLE:
+        rule = "collapse_unavailable"
+    elif unguided["collapsed"]:
         rule = "collapsed"
     else:
         rule = "separated"
