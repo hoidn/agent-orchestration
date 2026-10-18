@@ -1,0 +1,90 @@
+{
+  "experiment": "Structural search Phase 2: does feedback-guided adaptive search (mode 2, I1 and I2 episodes interleaved, an archive of incumbent plus frontier, per-generation blind judging) on rung 2 resume-projection-integrity and rung 4 pure-result-replay produce accepted children whose adaptive judged mean exceeds their parent's by more than min_gain, without either interface collapsing, and does the final choice among the finalists, the reference seed and direct hold up on the rung 1 validation task cf1-generic-unions?",
+  "plan": "docs/plans/2026-10-18-orc-structural-search-phase2-plan.md",
+  "adaptive_tasks": [
+    "experiments/compare/tasks/resume-projection-integrity",
+    "experiments/compare/tasks/pure-result-replay"
+  ],
+  "validation_task": "experiments/compare/tasks/cf1-generic-unions",
+  "base_commits": {
+    "resume-projection-integrity": "1cd607673c89170dc96c74a0b5eb4aef204da82d",
+    "pure-result-replay": "f80e551a6cdeca6a2913ce640326495be1ae1cc5",
+    "cf1-generic-unions": "c77e7ec0b0626914f81b7d1bd6249491e6c59c89"
+  },
+  "solutions": "not recorded here: this file sits in the runtime agents can read; the operator passes each task's solution commit with --solution and the scan uses it",
+  "judges": [
+    "claude-opus-5-5",
+    "gpt-6-sol"
+  ],
+  "judge_bindings": {
+    "claude-opus-5-5": "experiments/compare/score.providers.json",
+    "gpt-6-sol": "experiments/compare/providers/score_codex.json"
+  },
+  "anchors": {
+    "resume-projection-integrity": {
+      "upstream": "resume-projection-integrity-upstream",
+      "stub": "resume-projection-integrity-stub"
+    },
+    "pure-result-replay": {
+      "upstream": "pure-result-replay-upstream",
+      "stub": "pure-result-replay-stub"
+    },
+    "cf1-generic-unions": {
+      "upstream": "cf1-generic-unions-upstream",
+      "stub": "cf1-generic-unions-stub"
+    }
+  },
+  "anchor_spread_limit": 2.0,
+  "primary": [],
+  "secondary": [],
+  "primary_note": "empty: summarize measures are per arm, here per evaluation; summarize reads only judges, primary and secondary from a criterion. The rules below are applied by scoring.phase2_readout",
+  "rubric": "each clone scores 0-8, the sum of score.orc's four rubric criteria (root_cause, scope, generality, layering), each 0-2, averaged over the judges not excluded; an evaluation's value is its final clone's (summarize's run value)",
+  "scale": {
+    "runs": "3 (full variant) or 1 (reduced variant): the owner's approved variant in <E2>/budget-approval.md",
+    "generations": "6 (full variant) or 3 (reduced variant)",
+    "episodes_per_generation": 4,
+    "interfaces": ["I1", "I2", "I1", "I2"],
+    "interfaces_note": "I1 and I2 alternate within each generation and share the archive and the judge batches; every figure is reported per interface, never pooled",
+    "finalists_per_run": 2,
+    "validation_replicates": 2,
+    "condition": "topology-only"
+  },
+  "archive": {
+    "size": 6,
+    "frontier_axes": {
+      "mean_value": "higher: mean judged value over the adaptive tasks",
+      "mean_calls": "lower: mean provider calls"
+    },
+    "incumbent": "highest mean_value; ties: fewer mean_calls, then the lexically earlier candidate_id",
+    "initial": "Phase 1's joined catalog rows as prior evidence; generation 0 re-evaluates the incumbent once per adaptive task"
+  },
+  "improvement": {
+    "min_gain": 0.5,
+    "rule": "an accepted child improves when its adaptive mean (the mean over the adaptive tasks of its judged values per task, every adaptive task valued) minus its parent's mean_value in the archive it was drawn from (gen-<generation-1>.json) exceeds min_gain rubric points; improvements_per_episode is improvements over completed (accepted or rejected) episodes of the interface"
+  },
+  "collapse_threshold": 0.75,
+  "collapse": "per interface: collapsed when the terminal-only share of that interface's accepted children (skeleton and provider allocation both equal the parent's) exceeds collapse_threshold; unavailable without an accepted child",
+  "control_flow": {
+    "definitions": ["run"],
+    "rule": "an accepted child is a control-flow change when records.control_heads (counts of if, cond, match, loop/recur and list/map-effect heads) over these definitions of its .orc sources differs from its parent's"
+  },
+  "final_choice": {
+    "validation_success": "mean judged value of the candidate's valued validation evaluations",
+    "mean_cost": "wall_clock_sec",
+    "mean_cost_note": "no metered cost exists; mean_cost is the mean wall clock seconds of the candidate's validation evaluations",
+    "mean_cost_ceiling": 14400,
+    "equivalence_tolerance": 0.5,
+    "provider_calls": "mean",
+    "rule": "records.final_choice over the finalists (top finalists_per_run of each run's final archive by mean_value, ties fewer calls), the reference seed (the incumbent of each run's earliest archive file) and direct when distinct: rows above the ceiling excluded, then within equivalence_tolerance of the best validation mean, then lower mean_cost, fewer provider_calls, earlier candidate_id",
+    "shrinkage": "per validated candidate: screening mean (the mean over runs of its mean_value in the latest archive file that holds it) minus validation mean"
+  },
+  "anchor_trust": "from the validation pool's results.json anchors: anchors_ok when, in every batch and for every judge not excluded, the upstream anchor's total is strictly above the stub's (a missing anchor fails); anchor_spread per judge is the largest difference of one anchor's total across batches. Each pool's results.json criterion_sha256 must equal this file's SHA-256",
+  "reported": [
+    "per run and interface: completed episodes, accepted, improvements, improvements_per_episode, distinct skeletons, revisit rate, terminal-only share, allocation_distinct, collapsed, control-flow changes",
+    "per run: archive trajectory (incumbent and its mean_value per generation)",
+    "validation: per candidate screening mean, validation mean, shrinkage, mean cost, provider calls, is_reference; the final choice; anchors_ok, anchor_spread, spread_ok"
+  ],
+  "hidden_acceptance": "descriptive only: reported per candidate, never a threshold, gate, rank or selection",
+  "model_policy": "no call uses a Fable model (owner, 2026-10-15): mutators, evaluations, judges and in-process subagents run behind the shims' model guard",
+  "written_before_scoring": true
+}

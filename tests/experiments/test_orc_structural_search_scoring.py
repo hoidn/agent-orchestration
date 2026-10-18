@@ -10,7 +10,7 @@ from experiments.compare import pool as pooling, prepare, summarize
 from experiments.compare.repos import sha256_file
 from experiments.orc_structural_search.records import UNAVAILABLE, append_record
 from experiments.orc_structural_search.scoring import (
-    join_scores, phase1_readout, pool_evaluations, read_pool, split_batches,
+    join_scores, phase1_readout, phase2_readout, pool_evaluations, read_pool, split_batches,
 )
 from tests.experiments.compare_harness_support import (  # noqa: F401 (world is a fixture)
     REPO, call, edit, skip_without_sandbox, world, write_memo,
@@ -252,3 +252,164 @@ def test_phase1_criterion_is_frozen_for_both_packages_with_their_anchors_and_jud
             criterion["judges"], criterion["primary"], criterion["written_before_scoring"]) == (
         [criterion["base_commits"][p.name] for p in packages],
         [sorted(criterion["anchors"][p.name].values()) for p in packages], ["claude-opus-5-5", "gpt-6-sol"], [], True)
+
+
+# Phase 2: synthetic run evidence (log, judging results, archive files, candidate roots); no provider is called.
+CRITERION2 = REPO / "experiments" / "orc_structural_search" / "criteria" / "phase2.json"
+CRIT2 = json.loads(CRITERION2.read_text())
+ADAPTIVE = [Path(t).name for t in CRIT2["adaptive_tasks"]]
+VALIDATION = Path(CRIT2["validation_task"]).name
+BODY = "(provider-result providers.coder :prompt (p :task task))"
+BRANCHED = f'(if true {BODY} (record Change :summary "s" :account "a"))'
+
+
+def program(body=BODY):
+    return f"(workflow-lisp (defmodule direct) (defworkflow run ((task String)) -> Outcome {body}))"
+
+
+class Run:
+    """One Phase 2 run: its log, archive directory and candidate roots under `root`."""
+
+    def __init__(self, root: Path):
+        self.root, self.log, self.archive = root, root / "log.jsonl", root / "archive"
+        self.archive.mkdir(parents=True)
+        self.archive_files: dict[int, list] = {}
+        self.parent = self.candidate("P", program())
+
+    def candidate(self, cid, source):
+        path = self.root / "candidates" / cid
+        path.mkdir(parents=True)
+        (path / "direct.orc").write_text(source)
+        (path / "common.orc").write_text("(workflow-lisp (defmodule common))")
+        return path
+
+    def archived(self, generation, *entries):
+        """gen-<n>.json: (candidate_id, mean_value, mean_calls) entries."""
+        self.archive_files[generation] = [
+            {"candidate_id": cid, "candidate_root": str(self.root / "candidates" / cid), "seed": None,
+             "values": {t: [value] for t in ADAPTIVE}, "mean_value": value, "mean_calls": calls,
+             "evidence": "adaptive", "generation": generation} for cid, value, calls in entries]
+        (self.archive / f"gen-{generation}.json").write_text(json.dumps(self.archive_files[generation]))
+
+    def episode(self, cid, *, interface, outcome="accepted", value=None, source=None, generation=1, skeleton=None):
+        """An episode against P; an accepted child with `value` is evaluated and judged on both adaptive tasks."""
+        if outcome == "accepted":
+            self.candidate(cid, source or program())
+        append_record(self.log, {
+            "kind": "episode", "interface": interface, "generation": generation, "episode_id": f"ep-{cid}",
+            "outcome": outcome, "candidate_id": cid, "parent_candidate_id": "P",
+            "candidate_root": str(self.root / "candidates" / cid) if outcome == "accepted" else None,
+            "skeleton": (skeleton or f"sk-{cid}") if outcome == "accepted" else None, "parent_skeleton": "sk-P",
+            "provider_allocation": {"run": ["coder"]} if outcome == "accepted" else None,
+            "parent_provider_allocation": {"run": ["coder"]}})
+        if value is not None:
+            for task in ADAPTIVE:
+                self.judged(cid, task, value, generation=generation)
+
+    def judged(self, cid, task, value, *, generation, calls=2, wall=30.0):
+        eid = f"{cid}-{task}"
+        records = self.root / "records" / eid / "run-1"
+        append_record(self.log, {"kind": "evaluation", "mode": "adaptive", "evaluation_id": eid, "candidate_id": cid,
+                                 "records_dir": str(records), "task_id": task, "replicate": 1,
+                                 "outcome": "completed", "split": "adaptive", "generation": generation})
+        results = self.root / "pools" / eid / "results.json"
+        results.parent.mkdir(parents=True)
+        results.write_text(json.dumps({"runs": [run_row(records, eid, value) | {"calls": calls,
+                                                                                "wall_clock_sec": wall}],
+                                       "criterion_sha256": sha256_file(CRITERION2), "anchors": [],
+                                       "agreement": {}, "excluded_judges": {}}))
+        append_record(self.log, {"kind": "judging", "generation": generation, "task": task,
+                                 "pool": str(results.parent), "results": str(results)})
+
+
+def validation_pool(values, anchors=TRUSTED):
+    """A read_pool result for the validation task: candidate -> [(value, calls, wall_clock_sec)]."""
+    rows = [{"evaluation_id": f"v-{cid}-{k}", "candidate_id": cid, "mode": "validation", "policy": cid,
+             "task": VALIDATION, "replicate": k + 1, "value": v, "hidden": None, "calls": c, "wall_clock_sec": w}
+            for cid, runs in values.items() for k, (v, c, w) in enumerate(runs)]
+    return {"task": VALIDATION, "rows": rows, "anchors": anchors, "agreement": {}, "excluded_judges": {},
+            "unpooled": [], "criterion_sha256": sha256_file(CRITERION2)}
+
+
+CRIT2_TEST = CRIT2 | {"anchors": CRIT2["anchors"] | {VALIDATION: {"upstream": "up", "stub": "stub"}}}
+
+
+@pytest.fixture
+def run(tmp_path):
+    run = Run(tmp_path / "run-1")
+    run.archived(0, ("P", 4.0, 2))
+    return run
+
+
+def readout2(runs, pool=None):
+    return phase2_readout([r.log for r in runs], [r.archive for r in runs], pool, CRIT2_TEST)
+
+
+def test_phase2_readout_counts_improvements_per_completed_episode_per_interface(run):
+    run.episode("C1", interface="I1", value=5.0)  # gain 1.0 > 0.5
+    run.episode("C2", interface="I1", value=4.3)  # gain 0.3
+    run.episode("R1", interface="I1", outcome="rejected")
+    run.episode("T1", interface="I1", outcome="exhausted")  # not completed
+    run.episode("C3", interface="I2", value=4.6)  # gain 0.6
+    figures = readout2([run])["runs"][0]["interfaces"]
+    assert [(figures[i]["completed"], figures[i]["accepted"], figures[i]["improvements"],
+             figures[i]["improvements_per_episode"]) for i in ("I1", "I2")] == [(3, 2, 1, pytest.approx(1 / 3)),
+                                                                                (1, 1, 1, 1.0)]
+
+
+def test_phase2_readout_reports_a_control_flow_change_when_a_child_adds_a_branch(run):
+    run.episode("C1", interface="I2", value=5.0, source=program(BRANCHED))
+    run.episode("C2", interface="I2", value=5.0, source=program(), skeleton="sk-P")
+    assert readout2([run])["runs"][0]["interfaces"]["I2"]["control_flow_changes"] == [
+        {"candidate_id": "C1", "parent_candidate_id": "P",
+         "parent": {"if": 0, "cond": 0, "match": 0, "loop/recur": 0, "list/map-effect": 0},
+         "child": {"if": 1, "cond": 0, "match": 0, "loop/recur": 0, "list/map-effect": 0}}]
+
+
+def test_phase2_readout_shrinkage_is_screening_minus_validation(run):
+    run.episode("C1", interface="I1", value=6.0)
+    run.archived(1, ("P", 4.0, 2), ("C1", 6.0, 3))
+    pool = validation_pool({"P": [(3.0, 2, 100.0), (3.5, 2, 100.0)], "C1": [(4.0, 3, 50.0), (5.0, 3, 50.0)]})
+    rows = {r["candidate_id"]: r for r in readout2([run], pool)["validation"]}
+    assert [(rows[c]["screening_mean"], rows[c]["validation_mean"], rows[c]["shrinkage"]) for c in ("P", "C1")] == [
+        (4.0, 3.25, 0.75), (6.0, 4.5, 1.5)]
+
+
+def test_phase2_readout_final_choice_follows_the_frozen_criterion_and_includes_the_reference(run):
+    run.episode("C1", interface="I1", value=6.0)
+    run.episode("C2", interface="I2", value=5.5)
+    run.archived(1, ("P", 4.0, 2), ("C1", 6.0, 3), ("C2", 5.5, 1))
+    within = {"P": [(4.0, 2, 3000.0)] * 2, "C1": [(4.4, 3, 2000.0)] * 2, "C2": [(5.0, 1, 20000.0)] * 2}
+    result = readout2([run], validation_pool(within))
+    assert (result["final_choice"], [(r["candidate_id"], r["is_reference"]) for r in result["validation"]],
+            result["anchors_ok"]) == ("C1", [("C1", False), ("C2", False), ("P", True)], True)
+
+
+def test_phase2_readout_never_pools_interfaces(run):
+    run.episode("R1", interface="I1", outcome="rejected")
+    run.episode("C1", interface="I2", value=5.0)
+    run.episode("C2", interface="I2", value=5.0, skeleton="sk-P")  # terminal-only: parent skeleton and allocation
+    figures = readout2([run])["runs"][0]["interfaces"]
+    assert ([figures["I1"][k] for k in ("accepted", "terminal_only_share", "revisit_rate", "collapsed")],
+            [figures["I2"][k] for k in ("accepted", "terminal_only_share", "collapsed")]) == (
+        [0, UNAVAILABLE, UNAVAILABLE, UNAVAILABLE], [2, 0.5, False])
+
+
+def test_phase2_readout_reports_the_incumbent_mean_per_generation_and_no_validation_without_a_pool(run):
+    run.episode("C1", interface="I1", value=6.0)
+    run.archived(1, ("P", 4.0, 2), ("C1", 6.0, 3))
+    result = readout2([run])
+    assert (result["runs"][0]["trajectory"], result["validation"], result["final_choice"], result["anchors_ok"]) == (
+        [{"generation": 0, "incumbent": "P", "mean_value": 4.0}, {"generation": 1, "incumbent": "C1", "mean_value": 6.0}],
+        UNAVAILABLE, UNAVAILABLE, UNAVAILABLE)
+
+
+def test_phase2_criterion_is_frozen_with_three_packages_and_their_anchors():
+    packages = [REPO / t for t in [*CRIT2["adaptive_tasks"], CRIT2["validation_task"]]]
+    assert ([(p / "base_commit").read_text().strip() for p in packages],
+            [sorted(a.stem for a in (p / "anchors").glob("*.diff")) for p in packages],
+            CRIT2["judges"], CRIT2["improvement"]["min_gain"], CRIT2["collapse_threshold"],
+            CRIT2["final_choice"]["mean_cost_ceiling"], CRIT2["written_before_scoring"]) == (
+        [CRIT2["base_commits"][p.name] for p in packages],
+        [sorted(CRIT2["anchors"][p.name].values()) for p in packages], ["claude-opus-5-5", "gpt-6-sol"],
+        0.5, 0.75, 14400, True)

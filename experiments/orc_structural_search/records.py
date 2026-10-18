@@ -1,4 +1,4 @@
-"""Append-only JSONL records, skeleton hashing and the final-choice rule.
+"""Append-only JSONL records, skeleton hashing, control-flow head counts and the final-choice rule.
 
 Design: docs/design/orc_structural_search_driver.md ("Search Modes" for the
 skeleton hash, "Objective, Selection And Local Observations" for the
@@ -29,6 +29,7 @@ _DEFINITION_HEADS = {"defworkflow", "defproc", "defun"}
 _PROMPT_HEAD = "defprompt"  # a named prompt is found but contributes nothing to the skeleton or allocation
 _LITERAL_KEYWORDS = {":model", ":effort"}
 _PROVIDER_PREFIX = "providers."
+CONTROL_HEADS = ("if", "cond", "match", "loop/recur", "list/map-effect")
 
 
 def append_record(log: Path, record: Mapping[str, object]) -> None:
@@ -71,6 +72,23 @@ def provider_allocation(source: str, *, definitions: Sequence[str]) -> dict[str,
     Raises ValueError when a named definition is absent."""
 
     return {d.items[1].value: _provider_externs(d) for d in _named_definitions(source, definitions)}
+
+
+def control_heads(source: str, *, definitions: Sequence[str]) -> dict[str, int]:
+    """Return how many forms of each `CONTROL_HEADS` head the named non-prompt
+    definitions of `source` contain (zero included). Raises ValueError when a
+    named definition is absent."""
+
+    counts = dict.fromkeys(CONTROL_HEADS, 0)
+    pending: list[SExpr] = list(_named_definitions(source, definitions))
+    while pending:
+        expr = pending.pop()
+        if isinstance(expr, ListExpr):
+            head = expr.items[0] if expr.items else None
+            if isinstance(head, SymbolAtom) and head.value in counts:
+                counts[head.value] += 1
+            pending += expr.items
+    return counts
 
 
 def _named_definitions(source: str, definitions: Sequence[str]) -> list[ListExpr]:
