@@ -15,11 +15,13 @@ import os
 import shutil
 import subprocess
 import sys
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
 from experiments.orc_structural_search.config import ExperimentConfig
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.reader import read_sexpr_file, read_sexpr_text
 from orchestrator.workflow_lisp.sexpr import KeywordAtom, ListExpr, SExpr, StringAtom, SymbolAtom
 
@@ -99,8 +101,13 @@ def compile_candidate(root: Path, config: ExperimentConfig) -> CompileOutcome:
 
 FROZEN_HEADS = frozenset({"import", "deftype", "defrecord", "defunion", "defenum", "export", "defmodule",
                           ":target-dsl", ":language"})
+# What each condition permits to change (controller ruling, Task 3 review round 1). Role allocation (which provider
+# extern a call names) is topology; `:model`/`:effort` values are provider tuning.
+TOPOLOGY_CONDITIONS = frozenset({"topology-only", "joint"})
 PROMPT_CONDITIONS = frozenset({"prompt-only", "joint"})
 PROVIDER_CONDITIONS = frozenset({"provider-only", "joint"})
+PROMPT_SIGNATURE_CONDITIONS = frozenset({"joint"})
+TUNING_KEYWORDS = frozenset({":model", ":effort"})
 
 
 @dataclass(frozen=True)
@@ -126,6 +133,21 @@ ACCEPTED = Verdict(True, None, "")
 
 def _refuse(code: str, detail: str) -> Verdict:
     return Verdict(False, code, detail)
+
+
+class _UnreadableChild(Exception):
+    """A child file or receipt text the ordinary reader rejects; reported as `unreadable_child`."""
+
+
+def _child_forms(path: Path) -> tuple[SExpr, ...]:
+    try:
+        return _top_level_forms(read_sexpr_file(path))
+    except (LispFrontendCompileError, UnicodeDecodeError) as error:
+        raise _UnreadableChild(f"{path.name}: {error}") from error
+
+
+def _parent_forms(path: Path) -> tuple[SExpr, ...]:
+    return _top_level_forms(read_sexpr_file(path))
 
 
 def canonical_form(node: SExpr) -> object:
@@ -173,12 +195,55 @@ def _prompt_parts(form: ListExpr) -> tuple[object, object]:
     return canonical_form(form), None
 
 
+def _tuning_split(node: SExpr) -> tuple[object, list[object]]:
+    """(canonical form with every `:model`/`:effort` value replaced by a hole, those values in source order)."""
+    values: list[object] = []
+
+    def walk(item: SExpr) -> object:
+        if not isinstance(item, ListExpr):
+            return canonical_form(item)
+        forms = []
+        for index, child in enumerate(item.items):
+            previous = item.items[index - 1] if index else None
+            if isinstance(previous, KeywordAtom) and previous.value in TUNING_KEYWORDS:
+                values.append((previous.value, canonical_form(child)))
+                forms.append("<tuning>")
+            else:
+                forms.append(walk(child))
+        return tuple(forms)
+
+    return walk(node), values
+
+
+def _condition_verdict(head: str, name: str, before: ListExpr, after: ListExpr, condition: str) -> Verdict:
+    """Refuse a changed mutable definition whose change touches a surface `condition` does not permit."""
+    if head == "defprompt":
+        (signature_before, body_before), (signature_after, body_after) = _prompt_parts(before), _prompt_parts(after)
+        surfaces = {"prompt signature": (signature_before != signature_after, PROMPT_SIGNATURE_CONDITIONS),
+                    "prompt body": (body_before != body_after, PROMPT_CONDITIONS)}
+    else:
+        (shape_before, tuning_before), (shape_after, tuning_after) = _tuning_split(before), _tuning_split(after)
+        surfaces = {"topology": (shape_before != shape_after, TOPOLOGY_CONDITIONS),
+                    ":model/:effort values": (tuning_before != tuning_after, PROVIDER_CONDITIONS)}
+    for surface, (changed, permitted) in surfaces.items():
+        if changed and condition not in permitted:
+            return _refuse("frozen_surface_changed", f"{surface} of {head} {name} changed under {condition}")
+    return ACCEPTED
+
+
+def _exported_names(forms) -> set[str]:
+    return {item.value for form in forms if _head(form) == "export"
+            for item in form.items[1:] if isinstance(item, SymbolAtom)}
+
+
 def _module_verdict(parent_forms, child_forms, *, mutable: tuple[str, ...], condition: str,
                     allowed_new: frozenset[str]) -> Verdict:
+    """Compare one module's forms; exported signatures (all items but the body) are frozen under every condition."""
     parent_frozen, parent_defs = _split_forms(parent_forms)
     child_frozen, child_defs = _split_forms(child_forms)
     if parent_frozen != child_frozen:
         return _refuse("frozen_surface_changed", "an import, type, export, module or language form differs")
+    exported = _exported_names(parent_forms)
     for key in parent_defs.keys() | child_defs.keys():
         head, name = key
         before, after = parent_defs.get(key), child_defs.get(key)
@@ -188,25 +253,30 @@ def _module_verdict(parent_forms, child_forms, *, mutable: tuple[str, ...], cond
             return _refuse("scope_exceeded", f"{head} {name} was {'added' if before is None else 'removed'}")
         if canonical_form(before) == canonical_form(after):
             continue
+        if name in exported and [canonical_form(i) for i in before.items[:-1]] != [
+                canonical_form(i) for i in after.items[:-1]]:
+            return _refuse("frozen_surface_changed", f"exported signature of {head} {name} changed")
         if name not in mutable:
             return _refuse("scope_exceeded", f"{head} {name} is not a mutable definition")
-        if head == "defprompt" and condition not in PROMPT_CONDITIONS and \
-                _prompt_parts(before)[1] != _prompt_parts(after)[1]:
-            return _refuse("frozen_surface_changed", f"prompt body of {name} changed under {condition}")
+        verdict = _condition_verdict(head, name, before, after, condition)
+        if not verdict.accepted:
+            return verdict
     return ACCEPTED
 
 
+def _file_names(*roots: Path) -> list[str]:
+    return sorted({p.relative_to(root).as_posix() for root in roots for p in _content_files(root)})
+
+
 def _frozen_verdict(parent: Path, child: Path, config: ExperimentConfig, *, allowed_new: frozenset[str]) -> Verdict:
-    names = {p.relative_to(parent).as_posix() for p in _content_files(parent)}
-    names |= {p.relative_to(child).as_posix() for p in _content_files(child)}
-    for name in sorted(names):
+    for name in _file_names(parent, child):
         before, after = parent / name, child / name
         if not (before.is_file() and after.is_file()):
             return _refuse("scope_exceeded", f"{name} was {'added' if after.is_file() else 'removed'}")
         is_mutable = name in config.mutable_files
         if name.endswith(".orc"):
             verdict = _module_verdict(
-                _top_level_forms(read_sexpr_file(before)), _top_level_forms(read_sexpr_file(after)),
+                _parent_forms(before), _child_forms(after),
                 mutable=config.mutable_definitions if is_mutable else (), condition=config.condition,
                 allowed_new=allowed_new if is_mutable else frozenset())
             if not verdict.accepted:
@@ -214,9 +284,9 @@ def _frozen_verdict(parent: Path, child: Path, config: ExperimentConfig, *, allo
             continue
         if before.read_bytes() == after.read_bytes():
             continue
-        frozen_file = name == config.command_boundaries_file or (
-            name == config.providers_file and config.condition not in PROVIDER_CONDITIONS)
-        if frozen_file:
+        if name == config.providers_file and config.condition in PROVIDER_CONDITIONS:
+            continue  # permitted by the condition whether or not it is listed in mutable_files
+        if name in (config.command_boundaries_file, config.providers_file):
             return _refuse("frozen_surface_changed", f"{name} changed under {config.condition}")
         if not is_mutable:
             return _refuse("scope_exceeded", f"{name} is not a mutable file")
@@ -226,19 +296,27 @@ def _frozen_verdict(parent: Path, child: Path, config: ExperimentConfig, *, allo
 def validate_frozen_surfaces(parent: Path, child: Path, config: ExperimentConfig) -> Verdict:
     """Refuse a child whose forms differ from the parent's outside the configured mutable scope.
 
-    `frozen_surface_changed`: an import/type/export/module/language form, a prompt body outside the prompt-only
-    and joint conditions, the command boundary file, or the provider file outside provider-only and joint.
+    `frozen_surface_changed`: an import/type/export/module/language form, an exported definition's signature, the
+    command boundary file, or a surface the condition does not permit: topology (definition shape, including which
+    provider extern a call names) outside topology-only/joint; `:model`/`:effort` values and the providers file
+    outside provider-only/joint; prompt bodies outside prompt-only/joint; prompt signatures outside joint.
     `scope_exceeded`: a definition or file outside `mutable_definitions`/`mutable_files` changed, or a definition
-    or file was added or removed.
+    or file was added or removed. `unreadable_child`: the reader rejects a child `.orc` file.
     """
-    return _frozen_verdict(parent, child, config, allowed_new=frozenset())
+    try:
+        return _frozen_verdict(parent, child, config, allowed_new=frozenset())
+    except _UnreadableChild as error:
+        return _refuse("unreadable_child", str(error))
 
 
-def _parse_site(site_id: str) -> tuple[str, str, int, int]:
-    """(owner definition name, file, line, column); the owner name is the part after the last `::`."""
+def _parse_site(site_id: str) -> tuple[str, str, int, int] | None:
+    """(owner definition name, file, line, column), or None when malformed; the owner is the part after `::`."""
     owner, _, location = site_id.rpartition("@")
-    path, line, column = location.rsplit(":", 2)
-    return owner.rpartition("::")[2], path, int(line), int(column)
+    try:
+        path, line, column = location.rsplit(":", 2)
+        return owner.rpartition("::")[2], path, int(line), int(column)
+    except ValueError:
+        return None
 
 
 def _site_path(node: SExpr, line: int, column: int) -> tuple[int, ...] | None:
@@ -271,7 +349,10 @@ def _masked_form(node: SExpr, path: tuple[int, ...]) -> object:
 
 
 def _one_form(text: str) -> SExpr | None:
-    forms = read_sexpr_text(text, source_path="<receipt>").items
+    try:
+        forms = read_sexpr_text(text, source_path="<receipt>").items
+    except LispFrontendCompileError as error:
+        raise _UnreadableChild(f"receipt text: {error}") from error
     return forms[0] if len(forms) == 1 else None
 
 
@@ -301,18 +382,32 @@ def _owner_form(forms, name: str) -> SExpr | None:
 def validate_one_site(parent: Path, child: Path, receipt: Receipt, config: ExperimentConfig) -> Verdict:
     """Accept a child that differs from the parent only at the receipt's site and in its declared fresh helpers.
 
-    Checks in order: `digest_mismatch` (parent file bytes), `site_unlocatable` (no form starts at the site's
-    line:column inside the owner definition), `declaration_collision` (a helper name already bound in the parent
-    module, imports included), the frozen-surface rule, then `scope_exceeded` (anything but the site subtree and
-    the declared helpers differs, or the child's site subtree is not the receipt's replacement expression).
+    Checks in order: `condition_mismatch` (receipt vs. config condition), `site_unlocatable` (malformed site_id
+    or missing parent file), `digest_mismatch` (parent file bytes), `site_unlocatable` (no form starts at the
+    site's line:column inside the owner definition), `declaration_collision` (a helper name already bound in the
+    parent module, imports included), the frozen-surface rule, then `scope_exceeded` (any other file differs, or
+    anything but the site subtree and the declared helpers differs, or the child's site subtree is not the
+    receipt's replacement expression). `unreadable_child`: the reader rejects a child file or receipt text.
     The receipt's parent_candidate_id is not checked here.
     """
-    owner_name, file_name, line, column = _parse_site(receipt.site_id)
+    if receipt.condition != config.condition:
+        return _refuse("condition_mismatch", f"receipt {receipt.condition!r}, configuration {config.condition!r}")
+    site_parts = _parse_site(receipt.site_id)
+    if site_parts is None or not (parent / site_parts[1]).is_file():
+        return _refuse("site_unlocatable", f"site_id {receipt.site_id!r} names no parent file position")
+    try:
+        return _one_site_verdict(parent, child, receipt, config, *site_parts)
+    except _UnreadableChild as error:
+        return _refuse("unreadable_child", str(error))
+
+
+def _one_site_verdict(parent: Path, child: Path, receipt: Receipt, config: ExperimentConfig, owner_name: str,
+                      file_name: str, line: int, column: int) -> Verdict:
     parent_file, child_file = parent / file_name, child / file_name
     actual = "sha256:" + hashlib.sha256(parent_file.read_bytes()).hexdigest()
     if actual != receipt.expected_file_digest:
         return _refuse("digest_mismatch", f"{file_name} is {actual}, receipt expects {receipt.expected_file_digest}")
-    parent_forms = _top_level_forms(read_sexpr_file(parent_file))
+    parent_forms = _parent_forms(parent_file)
     owner = _owner_form(parent_forms, owner_name)
     site = _site_path(owner, line, column) if owner is not None else None
     if site is None:
@@ -329,7 +424,19 @@ def validate_one_site(parent: Path, child: Path, receipt: Receipt, config: Exper
     verdict = _frozen_verdict(parent, child, config, allowed_new=frozenset(helper_names))
     if not verdict.accepted:
         return verdict
-    return _scope_verdict(parent_forms, _top_level_forms(read_sexpr_file(child_file)), owner, site, receipt, helpers)
+    for name in _file_names(parent, child):
+        if name != file_name and not _same_file(parent / name, child / name):
+            return _refuse("scope_exceeded", f"{name} changed outside the site's file")
+    return _scope_verdict(parent_forms, _child_forms(child_file), owner, site, receipt, helpers)
+
+
+def _same_file(before: Path, after: Path) -> bool:
+    """Equal parsed forms for `.orc` files, equal bytes otherwise; a file missing on either side differs."""
+    if not (before.is_file() and after.is_file()):
+        return False
+    if before.suffix == ".orc":
+        return [canonical_form(f) for f in _parent_forms(before)] == [canonical_form(f) for f in _child_forms(after)]
+    return before.read_bytes() == after.read_bytes()
 
 
 def _scope_verdict(parent_forms, child_forms, owner: SExpr, site: tuple[int, ...], receipt: Receipt,
@@ -342,8 +449,8 @@ def _scope_verdict(parent_forms, child_forms, owner: SExpr, site: tuple[int, ...
                and canonical_form(parent_defs[key]) != canonical_form(child_defs[key])]
     if changed:
         return _refuse("scope_exceeded", f"definitions other than the owner changed: {changed}")
-    added = sorted(canonical_form(child_defs[key]) for key in child_defs.keys() - parent_defs.keys())
-    if added != sorted(canonical_form(helper) for helper in helpers):
+    added = Counter(canonical_form(child_defs[key]) for key in child_defs.keys() - parent_defs.keys())
+    if added != Counter(canonical_form(helper) for helper in helpers):
         return _refuse("scope_exceeded", "added forms are not exactly the declared supporting declarations")
     child_owner = child_defs[owner_key]
     if _masked_form(owner, site) != _masked_form(child_owner, site):

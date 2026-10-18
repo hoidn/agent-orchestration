@@ -21,6 +21,8 @@ PROVIDERS = (REPO / "workflows/examples/inputs/plan_review_execute/providers.jso
 REVIEW_SITE = "(provider-result providers.codex\n                       :prompt (review-plan"
 REVIEW_CALL = REVIEW_SITE + " :task task :steps draft.steps))"
 REVIEW_REPLACEMENT = "(provider-result providers.claude :prompt (review-plan :task task :steps draft.steps))"
+EFFORT = ':effort "high"\n                    :prompt (draft-plan'
+DRAFT_SIGNATURE = "(defprompt draft-plan (:fills (task :text)) -> Plan"
 DRAFT_BODY = '"Plan this task as ordered steps, naming the files each step touches. Change no files.\\n\\nTask: {task}"'
 HELPER = "(defworkflow fresh-helper ((task String)) -> Execution\n  (provider-result providers.codex :prompt (execute-plan :task task :steps (list task))))"
 
@@ -32,16 +34,18 @@ def config(condition="topology-only", mutable_definitions=("run",)) -> Experimen
         command_boundaries_file=None, episode_wall_clock_sec=600, criterion_sha256=None)
 
 
-def candidate(root: Path, source: str | bytes) -> Path:
+def candidate(root: Path, source: str | bytes, providers: str = PROVIDERS, extra: dict[str, str] | None = None) -> Path:
     root.mkdir(parents=True)
     data = source if isinstance(source, bytes) else source.encode()
     (root / FILE).write_bytes(data)
-    (root / "providers.json").write_text(PROVIDERS)
+    (root / "providers.json").write_text(providers)
+    for name, text in (extra or {}).items():
+        (root / name).write_text(text)
     return root
 
 
-def pair(tmp_path: Path, parent_source, child_source) -> tuple[Path, Path]:
-    return candidate(tmp_path / "parent", parent_source), candidate(tmp_path / "child", child_source)
+def pair(tmp_path: Path, parent_source, child_source, **child_files) -> tuple[Path, Path]:
+    return candidate(tmp_path / "parent", parent_source), candidate(tmp_path / "child", child_source, **child_files)
 
 
 def edit(old: str, new: str, source: str = SOURCE) -> str:
@@ -56,11 +60,12 @@ def site_of(text: str, needle: str) -> str:
     return f"workflow:plan_review_execute::run@{FILE}:{line}:{column}"
 
 
-def receipt(parent: Path, site_id: str, replacement: str, helpers=(), digest=None) -> Receipt:
+def receipt(parent: Path, site_id: str, replacement: str, helpers=(), digest=None,
+            condition="topology-only") -> Receipt:
     digest = digest or "sha256:" + hashlib.sha256((parent / FILE).read_bytes()).hexdigest()
     return Receipt(parent_candidate_id="sha256:parent", site_id=site_id, expected_file_digest=digest,
                    replacement_expression=replacement, supporting_declarations=tuple(helpers),
-                   condition="topology-only", hypothesis="Review with the other provider.")
+                   condition=condition, hypothesis="Review with the other provider.")
 
 
 def test_whitespace_only_child_passes_validation_and_keeps_program_digest(tmp_path):
@@ -157,3 +162,69 @@ def test_transaction_locates_site_in_crlf_and_utf8_source(tmp_path):
     verdict = validate_one_site(
         parent, child, receipt(parent, site_of(parent_text, REVIEW_SITE), REVIEW_REPLACEMENT), config())
     assert (verdict.accepted, verdict.code) == (True, None)
+
+
+def test_exported_entry_signature_change_is_refused_with_frozen_surface_changed(tmp_path):
+    parent, child = pair(tmp_path, SOURCE, edit("(defworkflow run ((task String)) -> Execution",
+                                                "(defworkflow run ((task String) (extra String)) -> Execution"))
+    assert validate_frozen_surfaces(parent, child, config("joint")).code == "frozen_surface_changed"
+
+
+def test_one_site_transaction_refuses_change_to_another_file(tmp_path):
+    parent = candidate(tmp_path / "parent", SOURCE, extra={"notes.txt": "a"})
+    child = candidate(tmp_path / "child", edit(REVIEW_CALL, REVIEW_REPLACEMENT), extra={"notes.txt": "b"})
+    cfg = ExperimentConfig(**{**config().__dict__, "mutable_files": (FILE, "notes.txt")})
+    verdict = validate_one_site(parent, child, receipt(parent, site_of(SOURCE, REVIEW_SITE), REVIEW_REPLACEMENT), cfg)
+    assert verdict.code == "scope_exceeded"
+
+
+EDITED_PROVIDERS = PROVIDERS.replace("{", '{"_note": "edited", ', 1)
+CONDITION_CASES = [
+    ("topology-only", edit(REVIEW_CALL, REVIEW_REPLACEMENT), PROVIDERS, None),
+    ("topology-only", edit(EFFORT, EFFORT.replace("high", "low")), PROVIDERS, "frozen_surface_changed"),
+    ("topology-only", edit(DRAFT_SIGNATURE, DRAFT_SIGNATURE.replace("Plan", "Feedback")), PROVIDERS,
+     "frozen_surface_changed"),
+    ("topology-only", SOURCE, EDITED_PROVIDERS, "frozen_surface_changed"),
+    ("prompt-only", edit(REVIEW_CALL, REVIEW_REPLACEMENT), PROVIDERS, "frozen_surface_changed"),
+    ("prompt-only", SOURCE, EDITED_PROVIDERS, "frozen_surface_changed"),
+    ("provider-only", edit(EFFORT, EFFORT.replace("high", "low")), EDITED_PROVIDERS, None),
+    ("provider-only", edit(REVIEW_CALL, REVIEW_REPLACEMENT), PROVIDERS, "frozen_surface_changed"),
+    ("provider-only", edit(DRAFT_BODY, '"Plan {task} as ordered steps."'), PROVIDERS, "frozen_surface_changed"),
+    ("joint", edit(DRAFT_SIGNATURE, DRAFT_SIGNATURE.replace("Plan", "Feedback")), EDITED_PROVIDERS, None),
+]
+
+
+CASE_IDS = ["topology-provider-swap", "topology-effort", "topology-prompt-signature", "topology-providers-file",
+            "prompt-topology", "prompt-providers-file", "provider-effort-and-file", "provider-topology",
+            "provider-prompt-body", "joint-prompt-signature-and-file"]
+
+
+@pytest.mark.parametrize("condition,child_source,child_providers,code", CONDITION_CASES, ids=CASE_IDS)
+def test_condition_permits_only_its_surface(tmp_path, condition, child_source, child_providers, code):
+    parent, child = pair(tmp_path, SOURCE, child_source, providers=child_providers)
+    cfg = ExperimentConfig(**{**config(condition, ("run", "draft-plan")).__dict__,
+                              "mutable_files": (FILE, "providers.json")})
+    assert validate_frozen_surfaces(parent, child, cfg).code == code
+
+
+def test_unparsable_child_is_refused_as_unreadable(tmp_path):
+    parent, child = pair(tmp_path, SOURCE, SOURCE + "(")
+    assert validate_frozen_surfaces(parent, child, config()).code == "unreadable_child"
+
+
+def test_malformed_site_id_is_refused_as_unlocatable(tmp_path):
+    parent, child = pair(tmp_path, SOURCE, edit(REVIEW_CALL, REVIEW_REPLACEMENT))
+    bad = receipt(parent, "workflow:plan_review_execute::run", REVIEW_REPLACEMENT)
+    assert validate_one_site(parent, child, bad, config()).code == "site_unlocatable"
+
+
+def test_unparsable_replacement_is_refused_as_unreadable(tmp_path):
+    parent, child = pair(tmp_path, SOURCE, edit(REVIEW_CALL, REVIEW_REPLACEMENT))
+    bad = receipt(parent, site_of(SOURCE, REVIEW_SITE), "(provider-result")
+    assert validate_one_site(parent, child, bad, config()).code == "unreadable_child"
+
+
+def test_receipt_condition_differing_from_config_is_refused(tmp_path):
+    parent, child = pair(tmp_path, SOURCE, edit(REVIEW_CALL, REVIEW_REPLACEMENT))
+    other = receipt(parent, site_of(SOURCE, REVIEW_SITE), REVIEW_REPLACEMENT, condition="joint")
+    assert validate_one_site(parent, child, other, config()).code == "condition_mismatch"
