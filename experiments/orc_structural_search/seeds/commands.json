@@ -1,0 +1,1 @@
+{"dev-check": {"stable_command": ["python", "dev_check.py"], "closure": ["dev_check.py"]}}
