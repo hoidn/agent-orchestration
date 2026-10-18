@@ -1,0 +1,23 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-x",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_state_projection.py",
+    "tests/test_workflow_state_compatibility.py",
+    "tests/test_persisted_workflow_surface.py",
+    "tests/test_at68_resume_force_restart.py",
+    "tests/test_runtime_failure_persistence.py",
+    "tests/test_workflow_lisp_pure_projection_cache.py",
+    "tests/test_workflow_lisp_phased_delivery_persistence.py",
+    "tests/test_workflow_lisp_projection_dual_run.py",
+    "tests/test_workflow_lisp_loop_state.py",
+    "tests/test_provider_peer_group_resume.py",
+    "tests/test_provider_supervision_resume.py"
+  ],
+  "timeout_sec": 1800
+}
