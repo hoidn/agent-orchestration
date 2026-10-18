@@ -133,7 +133,7 @@ def control_flow_changes(accepted: Sequence[Mapping], roots: Mapping[str, str], 
 def interface_figures(episodes: Sequence[Mapping], *, child_means: Mapping[str, float], archive: Mapping[int, list],
                       roots: Mapping[str, str], criterion: Mapping, trusted: bool) -> dict:
     """One interface's episodes of one run: completed, accepted, improvements (gain above min_gain) per completed
-    episode (`untrusted` when the run's adaptive anchors are not), diversity over its accepted children, collapse
+    episode of a generation with an archive file (`untrusted` when the run's adaptive anchors are not), diversity over its accepted children, collapse
     against the criterion, control-flow changes."""
     completed = [row for row in episodes if row["outcome"] in COMPLETED]
     accepted = [row for row in completed if row["outcome"] == "accepted"]
@@ -141,8 +141,9 @@ def interface_figures(episodes: Sequence[Mapping], *, child_means: Mapping[str, 
     improved = sorted(c for c, g in gains.items() if g != UNAVAILABLE and g > criterion["improvement"]["min_gain"])
     figures = diversity(accepted)
     terminal = figures["terminal_only_share"]
+    judged = [row for row in completed if row["generation"] in archive]  # a refused or judge-incident one has none
     counted = {"improved": improved, "improvements": len(improved),
-               "improvements_per_episode": share(len(improved), len(completed))}
+               "improvements_per_episode": share(len(improved), len(judged))}
     return {"completed": len(completed), "accepted": len(accepted), "gains": gains,
             **(counted if trusted else dict.fromkeys(counted, UNTRUSTED)), **figures,
             "collapsed": terminal if terminal == UNAVAILABLE else terminal > criterion["collapse_threshold"],

@@ -1,6 +1,7 @@
 """Structural search I2 sites: the runtime's manifest helper, site selection, the site brief, receipt derivation."""
 
 import hashlib
+import os
 import random
 import re
 import shutil
@@ -134,6 +135,19 @@ def test_derived_receipt_replaces_invalid_hypothesis_bytes_and_caps_the_line(tmp
     (child / "HYPOTHESIS.txt").write_bytes(b"bad \xff" + b"x" * 600 + b"\n")
     receipt = derive_receipt(parent, child, {"site_id": DRAFT_SITE}, CONFIG, parent_candidate_id="sha256:p")
     assert (receipt.hypothesis[:5], len(receipt.hypothesis)) == ("bad �", 500)
+
+
+@pytest.mark.parametrize("kind", ["symlink", "fifo"])
+def test_a_hypothesis_that_is_not_a_regular_file_is_unavailable(tmp_path, kind):
+    parent, child = helper_child(tmp_path)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("read through a link\n")
+    if kind == "symlink":
+        (child / "HYPOTHESIS.txt").symlink_to(outside)
+    else:
+        os.mkfifo(child / "HYPOTHESIS.txt")  # no writer: reading it would block
+    receipt = derive_receipt(parent, child, {"site_id": DRAFT_SITE}, CONFIG, parent_candidate_id="sha256:p")
+    assert receipt.hypothesis == "unavailable"
 
 
 def test_derived_receipt_of_a_crlf_child_is_lf_normalized_and_validates(tmp_path):

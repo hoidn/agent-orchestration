@@ -15,6 +15,14 @@ from experiments.orc_structural_search.config import ExperimentConfig
 from experiments.orc_structural_search.sites import site_brief
 
 
+# The replacement heads whose sites the manifest types (orchestrator/workflow_lisp/source_sites.py _KINDS), so the
+# I2 slot check can compare the replacement's type with the site's; any other replacement is slot_type_unavailable.
+TYPED_HEADS = {"provider-result": "provider-call", "run-provider-phase": "provider-phased-call", "agent": "agent-turn",
+               "(<procedure> ...)": "procedure-call", "call": "workflow-call", "run-ref": "run-ref", "let*": "let*",
+               "if": "if", "cond": "cond", "match": "match", "loop/recur": "loop", "list/map": "list-map",
+               "list/map-effect": "list-map"}
+
+
 def episode_brief(config: ExperimentConfig, index: int, *, site: Mapping | None = None,
                   feedback: Mapping | None = None) -> str:
     """The brief of episode `index`; its first line is "# Episode <index>"."""
@@ -39,7 +47,9 @@ def episode_brief(config: ExperimentConfig, index: int, *, site: Mapping | None 
             f"{added}, or changing a frozen surface, refuses the proposal.\n\n"
             f"Check an edit with: PYTHONPATH=../py {shlex.join(compile_args)}\n")
     if site is not None:
-        text += f"\n## Site\n\n{site_brief(site)}\n"
+        text += (f"\n## Site\n\n{site_brief(site)}\n\nThe slot check can type only a replacement headed by one of: "
+                 f"{', '.join(TYPED_HEADS)}. Any other replacement (a literal, a variable, a record or variant, a pure "
+                 "function call) has no type to compare and is refused.\n")
     if feedback is not None:
         text += f"\n## Feedback\n\n{feedback_text(feedback)}\n"
     return text
@@ -48,7 +58,7 @@ def episode_brief(config: ExperimentConfig, index: int, *, site: Mapping | None 
 def feedback_text(feedback: Mapping) -> str:
     """Decision 7's fields of the parent's own evidence, one line each; every other field is dropped."""
     lines = ["Evidence on the workflow you are editing (judged values are rubric means):"]
-    lines += [f"- task {task}: judged mean {value['mean']} over {value['n']} judged runs"
+    lines += [f"- task {task}: mean {value['mean']} over {value['n']} runs (failed runs count 0)"
               for task, value in feedback.get("mean_value", {}).items()]
     lines += [f"- run on task {run['task']}: outcome {run['outcome']}, terminal {run['terminal']}, "
               f"{run['provider_calls']} provider calls, {run['wall_clock_sec']} s wall clock"

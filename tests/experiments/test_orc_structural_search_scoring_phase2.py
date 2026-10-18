@@ -137,10 +137,18 @@ def test_phase2_readout_counts_improvements_per_completed_episode_per_interface(
     run.episode("R1", interface="I1", outcome="rejected")
     run.episode("T1", interface="I1", outcome="exhausted")  # not completed
     run.episode("C3", interface="I2", value=4.6)  # gain 0.6
+    run.archived(1, ("C1", 5.0, 1))
     figures = readout2([run])["runs"][0]["interfaces"]
     assert [(figures[i]["completed"], figures[i]["accepted"], figures[i]["improvements"],
              figures[i]["improvements_per_episode"]) for i in ("I1", "I2")] == [(3, 2, 1, pytest.approx(1 / 3)),
                                                                                 (1, 1, 1, 1.0)]
+
+
+def test_phase2_readout_counts_no_episode_of_a_generation_without_an_archive_file(run):
+    run.episode("C1", interface="I1", value=5.0)  # gain 1.0
+    run.archived(1, ("C1", 5.0, 1))
+    run.episode("R2", interface="I1", outcome="rejected", generation=2)  # generation 2 refused or a judge incident
+    assert readout2([run])["runs"][0]["interfaces"]["I1"]["improvements_per_episode"] == 1.0
 
 
 def test_phase2_readout_marks_improvements_untrusted_when_a_generations_anchors_are_inverted(run):

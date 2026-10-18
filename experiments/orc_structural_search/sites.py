@@ -18,6 +18,7 @@ import json
 import os
 import random
 import shutil
+import stat
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
@@ -33,6 +34,7 @@ from orchestrator.workflow_lisp.reader import read_sexpr_text
 HYPOTHESIS = "HYPOTHESIS.txt"
 STDERR_TAIL_CHARS = 4000
 HYPOTHESIS_CHARS = 500
+HYPOTHESIS_BYTES = 4096
 
 
 def site_manifest(root: Path, config: ExperimentConfig, *, runtime: Path) -> dict:
@@ -160,12 +162,19 @@ def derive_receipt(parent: Path, child: Path, site: Mapping, config: ExperimentC
 
 
 def _hypothesis(path: Path) -> str:
-    """The first line of the optional hypothesis file (agent-written: invalid UTF-8 replaced, at most
-    HYPOTHESIS_CHARS characters), else "unavailable"."""
+    """The first line of the optional hypothesis file (agent-written: a regular file, not a link; its first
+    HYPOTHESIS_BYTES read, invalid UTF-8 replaced, at most HYPOTHESIS_CHARS characters), else "unavailable"."""
     try:
-        lines = path.read_bytes().decode("utf-8", errors="replace").splitlines()
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)  # a link or a FIFO never blocks or redirects
     except OSError:
         return UNAVAILABLE
+    try:
+        data = os.read(fd, HYPOTHESIS_BYTES) if stat.S_ISREG(os.fstat(fd).st_mode) else b""
+    except OSError:
+        data = b""
+    finally:
+        os.close(fd)
+    lines = data.decode("utf-8", errors="replace").splitlines()
     first = lines[0].strip()[:HYPOTHESIS_CHARS] if lines else ""
     return first or UNAVAILABLE
 

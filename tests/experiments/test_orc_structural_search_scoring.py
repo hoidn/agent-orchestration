@@ -410,3 +410,14 @@ def test_readout_cli_phase1_writes_every_tasks_rows_with_their_outcomes_for_phas
     joined = json.loads((tmp_path / "joined.json").read_text())
     assert [(r["evaluation_id"], r["task"], r["outcome"]) for r in joined] == [
         ("p", pooled, "completed"), ("f", failing, "failed")]
+
+
+def test_readout_cli_phase1_writes_no_joined_rows_when_the_readout_fails(tmp_path):
+    criterion, log = json.loads(CRITERION.read_text()), tmp_path / "log.jsonl"
+    for task in (Path(t).name for t in criterion["tasks"]):
+        append_record(log, log_row(tmp_path / "records" / task, eid=task, task=task, outcome="failed"))
+    (tmp_path / "readout.json").write_text(json.dumps({}))  # no diversity figures: phase1_readout raises
+    with pytest.raises(KeyError):
+        main(["readout", "--log", str(log), "--driver-readout", str(tmp_path / "readout.json"), "--criterion",
+              str(CRITERION), "--joined-out", str(tmp_path / "joined.json")])
+    assert not (tmp_path / "joined.json").exists()

@@ -390,9 +390,10 @@ def readout_command(a: argparse.Namespace) -> dict:
     pooled = {pool["task"] for pool in pools}
     pools += [log_only_pool(a.log[0], Path(task).name) for task in json.loads(a.criterion.read_text())["tasks"]
               if Path(task).name not in pooled]
-    if a.joined_out:  # the Phase 2 initial archive's input (adaptive.run_mode2 phase1_joined)
+    result = phase1_readout(pools, json.loads(a.driver_readout.read_text()), json.loads(a.criterion.read_text()))
+    if a.joined_out:  # the Phase 2 initial archive's input (adaptive.run_mode2 phase1_joined); only after a readout
         a.joined_out.write_text(json.dumps([row for pool in pools for row in pool["rows"]], indent=2) + "\n")
-    return phase1_readout(pools, json.loads(a.driver_readout.read_text()), json.loads(a.criterion.read_text()))
+    return result
 
 
 def main(argv: Sequence[str] | None = None) -> None:
