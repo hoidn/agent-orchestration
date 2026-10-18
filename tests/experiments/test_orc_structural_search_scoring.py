@@ -94,7 +94,8 @@ def test_read_pool_joins_summarized_runs_to_their_evaluation_records(evaluations
     summarize.summarize(out, criterion)
     pool = read_pool(out / "records" / "results.json", log, criterion)
     assert (sorted((r["policy"], r["task"], r["replicate"], r["value"], r["calls"]) for r in pool["rows"]
-                   if r["outcome"] == "completed"), pool["unpooled"]) == ([("best_of_n", "task", 1, 4, 1), ("direct", "task", 1, 4, 1)], [])
+                   if r["outcome"] == "completed"), pool["unpooled"]) == (
+        [("best_of_n", "task", 1, 4, 1), ("direct", "task", 1, 4, 1)], [])
 
 
 def results_file(tmp_path, runs, sha="0" * 64):
@@ -162,6 +163,19 @@ def test_read_pool_counts_a_failure_or_incident_logged_twice_once(tmp_path):
         ("e1", "completed"), ("e2", "failed"), ("e3", "incident"), ("e4", "failed")]
 
 
+KILLED = "launch 0: no terminal row in run r1 (launcher exit -9; see launch-0.log)"
+
+
+def test_an_incident_killed_at_its_envelope_is_a_timeout_and_other_incidents_stay_incidents(tmp_path):
+    log = tmp_path / "log.jsonl"
+    for eid, incidents in (("e2", ["launch 0: no terminal row in run r2 (launcher exit 1; see l)", KILLED]),
+                           ("e3", [KILLED, "launch 1: no terminal row in run r3 (launcher exit 1; see l)"])):
+        append_record(log, log_row(tmp_path / "records" / eid / "run-1", eid=eid, outcome="incident")
+                      | {"incidents": incidents})
+    rows = log_only_pool(log, "task")["rows"]
+    assert [(r["evaluation_id"], r["outcome"]) for r in rows] == [("e2", "timeout"), ("e3", "incident")]
+
+
 def test_read_pool_takes_failed_and_incident_evaluations_of_the_task_from_the_log(tmp_path):
     log = tmp_path / "log.jsonl"
     for eid, outcome, task in (("e1", "completed", "task"), ("e2", "failed", "task"), ("e3", "incident", "task"),
@@ -185,14 +199,15 @@ WIDE = {"direct": [4, 5], "best_of_n": [7, 8], "plan_then_implement": [5, 6]}  #
 
 
 FAILED, INCIDENT = "failed", "incident"  # in a pool_of value list: an evaluation with that outcome
+OUTCOMES = (FAILED, INCIDENT, "timeout")
 
 
 def pool_of(task, values, *, children=None, anchors=TRUSTED):
     """A read_pool result: `values` maps catalog policy -> its replicate values, `children` child -> its values;
     a value of FAILED or INCIDENT is an evaluation with that outcome (no value)."""
     rows = [{"evaluation_id": f"{policy}-{k}", "candidate_id": f"sha256:{policy}", "mode": mode, "policy": policy,
-             "task": task, "replicate": k + 1, "outcome": v if v in (FAILED, INCIDENT) else "completed",
-             "value": None if v in (FAILED, INCIDENT) else v, "hidden": None, "calls": 1, "wall_clock_sec": 10.0}
+             "task": task, "replicate": k + 1, "outcome": v if v in OUTCOMES else "completed",
+             "value": None if v in OUTCOMES else v, "hidden": None, "calls": 1, "wall_clock_sec": 10.0}
             for mode, group in (("catalog", values), ("unguided", children or {}))
             for policy, vs in group.items() for k, v in enumerate(vs)]
     return {"task": task, "rows": rows, "anchors": anchors, "agreement": {}, "excluded_judges": {}, "unpooled": [],
@@ -259,6 +274,11 @@ def test_phase1_readout_valued_mean_leaves_out_a_failed_evaluation():
     assert (stats["valued_mean"], stats["failed"], stats["failure_rate"]) == (6, 1, 0.5)
 
 
+def test_phase1_readout_scores_a_timeout_as_a_zero_failure_and_counts_it_apart():
+    stats = readout({"direct": [4, 5], "best_of_n": [6, "timeout", FAILED]})["tasks"]["t1"]["policies"]["best_of_n"]
+    assert (stats["mean"], stats["failed"], stats["timeouts"], stats["incidents"]) == (2, 2, 1, 0)
+
+
 def test_phase1_readout_excludes_and_counts_incidents_and_unvalued_completed_runs():
     stats = readout({"direct": [4, 5, INCIDENT, None], "best_of_n": [6, 7]})["tasks"]["t1"]["policies"]["direct"]
     assert (stats["runs"], stats["mean"], stats["incidents"], stats["excluded"]) == (2, 4.5, 1, 1)
@@ -283,6 +303,30 @@ def test_phase1_readout_scores_a_task_whose_evaluations_all_failed_from_the_log_
     task = result["tasks"]["t2"]
     assert (task["no_pool"], task["anchors_ok"], task["policies"]["direct"]["mean"], task["separated"],
             result["rule"]) == (True, UNAVAILABLE, 0, False, "within_tolerance")
+
+
+def test_log_only_pool_accepts_a_task_whose_completed_evaluations_are_all_contaminated(tmp_path):
+    log = tmp_path / "log.jsonl"
+    for eid, outcome in (("e1", "completed"), ("e2", "failed")):
+        records = tmp_path / "records" / eid / "run-1"
+        records.mkdir(parents=True)
+        (records / "record.json").write_text(json.dumps({"outcome": outcome, "calls": 1, "scan": {
+            "calls": 1, "hits": [], "verdict": {"verdict": "contaminated", "reason": "solution seen"}}}))
+        append_record(log, log_row(records, eid=eid, outcome=outcome))
+    stats = phase1_readout([pool_of("t1", WIDE), log_only_pool(log, "task") | {"task": "t2"}], DIVERSE,
+                           CRIT)["tasks"]["t2"]["policies"]["direct"]
+    assert (stats["runs"], stats["excluded"], stats["failed"], stats["mean"]) == (1, 1, 1, 0)
+
+
+def test_log_only_pool_refuses_a_task_with_an_uncontaminated_completed_evaluation(tmp_path):
+    log = tmp_path / "log.jsonl"
+    records = tmp_path / "records" / "e1" / "run-1"
+    records.mkdir(parents=True)
+    (records / "record.json").write_text(json.dumps({"outcome": "completed", "calls": 1,
+                                                     "scan": {"calls": 1, "hits": [], "verdict": None}}))
+    append_record(log, log_row(records, eid="e1"))
+    with pytest.raises(ValueError, match="pass its pool's results.json"):
+        log_only_pool(log, "task")
 
 
 def test_phase1_readout_singleton_child_outlier_does_not_separate_a_null_catalog():
@@ -343,6 +387,26 @@ def test_readout_cli_phase1_takes_one_log_and_each_tasks_results(tmp_path, capsy
         results.append(str(path))
     (tmp_path / "readout.json").write_text(json.dumps(DIVERSE))
     main(["readout", "--log", str(log), "--driver-readout", str(tmp_path / "readout.json"), "--criterion",
-          str(CRITERION), *results])
+          str(CRITERION), "--joined-out", str(tmp_path / "joined.json"), *results])
     result = json.loads(capsys.readouterr().out)
     assert (result["rule"], result["phase2_selected"]) == ("separated", True)
+
+
+def test_readout_cli_phase1_writes_every_tasks_rows_with_their_outcomes_for_phase2(tmp_path, capsys):
+    criterion, log, results = json.loads(CRITERION.read_text()), tmp_path / "log.jsonl", []
+    pooled, failing = (Path(t).name for t in criterion["tasks"])
+    roles = criterion["anchors"][pooled]
+    records = tmp_path / "records" / "p" / "run-1"
+    append_record(log, log_row(records, eid="p", task=pooled))
+    append_record(log, log_row(tmp_path / "records" / "f", eid="f", task=failing, outcome="failed"))
+    path = tmp_path / "results.json"
+    path.write_text(json.dumps({"runs": [run_row(records, "p")], "criterion_sha256": sha256_file(CRITERION),
+                                "agreement": {}, "excluded_judges": {}, "anchors": [
+                                    {"batch": 0, "judge": "j", "anchor": roles["upstream"], "total": 8},
+                                    {"batch": 0, "judge": "j", "anchor": roles["stub"], "total": 1}]}))
+    (tmp_path / "readout.json").write_text(json.dumps(DIVERSE))
+    main(["readout", "--log", str(log), "--driver-readout", str(tmp_path / "readout.json"), "--criterion",
+          str(CRITERION), "--joined-out", str(tmp_path / "joined.json"), str(path)])
+    joined = json.loads((tmp_path / "joined.json").read_text())
+    assert [(r["evaluation_id"], r["task"], r["outcome"]) for r in joined] == [
+        ("p", pooled, "completed"), ("f", failing, "failed")]

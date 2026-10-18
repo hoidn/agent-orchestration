@@ -7,9 +7,9 @@ scoring_phase2.phase2_readout; this module writes what it reads.
 
 An archive entry: {candidate_id, candidate_root, seed (stem, or None for a child), module (the lineage seed's stem:
 its configuration, driver.seed_config), values {task: [primary value: a completed run's judged value, 0 for a
-failed run; incidents and unvalued runs left out]}, calls [provider calls per counted evaluation], mean_value (mean
-over the adaptive tasks of the per-task means), mean_calls, evidence ("phase1-prior" or "adaptive"), generation (the one it entered in; 0 for seeds)}. The archive is the incumbent plus at most
-ARCHIVE_SIZE frontier members: non-dominated on (mean_value higher, mean_calls lower), ranked by mean_value, then
+failed or timed-out run; other incidents and unvalued runs left out]}, calls [provider calls per counted evaluation], mean_value (mean
+over the adaptive tasks of the per-task means), mean_calls, evidence ("phase1-prior" or "adaptive"), generation
+(the one it entered in; 0 for seeds)}. The archive is the incumbent plus at most ARCHIVE_SIZE frontier members: non-dominated on (mean_value higher, mean_calls lower), ranked by mean_value, then
 fewer calls, then the earlier id (the incumbent is the first). Phase 1's joined catalog rows are prior evidence.
 
 A run (run_mode2) on a fresh evidence root E:

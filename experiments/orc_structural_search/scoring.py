@@ -19,8 +19,11 @@ own arm and knows nothing of policies. This module adds the three steps around t
                      agreement and excluded judges, and the completed evaluations no run row names (`unpooled`);
                      refuses another criterion's results. Log rows count once per evaluation id
                      (latest_evaluations: the last row wins, so a resumed incident counts as its later outcome).
-  log_only_pool      a task with no completed evaluation has no pool: its failed and incident rows from the log
-                     alone (`no_pool`; anchors not applicable, so the anchor gate skips it).
+  log_only_pool      a task with no completed, uncontaminated evaluation has no pool: its rows from the log alone
+                     (`no_pool`; contaminated completed runs unvalued; anchors not applicable, so the anchor gate
+                     skips it).
+  scored_outcome     an incident whose latest incidents entry shows `launcher exit -9` (killed at its wall-clock
+                     envelope) is a `timeout`: 0 points, counted under failed and reported as timeouts.
   phase1_readout     per task: catalog policy, child and pooled `unguided` stats; separation over arms with two or
                      more primary values (primary_value: a completed run's value, 0 for a failed run; criterion
                      amendment of 2026-10-18); DIRECT's rank; anchor order and cross-batch spread per judge; the
@@ -60,7 +63,9 @@ DIRECT = "direct"  # the DIRECT seed's stem
 UNGUIDED = "unguided"  # the one arm pooling every accepted I1 child's evaluations
 BATCH_CLONES = 10  # harness D4: at most ten clones per batch, both anchors included and repeated in each
 ANCHORS_PER_BATCH = 2
-FAILED_POINTS = 0.0  # a failed evaluation's primary value (criteria amendment of 2026-10-18)
+FAILED_POINTS = 0.0  # a failed or timed-out evaluation's primary value (criteria amendment of 2026-10-18)
+FAILURES = ("failed", "timeout")  # scored outcomes worth FAILED_POINTS
+KILLED = "(launcher exit -9;"  # evaluation._launch's incidents entry for a run killed at its wall-clock envelope
 DIVERSITY = ("episodes", "distinct_skeletons", "revisit_rate", "terminal_only_share",
              "allocation_distinct")  # driver readout keys reported as they are; collapse is judged on the criterion
 
@@ -140,12 +145,23 @@ def latest_evaluations(rows: Sequence[Mapping]) -> list[dict]:
     return list({row["evaluation_id"]: row for row in rows if row["kind"] == "evaluation"}.values())
 
 
+def scored_outcome(record: Mapping) -> str:
+    """The log outcome, except an incident whose latest incidents entry shows the launcher killed at the wall-clock
+    envelope (KILLED) is a `timeout`."""
+    incidents = record.get("incidents") or ()
+    return "timeout" if record["outcome"] == "incident" and incidents and KILLED in incidents[-1] else record["outcome"]
+
+
+def unvalued_row(record: Mapping) -> dict:
+    """A scored row of a log record with no summarize run: value and hidden None, calls and wall clock the log's."""
+    return evaluation_row(record, value=None, hidden=None, calls=record.get("provider_calls", UNAVAILABLE),
+                          wall_clock_sec=record.get("wall_clock_sec", UNAVAILABLE))
+
+
 def outcome_rows(records: Sequence[Mapping], task: str) -> list[dict]:
-    """A scored row (value and hidden None; calls and wall clock the log's) per failed or incident evaluation of
-    `task` among the deduplicated log `records`."""
-    return [evaluation_row(r, value=None, hidden=None, calls=r.get("provider_calls", UNAVAILABLE),
-                           wall_clock_sec=r.get("wall_clock_sec", UNAVAILABLE))
-            for r in records if r["task_id"] == task and r["outcome"] in ("failed", "incident")]
+    """An unvalued row per failed or incident (or timeout) evaluation of `task` among the deduplicated log
+    `records`."""
+    return [unvalued_row(r) for r in records if r["task_id"] == task and r["outcome"] in ("failed", "incident")]
 
 
 def evaluation_row(record: Mapping, **measures) -> dict:
@@ -153,13 +169,13 @@ def evaluation_row(record: Mapping, **measures) -> dict:
     wall_clock_sec)."""
     return {"evaluation_id": record["evaluation_id"], "candidate_id": record["candidate_id"], "mode": record["mode"],
             "policy": policy(record), "task": record["task_id"], "replicate": record["replicate"],
-            "outcome": record["outcome"], **measures}
+            "outcome": scored_outcome(record), **measures}
 
 
 def primary_value(row: Mapping) -> float | None:
-    """A completed run's value (None when summarize excluded it), FAILED_POINTS for a failed run, None for an
-    incident."""
-    return {"completed": row["value"], "failed": FAILED_POINTS}.get(row["outcome"])
+    """A completed run's value (None when summarize excluded it), FAILED_POINTS for a failed or timed-out run, None
+    for an incident."""
+    return {"completed": row["value"], "failed": FAILED_POINTS, "timeout": FAILED_POINTS}.get(row["outcome"])
 
 
 def join_scores(results_json: Path, log: Path) -> list[dict]:
@@ -203,15 +219,28 @@ def read_pool(results_json: Path, log: Path, criterion: Path) -> dict:
             "no_pool": False}
 
 
+def contaminated(records_dir: Path) -> bool:
+    """Whether the collected, scanned run is excluded from a pool (pool.exclusion: Fable answers or a contaminated
+    verdict); refuses a run not collected or scanned, and hits without a verdict."""
+    record = load(Path(records_dir) / "record.json")
+    if "outcome" not in record or "scan" not in record:
+        raise ValueError(f"{records_dir} has not been collected and scanned")
+    return pooling.exclusion(record["scan"], record["calls"], f"prepare.py scan --run {records_dir}") is not None
+
+
 def log_only_pool(log: Path, task: str) -> dict:
-    """read_pool's shape for a task with no completed evaluation in `log` (so no pool): its failed and incident
-    rows, no anchors, `no_pool` true. Refuses a task with a completed evaluation: that one needs its pool."""
-    records = latest_evaluations(read_records(log))
-    completed = sorted(r["evaluation_id"] for r in records if r["task_id"] == task and r["outcome"] == "completed")
-    if completed:
-        raise ValueError(f"{task} has completed evaluations {completed} in {log}: pass its pool's results.json")
-    return {"task": task, "results": UNAVAILABLE, "rows": outcome_rows(records, task), "anchors": [],
-            "agreement": {}, "excluded_judges": {}, "unpooled": [], "no_pool": True}
+    """read_pool's shape for a task with no completed, uncontaminated evaluation in `log` (so no pool): an unvalued
+    row per completed (contaminated: counted as excluded), failed or incident evaluation, no anchors, `no_pool`
+    true. Refuses a task with a completed, uncontaminated evaluation: that one needs its pool."""
+    records = [r for r in latest_evaluations(read_records(log)) if r["task_id"] == task]
+    completed = [r for r in records if r["outcome"] == "completed"]
+    usable = sorted(r["evaluation_id"] for r in completed if not contaminated(r["records_dir"]))
+    if usable:
+        raise ValueError(f"{task} has completed, uncontaminated evaluations {usable} in {log}: pass its pool's "
+                         "results.json")
+    return {"task": task, "results": UNAVAILABLE, "rows": [unvalued_row(r) for r in completed] +
+            outcome_rows(records, task), "anchors": [], "agreement": {}, "excluded_judges": {}, "unpooled": [],
+            "no_pool": True}
 
 
 def pooled_sd(groups: Sequence[Sequence[float]]) -> float | str:
@@ -233,14 +262,16 @@ def primary_values(rows: Sequence[Mapping]) -> list[float]:
 
 def policy_stats(rows: Sequence[Mapping]) -> dict:
     """One arm's rows (any outcome): runs, mean and sd over primary values; valued_runs and valued_mean over
-    completed runs' values; failed, failure_rate (failed over completed and failed), incidents, excluded (completed
-    without a value); hidden, calls and wall clock means over the rows with a primary value."""
+    completed runs' values; failed (failed and timed-out runs), timeouts, failure_rate (failed over completed and
+    failed), incidents, excluded (completed without a value); hidden, calls and wall clock means over the rows
+    with a primary value."""
     values, counted = primary_values(rows), [r for r in rows if primary_value(r) is not None]
     valued = [r["value"] for r in counted if r["outcome"] == "completed"]
     outcomes = [r["outcome"] for r in rows]
-    failed, completed = outcomes.count("failed"), outcomes.count("completed")
+    failed, completed = sum(map(outcomes.count, FAILURES)), outcomes.count("completed")
     return {"runs": len(values), "mean": known_mean(values), "sd": stdev(values) if len(values) > 1 else UNAVAILABLE,
             "valued_runs": len(valued), "valued_mean": known_mean(valued), "failed": failed,
+            "timeouts": outcomes.count("timeout"),
             "failure_rate": share(failed, failed + completed), "incidents": outcomes.count("incident"),
             "excluded": completed - len(valued),
             "hidden_mean": known_mean([r["hidden"] for r in counted if r["hidden"] is not None]),
@@ -309,8 +340,8 @@ def task_readout(pool: Mapping, criterion: Mapping) -> dict:
 
 def decision(tasks: Mapping[str, Mapping], collapsed: bool | str, min_tasks: int) -> dict:
     """Roadmap "Decision Points And Stop Rules", first rule that fires: an anchor inversion in any pool
-    (anchors_inverted; a no_pool task has no anchors and is skipped); fewer than `min_tasks` separated tasks (within_tolerance); DIRECT the sole winner on every
-    separated task (direct_sole_winner); the only Phase 1 interface (I1) without a collapse figure, no accepted
+    (anchors_inverted; a no_pool task has no anchors and is skipped); fewer than `min_tasks` separated tasks
+    (within_tolerance); DIRECT the sole winner on every separated task (direct_sole_winner); the only Phase 1 interface (I1) without a collapse figure, no accepted
     child, so the adaptive claim is untested (collapse_unavailable), or collapsed (collapsed); otherwise separated
     and Phase 2 is selected."""
     separated = sorted(t for t, r in tasks.items() if r["separated"])
@@ -353,12 +384,14 @@ def readout_command(a: argparse.Namespace) -> dict:
             raise SystemExit("--phase 2 takes at most one results.json, the validation pool's, with --validation-log")
         pool = read_pool(a.results[0], a.validation_log, a.criterion) if a.results else None
         return phase2_readout(a.log, a.archive, pool, a.criterion)
-    if len(a.log) != 1 or a.driver_readout is None or not a.results:
+    if len(a.log) != 1 or a.driver_readout is None:
         raise SystemExit("--phase 1 takes one --log, --driver-readout and each task pool's results.json")
     pools = [read_pool(results, a.log[0], a.criterion) for results in a.results]
     pooled = {pool["task"] for pool in pools}
     pools += [log_only_pool(a.log[0], Path(task).name) for task in json.loads(a.criterion.read_text())["tasks"]
               if Path(task).name not in pooled]
+    if a.joined_out:  # the Phase 2 initial archive's input (adaptive.run_mode2 phase1_joined)
+        a.joined_out.write_text(json.dumps([row for pool in pools for row in pool["rows"]], indent=2) + "\n")
     return phase1_readout(pools, json.loads(a.driver_readout.read_text()), json.loads(a.criterion.read_text()))
 
 
@@ -375,6 +408,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     readout_cmd.add_argument("--log", type=Path, action="append", required=True,
                              help="phase 1: the driver's log; phase 2: one per run, in --archive order")
     readout_cmd.add_argument("--driver-readout", type=Path, help="phase 1: the driver's readout.json")
+    readout_cmd.add_argument("--joined-out", type=Path,
+                             help="phase 1: write every task's scored rows (outcomes included) here, Phase 2's "
+                                  "phase1_joined")
     readout_cmd.add_argument("--archive", type=Path, action="append", default=[],
                              help="phase 2: each run's archive directory")
     readout_cmd.add_argument("--validation-log", type=Path, help="phase 2: the log of the validation evaluations")

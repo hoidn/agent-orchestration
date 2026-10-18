@@ -174,6 +174,18 @@ def test_phase2_readout_validation_mean_counts_a_failed_replicate_as_zero(run):
     assert (row["validation_mean"], row["valued_mean"], row["failed"]) == (2.2, 4.4, 1)
 
 
+def test_phase2_readout_child_adaptive_mean_counts_a_timeout_as_zero(run):
+    run.episode("C1", interface="I1", value=6.0)
+    run.failed("C1", ADAPTIVE[0])
+    append_record(run.log, {"kind": "evaluation", "mode": "adaptive", "evaluation_id": "C1-timeout",
+                            "candidate_id": "C1", "records_dir": str(run.root / "records" / "t"),
+                            "task_id": ADAPTIVE[1], "replicate": 2, "outcome": "incident", "split": "adaptive",
+                            "generation": 1, "incidents": ["launch 0: no terminal row in run r (launcher exit -9; "
+                                                           "see launch-0.log)"]})
+    # task 0: [6, 0] -> 3; task 1: [6, 0] -> 3; adaptive mean 3, gain -1
+    assert readout2([run])["runs"][0]["interfaces"]["I1"]["gains"]["C1"] == -1
+
+
 def test_phase2_readout_validation_replicates_exclude_incidents(run):
     finalists(run)
     with pytest.raises(ValueError, match="without 2 replicates"):
