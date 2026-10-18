@@ -275,6 +275,20 @@ It does not claim perfect isolation.
    $PY $H/summarize.py --pool $P --criterion <criterion.json>
    ```
 
+## Candidate-root arms and generic-command arms
+
+`prepare.run_arm(task, arm, W, RT, spec=ArmSpec(...))` runs an arm the `ARMS` table does not name;
+`arm` then only names `W/records/<arm>/`. `ArmSpec` gives the `.orc` source, entry, source root,
+providers file and typed input fields, and optionally a command boundaries file (passed to `run` as
+`--command-boundaries-file`) and a state directory (`--state-dir` for `run` and `resume.sh`). Its
+paths may name a candidate root outside the runtime; that root faces the runtime's refusals (main
+checkout prefix, inside `W`). With `command` set the arm is a generic command: `command.sh` runs it
+from `cand-1` behind the shims with the same `COMPARE_*` and `TMPDIR` environment and
+`R/inputs.json` as its single argument, and writes no `resume.sh`. `record.json` names the kind as
+`arm_kind`: `orc` or `generic-command`. `prepare.py scan --run R --hash SOL --root NAME=PATH ...`
+(repeatable; `prepare.scan(..., roots=[(name, path)])` from Python) counts mentions of further prefixes,
+such as a search's archive, lineage log and holdout roots, as hits named NAME.
+
 ## Measures
 
 `summarize.py` scores a clone as the judges' mean total of the four criteria (0 to 8). A run's

@@ -2,7 +2,7 @@
 
   prepare.py run --task T --arm A --root W --runtime RT [--candidates N] [--set NAME=VALUE ...] [--apply PATCH]
   prepare.py collect --run R
-  prepare.py scan --run R --hash SOLUTION_COMMIT
+  prepare.py scan --run R --hash SOLUTION_COMMIT [--root NAME=PATH ...]
   prepare.py scan --run R --verdict contaminated|cleared --reason TEXT
   prepare.py scan --pool P --judge MODEL --hash SOLUTION_COMMIT   (and --verdict ... --reason ...)
   prepare.py pool --task T --criterion C --out P --judge MODEL[=PROVIDERS_JSON] [--judge ...] R [R ...]
@@ -28,23 +28,25 @@ Design: docs/design/orc_effectiveness_comparison_harness.md. Standard library on
 
 import argparse
 import json
+import shlex
 import shutil
 import subprocess
 import time
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 try:
     from . import pool as pooling, scan as contamination  # imported as experiments.compare.prepare
     from .repos import (
         build_candidate, dump, git, guard, load,
-        main_checkout, random_child, runtime_commit, sha256_file, shim_commands, visible_in_sandbox,
+        main_checkout, random_child, runtime_commit, sha256_file, shim_commands, shim_prefix, visible_in_sandbox,
     )
 except ImportError:  # run as a script
     import pool as pooling
     import scan as contamination
     from repos import (
         build_candidate, dump, git, guard, load,
-        main_checkout, random_child, runtime_commit, sha256_file, shim_commands, visible_in_sandbox,
+        main_checkout, random_child, runtime_commit, sha256_file, shim_commands, shim_prefix, visible_in_sandbox,
     )
 
 # arm: (source, entry workflow, source root, providers file, typed inputs); paths in the runtime checkout.
@@ -77,6 +79,47 @@ REVIEW_ONCE_REPLIES = "none"
 BEST_OF_N_STATE = "best-of-n-runs"
 
 
+@dataclass(frozen=True)
+class ArmSpec:
+    """What an arm runs: an `.orc` source with its entry, source root, providers, typed input fields and
+    optional command boundaries and state directory; or, with `command`, a generic command run behind the
+    shims with R/inputs.json as its single argument. A spec may name a candidate root outside the runtime."""
+    source: Path
+    entry: str
+    source_root: Path
+    providers: Path
+    inputs: tuple[str, ...]
+    command_boundaries: Path | None = None
+    state_dir: Path | None = None
+    command: tuple[str, ...] | None = None
+
+
+def arm_spec(arm, runtime):
+    """The ARMS entry `arm` as a spec with paths in the runtime checkout."""
+    source, entry, source_root, providers, inputs = ARMS[arm]
+    return ArmSpec(runtime / source, entry, runtime / source_root, runtime / providers, inputs)
+
+
+def resolved(spec):
+    """The spec with absolute paths."""
+    paths = {name: getattr(spec, name) and Path(getattr(spec, name)).resolve()
+             for name in ("source", "source_root", "providers", "command_boundaries", "state_dir")}
+    return replace(spec, **paths)
+
+
+def refuse_paths(main, root, runtime, spec):
+    """The runtime and the spec's files (a candidate root among them) outside the main checkout's prefix
+    and the work root; the work root visible in the shims' sandbox."""
+    files = [p for p in (spec.source, spec.source_root, spec.providers, spec.command_boundaries) if p]
+    guard(main, root, runtime, *files)
+    if str(runtime).startswith(f"{root}/"):
+        raise SystemExit(f"the runtime {runtime} lies inside the work root {root}, where agents work")
+    for path in files:
+        if str(path).startswith(f"{root}/"):
+            raise SystemExit(f"the arm's {path} lies inside the work root {root}, where agents work")
+    visible_in_sandbox(root)
+
+
 def next_run_dir(arm_dir):
     k = 1
     while True:
@@ -87,8 +130,8 @@ def next_run_dir(arm_dir):
             k += 1
 
 
-def arm_inputs(task, arm, candidates, sets):
-    fields = ARMS[arm][4]
+def arm_inputs(task, arm, candidates, sets, fields=None):
+    fields = fields or ARMS[arm][4]
     extra = dict(item.split("=", 1) for item in sets)
     if arm == "review_once" and {"account", "replies"} & set(extra):
         raise SystemExit("review_once's account and replies are frozen by the calibration criterion; do not --set them")
@@ -139,21 +182,21 @@ def apply_patch(records, tree, cand, patch):
     return {"applied": {"path": str(patch), "sha256": sha256_file(patch)}}
 
 
-def run_arm(task, arm, root, runtime, candidates=None, sets=(), apply=None):
-    """Build the run's agents' tree and records directory, print the command; return the records directory."""
+def run_arm(task, arm, root, runtime, candidates=None, sets=(), apply=None, spec=None):
+    """Build the run's agents' tree and records directory, print the command; return the records directory.
+    `spec` replaces the ARMS lookup (`arm` then only names W/records/<arm>/); its paths face the runtime's
+    guards."""
     count = candidates or (4 if arm == "best_of_n" else 1)
     if arm != "best_of_n" and count != 1:
         raise SystemExit(f"{arm} works in a single candidate, not {count}")
     patch = patch_to_review(arm, apply)
     task, runtime, root = task.resolve(), runtime.resolve(), root.resolve()
+    spec = resolved(spec) if spec else arm_spec(arm, runtime)
     main = main_checkout(runtime)
-    guard(main, root, runtime)
-    if str(runtime).startswith(f"{root}/"):
-        raise SystemExit(f"the runtime {runtime} lies inside the work root {root}, where agents work")
-    visible_in_sandbox(root)
+    refuse_paths(main, root, runtime, spec)
     commit = runtime_commit(runtime)
     base = git(runtime, "rev-parse", "--verify", (task / "base_commit").read_text().strip() + "^{commit}")
-    arm_inputs(task, arm, [Path("/")], sets)  # refuse bad --set values before building anything
+    arm_inputs(task, arm, [Path("/")], sets, spec.inputs)  # refuse bad --set values before building anything
     records, tree = next_run_dir(root / "records" / arm), random_child(root / "agents")
     cands = [tree / f"cand-{k}" for k in range(1, count + 1)]
     seeded = {build_candidate(runtime, base, task / "seed", cand) for cand in cands}
@@ -163,25 +206,28 @@ def run_arm(task, arm, root, runtime, candidates=None, sets=(), apply=None):
     require_ignored_state(cands)
     applied = apply_patch(records, tree, cands[0], patch)
     (tree / "tmp").mkdir()
-    dump(records / "inputs.json", arm_inputs(task, arm, cands, sets))
-    cwd, state = (tree, link_best_of_n_state(tree, cands)) if arm == "best_of_n" else (cands[0], None)
-    source, entry, source_root, providers, _ = ARMS[arm]
-    command, resume = shim_commands(
-        cwd, runtime, {"COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": compare_base,
-                       "TMPDIR": tree / "tmp"},
-        [str(runtime / source), "--entry-workflow", entry, "--source-root", str(runtime / source_root),
-         "--provider-externs-file", str(runtime / providers), "--input-file", str(records / "inputs.json")],
-        state=state)
+    dump(records / "inputs.json", arm_inputs(task, arm, cands, sets, spec.inputs))
+    cwd, state = (tree, link_best_of_n_state(tree, cands)) if arm == "best_of_n" else (cands[0], spec.state_dir)
+    env = {"COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": compare_base, "TMPDIR": tree / "tmp"}
+    if spec.command:  # nothing to resume: no resume.sh
+        command = shim_prefix(cwd, runtime, env) + shlex.join([*spec.command, str(records / "inputs.json")])
+    else:
+        command, resume = shim_commands(
+            cwd, runtime, env,
+            [str(spec.source), "--entry-workflow", spec.entry, "--source-root", str(spec.source_root),
+             "--provider-externs-file", str(spec.providers), "--input-file", str(records / "inputs.json")],
+            state, spec.command_boundaries)
+        (records / "resume.sh").write_text(resume + "\n")
     (records / "command.sh").write_text(command + "\n")
-    (records / "resume.sh").write_text(resume + "\n")
     dump(records / "record.json", {
-        "arm": arm, "task": str(task), "runtime": str(runtime), "runtime_commit": commit, "main": str(main),
+        "arm": arm, "arm_kind": "generic-command" if spec.command else "orc",
+        "task": str(task), "runtime": str(runtime), "runtime_commit": commit, "main": str(main),
         "base": base, "compare_base": compare_base, "records": str(records), "tree": str(tree),
         "candidates": [str(c) for c in cands], "cwd": str(cwd),
         "state_root": str(state or cwd / ".orchestrate" / "runs"), "command": command, "created_at": time.time(),
         **applied,
     })
-    print(f"{command}\n# resume after a stop: bash {records / 'resume.sh'} <run_id>")
+    print(command if spec.command else f"{command}\n# resume after a stop: bash {records / 'resume.sh'} <run_id>")
     return records
 
 
@@ -280,14 +326,15 @@ def collect(records):
     return record
 
 
-def scan(records, solution, home=None):
+def scan(records, solution, home=None, roots=()):
     """Record every contamination hit of the run (file, line, pattern, excerpt) and the number of calls the
-    scan covers; any earlier verdict is dropped."""
+    scan covers; any earlier verdict is dropped. `roots`: further (name, path) prefixes, such as a search's
+    archive, lineage log and holdout roots."""
     records, home = records.resolve(), home or Path.home()
     record = load(records / "record.json")
     compiled = contamination.patterns(
         main=record["main"], runtime=record["runtime"], solution=solution, home=home,
-        others=contamination.siblings(record["tree"]), roots=[("records root", records.parents[1])])
+        others=contamination.siblings(record["tree"]), roots=[("records root", records.parents[1]), *((name, Path(path).resolve()) for name, path in roots)])
     hits = contamination.find_hits(records, record["tree"], record["created_at"], home, compiled)
     record["scan"] = {"solution": solution, "hits": hits, "verdict": None,
                       "calls": len(list((records / "calls").glob("*")))}
@@ -314,8 +361,15 @@ def scan_command(a):
         (adjudicate(a.run, a.verdict, a.reason) if a.run
          else pooling.adjudicate_judge(a.pool, a.judge, a.verdict, a.reason))
         return
-    hits = scan(a.run, a.hash) if a.run else pooling.scan_judge(a.pool, a.judge, a.hash)
+    hits = scan(a.run, a.hash, roots=a.root) if a.run else pooling.scan_judge(a.pool, a.judge, a.hash)
     print(f"{len(hits)} hits; record a verdict with --verdict when there are any")
+
+
+def named_root(text):
+    name, sep, path = text.partition("=")
+    if not (name and sep and path):
+        raise argparse.ArgumentTypeError(f"expected NAME=PATH, not {text!r}")
+    return name, Path(path)
 
 
 def parser():
@@ -337,6 +391,8 @@ def parser():
     action.add_argument("--hash", help="the solution commit: record every hit")
     action.add_argument("--verdict", choices=("contaminated", "cleared"), help="record the controller's verdict")
     scan_cmd.add_argument("--reason", help="why, with --verdict")
+    scan_cmd.add_argument("--root", action="append", default=[], type=named_root, metavar="NAME=PATH",
+                          help="with --run: a further prefix the scan counts as a hit named NAME (repeatable)")
     pool_cmd = sub.add_parser("pool")
     for name in ("--task", "--criterion", "--out"):
         pool_cmd.add_argument(name, type=Path, required=True)

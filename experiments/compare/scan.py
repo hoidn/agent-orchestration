@@ -43,7 +43,8 @@ def spelled(path, home):
 
 
 def patterns(*, main, runtime, solution, home, others=(), roots=()):
-    """`roots` are (name, path) pairs matched as a prefix wherever the path is written."""
+    """`roots` are (name, path) pairs matched as a prefix wherever the path is written; roots sharing a name
+    (two holdout roots, the records roots of several runs) all match under it."""
     found = {"main checkout prefix": spelled(main, home),
              "frozen checkout": spelled(runtime, home) + r"(?![\w.-])",
              "records layout": rf"records/(?:{ARMS})/run-\d+\b", "pool record files": POOL_FILES,
@@ -51,7 +52,7 @@ def patterns(*, main, runtime, solution, home, others=(), roots=()):
              "solution hash": re.escape(solution[:7]),
              "other sessions' files": r"\.claude/projects|\.codex/(?:sessions|history)|claude-tmux-sockets"}
     for name, path in roots:
-        found[name] = spelled(path, home)
+        found[name] = f"{found[name]}|{spelled(path, home)}" if name in found else spelled(path, home)
     if others:
         found["other tree or judge"] = "|".join(re.escape(name) for name in others)
     return found

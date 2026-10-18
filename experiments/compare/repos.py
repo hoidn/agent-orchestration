@@ -108,18 +108,24 @@ def random_child(parent):
     return child
 
 
-def shim_commands(cwd, runtime, env, run_args, state=None):
+def shim_prefix(cwd, runtime, env):
+    """`cd <cwd> && env ...`: the frozen runtime on PYTHONPATH, `env` (the shims' COMPARE_ROOT, COMPARE_TREE
+    and COMPARE_BASE plus anything else) and the shims first on PATH; the command follows it."""
+    return (f"cd {shlex.quote(str(cwd))} && env "
+            + " ".join(f"{k}={shlex.quote(str(v))}" for k, v in {"PYTHONPATH": runtime, **env}.items())
+            + f' PATH={shlex.quote(str(Path(runtime) / "experiments/compare/shim"))}:"$PATH" ')
+
+
+def shim_commands(cwd, runtime, env, run_args, state_dir=None, command_boundaries=None):
     """(run command, resume script) run from `cwd` with the frozen runtime and the shims first on PATH.
 
-    `env` is the shims' COMPARE_ROOT, COMPARE_TREE and COMPARE_BASE plus anything else; the shims strip
-    them, PYTHONPATH and their own directory from the agent's environment. The resume script takes the
-    run id as $1. With `state`, both pass --state-dir; without, the runtime keeps its state in
-    <cwd>/.orchestrate/runs, inside the agent's workspace (R34)."""
-    prefix = (f"cd {shlex.quote(str(cwd))} && env "
-              + " ".join(f"{k}={shlex.quote(str(v))}" for k, v in {"PYTHONPATH": runtime, **env}.items())
-              + f' PATH={shlex.quote(str(Path(runtime) / "experiments/compare/shim"))}:"$PATH" ')
+    The shims strip `env`, PYTHONPATH and their own directory from the agent's environment. The resume
+    script takes the run id as $1. With `state_dir`, both pass --state-dir; without, the runtime keeps its
+    state in <cwd>/.orchestrate/runs, inside the agent's workspace (R34). With `command_boundaries`, the run
+    passes --command-boundaries-file (`orchestrator resume` takes only --state-dir)."""
+    prefix = shim_prefix(cwd, runtime, env)
     python = [sys.executable, "-P", "-m", "orchestrator"]  # -P: a candidate's orchestrator/ must not shadow it
-    state_args = ["--state-dir", str(state)] if state else []
-    return (prefix + shlex.join([*python, "run", *run_args, *state_args]),
+    state_args = ["--state-dir", str(state_dir)] if state_dir else []
+    boundary_args = ["--command-boundaries-file", str(command_boundaries)] if command_boundaries else []
+    return (prefix + shlex.join([*python, "run", *run_args, *state_args, *boundary_args]),
             (prefix + shlex.join([*python, "resume"]) + ' "$1" ' + shlex.join(state_args)).rstrip())
-

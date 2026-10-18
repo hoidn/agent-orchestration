@@ -4,7 +4,10 @@ Behaviour on temporary git repositories with a stand-in agent CLI; see compare_h
 """
 
 import json
+import os
+import shutil
 import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -478,3 +481,82 @@ def test_control_differs_from_the_library_file_by_its_time_limit_only():
     added = [line for line in control if line not in library]
     assert ([line.strip() for line in added], [line for line in control if line not in added]) == (
         [":timeout-sec 14400"], library)
+
+
+def test_existing_arms_layout_unchanged(world):
+    records, record = start(world, "reviewed_change")
+    rt, cand, tree = world.runtime, record["candidates"][0], Path(record["tree"])
+    wf = rt / "experiments/orc_vs_single_call/workflows"
+    prefix = (f"cd {cand} && env PYTHONPATH={rt} COMPARE_ROOT={records} COMPARE_TREE={tree} "
+              f"COMPARE_BASE={record['compare_base']} TMPDIR={tree / 'tmp'} "
+              f'PATH={rt / "experiments/compare/shim"}:"$PATH" {sys.executable} -P -m orchestrator ')
+    assert ((records / "command.sh").read_text(), (records / "resume.sh").read_text(), record["arm_kind"],
+            sorted(p.name for p in records.iterdir())) == (
+        prefix + f"run {wf / 'reviewed_change.orc'} --entry-workflow reviewed_change::reviewed-change "
+        f"--source-root {wf} --provider-externs-file {wf / 'reviewed_change.providers.json'} "
+        f"--input-file {records / 'inputs.json'}\n", prefix + 'resume "$1"\n', "orc",
+        ["command.sh", "inputs.json", "record.json", "resume.sh"])
+
+
+def candidate_root(world):
+    root = world.outside / "archive" / "c1"
+    for name in ("main.orc", "providers.json", "commands.json"):
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text("{}\n")
+    return root
+
+
+def candidate_spec(world, root, **extra):
+    return prepare.ArmSpec(source=root / "main.orc", entry="main::run", source_root=root,
+                           providers=root / "providers.json", inputs=("task", "intent", "repo"), **extra)
+
+
+def test_candidate_root_spec_builds_command_with_its_own_source_root_and_state_dir(world, capsys):
+    root, state = candidate_root(world), world.outside / "evidence" / "runs" / "e1"
+    spec = candidate_spec(world, root, state_dir=state, command_boundaries=root / "commands.json")
+    records = prepare.run_arm(world.task, "candidate", world.root, world.runtime, spec=spec)
+    record = json.loads((records / "record.json").read_text())
+    seen, resumed = execute(capsys.readouterr().out), execute(f"bash {records / 'resume.sh'} R1")
+    assert (seen["cwd"], seen["argv"], resumed["argv"], record["state_root"], record["arm_kind"],
+            sorted(json.loads((records / "inputs.json").read_text()))) == (
+        record["candidates"][0],
+        ["run", str(root / "main.orc"), "--entry-workflow", "main::run", "--source-root", str(root),
+         "--provider-externs-file", str(root / "providers.json"), "--input-file", str(records / "inputs.json"),
+         "--state-dir", str(state), "--command-boundaries-file", str(root / "commands.json")],
+        ["resume", "R1", "--state-dir", str(state)], str(state), "orc", ["intent", "repo", "task"])
+
+
+@pytest.mark.parametrize("where, message", [("main", "main checkout prefix"), ("work", "inside the work root")])
+def test_candidate_root_spec_refuses_a_root_where_the_runtime_is_refused(world, where, message):
+    root = {"main": world.tmp / "main-candidates" / "c1", "work": world.root / "c1"}[where]
+    root.mkdir(parents=True)
+    with pytest.raises(SystemExit, match=message):
+        prepare.run_arm(world.task, "candidate", world.root, world.runtime, spec=candidate_spec(world, root))
+
+
+def test_generic_command_arm_runs_behind_shims_and_records_arm_kind(world, capsys):
+    script = 'printf "%s\\n" "$PWD" "$0" "$COMPARE_BASE" "$TMPDIR"; echo "echo agent-called" | claude -p'
+    spec = candidate_spec(world, candidate_root(world), command=("bash", "-c", script))
+    records = prepare.run_arm(world.task, "control", world.root, world.runtime, spec=spec)
+    record = json.loads((records / "record.json").read_text())
+    shutil.copytree(REPO / "experiments/compare/shim", world.runtime / "experiments/compare/shim")  # untracked
+    done = subprocess.run(["bash", "-c", capsys.readouterr().out], capture_output=True, text=True,
+                          env={**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}"})
+    assert (done.stdout.splitlines()[:4], (records / "calls/1/stdout.txt").read_text().splitlines()[-1],
+            record["arm_kind"]) == (
+        [record["candidates"][0], str(records / "inputs.json"), record["compare_base"],
+         str(Path(record["tree"]) / "tmp")], "agent-called", "generic-command")
+
+
+def test_scan_flags_archive_lineage_and_holdout_roots(world, monkeypatch):
+    records, record = start(world, "direct_task")
+    archive, lineage = world.outside / "evidence" / "candidates", world.outside / "evidence" / "log.jsonl"
+    holdouts = [world.outside / "holdout-a", world.outside / "holdout-b"]
+    lines = [f"ls {archive}/c1", f"cat {lineage}", f"ls {holdouts[0]}", f"ls {holdouts[1]}/t", "ls elsewhere"]
+    call(world, record, "".join(f"echo '{line}'\n" for line in lines))
+    monkeypatch.setenv("HOME", str(world.tmp / "home"))
+    prepare.main(["scan", "--run", str(records), "--hash", world.solution, "--root", f"archive={archive}",
+                  "--root", f"lineage={lineage}", *(f"--root=holdout={h}" for h in holdouts)])
+    hits = json.loads((records / "record.json").read_text())["scan"]["hits"]
+    assert sorted((h["line"], h["pattern"]) for h in hits) == [
+        (2, "archive"), (3, "lineage"), (4, "holdout"), (5, "holdout")]
