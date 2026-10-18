@@ -39,6 +39,25 @@ with open(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"], "w") as out:
     json.dump(entry["result"], out)
 """
 DEV_CHECK = {"argv": [sys.executable, "-c", "import pkg"], "timeout_sec": 30}
+# The scripted I1 mutator: reads the episode index from EPISODE.md's first line ("# Episode <n>") and edits
+# direct.orc in its working directory. 0: wraps the coder call in an `if` on a literal (a structural child);
+# 1: renames the `change` binding (a rename child, the parent's skeleton); 2: edits the import (refused).
+MUTATOR = f"""#!{sys.executable} -I
+import re
+from pathlib import Path
+index = int(re.match(r"# Episode (\\d+)", Path("EPISODE.md").read_text()).group(1))
+edits = [
+    [("(change (provider-result providers.coder", "(change (if true (provider-result providers.coder"),
+     (":timeout-sec 5400)))", ':timeout-sec 5400) (record Change :summary "skipped" :account "skipped"))))')],
+    [("(change (provider-result", "(result (provider-result"), ("change.summary", "result.summary")],
+    [("(import common :only (Change Outcome))", "(import common :only (Change CheckReport Outcome))")],
+][index]
+source = Path("direct.orc").read_text()
+for old, new in edits:
+    assert source.count(old) == 1, old
+    source = source.replace(old, new)
+Path("direct.orc").write_text(source)
+"""
 
 
 def script(world, entries):
