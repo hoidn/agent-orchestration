@@ -450,6 +450,11 @@ class OmpJsonStdoutAccumulator:
             ],
             "total_tokens": total_tokens,
             "total_cost": total_cost,
+            # The sums above default a missing field to zero; this says whether they are full receipts.
+            "usage_complete": all(
+                "totalTokens" in row["usage"] and "total" in row["usage"].get("cost", {})
+                for row in self._message_rows
+            ),
             "final_provider": self._final_provider,
             "final_model": self._final_model,
             "launch_frame": _unfreeze_value(self._frame),

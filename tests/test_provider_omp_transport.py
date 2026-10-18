@@ -2094,6 +2094,7 @@ def test_omp_transport_normalized_metadata_keys_are_closed():
         "messages",
         "total_tokens",
         "total_cost",
+        "usage_complete",
         "final_provider",
         "final_model",
         "launch_frame",
@@ -2407,3 +2408,17 @@ def test_omp_transport_expectation_rejects_unsafe_observed_relpaths():
         _expectation(observed_relpaths=("/etc/passwd",))
     with pytest.raises(ValueError):
         _expectation(observed_relpaths=("../../outside",))
+
+
+def test_omp_metadata_marks_usage_complete_only_when_every_row_has_totals():
+    accumulator = _new_accumulator(expectation=_expectation())
+    accumulator.feed(_fixture(TRANSIENT))
+    accumulator.feed(_jsonl(_launch_frame(_header_id(TRANSIENT))) + b"\n")
+    metadata, _ = _finalize(accumulator)
+    # The protocol validator rejects such rows on ingest; the flag guards the
+    # summed totals against any row that reaches the metadata without them.
+    accumulator._message_rows.append(
+        {"provider": "p", "model": "m", "usage": {"input": 1, "cost": {}}, "stop_reason": "stop"}
+    )
+
+    assert (metadata["usage_complete"], accumulator._build_metadata()["usage_complete"]) == (True, False)
