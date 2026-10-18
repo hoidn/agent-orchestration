@@ -22,7 +22,8 @@ places R3 after R2. Two companion designs carry the contracts: the
 (a read-only compiler-side manifest) and the
 [structural search driver](../design/orc_structural_search_driver.md)
 (proposal interfaces, edit validation, execution, records, controls and the
-proposed boundary amendment). Nothing here is copy-safe or implemented. Use
+proposed boundary amendment). Nothing here is copy-safe; the offline
+apparatus status is in [Phase 0 Status](#phase-0-status). Use
 today: `experiments/compare/` for fixed-workflow comparisons and the REPL
 `:info` / `:type` / `:source` commands for static inspection.
 
@@ -73,7 +74,7 @@ Checked against code at `90ae778c`. Each fact constrains the phases below.
 | `trial` SDK symbols are gone; the `trial` subcommand and form refuse; confined `run-ref` children are command-only (`refuse_confined_run_ref_sites`) | No trial revival; candidate provider calls stay on the ordinary route |
 | A closed-program site row is `[owner definition, label path]`; runtime identity adds the activation path and loop ordinals | A candidate-local site locator is a separate derived identity |
 | There is no run registry; a run is a directory under `--state-dir`; the workspace lock admits one active run per working directory; parent/child linkage exists only for `run-ref` children | One fresh clone per evaluation, run id as the join key, lineage in the driver's log; invariant 1 needs an explicit reading for external controllers |
-| The evaluated runtime persists no usage; `experiments/compare` collects none; `run-ref` accounting is `UNKNOWN`; the OMP transport sums missing usage fields as zero (`orchestrator/providers/omp_transport.py:438-456`); no Codex usage parsing was found | Budget units are episodes, provider calls and wall clock; dollars only where coverage is complete; the OMP default is fixed or disclosed |
+| The evaluated runtime persists no usage; `experiments/compare` collects none; `run-ref` accounting is `UNKNOWN`; OMP usage cannot be summed from a missing field, since `validate_usage` in `orchestrator/providers/omp_protocol.py` rejects any closed assistant message lacking `totalTokens` or `cost.total`; Claude and Codex session parsing lives in `experiments/orc_structural_search/metering.py` | Budget units are episodes, provider calls and wall clock; dollars only where coverage is complete |
 | `experiments/compare/` is implemented: PATH shims for `claude` and `codex` under bubblewrap, a model guard refusing Fable, a contamination scan, a blind pool and `score.orc`, a frozen hashed criterion; there is no OMP shim | Reused for hygiene; mutators run through shimmed CLIs; an OMP shim is a prerequisite before OMP sessions |
 | Experiment O's catalog `workflows/experiments/qa_placement_effectiveness/qa_placement_arms.orc` is at a retired target; the linear-classifier hard-oracle seed lacks a verified green baseline | Both are Phase 0 cost items, not assumed assets |
 | Owner rules: no Fable model in any experiment call; tasks calibrated before treatment runs; missing receipts are unavailable, never zero | Adopted for every arm, control, judge and mutator |
@@ -82,8 +83,7 @@ Checked against code at `90ae778c`. Each fact constrains the phases below.
 Consistency items surfaced by this review, to be filed with their owners as
 spec-versus-code contradictions outside this roadmap's gates: `specs/cli.md`
 still says the `run_trial_entry` SDK refuses although the symbol no longer
-exists, and the OMP usage default contradicts the never-zero rule. The
-experiment design's availability table, which listed E2 `trial`,
+exists. The experiment design's availability table, which listed E2 `trial`,
 `run_trial_entry`, the IR/source-map exports and `explain` as available, is
 corrected in the change that adds this roadmap.
 
@@ -152,6 +152,17 @@ termination or correctness; runtime envelopes stay necessary.
 | 4 Compositional search | Fragment contracts with explicit inputs, hygienic insertion, capture-aware extraction for a documented subset, I4 certified transforms, crossover | One extracted composition transfers between workflows and survives complete-program evaluation |
 | 5 Broader utility | Measured bottlenecks only: parallel evaluation across clones, richer adaptive policies, scientific transfer, protocol evolution, caching | Evidence supports each expansion |
 
+### Phase 0 Status
+
+The [offline apparatus plan](2026-10-18-orc-structural-search-phase0-offline-plan.md)
+(mode-1 driver, edit validation, candidate snapshots, evaluation, records,
+metering) and the
+[source-site feasibility plan](2026-10-18-source-site-inspection-feasibility-plan.md)
+(read-only manifest module) are implemented and tested with scripted
+providers only. P-1 and F-a passed. Still owner-gated: selection and
+allocation, the boundary amendment, the task-family choice, and every live
+run.
+
 ### Phase 0 Gates
 
 - R2 task-family qualification keeps its own selection, review and
@@ -179,8 +190,7 @@ termination or correctness; runtime envelopes stay necessary.
   cancellation and teardown verified for the chosen runner.
 - Mutator and arm sessions use the shimmed `claude` and `codex` CLIs; OMP
   sessions wait for a shim with the same guard.
-- Metering: receipt availability measured per provider; the OMP zero default
-  fixed or every OMP figure disclosed as a lower bound; missing usage
+- Metering: receipt availability measured per provider; missing usage
   recorded as unavailable; the budget unit for comparisons fixed as
   completed episodes with provider calls and wall clock reported.
 - P-1 and F-a fixtures from the inspection design: WCC node metadata is

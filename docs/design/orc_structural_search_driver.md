@@ -3,7 +3,9 @@
 ## Metadata
 
 - **Status:** proposed research apparatus design; unselected; not copy-safe.
-  Nothing here is implemented. Fixed-workflow comparisons use
+  Partial: the mode-1 offline apparatus (`experiments/orc_structural_search/`)
+  is implemented and tested with scripted providers only; mode 2, I2 episodes,
+  I3 and live runs are not implemented. Fixed-workflow comparisons use
   [`experiments/compare/`](../../experiments/compare/README.md) today.
 - **Kind:** experiment-side apparatus contract: controller modes, proposal
   interfaces, edit validation and transactions, candidate identities,
@@ -113,6 +115,18 @@ diagnostics class recorded; no task evaluation), `exhausted`, `incident`.
 definitions an agent may change and the condition (topology-only,
 prompt-only, provider-only, joint). Everything else is a frozen surface.
 
+**Condition surfaces (as implemented in
+`experiments/orc_structural_search/candidates.py`, `_condition_verdict` and
+`validate_frozen_surfaces`).** Exported entry signatures are frozen under every
+condition.
+
+| Condition | May change |
+| --- | --- |
+| topology-only | Shape of mutable definitions, including which provider extern a call names; every `:model`/`:effort` value must already occur in the parent module; prompt bodies, `defprompt` signatures and the providers file are frozen |
+| prompt-only | `defprompt` template bodies only |
+| provider-only | `:model`/`:effort` values in mutable definitions, and the providers file (permitted without listing it in `mutable_files`) |
+| joint | The union of the above plus `defprompt` signatures |
+
 **Frozen-surface validation (I1 and I2).** Parse parent and child with the
 ordinary reader and compare forms, not text: imports; `deftype`,
 `defrecord`, `defunion` and `defenum` declarations; exported entry
@@ -142,7 +156,10 @@ other than the site subtree and the declared helpers differs; whitespace
 never fires it); `declaration_collision` (a helper name already resolves in
 the parent, imports included); `slot_type_changed` (after compilation the
 replacement's inferred result type is not identical, by canonical type
-identity, to the parent site's); plus the frozen-surface rule. Lifted
+identity, to the parent site's); `condition_mismatch` (the receipt's
+condition is not the configuration's); `unreadable_child` (the ordinary
+reader rejects a child `.orc` file or receipt text); plus the frozen-surface
+rule, refused as `frozen_surface_changed`. Lifted
 helpers take explicit parameters; adding one never changes an existing
 binding. Edits preserve comments and unrelated text.
 
@@ -238,13 +255,25 @@ task clone:
 
 ```sh
 python -m orchestrator run <candidate entry .orc> [frontend flags] \
-  --input-file <evaluation inputs> --state-dir <evidence>/runs/<evaluation_id>
+  --input-file <evaluation inputs> --state-dir <work root>/runs/<evaluation_id>
 ```
 
-- `--state-dir` under the evidence root is a stated deviation from the
+- `--state-dir` outside the clone is a stated deviation from the
   harness's in-clone `.orchestrate/runs/` placement, kept so run records
   survive clone teardown; the harness's work-root, pool and frozen-runtime
   layout rules are inherited unchanged.
+- Two roots, neither inside the other (`check_roots` in
+  `experiments/orc_structural_search/driver.py` refuses nesting): the
+  sandbox-visible work root holds run state, records, clones, environment
+  manifests and episode copies; the evidence root, never shown to an agent,
+  holds `log.jsonl`, the `candidates/` archive and `readout.json`.
+- The solution hash the contamination scan needs is operator-supplied per
+  task (`--solution TASK=HASH`), never stored in a task package, which sits
+  in the runtime agents can read.
+- `evaluate` in `experiments/orc_structural_search/evaluation.py` requires a
+  wall-clock limit; at expiry the launcher's process group is killed and the
+  run is an incident. Known limit: agent-turn providers start their own
+  session and escape that process-group kill.
 - The clone is the working directory, so the workspace lock, guard and build
   cache land in its `.orchestrate/`. The lock admits one active run per
   working directory (`orchestrator/run_lock.py`), so concurrent evaluations
@@ -292,7 +321,10 @@ through one command boundary, `dev-check`, declared under the
 [command adapter contract](workflow_command_adapter_contract.md): it applies
 the submitted patch to a fresh checkout at the pinned task revision, runs the
 task package's agent-visible checks, and returns a typed report (passed,
-failing check names, bounded output excerpt). Its argv, timeout and report
+failing check names, bounded output excerpt). The first version
+(`experiments/orc_structural_search/seeds/dev_check.py`) runs the checks in
+the working clone rather than a fresh checkout; `dev_check.py` and its
+`dev-check.json` (argv and timeout) sit at the clone root. Its argv, timeout and report
 type are frozen across conditions; invocations count against the task
 envelope; it never sees hidden checks. The final evaluator runs hidden checks
 or the blind judge separately; those results are unavailable to executing
@@ -336,20 +368,22 @@ recombined fragments inherit nothing from their parents.
 
 The evaluated runtime persists no provider usage; the comparison harness
 collects none; `RunRefAccounting` in `orchestrator/workflow/run_ref/runtime.py`
-carries the literal `UNKNOWN`. The OMP transport sums per-message
-`totalTokens` and `cost.total` with zero defaults
-(`orchestrator/providers/omp_transport.py:438-456`), so a missing field
-counts as zero, against the never-zero rule; that path is fixed, or every
-OMP dollar figure is disclosed as a lower bound. No Codex usage parsing was
-found. The driver collects consumption per call from the shim call records
-and native session stores where a receipt exists (Claude session JSONL
-`message.usage` per assistant message, parsed by
-`experiments/compare/scan.py::claude_sessions`; Codex rollouts under
-`~/.codex/sessions`, located by the scan, with their token events
-unverified; Codex weekly-window and credit readings are account-wide and
-reported as bounds), joins them to the run's attempt records, and marks
-everything else `unavailable`. Wall clock and
-provider-call counts are always recorded; dollar figures appear only where
+carries the literal `UNKNOWN`. OMP usage needs no fix or lower-bound
+disclosure: `validate_usage` in `orchestrator/providers/omp_protocol.py`
+rejects any closed assistant message whose usage lacks `totalTokens` or
+`cost.total` before the transport's `_build_metadata` sums them, so its
+zero defaults are unreachable on accepted streams. Usage parsing lives in
+`experiments/orc_structural_search/metering.py`: Claude session JSONL
+(located by `experiments/compare/scan.py::claude_sessions`) is read one row
+per assistant message, deduplicated by message id (`claude_usage`); Codex
+rollouts under `~/.codex/sessions` are read from the last cumulative
+`token_count` event's `total_token_usage` (`codex_usage`); `coverage` joins
+shim calls to sessions on user-turn text only and counts an ambiguous join
+as unmatched; a figure without a receipt is `unavailable`. Codex
+weekly-window and credit readings are account-wide and reported as bounds.
+Per-provider wall clock has no receipt (the shim records no per-call
+timing); run-level wall clock is recorded on evaluation records. Provider-call
+counts are always recorded; dollar figures appear only where
 metering coverage is complete for the compared conditions.
 
 ## Evaluation Hygiene
@@ -389,6 +423,12 @@ only when a real query needs one.
 | Episode | envelope, consumption or `unavailable`, shimmed CLI and model revision, interventions, outcome, refusal code |
 | Compile | `program_digest`, `build_key`, outcome, diagnostics class on rejection |
 | Evaluation | `evaluation_id`, `task_id`, split, `evaluator_version`, `env_manifest_digest`, `run_id`, `state_dir`, resume count, outcome, consumption or `unavailable`, incidents, local observations by site |
+
+Recorded divergence: `evaluation_id` in
+`experiments/orc_structural_search/evaluation.py` currently hashes
+candidate, task, evaluator version, environment manifest digest and
+replicate; it omits model revisions and CLI versions, which the identity
+table above requires. They must be added before any live phase.
 
 ## Controls, Interface Test And Ablations
 
@@ -514,8 +554,7 @@ scores it. No prompt-text assertions.
 
 New: `experiments/orc_structural_search/` and `tests/experiments/` coverage.
 Reused: `experiments/compare/` shims, scan, pool and layout rules.
-Prerequisites outside this design: the OMP zero-default usage fix or its
-disclosure; an OMP shim before OMP sessions; the boundary amendment; the
+Prerequisites outside this design: an OMP shim before OMP sessions; the boundary amendment; the
 harness extension above; the 2.39 catalog port; R2 qualification. Routing (`docs/index.md`,
 `docs/design/README.md`, the capability matrix) belongs to the roadmap
 change. This design accepts no allocation and selects no study.

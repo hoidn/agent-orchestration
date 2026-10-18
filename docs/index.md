@@ -182,8 +182,8 @@ reusing instructions. Plans can contain active obligations as well as history.
 | <a id="effectiveness-harness-and-experiments-plan"></a>[Effectiveness Harness And Experiments Plan](plans/2026-10-14-effectiveness-harness-and-experiments-plan.md) | Plan or decision record; check current selection |
 | <a id="orc-research-charter"></a>[ORC Research Charter](plans/2026-09-08-orc-research-charter.md) | Plan or decision record; check current selection |
 | <a id="orc-structural-search-roadmap"></a>[ORC Structural Search Roadmap (R3 Implementation Sequence)](plans/2026-10-18-orc-structural-search-roadmap.md) | Plan or decision record; proposed and unselected; check current selection |
-| [ORC Structural Search Phase 0 Offline Apparatus Implementation Plan](plans/2026-10-18-orc-structural-search-phase0-offline-plan.md) | Implementation plan; offline apparatus with scripted providers; no paid run or study selected |
-| [Source-Site Inspection Feasibility And Manifest Implementation Plan](plans/2026-10-18-source-site-inspection-feasibility-plan.md) | Implementation plan; probe P-1 and F-a, then the read-only manifest if proven |
+| [ORC Structural Search Phase 0 Offline Apparatus Implementation Plan](plans/2026-10-18-orc-structural-search-phase0-offline-plan.md) | Implementation plan; executed (offline, scripted providers) |
+| [Source-Site Inspection Feasibility And Manifest Implementation Plan](plans/2026-10-18-source-site-inspection-feasibility-plan.md) | Implementation plan; executed (offline, scripted providers) |
 | <a id="workflow-lisp-source-site-inspection"></a>[Workflow Lisp Source-Site Inspection](design/workflow_lisp_source_site_inspection.md) | Component contract or target; Planned and unselected; not copy-safe |
 | <a id="orc-structural-search-driver"></a>[ORC Structural Search Driver](design/orc_structural_search_driver.md) | Component contract or target; Planned and unselected research apparatus; not copy-safe |
 | <a id="orc-programmability-composition-and-improvement"></a>[ORC Programmability, Composition, And Improvement](design/orc_reuse_introspection_search_experiment.md) | Component contract or target; check admitted scope |

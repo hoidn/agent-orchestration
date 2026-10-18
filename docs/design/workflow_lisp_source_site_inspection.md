@@ -1,6 +1,8 @@
 # Workflow Lisp Source-Site Inspection
 
-- **Status:** proposed, unselected, unimplemented and not copy-safe.
+- **Status:** proposed, unselected and not copy-safe. Implemented (manifest
+  module `orchestrator/workflow_lisp/source_sites.py`, not admitted as a
+  public surface).
 - **Kind:** read-only, compiler-derived inspection contract over admitted
   2.35–2.39 source. It adds no language form, no runtime behavior, no edit
   operation and no optimizer concept.
@@ -47,7 +49,8 @@ Source references name paths and symbols; see the
 | Fact | Existing carrier | Verdict |
 | --- | --- | --- |
 | In-memory build keeping `typed_program`, `stage3` and `builder` | `prepare_closed_program_bundle` in `orchestrator/workflow_lisp/closed/artifact.py`; `build_closed_program_bundle` is the written form | reuse as is |
-| Per-node type, scope, span, form path, effect summary | `WccNodeMetadata` in `orchestrator/workflow_lisp/wcc/model.py` is attached to every WCC node while a body is elaborated. The builder retains WCC bodies only in `Builder._workflow_wcc_cache`, filled by `_workflow_wcc_body` from `_context_routes`; the main lowering path, `_prepare_command_owner` → `_command_wcc_body` (`elaborate_command_scopes`), elaborates per preparation and discards the body | **missing: retention or re-elaboration required** (P-1, §7) |
+| Per-node type, scope, span, form path | `WccNodeMetadata` in `orchestrator/workflow_lisp/wcc/model.py` is attached to every WCC node while a body is elaborated. Callee bodies are retained on `CallableRequest.prepared_body` (read through `Builder.prepared_by_key`) in `orchestrator/workflow_lisp/closed/build.py`; the entry body is not retained and needs one hook-free re-elaboration through `_command_wcc_body` (P-1, §7) | reuse as is; entry re-elaborated |
+| Per-expression inferred effects | none: WCC nodes carry the owner's whole `EffectSummary` (`orchestrator/workflow_lisp/wcc/elaborate.py` passes `typed_body.effect_summary` down to every node), not the expression's | missing; a per-node summary would need a second effect analysis |
 | Per-subexpression type in the typed AST | none: typecheck dispatch rebuilds parents from `typed_child.expr` and keeps one root `TypedExpr` (`orchestrator/workflow_lisp/typecheck_context.py`) per definition | missing; WCC metadata is the only per-node carrier |
 | Binding names in scope | root `TypedExpr.binding_environment` is name → `BindingIdentity` (`orchestrator/workflow_lisp/typecheck_proofs.py`); `LetStarExpr.binding_identities` holds identities, not types | needs adapter for types (P-1) |
 | Canonical type identity | `canonical_type_identity` and `canonical_type_descriptor` in `orchestrator/workflow_lisp/closed/names.py`; `render_type_ref` in `type_env.py` for display | reuse as is |
@@ -74,12 +77,14 @@ The caller names the source files to index. Within each authored
 - the composition forms that enclose them: `let*` bodies and bindings, `if`,
   `cond`, `match` and bounded `loop`/`list` forms.
 
-Pure-helper calls (`FunctionCallExpr`) are not eligible in the first version:
+Pure-helper calls (`FunctionCallExpr`) are located but not eligible:
 inline normalization removes them from typed bodies and `AuthoredDirectCall`
-does not record them. The `HelperExpansionFrame.call_span` that normalization
-adds to each inlined node's expansion stack (`orchestrator/workflow_lisp/syntax.py`)
-may locate them through WCC metadata; that is unverified and left to a later
-version.
+does not record them, so the manifest finds each through the
+`HelperExpansionFrame.call_span` that normalization adds to the inlined
+node's expansion stack (`orchestrator/workflow_lisp/syntax.py`) and reports
+it with kind `function-call` and exclusion `pure-call-unretained`; its facts
+are the call site's. Known gap: an inlined call produced by a macro is
+currently dropped without a `macro-generated` record.
 Literals, arithmetic and prompt templates are not indexed. Definitions in
 files the caller did not name, imported library modules among them, appear
 only as `dependencies` of indexed sites.
@@ -95,18 +100,18 @@ from the carriers in §2; fields marked **adapter** depend on §7.
 | `span` | start and end `SourcePosition(path, line, column, offset)` from the frontend `SourceSpan` (`orchestrator/workflow_lisp/spans.py`); closed-open character offsets into LF-normalized snapshot text, as `:source` slices; never byte offsets into the raw file (CRLF and multi-byte UTF-8 misalign them), so a consumer locates forms by re-reading, not by splicing | derived |
 | `file_digest` | `SourceReadRecord.revision` of the file the compiler read | derived |
 | `owner` | enclosing definition kind and canonical name; `form_path` | derived |
-| `kind` | one of `provider-call`, `provider-phased-call`, `agent-turn`, `procedure-call`, `workflow-call`, `run-ref`, `let*`, `if`, `cond`, `match`, `loop`, `list-map`; never a common "callable" | derived |
+| `kind` | one of `provider-call`, `provider-phased-call`, `agent-turn`, `procedure-call`, `workflow-call`, `function-call`, `run-ref`, `let*`, `if`, `cond`, `match`, `loop`, `list-map`; never a common "callable" | derived |
 | `result_type` | `canonical_type_identity` plus the rendered form; a loop-control position reports its `LoopControlTypeRef` and is ineligible | adapter (WCC `type_ref`) |
-| `bindings` | names visible at the site with `BindingIdentity` and canonical type, in scope order; a shadowed name shows the innermost identity only | adapter (WCC `scope_id`, `binding_identity`, let-chain) |
-| `dependencies` | resolved prompt, provider binding, command boundary, imported module and callee canonical names the expression uses; from closed `configuration` and perform node fields | derived |
-| `effects` | the expression's inferred `EffectSummary` (direct and transitive; unresolved generic calls labelled incomplete) and the owner's authored restriction or `omitted` | adapter (WCC `effect_summary`); owner-level facts derived |
+| `bindings` | names visible at the site with `BindingIdentity` and canonical type, in scope order; a shadowed name shows the innermost identity only. Authored parameter names come first, with a lowering type only when every lowering agrees; loop-state binders come from `WccRecJoin`; a generic definition with a single lowering reports that lowering's concrete types; a loop with several state parameters reports `facts-unavailable` (a join carries one binding identity) | adapter (WCC `binding_identity`, enclosing binders) |
+| `dependencies` | resolved prompt, provider, command boundary, imported module and callee canonical names the expression uses; providers are `{extern, binding}` rows with the resolved closed perform binding; from closed `configuration` and perform node fields | derived |
+| `effects` | `inferred: "unavailable"` (WCC nodes carry the owner's whole summary, §2) and the owner's authored restriction or `omitted` | owner-level facts derived |
 | `executable_sites` | zero or more closed-program site rows `(owner, label path)` whose perform node `@` start equals this span start; zero for pure compositions; one static row per lowering of the owner, so a shared definition called from two workflows keeps one owner and fans out only at runtime through distinct activation paths, while a generic definition specialized per caller yields one row per specialization | adapter (join) |
 | `authored_calls` | `AuthoredDirectCall` rows whose `authored_callee_span` lies inside the span | derived |
 | `eligibility` | `eligible`, or an exclusion reason (§3.4) | derived |
 
 The manifest is a JSON-serializable mapping keyed by `site_id`, headed by the
 build's `build_key`, `program_digest`, target, entry and per-file digests. It
-is produced by one proposed module, `orchestrator/workflow_lisp/source_sites.py`,
+is produced by one module, `orchestrator/workflow_lisp/source_sites.py`,
 called in-process with the result of `prepare_closed_program_bundle`. No CLI
 flag, published file or REPL command is added; the REPL's four inspection
 commands add no JSON interface, and this design does not change that.
@@ -119,9 +124,10 @@ commands add no JSON interface, and this design does not change that.
    ordinary diagnostics are the output.
 2. Walk the retained typed definitions of the named files for authored
    expression nodes and their spans; record `kind` from the node class.
-3. Obtain a normalized WCC body per owner through P-1 (§7): either the
-   builder retains the body it elaborated for this build, or the manifest
-   re-elaborates the owner once with the same type and value environments.
+3. Obtain a normalized WCC body per owner (P-1, §7): callee bodies are the
+   builder's retained `CallableRequest.prepared_body` rows from
+   `Builder.prepared_by_key`; only the entry is re-elaborated once, without a
+   call preparator, with the same type and value environments.
    Index `WccNodeMetadata` by `source_span.start`; attach `type_ref`,
    `scope_id` and `effect_summary` to the authored node with the same start.
    A node with no WCC counterpart reports `result_type: unavailable` and is
@@ -134,8 +140,7 @@ commands add no JSON interface, and this design does not change that.
 
 Step 3 reads what the compiler produced, or reproduces it with the compiler's
 own elaboration; it never infers types from strings and never reads another
-build's artifact. Whether the manifest costs a second elaboration is measured
-under P-1, not assumed either way.
+build's artifact. Measured cost (single-run in-process timings in the P-1 probe report: re-elaborating the entry costs 29% of a warm compile on `plan_review_execute` and 7.5% on `improve_experiment_proposal`; re-elaborating every owner of the latter would cost about 21%).
 
 ### 3.4 Exclusions
 
@@ -175,14 +180,13 @@ a comment-only change leaves `program_digest` unchanged and changes
 - Facts come from one in-process build. A consumer that compiles through the
   CLI or in another checkout gets no manifest and must compile again in
   process.
-- Pure-helper calls are not sites until the expansion-frame carrier is
-  verified; a proposer cannot be pointed at a `FunctionCallExpr` site.
+- Pure-helper calls are reported as `function-call` records excluded by
+  policy (`pure-call-unretained`); a proposer cannot be pointed at one.
 - A shared definition keeps one static site; the manifest reports callers
   and specializations as fan-out and never invents a second owner.
 - Definitions the builder never lowers for the selected entry have no WCC
   facts and are excluded; dead definitions are not inspectable sites.
-- If P-1 resolves to re-elaboration, every manifest costs one elaboration per
-  owner on top of the compile.
+- Every manifest costs one entry re-elaboration on top of the compile.
 
 ## 6. Rejected Alternatives
 
@@ -208,6 +212,14 @@ first deliverable of any selected implementation; failure is a recorded gap.
 | F-c | an authored procedure call survives inline normalization as a site | a workflow calling an effect-free procedure that the compiler inlines: assert the call is a `procedure-call` site with `authored_calls` populated although `typed_body` holds the inlined form |
 | F-d | the join distinguishes static sites from invocations | a non-generic procedure called from two workflows: assert one static site with one owner, with the two callers visible as distinct runtime activation paths and never as a second owner; a generic procedure specialized for two callers: assert one `executable_sites` row per specialization |
 | F-e | shadowing resolves to the innermost identity | nested `let*` rebinding `x`: assert the inner site's `bindings["x"]` identity differs from the outer |
+
+Results: P-1 and F-a passed (`tests/test_workflow_lisp_source_sites_probe.py`):
+retained callee bodies and the entry re-elaboration reproduce the compiled
+`WccNodeMetadata` node for node and leave the builder and artifact unchanged;
+cost as in §3.3. F-b to F-e are covered by
+`tests/test_workflow_lisp_source_sites.py`, with F-d as revised: one static
+owner for a shared procedure, and one `executable_sites` row per
+specialization.
 
 ## 8. Boundary Compliance
 
@@ -265,13 +277,11 @@ example; the repository's broad suite follows for any `orchestrator/` change.
 ## 10. Affected Surfaces And Handoff
 
 - New: `orchestrator/workflow_lisp/source_sites.py` (manifest only), with
-  its tests. If P-1 resolves to retention, one bounded change to `Builder`
-  in `orchestrator/workflow_lisp/closed/build.py` retains the normalized WCC
-  body per owner for the build; no change to the typechecker, REPL, LSP or
-  specs is expected.
+  its tests. P-1 needed no `Builder` change; no change to the typechecker,
+  REPL, LSP or specs is expected.
 - Consumer: the [structural search driver](orc_structural_search_driver.md)
   owns receipts, scope validation, snapshots, `candidate_id`, proposal
   sessions, evaluation, records and selection.
 - Routing: the design index, capability matrix and the roadmap list this
-  document as proposed; nothing here is admitted or copy-safe until the
-  fixtures in §7 pass and the owner records the boundary amendment.
+  document as proposed; the §7 fixtures pass, but nothing here is admitted
+  or copy-safe until the owner records the boundary amendment.

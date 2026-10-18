@@ -25,7 +25,7 @@
 
 1. A child file identical to its parent except for whitespace or comments must pass frozen-surface validation and yield a different `candidate_id` but an equal `program_digest` (Task 3 test `test_whitespace_only_child_passes_validation_and_keeps_program_digest`).
 2. A CRLF or multi-byte UTF-8 parent must locate its site by re-reading, never by byte offset (Task 3 test `test_transaction_locates_site_in_crlf_and_utf8_source`).
-3. A proposal that edits a prompt body under `condition: topology-only` must be refused with `scope_exceeded` (Task 3 test `test_prompt_body_edit_refused_under_topology_only`).
+3. A proposal that edits a prompt body under `condition: topology-only` must be refused with `frozen_surface_changed` (Task 3 test `test_prompt_body_edit_refused_under_topology_only`).
 4. A run whose memo never reaches a terminal row must be recorded as `incident`, not as a failure outcome, and must keep its `evaluation_id` for resume (Task 4 test `test_unfinished_memo_is_recorded_as_incident`).
 5. The final-choice rule must refuse to choose without a `criterion_sha256` and must include the reference seed among the compared rows (Task 5 tests `test_final_choice_refuses_without_criterion_hash`, `test_final_choice_compares_reference_seed`).
 
