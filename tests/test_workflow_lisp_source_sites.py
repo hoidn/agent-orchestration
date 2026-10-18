@@ -183,3 +183,29 @@ def test_provider_dependency_names_the_extern_and_its_resolved_binding():
     site = site_of(plan_review_execute()[1], kind="provider-call", line=27)
     assert site["dependencies"]["providers"] == [
         {"extern": "providers.claude", "binding": "claude_unrestricted_workspace"}]
+
+
+def inlined_procedure():
+    return fixture("inlined_procedure", "inlined_procedure::run")
+
+
+def test_inlined_procedure_call_is_a_site_with_authored_calls():  # F-c
+    site = site_of(inlined_procedure()[1], kind="procedure-call", line=22)
+    assert site["authored_calls"] == [{"callee_kind": "procedure", "callee_name": "inlined_procedure::label"}]
+
+
+def test_inlined_procedure_call_site_has_the_call_span_and_result_type():
+    site = site_of(inlined_procedure()[1], kind="procedure-call", line=22)  # (label topic) at 22:19
+    assert (site["eligibility"], site["span"]["start"]["column"], site["result_type"]["rendered"]) == (
+        "eligible", 19, "Draft")
+
+
+def test_inlined_body_forms_are_not_sites_of_their_own():
+    starts = [site["kind"] for site in inlined_procedure()[1]["sites"].values()
+        if (site["span"]["start"]["line"], site["span"]["start"]["column"]) == (22, 19)]
+    assert starts == ["procedure-call"]
+
+
+def test_pure_helper_call_is_excluded_with_reason():
+    site = site_of(inlined_procedure()[1], kind="function-call", line=23)  # (bump draft.rounds)
+    assert site["eligibility"] == "pure-call-unretained"

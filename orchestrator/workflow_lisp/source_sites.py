@@ -29,6 +29,7 @@ from .expressions import (
     AgentExpr,
     CallExpr,
     CondExpr,
+    FunctionCallExpr,
     IfExpr,
     LetStarExpr,
     ListMapEffectExpr,
@@ -44,9 +45,10 @@ from .expressions import (
 from .loops import LoopControlTypeRef
 from .procedures import TypedProcedureDef, procedure_effect_inspection
 from .prompts import PromptApplicationExpr
-from .syntax import ExpansionFrame
+from .syntax import HelperExpansionFrame, ProcedureExpansionFrame
 from .type_env import render_type_ref
 from .wcc.model import (
+    WccBlock,
     WccCall,
     WccCase,
     WccCaseArm,
@@ -73,12 +75,12 @@ _ATOMS = (str, bytes, int, float, bool, Path)
 _KINDS = {ProviderResultExpr: "provider-call", RunProviderPhaseExpr: "provider-phased-call",
     AgentExpr: "agent-turn", ProcedureCallExpr: "procedure-call", CallExpr: "workflow-call", RunRefExpr: "run-ref",
     LetStarExpr: "let*", IfExpr: "if", CondExpr: "cond", MatchExpr: "match", LoopRecurExpr: "loop",
-    ListMapExpr: "list-map", ListMapEffectExpr: "list-map"}
+    ListMapExpr: "list-map", ListMapEffectExpr: "list-map", FunctionCallExpr: "function-call"}
 # The WCC node that carries an authored site's value at the site's start; `let*` is anchored separately.
 _VALUE_NODES = {"provider-call": (WccPerform,), "provider-phased-call": (WccPerform,), "agent-turn": (WccPerform,),
     "procedure-call": (WccCall,), "workflow-call": (WccPerform,), "run-ref": (WccPerform,),
     "if": (WccIf, WccSelect), "cond": (WccIf, WccSelect), "match": (WccCase,), "loop": (WccRecJoin,),
-    "list-map": (WccListMap, WccParallelMap)}
+    "list-map": (WccListMap, WccParallelMap), "function-call": (WccBlock,)}
 _PROVIDER_FORMS = (ProviderResultExpr, AgentExpr, RunProviderPhaseExpr)
 
 Position = tuple[str, int, int]
@@ -278,14 +280,13 @@ def _authored_binders(expr: Any) -> frozenset:
 
 def _site_record(build: _Build, owner_row: tuple, node: Any) -> dict | None:
     owner, kind, typed_def, authored, authored_binders = owner_row
-    site_kind = _KINDS.get(type(node))
-    frames = node.expansion_stack if site_kind else ()
-    # ponytail: helper- and procedure-inlined nodes are left to the authored-call pass (plan Task 3).
-    if site_kind is None or any(not isinstance(frame, ExpansionFrame) for frame in frames):
+    site = _authored_site(node, typed_def.definition.span)
+    if site is None:
         return None
+    site_kind, span, exclusion, inlined = site
     lowerings = build.lowerings.get(_base_name(typed_def), [])
-    facts = _facts(build, lowerings, (site_kind, node, typed_def, authored_binders))
-    start, end = node.span.start, node.span.end
+    facts = _facts(build, lowerings, (_anchor(site_kind, node, inlined), node, typed_def, authored_binders))
+    start, end = span.start, span.end
     return {
         "site_id": f"{owner}@{build.relative(start.path)}:{start.line}:{start.column}",
         "span": {"start": _position(build, start), "end": _position(build, end)},
@@ -294,7 +295,7 @@ def _site_record(build: _Build, owner_row: tuple, node: Any) -> dict | None:
         "kind": site_kind,
         "result_type": facts["result_type"],
         "bindings": facts["bindings"],
-        "dependencies": _dependencies(build, lowerings, node, owner),
+        "dependencies": _dependencies(build, lowerings, (node, span), owner),
         # WCC effect nodes carry the owner body's summary (`wcc/elaborate.py` threads `typed_body.effect_summary`
         # to every node), not the expression's; no retained carrier holds per-expression inferred effects.
         "effects": {"inferred": "unavailable", "restriction": _restriction(build, typed_def)},
@@ -302,9 +303,48 @@ def _site_record(build: _Build, owner_row: tuple, node: Any) -> dict | None:
             if position == _key(start)),
         "authored_calls": [{"callee_kind": call.callee_kind, "callee_name": call.callee_name}
             for call in build.result.stage3.authored_direct_calls or ()
-            if _within(_key(call.authored_callee_span.start), node.span)],
-        "eligibility": _eligibility(authored, bool(frames), facts),
+            if _within(_key(call.authored_callee_span.start), span)],
+        "eligibility": _eligibility(authored, exclusion, facts),
     }
+
+
+def _authored_site(node: Any, owner_span) -> tuple[str, Any, str | None, bool] | None:
+    """(kind, authored span, exclusion reason or None, inlined) of the site `node` starts, or None.
+
+    Inline normalization replaces a procedure or pure-helper call with the callee's body; each body node carries
+    a frame naming the call. The body node that starts at a call in this owner stands for that call (an
+    effect-free `procedure-call`, or a `function-call` excluded as `pure-call-unretained`); the body's inner
+    nodes are not sites of their own.
+    """
+    calls = [frame for frame in node.expansion_stack
+        if isinstance(frame, (ProcedureExpansionFrame, HelperExpansionFrame))]
+    if calls:
+        frame = next((frame for frame in calls if _key(frame.call_span.start) == _key(node.span.start)
+            and _within(_key(frame.call_span.start), owner_span)), None)
+        if frame is None:
+            return None
+        if isinstance(frame, ProcedureExpansionFrame):
+            return "procedure-call", frame.call_span, None, True
+        return "function-call", frame.call_span, "pure-call-unretained", True
+    site_kind = _KINDS.get(type(node))
+    if site_kind is None:
+        return None
+    if site_kind == "function-call":
+        return site_kind, node.span, "pure-call-unretained", False
+    return site_kind, node.span, "macro-generated" if node.expansion_stack else None, False
+
+
+def _anchor(site_kind: str, node: Any, inlined: bool) -> tuple[Position | None, tuple]:
+    """The start and WCC classes of the node that carries the site's value in a lowering.
+
+    An inlined call is the `WccBlock` at the call start; a `let*` is the `WccLet` of its first binding, which
+    starts at the first bound value (no WCC node starts at the `let*` itself).
+    """
+    if inlined:
+        return _key(node.span.start), (WccBlock,)
+    if site_kind == "let*":
+        return (_key(node.bindings[0][1].span.start) if node.bindings else None), (WccLet,)
+    return _key(node.span.start), _VALUE_NODES[site_kind]
 
 
 def _position(build: _Build, position) -> dict:
@@ -312,11 +352,11 @@ def _position(build: _Build, position) -> dict:
         "offset": position.offset}
 
 
-def _eligibility(authored: bool, macro: bool, facts: dict) -> str:
+def _eligibility(authored: bool, exclusion: str | None, facts: dict) -> str:
     if not authored:
         return "generated-definition"
-    if macro:
-        return "macro-generated"
+    if exclusion is not None:
+        return exclusion
     if facts.get("loop_control"):
         return "loop-control"
     if "unavailable" in (facts["result_type"], facts["bindings"]):
@@ -333,15 +373,11 @@ def _facts(build: _Build, lowerings: list, site: tuple) -> dict:
     The result type is unavailable when the definition has no lowering, a lowering has no single counterpart at
     the anchor, or lowerings disagree (a generic definition specialized to different types).
     """
-    site_kind, node, typed_def, authored_binders = site
-    if site_kind == "let*":
-        anchor, classes = _key(node.bindings[0][1].span.start) if node.bindings else None, (WccLet,)
-    else:
-        anchor, classes = _key(node.span.start), _VALUE_NODES[site_kind]
+    (anchor, classes), node, typed_def, authored_binders = site
     per_lowering = []
     for _, callable_def, index in lowerings:
         matches = [(wcc, chain) for wcc, chain in index.get(anchor, ()) if isinstance(wcc, classes)
-            and (site_kind != "let*" or wcc.metadata.binding_identity in node.binding_identities[:1])]
+            and (not isinstance(wcc, WccLet) or wcc.metadata.binding_identity in node.binding_identities[:1])]
         if len(matches) != 1:
             return _UNAVAILABLE
         per_lowering.append(_lowering_facts(build, callable_def, *matches[0], authored_binders))
@@ -410,10 +446,11 @@ def _restriction(build: _Build, typed_def: Any) -> str:
     return procedure_effect_inspection(typed_def, build.typed.procedures)[0].removeprefix("restriction: ")
 
 
-def _dependencies(build: _Build, lowerings: list, node: Any, owner: str) -> dict:
-    """Prompts and providers the site's subtree names; commands and callees of its closed nodes."""
+def _dependencies(build: _Build, lowerings: list, site: tuple, owner: str) -> dict:
+    """Prompts and providers the site's typed subtree names; commands and callees of closed nodes in its span."""
+    node, span = site
     prompts, providers = _authored_dependencies(build, lowerings, node)
-    commands, callees = _closed_dependencies(build, lowerings, node)
+    commands, callees = _closed_dependencies(build, lowerings, span)
     own_module = owner.partition(":")[2].partition("::")[0]
     modules = {callee.partition(":")[2].partition("::")[0] for callee in callees} - {own_module}
     return {"prompts": prompts, "providers": providers, "commands": commands, "modules": sorted(modules),
@@ -441,12 +478,12 @@ def _resolved_provider(build: _Build, lowerings: list, form: Any) -> str:
         if position == start and node["k"] == "perform"), None) for owner, _, _ in lowerings])
 
 
-def _closed_dependencies(build: _Build, lowerings: list, node: Any) -> tuple[list, list]:
+def _closed_dependencies(build: _Build, lowerings: list, span) -> tuple[list, list]:
     """Command boundaries and callee canonical names of the closed nodes that start inside the site span."""
     commands, callees = set(), set()
     for owner, _, _ in lowerings:
         for position, closed in build.closed[owner]:
-            if not _within(position, node.span):
+            if not _within(position, span):
                 continue
             if closed["k"] == "call":
                 callees.add(closed["callee"])
