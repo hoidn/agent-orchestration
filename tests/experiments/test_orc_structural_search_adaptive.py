@@ -68,10 +68,46 @@ def joined(policy, task, value, calls=1, mode="catalog"):
 def test_initial_archive_from_phase1_rows_names_the_best_seed_incumbent():
     rows = [joined("direct", "t1", 4), joined("direct", "t2", 6), joined("best_of_n", "t1", 7, calls=3),
             joined("best_of_n", "t2", 7, calls=3), joined("unguided:sha256:x", "t1", 8, mode="unguided")]
-    entries = initial_archive(rows, {"direct": "/e/candidates/sha256:d", "best_of_n": "/e/candidates/sha256:b"})
+    entries = initial_archive(rows, {"direct": "/e/candidates/sha256:d", "best_of_n": "/e/candidates/sha256:b"},
+                              tasks=["t1", "t2"])
     assert ([(e["candidate_id"], e["seed"], e["mean_value"], e["mean_calls"], e["evidence"]) for e in entries],
             incumbent(entries)["seed"]) == (
         [("sha256:b", "best_of_n", 7, 3, "phase1-prior"), ("sha256:d", "direct", 5, 1, "phase1-prior")], "best_of_n")
+
+
+def test_initial_archive_refuses_rows_of_a_task_that_is_not_adaptive():
+    rows = [joined("direct", "t1", 4), joined("direct", "t-validation", 6)]
+    with pytest.raises(ValueError, match="t-validation"):
+        initial_archive(rows, {"direct": "/e/candidates/sha256:d"}, tasks=["t1"])
+
+
+def refused_mode2(tmp_path, *, adaptive=("t1",), validation="tv", criterion=("t1",), pools="pools"):
+    """run_mode2 with nothing to run: only its argument checks can refuse it."""
+    (tmp_path / "config.json").write_text(json.dumps(CONFIG))
+    (tmp_path / "criterion.json").write_text(json.dumps({"adaptive_tasks": [f"tasks/{t}" for t in criterion],
+                                                         "validation_task": "tasks/tv"}))
+    run_mode2(tmp_path / "config.json", phase1_joined=tmp_path / "joined.json", seeds=[],
+              adaptive_tasks=[tmp_path / t for t in adaptive], validation_task=tmp_path / validation, generations=0,
+              episodes_per_generation=0, run_seed=1, work_root=tmp_path / "w", evidence_root=tmp_path / "e",
+              agent_cmd=[], runtime=tmp_path / "runtime", env={}, timeout_sec=1, solutions={}, call_cap=1,
+              concurrency=1, criterion=tmp_path / "criterion.json", judges=JUDGES, pools_root=tmp_path / pools)
+
+
+def test_mode2_refuses_a_validation_task_among_the_adaptive_tasks(tmp_path):
+    with pytest.raises(ValueError, match="validation task tv is among the adaptive tasks"):
+        refused_mode2(tmp_path, adaptive=("t1", "tv"))
+
+
+def test_mode2_refuses_tasks_other_than_the_criterions(tmp_path):
+    with pytest.raises(ValueError, match="not the criterion's"):
+        refused_mode2(tmp_path, criterion=("t2",))
+
+
+@pytest.mark.parametrize("pools", ["e/pools", "w/episodes/pools", "."])
+def test_mode2_refuses_a_pools_root_inside_the_evidence_or_work_root_or_holding_the_evidence(tmp_path, pools):
+    with pytest.raises(ValueError, match="pools root"):
+        refused_mode2(tmp_path, pools=pools)
+    assert not (tmp_path / "e").exists()
 
 
 def test_retain_keeps_incumbent_and_at_most_six_frontier_members():
@@ -164,7 +200,7 @@ def mode2(m2, tag="a", *, generations=1, episodes=4, run_seed=7, call_cap=200):
                        runtime=world.runtime, env=m["env"], timeout_sec=600,
                        solutions={t: world.solution for t in (world.task.name, m["validation"].name)},
                        call_cap=call_cap, concurrency=4, criterion=m["criterion"], judges=JUDGES,
-                       scorer=scripted_judge(evidence / "log.jsonl"))
+                       pools_root=world.outside / f"pools-{tag}", scorer=scripted_judge(evidence / "log.jsonl"))
     return result, read_records(evidence / "log.jsonl"), evidence
 
 
@@ -182,9 +218,10 @@ def test_generation_judges_each_task_once_with_both_anchors_and_updates_the_arch
     children = {row["candidate_id"] for row in kind(rows, "episode") if row["outcome"] == "accepted"}
     gen1 = json.loads((evidence / "archive" / "gen-1.json").read_text())
     assert ([(row["generation"], row["task"]) for row in kind(rows, "judging")], anchors,
-            {e["candidate_id"] for e in gen1} == children, {e["mean_value"] for e in gen1}) == (
+            {e["candidate_id"] for e in gen1} == children, {e["mean_value"] for e in gen1},
+            {p.parent.parent for p in pools}, (evidence / "pools").exists()) == (
         [(0, world.task.name), (1, world.task.name)], [[f"{world.task.name}-stub", f"{world.task.name}-upstream"]] * 2,
-        True, {6.0})
+        True, {6.0}, {(world.outside / "pools-a").resolve()}, False)
 
 
 def test_generation_splits_more_than_eight_children_into_anchored_batches(m2):
@@ -238,7 +275,7 @@ def test_validate_finalists_replicates_the_reference_and_direct_beside_the_final
     result, _, evidence = mode2(m2)
     launch = {"work_root": world.outside / "work-a", "evidence_root": evidence, "runtime": world.runtime,
               "env": m["env"], "timeout_sec": 600, "solutions": {m["validation"].name: world.solution},
-              "call_cap": 200, "concurrency": 4}
+              "call_cap": 200, "concurrency": 4, "pools_root": world.outside / "pools-a"}
     judge = {"criterion": m["criterion"], "judges": JUDGES, "scorer": scripted_judge(evidence / "log.jsonl")}
     rows = validate_finalists(evidence, evidence / "archive" / "gen-1.json", config=load_config(world.tmp / "config.json"),
                               reference_seed="direct",

@@ -30,10 +30,12 @@ A run (run_mode2) on a fresh evidence root E:
 Every evaluation row carries `generation` and `split` ("adaptive", or "validation" from validate_finalists). The
 validation task is a holdout root of every scan and never an episode's or an adaptive evaluation's task.
 
-Judging (judge_generation): one pool per (generation, task) at E/pools/gen-<n>/<task> (validation:
-E/pools/validation/<task>) through scoring.pool_evaluations, batches of at most eight evaluations plus both
+Judging (judge_generation): one pool per (generation, task) at P/gen-<n>/<task> (validation: P/validation/<task>),
+P the pools root, outside the evidence root E and the work root W (judges must not see the archive or the log,
+mutators and evaluated agents must not find the pools at a known place); through scoring.pool_evaluations, batches of at most eight evaluations plus both
 anchors; one ledger entry per judge (`kind: "judge"`, one planned call per batch) reserved before any judge runs;
-each judge's scoring, verify_pool and scan_judge, then summarize; one {"kind": "judging", "generation", "task",
+each judge's scoring, verify_pool and scan_judge (pool.scan_judge takes no extra root, so E is not among the judge
+scan's patterns; keeping P outside E is the guard), then summarize; one {"kind": "judging", "generation", "task",
 "pool", "results"} log row per pool. Before a generation's evaluations the planned calls of its evaluations and
 judges must fit under the call cap, or the generation is refused (CallCapExceeded) with no evaluation started:
 its episodes stay logged and no archive file is written for it.
@@ -82,10 +84,14 @@ def make_entry(rows: Sequence[Mapping], tasks: Sequence[str], **fields: object) 
             "mean_calls": mean(calls)}
 
 
-def initial_archive(phase1_rows: Sequence[Mapping], catalog_roots: Mapping[str, str]) -> list[dict]:
+def initial_archive(phase1_rows: Sequence[Mapping], catalog_roots: Mapping[str, str], *,
+                    tasks: Sequence[str]) -> list[dict]:
     """One prior entry per seed of `catalog_roots` (stem -> this run's archived root) from its `catalog` rows of
-    Phase 1's joined rows, valued on every task those rows name; ranked. Refuses an archive without `direct`."""
-    tasks = sorted({row["task"] for row in phase1_rows})
+    Phase 1's joined rows, valued on every adaptive task of `tasks` (names); ranked. Refuses a row of another task
+    and an archive without `direct`."""
+    stray = sorted({row["task"] for row in phase1_rows} - set(tasks))
+    if stray:
+        raise ValueError(f"Phase 1 rows of tasks {stray}, which are not the adaptive tasks {sorted(tasks)}")
     entries = []
     for stem, root in sorted(catalog_roots.items()):
         rows = [row for row in phase1_rows if row["mode"] == "catalog" and row["policy"] == stem]
@@ -212,7 +218,7 @@ def evaluate_and_judge(jobs: Sequence[tuple[Path, ExperimentConfig, Mapping]], g
     evaluate_all(jobs, tasks=tasks, replicates=replicates, concurrency=launch["concurrency"],
                  holdouts=launch.get("holdouts", ()), **{key: launch[key] for key in EVALUATION_KEYS})
     return judge_generation(launch["evidence_root"], generation, tasks, solutions=launch["solutions"],
-                            call_cap=launch["call_cap"], pool_root=launch["evidence_root"] / "pools", include=include,
+                            call_cap=launch["call_cap"], pool_root=launch["pools_root"], include=include,
                             **judge)
 
 
@@ -296,24 +302,53 @@ def mode2_readout(rows: Sequence[Mapping], archive_dir: Path) -> dict:
     return {"interfaces": interfaces, "trajectory": trajectory}
 
 
+def check_splits(adaptive_tasks: Sequence[Path], validation_task: Path, criterion: Path) -> None:
+    """Refuse a validation task among the adaptive tasks, or task packages other than the criterion's (compared by
+    package name: the criterion names them relative to the runtime checkout)."""
+    names, validation = sorted(Path(t).name for t in adaptive_tasks), Path(validation_task).name
+    if validation in names:
+        raise ValueError(f"the validation task {validation} is among the adaptive tasks {names}")
+    frozen = json.loads(Path(criterion).read_text())
+    expected = sorted(Path(t).name for t in frozen["adaptive_tasks"]), Path(frozen["validation_task"]).name
+    if (names, validation) != expected:
+        raise ValueError(f"adaptive tasks {names} and validation task {validation} are not the criterion's "
+                         f"{expected[0]} and {expected[1]} ({criterion})")
+
+
+def check_pools_root(pools_root: Path, work_root: Path, evidence_root: Path) -> Path:
+    """The resolved pools root; refuse one inside the evidence or the work root, or holding the evidence root."""
+    pools_root = Path(pools_root).resolve()
+    nested = [name for name, root in (("evidence", evidence_root.resolve()), ("work", work_root.resolve()))
+              if pools_root.is_relative_to(root)]
+    if nested or evidence_root.resolve().is_relative_to(pools_root):
+        raise ValueError(f"the pools root {pools_root} must lie outside the evidence root {evidence_root} and the "
+                         f"work root {work_root}, and must not hold the evidence root")
+    return pools_root
+
+
 def run_mode2(config_path: Path, *, phase1_joined: Path, seeds: Sequence[Path], adaptive_tasks: Sequence[Path],
               validation_task: Path, generations: int, episodes_per_generation: int, run_seed: int, work_root: Path,
               evidence_root: Path, agent_cmd: Sequence[str], runtime: Path, env: Mapping[str, str],
               timeout_sec: float, solutions: Mapping[str, str], call_cap: int, concurrency: int, criterion: Path,
-              judges: Sequence[str], scorer: Callable[[Path, str], None] | None = None) -> dict:
+              judges: Sequence[str], pools_root: Path,
+              scorer: Callable[[Path, str], None] | None = None) -> dict:
     """One mode 2 run on a fresh evidence root (see the module docstring); the readout, also <evidence>/readout.json.
-    `phase1_joined` is Phase 1's joined.json (scoring.join_scores rows); judges are MODEL[=PROVIDERS_JSON]."""
+    `phase1_joined` is Phase 1's joined.json (scoring.join_scores rows); judges are MODEL[=PROVIDERS_JSON]; the
+    tasks must be the criterion's; judge pools go under `pools_root` (check_pools_root)."""
     config = load_config(config_path)
+    check_splits(adaptive_tasks, validation_task, criterion)
+    pools_root = check_pools_root(pools_root, work_root, evidence_root)
     work_root, evidence_root = check_roots(work_root, evidence_root)
     if (evidence_root / "log.jsonl").exists():
         raise FileExistsError(f"{evidence_root / 'log.jsonl'} exists: give every mode 2 run a fresh evidence root")
     launch = {"work_root": work_root, "evidence_root": evidence_root, "runtime": runtime, "env": env,
               "timeout_sec": timeout_sec, "call_cap": call_cap, "concurrency": concurrency, "agent_cmd": agent_cmd,
-              "run_seed": run_seed, "holdouts": (validation_task,),
+              "run_seed": run_seed, "holdouts": (validation_task,), "pools_root": pools_root,
               "solutions": check_solutions([*adaptive_tasks, validation_task], solutions, runtime)}
     judge = {"criterion": criterion, "judges": judges, "scorer": scorer}
     roots = {seed.stem: str(archive_seed(seed, evidence_root, runtime)[1]) for seed in seeds}
-    entries = initial_archive(json.loads(Path(phase1_joined).read_text()), roots)
+    entries = initial_archive(json.loads(Path(phase1_joined).read_text()), roots,
+                              tasks=[t.name for t in adaptive_tasks])
     archive = initial_generation(entries, config, adaptive_tasks, launch=launch, judge=judge)
     rng = random.Random(run_seed)
     interfaces = [("I1", "I2")[k % 2] for k in range(episodes_per_generation)]
