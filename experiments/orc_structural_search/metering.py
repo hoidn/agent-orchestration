@@ -54,17 +54,26 @@ def codex_usage(rollout_dir: Path) -> list[dict] | str:
     also be one rollout file. Returns "unavailable" when no such event is found.
     """
     paths = [rollout_dir] if rollout_dir.is_file() else sorted(rollout_dir.rglob("*.jsonl"))
-    rows = []
-    for path in paths:
-        total = None
-        for entry in _lines(path):
-            payload = entry.get("payload") or {}
-            usage = (payload.get("info") or {}).get("total_token_usage") if isinstance(payload, dict) else None
-            if entry.get("type") == "event_msg" and payload.get("type") == "token_count" and isinstance(usage, dict):
-                total = {k: v for k, v in usage.items() if _is_int(v)} or total
-        if total:
-            rows.append({"rollout": str(path), **total})
+    rows = [{"rollout": str(path), **total} for path in paths if (total := _last_total(path))]
     return rows or UNAVAILABLE
+
+
+def _last_total(rollout: Path) -> dict | None:
+    """The integer fields of the rollout's last cumulative token event, or None."""
+    total = None
+    for entry in _lines(rollout):
+        usage = _total_token_usage(entry)
+        if usage is not None:
+            total = {k: v for k, v in usage.items() if _is_int(v)} or total
+    return total
+
+
+def _total_token_usage(entry: dict) -> dict | None:
+    payload = entry.get("payload") or {}
+    usage = (payload.get("info") or {}).get("total_token_usage") if isinstance(payload, dict) else None
+    if entry.get("type") == "event_msg" and payload.get("type") == "token_count" and isinstance(usage, dict):
+        return usage
+    return None
 
 
 def _text(content: Any) -> list[str]:
@@ -75,18 +84,26 @@ def _text(content: Any) -> list[str]:
             and isinstance(b.get("text"), str)]
 
 
+def _claude_user_text(entry: dict) -> list[str]:
+    return _text((entry.get("message") or {}).get("content")) if entry.get("type") == "user" else []
+
+
+def _codex_user_text(entry: dict) -> list[str]:
+    payload = entry.get("payload") if isinstance(entry.get("payload"), dict) else {}
+    if entry.get("type") == "response_item" and payload.get("role") == "user":
+        return _text(payload.get("content"))
+    if entry.get("type") == "event_msg" and payload.get("type") == "user_message":
+        return _text(payload.get("message"))
+    return []
+
+
+_USER_TEXT = {"claude": _claude_user_text, "codex": _codex_user_text}
+
+
 def _user_texts(provider: str, session: Path) -> set[str]:
     """Stripped user-turn text: Claude `type == "user"` entries; Codex user `response_item`s and `user_message`s."""
-    texts: list[str] = []
-    for entry in _lines(session):
-        payload = entry.get("payload") if isinstance(entry.get("payload"), dict) else {}
-        if provider == "claude" and entry.get("type") == "user":
-            texts += _text((entry.get("message") or {}).get("content"))
-        elif provider == "codex" and entry.get("type") == "response_item" and payload.get("role") == "user":
-            texts += _text(payload.get("content"))
-        elif provider == "codex" and entry.get("type") == "event_msg" and payload.get("type") == "user_message":
-            texts += _text(payload.get("message"))
-    return {t.strip() for t in texts}
+    read = _USER_TEXT.get(provider, lambda entry: [])
+    return {t.strip() for entry in _lines(session) for t in read(entry)}
 
 
 def _claude_tokens(session: Path, sessions: Sequence[Path]) -> int | str:
@@ -112,6 +129,16 @@ def coverage(records_dir: Path, *, claude_sessions: Sequence[Path], codex_rollou
     calls = sorted((records_dir / "calls").glob("*"), key=lambda p: int(p.name))
     candidates = [("claude", s) for s in claude_sessions if s.parent.name != "subagents"]
     candidates += [("codex", r) for r in codex_rollouts]
+    matched, unmatched = _match_calls(calls, candidates, claude_sessions)
+    report: dict[str, Any] = {"calls": len(calls), "unmatched_calls": unmatched}
+    for provider, tokens in matched.items():
+        report[provider] = _provider_report(tokens, unmatched)
+    return report
+
+
+def _match_calls(calls: Sequence[Path], candidates: Sequence[tuple[str, Path]],
+                 claude_sessions: Sequence[Path]) -> tuple[dict[str, list[int | str]], int]:
+    """(tokens of each matched call per provider, number of unmatched calls); see `coverage`."""
     texts = {c: _user_texts(*c) for c in candidates}
     by_prompt: dict[str, list[Path]] = {}
     for call in calls:
@@ -128,13 +155,14 @@ def coverage(records_dir: Path, *, claude_sessions: Sequence[Path], codex_rollou
         for provider, path in holders:
             tokens = _claude_tokens(path, claude_sessions) if provider == "claude" else _codex_tokens(path)
             matched[provider].append(tokens)
-    report: dict[str, Any] = {"calls": len(calls), "unmatched_calls": unmatched}
-    for provider, tokens in matched.items():
-        receipts = [t for t in tokens if _is_int(t)]
-        complete = tokens and not unmatched and len(receipts) == len(tokens)
-        report[provider] = {"calls": len(tokens), "calls_with_receipts": len(receipts),
-                            "tokens": sum(receipts) if complete else UNAVAILABLE,
-                            # The shim records no per-call timing; only run-level wall clock has a receipt
-                            # (recorded by the evaluation records).
-                            "wall_clock_sec": UNAVAILABLE}
-    return report
+    return matched, unmatched
+
+
+def _provider_report(tokens: list[int | str], unmatched: int) -> dict:
+    receipts = [t for t in tokens if _is_int(t)]
+    complete = tokens and not unmatched and len(receipts) == len(tokens)
+    return {"calls": len(tokens), "calls_with_receipts": len(receipts),
+            "tokens": sum(receipts) if complete else UNAVAILABLE,
+            # The shim records no per-call timing; only run-level wall clock has a receipt
+            # (recorded by the evaluation records).
+            "wall_clock_sec": UNAVAILABLE}

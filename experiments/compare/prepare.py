@@ -184,15 +184,37 @@ def apply_patch(records, tree, cand, patch):
     return {"applied": {"path": str(patch), "sha256": sha256_file(patch)}}
 
 
-def run_arm(task, arm, root, runtime, candidates=None, sets=(), apply=None, spec=None):
-    """Build the run's agents' tree and records directory, print the command; return the records directory.
-    `spec` replaces the ARMS lookup (`arm` then only names W/records/<arm>/); its paths face the runtime's
-    guards. A spec takes a name outside ARMS, whose special cases (best_of_n, review_once) it would meet."""
+def candidate_count(arm, candidates, spec):
+    """How many candidates the run works in; refuse a spec under a fixed arm's name, or several candidates for an
+    arm that works in one."""
     if spec and arm in ARMS:
         raise SystemExit(f"{arm} names a fixed arm; run a spec under another name")
     count = candidates or (4 if arm == "best_of_n" else 1)
     if arm != "best_of_n" and count != 1:
         raise SystemExit(f"{arm} works in a single candidate, not {count}")
+    return count
+
+
+def write_commands(records, cwd, state, runtime, env, spec):
+    """Write R/command.sh (and R/resume.sh for an .orc spec) run from `cwd` behind the shims; return the command."""
+    if spec.command:  # nothing to resume: no resume.sh
+        command = shim_prefix(cwd, runtime, env) + shlex.join([*spec.command, str(records / "inputs.json")])
+    else:
+        command, resume = shim_commands(
+            cwd, runtime, env,
+            [str(spec.source), "--entry-workflow", spec.entry, "--source-root", str(spec.source_root),
+             "--provider-externs-file", str(spec.providers), "--input-file", str(records / "inputs.json")],
+            state, spec.command_boundaries)
+        (records / "resume.sh").write_text(resume + "\n")
+    (records / "command.sh").write_text(command + "\n")
+    return command
+
+
+def run_arm(task, arm, root, runtime, candidates=None, sets=(), apply=None, spec=None):
+    """Build the run's agents' tree and records directory, print the command; return the records directory.
+    `spec` replaces the ARMS lookup (`arm` then only names W/records/<arm>/); its paths face the runtime's
+    guards. A spec takes a name outside ARMS, whose special cases (best_of_n, review_once) it would meet."""
+    count = candidate_count(arm, candidates, spec)
     patch = patch_to_review(arm, apply)
     task, runtime, root = task.resolve(), runtime.resolve(), root.resolve()
     spec = resolved(spec) if spec else arm_spec(arm, runtime)
@@ -213,16 +235,7 @@ def run_arm(task, arm, root, runtime, candidates=None, sets=(), apply=None, spec
     dump(records / "inputs.json", arm_inputs(task, arm, cands, sets, spec.inputs))
     cwd, state = (tree, link_best_of_n_state(tree, cands)) if arm == "best_of_n" else (cands[0], spec.state_dir)
     env = {"COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": compare_base, "TMPDIR": tree / "tmp"}
-    if spec.command:  # nothing to resume: no resume.sh
-        command = shim_prefix(cwd, runtime, env) + shlex.join([*spec.command, str(records / "inputs.json")])
-    else:
-        command, resume = shim_commands(
-            cwd, runtime, env,
-            [str(spec.source), "--entry-workflow", spec.entry, "--source-root", str(spec.source_root),
-             "--provider-externs-file", str(spec.providers), "--input-file", str(records / "inputs.json")],
-            state, spec.command_boundaries)
-        (records / "resume.sh").write_text(resume + "\n")
-    (records / "command.sh").write_text(command + "\n")
+    command = write_commands(records, cwd, state, runtime, env, spec)
     dump(records / "record.json", {
         "arm": arm, "arm_kind": "generic-command" if spec.command else "orc",
         "task": str(task), "runtime": str(runtime), "runtime_commit": commit, "main": str(main),

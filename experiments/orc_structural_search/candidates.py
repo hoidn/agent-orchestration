@@ -74,8 +74,7 @@ def snapshot(parent: Path, edited_files: Mapping[str, bytes], dest: Path) -> Pat
 
 
 def compile_candidate(root: Path, config: ExperimentConfig, *, runtime: Path) -> CompileOutcome:
-    """Compile the candidate's entry with the runtime checkout's orchestrator. Output that is not JSON (the
-    compiler crashed) is a rejection with one `compiler_crash` diagnostic holding the stderr tail."""
+    """Compile with the runtime's orchestrator; output that is not JSON is a `compiler_crash` rejection."""
     source_root = root / config.source_root
     module = config.entry_workflow.split("::")[0]
     command = [
@@ -264,23 +263,29 @@ def _module_verdict(parent_forms, child_forms, *, mutable: tuple[str, ...], cond
     exported = _exported_names(parent_forms)
     parent_tuning = {value for form in parent_forms for value in _tuning_split(form)[1]}
     for key in parent_defs.keys() | child_defs.keys():
-        head, name = key
-        before, after = parent_defs.get(key), child_defs.get(key)
-        if before is None and name in allowed_new:
-            continue
-        if before is None or after is None:
-            return _refuse("scope_exceeded", f"{head} {name} was {'added' if before is None else 'removed'}")
-        if canonical_form(before) == canonical_form(after):
-            continue
-        if name in exported and [canonical_form(i) for i in before.items[:-1]] != [
-                canonical_form(i) for i in after.items[:-1]]:
-            return _refuse("frozen_surface_changed", f"exported signature of {head} {name} changed")
-        if name not in mutable:
-            return _refuse("scope_exceeded", f"{head} {name} is not a mutable definition")
-        verdict = _condition_verdict(head, name, before, after, condition, parent_tuning)
+        verdict = _definition_verdict(key, parent_defs.get(key), child_defs.get(key), exported, mutable, condition,
+                                      parent_tuning, allowed_new)
         if not verdict.accepted:
             return verdict
     return ACCEPTED
+
+
+def _definition_verdict(key: tuple[str, str], before: SExpr | None, after: SExpr | None, exported: set,
+                        mutable: tuple, condition: str, parent_tuning: set, allowed_new: frozenset) -> Verdict:
+    """One definition of a module, parent `before` and child `after` (None where it does not exist)."""
+    head, name = key
+    if before is None and name in allowed_new:
+        return ACCEPTED
+    if before is None or after is None:
+        return _refuse("scope_exceeded", f"{head} {name} was {'added' if before is None else 'removed'}")
+    if canonical_form(before) == canonical_form(after):
+        return ACCEPTED
+    if name in exported and [canonical_form(i) for i in before.items[:-1]] != [
+            canonical_form(i) for i in after.items[:-1]]:
+        return _refuse("frozen_surface_changed", f"exported signature of {head} {name} changed")
+    if name not in mutable:
+        return _refuse("scope_exceeded", f"{head} {name} is not a mutable definition")
+    return _condition_verdict(head, name, before, after, condition, parent_tuning)
 
 
 def _file_names(*roots: Path) -> list[str]:
@@ -292,23 +297,29 @@ def _frozen_verdict(parent: Path, child: Path, config: ExperimentConfig, *, allo
         before, after = parent / name, child / name
         if not (before.is_file() and after.is_file()):
             return _refuse("scope_exceeded", f"{name} was {'added' if after.is_file() else 'removed'}")
-        is_mutable = name in config.mutable_files
-        if name.endswith(".orc"):
-            verdict = _module_verdict(
-                _parent_forms(before), _child_forms(after),
-                mutable=config.mutable_definitions if is_mutable else (), condition=config.condition,
-                allowed_new=allowed_new if is_mutable else frozenset())
-            if not verdict.accepted:
-                return _refuse(verdict.code, f"{name}: {verdict.detail}")
-            continue
-        if before.read_bytes() == after.read_bytes():
-            continue
-        if name == config.providers_file and config.condition in PROVIDER_CONDITIONS:
-            continue  # permitted by the condition whether or not it is listed in mutable_files
-        if name in (config.command_boundaries_file, config.providers_file):
-            return _refuse("frozen_surface_changed", f"{name} changed under {config.condition}")
-        if not is_mutable:
-            return _refuse("scope_exceeded", f"{name} is not a mutable file")
+        verdict = (_orc_file_verdict(name, before, after, config, allowed_new) if name.endswith(".orc")
+                   else _plain_file_verdict(name, before, after, config))
+        if not verdict.accepted:
+            return verdict
+    return ACCEPTED
+
+
+def _orc_file_verdict(name: str, before: Path, after: Path, config: ExperimentConfig, allowed: frozenset) -> Verdict:
+    is_mutable = name in config.mutable_files
+    verdict = _module_verdict(_parent_forms(before), _child_forms(after), condition=config.condition,
+                              mutable=config.mutable_definitions if is_mutable else (),
+                              allowed_new=allowed if is_mutable else frozenset())
+    return verdict if verdict.accepted else _refuse(verdict.code, f"{name}: {verdict.detail}")
+
+
+def _plain_file_verdict(name: str, before: Path, after: Path, config: ExperimentConfig) -> Verdict:
+    if before.read_bytes() == after.read_bytes() or (
+            name == config.providers_file and config.condition in PROVIDER_CONDITIONS):
+        return ACCEPTED  # the condition permits the providers file whether or not it is in mutable_files
+    if name in (config.command_boundaries_file, config.providers_file):
+        return _refuse("frozen_surface_changed", f"{name} changed under {config.condition}")
+    if name not in config.mutable_files:
+        return _refuse("scope_exceeded", f"{name} is not a mutable file")
     return ACCEPTED
 
 
@@ -381,15 +392,20 @@ def _bound_names(forms) -> set[str]:
     for form in forms:
         head = _head(form)
         if head == "import" and len(form.items) > 1 and isinstance(form.items[1], SymbolAtom):
-            options = dict(zip([getattr(item, "value", None) for item in form.items[2::2]], form.items[3::2]))
-            alias = options.get(":as")
-            names.add(alias.value if isinstance(alias, SymbolAtom) else form.items[1].value.rsplit("/", 1)[-1])
-            only = options.get(":only")
-            names |= {item.value for item in (only.items if isinstance(only, ListExpr) else ())
-                      if isinstance(item, SymbolAtom)}
+            names |= _import_names(form)
         elif head and head.startswith("def") and len(form.items) > 1 and isinstance(form.items[1], SymbolAtom):
             names.add(form.items[1].value)
     return names
+
+
+def _import_names(form: ListExpr) -> set[str]:
+    """An import's alias (else its module's last path segment) and its `:only` names."""
+    options = dict(zip([getattr(item, "value", None) for item in form.items[2::2]], form.items[3::2]))
+    alias = options.get(":as")
+    only = options.get(":only")
+    return {alias.value if isinstance(alias, SymbolAtom) else form.items[1].value.rsplit("/", 1)[-1],
+            *(item.value for item in (only.items if isinstance(only, ListExpr) else ())
+              if isinstance(item, SymbolAtom))}
 
 
 def _owner_form(forms, name: str) -> SExpr | None:
@@ -427,8 +443,7 @@ def _one_site_verdict(parent: Path, child: Path, receipt: Receipt, config: Exper
     if actual != receipt.expected_file_digest:
         return _refuse("digest_mismatch", f"{file_name} is {actual}, receipt expects {receipt.expected_file_digest}")
     parent_forms = _parent_forms(parent_file)
-    owner = _owner_form(parent_forms, owner_name)
-    site = _site_path(owner, line, column) if owner is not None else None
+    owner, site = _owner_and_site(parent_forms, owner_name, line, column)
     if site is None:
         return _refuse("site_unlocatable", f"no form of {owner_name} starts at {file_name}:{line}:{column}")
     helpers = [_one_form(text) for text in receipt.supporting_declarations]
@@ -447,6 +462,11 @@ def _one_site_verdict(parent: Path, child: Path, receipt: Receipt, config: Exper
         if name != file_name and not _same_file(parent / name, child / name):
             return _refuse("scope_exceeded", f"{name} changed outside the site's file")
     return _scope_verdict(parent_forms, _child_forms(child_file), owner, site, receipt, helpers)
+
+
+def _owner_and_site(forms, owner_name: str, line: int, column: int) -> tuple[SExpr | None, tuple[int, ...] | None]:
+    owner = _owner_form(forms, owner_name)
+    return owner, (_site_path(owner, line, column) if owner is not None else None)
 
 
 def _same_file(before: Path, after: Path) -> bool:

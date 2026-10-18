@@ -154,18 +154,26 @@ class _Normalizer:
         items = expr.items
         head = items[0].value if items and isinstance(items[0], SymbolAtom) else None
         has_bindings = len(items) >= 2 and isinstance(items[1], ListExpr)
-        if head == "let*" and has_bindings:
-            return self._render_bindings(items, scope, sequential=True)
-        if head in _PARALLEL_BINDING_HEADS and has_bindings:
-            return self._render_bindings(items, scope, sequential=False)
-        if head == "fn" and has_bindings:
-            params, inner = self.bind_params(items[1], scope)
-            return _wrap(["fn", params, *self._render_all(items[2:], inner)])
-        if head == "let-proc" and has_bindings:
-            return self._render_let_proc(items, scope)
+        rendered = self._render_binding_form(head, items, scope) if has_bindings else None
+        if rendered is not None:
+            return rendered
         if head == "match" and len(items) >= 2:
             return self._render_match(items, scope)
         return self._render_items(items, scope)
+
+    def _render_binding_form(self, head: str | None, items: Sequence[SExpr], scope: dict[str, str]) -> str | None:
+        """A binding form (its second item a list), or None when `head` binds nothing."""
+
+        if head == "let*":
+            return self._render_bindings(items, scope, sequential=True)
+        if head in _PARALLEL_BINDING_HEADS:
+            return self._render_bindings(items, scope, sequential=False)
+        if head == "fn":
+            params, inner = self.bind_params(items[1], scope)
+            return _wrap(["fn", params, *self._render_all(items[2:], inner)])
+        if head == "let-proc":
+            return self._render_let_proc(items, scope)
+        return None
 
     def _render_all(self, items: Sequence[SExpr], scope: dict[str, str]) -> list[str]:
         return [self.render(item, scope) for item in items]
