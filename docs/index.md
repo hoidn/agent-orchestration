@@ -181,6 +181,9 @@ reusing instructions. Plans can contain active obligations as well as history.
 | <a id="e-b3-orc-versus-single-call-rung1"></a>[E-B3: Workflows Versus A Single Call On Calibration Rung 1 (claims not evaluated)](reports/2026-10-16-eb3-orc-versus-single-call-rung1.md) | Captured evidence; not a behavioral contract |
 | <a id="effectiveness-harness-and-experiments-plan"></a>[Effectiveness Harness And Experiments Plan](plans/2026-10-14-effectiveness-harness-and-experiments-plan.md) | Plan or decision record; check current selection |
 | <a id="orc-research-charter"></a>[ORC Research Charter](plans/2026-09-08-orc-research-charter.md) | Plan or decision record; check current selection |
+| <a id="orc-structural-search-roadmap"></a>[ORC Structural Search Roadmap (R3 Implementation Sequence)](plans/2026-10-18-orc-structural-search-roadmap.md) | Plan or decision record; proposed and unselected; check current selection |
+| <a id="workflow-lisp-source-site-inspection"></a>[Workflow Lisp Source-Site Inspection](design/workflow_lisp_source_site_inspection.md) | Component contract or target; Planned and unselected; not copy-safe |
+| <a id="orc-structural-search-driver"></a>[ORC Structural Search Driver](design/orc_structural_search_driver.md) | Component contract or target; Planned and unselected research apparatus; not copy-safe |
 | <a id="orc-programmability-composition-and-improvement"></a>[ORC Programmability, Composition, And Improvement](design/orc_reuse_introspection_search_experiment.md) | Component contract or target; check admitted scope |
 | <a id="orc-session-patterns-and-research-inputs"></a>[ORC Session Patterns And Research Inputs](reports/2026-09-08-orc-session-patterns.md) | Captured evidence; not a behavioral contract |
 | <a id="workflow-lisp-evolution-follow-on-roadmap"></a>[Workflow Lisp Evolution Follow-On Roadmap](plans/2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md) | Plan or decision record; check current selection |
@@ -193,8 +196,6 @@ reusing instructions. Plans can contain active obligations as well as history.
 | <a id="lsp-frontend-prerequisites-p-series-roadmap"></a>[LSP Frontend Prerequisites P-Series Roadmap](plans/2026-07-30-lsp-frontend-prerequisites-p-series-roadmap.md) | Plan or decision record; check current selection |
 | <a id="workflow-lisp-recursion-rec-series-roadmap"></a>[Workflow Lisp Recursion REC-Series Roadmap](plans/2026-08-01-workflow-lisp-recursion-rec-series-roadmap.md) | Plan or decision record; check current selection |
 | <a id="workflow-lisp-language-server-l6-utility-roadmap"></a>[Workflow Lisp Language Server L6 Utility Roadmap](plans/2026-07-31-workflow-lisp-language-server-l6-utility-roadmap.md) | Plan or decision record; check current selection |
-| <a id="orc-structural-search-roadmap"></a>[ORC Structural Search Roadmap](plans/2026-10-17-orc-structural-search-roadmap.md) | Plan or decision record; proposed and unselected |
-| <a id="orc-structural-search-experiment"></a>[ORC Structural Search Experiment](design/orc_structural_search_experiment.md) | Proposed experiment design; selects no study or budget |
 | [OMP Providers And Native Continuation](design/omp_provider_and_native_continuation.md) | Current retained contract; upgrade procedure in the runbook |
 | [Workflow Lisp Provider Call Policy](design/workflow_lisp_provider_call_policy.md) | Current component contract; provider choice, defaults and registry binding |
 | <a id="omp-integration-design-and-roadmap-extension"></a>[OMP Integration Design And Roadmap Extension](plans/2026-08-14-omp-integration-design-and-roadmap.md) | Historical delivery record; current contract linked above |
@@ -235,7 +236,6 @@ reusing instructions. Plans can contain active obligations as well as history.
 | <a id="workflow-lisp-mvp-comparison"></a>[Workflow Lisp MVP Comparison](workflow_lisp_mvp_comparison.md) | Guide or reference; prerequisites and limits at destination |
 | <a id="workflow-lisp-unified-design-for-unimplemented-surfaces"></a>[Workflow Lisp Unified Design for Unimplemented Surfaces](design/workflow_lisp_unified_frontend_design.md) | Component contract or target; check admitted scope |
 | <a id="workflow-lisp-repl-introspection"></a>[Workflow Lisp REPL Introspection](design/workflow_lisp_repl_introspection.md) | Component contract or target; check admitted scope |
-| <a id="workflow-lisp-source-site-inspection"></a>[Workflow Lisp Source-Site Inspection](design/workflow_lisp_source_site_inspection.md) | Proposed component contract; unimplemented |
 | <a id="workflow-lisp-repl"></a>[Workflow Lisp REPL](design/workflow_lisp_repl.md) | Component contract or target; check admitted scope |
 | <a id="workflow-lisp-frontend-specification"></a>[Workflow Lisp Frontend Specification](design/workflow_lisp_frontend_specification.md) | Component contract or target; check admitted scope |
 | <a id="workflow-lisp-refactor-architecture"></a>[Workflow Lisp Refactor Architecture](design/workflow_lisp_refactor_architecture.md) | Component contract or target; check admitted scope |

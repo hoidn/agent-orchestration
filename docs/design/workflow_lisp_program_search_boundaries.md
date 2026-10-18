@@ -109,40 +109,56 @@ prompt-provenance questions answerable in the existing system.
 
 <a id="proposed-amendment-2026-10-17"></a>
 
-## Proposed amendment (2026-10-17; pending owner approval)
+## Proposed amendment (2026-10-17, revised 2026-10-18; pending owner approval)
 
-Proposed by the [structural-search roadmap](../plans/2026-10-17-orc-structural-search-roadmap.md);
-adopting it is an owner act. Until approved, §1 and §6 stand as written above,
+Proposed by the [structural search roadmap](../plans/2026-10-18-orc-structural-search-roadmap.md);
+its rationale is in the [structural search driver](orc_structural_search_driver.md).
+Adopting it is an owner act. Until approved, §1 and §6 stand as written above
 and the roadmap's Phase 0 is not executable.
 
 - **§1, third bullet.** Replace "Candidate execution starts as a new registered
   child run." with: "Candidate execution starts as a new registered run: a root
-  run launched by the external controller through public `run`, or a child
-  where an admitted child route exists. The controller's lineage record names
-  the run id and state root; the runtime is not changed." The rest of the
-  bullet ("No `eval`, hot swap, dynamic linking, or checkpoint import ever turns
-  candidate data into executing code.") is unchanged. Reason: at main no child
-  route executes a provider-bearing candidate (`run/spawn` is unimplemented,
-  `trial` refuses `workflow_execution_target_retired`, path-mode `run-ref`
-  admits only effect-free children, and the 2.38 confined child is
-  command-only), so "registered child" names a route that does not exist.
-- **§6.** Replace "Provider-in-the-loop evaluation is limited to
-  text-only/no-tool, mock, replay, or genuinely sandboxed calls under the same
-  rule." with: "Provider-in-the-loop candidate evaluation is permitted under a
-  disclosed workspace boundary: the comparison harness's shims and bubblewrap
-  sandbox (private `/tmp`, `/dev/shm` and process list, empty `/var/tmp`) with
-  its stated non-isolation (home, network, other sessions' transcripts) and its
-  contamination scan and adjudication ([harness design](orc_effectiveness_comparison_harness.md),
-  Security, Operations, And Performance). Effect-free deterministic harnesses
-  remain preferred where they suffice." The first sentence of §6 ("A candidate
-  workspace is an output boundary, not an OS sandbox.") is unchanged. Reason:
-  the owner's clarification of 2026-09-08 that execution safety is outside the
-  research assessment ([charter](../plans/2026-09-08-orc-research-charter.md),
-  Thesis; [experiment design](orc_reuse_introspection_search_experiment.md),
-  Status And Authority) never amended this document, and
-  [typed program gates](workflow_lisp_typed_program_gates.md) still binds §6 in
-  its compliance table.
+  run launched by an external controller through public `run`, recorded with
+  its run id and state root by that experiment's lineage record, or a child
+  where an admitted child route exists. The runtime is not changed." The rest
+  of the bullet ("No `eval`, hot swap, dynamic linking, or checkpoint import
+  ever turns candidate data into executing code.") is unchanged. Reason: at
+  main no child route executes a provider-bearing candidate (`run/spawn` is
+  unimplemented, `trial` refuses `workflow_execution_target_retired`,
+  path-mode `run-ref` admits only effect-free children, the 2.38 confined
+  child is command-only) and no run registry or parent/child linkage exists
+  for external runs, so "registered child" names a route that does not exist.
+- **§6, second and third sentences together.** Replace "Effect-free
+  deterministic harnesses are the only acceptable evaluation environment until
+  a separate security design with positive isolation evidence exists.
+  Provider-in-the-loop evaluation is limited to text-only/no-tool, mock,
+  replay, or genuinely sandboxed calls under the same rule." with:
+  "Provider-in-the-loop candidate evaluation is permitted under a disclosed
+  workspace boundary: ordinary configured agent sessions in separate clones
+  behind the comparison harness's shims and bubblewrap sandbox (private
+  `/tmp`, `/dev/shm` and process list, empty `/var/tmp`) with its stated
+  non-isolation (home, network, other sessions' transcripts), its
+  contamination scan and adjudication ([harness design](orc_effectiveness_comparison_harness.md)),
+  and finite envelopes, with evaluator truth outside every tree an agent can
+  reach. This is hygiene, not isolation, and is reported as such; effect-free
+  deterministic harnesses remain preferred where they suffice." The first
+  sentence of §6 ("A candidate workspace is an output boundary, not an OS
+  sandbox.") is unchanged. Reason: the owner's clarification of 2026-09-08
+  that execution safety is outside the research assessment
+  ([charter](../plans/2026-09-08-orc-research-charter.md), Thesis;
+  [experiment design](orc_reuse_introspection_search_experiment.md), normal
+  agent sessions) never amended this document, and
+  [typed program gates](workflow_lisp_typed_program_gates.md) still binds §6
+  in its compliance table. Replacing only the last sentence would leave the
+  effect-free-only sentence in force and the document contradictory.
+- **Typed-program-gates rule.** The normative rule "search/evolution
+  candidate execution uses generational child runs only (`run/spawn` or
+  `run-ref`)" in [typed program gates](workflow_lisp_typed_program_gates.md#boundary-compliance)
+  is read as scoped to candidate execution started from inside a workflow;
+  public runs launched by an external controller are outside it. Scoping is
+  not lifting: no in-run path executes candidate data, and the C1/C2 evidence
+  condition that design attaches to lifting the rule is not invoked.
 
-If approved, the two replacements are applied in place above, this block is
+If approved, the replacements are applied in place above, this block is
 reduced to a dated change note, and the typed-program-gates document's
 references follow.

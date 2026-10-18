@@ -1,263 +1,277 @@
 # Workflow Lisp Source-Site Inspection
 
-## Metadata
+- **Status:** proposed, unselected, unimplemented and not copy-safe.
+- **Kind:** read-only, compiler-derived inspection contract over admitted
+  2.35–2.39 source. It adds no language form, no runtime behavior, no edit
+  operation and no optimizer concept.
+- **Authority:** the [frontend baseline](workflow_lisp_frontend_specification.md)
+  and [evaluated execution](workflow_lisp_evaluated_execution.md) own
+  checking, lowering and the closed program; [effect ledger
+  simplification](workflow_lisp_effect_ledger_simplification.md) owns inferred
+  effects and restrictions; [REPL introspection](workflow_lisp_repl_introspection.md)
+  owns interactive module inspection; the [program-search boundary
+  invariants](workflow_lisp_program_search_boundaries.md) constrain every
+  consumer (§8).
+- **Compatibility:** no new target, no spec change, no new `compile` flag and
+  no published artifact in the first version. The Python API is internal to
+  the repository until a consumer stabilizes its fields.
+- **Selection:** [ORC structural search roadmap](../plans/2026-10-18-orc-structural-search-roadmap.md).
+  The consumer is the [structural search driver](orc_structural_search_driver.md).
+- **Use today:** REPL `:info`, `:type` and `:source` for per-definition facts
+  ([CLI](../../specs/cli.md#workflow-lisp-repl-targets-235-and-236)), and the
+  `@` provenance on closed-program AST nodes (`Builder.provenance` in
+  `orchestrator/workflow_lisp/closed/build.py`) for site start positions.
+  There is no per-site type or binding query.
+- **Copy safety:** record shapes and code paths below are conceptual.
 
-- **Status:** proposed (2026-10-17); unimplemented; not copy-safe
-- **Kind:** feature (frontend component contract)
-- **Owner:** Workflow Lisp frontend and CLI maintainers
-- **Reviewers:** independent design and implementation reviewers
-- **Created / last material update:** 2026-10-17
-- **Implementation target:** admitted evaluated modules at targets 2.35–2.39; no new target, header field, artifact, memo field or spec change
-- **Related:** [REPL introspection](workflow_lisp_repl_introspection.md) (the retained compiler context this builds on);
-  [language server](workflow_lisp_language_server.md) (prerequisite P3 and the navigation precedents);
-  [frontend specification](workflow_lisp_frontend_specification.md) (names, types, effects, spans);
-  [program-search boundaries §3 and §7](workflow_lisp_program_search_boundaries.md) (neutral substrate; kinds are not erased);
-  consumer: [structural-search experiment](orc_structural_search_experiment.md)
+## 1. Purpose And Scope
 
-## Summary And Scope
+An external tool that proposes a replacement for one authored expression needs
+four facts the compiler computes but does not expose together: where the
+expression is, what it produces, what it may reference and what it depends on.
+This design exposes those facts as a read-only **source-site manifest** over
+one ordinary successful compilation.
 
-A read-only projection of a successfully compiled module that lists its
-editable source expressions with the facts the compiler already holds about
-each (span, enclosing definition, operation kind, inferred type, visible
-bindings, resolved dependencies, inferred effects and restrictions, executable
-sites, eligibility); a way to typecheck a proposed replacement for one such
-expression in that expression's lexical environment without lowering or
-running; and an edit transaction that applies one replacement to the accepted
-source snapshot and validates that nothing else changed before the ordinary
-full compile. The consumer is any tool that proposes a replacement for one
-expression and needs to know what it may reference and what it must preserve.
+Scope is the manifest only. The [driver design](orc_structural_search_driver.md)
+owns edit receipts, scope validation, child snapshots and `candidate_id`
+(its sections "Edit Validation And Transactions" and "Candidate Snapshots And
+Identities"); the roadmap owns selection. The manifest describes authored
+source; it does not make operation kinds interchangeable, does not reify
+fragments as values and does not infer types from text.
 
-Out of scope: a second typechecker, a printer for reader trees or expression
-nodes, a persisted artifact or schema, a new CLI command beyond what the REPL
-already exposes, any notion of a proposal's worth, and anything that changes
-compilation or execution.
+## 2. What Exists And What Is Missing
 
-## Context And Authority
+Source references name paths and symbols; see the
+[durable-reference rule](../documentation_conventions.md#durable-references).
 
-| Owner | Existing fact this design uses |
-| --- | --- |
-| `workflow_lisp/repl_expr.py::LoadedModule` | Retains the typed program, entry Stage-3 result, builder, type environment and the immutable accepted source snapshots (`source_snapshots`, `source_revisions`, `source_origin`) |
-| `workflow_lisp/closed/frontend.py::TypedProgram` | `workflows`, `procedures`, `workflow_type_env(name)`, `procedure_type_env(procedure)`, `module_type_envs`, `externs`, `command_boundaries`, `source_file_digests`, `imported_programs` |
-| `workflow_lisp/typecheck_context.py::TypedExpr` | `expr`, `type_ref`, `span`, `form_path`, `effect_summary`, `binding_environment`. The environment is attached only at the root of each typechecked body (`typecheck_dispatch.py`, the `replace(... binding_environment=dict(active_binding_env))` after `_typecheck`; `procedure_typecheck.py::_typecheck_owner`); intermediate `TypedExpr`s are discarded during dispatch |
-| `workflow_lisp/repl_expr.py::typecheck_repl_expression` | Typechecks an entered expression in module context and reports type and inferred effects without lowering; lexical bindings are available only after a run is attached |
-| `workflow_lisp/repl_inspect.py` | `visible_declarations`, `inspect_name`, `source_name`: declaration rows with kinds, spans, contracts and inferred effects; whole-form source sliced from the accepted snapshot with CRLF normalization; refusals `repl_name_unknown`, `repl_source_unavailable`, `repl_module_context_missing` |
-| `workflow_lisp/reader.py` | `read_sexpr_text` returns spanned reader trees (per atom and list, start and end); `SourceReadTrace.raw_bytes_by_path` and `revision_vector`; comments are skipped by `_Reader._skip_ignored` and never retained |
-| `workflow_lisp/expression_traversal.py` | `walk_expr`, `map_expr`, `free_expr_names(expr, bound=..., include_callees=...)` over frontend `ExprNode`s |
-| `contracts/closed_program/program.py` | `program_digest` strips `@` provenance (`strip_provenance`); sites are `(owner, "#n")` rows (`_sites_from_nodes`); `perform` nodes carry `class`, `contract`, `policy`; provenance `@` is `{"span": "<path>:<line>:<col>", "form": [...]}`, a start position and form path, plus `source_map_subject` on some `perform` nodes |
-| `closed/artifact.py::closed_build_key` | `build_key` hashes `source_file_digests`; `manifest.json` carries `schema_version`, `build_key`, `program_digest`, `representation`, `target`, `entry_workflow`, `sites`, `source_path`, `source_roots`, `artifact_paths` and no source digests |
-| `cli/commands/compile.py` | `--diagnostics-json`: accepted `{"build_key","program_digest","status":"accepted"}`; rejected `workflow_lisp_compile_diagnostics.v1` |
-| `lsp/navigation.py`, `authored_symbols.py` | Definition edges for direct procedure/workflow call heads and authored spans for a closed kind set; precedents, not a manifest |
-
-Verified facts (2026-10-17, main `90ae778c`): adding a comment line leaves
-`program_digest` unchanged and changes `build_key`; renaming a `let*` binding
-changes `program_digest` (the closed program keeps `let name: t`); a literal
-change changes `program_digest`. The REPL creates no run for `:browse`,
-`:info` or `:type`.
-
-## Problem
-
-A consumer that wants to replace one expression must know its span, its
-enclosing definition, what the expression's result type is, which names are in
-scope at that point and with what types, which externs and prompts it resolves,
-what effects it has and what its context permits, and which executable sites it
-reaches. The checked frontend computes every one of these facts during a
-compile, but retains the lexical environment only at definition roots, and the
-published closed artifact carries start positions and form paths, not extents
-or environments. Reading the artifact or re-inferring from text would be a
-second typechecker, which the language principles and the LSP contract forbid.
-Applying an edit has no component either: there is no printer, so the only
-comment-preserving path is the REPL's own, slicing and splicing the accepted
-snapshot by span.
-
-## Goals And Non-Goals
-
-Goals: every manifest field comes from a retained compiler fact or a bounded
-walk of a retained typed body; eligibility is explicit with a reason for every
-exclusion; a replacement is typechecked in its site's environment before any
-compile; a transaction either produces a new source snapshot whose only
-structural difference from the parent is within the selected span and declared
-helper spans, or refuses with the first difference it found; the ordinary full
-compile is the only certification.
-
-Non-goals: any optimizer concept (the worth of a proposal, choosing among proposals, keeping a store of them or of their history);
-a second typechecker or any type inference from strings or lowered nodes; a
-persisted manifest artifact or schema; a printer or reformatter; editing
-imports, type or protocol declarations, prompt bodies (unless the consumer's
-scope says so) or the entry signature; interior environments through
-re-running typecheck per site in the MVP.
-
-## Decision
-
-Derive the manifest from `LoadedModule`'s retained facts the way
-`repl_inspect.py` derives declaration rows: no registry, no reparse, no regex,
-no LSP process. For a site's lexical environment, accept for the MVP the
-REPL-style fallback: start from the definition's root `binding_environment`
-and its type environment, and walk the retained typed body's `let*`/binding
-chain to the site to collect the bindings in scope. Typecheck a replacement
-with the existing `typecheck_repl_expression` path given that environment and
-an expected type equal to the site's inferred type. Apply an edit as a span
-splice on the raw snapshot, re-read, and compare reader trees. Certify with the
-ordinary compiler.
-
-Alternatives: a span→type and span→environment sidecar collected during
-typecheck dispatch (LSP P3) gives interior facts directly and is the
-feasibility prerequisite's first option; retained only if the probe shows the
-walk is insufficient or P3 is cheap. Reading the closed artifact alone was
-rejected: it cannot reconstruct lexical context. A printer was rejected: not
-needed for a splice-and-re-read transaction.
-
-## Public Contract
-
-### Source-Site Manifest
-
-A read-only projection, computed on demand from one `LoadedModule`, never
-serialized into run or build authority. Rows for provider calls, named
-workflow/procedure calls, and enclosing `let*`/conditional compositions;
-literals and arithmetic are not indexed.
-
-| Field | Source | Limit |
+| Fact | Existing carrier | Verdict |
 | --- | --- | --- |
-| Snapshot identity: file path, sha256 of the accepted snapshot bytes, revision | `LoadedModule.source_snapshots`, `source_revisions`, `source_origin` | A reconstructed snapshot is labelled as such; comments and formatting may differ from what ran |
-| Site locator: span (start and end), form path | `TypedExpr.span`, `form_path` of the typed body; `ExprNode.span` of the walked node | Spans are character offsets into CRLF-normalized text, per the REPL's slicing rule |
-| Enclosing definition: kind, name, module, target | `TypedProgram.workflows` / `procedures`; `repl_inspect.visible_declarations` | Generated local definitions and specializations are excluded, as the REPL catalog excludes them |
-| Operation kind: provider call, procedure call, workflow call, composition | The `ExprNode` class of the walked node | Kinds are never interchangeable (boundaries §7) |
-| Inferred result type and canonical type identity | `TypedExpr.type_ref` at the root; the walked node's type in the MVP comes from re-typechecking the node in the site environment (the fallback) or from the P3 sidecar | Polymorphic schemes and contextual expected types beyond equality are deferred |
-| Visible lexical bindings and their types | Root `binding_environment` plus the `let*` chain walk; `workflow_type_env` / `procedure_type_env` for declared names | Branch-local variant proofs and loop-state carriage follow the frontend's rules; a binding introduced by an unsupported form makes the site ineligible |
-| Resolved prompt / provider / module dependencies | `TypedProgram.externs`, `module_externs`, prompt catalog, import scope | Unused imports are not dependencies (boundaries §8) |
-| Inferred effects and applicable restrictions | `TypedExpr.effect_summary`; at 2.39 the definition's authored restriction, as `:info` separates them | Effects describe operation kinds, not counts or cost |
-| Executable sites | `closed_program.json` `sites` rows `(owner, "#n")` joined by owner and `@` form path; `source_map_subject` where present | See the join limits below |
-| Eligibility and exclusion reason | Computed | Every excluded site carries one reason from the table below |
+| In-memory build keeping `typed_program`, `stage3` and `builder` | `prepare_closed_program_bundle` in `orchestrator/workflow_lisp/closed/artifact.py`; `build_closed_program_bundle` is the written form | reuse as is |
+| Per-node type, scope, span, form path, effect summary | `WccNodeMetadata` in `orchestrator/workflow_lisp/wcc/model.py` is attached to every WCC node while a body is elaborated. The builder retains WCC bodies only in `Builder._workflow_wcc_cache`, filled by `_workflow_wcc_body` from `_context_routes`; the main lowering path, `_prepare_command_owner` → `_command_wcc_body` (`elaborate_command_scopes`), elaborates per preparation and discards the body | **missing: retention or re-elaboration required** (P-1, §7) |
+| Per-subexpression type in the typed AST | none: typecheck dispatch rebuilds parents from `typed_child.expr` and keeps one root `TypedExpr` (`orchestrator/workflow_lisp/typecheck_context.py`) per definition | missing; WCC metadata is the only per-node carrier |
+| Binding names in scope | root `TypedExpr.binding_environment` is name → `BindingIdentity` (`orchestrator/workflow_lisp/typecheck_proofs.py`); `LetStarExpr.binding_identities` holds identities, not types | needs adapter for types (P-1) |
+| Canonical type identity | `canonical_type_identity` and `canonical_type_descriptor` in `orchestrator/workflow_lisp/closed/names.py`; `render_type_ref` in `type_env.py` for display | reuse as is |
+| Authored procedure and workflow call sites after inline normalization | `AuthoredDirectCall(owner_kind, owner_name, callee_kind, callee_name, authored_callee_span)` on `Stage3CompileResult.authored_direct_calls` (`orchestrator/workflow_lisp/workflows.py`); `callee_kind` is `procedure` or `workflow` only | reuse as is |
+| Operation kind | expression node classes in `orchestrator/workflow_lisp/expressions.py` (`ProviderResultExpr`, `ProcedureCallExpr`, `CallExpr`, `RunRefExpr`, `AgentExpr`, `RunProviderPhaseExpr`, composition forms); perform node `class` in the closed program (`orchestrator/contracts/closed_program/check.py`) | reuse as is |
+| Inferred effects and authored restriction per definition | `procedure_effect_inspection` in `orchestrator/workflow_lisp/procedures.py`; `EffectSummary` and `unresolved_effect_calls` in `effects.py` | reuse as is |
+| Resolved prompt/provider/command/import configuration | `closed_program.json` `configuration`; perform nodes carry `provider`, `prompt`, `inputs`, `dependencies` | reuse as is |
+| Executable site identity | `assign_sites` rows `(owner definition, label path)` in `orchestrator/contracts/closed_program/sites.py`; `@` start position and form path on AST nodes; `program_digest` strips `@` (`program.py`) | reuse as is; join needed |
+| Exact source bytes read | `SourceReadRecord.revision` in `orchestrator/workflow_lisp/reader.py` (sha256 over the raw bytes read) and `_source_file_digests_from_trace` in `orchestrator/workflow_lisp/build_artifacts.py` | reuse as is |
+| Free names of an expression | `free_expr_names` in `orchestrator/workflow_lisp/expression_traversal.py`, as W3 uses for `LetProcBinding.capture_names` | reuse as is |
+| Structured "every fact at this span" query | none: the REPL returns text (`repl_inspect.py`), the LSP has no hover and no span → type table ([language server](workflow_lisp_language_server.md)) | missing: this design |
 
-### Eligibility And Exclusion Reasons
+## 3. Source-Site Manifest
 
-| Reason | When |
-| --- | --- |
-| `generated_definition` | Specializations, WCC-generated owners, macro-expanded or hygiene-renamed forms with no authored provenance |
-| `expansion_site` | The node lies inside a macro expansion; only the authored call site is addressable |
-| `entry_signature` | The exported entry's parameters and return type |
-| `declaration` | Imports, type/union/record declarations, prompt bodies, extern declarations |
-| `unsupported_binding_form` | A binding in scope was introduced by a form the walk does not model |
-| `source_unavailable` | No exact authored span can be proved (the REPL's `repl_source_unavailable` conditions) |
-| `imported_module` | The expression lives in an imported module; editing it affects every importer and is outside one module's transaction |
+### 3.1 Eligible Sites
 
-### Join To Closed-Program Sites
+The caller names the source files to index. Within each authored
+`defworkflow` and `defproc` of those files the manifest indexes:
 
-A source site joins to executable sites by owner (`workflow:` or `procedure:`
-name) and the `@` form path, which is a start position and form path, not an
-extent. The join is one-to-many: lowering, imports and specialization create
-several executable instances of one authored expression, and an edit in a
-shared definition reaches every caller. The join is not available for compiler
-temporaries without authored provenance. A consumer must rebuild and evaluate
-the whole program; it never reads a site's runtime identity as a persistent
-identity across edits.
+- provider calls (`ProviderResultExpr`), phased provider calls
+  (`RunProviderPhaseExpr`) and agent turns (`AgentExpr`);
+- procedure and workflow calls (`ProcedureCallExpr`, `CallExpr`) and run
+  references (`RunRefExpr`);
+- the composition forms that enclose them: `let*` bodies and bindings, `if`,
+  `cond`, `match` and bounded `loop`/`list` forms.
 
-### Replacement Typecheck In Site Context
+Pure-helper calls (`FunctionCallExpr`) are not eligible in the first version:
+inline normalization removes them from typed bodies and `AuthoredDirectCall`
+does not record them. The `HelperExpansionFrame.call_span` that normalization
+adds to each inlined node's expansion stack (`orchestrator/workflow_lisp/syntax.py`)
+may locate them through WCC metadata; that is unverified and left to a later
+version.
+Literals, arithmetic and prompt templates are not indexed. Definitions in
+files the caller did not name, imported library modules among them, appear
+only as `dependencies` of indexed sites.
 
-Input: a site row and one replacement expression as text. The component reads
-the text with the ordinary reader, elaborates and typechecks it through the
-`typecheck_repl_expression` path with the site's lexical environment and the
-site's inferred type as the expected type, and stops before lowering. Output:
-the replacement's type and inferred effects, or the ordinary frontend
-diagnostic. This is a preflight; the full compile of the whole module
-remains mandatory and is the only acceptance.
+### 3.2 Site Record
 
-### Edit Transaction And Scope Validation
+One record per eligible authored expression. Fields marked **derived** come
+from the carriers in §2; fields marked **adapter** depend on §7.
 
-```text
-precondition: sha256(parent snapshot bytes) == expected digest
-splice:       replace bytes of the selected span (and declared helper spans or
-              a declared helper insertion point) in the raw snapshot
-re-read:      read_sexpr_text on the new bytes -> reader tree
-structural    compare original and edited reader trees modulo spans; every
-diff:         difference must lie within the selected span or a declared helper
-              span, otherwise refuse with the first out-of-scope difference
-compile:      ordinary full compile of the edited module (--diagnostics-json)
-```
-
-Scope rules: the selected expression may be replaced; declared fresh helpers
-may be added; prompt bodies and provider/model options change only when the
-consumer's declared scope allows; imports, type/protocol declarations and the
-entry signature are frozen; a helper receives explicit capture parameters and
-must not rebind an existing name (checked by `free_expr_names` on the
-replacement against the site's visible bindings). The parent snapshot is never
-modified; the edited module is a new snapshot with its own digest.
-
-Digest facts the consumer relies on: a comment-only change leaves
-`program_digest` unchanged and changes `build_key`; a rename or a literal change
-changes `program_digest`. So `program_digest` proves semantic identity for
-formatting changes and detects renames; it does not distinguish a rename from a
-structural change, which is a consumer concern. No printer exists and none is
-needed: the transaction never re-serializes a tree.
-
-## Feasibility Prerequisite
-
-Before an implementation plan is accepted, a bounded executable probe on real
-compiler products, with no providers and no run writes, must show:
-
-1. For a module with a `let*` chain inside a workflow and inside a procedure,
-   the walk from the root `binding_environment` reaches a provider-call site
-   and reports the same bindings and types as the frontend assigns (checked
-   against a deliberately shadowed name and against a branch-local variant
-   proof).
-2. A replacement that references an out-of-scope name is refused by the
-   site-context typecheck with `name_unknown`; a type-incompatible replacement
-   is refused with the ordinary diagnostic; a compatible one reports the site's
-   type and its inferred effects.
-3. A span splice followed by re-read produces a reader tree whose only
-   difference from the parent is the spliced span; a second edit elsewhere in
-   the file is refused by the structural diff.
-4. The join from the edited site to `sites` rows is stable across a
-   comment-only change and changes as expected after the edit.
-
-If the walk cannot reproduce interior environments for admitted forms, the
-alternative is the P3 sidecar (optional collection of per-subexpression type
-and environment during typecheck dispatch, keyed by span and form path), which
-then becomes this design's prerequisite exactly as P3 is the LSP hover's. Stop
-and revise if correctness needs an independent visibility resolver, invented
-spans, a persisted artifact, a printer, or retaining every compiler
-intermediate.
-
-## Relation To The REPL And The Language Server
-
-The REPL already exposes the declaration-level view (`:browse`, `:info`,
-`:source`, `:type`) and the slicing rule; this component extends the same
-retained context one level down, to expressions, and adds the transaction. It
-adds no REPL command in the MVP; a consumer drives it as a library over
-`LoadedModule`. The language server's navigation index and authored symbols
-are precedents for span-keyed projections; neither is reused as a dependency,
-and the server's hover (L6a) remains limited to declaration names until P3
-exists. If P3 is implemented for this component, the LSP hover may consume it;
-that is a separate selection.
-
-## Compatibility, Cost And Security
-
-No syntax, artifact, memo, header, schema, digest, target or public compile
-result changes. The projection and the typecheck leave run evidence
-byte-identical; the transaction writes only a new source file in the consumer's
-own root. Memory is bounded by the loaded graph's bytes and one typed-body walk
-per site. The manifest shows local authored text, including any secret an
-author wrote into it; it reads no prompt extern payloads, configuration files or
-arbitrary paths, and adds no provider or network authority.
-
-## Verification And Declarative Integration Scenarios
-
-| Scenario | Expected |
-| --- | --- |
-| Shadowed binding | The manifest resolves the innermost binding at the site; a replacement referencing the outer one by the same name typechecks against the inner type |
-| Shared definition | A site in a procedure called from two workflows lists both executable site owners; the manifest does not silently map it to one |
-| Incompatible replacement | Refused at site-context typecheck and, if forced through, at full compile with `workflow_lisp_compile_diagnostics.v1`; never reaches execution |
-| Two valid replacements | Both compile; their `program_digest`s differ |
-| Out-of-scope edit | A change outside the selected span in the same file is refused by the structural diff with its location |
-| Frozen boundary | A transaction that alters the entry signature or an import is refused |
-| Helper capture | A helper that would capture a site binding without a parameter is refused by the capture check |
-| Comment-only edit | `program_digest` unchanged, `build_key` changed, structural diff empty |
-
-Narrow selectors for the new module first, then the broad suite.
-
-## Open Questions
-
-| Question | Impact | May implementation proceed? |
+| Field | Content | Source |
 | --- | --- | --- |
-| Walk versus P3 sidecar for interior environments | Shape of the environment code | No; the probe decides |
-| Whether `form_path` plus owner suffices to join every authored provider call to its `sites` rows under specialization | Join completeness | Yes, with unjoined sites marked `source_unavailable` |
-| Whether the consumer's declared scope may include prompt bodies by default | Scope rule default | Yes; default frozen |
+| `site_id` | owner definition canonical name plus `@` start position `path:line:col`. Macro-generated sites are excluded (§3.4) and two authored forms cannot share a start position, so no ordinal is needed | derived |
+| `span` | start and end `SourcePosition(path, line, column, offset)` from the frontend `SourceSpan` (`orchestrator/workflow_lisp/spans.py`); closed-open character offsets into LF-normalized snapshot text, as `:source` slices; never byte offsets into the raw file (CRLF and multi-byte UTF-8 misalign them), so a consumer locates forms by re-reading, not by splicing | derived |
+| `file_digest` | `SourceReadRecord.revision` of the file the compiler read | derived |
+| `owner` | enclosing definition kind and canonical name; `form_path` | derived |
+| `kind` | one of `provider-call`, `provider-phased-call`, `agent-turn`, `procedure-call`, `workflow-call`, `run-ref`, `let*`, `if`, `cond`, `match`, `loop`, `list-map`; never a common "callable" | derived |
+| `result_type` | `canonical_type_identity` plus the rendered form; a loop-control position reports its `LoopControlTypeRef` and is ineligible | adapter (WCC `type_ref`) |
+| `bindings` | names visible at the site with `BindingIdentity` and canonical type, in scope order; a shadowed name shows the innermost identity only | adapter (WCC `scope_id`, `binding_identity`, let-chain) |
+| `dependencies` | resolved prompt, provider binding, command boundary, imported module and callee canonical names the expression uses; from closed `configuration` and perform node fields | derived |
+| `effects` | the expression's inferred `EffectSummary` (direct and transitive; unresolved generic calls labelled incomplete) and the owner's authored restriction or `omitted` | adapter (WCC `effect_summary`); owner-level facts derived |
+| `executable_sites` | zero or more closed-program site rows `(owner, label path)` whose perform node `@` start equals this span start; zero for pure compositions; one static row per lowering of the owner, so a shared definition called from two workflows keeps one owner and fans out only at runtime through distinct activation paths, while a generic definition specialized per caller yields one row per specialization | adapter (join) |
+| `authored_calls` | `AuthoredDirectCall` rows whose `authored_callee_span` lies inside the span | derived |
+| `eligibility` | `eligible`, or an exclusion reason (§3.4) | derived |
+
+The manifest is a JSON-serializable mapping keyed by `site_id`, headed by the
+build's `build_key`, `program_digest`, target, entry and per-file digests. It
+is produced by one proposed module, `orchestrator/workflow_lisp/source_sites.py`,
+called in-process with the result of `prepare_closed_program_bundle`. No CLI
+flag, published file or REPL command is added; the REPL's four inspection
+commands add no JSON interface, and this design does not change that.
+
+### 3.3 Construction Path
+
+1. Compile the candidate exactly as `run` would, through
+   `prepare_closed_program_bundle`, with the same entry, source roots, extern
+   files and command boundaries. A rejected compile yields no manifest; the
+   ordinary diagnostics are the output.
+2. Walk the retained typed definitions of the named files for authored
+   expression nodes and their spans; record `kind` from the node class.
+3. Obtain a normalized WCC body per owner through P-1 (§7): either the
+   builder retains the body it elaborated for this build, or the manifest
+   re-elaborates the owner once with the same type and value environments.
+   Index `WccNodeMetadata` by `source_span.start`; attach `type_ref`,
+   `scope_id` and `effect_summary` to the authored node with the same start.
+   A node with no WCC counterpart reports `result_type: unavailable` and is
+   ineligible.
+4. Recover binding types by walking the WCC let-chain of the site's
+   `scope_id` and resolving each `binding_identity` to its node `type_ref`.
+5. Join `executable_sites` by walking the closed tree and pairing each
+   perform node's `@` start with the authored span start.
+6. Attach `AuthoredDirectCall` rows by span containment.
+
+Step 3 reads what the compiler produced, or reproduces it with the compiler's
+own elaboration; it never infers types from strings and never reads another
+build's artifact. Whether the manifest costs a second elaboration is measured
+under P-1, not assumed either way.
+
+### 3.4 Exclusions
+
+| Condition | Eligibility |
+| --- | --- |
+| Expression produced by macro expansion with no exact authored span | excluded: `macro-generated` |
+| Expression in a file the caller did not name | not indexed; visible as a dependency |
+| Loop-control position (`recur`, `continue`, `break` carriers) | excluded: `loop-control` |
+| Owner is a specialization or generated local procedure | excluded: `generated-definition` |
+| Pure-helper call | excluded: `pure-call-unretained` (§3.1) |
+| `result_type` or `span` unavailable from retained facts | excluded: `facts-unavailable` |
+
+Unknown facts are labelled unavailable, as the REPL does; they are not
+guessed.
+
+## 4. Identities The Manifest Reports
+
+| Identity | Owner | Meaning here |
+| --- | --- | --- |
+| `build_key` | `closed_build_key` in `closed/artifact.py` | the build the manifest describes |
+| `program_digest` | `program_digest` in `orchestrator/contracts/closed_program/program.py`, provenance stripped | the checked program; two source texts can share one digest |
+| `site_id` | this design | local to one build; never an identity across edits or candidates |
+| executable site and runtime identity | `assign_sites` rows; activation path with loop ordinals in `orchestrator/workflow/evaluated/machine.py` | joined through `executable_sites`; execution evidence, not a source identity |
+
+`candidate_id`, lineage and any cross-candidate relation belong to the
+[driver](orc_structural_search_driver.md). Source coordinates, matching types
+or matching text do not establish that two sites in different builds are the
+same thing.
+
+Verified at `90ae778c` (2026-10-18) on `workflows/examples/plan_review_execute.orc`:
+a comment-only change leaves `program_digest` unchanged and changes
+`build_key`; a `let*` rename and a literal change each change
+`program_digest`.
+
+## 5. What This Approach Makes Harder
+
+- Facts come from one in-process build. A consumer that compiles through the
+  CLI or in another checkout gets no manifest and must compile again in
+  process.
+- Pure-helper calls are not sites until the expansion-frame carrier is
+  verified; a proposer cannot be pointed at a `FunctionCallExpr` site.
+- A shared definition keeps one static site; the manifest reports callers
+  and specializations as fan-out and never invents a second owner.
+- Definitions the builder never lowers for the selected entry have no WCC
+  facts and are excluded; dead definitions are not inspectable sites.
+- If P-1 resolves to re-elaboration, every manifest costs one elaboration per
+  owner on top of the compile.
+
+## 6. Rejected Alternatives
+
+| Alternative | Why not |
+| --- | --- |
+| Regex or string matching over `.orc` text to find calls and infer types | a second, wrong type system; the REPL and LSP designs reject it for the same reason |
+| Reverse-engineering lowered closed-program nodes only | spans are start-only, bindings and scope are gone, inlined calls are invisible; lexical context cannot be reconstructed |
+| A second typechecker inside the consumer | duplicates the frontend and drifts from it |
+| Publishing a new `compile --emit-source-sites` artifact | every `--emit-*` flag is refused on evaluated builds (`orchestrator/cli/commands/compile.py`); a published file invites use as run authority; stabilize the schema after a consumer exists |
+| CLI-first or REPL-command-first design | text output cannot carry the record; the four REPL commands add no JSON interface; an in-process consumer needs objects |
+| Retaining every compiler intermediate on the builder | REPL introspection deliberately retains only what its commands need; P-1 is bounded to the WCC body per owner for one build |
+
+## 7. Feasibility Prerequisites
+
+Each item is an unproven capability. The minimal fixture that proves it is the
+first deliverable of any selected implementation; failure is a recorded gap.
+
+| Id | Claim | Minimal fixture |
+| --- | --- | --- |
+| P-1 | per-node WCC metadata is obtainable for every owner of one build at bounded cost: either `Builder` retains the normalized WCC body per owner (a bounded builder change, in tension with REPL introspection's rule against broadly retaining intermediates) or the manifest re-elaborates once per owner via `elaborate_command_scopes` with the build's environments | compile one maintained example both ways; assert identical `WccNodeMetadata` per node; record elaboration time and memory against the compile alone |
+| F-a | WCC metadata yields span, type and scope per node and joins to closed-program site rows for both owner kinds; workflows and procedures both lower through `_prepare_command_owner` → `_command_wcc_body`, while `_workflow_wcc_body` serves only `_context_routes` | compile `workflows/examples/plan_review_execute.orc` (workflow owner) and `workflows/examples/improve_experiment_proposal.orc` (it declares a `defproc`); assert every perform node's `@` start matches exactly one `WccNodeMetadata.source_span.start` and one `assign_sites` row |
+| F-b | binding types at a site are recoverable from the WCC let-chain | at the `review` site, assert `bindings` lists `draft` with its canonical type |
+| F-c | an authored procedure call survives inline normalization as a site | a workflow calling an effect-free procedure that the compiler inlines: assert the call is a `procedure-call` site with `authored_calls` populated although `typed_body` holds the inlined form |
+| F-d | the join distinguishes static sites from invocations | a non-generic procedure called from two workflows: assert one static site with one owner, with the two callers visible as distinct runtime activation paths and never as a second owner; a generic procedure specialized for two callers: assert one `executable_sites` row per specialization |
+| F-e | shadowing resolves to the innermost identity | nested `let*` rebinding `x`: assert the inner site's `bindings["x"]` identity differs from the outer |
+
+## 8. Boundary Compliance
+
+Against [the program-search boundary invariants](workflow_lisp_program_search_boundaries.md):
+
+| Invariant | This design |
+| --- | --- |
+| 1 — immutable generations; full pipeline; no eval; child runs | **Amendment required** for the consumer's execution model; this design itself executes nothing and edits nothing |
+| 2 — provider output is untrusted data | Satisfied: the manifest is read-only output; proposals are the consumer's data |
+| 3 — neutral substrate versus feature | Satisfied: the record carries sites, kinds, types, bindings, dependencies, effects and diagnostics; no selection, score or archive vocabulary |
+| 4 — whole-candidate evidence | Not implicated: `executable_sites` is a join for diagnosis, never a score carrier |
+| 5 — evidence separation | Not implicated; consumer-owned |
+| 6 — honest security boundary | **Amendment required**; the manifest adds no isolation and no execution |
+| 7 — typed-operation parity without kind erasure | Satisfied: `kind` is mandatory and distinct per operation; equal `result_type` never implies substitutability across kinds; no runtime callable or closure |
+| 8 — role-separated prompt identity | Inherited unchanged: prompts appear as resolved dependencies, never as an ambient hash |
+
+The boundaries document carries a dated
+[pending amendment block](workflow_lisp_program_search_boundaries.md#proposed-amendment-2026-10-17)
+covering invariant 1 (ordinary registered runs launched by an external
+controller and owned by an experiment record), invariant 6 (ordinary
+configured agent sessions under experiment hygiene) and the
+[typed program gates](workflow_lisp_typed_program_gates.md#boundary-compliance)
+rule "generational child runs only" (scoped to candidate execution started
+from inside a workflow); the [driver design](orc_structural_search_driver.md)
+carries its rationale. Until the owner accepts that amendment, a consumer is
+limited to what invariant 6 allows today: text-only/no-tool, mock, replay or
+genuinely sandboxed provider calls.
+
+## 9. Verification
+
+Manifest-side behavioral checks, not snapshot tests of rendered text:
+
+- A site inside shadowing `let*` forms resolves to the innermost binding
+  identity; a shared or specialized definition does not map to the wrong
+  owner (F-d, F-e).
+- Every eligible site reports a canonical `result_type` equal to the
+  build's own canonical type for that node; for a closed expression (no
+  parameters or `let*` names) it also equals the REPL `:type` result for
+  the same text, since `:type` without an attached run has no lexical
+  values.
+- `executable_sites` of a provider call equals the set of `assign_sites`
+  rows whose perform node carries that start position; a pure composition
+  reports none.
+- A macro-generated expression, a pure-helper call and a loop-control
+  position are reported with their exclusion reasons, not omitted silently.
+- A file the caller did not name contributes no sites and its definitions
+  appear only as dependencies.
+- P-1's two routes produce identical metadata; the recorded cost is reported
+  with the fixture, not asserted in prose.
+
+Run the frontend and closed-program selectors that cover the touched modules
+first, then one public `compile`/`run` integration check on a maintained
+example; the repository's broad suite follows for any `orchestrator/` change.
+
+## 10. Affected Surfaces And Handoff
+
+- New: `orchestrator/workflow_lisp/source_sites.py` (manifest only), with
+  its tests. If P-1 resolves to retention, one bounded change to `Builder`
+  in `orchestrator/workflow_lisp/closed/build.py` retains the normalized WCC
+  body per owner for the build; no change to the typechecker, REPL, LSP or
+  specs is expected.
+- Consumer: the [structural search driver](orc_structural_search_driver.md)
+  owns receipts, scope validation, snapshots, `candidate_id`, proposal
+  sessions, evaluation, records and selection.
+- Routing: the design index, capability matrix and the roadmap list this
+  document as proposed; nothing here is admitted or copy-safe until the
+  fixtures in §7 pass and the owner records the boundary amendment.

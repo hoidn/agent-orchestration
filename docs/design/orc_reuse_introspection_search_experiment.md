@@ -94,8 +94,8 @@ Generated provider-workflow search therefore needs an explicit bundle/trial
 integration proof and reconciliation with governing documents at implementation
 planning; it is not already supported by relabeling clone-path execution. This
 does not select a safety workstream or require a pure-program study first.
-The [structural-search experiment](orc_structural_search_experiment.md) takes
-the public `run` route and carries that reconciliation as a
+The [structural search driver](orc_structural_search_driver.md) takes the
+public `run` route and carries the rationale for the
 [proposed amendment](workflow_lisp_program_search_boundaries.md#proposed-amendment-2026-10-17)
 to the boundaries.
 
