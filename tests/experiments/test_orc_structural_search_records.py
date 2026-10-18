@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pytest
 
 from experiments.orc_structural_search.records import (
@@ -60,6 +63,67 @@ def test_skeleton_ignores_provider_swap_and_model_change():
         '"gpt-5.4"', '"opus"'
     ).replace('"high"', '"low"')
     assert _hash(variant) == _hash(SOURCE)
+
+
+SEEDS = Path(__file__).resolve().parents[2] / "experiments" / "orc_structural_search" / "seeds"
+
+
+def _rename_in_run(source: str, old: str, new: str) -> str:
+    """Rename the symbol `old` inside `(defworkflow run ...)`, never keywords or fill names."""
+
+    start = source.index("(defworkflow run")
+    pattern = rf"(?<![:\w.{{-]){re.escape(old)}(?![\w}}-])"
+    return source[:start] + re.sub(pattern, new, source[start:])
+
+
+@pytest.mark.parametrize(
+    ("seed", "binder"),
+    [
+        ("implement_review_revise.orc", "state"),  # fn parameter inside loop/recur
+        ("best_of_n.orc", "label"),  # list/map-effect binding
+        ("implement_review_revise.orc", "review"),  # let* name used as match subject
+        ("best_of_n.orc", "task"),  # workflow parameter passed as a prompt fill value
+    ],
+)
+def test_skeleton_is_invariant_under_binder_rename_in_real_seed(seed, binder):
+    source = (SEEDS / seed).read_text(encoding="utf-8")
+    renamed = _rename_in_run(source, binder, "renamed_binder")
+    assert renamed != source
+    assert skeleton_hash(renamed, definitions=["run"]) == skeleton_hash(source, definitions=["run"])
+
+
+LET_PROC_SOURCE = """
+(defworkflow run ((question String)) -> Result
+  (let-proc ((ask (topic) (provider-result providers.codex :prompt prompts.ask :inputs (topic))))
+    (ask question)))
+"""
+
+
+def test_skeleton_is_invariant_under_let_proc_name_and_parameter_rename():
+    renamed = LET_PROC_SOURCE.replace("ask ", "query ").replace("(ask", "(query").replace("topic", "subject")
+    assert skeleton_hash(renamed, definitions=["run"]) == skeleton_hash(LET_PROC_SOURCE, definitions=["run"])
+
+
+PROMPT_CALL_SOURCE = """
+(defworkflow run ((task String) (intent String) (repo String)) -> Outcome
+  (provider-result providers.coder
+    :prompt (propose-prompt :task task :repo repo)
+    :model "claude-sonnet-5-5"))
+"""
+
+
+def test_skeleton_changes_when_a_prompt_fill_is_rewired():
+    rewired = PROMPT_CALL_SOURCE.replace(":task task", ":task intent")
+    assert skeleton_hash(rewired, definitions=["run"]) != skeleton_hash(PROMPT_CALL_SOURCE, definitions=["run"])
+
+
+def test_skeleton_ignores_prompt_name_and_fill_value_binder_rename():
+    renamed = (
+        PROMPT_CALL_SOURCE.replace("propose-prompt", "other-prompt")
+        .replace("(task String)", "(job String)")
+        .replace(":task task", ":task job")
+    )
+    assert skeleton_hash(renamed, definitions=["run"]) == skeleton_hash(PROMPT_CALL_SOURCE, definitions=["run"])
 
 
 def test_append_and_read_records_preserve_unavailable_marker(tmp_path):
@@ -137,10 +201,11 @@ def test_final_choice_treats_unavailable_cost_as_over_ceiling_when_ceiling_is_in
     assert final_choice(rows, criterion=CRITERION) == "seed"
 
 
-def test_final_choice_keeps_unavailable_cost_when_ceiling_is_unavailable():
+def test_final_choice_refuses_non_numeric_cost_ceiling():
     rows = [
         _row("seed", 0.6, "unavailable", 2, reference=True),
         _row("b", 0.99, "unavailable", 1),
     ]
     criterion = {**CRITERION, "mean_cost_ceiling": "unavailable"}
-    assert final_choice(rows, criterion=criterion) == "b"
+    with pytest.raises(ValueError, match="mean_cost_ceiling must be numeric"):
+        final_choice(rows, criterion=criterion)

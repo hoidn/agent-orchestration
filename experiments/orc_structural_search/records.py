@@ -25,8 +25,8 @@ from orchestrator.workflow_lisp.sexpr import (
 )
 
 UNAVAILABLE = "unavailable"
-_DEFINITION_HEADS = {"defworkflow", "defproc"}
-_KEYWORD_MARKERS = {":prompt": "#prompt", ":model": "#lit", ":effort": "#lit"}
+_DEFINITION_HEADS = {"defworkflow", "defproc", "defun"}
+_LITERAL_KEYWORDS = {":model", ":effort"}
 _PROVIDER_PREFIX = "providers."
 
 
@@ -50,10 +50,11 @@ def read_records(log: Path) -> list[dict]:
 def skeleton_hash(source: str, *, definitions: Sequence[str]) -> str:
     """Return the sha256 of the normalized named definitions in `source`.
 
-    Binders (`let*` names, `defworkflow`/`defproc` parameters, `match` arm
-    names) and their references become per-definition ordinals `$0`, `$1`...;
+    Binders (see `_Normalizer`; definition parameters included) and their
+    references become per-definition ordinals `$0`, `$1`...;
     string and numeric literals and `:model`/`:effort` values become `#lit`;
-    `:prompt` arguments become `#prompt`; `providers.*` externs become
+    a `:prompt` name (bare, or the head of a prompt call whose fill keywords
+    and values are kept) becomes `#prompt`; `providers.*` externs become
     `#provider`. Form heads, keywords and arity are kept. Raises ValueError
     when a named definition is absent.
     """
@@ -84,7 +85,13 @@ def _collect_definitions(expr: SExpr, found: dict[str, ListExpr]) -> None:
 
 
 class _Normalizer:
-    """Render one definition with scope-ordinal placeholders."""
+    """Render one definition with scope-ordinal placeholders.
+
+    Binding forms: `let*` (sequential); `list/map`, `list/map-effect`,
+    `with-live-providers`, `with-live-provider-peers` (initializers in the
+    outer scope); `fn` parameters; `let-proc` names and parameters; `match`
+    arm names. Every other list keeps its head and arity.
+    """
 
     def __init__(self) -> None:
         self._next = 0
@@ -93,6 +100,20 @@ class _Normalizer:
         placeholder = f"${self._next}"
         self._next += 1
         return {**scope, name: placeholder}
+
+    def bind_params(self, params: SExpr, scope: dict[str, str]) -> tuple[str, dict[str, str]]:
+        """Bind `(p ...)` or `((p Type) ...)`; return the rendered list and the scope."""
+
+        rendered = []
+        for param in params.items if isinstance(params, ListExpr) else ():
+            name = _binder_name(param)
+            if name is None:
+                rendered.append(self.render(param, {}))
+                continue
+            scope = self.bind(name, scope)
+            rest = [self.render(item, {}) for item in param.items[1:]] if isinstance(param, ListExpr) else []
+            rendered.append(_wrap([scope[name], *rest]) if isinstance(param, ListExpr) else scope[name])
+        return _wrap(rendered), scope
 
     def render(self, expr: SExpr, scope: dict[str, str]) -> str:
         if isinstance(expr, ListExpr):
@@ -108,31 +129,80 @@ class _Normalizer:
     def _render_list(self, expr: ListExpr, scope: dict[str, str]) -> str:
         items = expr.items
         head = items[0].value if items and isinstance(items[0], SymbolAtom) else None
-        if head == "let*" and len(items) >= 2 and isinstance(items[1], ListExpr):
-            return self._render_let(items, scope)
+        has_bindings = len(items) >= 2 and isinstance(items[1], ListExpr)
+        if head == "let*" and has_bindings:
+            return self._render_bindings(items, scope, sequential=True)
+        if head in _PARALLEL_BINDING_HEADS and has_bindings:
+            return self._render_bindings(items, scope, sequential=False)
+        if head == "fn" and has_bindings:
+            params, inner = self.bind_params(items[1], scope)
+            return _wrap(["fn", params, *self._render_all(items[2:], inner)])
+        if head == "let-proc" and has_bindings:
+            return self._render_let_proc(items, scope)
         if head == "match" and len(items) >= 2:
             return self._render_match(items, scope)
         return self._render_items(items, scope)
 
+    def _render_all(self, items: Sequence[SExpr], scope: dict[str, str]) -> list[str]:
+        return [self.render(item, scope) for item in items]
+
     def _render_items(self, items: Sequence[SExpr], scope: dict[str, str]) -> str:
         parts = []
-        marker = None
+        previous = None
         for item in items:
-            parts.append(marker or self.render(item, scope))
-            marker = _KEYWORD_MARKERS.get(item.value) if isinstance(item, KeywordAtom) else None
-        return "(" + " ".join(parts) + ")"
-
-    def _render_let(self, items: Sequence[SExpr], scope: dict[str, str]) -> str:
-        bindings = []
-        for binding in items[1].items:
-            if isinstance(binding, ListExpr) and binding.items and isinstance(binding.items[0], SymbolAtom):
-                init = [self.render(value, scope) for value in binding.items[1:]]
-                scope = self.bind(binding.items[0].value, scope)
-                bindings.append("(" + " ".join([scope[binding.items[0].value], *init]) + ")")
+            if previous == ":prompt":
+                parts.append(self._render_prompt(item, scope))
+            elif previous in _LITERAL_KEYWORDS:
+                parts.append("#lit")
             else:
-                bindings.append(self.render(binding, scope))
-        body = [self.render(item, scope) for item in items[2:]]
-        return "(" + " ".join(["let*", "(" + " ".join(bindings) + ")", *body]) + ")"
+                parts.append(self.render(item, scope))
+            previous = item.value if isinstance(item, KeywordAtom) else None
+        return _wrap(parts)
+
+    def _render_prompt(self, expr: SExpr, scope: dict[str, str]) -> str:
+        """Mark the prompt name; keep a prompt call's fill keywords and values."""
+
+        if isinstance(expr, ListExpr) and expr.items:
+            return _wrap(["#prompt", *self._render_all(expr.items[1:], scope)])
+        return "#prompt"
+
+    def _render_bindings(self, items: Sequence[SExpr], scope: dict[str, str], *, sequential: bool) -> str:
+        """Render `(head ((name init rest...) ...) body...)`.
+
+        Sequential: each initializer sees earlier names. Otherwise every
+        initializer sees the outer scope and `rest` (`:observes x`) and the
+        body see all names.
+        """
+
+        outer = scope
+        bound: list[tuple[ListExpr | None, list[str]]] = []
+        for binding in items[1].items:
+            if not (isinstance(binding, ListExpr) and _binder_name(binding)):
+                bound.append((None, [self.render(binding, scope)]))
+                continue
+            init = self._render_all(binding.items[1:2], scope if sequential else outer)
+            scope = self.bind(binding.items[0].value, scope)
+            bound.append((binding, [scope[binding.items[0].value], *init]))
+        rendered = [
+            parts[0] if binding is None else _wrap([*parts, *self._render_all(binding.items[2:], scope)])
+            for binding, parts in bound
+        ]
+        return _wrap([items[0].value, _wrap(rendered), *self._render_all(items[2:], scope)])
+
+    def _render_let_proc(self, items: Sequence[SExpr], scope: dict[str, str]) -> str:
+        """`(let-proc ((name (params) body...) ...) body...)`: names see each other."""
+
+        procs = [proc for proc in items[1].items if isinstance(proc, ListExpr) and len(proc.items) >= 2 and _binder_name(proc)]
+        for proc in procs:
+            scope = self.bind(proc.items[0].value, scope)
+        rendered = []
+        for proc in items[1].items:
+            if proc not in procs:
+                rendered.append(self.render(proc, scope))
+                continue
+            params, inner = self.bind_params(proc.items[1], scope)
+            rendered.append(_wrap([scope[proc.items[0].value], params, *self._render_all(proc.items[2:], inner)]))
+        return _wrap(["let-proc", _wrap(rendered), *self._render_all(items[2:], scope)])
 
     def _render_match(self, items: Sequence[SExpr], scope: dict[str, str]) -> str:
         parts = ["match", self.render(items[1], scope)]
@@ -142,10 +212,26 @@ class _Normalizer:
                 parts.append(self.render(arm, scope))
                 continue
             arm_scope = self.bind(pattern.items[1].value, scope)
-            rendered_pattern = f"({self.render(pattern.items[0], scope)} {arm_scope[pattern.items[1].value]})"
-            body = [self.render(item, arm_scope) for item in arm.items[1:]]
-            parts.append("(" + " ".join([rendered_pattern, *body]) + ")")
-        return "(" + " ".join(parts) + ")"
+            rendered_pattern = _wrap([self.render(pattern.items[0], scope), arm_scope[pattern.items[1].value]])
+            parts.append(_wrap([rendered_pattern, *self._render_all(arm.items[1:], arm_scope)]))
+        return _wrap(parts)
+
+
+_PARALLEL_BINDING_HEADS = {"list/map", "list/map-effect", "with-live-providers", "with-live-provider-peers"}
+
+
+def _binder_name(expr: SExpr) -> str | None:
+    """Return the name a binder item introduces: `name` or `(name ...)`."""
+
+    if isinstance(expr, SymbolAtom):
+        return expr.value
+    if isinstance(expr, ListExpr) and expr.items and isinstance(expr.items[0], SymbolAtom):
+        return expr.items[0].value
+    return None
+
+
+def _wrap(parts: Sequence[str]) -> str:
+    return "(" + " ".join(parts) + ")"
 
 
 def _render_symbol(value: str, scope: dict[str, str]) -> str:
@@ -156,30 +242,22 @@ def _render_symbol(value: str, scope: dict[str, str]) -> str:
 
 
 def _normalize_definition(definition: ListExpr) -> str:
-    """Render `(defworkflow|defproc name ((param Type) ...) ...)` canonically."""
+    """Render `(defworkflow|defproc|defun name ((param Type) ...) ...)` canonically."""
 
     normalizer = _Normalizer()
     items = definition.items
-    scope: dict[str, str] = {}
-    params = []
-    parameter_list = items[2] if len(items) > 2 and isinstance(items[2], ListExpr) else ListExpr((), definition.span)
-    for param in parameter_list.items:
-        if isinstance(param, ListExpr) and param.items and isinstance(param.items[0], SymbolAtom):
-            scope = normalizer.bind(param.items[0].value, scope)
-            rest = [normalizer.render(item, {}) for item in param.items[1:]]
-            params.append("(" + " ".join([scope[param.items[0].value], *rest]) + ")")
-        else:
-            params.append(normalizer.render(param, {}))
-    rest = [normalizer.render(item, scope) for item in items[3:]]
-    head = [normalizer.render(item, {}) for item in items[:2]]
-    return "(" + " ".join([*head, "(" + " ".join(params) + ")", *rest]) + ")"
+    head = normalizer._render_all(items[:2], {})
+    if len(items) < 3 or not isinstance(items[2], ListExpr):
+        return _wrap([*head, *normalizer._render_all(items[2:], {})])
+    params, scope = normalizer.bind_params(items[2], {})
+    return _wrap([*head, params, *normalizer._render_all(items[3:], scope)])
 
 
 def final_choice(rows: Sequence[Mapping], *, criterion: Mapping) -> str:
     """Return the `candidate_id` the frozen criterion selects among `rows`.
 
-    Rows above `mean_cost_ceiling` are excluded ("unavailable" cost counts as
-    above a numeric ceiling and below an "unavailable" ceiling). Among the
+    `mean_cost_ceiling` must be numeric; rows above it, and rows whose cost is
+    "unavailable", are excluded. Among the
     rest: rows within `equivalence_tolerance` of the best
     `validation_success`, then lower `mean_cost`, fewer `provider_calls`,
     lexically earlier `candidate_id`. The reference seed competes like any row.
@@ -190,6 +268,8 @@ def final_choice(rows: Sequence[Mapping], *, criterion: Mapping) -> str:
     if not any(row["is_reference"] for row in rows):
         raise ValueError("reference seed missing")
     ceiling = criterion["mean_cost_ceiling"]
+    if isinstance(ceiling, bool) or not isinstance(ceiling, (int, float)):
+        raise ValueError("mean_cost_ceiling must be numeric")
     eligible = [row for row in rows if _under_ceiling(row["mean_cost"], ceiling)]
     if not eligible:
         raise ValueError(f"no candidate under mean_cost_ceiling {ceiling!r}")
@@ -198,13 +278,9 @@ def final_choice(rows: Sequence[Mapping], *, criterion: Mapping) -> str:
     return min(tied, key=_tie_key)["candidate_id"]
 
 
-def _under_ceiling(cost: float | str, ceiling: float | str) -> bool:
-    if ceiling == UNAVAILABLE:
-        return True
+def _under_ceiling(cost: float | str, ceiling: float) -> bool:
     return cost != UNAVAILABLE and cost <= ceiling
 
 
 def _tie_key(row: Mapping) -> tuple:
-    cost = row["mean_cost"]
-    unavailable = cost == UNAVAILABLE
-    return (unavailable, 0.0 if unavailable else cost, row["provider_calls"], row["candidate_id"])
+    return (row["mean_cost"], row["provider_calls"], row["candidate_id"])
