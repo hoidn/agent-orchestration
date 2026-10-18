@@ -5,6 +5,7 @@ Behaviour on temporary git repositories with a stand-in agent CLI; see compare_h
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -13,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from experiments.compare import prepare, repos
+from experiments.compare import prepare, repos, scan
 from tests.experiments.compare_harness_support import (  # noqa: F401 (world is a fixture)
     READY, REPO, call, drive, edit, git, selects, skip_without_sandbox, start, world, write_memo, write_task,
 )
@@ -560,6 +561,24 @@ def test_scan_flags_archive_lineage_and_holdout_roots(world, monkeypatch):
     hits = json.loads((records / "record.json").read_text())["scan"]["hits"]
     assert sorted((h["line"], h["pattern"]) for h in hits) == [
         (2, "archive"), (3, "lineage"), (4, "holdout"), (5, "holdout")]
+
+
+def test_scan_counts_another_evaluations_state_dir_outside_the_tree_as_a_hit(world):
+    runs = world.outside / "work-state" / "runs"
+    spec = candidate_spec(world, candidate_root(world), state_dir=runs / "e1")
+    records = prepare.run_arm(world.task, "candidate", world.root, world.runtime, spec=spec)
+    (runs / "e1").mkdir(parents=True)
+    (runs / "e2").mkdir()
+    call(world, json.loads((records / "record.json").read_text()), "echo 'ls ../e1'; echo 'ls ../e2'")
+    assert [(h["line"], h["pattern"]) for h in prepare.scan(records, world.solution, home=world.tmp / "home")] == [
+        (3, "other tree or judge")]
+
+
+def test_scan_root_patterns_stop_at_a_path_boundary(world):
+    compiled = scan.patterns(main=world.main, runtime=world.runtime, solution=world.solution, home=world.tmp,
+                             roots=[("holdout", Path("/a/ss"))])
+    assert [bool(re.search(compiled["holdout"], text)) for text in ("/a/ss", "/a/ss/t", "/a/ss-work", "/a/ss.x")] == [
+        True, True, False, False]
 
 
 @pytest.mark.parametrize("where, message", [("main", "main checkout prefix"), ("tmp", "sandbox replaces")])

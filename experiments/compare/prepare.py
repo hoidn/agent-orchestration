@@ -335,12 +335,17 @@ def collect(records):
 def scan(records, solution, home=None, roots=()):
     """Record every contamination hit of the run (file, line, pattern, excerpt) and the number of calls the
     scan covers; any earlier verdict is dropped. `roots`: further (name, path) prefixes, such as a search's
-    archive, lineage log and holdout roots."""
+    archive, lineage log and holdout roots. A state root outside the run's tree (a spec's state directory)
+    adds its siblings, other runs' state, to the other trees."""
     records, home = records.resolve(), home or Path.home()
     record = load(records / "record.json")
+    others = contamination.siblings(record["tree"])
+    state_root = Path(record.get("state_root", record["tree"]))
+    if not state_root.is_relative_to(record["tree"]) and state_root.parent.is_dir():
+        others += contamination.siblings(state_root)
     compiled = contamination.patterns(
-        main=record["main"], runtime=record["runtime"], solution=solution, home=home,
-        others=contamination.siblings(record["tree"]), roots=[("records root", records.parents[1]), *((name, Path(path).resolve()) for name, path in roots)])
+        main=record["main"], runtime=record["runtime"], solution=solution, home=home, others=others,
+        roots=[("records root", records.parents[1]), *((name, Path(path).resolve()) for name, path in roots)])
     hits = contamination.find_hits(records, record["tree"], record["created_at"], home, compiled)
     record["scan"] = {"solution": solution, "hits": hits, "verdict": None,
                       "calls": len(list((records / "calls").glob("*")))}

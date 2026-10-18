@@ -31,6 +31,7 @@ from pathlib import Path
 
 ARMS = "best_of_n|reviewed_change|design_review_execute|direct_task"
 FABLE = "Fable model"
+BOUNDARY = r"(?![\w.-])"  # a path ends here: what follows is not part of its last component
 POOL_FILES = r"records/(?:mapping\.json|patches/|score-inputs-|(?:score|resume)-\S*\.sh|results\.(?:json|md)|judges/)"
 
 
@@ -43,16 +44,18 @@ def spelled(path, home):
 
 
 def patterns(*, main, runtime, solution, home, others=(), roots=()):
-    """`roots` are (name, path) pairs matched as a prefix wherever the path is written; roots sharing a name
-    (two holdout roots, the records roots of several runs) all match under it."""
+    """`roots` are (name, path) pairs matched wherever the path is written, as itself or a prefix ending at a
+    path boundary (a root /a/ss matches /a/ss/t, not /a/ss-work); roots sharing a name (two holdout roots, the
+    records roots of several runs) all match under it."""
     found = {"main checkout prefix": spelled(main, home),
-             "frozen checkout": spelled(runtime, home) + r"(?![\w.-])",
+             "frozen checkout": spelled(runtime, home) + BOUNDARY,
              "records layout": rf"records/(?:{ARMS})/run-\d+\b", "pool record files": POOL_FILES,
              "github.com": r"github\.com", "gh": r"(?<![\w./-])gh\s", "git fetch": r"git\s+fetch",
              "solution hash": re.escape(solution[:7]),
              "other sessions' files": r"\.claude/projects|\.codex/(?:sessions|history)|claude-tmux-sockets"}
     for name, path in roots:
-        found[name] = f"{found[name]}|{spelled(path, home)}" if name in found else spelled(path, home)
+        bounded = spelled(path, home) + BOUNDARY
+        found[name] = f"{found[name]}|{bounded}" if name in found else bounded
     if others:
         found["other tree or judge"] = "|".join(re.escape(name) for name in others)
     return found
