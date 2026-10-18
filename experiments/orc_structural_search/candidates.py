@@ -215,16 +215,23 @@ def _tuning_split(node: SExpr) -> tuple[object, list[object]]:
     return walk(node), values
 
 
-def _condition_verdict(head: str, name: str, before: ListExpr, after: ListExpr, condition: str) -> Verdict:
-    """Refuse a changed mutable definition whose change touches a surface `condition` does not permit."""
+def _condition_verdict(head: str, name: str, before: ListExpr, after: ListExpr, condition: str,
+                       parent_tuning: set[object]) -> Verdict:
+    """Refuse a changed mutable definition whose change touches a surface `condition` does not permit.
+
+    Under topology-only, calls may be added, removed or moved and may reuse any `:model`/`:effort` value already
+    used in the parent module (`parent_tuning`); only a value new to the module counts as a tuning change.
+    """
     if head == "defprompt":
         (signature_before, body_before), (signature_after, body_after) = _prompt_parts(before), _prompt_parts(after)
         surfaces = {"prompt signature": (signature_before != signature_after, PROMPT_SIGNATURE_CONDITIONS),
                     "prompt body": (body_before != body_after, PROMPT_CONDITIONS)}
     else:
         (shape_before, tuning_before), (shape_after, tuning_after) = _tuning_split(before), _tuning_split(after)
+        tuning_changed = bool(set(tuning_after) - parent_tuning) if condition == "topology-only" else (
+            tuning_before != tuning_after)
         surfaces = {"topology": (shape_before != shape_after, TOPOLOGY_CONDITIONS),
-                    ":model/:effort values": (tuning_before != tuning_after, PROVIDER_CONDITIONS)}
+                    ":model/:effort values": (tuning_changed, PROVIDER_CONDITIONS)}
     for surface, (changed, permitted) in surfaces.items():
         if changed and condition not in permitted:
             return _refuse("frozen_surface_changed", f"{surface} of {head} {name} changed under {condition}")
@@ -244,6 +251,7 @@ def _module_verdict(parent_forms, child_forms, *, mutable: tuple[str, ...], cond
     if parent_frozen != child_frozen:
         return _refuse("frozen_surface_changed", "an import, type, export, module or language form differs")
     exported = _exported_names(parent_forms)
+    parent_tuning = {value for form in parent_forms for value in _tuning_split(form)[1]}
     for key in parent_defs.keys() | child_defs.keys():
         head, name = key
         before, after = parent_defs.get(key), child_defs.get(key)
@@ -258,7 +266,7 @@ def _module_verdict(parent_forms, child_forms, *, mutable: tuple[str, ...], cond
             return _refuse("frozen_surface_changed", f"exported signature of {head} {name} changed")
         if name not in mutable:
             return _refuse("scope_exceeded", f"{head} {name} is not a mutable definition")
-        verdict = _condition_verdict(head, name, before, after, condition)
+        verdict = _condition_verdict(head, name, before, after, condition, parent_tuning)
         if not verdict.accepted:
             return verdict
     return ACCEPTED
@@ -299,7 +307,7 @@ def validate_frozen_surfaces(parent: Path, child: Path, config: ExperimentConfig
     `frozen_surface_changed`: an import/type/export/module/language form, an exported definition's signature, the
     command boundary file, or a surface the condition does not permit: topology (definition shape, including which
     provider extern a call names) outside topology-only/joint; `:model`/`:effort` values and the providers file
-    outside provider-only/joint; prompt bodies outside prompt-only/joint; prompt signatures outside joint.
+    outside provider-only/joint, except that topology-only may reuse values the parent module already uses; prompt bodies outside prompt-only/joint; prompt signatures outside joint.
     `scope_exceeded`: a definition or file outside `mutable_definitions`/`mutable_files` changed, or a definition
     or file was added or removed. `unreadable_child`: the reader rejects a child `.orc` file.
     """

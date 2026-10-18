@@ -178,6 +178,9 @@ def test_one_site_transaction_refuses_change_to_another_file(tmp_path):
     assert verdict.code == "scope_exceeded"
 
 
+FEEDBACK_BINDING = "           (feedback (provider-result providers.codex"
+NEW_STAGE = ('           (check (provider-result providers.claude :model "{model}" :effort "high"\n'
+             '                    :prompt (review-plan :task task :steps draft.steps)))\n')
 EDITED_PROVIDERS = PROVIDERS.replace("{", '{"_note": "edited", ', 1)
 CONDITION_CASES = [
     ("topology-only", edit(REVIEW_CALL, REVIEW_REPLACEMENT), PROVIDERS, None),
@@ -185,6 +188,10 @@ CONDITION_CASES = [
     ("topology-only", edit(DRAFT_SIGNATURE, DRAFT_SIGNATURE.replace("Plan", "Feedback")), PROVIDERS,
      "frozen_surface_changed"),
     ("topology-only", SOURCE, EDITED_PROVIDERS, "frozen_surface_changed"),
+    ("topology-only", edit(FEEDBACK_BINDING, NEW_STAGE.format(model="claude-opus-5-5") + FEEDBACK_BINDING),
+     PROVIDERS, None),
+    ("topology-only", edit(FEEDBACK_BINDING, NEW_STAGE.format(model="claude-sonnet-5") + FEEDBACK_BINDING),
+     PROVIDERS, "frozen_surface_changed"),
     ("prompt-only", edit(REVIEW_CALL, REVIEW_REPLACEMENT), PROVIDERS, "frozen_surface_changed"),
     ("prompt-only", SOURCE, EDITED_PROVIDERS, "frozen_surface_changed"),
     ("provider-only", edit(EFFORT, EFFORT.replace("high", "low")), EDITED_PROVIDERS, None),
@@ -195,6 +202,7 @@ CONDITION_CASES = [
 
 
 CASE_IDS = ["topology-provider-swap", "topology-effort", "topology-prompt-signature", "topology-providers-file",
+            "topology-new-stage-reusing-model", "topology-new-stage-new-model",
             "prompt-topology", "prompt-providers-file", "provider-effort-and-file", "provider-topology",
             "provider-prompt-body", "joint-prompt-signature-and-file"]
 
