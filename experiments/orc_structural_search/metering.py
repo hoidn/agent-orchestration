@@ -67,19 +67,26 @@ def codex_usage(rollout_dir: Path) -> list[dict] | str:
     return rows or UNAVAILABLE
 
 
-def _strings(value: Any) -> Iterator[str]:
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, dict):
-        for item in value.values():
-            yield from _strings(item)
-    elif isinstance(value, list):
-        for item in value:
-            yield from _strings(item)
+def _text(content: Any) -> list[str]:
+    """A message's text: a string, or the `text` of its text blocks (never tool results)."""
+    if isinstance(content, str):
+        return [content]
+    return [b["text"] for b in content or [] if isinstance(b, dict) and b.get("type") in ("text", "input_text")
+            and isinstance(b.get("text"), str)]
 
 
-def _has_prompt(session: Path, prompt: str) -> bool:
-    return any(text.strip() == prompt for entry in _lines(session) for text in _strings(entry))
+def _user_texts(provider: str, session: Path) -> set[str]:
+    """Stripped user-turn text: Claude `type == "user"` entries; Codex user `response_item`s and `user_message`s."""
+    texts: list[str] = []
+    for entry in _lines(session):
+        payload = entry.get("payload") if isinstance(entry.get("payload"), dict) else {}
+        if provider == "claude" and entry.get("type") == "user":
+            texts += _text((entry.get("message") or {}).get("content"))
+        elif provider == "codex" and entry.get("type") == "response_item" and payload.get("role") == "user":
+            texts += _text(payload.get("content"))
+        elif provider == "codex" and entry.get("type") == "event_msg" and payload.get("type") == "user_message":
+            texts += _text(payload.get("message"))
+    return {t.strip() for t in texts}
 
 
 def _claude_tokens(session: Path, sessions: Sequence[Path]) -> int | str:
@@ -95,42 +102,39 @@ def _codex_tokens(rollout: Path) -> int | str:
     return rows[0].get("total_tokens", UNAVAILABLE) if rows != UNAVAILABLE else UNAVAILABLE
 
 
-def _wall_clock(calls: list[Path]) -> float | str:
-    """Summed `wall_clock_sec` of each call's `timing.json`; the shim writes none, so usually "unavailable"."""
-    timings = [call / "timing.json" for call in calls]
-    if not calls or not all(t.is_file() for t in timings):
-        return UNAVAILABLE
-    values = [json.loads(t.read_text()).get("wall_clock_sec") for t in timings]
-    return sum(values) if all(isinstance(v, (int, float)) for v in values) else UNAVAILABLE
-
-
 def coverage(records_dir: Path, *, claude_sessions: Sequence[Path], codex_rollouts: Sequence[Path]) -> dict:
-    """Join each shim call to the one native session whose user text equals its prompt, per provider.
+    """Join each shim call to a native session whose user-turn text equals its stripped `prompt.txt`.
 
-    A call matches the first not-yet-matched session (Claude top-level sessions, then Codex rollouts) holding
-    a string equal to its stripped `prompt.txt`, so identical prompts pair one to one. Tokens are an int only
-    when no call is unmatched and every matched call of that provider has a complete receipt.
+    Calls sharing a prompt pair one to one, in order, with the sessions holding it, but only when the two counts
+    are equal and none of those sessions is already claimed; otherwise those calls are unmatched. Tokens are an
+    int only when no call is unmatched and every matched call of that provider has a complete receipt.
     """
     calls = sorted((records_dir / "calls").glob("*"), key=lambda p: int(p.name))
     candidates = [("claude", s) for s in claude_sessions if s.parent.name != "subagents"]
     candidates += [("codex", r) for r in codex_rollouts]
-    matched: dict[str, list[tuple[Path, int | str]]] = {"claude": [], "codex": []}
-    unmatched = 0
+    texts = {c: _user_texts(*c) for c in candidates}
+    by_prompt: dict[str, list[Path]] = {}
     for call in calls:
-        prompt = (call / "prompt.txt").read_text().strip()
-        hit = next((c for c in candidates if prompt and _has_prompt(c[1], prompt)), None)
-        if hit is None:
-            unmatched += 1
+        by_prompt.setdefault((call / "prompt.txt").read_text().strip(), []).append(call)
+    matched: dict[str, list[int | str]] = {"claude": [], "codex": []}
+    claimed: set = set()
+    unmatched = 0
+    for prompt, group in by_prompt.items():
+        holders = [c for c in candidates if prompt and prompt in texts[c]]
+        if len(holders) != len(group) or claimed.intersection(holders):
+            unmatched += len(group)
             continue
-        candidates.remove(hit)
-        provider, path = hit
-        tokens = _claude_tokens(path, claude_sessions) if provider == "claude" else _codex_tokens(path)
-        matched[provider].append((call, tokens))
+        claimed.update(holders)
+        for provider, path in holders:
+            tokens = _claude_tokens(path, claude_sessions) if provider == "claude" else _codex_tokens(path)
+            matched[provider].append(tokens)
     report: dict[str, Any] = {"calls": len(calls), "unmatched_calls": unmatched}
-    for provider, pairs in matched.items():
-        receipts = [t for _, t in pairs if _is_int(t)]
-        complete = pairs and not unmatched and len(receipts) == len(pairs)
-        report[provider] = {"calls": len(pairs), "calls_with_receipts": len(receipts),
+    for provider, tokens in matched.items():
+        receipts = [t for t in tokens if _is_int(t)]
+        complete = tokens and not unmatched and len(receipts) == len(tokens)
+        report[provider] = {"calls": len(tokens), "calls_with_receipts": len(receipts),
                             "tokens": sum(receipts) if complete else UNAVAILABLE,
-                            "wall_clock_sec": _wall_clock([c for c, _ in pairs])}
+                            # The shim records no per-call timing; only run-level wall clock has a receipt
+                            # (recorded by the evaluation records).
+                            "wall_clock_sec": UNAVAILABLE}
     return report

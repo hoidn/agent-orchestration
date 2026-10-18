@@ -113,8 +113,30 @@ def test_coverage_claude_tokens_include_subagent_sessions(tmp_path):
     records, sessions, rollouts = _mixed_run(tmp_path)
     (records / "calls" / "3" / "prompt.txt").write_text("review it\n")
     rollouts.append(_jsonl(tmp_path / "codex" / "rollout-s.jsonl",
-                           [{"type": "response_item", "payload": {"content": [{"text": "review it"}]}}, _token_count(2)]))
+                           [{"type": "event_msg", "payload": {"type": "user_message", "message": "review it"}}, _token_count(2)]))
 
     report = metering.coverage(records, claude_sessions=sessions[:2], codex_rollouts=rollouts)
 
     assert report["claude"]["tokens"] == 40
+
+
+def test_coverage_tokens_are_unavailable_when_a_surplus_session_holds_the_same_prompt(tmp_path):
+    records, (main, sub, bare), rollouts = _mixed_run(tmp_path)
+    _jsonl(bare, [_user("implement it"), _assistant("m2", FULL)])  # every receipt complete: tokens would be 60
+    surplus = _jsonl(bare.with_name("c.jsonl"), [_user("implement it"), _assistant("m3", FULL)])
+
+    report = metering.coverage(records, claude_sessions=[main, sub, bare, surplus], codex_rollouts=rollouts)
+
+    assert report["claude"]["tokens"] == U
+
+
+def test_coverage_ignores_prompt_text_outside_user_turns(tmp_path):
+    records = tmp_path / "records"
+    _call(records, 1, "implement it")
+    quoted = _jsonl(tmp_path / "s.jsonl", [_user("other"), {"type": "user", "message": {"content": [
+        {"type": "tool_result", "content": "implement it"}]}}, {"type": "assistant", "message": {
+            "id": "m1", "content": [{"type": "text", "text": "implement it"}], "usage": FULL}}])
+
+    report = metering.coverage(records, claude_sessions=[quoted], codex_rollouts=[])
+
+    assert report["unmatched_calls"] == 1
