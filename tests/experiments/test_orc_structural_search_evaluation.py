@@ -50,6 +50,13 @@ def test_direct_seed_runs_in_fresh_clone_and_records_run_id(sandboxed, world):
         world.evidence.resolve() / "records" / record.evaluation_id / "run-1", "terminal", 1)
 
 
+def test_record_carries_the_env_manifest_digest_in_its_identity(sandboxed, world):
+    script(world, [CHANGE])
+    record, _ = run(world)
+    digest = record.env_manifest_digest.removeprefix("sha256:")
+    assert (world.evidence / "env-manifests" / f"{digest}.json").is_file()
+
+
 def test_direct_seed_runs_in_the_clone_with_dev_check_beside_it(sandboxed, world):
     script(world, [CHANGE])
     record, _ = run(world)

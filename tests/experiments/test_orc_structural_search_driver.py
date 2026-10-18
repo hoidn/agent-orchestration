@@ -3,11 +3,14 @@
 
 import json
 import os
+import shutil
 import sys
+from pathlib import Path
 
 import pytest
 
-from experiments.orc_structural_search.driver import run_mode1
+from experiments.orc_structural_search.config import ExperimentConfig
+from experiments.orc_structural_search.driver import check_roots, enumerate_catalog, judge_child, run_mode1
 from experiments.orc_structural_search.records import read_records
 from tests.experiments.compare_harness_support import skip_without_sandbox
 from tests.experiments.orc_structural_search_support import MUTATOR, SEEDS, script, world  # noqa: F401 (fixture)
@@ -37,7 +40,6 @@ def sandboxed():
 
 def mode1(world, seeds):
     script(world, ANSWERS)
-    (world.task / "solution_commit").write_text(SOLUTION + "\n")
     (world.tmp / "config.json").write_text(json.dumps(CONFIG))
     mutator = world.outside / "mutator.py"
     mutator.write_text(MUTATOR)
@@ -46,7 +48,7 @@ def mode1(world, seeds):
     readout = run_mode1(world.tmp / "config.json", seeds=[SEEDS / f"{name}.orc" for name in seeds], tasks=[world.task],
                         work_root=world.outside / "work", evidence_root=evidence, episodes=3,
                         agent_cmd=[sys.executable, "-I", str(mutator)], replicates=1, runtime=world.runtime, env=env,
-                        timeout_sec=600)
+                        timeout_sec=600, solutions={world.task.name: SOLUTION})
     return readout, read_records(evidence / "log.jsonl"), evidence
 
 
@@ -78,3 +80,31 @@ def test_log_records_carry_identities_and_unavailable_markers(sandboxed, world):
     assert all(row["episode_id"] and row["parent_candidate_id"] == catalog["candidate_id"]
                and (row["interface"], row["mode"], row["consumption"]) == ("I1", "unguided", "unavailable")
                for row in episodes)
+
+
+@pytest.mark.parametrize("work, evidence", [("w", "w/e"), ("e/w", "e"), ("same", "same")])
+def test_nested_or_equal_roots_are_refused(tmp_path, work, evidence):
+    with pytest.raises(ValueError, match="must not nest"):
+        check_roots(tmp_path / work, tmp_path / evidence)
+
+
+def test_a_task_without_a_solution_hash_is_refused_before_any_evaluation(tmp_path):
+    with pytest.raises(ValueError, match="no solution hash for task packages \\['task-1'\\]"):
+        enumerate_catalog([SEEDS / "direct.orc"], ExperimentConfig(**CONFIG | {"mutable_files": ("direct.orc",),
+                                                                              "mutable_definitions": ("run",)}),
+                          tasks=[tmp_path / "task-1"], work_root=tmp_path / "work", evidence_root=tmp_path / "evidence",
+                          replicates=1, runtime=tmp_path / "runtime", env={}, timeout_sec=1, solutions={})
+    assert not (tmp_path / "work").exists()
+
+
+def test_a_child_whose_unexported_entry_changes_result_type_is_refused(tmp_path):
+    parent, child = tmp_path / "parent", tmp_path / "child"
+    shutil.copytree(SEEDS, parent, ignore=shutil.ignore_patterns("__pycache__"))
+    entry = parent / "direct.orc"
+    entry.write_text(entry.read_text().replace("  (export run)\n", ""))  # an unexported entry's signature is mutable
+    shutil.copytree(parent, child)
+    source = Path(child / "direct.orc").read_text()
+    (child / "direct.orc").write_text(source.replace("    -> Outcome\n", "    -> Change\n").replace(
+        "(variant Outcome DONE :summary change.summary)", "change"))
+    config = ExperimentConfig(**CONFIG | {"mutable_files": ("direct.orc",), "mutable_definitions": ("run",)})
+    assert judge_child(parent, child, config)["refusal_code"] == "slot_type_changed"

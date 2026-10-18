@@ -20,16 +20,18 @@ share, collapse above 0.75).
 
 Prerequisites: the comparison harness's (`experiments/compare/README.md`): git and bwrap on `PATH`, a frozen
 runtime checkout `RT` outside the main checkout's prefix, and the shims first on `PATH` for every agent CLI. Each
-task package holds `task.txt`, `intent.txt`, `base_commit`, `seed/` and `solution_commit` (the scan's solution
-hash). The mutator command runs with the episode copy as its working directory; it must reach any agent CLI
-through the shims.
+task package holds `task.txt`, `intent.txt`, `base_commit` and `seed/`. The operator passes each task's solution
+commit (the scan's solution hash) with `--solution TASK=HASH`, keyed by the package directory's name; a task
+without one is refused before anything runs. The hash never goes into the package, which sits in the runtime
+agents can read. The mutator command runs with the episode copy as its working directory; see "Not
+implemented" for what it must provide itself.
 
 ```bash
 python -m experiments.orc_structural_search.driver --config config.json \
   --seeds experiments/orc_structural_search/seeds/{direct,plan_then_implement,implement_review_revise,best_of_n,implement_check_diagnose_repair}.orc \
   --tasks $RT/experiments/compare/tasks/<task> --runtime $RT \
   --work-root $W --evidence $E --episodes N --agent-cmd '<mutator command>' \
-  --eval-timeout-sec 7200 [--replicates K] [--holdout PATH ...]
+  --eval-timeout-sec 7200 --solution <task>=$SOL [--replicates K] [--holdout PATH ...]
 ```
 
 `config.json` is an `ExperimentConfig` (see `config.py`); its `entry_workflow` (e.g. `direct::run`) names the
@@ -55,7 +57,9 @@ E/readout.json                     per-seed outcomes, episode outcomes and refus
 
 After every evaluation `prepare.scan` runs over its records with `E` and `W/episodes` named `archive`,
 `E/log.jsonl` named `lineage` and each `--holdout` named `holdout`. A nonzero hit count marks the evaluation
-record `scan_pending` until adjudicated (`prepare.py scan --run R --verdict ...`).
+record `scan_pending`. The log is append-only, so that flag is never cleared: the adjudicated verdict
+(`prepare.py scan --run R --verdict ...`) lives in the run's `<records_dir>/record.json`, which is the record to
+read before using a flagged evaluation.
 
 ## Not implemented
 
@@ -63,6 +67,10 @@ record `scan_pending` until adjudicated (`prepare.py scan --run R --verdict ...`
 - Paid runs: no live evaluation has been made; model revisions and CLI versions are not yet in the evaluation
   identity.
 - Consumption metering in the log (`metering.py` exists; the driver records `unavailable`).
+- Episode scans: only evaluations are scanned; the mutator's own session is not.
+- Mutator isolation: the driver runs `--agent-cmd` with the given environment and no shim environment (no
+  `COMPARE_ROOT`, `COMPARE_TREE`, `COMPARE_BASE`, no sandbox). A real agent mutator must be wrapped by the
+  operator so its CLI runs behind the shims with that environment set.
 
 ## Deviations (`ponytail:`)
 

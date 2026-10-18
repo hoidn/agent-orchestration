@@ -163,6 +163,12 @@ def _head(form: SExpr) -> str | None:
     return None
 
 
+def imports(path: Path) -> list[str]:
+    """The module names a `.orc` file imports, in source order."""
+    return [form.items[1].value for form in _top_level_forms(read_sexpr_file(path))
+            if _head(form) == "import" and len(form.items) > 1 and isinstance(form.items[1], SymbolAtom)]
+
+
 def _top_level_forms(tree: ListExpr) -> tuple[SExpr, ...]:
     """The module's top-level forms, inside the `(workflow-lisp ...)` wrapper when there is one."""
     if len(tree.items) == 1 and _head(tree.items[0]) == "workflow-lisp":

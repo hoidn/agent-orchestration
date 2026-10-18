@@ -52,6 +52,7 @@ class EvaluationRecord:
     run_id: str  # UNAVAILABLE when no run started
     state_dir: Path
     records_dir: Path  # <evidence>/records/<evaluation_id>/run-1
+    env_manifest_digest: str  # "sha256:..." of the environment manifest in the evaluation id
     outcome: str  # "completed" | "failed" | "incident"
     value: object | None  # the terminal value when completed
     wall_clock_sec: float | str  # summed over launch and resumes
@@ -90,8 +91,8 @@ def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Pa
         raise ValueError(f"{candidate_root} does not compile; only accepted candidates are evaluated: "
                          f"{compiled.diagnostics}")
     candidate = candidate_id(candidate_root, orchestrator_commit=runtime_commit(runtime))
-    eid = evaluation_id(candidate, task_package.name, EVALUATOR_VERSION, record_env_manifest(evidence_root),
-                        replicate)
+    env_digest = record_env_manifest(evidence_root)
+    eid = evaluation_id(candidate, task_package.name, EVALUATOR_VERSION, env_digest, replicate)
     state_dir = evidence_root / "runs" / eid
     if (evidence_root / "records" / eid).exists():  # even a launch that died before its run started
         raise FileExistsError(f"{evidence_root / 'records' / eid}: evaluation {eid} already ran; "
@@ -107,7 +108,7 @@ def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Pa
     shutil.copyfile(DEV_CHECK, clone / DEV_CHECK.name)
     with (clone / ".git" / "info" / "exclude").open("a") as exclude:  # not part of the agent's patch
         exclude.write(f"/{DEV_CHECK.name}\n")
-    pending = EvaluationRecord(eid, UNAVAILABLE, state_dir, records, "incident", None, 0.0, 0, 0, ())
+    pending = EvaluationRecord(eid, UNAVAILABLE, state_dir, records, env_digest, "incident", None, 0.0, 0, 0, ())
     return _launch(pending, ["bash", str(records / "command.sh")], env, timeout_sec)
 
 

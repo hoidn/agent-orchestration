@@ -16,8 +16,10 @@ A seed is one `.orc` file of a catalog directory; its candidate root holds that 
 imports (transitively) and every other regular file of the directory, and its entry is `<stem>::<entry
 definition of the configuration>`. After every evaluation `prepare.scan` runs over its records with the
 evidence root and the episode copies named `archive`, the log `lineage` and the holdout roots `holdout`;
-the solution commit comes from the task package's `solution_commit` file. A nonzero hit count marks the
-evaluation record `scan_pending` until a controller adjudicates it.
+the solution commit of each task comes from the operator's `solutions` mapping (task package name -> hash),
+never from the package, which sits in the runtime agents can read. A nonzero hit count marks the
+evaluation record `scan_pending`; the log is append-only, so the adjudicated verdict lives in the run's
+<records_dir>/record.json.
 
 Dependencies: everything evaluation.py needs (git, bwrap, a clean runtime checkout, the shims); `env` is the
 launch environment of evaluations and of the mutator command, which must reach any agent CLI through the
@@ -41,11 +43,10 @@ from pathlib import Path
 from experiments.compare import prepare
 from experiments.compare.repos import runtime_commit
 from experiments.orc_structural_search.candidates import (
-    _head, _top_level_forms, candidate_id, compile_candidate, snapshot, validate_frozen_surfaces)
+    candidate_id, compile_candidate, imports, snapshot, validate_frozen_surfaces)
 from experiments.orc_structural_search.config import ExperimentConfig, load_config
-from experiments.orc_structural_search.evaluation import EVALUATOR_VERSION, evaluate, record_env_manifest
+from experiments.orc_structural_search.evaluation import EVALUATOR_VERSION, evaluate
 from experiments.orc_structural_search.records import UNAVAILABLE, append_record, read_records, skeleton_hash
-from orchestrator.workflow_lisp.reader import read_sexpr_file
 
 EPISODE = "EPISODE.md"
 COLLAPSE_THRESHOLD = 0.75  # design default: a terminal-only share above it means the interface collapsed
@@ -82,8 +83,7 @@ def seed_files(seed: Path) -> dict[str, bytes]:
         if path.name in files or not path.is_file():
             continue  # a library import (no file beside the seed) or one already taken
         files[path.name] = path.read_bytes()
-        pending += [path.parent / f"{form.items[1].value}.orc" for form in _top_level_forms(read_sexpr_file(path))
-                    if _head(form) == "import"]
+        pending += [path.parent / f"{module}.orc" for module in imports(path)]
     return files
 
 
@@ -94,19 +94,26 @@ def seed_config(seed: Path, config: ExperimentConfig) -> ExperimentConfig:
 
 def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, replicate: int, work_root: Path,
                       evidence_root: Path, runtime: Path, env: Mapping[str, str], timeout_sec: float,
-                      holdouts: Sequence[Path], fields: Mapping[str, object]) -> dict:
+                      solutions: Mapping[str, str], holdouts: Sequence[Path], fields: Mapping[str, object]) -> dict:
     """Evaluate `root` once, scan the run and append the evaluation record (with `fields`) to the log."""
     record = evaluate(root, config, task_package=task, evidence_root=work_root, replicate=replicate,
                       runtime=runtime, env=env, timeout_sec=timeout_sec)
     roots = [("archive", evidence_root), ("archive", work_root / "episodes"), ("lineage", evidence_root / "log.jsonl"),
              *(("holdout", holdout) for holdout in holdouts)]
-    hits = prepare.scan(record.records_dir, (task / "solution_commit").read_text().strip(), roots=roots)
+    hits = prepare.scan(record.records_dir, solutions[task.name], roots=roots)
     row = {**fields, **{k: str(v) if isinstance(v, Path) else v for k, v in asdict(record).items()},
            "kind": "evaluation", "task_id": task.name, "replicate": replicate, "split": UNAVAILABLE,
-           "evaluator_version": EVALUATOR_VERSION, "env_manifest_digest": record_env_manifest(work_root),
+           "evaluator_version": EVALUATOR_VERSION,
            "consumption": UNAVAILABLE, "scan_hits": len(hits), "scan_pending": bool(hits)}
     append_record(evidence_root / "log.jsonl", row)
     return row
+
+
+def check_solutions(tasks: Sequence[Path], solutions: Mapping[str, str]) -> None:
+    """Refuse a task package without the operator's solution hash: its runs could not be scanned."""
+    missing = sorted(task.name for task in tasks if not solutions.get(task.name))
+    if missing:
+        raise ValueError(f"no solution hash for task packages {missing}; pass --solution TASK=HASH for each")
 
 
 def evaluate_on_tasks(root: Path, config: ExperimentConfig, *, tasks: Sequence[Path], replicates: int,
@@ -117,9 +124,10 @@ def evaluate_on_tasks(root: Path, config: ExperimentConfig, *, tasks: Sequence[P
 
 def enumerate_catalog(seeds: Sequence[Path], config: ExperimentConfig, *, tasks: Sequence[Path], work_root: Path,
                       evidence_root: Path, replicates: int, runtime: Path, env: Mapping[str, str],
-                      timeout_sec: float, holdouts: Sequence[Path] = ()) -> list[dict]:
+                      timeout_sec: float, solutions: Mapping[str, str], holdouts: Sequence[Path] = ()) -> list[dict]:
     """Archive every seed and evaluate it once per task and replicate (`mode: "catalog"`)."""
     work_root, evidence_root = check_roots(work_root, evidence_root)
+    check_solutions(tasks, solutions)
     rows = []
     for seed in seeds:
         with tempfile.TemporaryDirectory() as staging:
@@ -129,7 +137,8 @@ def enumerate_catalog(seeds: Sequence[Path], config: ExperimentConfig, *, tasks:
         fields = {"mode": "catalog", "seed": seed.stem, "candidate_id": cid, "candidate_root": str(root)}
         rows += evaluate_on_tasks(root, seed_config(seed, config), tasks=tasks, replicates=replicates,
                                   fields=fields, work_root=work_root, evidence_root=evidence_root,
-                                  runtime=runtime, env=env, timeout_sec=timeout_sec, holdouts=holdouts)
+                                  runtime=runtime, env=env, timeout_sec=timeout_sec, solutions=solutions,
+                                  holdouts=holdouts)
     return rows
 
 
@@ -184,6 +193,8 @@ def judge_child(parent: Path, child: Path, config: ExperimentConfig) -> dict:
         first = compiled.diagnostics[0] if compiled.diagnostics else {}
         return {"outcome": "rejected", "diagnostics_class": first.get("code", UNAVAILABLE),
                 "detail": first.get("message", "")}
+    # Fires only when the entry is not exported or lacks a result annotation: frozen-surface validation already
+    # freezes an exported signature and every type declaration.
     parent_build = compile_candidate(parent, config)
     if entry_result(parent, parent_build.build_key) != entry_result(child, compiled.build_key):
         return {"outcome": "rejected", "refusal_code": "slot_type_changed",
@@ -263,13 +274,14 @@ def readout(rows: Sequence[Mapping]) -> dict:
 
 def run_mode1(config_path: Path, *, seeds: Sequence[Path], tasks: Sequence[Path], work_root: Path,
               evidence_root: Path, episodes: int, agent_cmd: Sequence[str], replicates: int, runtime: Path,
-              env: Mapping[str, str], timeout_sec: float, holdouts: Sequence[Path] = ()) -> dict:
+              env: Mapping[str, str], timeout_sec: float, solutions: Mapping[str, str],
+              holdouts: Sequence[Path] = ()) -> dict:
     """Enumerate the catalog, run `episodes` unguided I1 episodes against the seed the configuration's entry
     names, evaluate every accepted child like a seed (`mode: "unguided"`) and write <evidence>/readout.json."""
     config = load_config(config_path)
     work_root, evidence_root = check_roots(work_root, evidence_root)
     launch = {"work_root": work_root, "evidence_root": evidence_root, "runtime": runtime, "env": env,
-              "timeout_sec": timeout_sec, "holdouts": holdouts}
+              "timeout_sec": timeout_sec, "solutions": solutions, "holdouts": holdouts}
     catalog = enumerate_catalog(seeds, config, tasks=tasks, replicates=replicates, **launch)
     module = config.entry_workflow.split("::")[0]
     parents = {row["candidate_root"] for row in catalog if row["seed"] == module}
@@ -289,6 +301,13 @@ def run_mode1(config_path: Path, *, seeds: Sequence[Path], tasks: Sequence[Path]
     return result
 
 
+def solution(text: str) -> tuple[str, str]:
+    task, sep, commit = text.partition("=")
+    if not (task and sep and commit):
+        raise argparse.ArgumentTypeError(f"expected TASK=HASH, not {text!r}")
+    return task, commit
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--config", type=Path, required=True)
@@ -301,11 +320,13 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--replicates", type=int, default=1)
     parser.add_argument("--runtime", type=Path, required=True, help="the frozen runtime checkout")
     parser.add_argument("--eval-timeout-sec", type=float, required=True, help="wall clock per evaluation launch")
+    parser.add_argument("--solution", type=solution, action="append", default=[], metavar="TASK=HASH", required=True,
+                        help="a task package's solution commit for the scan (repeatable, one per task)")
     parser.add_argument("--holdout", type=Path, action="append", default=[], help="a holdout root (repeatable)")
     a = parser.parse_args(argv)
     run_mode1(a.config, seeds=a.seeds, tasks=a.tasks, work_root=a.work_root, evidence_root=a.evidence,
               episodes=a.episodes, agent_cmd=shlex.split(a.agent_cmd), replicates=a.replicates, runtime=a.runtime,
-              env=os.environ, timeout_sec=a.eval_timeout_sec, holdouts=a.holdout)
+              env=os.environ, timeout_sec=a.eval_timeout_sec, solutions=dict(a.solution), holdouts=a.holdout)
     print(a.evidence / "readout.json")
 
 
