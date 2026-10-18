@@ -8,6 +8,7 @@ Design: docs/design/orc_structural_search_driver.md ("Search Modes" mode 1, "Pro
     episodes/episode-<n>/cand-1/               the mutator's working copy of the parent: a git repository whose
                                                one commit (the shims' COMPARE_BASE) is the parent snapshot
     episodes/episode-<n>/tmp/                  the mutator's private /tmp under the shims
+    episodes/episode-<n>/py/orchestrator/      the runtime's orchestrator, for the brief's compile line
   evidence root (never shown to an agent)
     log.jsonl                                  every episode and evaluation record, append-only
     calls.json                                 the provider-call ledger (ledger.py)
@@ -50,7 +51,6 @@ import subprocess
 import tempfile
 import threading
 import time
-from collections import Counter
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, replace
@@ -64,12 +64,13 @@ from experiments.orc_structural_search.candidates import (
     _file_names, candidate_id, compile_candidate, imports, snapshot, validate_frozen_surfaces)
 from experiments.orc_structural_search.config import ExperimentConfig, load_config
 from experiments.orc_structural_search.evaluation import EVALUATOR_VERSION, evaluate
+from experiments.orc_structural_search.readout import readout
 from experiments.orc_structural_search.records import (
     UNAVAILABLE, append_record, provider_allocation, read_records, skeleton_hash)
 
 EPISODE = "EPISODE.md"
 _LOG_LOCK = threading.Lock()  # concurrent evaluations append to one log
-COLLAPSE_THRESHOLD = 0.75  # design default: a terminal-only share above it means the interface collapsed
+LAUNCH_ENV = {"DISABLE_AUTOUPDATER": "1"}  # added to every evaluation's and episode's environment
 
 
 def check_roots(work_root: Path, evidence_root: Path) -> tuple[Path, Path]:
@@ -134,7 +135,7 @@ def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, repli
     slot = ledger.reserve(evidence_root, kind="evaluation", key=f"{cid} {task.name} replicate {replicate}",
                           planned=ledger.max_provider_calls(entry_source(root, config)), cap=call_cap)
     record = evaluate(root, config, task_package=task, work_root=work_root, replicate=replicate,
-                      runtime=runtime, env=env, timeout_sec=timeout_sec)
+                      runtime=runtime, env={**env, **LAUNCH_ENV}, timeout_sec=timeout_sec)
     ledger.settle(evidence_root, slot, record.records_dir, evaluation_id=record.evaluation_id)
     roots = [("archive", evidence_root), ("archive", work_root / "episodes"), ("lineage", evidence_root / "log.jsonl"),
              *(("holdout", holdout) for holdout in holdouts)]
@@ -204,7 +205,7 @@ def enumerate_catalog(seeds: Sequence[Path], config: ExperimentConfig, *, tasks:
 
 def episode_brief(config: ExperimentConfig, index: int) -> str:
     module = config.entry_workflow.split("::")[0]
-    compile_args = ["python", "-m", "orchestrator", "compile", f"{module}.orc", "--entry-workflow",
+    compile_args = ["python", "-P", "-m", "orchestrator", "compile", f"{module}.orc", "--entry-workflow",
                     config.entry_workflow, "--source-root", config.source_root, "--provider-externs-file",
                     config.providers_file]
     boundary = ""
@@ -221,14 +222,18 @@ def episode_brief(config: ExperimentConfig, index: int) -> str:
             f"language forms; exported signatures; {boundary}and what the condition does not permit (topology-only freezes prompts, the providers file and any "
             ":model/:effort value the module does not already use). Adding or removing files or definitions, "
             "or changing a frozen surface, refuses the proposal.\n\n"
-            f"Check an edit with: {shlex.join(compile_args)}\n")
+            f"Check an edit with: PYTHONPATH=../py {shlex.join(compile_args)}\n")
 
 
 def episode_workspace(parent_root: Path, tree: Path, brief: str, runtime: Path) -> tuple[Path, str]:
     """(<tree>/cand-1, its commit): a git repository holding the parent snapshot in one commit, with the brief
-    in EPISODE.md (excluded from patches, like the build cache), and <tree>/tmp."""
+    in EPISODE.md (excluded from patches, like the build cache); <tree>/tmp; and <tree>/py/orchestrator, a copy
+    of the runtime's orchestrator for the brief's compile line (the shims strip PYTHONPATH, and naming the
+    runtime would be a scan hit)."""
     guard(main_checkout(runtime), tree)
     visible_in_sandbox(tree)
+    shutil.copytree(runtime / "orchestrator", tree / "py" / "orchestrator",
+                    ignore=shutil.ignore_patterns("__pycache__"))
     copy = snapshot(parent_root, {}, tree / "cand-1")
     git(copy, "init", "-q")
     git(copy, "add", "-A", "-f", ".")
@@ -322,6 +327,18 @@ def scan_episode(records: Path, tree: Path, *, runtime: Path, evidence_root: Pat
     return []
 
 
+def drop_git(copy: Path, base: str) -> bool:
+    """Remove the workspace's .git, whatever the mutator left there (the child is the copy's content files; the
+    shims kept every call's patch); False when it was removed or replaced (no repository holding `base`)."""
+    dot_git = copy / ".git"
+    intact = dot_git.is_dir() and not dot_git.is_symlink() and object_type(copy, base) == "commit"
+    if dot_git.is_symlink() or dot_git.is_file():
+        dot_git.unlink()
+    elif dot_git.is_dir():
+        shutil.rmtree(dot_git)
+    return intact
+
+
 def unguided_episode(parent_root: Path, config: ExperimentConfig, *, agent_cmd: Sequence[str], work_root: Path,
                      evidence_root: Path, episode_index: int, runtime: Path, env: Mapping[str, str],
                      solutions: Mapping[str, str], call_cap: int, holdouts: Sequence[Path] = ()) -> dict:
@@ -341,25 +358,26 @@ def unguided_episode(parent_root: Path, config: ExperimentConfig, *, agent_cmd: 
     copy, base = episode_workspace(parent_root, tree, episode_brief(config, episode_index), runtime)
     records.mkdir(parents=True)
     created_at, started = time.time(), time.monotonic()
-    stopped, status = run_agent(agent_cmd, copy, evidence_root / "episodes" / f"episode-{episode_index}.log", env,
-                                config.episode_wall_clock_sec, runtime=runtime, shim_env={
-                                    "COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": base,
-                                    "TMPDIR": tree / "tmp"})
+    shim_env = {"COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": base, "TMPDIR": tree / "tmp"}
+    stopped, status = run_agent(agent_cmd, copy, evidence_root / "episodes" / f"episode-{episode_index}.log",
+                                {**env, **LAUNCH_ENV}, config.episode_wall_clock_sec, runtime=runtime, shim_env=shim_env)
     elapsed = time.monotonic() - started
     calls = ledger.settle(evidence_root, slot, records)
     hits = scan_episode(records, tree, runtime=runtime, evidence_root=evidence_root, solutions=solutions,
                         holdouts=holdouts, created_at=created_at)
     (copy / EPISODE).unlink(missing_ok=True)
-    shutil.rmtree(copy / ".git")  # the child is the copy's content files; the shims kept every call's patch
+    intact = drop_git(copy, base)
     (evidence_root / "episodes" / f"{episode_id}.diff").write_text(episode_diff(parent_root, copy))
     row = {"kind": "episode", "mode": "unguided", "interface": config.interface, "condition": config.condition,
            "episode_id": episode_id, "episode_index": episode_index, "parent_candidate_id": parent_id,
            "candidate_id": candidate_id(copy, orchestrator_commit=commit), "agent_cmd": list(agent_cmd),
            "agent_exit": status, "envelope": {"wall_clock_sec": config.episode_wall_clock_sec},
            "wall_clock_sec": elapsed, "provider_calls": calls, "scan_hits": len(hits), "scan_pending": bool(hits),
+           "workspace_intact": intact,
            "consumption": UNAVAILABLE, "model_revision": UNAVAILABLE,
            "hypothesis": UNAVAILABLE, "refusal_code": None, "diagnostics_class": None, "skeleton": None,
            "provider_allocation": None, **parent_shape}
+    stopped = stopped or (None if intact else "incident")  # the shims' patches were taken against a lost base
     row.update({"outcome": stopped} if stopped else judge_child(parent_root, copy, config, runtime=runtime))
     if row["outcome"] == "accepted":
         _, root = archive(copy, evidence_root, runtime)
@@ -368,61 +386,6 @@ def unguided_episode(parent_root: Path, config: ExperimentConfig, *, agent_cmd: 
     with _LOG_LOCK:
         append_record(evidence_root / "log.jsonl", row)
     return row
-
-
-def share(count: int, total: int) -> float | str:
-    return count / total if total else UNAVAILABLE
-
-
-def catalog_outcomes(rows: Sequence[Mapping]) -> dict[str, dict]:
-    catalog: dict[str, dict] = {}
-    for row in rows:
-        if row["kind"] == "evaluation" and row["mode"] == "catalog":
-            entry = catalog.setdefault(row["seed"], {"candidate_id": row["candidate_id"], "outcomes": []})
-            entry["outcomes"].append(row["outcome"])
-    return catalog
-
-
-def child_outcomes(rows: Sequence[Mapping]) -> dict[str, list]:
-    children: dict[str, list] = {}
-    for row in rows:
-        if row["kind"] == "evaluation" and row["mode"] == "unguided":
-            children.setdefault(row["candidate_id"], []).append(row["outcome"])
-    return children
-
-
-def revisit_count(accepted: Sequence[Mapping]) -> int:
-    seen, revisits = set(), 0
-    for row in accepted:
-        seen.add(row["parent_skeleton"])
-        revisits += row["skeleton"] in seen
-        seen.add(row["skeleton"])
-    return revisits
-
-
-def diversity(accepted: Sequence[Mapping]) -> dict:
-    """Skeleton diversity among accepted children. A child is terminal-only when both its skeleton and its
-    provider allocation equal the parent's; one with the parent's skeleton but another allocation is
-    `allocation_distinct`."""
-    same_skeleton = [row for row in accepted if row["skeleton"] == row["parent_skeleton"]]
-    terminal = sum(row["provider_allocation"] == row["parent_provider_allocation"] for row in same_skeleton)
-    terminal_only = share(terminal, len(accepted))
-    return {"distinct_skeletons": len({row["skeleton"] for row in accepted}),
-            "revisit_rate": share(revisit_count(accepted), len(accepted)), "terminal_only_share": terminal_only,
-            "allocation_distinct": len(same_skeleton) - terminal,
-            "collapsed": terminal_only if terminal_only == UNAVAILABLE else terminal_only > COLLAPSE_THRESHOLD}
-
-
-def readout(rows: Sequence[Mapping]) -> dict:
-    """Per-seed outcomes, episode outcomes and refusals, skeleton diversity and provider allocation among
-    accepted children, their evaluation outcomes and the evaluations and episodes pending a scan verdict."""
-    episodes = [row for row in rows if row["kind"] == "episode"]
-    accepted = [row for row in episodes if row["outcome"] == "accepted"]
-    return {"catalog": catalog_outcomes(rows), "episodes": dict(Counter(row["outcome"] for row in episodes)),
-            "refused": dict(Counter(row["refusal_code"] or row["diagnostics_class"]
-                                    for row in episodes if row["outcome"] == "rejected")),
-            **diversity(accepted), "child_outcomes": child_outcomes(rows),
-            "scan_pending": [row.get("evaluation_id") or row["episode_id"] for row in rows if row.get("scan_pending")]}
 
 
 def run_mode1(config_path: Path, *, seeds: Sequence[Path], tasks: Sequence[Path], work_root: Path,

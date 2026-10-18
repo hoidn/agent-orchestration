@@ -89,7 +89,7 @@ Family: (a) review/planning improvement on the harness's calibrated packages, ta
 ### Task 6: Phase 1 catalog and unguided sampling
 
 - [ ] Catalog: 5 seeds × 2 tasks × 2 replicates at concurrency 4 under the call cap; collect, scan and adjudicate every run.
-- [ ] Unguided: 6 I1 episodes against `direct` (`topology-only`, mutable `run`), mutator `claude -p --model claude-opus-5-5` behind the shims; accepted children evaluated on both tasks, one replicate, under the cap.
+- [ ] Unguided: 6 I1 episodes against `direct` (`topology-only`, mutable `run`), mutator `claude -p --model claude-opus-5-5 --permission-mode bypassPermissions` behind the shims; accepted children evaluated on both tasks, one replicate, under the cap.
 - [ ] Freeze the criterion (hash), pool per task, score with both judges, `summarize`, join, readout.
 
 ### Task 7: Decision and report

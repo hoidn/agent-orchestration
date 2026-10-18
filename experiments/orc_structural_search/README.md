@@ -15,7 +15,8 @@ allocation, which do not count as terminal-only).
 | `evaluation.py` | One evaluation through the public `run` route in a fresh clone behind the comparison-harness shims |
 | `metering.py` | Consumption receipts (not yet wired into the driver: consumption is recorded `unavailable`) |
 | `ledger.py` | The provider-call ledger `E/calls.json` and each launch's planned maximum of provider calls |
-| `driver.py` | Mode 1: catalog enumeration (bounded concurrency), unguided I1 episodes behind the shims, scans, call cap, readout |
+| `driver.py` | Mode 1: catalog enumeration (bounded concurrency), unguided I1 episodes behind the shims, scans, call cap |
+| `readout.py` | The mode 1 readout (`E/readout.json`): outcomes, refusals, skeleton diversity, collapse, scan-pending records |
 | `seeds/` | The 2.39 seed catalog sharing one entry contract (`run ((task String) (intent String) (repo String)) -> Outcome`) |
 
 ## Offline recipe
@@ -31,11 +32,19 @@ one, or whose hash has fewer than 7 hex characters or is not a commit of `$RT` (
 before anything runs; hashes are lowercased before use. The hash never goes into the package, which sits in the
 runtime agents can read.
 
-The mutator command (`--agent-cmd`, e.g. `claude -p --model claude-opus-5-5`) runs from the episode's `cand-1`
-with the brief (`EPISODE.md`) on stdin, behind the shim prefix: each `claude` or `codex` call it makes is recorded
-under `E/episodes/<episode_id>/calls/<n>/` with its patch against the parent snapshot, runs under bubblewrap and
-passes the model guard (a Fable model is refused; the command then exits nonzero and the episode is an
-`incident`).
+The mutator command (`--agent-cmd`, e.g. `claude -p --model claude-opus-5-5 --permission-mode bypassPermissions`,
+the flags of the runtime's `claude_unrestricted_workspace` provider template, so the agent can edit and run the
+compile check) runs from the episode's `cand-1` with the brief (`EPISODE.md`) on stdin, behind the shim prefix:
+each `claude` or `codex` call it makes is recorded under `E/episodes/<episode_id>/calls/<n>/` with its patch
+against the parent snapshot, runs under bubblewrap and passes the model guard (a Fable model is refused; the
+command then exits nonzero and the episode is an `incident`). The bubblewrap sandbox (private `/tmp`, process
+list) and the episode workspace contain the unrestricted permissions: only `cand-1`'s final content files become
+the child, and the scan reports reads outside it. The brief's compile line is
+`PYTHONPATH=../py python -P -m orchestrator compile ...`: the shims strip `PYTHONPATH`, so the driver copies the
+runtime's `orchestrator/` to `W/episodes/episode-<n>/py/` (outside `cand-1`), and the relative path keeps the
+runtime's path out of the session. A mutator that removes or replaces `cand-1/.git` makes the episode an
+`incident` (`workspace_intact: false`). The driver adds `DISABLE_AUTOUPDATER=1` to the environment of every
+evaluation and episode, so no CLI updates itself mid-run.
 
 ```bash
 python -m experiments.orc_structural_search.driver --config config.json \
@@ -75,6 +84,7 @@ W/env-manifests/<digest>.json      Python, platform, distributions and claude/co
 W/episodes/episode-<n>/cand-1/     the mutator's copy of the parent, a git repository whose one commit is the parent
                                    snapshot (the shims' COMPARE_BASE); the child is its final files (.git removed)
 W/episodes/episode-<n>/tmp/        the mutator's private /tmp under the shims
+W/episodes/episode-<n>/py/         a copy of the runtime's orchestrator/ for the brief's compile line
 E/log.jsonl                        episode and evaluation records, append-only
 E/calls.json                       the provider-call ledger, one entry per evaluation and episode
 E/candidates/<candidate_id>/       the archive: catalog seeds and accepted children

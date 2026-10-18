@@ -14,8 +14,8 @@ import pytest
 from experiments.orc_structural_search import ledger
 from experiments.orc_structural_search.config import ExperimentConfig, load_config
 from experiments.orc_structural_search.driver import (
-    archive, check_roots, check_solutions, enumerate_catalog, episode_brief, evaluate_and_scan, judge_child, readout,
-    run_mode1, unguided_episode)
+    archive, check_roots, check_solutions, enumerate_catalog, episode_brief, episode_workspace, evaluate_and_scan,
+    judge_child, readout, run_mode1, unguided_episode)
 from experiments.orc_structural_search.ledger import CallCapExceeded, max_provider_calls
 from experiments.orc_structural_search.records import read_records
 from tests.experiments.compare_harness_support import skip_without_sandbox
@@ -306,3 +306,37 @@ def test_planned_maximum_counts_provider_calls_under_loop_and_map_bounds():
     assert {seed: max_provider_calls(SEEDS / f"{seed}.orc") for seed in CATALOG} == {
         "direct": 1, "plan_then_implement": 4, "implement_review_revise": 10, "best_of_n": 4,
         "implement_check_diagnose_repair": 3}
+
+
+def test_the_brief_names_no_runtime_path_and_its_compile_line_runs_from_the_runtime_copy(world):
+    _, parent = archive(world.candidate, world.tmp / "evidence", world.runtime)
+    brief, tree = episode_brief(config_of(), 0), world.outside / "work" / "episodes" / "episode-0"
+    copy, _ = episode_workspace(parent, tree, brief, world.runtime)
+    env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}  # the shims strip it
+    compiled = subprocess.run(["bash", "-c", brief.split("Check an edit with: ")[1].strip()], cwd=copy, env=env,
+                              capture_output=True, text=True)
+    found = subprocess.run(["bash", "-c", "PYTHONPATH=../py python -P -c 'import orchestrator; print(orchestrator.__file__)'"],
+                           cwd=copy, env=env, capture_output=True, text=True).stdout
+    assert (str(world.runtime) in brief, compiled.returncode, found.startswith(str(tree.resolve() / "py" / "orchestrator"))) == (
+        False, 0, True), compiled.stderr
+
+
+REMOVE_GIT = f"""#!{sys.executable} -I
+import shutil
+shutil.rmtree(".git")
+"""
+PRINT_ENV = f"""#!{sys.executable} -I
+import os
+print("DISABLE_AUTOUPDATER=" + str(os.environ.get("DISABLE_AUTOUPDATER")))
+"""
+
+
+def test_an_episode_whose_mutator_removes_git_is_recorded_as_an_incident(world):
+    row, evidence = episode(world, REMOVE_GIT, config_of())
+    assert (row["outcome"], row["workspace_intact"], [r["episode_id"] for r in read_records(evidence / "log.jsonl")]) == (
+        "incident", False, [row["episode_id"]])
+
+
+def test_the_mutator_runs_with_the_cli_autoupdater_disabled(world):
+    _, evidence = episode(world, PRINT_ENV, config_of())
+    assert "DISABLE_AUTOUPDATER=1" in (evidence / "episodes" / "episode-0.log").read_text()
