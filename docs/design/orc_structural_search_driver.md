@@ -60,14 +60,15 @@ swap (invariant 1); a population database before a query needs one.
 
 | Responsibility | Lives in | Notes |
 | --- | --- | --- |
-| Driver | `experiments/orc_structural_search/driver.py` | Modes, parent/site selection, archive, envelopes, final-choice rule |
-| Mutation | `.../mutation.py` | Episode launch per interface, receipt from the final diff, frozen-surface validation, one-site transaction, snapshot and compile |
-| Evaluation | `.../evaluation.py` | Fresh clones, public `run`/`resume`, public check operation, final evaluator, consumption collection |
-| Records | `.../records.py` | One append-only JSONL log, skeleton hashing |
+| Driver | `experiments/orc_structural_search/driver.py` | Modes (mode 1 today), parent/site selection, episode launch and envelopes, archive and its tamper check, scans, readout |
+| Candidates | `.../candidates.py` | Candidate identity, snapshots, compilation with the runtime's orchestrator, frozen-surface validation and the one-site transaction (receipt derivation from a diff is not built) |
+| Evaluation | `.../evaluation.py` | Fresh clones, public `run`/`resume`, public check operation, final evaluator |
+| Metering | `.../metering.py` | Consumption receipts (not yet wired into the driver's log) |
+| Records | `.../records.py` | One append-only JSONL log, skeleton hashing, provider allocation, final-choice rule |
 | Experiment configuration | `.../config.json` per study | Mutable scope (files and definitions an agent may change), frozen surfaces, condition, interface, envelopes, task splits, criterion hash |
 | Manifest | `orchestrator/workflow_lisp/...` (companion) | Read-only site facts; it indexes what the configuration names mutable |
 
-Combine modules while small. The comparison harness (`experiments/compare/`:
+There is no separate mutation module; combine modules while small. The comparison harness (`experiments/compare/`:
 `prepare.py`, `repos.py`, `scan.py`, `pool.py`, `shim/`) is reused by import
 or subprocess; changes it needs land there with their own tests.
 
@@ -127,6 +128,15 @@ condition.
 | provider-only | `:model`/`:effort` values in mutable definitions, and the providers file (permitted without listing it in `mutable_files`) |
 | joint | The union of the above plus `defprompt` signatures |
 
+**Open decisions before Phase 1 comparisons.** Two gaps in these surfaces are
+recorded, not resolved: under topology-only a call may pass new literal text
+to a `:text` prompt fill, which changes what the provider reads while prompt
+bodies are frozen; and under provider-only the whole expression after
+`:model` or `:effort` is masked as a tuning value, so a non-literal
+expression there (a conditional, a call) passes as tuning although it is
+topology. Each needs a ruling, and the validation to match, before condition
+comparisons are read.
+
 **Frozen-surface validation (I1 and I2).** Parse parent and child with the
 ordinary reader and compare forms, not text: imports; `deftype`,
 `defrecord`, `defunion` and `defenum` declarations; exported entry
@@ -181,7 +191,10 @@ and the command boundary file. The parent is never modified.
 
 Model revisions belong to the evaluation identity, since a hosted alias can
 change under an unchanged candidate. Equal `candidate_id` means the same
-candidate however it was produced.
+candidate however it was produced. An archived candidate lives under its
+`candidate_id`; before each episode and evaluation the driver recomputes the
+id and refuses a candidate whose content no longer matches its directory name
+(archive tamper check).
 
 Verified at `90ae778c` (2026-10-18) on `workflows/examples/plan_review_execute.orc`:
 a comment-only change leaves `program_digest` unchanged and changes
@@ -240,8 +253,13 @@ scope-ordinal placeholder (`let*` names, parameters and authored labels
 alike); prompt names, literals and provider bindings become kind markers;
 form heads and arity are kept; the canonical S-expression is hashed (I3: a
 normalized Python AST). A pure rename or a prompt-only change therefore
-hashes equal to its parent by construction; provider allocation is reported
-separately and is not part of the skeleton. Reported: distinct skeletons
+hashes equal to its parent by construction (a named `defprompt` contributes
+nothing); provider allocation is reported separately and is not part of the
+skeleton: each episode record holds the provider externs each non-prompt
+mutable definition names, in source order, for the parent and the accepted
+child, and the readout counts `allocation_distinct` children (the parent's
+skeleton with another allocation). The terminal-only share counts a child
+only when both its skeleton and its allocation equal the parent's. Reported: distinct skeletons
 per accepted candidate, revisit rate, terminal-only share. Stop rule,
 predeclared: if the share of accepted children whose skeleton equals the
 parent's exceeds the threshold (default 0.75) for an interface, that
@@ -342,9 +360,9 @@ The authored reference seed is always evaluated on the validation split
 beside the finalists, and its runs are budgeted with them, so every finalist
 is compared with the incumbent on the same tasks. Final choice follows a
 rule written into the criterion before adaptive work:
-highest validation success under a stated mean-cost ceiling, then lower cost
-within a stated equivalence tolerance, then fewer provider calls, then the
-earlier candidate id; without metered cost the ceiling is in provider calls
+among candidates under a stated mean-cost ceiling, those whose validation
+success is within a stated equivalence tolerance of the highest, then lower
+mean cost, then fewer provider calls, then the earlier candidate id; without metered cost the ceiling is in provider calls
 and wall clock, and the criterion says so. Search cost (episodes, compiler
 and repair work, evaluations, retries, rejected proposals, preparation,
 substantive human assistance) is reported apart from deployed cost:

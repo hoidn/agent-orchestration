@@ -246,7 +246,9 @@ It does not claim perfect isolation.
    `P/records/resume-<judge>.sh <run_id>` (the same `--state-dir`), never re-run. Then scan the
    judge and adjudicate its hits, as for a run. The scan searches the judge's calls, sessions and
    rollouts for this pool's records, the run records root, the records layout, another judge's
-   directory, the frozen runtime and the main checkout.
+   directory, the frozen runtime and the main checkout. Judge scans recorded before roots sharing a
+   name were all matched (the same-name roots fix) may under-report hits for a pool whose runs span
+   several work roots; rescan those judges.
 
    ```bash
    bash $P/records/score-claude-opus-5-5.sh && $PY $H/prepare.py verify-pool --pool $P

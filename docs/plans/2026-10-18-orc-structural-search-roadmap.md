@@ -159,9 +159,10 @@ The [offline apparatus plan](2026-10-18-orc-structural-search-phase0-offline-pla
 metering) and the
 [source-site feasibility plan](2026-10-18-source-site-inspection-feasibility-plan.md)
 (read-only manifest module) are implemented and tested with scripted
-providers only. P-1 and F-a passed. Still owner-gated: selection and
-allocation, the boundary amendment, the task-family choice, and every live
-run.
+providers only. P-1 and F-a passed. Built: the offline apparatus, which the
+gates below do not block. Gated: selection and allocation, the boundary
+amendment, the task-family choice, and every live run; the gates below govern
+those.
 
 ### Phase 0 Gates
 
@@ -185,9 +186,12 @@ run.
   catalog of the seed policies; its cost is part of this phase.
 - Launch path demonstrated: fresh clone under the harness layout rules,
   pinned revision, recorded environment manifest, `python -m orchestrator run`
-  with `--state-dir` under the evidence root (a stated deviation from
+  with `--state-dir <work root>/runs/<evaluation_id>` (run state under the
+  sandbox-visible work root, outside the clone: a stated deviation from
   in-clone run state, kept so records survive teardown), run id retained,
-  cancellation and teardown verified for the chosen runner.
+  cancellation and teardown verified for the chosen runner. The evidence
+  root, outside the work root and never shown to an agent, holds the log,
+  the candidate archive and the readout.
 - Mutator and arm sessions use the shimmed `claude` and `codex` CLIs; OMP
   sessions wait for a shim with the same guard.
 - Metering: receipt availability measured per provider; missing usage

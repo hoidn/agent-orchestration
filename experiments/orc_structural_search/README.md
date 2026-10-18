@@ -4,13 +4,14 @@ Mode 1 of the [structural search driver](../../docs/design/orc_structural_search
 authored seed catalog on matched tasks, then sample unguided I1 (whole-file rewrite) episodes against one
 seed and evaluate every accepted child like a seed. The readout says whether structurally distinct candidates
 exist and differ, and how diverse the accepted children are (distinct skeletons, revisit rate, terminal-only
-share, collapse above 0.75).
+share, collapse above 0.75, and `allocation_distinct`: children with the parent's skeleton but another provider
+allocation, which do not count as terminal-only).
 
 | Module | Role |
 | --- | --- |
 | `config.py` | Experiment configuration: mutable files and definitions, condition, interface, entry, envelopes |
-| `candidates.py` | `candidate_id`, snapshots, compilation, frozen-surface validation, the I2 one-site transaction |
-| `records.py` | Append-only JSONL log, skeleton hash, final-choice rule |
+| `candidates.py` | `candidate_id`, snapshots, compilation with the runtime's orchestrator, frozen-surface validation, the I2 one-site transaction |
+| `records.py` | Append-only JSONL log, skeleton hash, provider allocation, final-choice rule |
 | `evaluation.py` | One evaluation through the public `run` route in a fresh clone behind the comparison-harness shims |
 | `metering.py` | Consumption receipts (not yet wired into the driver: consumption is recorded `unavailable`) |
 | `driver.py` | Mode 1: catalog enumeration, unguided I1 episodes, scans, readout |
@@ -20,10 +21,12 @@ share, collapse above 0.75).
 
 Prerequisites: the comparison harness's (`experiments/compare/README.md`): git and bwrap on `PATH`, a frozen
 runtime checkout `RT` outside the main checkout's prefix, and the shims first on `PATH` for every agent CLI. Each
-task package holds `task.txt`, `intent.txt`, `base_commit` and `seed/`. The operator passes each task's solution
-commit (the scan's solution hash) with `--solution TASK=HASH`, keyed by the package directory's name; a task
-without one is refused before anything runs. The hash never goes into the package, which sits in the runtime
-agents can read. The mutator command runs with the episode copy as its working directory; see "Not
+task package holds `task.txt`, `intent.txt`, `base_commit` and `seed/`, and `seed/` must hold `dev-check.json`
+(`{"argv": [...], "timeout_sec": N}`, the agent-visible checks): without it the `dev-check` boundary fails
+closed, so `implement_check_diagnose_repair` always repairs. The operator passes each task's solution commit
+(the scan's solution hash) with `--solution TASK=HASH`, keyed by the package directory's name; a task without
+one, or whose hash has fewer than 7 hex characters or is not a commit of `$RT` (`git cat-file -t`), is refused
+before anything runs. The hash never goes into the package, which sits in the runtime agents can read. The mutator command runs with the episode copy as its working directory; see "Not
 implemented" for what it must provide itself.
 
 ```bash
@@ -42,7 +45,10 @@ mutator; no provider is called.
 ## Layout
 
 `W` (the work root, sandbox-visible) and `E` (the evidence root) must not nest: agents work under `W` and must
-never see the archive or the log.
+never see the archive or the log. `E` must be fresh: the driver refuses an `E/log.jsonl` that already exists and
+never resumes an incident (an evaluation without a terminal row stays an incident in the log; `evaluation.resume`
+is the operator's tool). Before each episode and evaluation the driver checks that an archived candidate still
+hashes to its directory name.
 
 ```
 W/records/<evaluation_id>/run-1/   run_arm's records: record.json (with the scan), inputs.json, command.sh, calls/
@@ -52,6 +58,7 @@ W/episodes/episode-<n>/            the mutator's copy of the parent (the child i
 E/log.jsonl                        episode and evaluation records, append-only
 E/candidates/<candidate_id>/       the archive: catalog seeds and accepted children
 E/episodes/episode-<n>.log         the mutator command's output
+E/episodes/<episode_id>.diff       the episode's final diff against its parent, accepted or refused
 E/readout.json                     per-seed outcomes, episode outcomes and refusals, skeleton diversity
 ```
 

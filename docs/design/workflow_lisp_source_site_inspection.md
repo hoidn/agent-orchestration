@@ -63,6 +63,14 @@ Source references name paths and symbols; see the
 | Free names of an expression | `free_expr_names` in `orchestrator/workflow_lisp/expression_traversal.py`, as W3 uses for `LetProcBinding.capture_names` | reuse as is |
 | Structured "every fact at this span" query | none: the REPL returns text (`repl_inspect.py`), the LSP has no hover and no span → type table ([language server](workflow_lisp_language_server.md)) | missing: this design |
 
+The implementation (`orchestrator/workflow_lisp/source_sites.py`) also reads
+three private internals, so a rename there breaks it: the typed program's
+`_io_source_paths` (module → source path, to map the named files to modules
+and digests), `_ast_nodes` in
+`orchestrator/contracts/closed_program/node_walk.py` (to walk closed owner
+bodies for perform rows) and `Builder._command_wcc_body` (to re-elaborate the
+entry).
+
 ## 3. Source-Site Manifest
 
 ### 3.1 Eligible Sites
@@ -124,16 +132,25 @@ commands add no JSON interface, and this design does not change that.
    ordinary diagnostics are the output.
 2. Walk the retained typed definitions of the named files for authored
    expression nodes and their spans; record `kind` from the node class.
-3. Obtain a normalized WCC body per owner (P-1, §7): callee bodies are the
+3. Obtain a normalized WCC body per owner (P-1, §7): owner bodies are the
    builder's retained `CallableRequest.prepared_body` rows from
-   `Builder.prepared_by_key`; only the entry is re-elaborated once, without a
-   call preparator, with the same type and value environments.
-   Index `WccNodeMetadata` by `source_span.start`; attach `type_ref`,
-   `scope_id` and `effect_summary` to the authored node with the same start.
-   A node with no WCC counterpart reports `result_type: unavailable` and is
-   ineligible.
-4. Recover binding types by walking the WCC let-chain of the site's
-   `scope_id` and resolving each `binding_identity` to its node `type_ref`.
+   `Builder.prepared_by_key`, plus one re-elaboration of the entry through
+   `Builder._command_wcc_body`, without a call preparator, with the same type
+   and value environments; the owners must equal the closed program's.
+   Index `WccNodeMetadata` by `source_span.start` and attach the counterpart's
+   `type_ref` to the authored node with the same start, in every lowering of
+   its definition (a specialized generic reports `unavailable` when lowerings
+   disagree). A node with no single WCC counterpart reports
+   `result_type: unavailable` and is ineligible. Effects are not attached per
+   node: WCC nodes carry the owner's whole `EffectSummary`, so a record's
+   inferred effects are `unavailable` and only the definition's authored
+   restriction is reported.
+4. Recover bindings from the chain of binders enclosing the WCC counterpart
+   (`WccLet`, `WccRecJoin` parameters, and the `WccCaseArm`, `WccListMap` and
+   `WccParallelMap` binders), each with its binding identity and type,
+   preceded by the definition's authored parameters; the innermost binder of
+   a repeated name wins, and an unresolved identity makes the bindings
+   `unavailable`.
 5. Join `executable_sites` by walking the closed tree and pairing each
    perform node's `@` start with the authored span start.
 6. Attach `AuthoredDirectCall` rows by span containment.

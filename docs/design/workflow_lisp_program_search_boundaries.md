@@ -114,7 +114,8 @@ prompt-provenance questions answerable in the existing system.
 Proposed by the [structural search roadmap](../plans/2026-10-18-orc-structural-search-roadmap.md);
 its rationale is in the [structural search driver](orc_structural_search_driver.md).
 Adopting it is an owner act. Until approved, §1 and §6 stand as written above
-and the roadmap's Phase 0 is not executable.
+and live Phase 0 runs are not executable; the offline apparatus with scripted
+providers is built.
 
 - **§1, third bullet.** Replace "Candidate execution starts as a new registered
   child run." with: "Candidate execution starts as a new registered run: a root
