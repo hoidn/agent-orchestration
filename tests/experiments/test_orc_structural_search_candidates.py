@@ -101,3 +101,20 @@ def test_load_config_rejects_unknown_interface(tmp_path):
 
 def test_load_config_reads_lists_as_tuples(tmp_path):
     assert make_config(tmp_path).mutable_files == ("plan_review_execute.orc",)
+
+
+def test_nested_build_cache_name_is_content_for_identity_and_snapshot(tmp_path):
+    a = make_candidate(tmp_path / "a", {"m.orc": SOURCE})
+    before = candidate_id(a, orchestrator_commit="abc")
+    (a / "sub/.orchestrate").mkdir(parents=True)
+    (a / "sub/.orchestrate/data.txt").write_text("content")
+    child = snapshot(a, {}, tmp_path / "child")
+    assert (candidate_id(a, orchestrator_commit="abc") != before,
+            (child / "sub/.orchestrate/data.txt").read_text()) == (True, "content")
+
+
+def test_snapshot_refuses_edited_name_outside_dest(tmp_path):
+    parent = make_candidate(tmp_path / "parent", {"m.orc": SOURCE})
+    with pytest.raises(ValueError, match="outside"):
+        snapshot(parent, {"../escape.orc": b"x"}, tmp_path / "child")
+    assert not (tmp_path / "escape.orc").exists()
