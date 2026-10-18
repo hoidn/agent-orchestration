@@ -170,7 +170,8 @@ def test_omp_missing_normalized_stdout_uses_missing_result_diagnostic(tmp_path, 
             execution=_execution(normalized, raw=raw))
 
     assert caught.value.code == "provider_result_missing"
-    assert raw.decode() not in str(caught.value)
+    assert "reply began:" in str(caught.value)
+    assert raw.decode() in str(caught.value)
 
 
 @pytest.mark.parametrize("planted_kind", ["file", "symlink"])
@@ -295,6 +296,37 @@ def test_public_evaluated_omp_missing_normalized_rejects_planted_result_and_reco
     assert attempt.joinpath("result.json").read_bytes() == planted
     assert attempt.joinpath("stdout.txt").read_bytes() == raw
     assert attempt.joinpath("stderr.txt").read_bytes() == b"transport stderr\n"
+
+
+@pytest.mark.parametrize(("mode", "head"), [
+    ("stdout-only", " ".join(f"complete stdout\n{_REPLY}".split())[:240]),
+    ("nul", "I wrote it here [31mred [0m"),
+    ("silent", None),
+])
+def test_public_missing_result_names_the_reply_head_and_resume_retries(tmp_path, mode, head):
+    """Design scenario 2: the reply is diagnostic text only, with non-printable bytes (NUL, ANSI escapes)
+    blanked; nothing commits, `report` reads the run and resume dispatches attempt 2."""
+    fixture = _fixture(tmp_path)
+    assert _cli(tmp_path, fixture, mode=mode, payload=_REPLY).returncode == 1
+    run_root, snapshot = _public_snapshot(tmp_path, fixture)
+    started, failed, terminal = [entry.data for entry in snapshot.entries]
+    result_path = os.path.relpath(run_root / started["result_path"], tmp_path)
+    assert failed["code"] == terminal["code"] == "provider_result_missing"
+    assert failed["exit_info"] == {} and not snapshot.active_commits
+    suffix = "" if head is None else f"; reply began: {head}"
+    assert terminal["message"] == f"provider did not create {result_path}{suffix}"
+    report = _env_cli(tmp_path, ["report", "--run-id", run_root.name, "--runs-root",
+        str(run_root.parent), "--format", "json"], _env(tmp_path))
+    assert report.returncode == 0, report.stderr
+    assert json.loads(report.stdout)["run"]["error"]["message"] == terminal["message"]
+
+    resumed = _env_cli(tmp_path, ["resume", run_root.name], _env(tmp_path, provider=True))
+
+    assert resumed.returncode == 0, resumed.stderr
+    after = _public_snapshot(tmp_path, fixture)[1]
+    assert [entry.data["attempt"] for entry in after.entries if entry.data["record"] == "started"] == [1, 2]
+    assert [commit.data["attempt"] for commit in after.active_commits.values()] == [2]
+    assert len(_requests(tmp_path)) == 2
 
 
 def test_public_file2_nested_guided_calls_compile_run_and_resume_without_dispatch(tmp_path):

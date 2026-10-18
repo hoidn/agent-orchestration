@@ -405,7 +405,10 @@ def test_large_unread_controlled_stdin_cannot_block_cancellation(
         assert stdin_write_entered.wait(timeout=5)
         cancellation_thread.start()
 
+    cleanup_deadline = time.monotonic() + 2
     cancellation_thread.join(timeout=2)
+    # Future completion may precede the executor wrapper thread's return.
+    execution_thread.join(timeout=max(cleanup_deadline - time.monotonic(), 0))
     automatic_cleanup = (
         not cancellation_thread.is_alive()
         and not execution_thread.is_alive()
@@ -1069,7 +1072,9 @@ def test_cancellation_escalates_after_a_failed_term_delivery(
     try:
         _wait_until(ready_path.exists, message="provider did not become ready")
         cancellation_thread.start()
+        cleanup_deadline = time.monotonic() + 1
         cancellation_thread.join(timeout=1)
+        execution_thread.join(timeout=max(cleanup_deadline - time.monotonic(), 0))
         escalated_without_external_cleanup = (
             not cancellation_thread.is_alive()
             and not execution_thread.is_alive()
@@ -1753,11 +1758,6 @@ def test_late_capture_finalization_keeps_frozen_failure_and_partial_buffers(
     executor: ProviderExecutor,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        ProviderExecutionControl,
-        "_FINALIZATION_TIMEOUT_SEC",
-        0.05,
-    )
     original_capture_pipe = executor._capture_pipe
     capture_lock = threading.Lock()
     capture_count = 0
@@ -1775,6 +1775,8 @@ def test_late_capture_finalization_keeps_frozen_failure_and_partial_buffers(
 
     monkeypatch.setattr(executor, "_capture_pipe", _delayed_capture)
     control = ProviderExecutionControl()
+    # Freeze the caller's proof before the independent capture join deadline.
+    control._FINALIZATION_TIMEOUT_SEC = 0.05
     invocation = ProviderInvocation(
         command=[
             sys.executable,
@@ -2316,6 +2318,8 @@ def test_timeout_does_not_mask_a_failed_final_identity_proof(
     assert terminal is not None
     assert terminal.disposition == "boundary_failed"
     assert terminal.final_identity_valid is False
+    assert execution_result.exit_code == 124
+    assert execution_result.error["context"]["timeout_sec"] == invocation.timeout_sec
     assert execution_result.classification == "failed"
     assert execution_result.error is not None
     assert execution_result.error["type"] == "provider_cancellation_boundary_failed"
@@ -3973,3 +3977,170 @@ def test_spool_failure_cannot_suppress_preterminal_identity_publication(
     assert execution_result.raw_stdout == identity_line.encode("utf-8")
     assert execution_result.normalized_stdout is None
     assert execution_result.provider_session is None
+
+
+def test_timeout_reports_unreapable_leader_without_unbounded_wait(
+    executor: ProviderExecutor,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_popen = subprocess.Popen
+    real_killpg = os.killpg
+    processes = []
+    ready = tmp_path / "unreapable.ready"
+
+    def blocked_signal(*_args):
+        raise PermissionError("injected signal denial")
+
+    def record_process(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        processes.append(process)
+        process.terminate = blocked_signal
+        process.kill = blocked_signal
+        return process
+
+    def fail_signals(pgid, sig):
+        if sig == 0:
+            return real_killpg(pgid, sig)
+        blocked_signal()
+
+    monkeypatch.setattr("orchestrator.providers.executor.subprocess.Popen", record_process)
+    monkeypatch.setattr("orchestrator.providers.control.os.killpg", fail_signals)
+    monkeypatch.setattr(executor, "_CONTROL_TIMEOUT_GRACE_SEC", 0.05)
+    monkeypatch.setattr(executor, "_CONTROL_IO_JOIN_TIMEOUT_SEC", 0.05)
+    control = ProviderExecutionControl()
+    invocation = ProviderInvocation(
+        command=[sys.executable, "-c", "import pathlib, time; "
+                 f"pathlib.Path({str(ready)!r}).touch(); time.sleep(30)"],
+        input_mode=InputMode.ARGV,
+        timeout_sec=0.1,
+    )
+    execution_thread, execution_box = _start_execution(executor, invocation, control)
+    try:
+        _wait_until(ready.exists, message="unreapable provider did not start")
+        execution_thread.join(timeout=1)
+        assert not execution_thread.is_alive(), "failed signals left an unbounded leader wait"
+        result = _join_execution(execution_thread, execution_box)
+        terminal = control.terminal_result
+        assert terminal is not None
+        assert terminal.disposition == "boundary_failed"
+        assert terminal.cancellation_reason == "timeout"
+        assert terminal.leader_reaped is False
+        assert terminal.proof_complete is False
+        assert result.exit_code == 124
+        assert result.error["type"] == "timeout"
+        assert "leader" in result.error["context"]["cleanup_error"]
+    finally:
+        for process in processes:
+            try:
+                real_killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait(timeout=3)
+        execution_thread.join(timeout=3)
+
+
+def test_external_cancellation_preserves_its_latched_grace(
+    executor: ProviderExecutor,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ready = tmp_path / "grace.ready"
+    completed = tmp_path / "grace.completed"
+    monkeypatch.setattr(executor, "_CONTROL_TIMEOUT_GRACE_SEC", 0.01)
+    monkeypatch.setattr(executor, "_CONTROL_IO_JOIN_TIMEOUT_SEC", 0.01)
+    control = ProviderExecutionControl()
+    script = (
+        "import pathlib, signal, sys, time\n"
+        "def finish(_sig, _frame):\n"
+        "    time.sleep(0.15)\n"
+        f"    pathlib.Path({str(completed)!r}).touch()\n"
+        "    sys.exit(0)\n"
+        "signal.signal(signal.SIGTERM, finish)\n"
+        f"pathlib.Path({str(ready)!r}).touch()\n"
+        "time.sleep(30)\n"
+    )
+    invocation = ProviderInvocation(
+        command=[sys.executable, "-c", script], input_mode=InputMode.ARGV,
+    )
+    execution_thread, execution_box = _start_execution(executor, invocation, control)
+    try:
+        _wait_until(ready.exists, message="provider grace handler did not start")
+        terminal = control.cancel_and_reap(grace=0.3)
+        result = _join_execution(execution_thread, execution_box)
+        assert completed.exists(), "executor cut the caller's cancellation grace short"
+        assert terminal.disposition == "cancelled"
+        assert terminal.leader_return_code == 0
+        assert terminal.proof_complete is True
+        assert result.classification == "cancelled_provisional"
+    finally:
+        if control._pgid is not None:
+            try:
+                os.killpg(control._pgid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        execution_thread.join(timeout=3)
+
+
+@pytest.mark.parametrize("poll_fails", (False, True))
+def test_persistent_wait_failure_still_escalates_and_reaps_owned_group(
+    executor: ProviderExecutor,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    poll_fails: bool,
+) -> None:
+    real_start = executor._start_process
+    processes = []
+    waits = []
+    ready = tmp_path / "broken-wait.ready"
+
+    def broken_wait(*_args, **_kwargs):
+        raise OSError("injected persistent wait failure")
+
+    def start_with_broken_wait(invocation, **kwargs):
+        process = real_start(invocation, **kwargs)
+        processes.append(process)
+        waits.append(process.wait)
+        _wait_until(ready.exists, message="TERM-resistant provider did not start")
+        process.wait = broken_wait
+        if poll_fails:
+            process.poll = broken_wait
+        return process
+
+    monkeypatch.setattr(executor, "_start_process", start_with_broken_wait)
+    invocation = ProviderInvocation(
+        command=[sys.executable, "-c", "import pathlib, signal, time; "
+                 "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+                 f"pathlib.Path({str(ready)!r}).touch(); time.sleep(30)"],
+        input_mode=InputMode.ARGV,
+        terminate_process_tree=True,
+    )
+    results = {}
+    thread = threading.Thread(
+        target=lambda: results.setdefault("result", executor.execute(invocation)),
+        daemon=True,
+    )
+    try:
+        thread.start()
+        thread.join(timeout=3)
+        assert not thread.is_alive(), "failed wait prevented bounded cleanup"
+        result = results["result"]
+        assert result.exit_code != 0
+        assert result.error is not None
+        assert "injected persistent wait failure" in result.error["message"]
+        if poll_fails:
+            assert processes[0].returncode is None
+            assert "could not be reaped" in result.error["message"]
+            assert waits[0](timeout=1) == -signal.SIGKILL
+        else:
+            assert processes[0].returncode == -signal.SIGKILL
+        with pytest.raises(ProcessLookupError):
+            os.killpg(processes[0].pid, 0)
+    finally:
+        for process, wait in zip(processes, waits):
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            wait(timeout=3)
+        thread.join(timeout=3)

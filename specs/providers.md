@@ -955,15 +955,64 @@ renderings. See [result delivery design](../docs/design/provider_result_delivery
   - 0 = success
   - 1 = retryable API error
   - 2 = invalid input (non-retryable)
-  - 124 = timeout (retryable)
+  - 124 = timeout (retryable unless a stronger boundary failure prohibits it)
 
 - Arg length guidance
   - Large prompts or content injection may exceed argv limits; prefer `input_mode: 'stdin'` for such cases.
   - The orchestrator does not auto-fallback; input mode is explicit per template.
 
 - Timeouts
-  - When `timeout_sec` is set, the orchestrator enforces it: sends a graceful termination signal and then a hard kill after a short grace period. Records exit code `124` and timeout context in state.
-  - Managed provider invocations run in a process group/session boundary so a timeout terminates the guard and its provider child process tree. Already-submitted managed jobs are recovered from persisted managed-job state rather than by relaunching the provider.
+  - When `timeout_sec` is set, the orchestrator enforces its deadline and
+    records exit code `124` and timeout context. Invocation-owned groups
+    receive graceful termination followed by hard-kill escalation after a
+    short grace period. Ordinary ungrouped invocations retain their existing
+    leader-only termination behavior.
+  - Ordinary `ProviderInvocation.terminate_process_tree` defaults to `False`.
+    Only an ordinary invocation explicitly setting it to `True` owns a new
+    session/process group. Controlled and session-enabled invocations retain
+    their existing explicit group-creation profiles. Sharing cleanup code does
+    not change these defaults, inherited terminal/signal behavior or stdin
+    delivery, and never authorizes signalling the caller's inherited group.
+  - For an invocation-owned group, teardown succeeds only after the leader has
+    been reaped, the owned group is observed empty, and every started stdin and
+    stdout/stderr capture worker has joined. Leader exit alone proves none of
+    the other conditions. After the graceful interval, surviving group members
+    receive hard-kill escalation even if the leader has already exited.
+  - Group signalling, leader reap and I/O settlement have finite cleanup
+    deadlines on timeout, cancellation, exceptional exit and natural leader
+    exit. A failed signal, an unproved empty group or an unjoined worker is an
+    explicit cleanup failure; it cannot become a success result or an unbounded
+    pipe read/join. Retain captured diagnostics and identify the failed cleanup
+    condition through the existing result/error channel. Cleanup deadlines are
+    separate from the authored execution timeout: after group quiescence, use
+    the existing finite capture-finalization interval, allowing ordinary
+    flush/fsync to finish; residual-group failure keeps its short bounded join.
+  - A natural leader exit with a residual owned group is rejected even when
+    subsequent cleanup succeeds. Preserve a nonzero leader status; replace a
+    zero status with a failure status and explain the lingering group. Timeout
+    remains exit `124` with timeout context. Controlled cancellation preserves
+    its cause and reason: fully settled cancellation keeps its existing
+    outcome; incomplete settlement uses the existing `boundary_failed` outcome
+    with `proof_complete=False`. Attach cleanup failure information without
+    relabelling those outcomes as natural success or confirmed cancellation.
+    In particular, timeout `124` and its context do not replace a controlled
+    failure of the final identity proof: retain the primary
+    `provider_cancellation_boundary_failed` error, failed classification and
+    incomplete proof, and expose no normalized provider output. The numeric
+    timeout status alone cannot make that refusal retryable or promotable.
+    When the final identity proof is valid but cleanup cannot settle the
+    leader, group or I/O workers, retain `error.type=timeout` with
+    `context.cleanup_error`; the control outcome remains `boundary_failed`
+    with `proof_complete=False`.
+  - These obligations apply to all affected ordinary grouped, controlled and
+    session/transport paths, including asynchronous stdin and capture. Reuse
+    the existing execution-control/residual-group and bounded worker-join
+    owners; no additional process supervisor or public lifecycle is required.
+  - Group ownership covers processes remaining in that group. Descendants can
+    escape it; group cleanup is not OS confinement or a guarantee that every
+    descendant has terminated. Managed guards use this same ownership limit.
+    Already-submitted managed jobs are recovered from persisted managed-job
+    state rather than by relaunching the provider.
 
 - Examples
 - Claude: `command: ["claude","-p","${PROMPT}","--model","${model}"]`, defaults `{ model: "claude-opus-4-6" }`.

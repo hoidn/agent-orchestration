@@ -180,12 +180,10 @@ ADMITTED_HELPER_MANIFEST = {
         ),
         AdmittedHelperSurface(
             "orchestrator/providers/executor.py",
+            symbols=("ProviderExecutor._execute_session_invocation",),
             patterns=(
                 "ast:session_snapshot_eligibility_ladder@"
                 "ProviderExecutor._execute_controlled_invocation."
-                "_emit_assistant_text:count=1",
-                "ast:session_snapshot_eligibility_ladder@"
-                "ProviderExecutor._execute_session_invocation."
                 "_emit_assistant_text:count=1",
                 "ast:session_snapshot_eligibility_ladder@"
                 "ProviderExecutor._stream_codex_jsonl_chunk."
@@ -1474,6 +1472,20 @@ def test_status_helpers_have_one_common_owner() -> None:
 
     for surface in ADMITTED_HELPER_MANIFEST["status"]:
         qualified_functions = _qualified_functions(surface.path)
+        if "ProviderExecutor._execute_session_invocation" in surface.symbols:
+            delegate = qualified_functions.get("ProviderExecutor._execute_session_invocation")
+            if delegate is None or _method_call_count(
+                delegate, "_execute_controlled_invocation", receiver_name="self"
+            ) != 1:
+                findings.append(
+                    f"{surface.path}:ProviderExecutor._execute_session_invocation "
+                    "must delegate to _execute_controlled_invocation exactly once"
+                )
+            elif _retains_session_snapshot_eligibility_ladder(delegate):
+                findings.append(
+                    f"{surface.path}:ProviderExecutor._execute_session_invocation "
+                    "retains a direct session-snapshot eligibility ladder"
+                )
         if "SessionIdentitySnapshot" in surface.symbols:
             owner = qualified_functions.get(
                 "SessionIdentitySnapshot.assistant_text_is_eligible"

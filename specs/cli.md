@@ -267,7 +267,14 @@ initial path refinements without evaluating a body, dispatching or allocating
 run/effect attempts. A real run allocates a fresh root after preparation.
 
 Run accepts source-root/entry, provider/prompt/command configuration,
-`--input`/`--input-file`, `--state-dir`, dry-run and logging/streaming options.
+`--input`/`--input-file`, `--state-dir`, dry-run and logging options.
+Provider stdout and stderr are streamed to the process's own stdout and stderr
+while each provider runs, by default (session-transport providers stream their
+rendered assistant text rather than raw stdout; run-ref child attempts are not
+streamed); `--quiet` suppresses that stream, and `--stream-output` is accepted
+without changing anything. Streaming does not
+change the bytes captured in the attempt's `stdout.txt` and `stderr.txt`, nor
+the result file transport.
 Text `--input` parsing is schema-directed, followed by strict validation; JSON
 strings do not coerce to Bool. Missing/extra/invalid inputs and defaults refuse
 before root creation. Compiled import bundles remain unsupported even though
@@ -305,6 +312,14 @@ below remain scoped to their retained profiles. See
       `resume_request_missing`; malformed present recipes are `memo_inconsistent`.
       `--force-restart` remains unavailable for this profile. See
       [evaluated execution §8.4](../docs/design/workflow_lisp_evaluated_execution.md#84-the-run-header-and-the-representation).
+      On this route, `run` and `resume` stream provider stdout and stderr to
+      the process's own stdout and stderr while each provider runs, by default
+      (session-transport providers stream their rendered assistant text rather
+      than raw stdout; run-ref child attempts are not streamed);
+      `run --quiet` suppresses that stream (the `resume` parser has no
+      `--quiet`), and `--stream-output` is accepted without changing anything.
+      Streaming does not change the bytes captured in the attempt's
+      `stdout.txt` and `stderr.txt`, nor the result file transport.
       New evaluated headers persist the resolved canonical `run_ref_root` outside
       recipe/input/program digests without creating it. Explicit mismatching
       resume selection refuses read-only with `resume_run_ref_root_changed`,

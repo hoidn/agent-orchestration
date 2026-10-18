@@ -41,6 +41,8 @@ with Path("requests.jsonl").open("a", encoding="utf-8") as out:
         "prompt": prompt.decode("utf-8"), "env": {key: os.environ.get(key)
         for key in ("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY")}}) + "\n")
 mode = os.environ.get("PROVIDER_SHIM_MODE", "success")
+if mode == "silent": sys.exit(0)
+if mode == "nul": sys.stdout.buffer.write(b"I wrote it\x00 here \x1b[31mred\x1b[0m\n"); sys.exit(0)
 if mode != "empty":
     sys.stdout.buffer.write(b"complete stdout\n"); sys.stdout.buffer.flush()
     sys.stderr.buffer.write(b"complete stderr\n"); sys.stderr.buffer.flush()
@@ -499,3 +501,15 @@ def _assert_public_nested_labels(program, request, commit):
     assert request["prompt"].count("typed input") == 2
     assert request["prompt"].count("AUTHORED SUFFIX") == 1
     assert commit["identity"] == " / ".join((program.tree["entry"], call["frame"], provider["site"]))
+
+
+@pytest.mark.parametrize(("extra", "streamed"), [((), True), (("--quiet",), False)], ids=["default", "quiet"])
+def test_provider_output_streams_to_the_terminal_unless_quiet(tmp_path, extra, streamed):
+    """The provider's stdout/stderr reach the CLI's streams live by default; the attempt files are unchanged."""
+    result = _cli(tmp_path, _fixture(tmp_path), extra=extra)
+    (run_root,) = (tmp_path / ".orchestrate" / "runs").iterdir()
+    (stdout_file,) = run_root.glob("effects/*/attempt-1/stdout.txt")
+
+    assert result.returncode == 0, result.stderr
+    assert ("complete stdout\n" in result.stdout, "complete stderr\n" in result.stderr) == (streamed, streamed)
+    assert stdout_file.read_bytes() == b"complete stdout\n"
