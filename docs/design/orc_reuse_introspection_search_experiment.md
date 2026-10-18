@@ -67,10 +67,10 @@ are a weak initial target.
 | [`std/phase::review-revise-loop-proc`](../../orchestrator/workflow_lisp/stdlib_modules/std/phase.orc) and [`std/drain::backlog-drain-proc`](../../orchestrator/workflow_lisp/stdlib_modules/std/drain.orc) | Public procedures for bounded review/revision and reusable item continuation. | Existing composition surfaces; fit to the assessment requirements still needs proof. |
 | [`verified_iteration_drain/drain::drain`](../../workflows/library/verified_iteration_drain/drain.orc) | Existing fused-session select/plan/implement/verify and review/completion routing. | A particular implemented policy, not a generic API for every mined episode. |
 | [`generic_run_watchdog/watchdog::watchdog`](../../workflows/library/generic_run_watchdog/watchdog.orc) | One invocation of probe, conditional repair, and result publication. | Recurrence and demonstrated progress after recovery remain an integration seam; do not clone another watchdog. |
-| `workflows/library/control/direct_task.orc` and the four exports in `workflows/experiments/qa_placement_effectiveness/qa_placement_arms.orc` | Real shared direct/review/fix composition and a common arm interface. | Existing composition mechanism; ergonomic value needs separate evidence. |
-| Full compiler, `compile --diagnostics-json`, canonical IR/source-map exports, and `explain` | Types, calls, effects, dependencies, and authored-to-executable inspection. | Structural facts, not access to private model reasoning or proof of task quality. |
-| E1 `run-ref`, E2 `trial`, `TrialRunOptions`, and `run_trial_entry` | Pinned child runs, whole-arm outcomes, checks, evidence, accounting, and verdicts. | Implemented mechanism, not a completed search or effectiveness study. |
-| Scripted-provider QA and trial tests | Reproducible branches, malformed results, child/check subprocesses, and failure handling. | Test harness evidence; fake providers/scorers are not a public SDK execution mode. |
+| `workflows/library/control/direct_task.orc` (2.35) and the comparison seeds `experiments/orc_vs_single_call/workflows/{reviewed_change,best_of_n}.orc` and `workflows/examples/design_review_execute.orc` | Real shared direct/review/revise/select composition. | Existing composition mechanism; ergonomic value needs separate evidence. The four exports of `workflows/experiments/qa_placement_effectiveness/qa_placement_arms.orc` target 2.25, below the source floor, and no longer compile. |
+| Full compiler and `compile --diagnostics-json` (`workflow_lisp_compile_diagnostics.v1`); [REPL introspection](workflow_lisp_repl_introspection.md) `:browse`, `:info`, `:source` and `:type`; the closed program's `sites` rows and `@` provenance. `explain` refuses `workflow_explain_retired`; every `--emit-*` flag refuses `workflow_lisp_cli_input_unsupported`. | Types, calls, effects, dependencies, inferred restrictions and authored-to-executable start positions. | Structural facts, not access to private model reasoning or proof of task quality; no span→type table and no public source-map artifact. |
+| Public `run`/`resume` on the evaluated route; path-mode `run-ref` for effect-free children; the [comparison harness](orc_effectiveness_comparison_harness.md) (`experiments/compare/`). `trial` refuses `workflow_execution_target_retired`; the E2 SDK (`TrialRunOptions`, `run_trial_entry`) is removed at main. | Fresh registered runs with memo evidence; whole-arm outcomes, per-call shim records, contamination scan, blind pooling and hidden acceptance from the harness. | Implemented mechanism, not a completed search or effectiveness study; the harness is experiment apparatus, not a runtime surface. |
+| Deterministic stand-ins: the harness's stand-in agent CLI (`tests/experiments/compare_harness_support.py`) and provider test stand-ins | Reproducible branches, malformed results and failure handling through the real shim. | Test harness evidence; stand-ins are not a public execution mode. |
 
 Check the [capability matrix](../capability_status_matrix.md) against the episode
 date before calling historical friction a current missing feature. Provider
@@ -84,7 +84,9 @@ study wrapper with long budgets and a study-specific provider configuration.
 Do not repurpose it as a tiny portable demo. Import the arm library into one
 small experiment-local wrapper instead. A public trial entry must have a
 terminal `trial` body; a lower-level executor fixture that returns a later
-literal is not automatically SDK-compatible.
+literal is not automatically SDK-compatible. Both statements are historical:
+trial execution refuses `workflow_execution_target_retired` at main, and the
+wrapper's source is below the 2.35 floor.
 
 The current clone-path `run-ref` mode accepts only deterministic effect-free
 programs. Ordinary precompiled bundle workflows can contain provider operations.
@@ -92,6 +94,10 @@ Generated provider-workflow search therefore needs an explicit bundle/trial
 integration proof and reconciliation with governing documents at implementation
 planning; it is not already supported by relabeling clone-path execution. This
 does not select a safety workstream or require a pure-program study first.
+The [structural-search experiment](orc_structural_search_experiment.md) takes
+the public `run` route and carries that reconciliation as a
+[proposed amendment](workflow_lisp_program_search_boundaries.md#proposed-amendment-2026-10-17)
+to the boundaries.
 
 ## Normal Agent Sessions And Evaluation Boundary
 
