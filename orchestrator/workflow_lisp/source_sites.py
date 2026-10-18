@@ -63,8 +63,12 @@ from .wcc.model import (
 # Provenance and frontend carriers hold no WCC nodes; `Builder._wcc_workflow_calls` skips the same fields.
 SKIPPED_WCC_FIELDS = frozenset({"metadata", "body_metadata", "type_ref", "source_span", "form_path",
     "expansion_stack", "bound_proc_source", "source_binding"})
-# Fields of a binder node that its binder scopes over (a let binds in its body, not in its bound value).
-_SCOPED_FIELDS = frozenset({"body", "workspace_body"})
+# Fields of a binder node that its binders scope over: a let binds in its body, not in its bound value; a loop's
+# state also reaches its exhaustion result.
+_SCOPED_FIELDS = frozenset({"body", "workspace_body", "exhaustion"})
+# Identity of a binder in scope whose authored identity the build does not carry.
+_UNRESOLVED = "unresolved"
+_ATOMS = (str, bytes, int, float, bool, Path)
 
 _KINDS = {ProviderResultExpr: "provider-call", RunProviderPhaseExpr: "provider-phased-call",
     AgentExpr: "agent-turn", ProcedureCallExpr: "procedure-call", CallExpr: "workflow-call", RunRefExpr: "run-ref",
@@ -88,36 +92,46 @@ def wcc_value_nodes(body: Any) -> list[Any]:
 def _scoped_nodes(body: Any) -> Iterator[tuple[Any, tuple]]:
     """`wcc_value_nodes` paired with the binders in scope at each node, outermost first.
 
-    A binder is `(name, identity, type_ref)` of an enclosing `WccLet`, `WccCaseArm`, `WccListMap` or
-    `WccParallelMap`; it scopes over the node's `body`/`workspace_body` fields only.
+    A binder is `(name, identity, type_ref)` of an enclosing `WccLet`, `WccCaseArm`, `WccListMap`,
+    `WccParallelMap` or `WccRecJoin` parameter; it scopes over the node's `_SCOPED_FIELDS` only.
     """
     seen, pending = set(), [(body, ())]
     while pending:
         node, chain = pending.pop()
-        if node is None or isinstance(node, (str, bytes, int, float, bool, Path)) or id(node) in seen:
+        if node is None or isinstance(node, _ATOMS) or id(node) in seen:
             continue
         seen.add(id(node))
-        if isinstance(node, Mapping):
-            pending.extend((value, chain) for value in reversed(list(node.values())))
-        elif isinstance(node, (tuple, list)):
-            pending.extend((value, chain) for value in reversed(node))
-        elif is_dataclass(node) and not isinstance(node, type):
-            if isinstance(getattr(node, "metadata", None), WccNodeMetadata):
-                yield node, chain
-            binder = _binder(node)
-            inner = chain if binder is None else (*chain, binder)
-            pending.extend((getattr(node, f.name), inner if f.name in _SCOPED_FIELDS else chain)
-                for f in reversed(fields(node)) if f.name not in SKIPPED_WCC_FIELDS)
+        if isinstance(getattr(node, "metadata", None), WccNodeMetadata):
+            yield node, chain
+        pending.extend(_children(node, chain))
 
 
-def _binder(node: Any) -> tuple[str, object, Any] | None:
+def _children(node: Any, chain: tuple) -> list[tuple[Any, tuple]]:
+    """The children of one WCC value in pre-order stack order, each with the binders in scope at it."""
+    if isinstance(node, Mapping):
+        return [(value, chain) for value in reversed(list(node.values()))]
+    if isinstance(node, (tuple, list)):
+        return [(value, chain) for value in reversed(node)]
+    if not is_dataclass(node) or isinstance(node, type):
+        return []
+    inner = (*chain, *_binders(node))
+    return [(getattr(node, f.name), inner if f.name in _SCOPED_FIELDS else chain)
+        for f in reversed(fields(node)) if f.name not in SKIPPED_WCC_FIELDS]
+
+
+def _binders(node: Any) -> tuple[tuple[str, object, Any], ...]:
     if isinstance(node, WccLet):
-        return node.bound_name, node.metadata.binding_identity, node.bound_type_ref
+        return ((node.bound_name, node.metadata.binding_identity, node.bound_type_ref),)
     if isinstance(node, WccCaseArm):
-        return node.binding_name, node.binding_identity, node.binding_type_ref
+        return ((node.binding_name, node.binding_identity, node.binding_type_ref),)
     if isinstance(node, (WccListMap, WccParallelMap)):
-        return node.binder_name, node.binding_identity, node.binder_type_ref
-    return None
+        return ((node.binder_name, node.binding_identity, node.binder_type_ref),)
+    if isinstance(node, WccRecJoin):
+        # The loop's identity is the authored `LoopRecurExpr.binding_identity`; a generated loop carries none.
+        identity = node.metadata.binding_identity
+        return tuple((param.name, identity if identity is None or identity.name == param.name else _UNRESOLVED,
+            param.type_ref) for param in node.params)
+    return ()
 
 
 def reelaborate_entry(result) -> Any:
@@ -189,10 +203,10 @@ class _Build:
                 index[_key(node.metadata.source_span.start)].append((node, chain))
             self.lowerings[_base_name(callable_def)].append((owner, callable_def, index))
         self.rows = closed_perform_rows(result.program)
-        self.closed = defaultdict(list)
+        self.closed = defaultdict(list)  # owner -> [(`@` start, perform or call node)]
         for owner, node in _closed_nodes(result.program):
             if node.get("k") in {"perform", "call"} and "@" in node:
-                self.closed[owner].append(node)
+                self.closed[owner].append((_parse_position(node["@"]["span"]), node))
 
     def relative(self, path: str) -> str:
         return Path(path).relative_to(self.root).as_posix()
@@ -237,10 +251,10 @@ def _indexed_definitions(build: _Build) -> Iterator[tuple[str, str, Any, bool]]:
     for base, group in groups.items():
         typed_def = next((member for member in group if member.signature.name == base), group[0])
         kind = "procedure" if isinstance(typed_def, TypedProcedureDef) else "workflow"
-        name = typed_def.signature.name
-        # ponytail: compiler-generated callables are named `%...`; use a builder flag if one is added.
-        authored = typed_def.specialization is None and not name.rpartition("::")[2].startswith("%")
-        yield f"{kind}:{name}", kind, typed_def, authored
+        # ponytail: the compiler's own authored-procedure test (compiler.py: `specialization is None and not
+        # definition.name.startswith("%")`); use a builder flag if one is added.
+        authored = typed_def.specialization is None and not typed_def.definition.name.startswith("%")
+        yield f"{kind}:{typed_def.signature.name}", kind, typed_def, authored
 
 
 def _base_name(callable_def: Any) -> str:
@@ -270,7 +284,7 @@ def _site_record(build: _Build, owner_row: tuple, node: Any) -> dict | None:
     if site_kind is None or any(not isinstance(frame, ExpansionFrame) for frame in frames):
         return None
     lowerings = build.lowerings.get(_base_name(typed_def), [])
-    facts = _facts(build, lowerings, site_kind, node, authored_binders)
+    facts = _facts(build, lowerings, (site_kind, node, typed_def, authored_binders))
     start, end = node.span.start, node.span.end
     return {
         "site_id": f"{owner}@{build.relative(start.path)}:{start.line}:{start.column}",
@@ -305,55 +319,84 @@ def _eligibility(authored: bool, macro: bool, facts: dict) -> str:
         return "macro-generated"
     if facts.get("loop_control"):
         return "loop-control"
-    return "facts-unavailable" if facts["result_type"] == "unavailable" else "eligible"
+    if "unavailable" in (facts["result_type"], facts["bindings"]):
+        return "facts-unavailable"
+    return "eligible"
 
 
-_UNAVAILABLE = {"result_type": "unavailable", "bindings": []}
+_UNAVAILABLE = {"result_type": "unavailable", "bindings": "unavailable"}
 
 
-def _facts(build: _Build, lowerings: list, site_kind: str, node: Any, authored_binders: frozenset) -> dict:
-    """Result type and bindings of the node's WCC counterpart, equal in every lowering.
+def _facts(build: _Build, lowerings: list, site: tuple) -> dict:
+    """Result type and bindings of the node's WCC counterpart in every lowering of its definition.
 
-    Unavailable when the definition has no lowering, a lowering has no single counterpart at the anchor, or
-    lowerings disagree (a generic definition specialized to different types).
+    The result type is unavailable when the definition has no lowering, a lowering has no single counterpart at
+    the anchor, or lowerings disagree (a generic definition specialized to different types).
     """
+    site_kind, node, typed_def, authored_binders = site
     if site_kind == "let*":
         anchor, classes = _key(node.bindings[0][1].span.start) if node.bindings else None, (WccLet,)
     else:
         anchor, classes = _key(node.span.start), _VALUE_NODES[site_kind]
-    found = set()
+    per_lowering = []
     for _, callable_def, index in lowerings:
         matches = [(wcc, chain) for wcc, chain in index.get(anchor, ()) if isinstance(wcc, classes)
             and (site_kind != "let*" or wcc.metadata.binding_identity in node.binding_identities[:1])]
         if len(matches) != 1:
             return _UNAVAILABLE
-        found.add(_lowering_facts(build, callable_def, *matches[0], authored_binders))
-    if len(found) != 1:
+        per_lowering.append(_lowering_facts(build, callable_def, *matches[0], authored_binders))
+    if len({result_type for result_type, _, _ in per_lowering}) != 1:
         return _UNAVAILABLE
-    type_row, bindings = found.pop()
-    if type_row is None:
-        return {**_UNAVAILABLE, "loop_control": True}
-    canonical, rendered = type_row
-    return {"result_type": {"canonical": canonical, "rendered": rendered},
-        "bindings": [{"name": name, "identity": _identity(identity), "type": type_name}
-            for name, identity, type_name in bindings]}
+    (canonical, rendered, loop_control), _, _ = per_lowering[0]
+    return {"result_type": {"canonical": canonical, "rendered": rendered}, "loop_control": loop_control,
+        "bindings": _merged_bindings(typed_def, per_lowering)}
 
 
 def _lowering_facts(build: _Build, callable_def: Any, wcc: Any, chain: tuple, authored_binders: frozenset):
-    """(type row, or None for loop control, and binding rows) for one lowering.
+    """((canonical, rendered, loop control), binders in scope, parameter types) for one lowering.
 
-    Hashable, so lowerings of one definition can be compared.
+    Hashable, so lowerings of one definition can be compared. Binders are the authored ones plus any whose
+    identity is unresolved; parameter types are this lowering's (a specialization drops bound ProcRef params).
     """
-    environment = callable_def.typed_body.binding_environment
-    params = [(name, environment.get(name), type_ref) for name, type_ref in callable_def.signature.params]
-    rows: dict[str, tuple] = {}
-    for name, identity, type_ref in (*params, *(row for row in chain if row[1] in authored_binders)):
-        rows.pop(name, None)  # the innermost binder of a repeated name wins and moves last
-        rows[name] = (identity, canonical_type_identity(type_ref, typed=build.typed))
-    bindings = tuple((name, identity, type_name) for name, (identity, type_name) in rows.items())
     type_ref = wcc.metadata.type_ref
-    type_row = None if isinstance(type_ref, LoopControlTypeRef) else build.type_row(type_ref)
-    return type_row, bindings
+    if isinstance(type_ref, LoopControlTypeRef):
+        result = type_ref.result_type_ref
+        result_type = ("unavailable", f"LoopControlTypeRef(state={render_type_ref(type_ref.state_type_ref)}, "
+            f"result={render_type_ref(result) if result is not None else None})", True)
+    else:
+        result_type = (*build.type_row(type_ref), False)
+    binders = tuple((name, identity, canonical_type_identity(binder_type, typed=build.typed))
+        for name, identity, binder_type in chain if identity in authored_binders or identity is _UNRESOLVED)
+    params = tuple((name, canonical_type_identity(param_type, typed=build.typed))
+        for name, param_type in callable_def.signature.params)
+    return result_type, binders, params
+
+
+def _merged_bindings(typed_def: Any, per_lowering: list) -> list[dict] | str:
+    """The authored parameters, then the binders in scope, innermost last; "unavailable" if any is unresolved.
+
+    Parameter names and identities come from the authored definition; a type is reported only when every
+    lowering has the same one, else "unavailable" for that binding.
+    """
+    shapes = {tuple((name, identity) for name, identity, _ in binders) for _, binders, _ in per_lowering}
+    if len(shapes) != 1:
+        return "unavailable"
+    environment = typed_def.typed_body.binding_environment
+    rows = [(name, environment.get(name) or _UNRESOLVED, _agreed([dict(params).get(name)
+        for _, _, params in per_lowering])) for name, _ in typed_def.signature.params]
+    rows += [(name, identity, _agreed([binders[position][2] for _, binders, _ in per_lowering]))
+        for position, (name, identity) in enumerate(shapes.pop())]
+    if any(identity is _UNRESOLVED for _, identity, _ in rows):
+        return "unavailable"
+    merged: dict[str, dict] = {}
+    for name, identity, type_name in rows:
+        merged.pop(name, None)  # the innermost binder of a repeated name wins and moves last
+        merged[name] = {"name": name, "identity": _identity(identity), "type": type_name}
+    return list(merged.values())
+
+
+def _agreed(values: list) -> str:
+    return values[0] if values and None not in values and len(set(values)) == 1 else "unavailable"
 
 
 def _identity(identity: object) -> Any:
@@ -368,25 +411,45 @@ def _restriction(build: _Build, typed_def: Any) -> str:
 
 
 def _dependencies(build: _Build, lowerings: list, node: Any, owner: str) -> dict:
-    """Prompt and provider bindings named in the site's subtree; commands and callees of its closed nodes."""
-    prompts, providers, commands, callees = set(), set(), set(), set()
+    """Prompts and providers the site's subtree names; commands and callees of its closed nodes."""
+    prompts, providers = _authored_dependencies(build, lowerings, node)
+    commands, callees = _closed_dependencies(build, lowerings, node)
+    own_module = owner.partition(":")[2].partition("::")[0]
+    modules = {callee.partition(":")[2].partition("::")[0] for callee in callees} - {own_module}
+    return {"prompts": prompts, "providers": providers, "commands": commands, "modules": sorted(modules),
+        "callees": callees}
+
+
+def _authored_dependencies(build: _Build, lowerings: list, node: Any) -> tuple[list, list]:
+    """Prompt names and `{extern, binding}` provider rows of the provider forms in the site's subtree."""
+    prompts, providers = set(), set()
     for child in (child for child in walk_expr(node) if isinstance(child, _PROVIDER_FORMS)):
         if isinstance(child.provider, NameExpr):
-            providers.add(child.provider.name)
+            providers.add((child.provider.name, _resolved_provider(build, lowerings, child)))
         prompt = getattr(child, "prompt", None)  # an agent turn names no prompt
         if isinstance(prompt, NameExpr):
             prompts.add(prompt.name)
         elif isinstance(prompt, PromptApplicationExpr):
             prompts.add(prompt.prompt.qualified_name)
-    for closed_owner, _, _ in lowerings:
-        for closed in build.closed[closed_owner]:
-            if not _within(_parse_position(closed["@"]["span"]), node.span):
+    return sorted(prompts), [{"extern": extern, "binding": binding} for extern, binding in sorted(providers)]
+
+
+def _resolved_provider(build: _Build, lowerings: list, form: Any) -> str:
+    """The closed perform `provider` at the form's start in every lowering, else "unavailable"."""
+    start = _key(form.span.start)
+    return _agreed([next((node.get("provider") for position, node in build.closed[owner]
+        if position == start and node["k"] == "perform"), None) for owner, _, _ in lowerings])
+
+
+def _closed_dependencies(build: _Build, lowerings: list, node: Any) -> tuple[list, list]:
+    """Command boundaries and callee canonical names of the closed nodes that start inside the site span."""
+    commands, callees = set(), set()
+    for owner, _, _ in lowerings:
+        for position, closed in build.closed[owner]:
+            if not _within(position, node.span):
                 continue
             if closed["k"] == "call":
                 callees.add(closed["callee"])
             elif "boundary" in closed:
                 commands.add(closed["boundary"])
-    own_module = owner.partition(":")[2].partition("::")[0]
-    modules = {callee.partition(":")[2].partition("::")[0] for callee in callees} - {own_module}
-    return {"prompts": sorted(prompts), "providers": sorted(providers), "commands": sorted(commands),
-        "modules": sorted(modules), "callees": sorted(callees)}
+    return sorted(commands), sorted(callees)

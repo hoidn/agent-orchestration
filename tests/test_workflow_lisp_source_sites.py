@@ -151,3 +151,35 @@ def test_result_type_equals_repl_type_for_closed_expression():
 def test_inferred_effects_are_unavailable_because_wcc_nodes_carry_the_owner_summary():
     site = site_of(plan_review_execute()[1], kind="provider-call", line=29)
     assert site["effects"] == {"inferred": "unavailable", "restriction": "omitted"}
+
+
+@cache
+def improve_with_stdlib():
+    """improve_experiment_proposal with std/improve.orc named too; the root is the repository."""
+    result = example("improve_experiment_proposal", "improve_experiment_proposal::run-experiment")[0]
+    files = [Path("workflows/examples/improve_experiment_proposal.orc"),
+        Path("orchestrator/workflow_lisp/stdlib_modules/w3/std/improve.orc")]
+    return build_manifest(result, root=REPO, files=files)
+
+
+def improve_site(kind: str, line: int) -> dict:
+    (site,) = [site for site in improve_with_stdlib()["sites"].values() if site["kind"] == kind
+        and site["span"]["start"]["path"].endswith("std/improve.orc") and site["span"]["start"]["line"] == line]
+    return site
+
+
+def test_specialized_procedure_bindings_keep_procref_params_and_loop_state():
+    site = improve_site("procedure-call", 28)  # (review state.current)
+    assert {"review", "revise", "state"} <= set(binding_names(site))
+
+
+def test_loop_control_position_reports_its_control_type_and_is_excluded():
+    site = improve_site("match", 29)  # the loop body's match yields `done`/`continue`
+    assert (site["eligibility"], site["result_type"]["rendered"].startswith("LoopControlTypeRef(")) == (
+        "loop-control", True)
+
+
+def test_provider_dependency_names_the_extern_and_its_resolved_binding():
+    site = site_of(plan_review_execute()[1], kind="provider-call", line=27)
+    assert site["dependencies"]["providers"] == [
+        {"extern": "providers.claude", "binding": "claude_unrestricted_workspace"}]
