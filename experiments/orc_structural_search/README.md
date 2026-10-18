@@ -1,4 +1,4 @@
-# ORC structural search (phase 0, offline)
+# ORC structural search (offline)
 
 Mode 1 of the [structural search driver](../../docs/design/orc_structural_search_driver.md): enumerate the
 authored seed catalog on matched tasks, then sample unguided I1 (whole-file rewrite) episodes against one
@@ -6,6 +6,12 @@ seed and evaluate every accepted child like a seed. The readout says whether str
 exist and differ, and how diverse the accepted children are (distinct skeletons, revisit rate, terminal-only
 share, collapse above 0.75, and `allocation_distinct`: children with the parent's skeleton but another provider
 allocation, which do not count as terminal-only).
+
+Mode 2 (`adaptive.py`, Phase 2 plan
+[`2026-10-18-orc-structural-search-phase2-plan.md`](../../docs/plans/2026-10-18-orc-structural-search-phase2-plan.md))
+runs generations of interleaved I1 and I2 episodes against an archive (the incumbent plus a quality/call frontier),
+judges each generation's evaluations blind, and evaluates the finalists on a held-out validation task. Both modes
+are implemented and tested with scripted providers only.
 
 | Module | Role |
 | --- | --- |
@@ -17,6 +23,12 @@ allocation, which do not count as terminal-only).
 | `ledger.py` | The provider-call ledger `E/calls.json` and each launch's planned maximum of provider calls |
 | `driver.py` | Mode 1: catalog enumeration (bounded concurrency), unguided I1 episodes behind the shims, scans, call cap |
 | `readout.py` | The mode 1 readout (`E/readout.json`): outcomes, refusals, skeleton diversity, collapse, scan-pending records |
+| `sites.py` | I2: the candidate's source-site manifest, eligible sites, seeded site selection, the site brief, receipt derivation |
+| `briefs.py` | The mutator's `EPISODE.md` (I1, I2, and mode 2 feedback) |
+| `adaptive.py` | Mode 2: `run_mode2` (archive, generations, per-generation judging) and `validate_finalists` |
+| `scoring.py` | Blind judging pools, the join of judge scores to evaluation records, the Phase 1 readout and `--joined-out` |
+| `scoring_phase2.py` | The Phase 2 readout (`scoring readout --phase 2`) |
+| `criteria/` | The frozen Phase 1 and Phase 2 criteria (`phase1.json`, `phase2.json`) |
 | `seeds/` | The 2.39 seed catalog sharing one entry contract (`run ((task String) (intent String) (repo String)) -> Outcome`) |
 
 ## Offline recipe
@@ -46,6 +58,12 @@ runtime's path out of the session. A mutator that removes or replaces `cand-1/.g
 `incident` (`workspace_intact: false`). The driver adds `DISABLE_AUTOUPDATER=1` to the environment of every
 evaluation and episode, so no CLI updates itself mid-run.
 
+The shims (`experiments/compare/shim/claude`, see `experiments/compare/README.md`) also strip the attempt's
+`ORCHESTRATOR_OUTPUT_BUNDLE_PATH`, `ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY` and `ORCHESTRATOR_WORKSPACE_ROOT` from the
+agent and every process it starts. The task repositories are the orchestrator itself, whose code and tests read
+these variables, so an agent running the task's tests overwrote its own result file (the 2026-10-18 incident). The
+prompt's `- path:` line already names the result file relative to the agent's working directory.
+
 ```bash
 python -m experiments.orc_structural_search.driver --config config.json \
   --seeds experiments/orc_structural_search/seeds/{direct,plan_then_implement,implement_review_revise,best_of_n,implement_check_diagnose_repair}.orc \
@@ -67,6 +85,65 @@ raised once all have ended. Judge calls are not in the ledger.
 seed the episodes start from, and every seed is evaluated under `<seed stem>::<entry definition>`. The tests
 (`tests/experiments/test_orc_structural_search_driver.py`) run this with scripted providers and a scripted
 mutator; no provider is called.
+
+## Mode 2 recipe
+
+Mode 2 starts from Phase 1's scored rows. Write them with the Phase 1 readout's `--joined-out` (every task's joined
+rows plus its failed, timed-out and incident evaluations):
+
+```bash
+python -m experiments.orc_structural_search.scoring readout --log $E1/log.jsonl --driver-readout $E1/readout.json \
+  --criterion experiments/orc_structural_search/criteria/phase1.json --joined-out $J/joined.json \
+  $P1/<task>/records/results.json ...
+```
+
+`adaptive.py` has no command line; the entry point is `run_mode2` (prerequisites as in the offline recipe; every
+task package's `seed/dev-check.json` included):
+
+```python
+import os, shlex
+from pathlib import Path
+from experiments.orc_structural_search.adaptive import run_mode2
+
+tasks = Path(RT) / "experiments/compare/tasks"
+run_mode2(Path("config.json"), phase1_joined=Path(J) / "joined.json",
+          seeds=sorted(Path("experiments/orc_structural_search/seeds").glob("*.orc")),
+          adaptive_tasks=[tasks / "resume-projection-integrity", tasks / "pure-result-replay"],
+          validation_task=tasks / "cf1-generic-unions",
+          generations=G, episodes_per_generation=4, run_seed=S,
+          work_root=Path(W), evidence_root=Path(E), pools_root=Path(P),
+          agent_cmd=shlex.split("<mutator command>"), runtime=Path(RT), env=os.environ, timeout_sec=7200,
+          solutions={"<task>": "<solution commit>", ...}, call_cap=N, concurrency=4,
+          criterion=Path("experiments/orc_structural_search/criteria/phase2.json"),
+          judges=["claude-opus-5-5", f"gpt-6-sol={RT}/experiments/compare/providers/score_codex.json"])
+```
+
+`run_mode2` refuses tasks other than the criterion's `adaptive_tasks` and `validation_task` (`check_splits`), a pools
+root inside `E` or `W` or holding `E` (`check_pools_root`), and an existing `E/log.jsonl`. Generation 0 archives the
+seeds, builds the initial archive from the Phase 1 rows (refused without `direct` valued on every adaptive task),
+logs the reference row and re-evaluates and judges the incumbent once per adaptive task. Each generation `n` runs
+`episodes_per_generation` episodes alternating I1 and I2, each against a parent drawn uniformly from the archive (I2:
+at a seeded uniform eligible site) with the parent's own evidence as feedback; fresh accepted children are evaluated
+once per adaptive task, judged, and offered to the archive. Before a generation's evaluations start, their planned
+calls plus one planned call per judge per batch must fit under `call_cap`, or the generation is refused
+(`CallCapExceeded`) with no evaluation started. The validation task is a holdout root of every scan.
+
+Afterwards `validate_finalists(E, E/archive/gen-<n>.json, config=..., reference_seed=..., validation_task=...,
+launch=..., judge=...)` evaluates the top two archive entries, the reference seed and `direct` twice each on the
+validation task (`split: "validation"`) and judges them in one pool; the Phase 2 readout is
+
+```bash
+python -m experiments.orc_structural_search.scoring readout --phase 2 \
+  --criterion experiments/orc_structural_search/criteria/phase2.json \
+  --log $E/log.jsonl --archive $E/archive [--log ... --archive ...] \
+  [--validation-log V/log.jsonl V/pool/records/results.json]
+```
+
+**Failure rule.** The primary value of an evaluation (`scoring.primary_value`) is its judged value when completed and
+0 rubric points when failed or timed out; a timeout is an incident killed at its wall-clock envelope (`launcher exit
+-9` in its latest incidents entry, `scoring.scored_outcome`). Every other incident, and a completed run without a
+value, is excluded, not zero. Log rows count once per evaluation id (the last row wins). A task with no completed,
+uncontaminated evaluation has no pool; its rows come from the log alone (`scoring.log_only_pool`).
 
 ## Layout
 
@@ -92,7 +169,18 @@ E/episodes/episode-<n>.log         the mutator command's output
 E/episodes/<episode_id>/           the episode's shim records: calls/<n>/, record.json (with the scan)
 E/episodes/<episode_id>.diff       the episode's final diff against its parent, accepted or refused
 E/readout.json                     per-seed outcomes, episode outcomes and refusals, skeleton diversity
+                                   (mode 2: per-interface episode readouts and the archive trajectory)
+E/archive/gen-<n>.json             mode 2: the archive after generation n (gen-0: every valued seed, direct included)
+P/gen-<n>/<task>/                  mode 2: the generation's blind judging pool (P/validation/<task> for finalists);
+                                   P, the pools root, lies outside E and W: judges must not see the archive or the
+                                   log, and mutators and evaluated agents must not find the pools at a known place
 ```
+
+Mode 2 adds three kinds of log rows: one `{"kind": "reference", "candidate_id", "run"}` row naming the initial
+incumbent; one `{"kind": "judging", "generation", "task", "pool", "results"}` row per judged pool; and every
+evaluation row carries `generation` and `split` (`adaptive`, or `validation` with generation -1). Each judge of a
+pool has a `kind: "judge"` entry in `E/calls.json`, reserved (one planned call per batch) before any judge runs; the
+judging records (`mapping.json`, each judge's records, `results.json`) are under `P/.../records/`.
 
 After every evaluation `prepare.scan` runs over its records with `E` and `W/episodes` named `archive`,
 `E/log.jsonl` named `lineage` and each `--holdout` named `holdout`. A nonzero hit count marks the evaluation
@@ -110,8 +198,11 @@ candidate's provider bindings and `:model` values, already in its candidate id.
 
 ## Not implemented
 
-- Mode 2 (the adaptive loop), the site manifest and I2/I3 episodes.
-- Paid runs: no live evaluation has been made; the server-side model revision is recorded `unavailable`.
+- I3 episodes, feedback-targeted site selection and failure- or cost-weighted parent selection (mode 2 draws
+  uniformly).
+- A command line for mode 2 (`run_mode2` and `validate_finalists` are called from Python).
+- Live mode 2: Phase 2 live runs wait on the Phase 1 decision and the owner's budget approval; mode 1's live Phase 1
+  is under way. The server-side model revision is recorded `unavailable`.
 - Consumption metering in the log (`metering.py` exists; the driver records `unavailable`).
 - Isolation of the mutator command itself: only the agent CLIs it starts through `PATH` run in the sandbox; the
   command (e.g. a wrapper script) runs unsandboxed with the shim environment.
@@ -126,4 +217,6 @@ candidate's provider bindings and `:model` values, already in its candidate id.
 - An evaluation's planned maximum counts a provider call in a definition the entry calls several times once (the
   seeds call none of their own definitions), and provider retries are not in it; the ledger records the actual
   calls afterwards.
+- A mode 2 frontier wider than the archive size keeps its best-valued members (`adaptive.prune`), no crowding
+  distance.
 - An episode scan stops at the first solution hash that hits (see Layout).

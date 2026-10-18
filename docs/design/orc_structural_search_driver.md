@@ -4,10 +4,12 @@
 
 - **Status:** research apparatus design; roadmap Phases 0 and 1 selected
   2026-10-18 ([live plan](../plans/2026-10-18-orc-structural-search-live-phase1-plan.md));
-  not copy-safe. Partial: the mode-1 offline apparatus
-  (`experiments/orc_structural_search/`) is implemented and tested with
-  scripted providers only; mode 2, I2 episodes, I3 and live runs are not
-  implemented. Fixed-workflow comparisons use
+  not copy-safe. Partial: the offline apparatus
+  (`experiments/orc_structural_search/`), mode 1 and mode 2 with I1 and I2
+  episodes, is implemented and tested with scripted providers only
+  ([Phase 2 plan](../plans/2026-10-18-orc-structural-search-phase2-plan.md));
+  live Phase 1 is under way; live Phase 2 is gated on the Phase 1 decision
+  and the owner's budget approval; I3 is not implemented. Fixed-workflow comparisons use
   [`experiments/compare/`](../../experiments/compare/README.md) today.
 - **Kind:** experiment-side apparatus contract: controller modes, proposal
   interfaces, edit validation and transactions, candidate identities,
@@ -62,8 +64,11 @@ swap (invariant 1); a population database before a query needs one.
 
 | Responsibility | Lives in | Notes |
 | --- | --- | --- |
-| Driver | `experiments/orc_structural_search/driver.py` | Modes (mode 1 today), parent/site selection, episode launch and envelopes, archive and its tamper check, scans, readout |
-| Candidates | `.../candidates.py` | Candidate identity, snapshots, compilation with the runtime's orchestrator, frozen-surface validation and the one-site transaction (receipt derivation from a diff is not built) |
+| Driver | `experiments/orc_structural_search/driver.py` | Mode 1, episode launch (I1, I2), parent/site selection, episode launch and envelopes, archive and its tamper check, scans, readout |
+| Candidates | `.../candidates.py` | Candidate identity, snapshots, compilation with the runtime's orchestrator, frozen-surface validation and the one-site transaction |
+| Sites | `.../sites.py` | The candidate's source-site manifest, eligible sites, seeded site selection, the site brief and receipt derivation from the episode's diff |
+| Adaptive loop | `.../adaptive.py` | Mode 2: archive, generations, per-generation blind judging (`judge_generation`), finalist validation (`validate_finalists`) |
+| Scoring | `.../scoring.py`, `.../scoring_phase2.py` | Blind pools, the join of judge scores to evaluation records, primary values, the Phase 1 and Phase 2 readouts |
 | Evaluation | `.../evaluation.py` | Fresh clones, public `run`/`resume`, public check operation, final evaluator |
 | Metering | `.../metering.py` | Consumption receipts (not yet wired into the driver's log) |
 | Records | `.../records.py` | One append-only JSONL log, skeleton hashing, provider allocation, final-choice rule |
@@ -171,7 +176,17 @@ replacement's inferred result type is not identical, by canonical type
 identity, to the parent site's); `condition_mismatch` (the receipt's
 condition is not the configuration's); `unreadable_child` (the ordinary
 reader rejects a child `.orc` file or receipt text); plus the frozen-surface
-rule, refused as `frozen_surface_changed`. Lifted
+rule, refused as `frozen_surface_changed`. When the child's manifest
+reports no type at the replacement's start (for example a literal
+replacement), the driver refuses with `slot_type_unavailable`
+(`slot_refusal` in `experiments/orc_structural_search/driver.py`), since
+the slot check cannot be made. Declared helpers obey the condition as a
+change from an empty form of their kind (`_definition_verdict` and
+`_condition_verdict` in `candidates.py`): a new helper `defprompt` adds a
+prompt signature, so it is accepted only under joint; a non-prompt helper
+is a topology change, accepted under topology-only and joint; under
+topology-only its `:model`/`:effort` values must already occur in the
+parent module. Lifted
 helpers take explicit parameters; adding one never changes an existing
 binding. Edits preserve comments and unrelated text.
 
@@ -241,6 +256,29 @@ dominates or fills a gap. Parent and site selection start uniform;
 local-feedback targeting is a compared condition. I2 proposals need the
 manifest; I1 proposals use frozen-surface validation alone.
 
+As implemented (`experiments/orc_structural_search/adaptive.py`,
+`run_mode2`): an archive entry carries per-task primary values and
+provider calls of its counted evaluations; the archive is the incumbent
+plus at most `ARCHIVE_SIZE` (6) members non-dominated on (mean value
+higher, mean calls lower), ranked by mean value, then fewer calls, then the
+earlier id. Generation 0 seeds it from Phase 1's joined rows
+(`scoring readout --joined-out`) as prior evidence, logs a `reference` row
+naming the incumbent and re-measures the incumbent on every adaptive task.
+Each later generation alternates I1 and I2 episodes, draws parents
+uniformly (`random.Random(run_seed)`) and I2 sites uniformly from the
+parent's eligible sites, gives the parent's own judged means, outcomes,
+terminal variants, calls and wall clock as feedback, evaluates fresh
+accepted children once per adaptive task and offers each fully valued
+child to the archive (`retain`); `E/archive/gen-<n>.json` records the
+archive after each generation. Judging is per generation and task
+(`judge_generation`): one blind pool under a pools root outside the
+evidence and work roots, every judge's ledger entry reserved before any
+judge runs, and one `judging` log row per pool. A generation whose planned
+evaluation and judge calls would exceed the call cap is refused before any
+evaluation starts. `validate_finalists` evaluates the top two archive
+entries, the reference seed and `direct` on the validation task, a holdout
+root of every earlier scan.
+
 **Skeleton diversity (both modes).** LLM mutation chains over a Lisp-like
 DSL converge to a few recurring forms with mostly terminal variation
 (Gurkan, Stonedahl and Wilensky, "Mutation Without Variation",
@@ -286,7 +324,11 @@ python -m orchestrator run <candidate entry .orc> [frontend flags] \
   `experiments/orc_structural_search/driver.py` refuses nesting): the
   sandbox-visible work root holds run state, records, clones, environment
   manifests and episode copies; the evidence root, never shown to an agent,
-  holds `log.jsonl`, the `candidates/` archive and `readout.json`.
+  holds `log.jsonl`, `calls.json`, the `candidates/` archive, mode 2's
+  `archive/gen-<n>.json` files and `readout.json`. Mode 2's judging pools
+  sit under a third root outside both (`check_pools_root` in
+  `adaptive.py`): judges must not see the archive or the log, and agents
+  must not find the pools at a known place.
 - The solution hash the contamination scan needs is operator-supplied per
   task (`--solution TASK=HASH`), never stored in a task package, which sits
   in the runtime agents can read.
@@ -312,6 +354,14 @@ python -m orchestrator run <candidate entry .orc> [frontend flags] \
   reach, under the harness layout rules, with hidden files copied onto a
   `.git`-less copy only at scoring. The boundary is the layout plus the
   contamination scan, never an instruction not to read a file.
+- The comparison shims (`experiments/compare/shim/claude`) strip the
+  attempt's `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`,
+  `ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY` and `ORCHESTRATOR_WORKSPACE_ROOT`
+  from the agent and its tool processes. Incident of 2026-10-18: the task
+  repository is the orchestrator itself, whose own code and tests read these
+  variables, so an agent running the task's tests overwrote its attempt's
+  result file. The prompt's `- path:` line names the result file relative
+  to the agent's working directory, so nothing needs the variables.
 
 ## Task Family And Evaluator
 
@@ -355,7 +405,11 @@ candidates and to the mutator.
 The primary objective is mean task success under a fixed per-task execution
 envelope (wall clock, provider calls, metered cost where available). Success
 is what the family's frozen criterion names. A timeout, invalid submission or
-task failure is an outcome whose consumption still counts. The quality/cost
+task failure is an outcome whose consumption still counts. Failure rule
+(criteria amended 2026-10-18; `primary_value` and `scored_outcome` in
+`experiments/orc_structural_search/scoring.py`): a failed evaluation and an
+envelope timeout (an incident killed at its wall-clock envelope) score 0
+rubric points; every other incident is excluded, not scored zero. The quality/cost
 frontier is retained for analysis, never collapsed into a reward.
 
 The authored reference seed is always evaluated on the validation split
