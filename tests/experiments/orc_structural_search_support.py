@@ -3,7 +3,8 @@
 The scripted executables stand in for the real CLIs behind the comparison-harness shims (no provider is
 called). Each reads its prompt on stdin, takes the first entry of the JSON list in $SCRIPTED_RESULTS_FILE
 whose `match` substring occurs in the prompt, sleeps its `sleep` seconds (default 0) and either writes its `result` (JSON) to
-$ORCHESTRATOR_OUTPUT_BUNDLE_PATH or, with `exit`, exits with that status without writing anything.
+the file on the prompt's last `- path:` line (the shims hide $ORCHESTRATOR_OUTPUT_BUNDLE_PATH) or, with `exit`, exits
+with that status without writing anything.
 They are named `claude` and `codex` because the provider templates run those names.
 
 The runtime is a detached worktree of a shared clone of this checkout's HEAD (the real orchestrator,
@@ -26,7 +27,7 @@ from tests.experiments.compare_harness_support import OUTSIDE_SANDBOX_MOUNTS, co
 REPO = Path(__file__).resolve().parents[2]
 SEEDS = REPO / "experiments" / "orc_structural_search" / "seeds"
 SCRIPTED = f"""#!{sys.executable} -I
-import json, os, sys, time
+import json, os, re, sys, time
 prompt = sys.stdin.read()
 for entry in json.load(open(os.environ["SCRIPTED_RESULTS_FILE"])):
     if entry["match"] in prompt:
@@ -36,7 +37,7 @@ else:
 time.sleep(entry.get("sleep", 0))
 if "exit" in entry:
     sys.exit(entry["exit"])
-with open(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"], "w") as out:
+with open(re.findall(r"^- path: (.+)$", prompt, re.M)[-1], "w") as out:
     json.dump(entry["result"], out)
 """
 DEV_CHECK = {"argv": [sys.executable, "-c", "import pkg"], "timeout_sec": 30}

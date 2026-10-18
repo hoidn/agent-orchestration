@@ -162,7 +162,11 @@ It does not claim perfect isolation.
    agent that deletes its candidate's `.orchestrate/` (for example `git clean -fdx`) loses the link.
    The task bases' `.gitignore` covers `.orchestrate/` and `artifacts/`. Before an agent starts,
    the shims strip `PYTHONPATH`, `OLDPWD`, the `COMPARE_*` variables and their own directory from
-   `PATH`, because these name the frozen runtime, the launch directory and the records. They then
+   `PATH`, because these name the frozen runtime, the launch directory and the records. They also
+   strip the attempt's `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`, `ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY` and
+   `ORCHESTRATOR_WORKSPACE_ROOT`: a task repository that is the orchestrator reads them in its own code
+   and tests, so an agent running those tests overwrote its result file; the prompt's `- path:` line
+   already names that file relative to the agent's working directory. They then
    run the agent's CLI in the bubblewrap sandbox described under Layout, which needs `bwrap` on
    `PATH`. After the call they take each candidate's patch through a copy of its index, so what
    the agent staged stays staged.

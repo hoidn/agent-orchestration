@@ -186,6 +186,16 @@ def test_shim_hides_the_runtime_and_the_records_from_the_agent(world):
         [], [], [], "claude-opus-5-5", "1")
 
 
+def test_shim_hides_the_attempts_result_variables_from_the_agent(world, monkeypatch):
+    # an orchestrator task repository's own tests read these, so an agent running them overwrote its result
+    attempt = ("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY", "ORCHESTRATOR_WORKSPACE_ROOT")
+    for name in attempt:
+        monkeypatch.setenv(name, "set-by-the-provider-executor")
+    _, record = start(world, "direct_task")
+    env = call(world, record, "env").stdout
+    assert [name for name in attempt if f"{name}=" in env] == []
+
+
 def test_shim_gives_the_agent_a_private_tmp_and_process_list(world):
     _, record = start(world, "direct_task")
     done = call(world, record, "echo probe > /tmp/probe.txt; ps -e --no-headers | wc -l; ls -A /var/tmp | wc -l")
