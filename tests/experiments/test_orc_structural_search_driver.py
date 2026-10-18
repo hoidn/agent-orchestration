@@ -12,14 +12,17 @@ from pathlib import Path
 import pytest
 
 from experiments.orc_structural_search import ledger
+from experiments.orc_structural_search.briefs import episode_brief
 from experiments.orc_structural_search.config import ExperimentConfig, load_config
 from experiments.orc_structural_search.driver import (
-    archive, check_roots, check_solutions, enumerate_catalog, episode_brief, episode_workspace, evaluate_and_scan,
-    judge_child, readout, run_mode1, unguided_episode)
+    archive, check_roots, check_solutions, enumerate_catalog, episode_workspace, evaluate_all, evaluate_and_scan,
+    judge_child, readout, run_episode, run_mode1)
 from experiments.orc_structural_search.ledger import CallCapExceeded, max_provider_calls
 from experiments.orc_structural_search.records import read_records
+from experiments.orc_structural_search.sites import eligible_sites, site_manifest
 from tests.experiments.compare_harness_support import skip_without_sandbox
-from tests.experiments.orc_structural_search_support import MUTATOR, REPO, SEEDS, script, world  # noqa: F401 (fixture)
+from tests.experiments.orc_structural_search_support import (  # noqa: F401 (world: fixture)
+    MUTATOR, MUTATOR_I2, REPO, SEEDS, script, world)
 
 CATALOG = ["direct", "plan_then_implement", "implement_review_revise", "best_of_n", "implement_check_diagnose_repair"]
 CONFIG = {"mutable_files": ["direct.orc"], "mutable_definitions": ["run"], "condition": "topology-only",
@@ -133,18 +136,19 @@ def config_of(**overrides) -> ExperimentConfig:
     return ExperimentConfig(**data | {key: tuple(data[key]) for key in ("mutable_files", "mutable_definitions")})
 
 
-def episode(world, mutator_source, config, tamper=False, env=os.environ, call_cap=160):
-    """One unguided episode (compile only, no evaluation) against the archived seed catalog."""
+def episode(world, mutator_source, config, tamper=False, env=os.environ, call_cap=160, index=0, site=None):
+    """One episode (compile only, no evaluation) against the archived seed catalog: I2 with `site`, else I1."""
     evidence = world.tmp / "evidence"
     _, parent = archive(world.candidate, evidence, world.runtime)
     if tamper:
         (parent / "direct.orc").write_text((parent / "direct.orc").read_text() + "\n;; edited in the archive\n")
-    mutator = world.outside / "mutator.py"
+    mutator = world.outside / f"mutator-{index}.py"
     mutator.write_text(mutator_source)
-    row = unguided_episode(parent, config, agent_cmd=[sys.executable, "-I", str(mutator)],
-                           work_root=world.outside / "work", evidence_root=evidence, episode_index=0,
-                           runtime=world.runtime, env=env, solutions={world.task.name: world.solution},
-                           call_cap=call_cap)
+    row = run_episode(parent, config, interface="I1" if site is None else "I2",
+                      mode="unguided" if site is None else "adaptive", agent_cmd=[sys.executable, "-I", str(mutator)],
+                      work_root=world.outside / "work", evidence_root=evidence, episode_index=index,
+                      runtime=world.runtime, env=env, solutions={world.task.name: world.solution},
+                      call_cap=call_cap, site=site)
     return row, evidence
 
 
@@ -340,3 +344,113 @@ def test_an_episode_whose_mutator_removes_git_is_recorded_as_an_incident(world):
 def test_the_mutator_runs_with_the_cli_autoupdater_disabled(world):
     _, evidence = episode(world, PRINT_ENV, config_of())
     assert "DISABLE_AUTOUPDATER=1" in (evidence / "episodes" / "episode-0.log").read_text()
+
+
+def provider_site(root: Path, config: ExperimentConfig, runtime: Path, line: int | None = None) -> dict:
+    """The first (or the `line`'s) eligible provider-call site of the candidate at `root`."""
+    return next(site for site in eligible_sites(site_manifest(root, config, runtime=runtime), config)
+                if site["kind"] == "provider-call" and line in (None, site["span"]["start"]["line"]))
+
+
+def i2_episode(world, index, config=None):
+    config = config or config_of(interface="I2")
+    return episode(world, MUTATOR_I2, config, index=index, site=provider_site(world.candidate, config, world.runtime))
+
+
+def test_i2_episode_records_site_receipt_and_accepts_a_single_subtree_replacement(sandboxed, world):
+    row, _ = i2_episode(world, 0)
+    site = provider_site(world.candidate, config_of(interface="I2"), world.runtime)
+    assert (row["interface"], row["site_id"], row["receipt"]["replacement_expression"].startswith("(if true"),
+            row["receipt"]["hypothesis"], row["outcome"], row["skeleton"] != row["parent_skeleton"]) == (
+        "I2", site["site_id"], True, "episode 0 should do better", "accepted", True)
+
+
+def test_i2_refuses_an_edit_outside_the_selected_site_with_scope_exceeded(sandboxed, world):
+    row, _ = i2_episode(world, 1)
+    assert (row["outcome"], row["refusal_code"]) == ("rejected", "scope_exceeded")
+
+
+UNUSED_BINDING = """(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.39")
+  (defmodule unused_binding)
+  (import common :only (Change Outcome))
+  (export run)
+
+  (defrecord Plan (steps List[String]))
+
+  (defprompt p-change (:fills (task :text)) -> Change "Implement this change: {task}")
+  (defprompt p-plan (:fills (task :text)) -> Plan "Plan this task: {task}")
+
+  (defworkflow run
+    ((task String)
+     (intent String)
+     (repo String))
+    -> Outcome
+    (let* ((x (provider-result providers.coder :prompt (p-change :task task)
+                :model "claude-sonnet-5-5" :effort "medium" :timeout-sec 60))
+           (change (provider-result providers.coder :prompt (p-change :task task)
+                     :model "claude-sonnet-5-5" :effort "medium" :timeout-sec 60)))
+      (variant Outcome DONE :summary change.summary)))
+)
+"""
+UNUSED_CONFIG = {"entry_workflow": "unused_binding::run", "mutable_files": ["unused_binding.orc"], "interface": "I2"}
+X_CALL = """(provider-result providers.coder :prompt (p-change :task task)
+                :model "claude-sonnet-5-5" :effort "medium" :timeout-sec 60)"""
+
+
+def unused_binding_candidate(root: Path) -> Path:
+    (root / "unused_binding.orc").write_text(UNUSED_BINDING)
+    return root
+
+
+def test_i2_refuses_a_replacement_whose_slot_type_differs(world):
+    parent, child = unused_binding_candidate(world.candidate), world.tmp / "child"
+    shutil.copytree(parent, child)
+    plan_call = '(provider-result providers.coder :prompt (p-plan :task task) :model "claude-sonnet-5-5")'
+    (child / "unused_binding.orc").write_text(UNUSED_BINDING.replace(X_CALL, plan_call))
+    config = config_of(**UNUSED_CONFIG)
+    verdict = judge_child(parent, child, config, runtime=world.runtime,
+                          site=provider_site(parent, config, world.runtime, line=18), parent_candidate_id="sha256:p")
+    assert verdict["refusal_code"] == "slot_type_changed", verdict
+
+
+def test_i2_refuses_a_replacement_whose_type_the_manifest_cannot_report(world):
+    unused_binding_candidate(world.candidate)
+    config = config_of(**UNUSED_CONFIG)
+    row, _ = episode(world, MUTATOR_I2, config, index=3,
+                     site=provider_site(world.candidate, config, world.runtime, line=18))
+    assert (row["receipt"]["replacement_expression"], row["refusal_code"]) == ('"x"', "slot_type_unavailable"), row
+
+
+def test_two_structurally_different_i2_replacements_both_compile_and_execute(sandboxed, world):
+    rows = [i2_episode(world, index)[0] for index in (0, 2)]
+    script(world, ANSWERS)
+    env = {**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}", "SCRIPTED_RESULTS_FILE": str(world.results)}
+    evaluations = evaluate_all([(Path(row["candidate_root"]), config_of(), {}) for row in rows], tasks=[world.task],
+                               replicates=1, concurrency=2, work_root=world.outside / "work",
+                               evidence_root=world.tmp / "evidence", runtime=world.runtime, env=env, timeout_sec=600,
+                               solutions={world.task.name: world.solution}, holdouts=(), call_cap=160)
+    assert ([row["outcome"] for row in rows], len({row["skeleton"] for row in rows} | {rows[0]["parent_skeleton"]}),
+            [row["outcome"] for row in evaluations]) == (["accepted", "accepted"], 3, ["completed", "completed"])
+
+
+FEEDBACK = {"hidden": 0.9, "other_candidates": {"sha256:other": 9.5},
+            "mean_value": {"task-1": {"mean": 7.25, "n": 2}},
+            "runs": [{"task": "task-1", "outcome": "completed", "terminal": "DONE", "provider_calls": 3,
+                      "wall_clock_sec": 812.5, "hidden": 0.9}]}
+
+
+def test_the_i2_brief_carries_the_site_and_feedback_but_no_hidden_figures_or_evidence_path(world):
+    config = config_of(interface="I2")
+    site = provider_site(world.candidate, config, world.runtime)
+    brief = episode_brief(config, 0, site=site, feedback=FEEDBACK)
+    assert (f"Site: {site['site_id']}" in brief, "7.25" in brief, "812.5" in brief, "DONE" in brief,
+            "hidden" in brief, "0.9" in brief, "9.5" in brief, str(world.tmp) in brief,
+            str(world.outside) in brief) == (True, True, True, True, False, False, False, False, False)
+
+
+def test_i1_episodes_still_run_through_run_episode_with_no_site(sandboxed, world):
+    row, _ = episode(world, MUTATOR, config_of())
+    assert (row["interface"], row["mode"], row["outcome"], row["site_id"], row["receipt"]) == (
+        "I1", "unguided", "accepted", None, None)

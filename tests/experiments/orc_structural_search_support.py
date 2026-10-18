@@ -59,6 +59,41 @@ for old, new in edits:
     source = source.replace(old, new)
 Path("direct.orc").write_text(source)
 """
+# The scripted I2 mutator: reads the episode index and the site ("Site: <owner>@<file>:<line>:<column>") from
+# EPISODE.md, replaces the form starting at the site and writes HYPOTHESIS.txt. 0: wraps the site's call in an `if`
+# on a literal; 1: the same, and renames the `change` binding outside the site (scope_exceeded); 2: a call of a fresh
+# `defproc` helper holding a planner call of the same type; 3: the string literal "x" (no manifest type).
+MUTATOR_I2 = f"""#!{sys.executable} -I
+import re
+from pathlib import Path
+brief = Path("EPISODE.md").read_text()
+index = int(re.match(r"# Episode (\\d+)", brief).group(1))
+name, line, column = re.search(r"^Site: .*@(.+):(\\d+):(\\d+)$", brief, re.M).groups()
+source = Path(name).read_text()
+start = sum(len(text) for text in source.splitlines(keepends=True)[:int(line) - 1]) + int(column) - 1
+depth = 0
+for end in range(start, len(source)):  # ponytail: the seeds' site forms hold no parenthesis inside a string
+    depth += {{"(": 1, ")": -1}}.get(source[end], 0)
+    if depth == 0:
+        break
+call = source[start:end + 1]
+wrapped = f'(if true {{call}} (record Change :summary "skipped" :account "skipped"))'
+helper = ("(defproc plan-change ((task String) (repo String)) -> Change\\n    :effects ((uses-provider providers.planner))"
+          "\\n    (provider-result providers.planner :prompt (implement-prompt :task task :repo repo)"
+          ' :model "claude-sonnet-5-5" :effort "medium" :timeout-sec 5400))\\n\\n  (defworkflow run')
+replacement, extra = [
+    (wrapped, []),
+    (wrapped, [("(change ", "(result "), ("change.summary", "result.summary")]),
+    ("(plan-change task repo)", [("(defworkflow run", helper)]),
+    ('"x"', []),
+][index]
+source = source[:start] + replacement + source[end + 1:]
+for old, new in extra:
+    assert source.count(old) == 1, old
+    source = source.replace(old, new)
+Path(name).write_text(source)
+Path("HYPOTHESIS.txt").write_text(f"episode {{index}} should do better\\nsecond line\\n")
+"""
 
 
 def script(world, entries):

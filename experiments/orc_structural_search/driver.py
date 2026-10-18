@@ -1,7 +1,8 @@
-"""Mode 1 of the structural search driver: catalog enumeration and unguided I1 episodes.
+"""Mode 1 of the structural search driver (catalog enumeration and unguided I1 episodes) and the episode
+function I1 and I2 share (run_episode).
 
-Design: docs/design/orc_structural_search_driver.md ("Search Modes" mode 1, "Proposal Interfaces" I1,
-"Records", "Evaluation Hygiene"). Two roots, neither inside the other:
+Design: docs/design/orc_structural_search_driver.md ("Search Modes" mode 1, "Proposal Interfaces" I1 and I2,
+"Edit Validation And Transactions", "Records", "Evaluation Hygiene"). Two roots, neither inside the other:
 
   work root (sandbox-visible; `run_arm`'s work root)
     records/, runs/, agents/, env-manifests/   evaluations (see evaluation.py)
@@ -60,13 +61,17 @@ from experiments.compare import prepare
 from experiments.compare.repos import (
     SEED_COMMIT, SEED_DATES, dump, git, guard, main_checkout, runtime_commit, shim_prefix, visible_in_sandbox)
 from experiments.orc_structural_search import ledger
+from experiments.orc_structural_search.briefs import episode_brief
 from experiments.orc_structural_search.candidates import (
-    _file_names, candidate_id, compile_candidate, imports, snapshot, validate_frozen_surfaces)
+    _file_names, _owner_form, _subform, candidate_id, compile_candidate, imports, snapshot, validate_frozen_surfaces,
+    validate_one_site)
 from experiments.orc_structural_search.config import ExperimentConfig, load_config
 from experiments.orc_structural_search.evaluation import EVALUATOR_VERSION, evaluate
 from experiments.orc_structural_search.readout import readout
 from experiments.orc_structural_search.records import (
     UNAVAILABLE, append_record, provider_allocation, read_records, skeleton_hash)
+from experiments.orc_structural_search.sites import (
+    HYPOTHESIS, _forms_and_text, _parent_site, derive_receipt, site_manifest, slot_type)
 
 EPISODE = "EPISODE.md"
 _LOG_LOCK = threading.Lock()  # concurrent evaluations append to one log
@@ -203,31 +208,9 @@ def enumerate_catalog(seeds: Sequence[Path], config: ExperimentConfig, *, tasks:
                         solutions=solutions, holdouts=holdouts, call_cap=call_cap)
 
 
-def episode_brief(config: ExperimentConfig, index: int) -> str:
-    module = config.entry_workflow.split("::")[0]
-    compile_args = ["python", "-P", "-m", "orchestrator", "compile", f"{module}.orc", "--entry-workflow",
-                    config.entry_workflow, "--source-root", config.source_root, "--provider-externs-file",
-                    config.providers_file]
-    boundary = ""
-    if config.command_boundaries_file:
-        compile_args += ["--command-boundaries-file", config.command_boundaries_file]
-        boundary = f"the command boundary file {config.command_boundaries_file}; "
-    return (f"# Episode {index}\n\n"
-            f"Objective: rewrite the workflow `{config.entry_workflow}` in this directory into a policy you expect "
-            "to complete coding tasks in a git repository more reliably or with fewer provider calls. The "
-            "evaluator and its tasks are not visible here.\n\n"
-            f"Mutable scope: files {', '.join(config.mutable_files)}; definitions "
-            f"{', '.join(config.mutable_definitions)}; condition {config.condition}.\n\n"
-            "Frozen surfaces: imports; deftype, defrecord, defunion and defenum declarations; export, module and "
-            f"language forms; exported signatures; {boundary}and what the condition does not permit (topology-only freezes prompts, the providers file and any "
-            ":model/:effort value the module does not already use). Adding or removing files or definitions, "
-            "or changing a frozen surface, refuses the proposal.\n\n"
-            f"Check an edit with: PYTHONPATH=../py {shlex.join(compile_args)}\n")
-
-
 def episode_workspace(parent_root: Path, tree: Path, brief: str, runtime: Path) -> tuple[Path, str]:
     """(<tree>/cand-1, its commit): a git repository holding the parent snapshot in one commit, with the brief
-    in EPISODE.md (excluded from patches, like the build cache); <tree>/tmp; and <tree>/py/orchestrator, a copy
+    in EPISODE.md (excluded from patches, like the build cache and the I2 HYPOTHESIS.txt); <tree>/tmp; and <tree>/py/orchestrator, a copy
     of the runtime's orchestrator for the brief's compile line (the shims strip PYTHONPATH, and naming the
     runtime would be a scan hit)."""
     guard(main_checkout(runtime), tree)
@@ -240,7 +223,7 @@ def episode_workspace(parent_root: Path, tree: Path, brief: str, runtime: Path) 
     git(copy, *SEED_COMMIT, env=SEED_DATES)
     (copy / ".git" / "info").mkdir(exist_ok=True)
     with (copy / ".git" / "info" / "exclude").open("a") as exclude:
-        exclude.write(f"/{EPISODE}\n/.orchestrate/\n")
+        exclude.write(f"/{EPISODE}\n/{HYPOTHESIS}\n/.orchestrate/\n")
     (copy / EPISODE).write_text(brief)
     (tree / "tmp").mkdir()
     return copy, git(copy, "rev-parse", "HEAD")
@@ -269,24 +252,57 @@ def entry_result(root: Path, build_key: str) -> object:
     return json.loads((root / ".orchestrate" / "build" / build_key / "closed_program.json").read_text())["result"]
 
 
-def judge_child(parent: Path, child: Path, config: ExperimentConfig, *, runtime: Path) -> dict:
-    """Frozen-surface validation, full compilation with the runtime's orchestrator (a compiler crash is a
-    rejection), then the entry's result type against the parent's."""
-    verdict = validate_frozen_surfaces(parent, child, config)
+def judge_child(parent: Path, child: Path, config: ExperimentConfig, *, runtime: Path, site: Mapping | None = None,
+                parent_candidate_id: str | None = None) -> dict:
+    """Validation, full compilation with the runtime's orchestrator (a compiler crash is a rejection), the I2 slot
+    check, then the entry's result type against the parent's. Without `site`: frozen-surface validation. With
+    `site` (I2): the receipt is derived from the child (`receipt` in the verdict), <child>/HYPOTHESIS.txt is then
+    removed, and the one-site transaction validates the child; it applies the frozen-surface rule itself with the
+    receipt's helpers allowed (a plain frozen-surface check would refuse any helper)."""
+    receipt = None
+    if site is None:
+        verdict = validate_frozen_surfaces(parent, child, config)
+    else:
+        receipt = derive_receipt(parent, child, site, config, parent_candidate_id=parent_candidate_id)
+        (child / HYPOTHESIS).unlink(missing_ok=True)
+        verdict = validate_one_site(parent, child, receipt, config)
+    shown = {"receipt": asdict(receipt) if receipt else None}
     if not verdict.accepted:
-        return {"outcome": "rejected", "refusal_code": verdict.code, "detail": verdict.detail}
+        return {**shown, "outcome": "rejected", "refusal_code": verdict.code, "detail": verdict.detail}
     compiled = compile_candidate(child, config, runtime=runtime)
     if compiled.status != "accepted":
         first = compiled.diagnostics[0] if compiled.diagnostics else {}
-        return {"outcome": "rejected", "diagnostics_class": first.get("code", UNAVAILABLE),
+        return {**shown, "outcome": "rejected", "diagnostics_class": first.get("code", UNAVAILABLE),
                 "detail": first.get("message") or first.get("stderr", "")}
+    refusal = slot_refusal(parent, child, site, config, runtime=runtime) if site else None
     # Fires only when the entry is not exported or lacks a result annotation: frozen-surface validation already
     # freezes an exported signature and every type declaration.
-    parent_build = compile_candidate(parent, config, runtime=runtime)
-    if entry_result(parent, parent_build.build_key) != entry_result(child, compiled.build_key):
-        return {"outcome": "rejected", "refusal_code": "slot_type_changed",
-                "detail": f"the result type of {config.entry_workflow} differs from the parent's"}
-    return {"outcome": "accepted", "program_digest": compiled.program_digest, "build_key": compiled.build_key}
+    if refusal is None and entry_result(parent, compile_candidate(parent, config, runtime=runtime).build_key) != \
+            entry_result(child, compiled.build_key):
+        refusal = {"refusal_code": "slot_type_changed",
+                   "detail": f"the result type of {config.entry_workflow} differs from the parent's"}
+    if refusal is not None:
+        return {**shown, "outcome": "rejected", **refusal}
+    return {**shown, "outcome": "accepted", "program_digest": compiled.program_digest,
+            "build_key": compiled.build_key}
+
+
+def slot_refusal(parent: Path, child: Path, site: Mapping, config: ExperimentConfig, *, runtime: Path) -> dict | None:
+    """The slot check of an accepted one-site child: the child manifest's type at the replacement's start against
+    the parent site's (`slot_type_changed`; `slot_type_unavailable` when the manifest reports none, e.g. for a
+    literal replacement), or None when they are equal."""
+    owner_name, file_name, _, path = _parent_site(parent, site["site_id"])
+    child_forms, _ = _forms_and_text(child / file_name)  # readable: the one-site transaction parsed it
+    start = _subform(_owner_form(child_forms, owner_name), path).span.start
+    found = slot_type(site_manifest(child, config, runtime=runtime), site["owner"]["name"], file_name, start.line,
+                      start.column)
+    expected = site["result_type"]["canonical"]
+    if found is None:
+        return {"refusal_code": "slot_type_unavailable",
+                "detail": f"the manifest reports no type at {file_name}:{start.line}:{start.column}"}
+    if found != expected:
+        return {"refusal_code": "slot_type_changed", "detail": f"the replacement is {found}, the site {expected}"}
+    return None
 
 
 def mutable_source(root: Path, config: ExperimentConfig) -> str:
@@ -339,23 +355,33 @@ def drop_git(copy: Path, base: str) -> bool:
     return intact
 
 
-def unguided_episode(parent_root: Path, config: ExperimentConfig, *, agent_cmd: Sequence[str], work_root: Path,
-                     evidence_root: Path, episode_index: int, runtime: Path, env: Mapping[str, str],
-                     solutions: Mapping[str, str], call_cap: int, holdouts: Sequence[Path] = ()) -> dict:
-    """One I1 episode against the archived parent (refused beyond the call cap): the agent command edits a copy
-    of it behind the shims (see the module docstring); the child is the copy's final files, whose diff is kept.
-    The episode is scanned; an accepted child is archived; the episode record is appended to the log."""
+def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, mode: str, agent_cmd: Sequence[str],
+                work_root: Path, evidence_root: Path, episode_index: int, runtime: Path, env: Mapping[str, str],
+                solutions: Mapping[str, str], call_cap: int, holdouts: Sequence[Path] = (),
+                site: Mapping | None = None, feedback: Mapping | None = None, generation: int | None = None,
+                run_seed: int | None = None) -> dict:
+    """One episode against the archived parent (refused beyond the call cap): the agent command edits a copy of it
+    behind the shims (see the module docstring), briefed by `briefs.episode_brief` (I2: `site`, which I1 must not
+    have; `feedback`, the parent's own evidence); the child is the copy's final files, whose diff is kept. The
+    episode is scanned and judged (judge_child; I2 through the one-site transaction); an accepted child is
+    archived; the episode record is appended to the log."""
+    if (interface == "I2") != (site is not None):
+        raise ValueError(f"interface {interface} with site {site and site['site_id']}: an I2 episode needs a site, "
+                         "an I1 episode takes none")
     work_root, evidence_root = check_roots(work_root, evidence_root)
     commit = runtime_commit(runtime)
     parent_id = check_archived(parent_root, commit)
-    episode_id = "sha256:" + hashlib.sha256(json.dumps(
-        [parent_id, config.interface, config.condition, config.episode_wall_clock_sec, episode_index]).encode()
-    ).hexdigest()
+    site_id = site["site_id"] if site else None
+    identity = [parent_id, interface, config.condition, config.episode_wall_clock_sec, episode_index]
+    if (generation, site_id, run_seed) != (None, None, None):  # Phase 1 episode ids stay as they were
+        identity += [generation, site_id, run_seed]
+    episode_id = "sha256:" + hashlib.sha256(json.dumps(identity).encode()).hexdigest()
     slot = ledger.reserve(evidence_root, kind="episode", key=episode_id, planned=1, cap=call_cap)
     parent_shape = {"parent_skeleton": skeleton(parent_root, config),  # before the episode, which may be paid
                     "parent_provider_allocation": allocation(parent_root, config)}
     tree, records = work_root / "episodes" / f"episode-{episode_index}", evidence_root / "episodes" / episode_id
-    copy, base = episode_workspace(parent_root, tree, episode_brief(config, episode_index), runtime)
+    brief = episode_brief(config, episode_index, site=site, feedback=feedback)
+    copy, base = episode_workspace(parent_root, tree, brief, runtime)
     records.mkdir(parents=True)
     created_at, started = time.time(), time.monotonic()
     shim_env = {"COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": base, "TMPDIR": tree / "tmp"}
@@ -367,18 +393,22 @@ def unguided_episode(parent_root: Path, config: ExperimentConfig, *, agent_cmd: 
                         holdouts=holdouts, created_at=created_at)
     (copy / EPISODE).unlink(missing_ok=True)
     intact = drop_git(copy, base)
+    stopped = stopped or (None if intact else "incident")  # the shims' patches were taken against a lost base
+    verdict = {"outcome": stopped, "receipt": None} if stopped else judge_child(
+        parent_root, copy, config, runtime=runtime, site=site, parent_candidate_id=parent_id)
+    (copy / HYPOTHESIS).unlink(missing_ok=True)  # judge_child read it into the receipt; it is never in the child
     (evidence_root / "episodes" / f"{episode_id}.diff").write_text(episode_diff(parent_root, copy))
-    row = {"kind": "episode", "mode": "unguided", "interface": config.interface, "condition": config.condition,
-           "episode_id": episode_id, "episode_index": episode_index, "parent_candidate_id": parent_id,
+    row = {"kind": "episode", "mode": mode, "interface": interface, "condition": config.condition,
+           "episode_id": episode_id, "episode_index": episode_index, "generation": generation, "run_seed": run_seed,
+           "site_id": site_id, "feedback": feedback, "parent_candidate_id": parent_id,
            "candidate_id": candidate_id(copy, orchestrator_commit=commit), "agent_cmd": list(agent_cmd),
            "agent_exit": status, "envelope": {"wall_clock_sec": config.episode_wall_clock_sec},
            "wall_clock_sec": elapsed, "provider_calls": calls, "scan_hits": len(hits), "scan_pending": bool(hits),
            "workspace_intact": intact,
            "consumption": UNAVAILABLE, "model_revision": UNAVAILABLE,
-           "hypothesis": UNAVAILABLE, "refusal_code": None, "diagnostics_class": None, "skeleton": None,
-           "provider_allocation": None, **parent_shape}
-    stopped = stopped or (None if intact else "incident")  # the shims' patches were taken against a lost base
-    row.update({"outcome": stopped} if stopped else judge_child(parent_root, copy, config, runtime=runtime))
+           "hypothesis": verdict["receipt"]["hypothesis"] if verdict["receipt"] else UNAVAILABLE,
+           "refusal_code": None, "diagnostics_class": None, "skeleton": None,
+           "provider_allocation": None, **parent_shape, **verdict}
     if row["outcome"] == "accepted":
         _, root = archive(copy, evidence_root, runtime)
         row.update(candidate_root=str(root), skeleton=skeleton(root, config),
@@ -410,9 +440,9 @@ def run_mode1(config_path: Path, *, seeds: Sequence[Path], tasks: Sequence[Path]
         raise ValueError(f"the entry {config.entry_workflow} names no seed among {[s.name for s in seeds]}")
     parent = Path(parents.pop())
     for index in range(episodes):
-        episode = unguided_episode(parent, config, agent_cmd=agent_cmd, work_root=work_root,
-                                   evidence_root=evidence_root, episode_index=index, runtime=runtime, env=env,
-                                   solutions=solutions, call_cap=call_cap, holdouts=holdouts)
+        episode = run_episode(parent, config, interface="I1", mode="unguided", agent_cmd=agent_cmd,
+                              work_root=work_root, evidence_root=evidence_root, episode_index=index, runtime=runtime,
+                              env=env, solutions=solutions, call_cap=call_cap, holdouts=holdouts)
         if episode["outcome"] == "accepted":
             fields = {"mode": "unguided", "episode_id": episode["episode_id"], "candidate_id": episode["candidate_id"],
                       "parent_candidate_id": episode["parent_candidate_id"], "candidate_root": episode["candidate_root"]}
