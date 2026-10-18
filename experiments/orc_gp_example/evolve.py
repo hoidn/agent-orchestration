@@ -137,7 +137,8 @@ def orchestrator(workspace: Path, command: str, *extra: str) -> subprocess.Compl
 
 def score(genotype: tuple, memo: Path) -> dict:
     """Whole-run fitness from the memo: success needs a completed DONE terminal and a passing final check;
-    cost prices every committed provider call by model. Missing terminal or final check -> fitness None."""
+    cost prices each `committed` row whose effect_class is `provider`, by model (started, phased or failed
+    attempt rows are not priced). Missing terminal or final check -> fitness None."""
     rows = [json.loads(line) for line in memo.read_text().splitlines() if line]
     committed = [r for r in rows if r.get("record") == "committed"]
     terminal = next((r for r in rows if r.get("record") == "terminal"), None)
@@ -249,10 +250,16 @@ def table(results: dict) -> str:
     return "\n".join(rows)
 
 
+def _at_least_two(text: str) -> int:
+    if int(text) < 2:
+        raise argparse.ArgumentTypeError("population must be at least 2 (size-2 tournaments)")
+    return int(text)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--population", type=int, default=6)
+    parser.add_argument("--population", type=_at_least_two, default=6, help="mu = lambda; >= 2 (tournaments)")
     parser.add_argument("--generations", type=int, default=4)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--ill-typed-rate", type=float, default=0.0)

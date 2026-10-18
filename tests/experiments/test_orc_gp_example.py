@@ -24,6 +24,7 @@ def test_every_grammar_production_renders_a_compiling_module(tmp_path):
 def test_ill_typed_individual_is_recorded_as_rejected(tmp_path):
     record = evaluate((("ill_typed_implement", "claude-sonnet-5-5"),), tmp_path)
     assert (record["compile"], record["fitness"]) == ("rejected", None)
+    assert "record_field_unknown" in record["compile_error"]
 
 
 @pytest.fixture(scope="module")
@@ -43,6 +44,7 @@ def test_every_individual_compiled(results):
 
 def test_best_fitness_never_decreases(results):
     best = [g["best_fitness"] for g in [results["initial"], *results["generations"]]]
+    assert None not in best
     assert best == sorted(best)
 
 
