@@ -109,15 +109,17 @@ def resolved(spec):
 
 def refuse_paths(main, root, runtime, spec):
     """The runtime and the spec's files (a candidate root among them) outside the main checkout's prefix
-    and the work root; the work root visible in the shims' sandbox."""
+    and the work root; the work root and the spec's state directory (agents write results there) outside
+    the main checkout's prefix and visible in the shims' sandbox."""
     files = [p for p in (spec.source, spec.source_root, spec.providers, spec.command_boundaries) if p]
-    guard(main, root, runtime, *files)
+    state = [spec.state_dir] if spec.state_dir else []
+    guard(main, root, runtime, *files, *state)
     if str(runtime).startswith(f"{root}/"):
         raise SystemExit(f"the runtime {runtime} lies inside the work root {root}, where agents work")
     for path in files:
         if str(path).startswith(f"{root}/"):
             raise SystemExit(f"the arm's {path} lies inside the work root {root}, where agents work")
-    visible_in_sandbox(root)
+    visible_in_sandbox(root, *state)
 
 
 def next_run_dir(arm_dir):
@@ -131,7 +133,7 @@ def next_run_dir(arm_dir):
 
 
 def arm_inputs(task, arm, candidates, sets, fields=None):
-    fields = fields or ARMS[arm][4]
+    fields = fields if fields is not None else ARMS[arm][4]
     extra = dict(item.split("=", 1) for item in sets)
     if arm == "review_once" and {"account", "replies"} & set(extra):
         raise SystemExit("review_once's account and replies are frozen by the calibration criterion; do not --set them")
@@ -185,7 +187,9 @@ def apply_patch(records, tree, cand, patch):
 def run_arm(task, arm, root, runtime, candidates=None, sets=(), apply=None, spec=None):
     """Build the run's agents' tree and records directory, print the command; return the records directory.
     `spec` replaces the ARMS lookup (`arm` then only names W/records/<arm>/); its paths face the runtime's
-    guards."""
+    guards. A spec takes a name outside ARMS, whose special cases (best_of_n, review_once) it would meet."""
+    if spec and arm in ARMS:
+        raise SystemExit(f"{arm} names a fixed arm; run a spec under another name")
     count = candidates or (4 if arm == "best_of_n" else 1)
     if arm != "best_of_n" and count != 1:
         raise SystemExit(f"{arm} works in a single candidate, not {count}")
@@ -309,6 +313,8 @@ def collect(records):
     """Pair the memo's provider effects with call directories and copy the comparator's patches."""
     records = records.resolve()
     record = load(records / "record.json")
+    if record.get("arm_kind") == "generic-command":
+        raise SystemExit(f"{records} is a generic-command run: it has no orchestrator memo to collect")
     memo, rows = finished_memo(record.get("state_root", records / "state"))  # R/state: prepared before R34
     calls = paired_calls(records, rows)
     committed = [calls[(r["identity"], r["attempt"])] for r in rows

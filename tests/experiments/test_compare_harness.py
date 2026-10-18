@@ -560,3 +560,24 @@ def test_scan_flags_archive_lineage_and_holdout_roots(world, monkeypatch):
     hits = json.loads((records / "record.json").read_text())["scan"]["hits"]
     assert sorted((h["line"], h["pattern"]) for h in hits) == [
         (2, "archive"), (3, "lineage"), (4, "holdout"), (5, "holdout")]
+
+
+@pytest.mark.parametrize("where, message", [("main", "main checkout prefix"), ("tmp", "sandbox replaces")])
+def test_candidate_root_spec_refuses_a_state_dir_agents_could_not_use(world, where, message):
+    state = {"main": world.tmp / "main-evidence" / "runs" / "e1", "tmp": Path("/tmp/compare-state/e1")}[where]
+    spec = candidate_spec(world, candidate_root(world), state_dir=state)
+    with pytest.raises(SystemExit, match=message):
+        prepare.run_arm(world.task, "candidate", world.root, world.runtime, spec=spec)
+
+
+def test_a_spec_may_not_take_the_name_of_a_fixed_arm(world):
+    with pytest.raises(SystemExit, match="best_of_n names a fixed arm"):
+        prepare.run_arm(world.task, "best_of_n", world.root, world.runtime,
+                        spec=candidate_spec(world, candidate_root(world)))
+
+
+def test_collect_refuses_a_generic_command_run(world):
+    spec = candidate_spec(world, candidate_root(world), command=("true",))
+    records = prepare.run_arm(world.task, "control", world.root, world.runtime, spec=spec)
+    with pytest.raises(SystemExit, match="generic-command"):
+        prepare.collect(records)
