@@ -466,8 +466,21 @@ def test_phase2_readout_refuses_a_run_without_a_reference_row(tmp_path):
     run = Run(tmp_path / "run-1", reference=None)
     run.archived(0, ("P", 4.0, 2))
     run.episode("C1", interface="I1", outcome="rejected")
-    with pytest.raises(ValueError, match="expected one reference candidate"):
+    with pytest.raises(ValueError, match="expected one reference row, found 0"):
         readout2([run])
+
+
+def test_phase2_readout_refuses_a_run_with_two_reference_rows(run):
+    append_record(run.log, {"kind": "reference", "candidate_id": "P", "run": "run-1"})
+    with pytest.raises(ValueError, match="expected one reference row, found 2"):
+        readout2([run])
+
+
+def test_phase2_readout_anchor_spread_sees_every_pool_of_a_task_in_one_generation(run):
+    run.episode("C1", interface="I1", value=6.0)  # generation 1, upstream anchor 8
+    run.episode("C2", interface="I2", value=6.0, up=5)  # generation 1, another pool of each task: upstream 5
+    result = readout2([run])["runs"][0]
+    assert (result["anchors"][ADAPTIVE[0]]["anchor_spread"], result["improvement_rule"]) == ({"j": 3}, "anchor_spread")
 
 
 def test_phase2_readout_never_pools_interfaces(run):

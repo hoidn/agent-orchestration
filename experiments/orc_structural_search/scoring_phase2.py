@@ -44,13 +44,14 @@ def archive_files(directory: Path) -> list[tuple[int, list[dict]]]:
 
 
 def reference(logs: Sequence[Path], rows: Sequence[Sequence[Mapping]]) -> str:
-    """The candidate every run's single `reference` row names; a missing row or a disagreement raises."""
+    """The candidate every run's single `reference` row names; a missing or repeated row, or a disagreement,
+    raises."""
     found: dict[str, list] = {}
     for log, run in zip(logs, rows, strict=True):
-        named = {row["candidate_id"] for row in run if row["kind"] == "reference"}
+        named = [row["candidate_id"] for row in run if row["kind"] == "reference"]
         if len(named) != 1:
-            raise ValueError(f"{log}: expected one reference candidate, found {sorted(named)}")
-        found.setdefault(named.pop(), []).append(str(log))
+            raise ValueError(f"{log}: expected one reference row, found {len(named)} naming {sorted(named)}")
+        found.setdefault(named[0], []).append(str(log))
     if len(found) != 1:
         raise ValueError(f"runs disagree on the reference seed: {found}")
     return next(iter(found))
@@ -68,14 +69,15 @@ def adaptive_means(pools: Sequence[tuple[int, Mapping]], tasks: Sequence[str]) -
 
 def adaptive_anchors(pools: Sequence[tuple[int, Mapping]], tasks: Sequence[str], criterion: Mapping) -> dict:
     """Per adaptive task: anchors_ok per generation (all its pools) and the anchor spread per judge across every
-    generation's batches, with spread_ok against the criterion's limit."""
+    generation's batches (one batch per (generation, pool, batch): a generation may hold several pools of a task),
+    with spread_ok against the criterion's limit."""
     limit, result = criterion["anchor_spread_limit"], {}
     for task in tasks:
         roles, mine = criterion["anchors"][task], [(g, pool) for g, pool in pools if pool["task"] == task]
         generations: dict[int, bool] = {}
         for g, pool in mine:
             generations[g] = generations.get(g, True) and anchor_checks(pool["anchors"], roles, limit)["anchors_ok"]
-        merged = [a | {"batch": (g, a["batch"])} for g, pool in mine for a in pool["anchors"]]
+        merged = [a | {"batch": (g, k, a["batch"])} for k, (g, pool) in enumerate(mine) for a in pool["anchors"]]
         checks = anchor_checks(merged, roles, limit)
         result[task] = {"generations": generations, "anchor_spread": checks["anchor_spread"],
                         "spread_ok": checks["spread_ok"]}

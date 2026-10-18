@@ -85,7 +85,8 @@
     "provider_calls": "mean",
     "rule": "checked first: the validation pool's anchors inverted -> anchors_inverted, its anchor spread above anchor_spread_limit -> anchor_spread, the reference without a valued validation run -> reference_unvalued; each withholds the final choice. Otherwise (chosen) records.final_choice over the validated candidates with a valued run: rows above the ceiling excluded, then within equivalence_tolerance of the best validation mean, then lower mean_cost, fewer provider_calls, earlier candidate_id",
     "shrinkage": "per validated candidate: screening mean (the mean over runs of its mean_value in the latest archive file that holds it) minus validation mean",
-    "validated": "the validation pool holds exactly the top finalists_per_run of each run's final archive by mean_value (ties: fewer mean_calls, earlier candidate_id), the reference and the direct seed's entry when distinct, each with validation_replicates runs; any other set fails the readout; a validated candidate without a valued run is reported as unvalued"
+    "validated": "the validation pool holds exactly the top finalists_per_run of each run's final archive by mean_value (ties: fewer mean_calls, earlier candidate_id), the reference and the direct seed's entry when distinct, each with validation_replicates runs; any other set fails the readout; a validated candidate without a valued run is reported as unvalued",
+    "direct": "adaptive.py must keep the direct seed's archive entry (seed: \"direct\") in gen-0.json (the initial archive), so the readout finds direct's candidate_id; the readout fails without exactly one such entry across a run's archive files"
   },
   "anchor_trust": "from the validation pool's results.json anchors: anchors_ok when, in every batch and for every judge not excluded, the upstream anchor's total is strictly above the stub's (a missing anchor fails); anchor_spread per judge is the largest difference of one anchor's total across batches. Each pool's results.json criterion_sha256 must equal this file's SHA-256",
   "reported": [
@@ -97,5 +98,5 @@
   "model_policy": "no call uses a Fable model (owner, 2026-10-15): mutators, evaluations, judges and in-process subagents run behind the shims' model guard",
   "written_before_scoring": true,
   "not_tested": "whether adaptive search beats equal-budget controls (catalog seeds or unguided episodes at the same call budget) is not tested in Phase 2: it is Phase 3's pre-registered comparison; Phase 2 makes no efficiency claim between interfaces or against controls",
-  "reference": "the reference seed is the initial incumbent, named by the one log row {\"kind\": \"reference\", \"candidate_id\": <id>, \"run\": <run label>} each run writes when its initial archive is built; a missing row or runs naming different candidates fail the readout"
+  "reference": "the reference seed is the initial incumbent, named by exactly one log row {\"kind\": \"reference\", \"candidate_id\": <id>, \"run\": <run label>} each run writes when its initial archive is built; a missing or repeated row, or runs naming different candidates fail the readout"
 }
