@@ -6,9 +6,9 @@ docs/plans/2026-10-18-orc-structural-search-phase2-plan.md (Decisions 1, 4-8, Ta
 scoring_phase2.phase2_readout; this module writes what it reads.
 
 An archive entry: {candidate_id, candidate_root, seed (stem, or None for a child), module (the lineage seed's stem:
-its configuration, driver.seed_config), values {task: [judged value]}, calls [provider calls per judged
-evaluation], mean_value (mean over the adaptive tasks of the per-task means), mean_calls, evidence ("phase1-prior"
-or "adaptive"), generation (the one it entered in; 0 for seeds)}. The archive is the incumbent plus at most
+its configuration, driver.seed_config), values {task: [primary value: a completed run's judged value, 0 for a
+failed run; incidents and unvalued runs left out]}, calls [provider calls per counted evaluation], mean_value (mean
+over the adaptive tasks of the per-task means), mean_calls, evidence ("phase1-prior" or "adaptive"), generation (the one it entered in; 0 for seeds)}. The archive is the incumbent plus at most
 ARCHIVE_SIZE frontier members: non-dominated on (mean_value higher, mean_calls lower), ranked by mean_value, then
 fewer calls, then the earlier id (the incumbent is the first). Phase 1's joined catalog rows are prior evidence.
 
@@ -57,7 +57,8 @@ from experiments.orc_structural_search.driver import (
 from experiments.orc_structural_search.readout import readout
 from experiments.orc_structural_search.records import UNAVAILABLE, append_record, read_records
 from experiments.orc_structural_search.scoring import (
-    ANCHORS_PER_BATCH, BATCH_CLONES, DIRECT, join_scores, pool_evaluations)
+    ANCHORS_PER_BATCH, BATCH_CLONES, DIRECT, join_scores, latest_evaluations, outcome_rows, pool_evaluations,
+    primary_value)
 from experiments.orc_structural_search.scoring_phase2 import archive_files
 from experiments.orc_structural_search.sites import eligible_sites, select_site, site_manifest
 
@@ -71,15 +72,16 @@ def rank(entry: Mapping) -> tuple:
 
 
 def make_entry(rows: Sequence[Mapping], tasks: Sequence[str], **fields: object) -> dict | None:
-    """The entry (`fields` plus values and means) of one candidate's joined rows; None unless valued on every
-    task of `tasks`."""
+    """The entry (`fields` plus values and means) of one candidate's scored rows (any outcome); None unless it has a
+    primary value (scoring.primary_value: a completed run's value, 0 for a failed run; incidents and unvalued runs
+    left out) on every task of `tasks`."""
+    counted = [row for row in rows if primary_value(row) is not None]
     values: dict[str, list] = {}
-    for row in rows:
-        if row["value"] is not None:
-            values.setdefault(row["task"], []).append(row["value"])
+    for row in counted:
+        values.setdefault(row["task"], []).append(primary_value(row))
     if not tasks or set(values) != set(tasks):
         return None
-    calls = [row["calls"] for row in rows if row["value"] is not None]
+    calls = [row["calls"] for row in counted]
     return {**fields, "values": values, "calls": calls, "mean_value": mean(mean(v) for v in values.values()),
             "mean_calls": mean(calls)}
 
@@ -170,14 +172,18 @@ def judge_generation(evidence_root: Path, generation: int, tasks: Sequence[Path]
                      scorer: Callable[[Path, str], None] | None = None,
                      include: Callable[[Mapping], bool] | None = None) -> list[dict]:
     """Judge each task's completed evaluations of `generation` (or those `include` keeps) in one blind pool (see
-    the module docstring); the joined rows of every pool. A task without such an evaluation has no pool."""
+    the module docstring); the joined rows of every pool followed by the kept failed and incident evaluations of
+    each task from the log (scoring.outcome_rows; once per evaluation id). A task without a completed evaluation
+    has no pool, only those rows."""
     log, scorer = evidence_root / "log.jsonl", scorer or run_judge
     include = include or (lambda row: row.get("generation") == generation)
     names = [spec.partition("=")[0] for spec in judges]
     joined = []
     for task in tasks:
-        if not any(r["kind"] == "evaluation" and r["task_id"] == task.name and r["outcome"] == "completed"
-                   and include(r) for r in read_records(log)):
+        kept = [r for r in latest_evaluations(read_records(log)) if include(r)]
+        failures = outcome_rows(kept, task.name)
+        if not any(r["task_id"] == task.name and r["outcome"] == "completed" for r in kept):
+            joined += failures
             continue
         label = f"gen-{generation}" if generation >= 0 else VALIDATION
         pool = pool_evaluations(evidence_root, task, out=pool_root / label / task.name, judges=judges,
@@ -186,7 +192,7 @@ def judge_generation(evidence_root: Path, generation: int, tasks: Sequence[Path]
                    call_cap=call_cap, scorer=scorer)
         summarize.summarize(pool, criterion)
         results = pool / "records" / "results.json"
-        joined += join_scores(results, log)
+        joined += join_scores(results, log) + failures
         append_record(log, {"kind": "judging", "generation": generation, "task": task.name, "pool": str(pool),
                             "results": str(results)})
     return joined
@@ -333,7 +339,8 @@ def run_mode2(config_path: Path, *, phase1_joined: Path, seeds: Sequence[Path], 
               judges: Sequence[str], pools_root: Path,
               scorer: Callable[[Path, str], None] | None = None) -> dict:
     """One mode 2 run on a fresh evidence root (see the module docstring); the readout, also <evidence>/readout.json.
-    `phase1_joined` is Phase 1's joined.json (scoring.join_scores rows); judges are MODEL[=PROVIDERS_JSON]; the
+    `phase1_joined` is Phase 1's joined.json (each task pool's scoring.read_pool rows: join_scores rows plus the
+    failed and incident evaluations); judges are MODEL[=PROVIDERS_JSON]; the
     tasks must be the criterion's; judge pools go under `pools_root` (check_pools_root)."""
     config = load_config(config_path)
     check_splits(adaptive_tasks, validation_task, criterion)

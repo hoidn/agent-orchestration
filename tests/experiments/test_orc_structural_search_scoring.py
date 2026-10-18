@@ -11,7 +11,7 @@ from experiments.compare import pool as pooling, prepare, summarize
 from experiments.compare.repos import sha256_file
 from experiments.orc_structural_search.records import UNAVAILABLE, append_record
 from experiments.orc_structural_search.scoring import (
-    join_scores, main, phase1_readout, pool_evaluations, read_pool, split_batches,
+    join_scores, log_only_pool, main, phase1_readout, pool_evaluations, read_pool, split_batches,
 )
 from tests.experiments.compare_harness_support import (  # noqa: F401 (world is a fixture)
     REPO, call, edit, skip_without_sandbox, world, write_memo,
@@ -150,6 +150,18 @@ def test_read_pool_lists_completed_evaluations_of_the_task_that_no_run_names(tmp
     assert read_pool(results, log, CRITERION)["unpooled"] == ["e2"]
 
 
+def test_read_pool_counts_a_failure_or_incident_logged_twice_once(tmp_path):
+    log = tmp_path / "log.jsonl"
+    for eid, outcome in (("e1", "completed"), ("e2", "failed"), ("e2", "failed"), ("e3", "incident"),
+                         ("e3", "incident"), ("e4", "incident"), ("e4", "failed")):  # e4: an incident resumed
+        append_record(log, log_row(tmp_path / "records" / eid / "run-1", eid=eid, outcome=outcome))
+    results = results_file(tmp_path, [run_row(tmp_path / "records" / "e1" / "run-1", "e1")],
+                           sha=sha256_file(CRITERION))
+    rows = read_pool(results, log, CRITERION)["rows"]
+    assert [(r["evaluation_id"], r["outcome"]) for r in rows] == [
+        ("e1", "completed"), ("e2", "failed"), ("e3", "incident"), ("e4", "failed")]
+
+
 def test_read_pool_takes_failed_and_incident_evaluations_of_the_task_from_the_log(tmp_path):
     log = tmp_path / "log.jsonl"
     for eid, outcome, task in (("e1", "completed", "task"), ("e2", "failed", "task"), ("e3", "incident", "task"),
@@ -183,7 +195,8 @@ def pool_of(task, values, *, children=None, anchors=TRUSTED):
              "value": None if v in (FAILED, INCIDENT) else v, "hidden": None, "calls": 1, "wall_clock_sec": 10.0}
             for mode, group in (("catalog", values), ("unguided", children or {}))
             for policy, vs in group.items() for k, v in enumerate(vs)]
-    return {"task": task, "rows": rows, "anchors": anchors, "agreement": {}, "excluded_judges": {}, "unpooled": []}
+    return {"task": task, "rows": rows, "anchors": anchors, "agreement": {}, "excluded_judges": {}, "unpooled": [],
+            "no_pool": False}
 
 
 def readout(t1, t2=None, driver=DIVERSE, **pool):
@@ -259,6 +272,17 @@ def test_phase1_readout_separation_uses_failure_inclusive_values():
 def test_phase1_readout_pooled_unguided_arm_counts_a_childs_failure_as_zero():
     task = readout(WIDE, children={"unguided:c1": [8], "unguided:c2": [FAILED]})["tasks"]["t1"]
     assert (task["unguided"]["mean"], task["unguided"]["valued_mean"], "unguided" in task["compared"]) == (4, 8, True)
+
+
+def test_phase1_readout_scores_a_task_whose_evaluations_all_failed_from_the_log_alone(tmp_path):
+    log = tmp_path / "log.jsonl"
+    for k, seed in enumerate(("direct", "direct", "best_of_n", "best_of_n")):
+        append_record(log, log_row(tmp_path / "records" / f"e{k}", eid=f"e{k}", task="t2", outcome="failed",
+                                   seed=seed, replicate=k % 2 + 1))
+    result = phase1_readout([pool_of("t1", WIDE), log_only_pool(log, "t2")], DIVERSE, CRIT)
+    task = result["tasks"]["t2"]
+    assert (task["no_pool"], task["anchors_ok"], task["policies"]["direct"]["mean"], task["separated"],
+            result["rule"]) == (True, UNAVAILABLE, 0, False, "within_tolerance")
 
 
 def test_phase1_readout_singleton_child_outlier_does_not_separate_a_null_catalog():

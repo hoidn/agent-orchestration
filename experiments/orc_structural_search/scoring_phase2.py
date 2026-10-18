@@ -35,7 +35,7 @@ from experiments.compare.repos import sha256_file
 from experiments.orc_structural_search.readout import diversity, share
 from experiments.orc_structural_search.records import UNAVAILABLE, control_heads, final_choice, read_records
 from experiments.orc_structural_search.scoring import (
-    DIRECT, FAILED_POINTS, anchor_checks, policy_stats, read_pool,
+    DIRECT, FAILED_POINTS, anchor_checks, latest_evaluations, policy_stats, read_pool,
 )
 
 COMPLETED = ("accepted", "rejected")  # an episode that reached a verdict; stopped ones (exhausted, incident) did not
@@ -73,7 +73,7 @@ def adaptive_means(pools: Sequence[tuple[int, Mapping]], log_rows: Sequence[Mapp
         for row in pool["rows"]:
             if row["outcome"] == "completed" and row["value"] is not None:
                 values.setdefault(row["candidate_id"], {}).setdefault(row["task"], []).append(row["value"])
-    failed = [row for row in log_rows if row["kind"] == "evaluation" and row.get("split") == "adaptive"
+    failed = [row for row in latest_evaluations(log_rows) if row.get("split") == "adaptive"
               and row["outcome"] == "failed" and row["task_id"] in tasks]
     for row in failed:
         values.setdefault(row["candidate_id"], {}).setdefault(row["task_id"], []).append(FAILED_POINTS)

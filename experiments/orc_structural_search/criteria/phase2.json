@@ -57,7 +57,7 @@
   "archive": {
     "size": 6,
     "frontier_axes": {
-      "mean_value": "higher: mean judged value over the adaptive tasks",
+      "mean_value": "higher: mean over the adaptive tasks of the failure-inclusive mean per task (failure_rule), computed by adaptive.make_entry; it drives parent selection, the parent side of improvement, the finalists and the screening mean",
       "mean_calls": "lower: mean provider calls"
     },
     "incumbent": "highest mean_value; ties: fewer mean_calls, then the lexically earlier candidate_id",
@@ -99,5 +99,5 @@
   "written_before_scoring": true,
   "not_tested": "whether adaptive search beats equal-budget controls (catalog seeds or unguided episodes at the same call budget) is not tested in Phase 2: it is Phase 3's pre-registered comparison; Phase 2 makes no efficiency claim between interfaces or against controls",
   "reference": "the reference seed is the initial incumbent, named by exactly one log row {\"kind\": \"reference\", \"candidate_id\": <id>, \"run\": <run label>} each run writes when its initial archive is built; a missing or repeated row, or runs naming different candidates fail the readout",
-  "failure_rule": "amended 2026-10-18, before any Phase 2 score existed, with Phase 1's primary measure: every mean below is failure-inclusive: over a candidate's evaluations whose outcome is completed or failed, a completed evaluation contributing summarize's run value and a failed one (the log's outcome field) 0 rubric points; incident evaluations are excluded and counted, a completed evaluation without a value is excluded and counted as excluded. Reason: a valued-only mean drops failed runs and favours candidates that fail; a task failure, invalid submission or timeout is an outcome whose cost counts, only infrastructure incidents follow the incident policy. Adaptive failures are read from each run's log (split adaptive)"
+  "failure_rule": "amended 2026-10-18, before any Phase 2 score existed, with Phase 1's primary measure: every mean below is failure-inclusive: over a candidate's evaluations whose outcome is completed or failed, a completed evaluation contributing summarize's run value and a failed one (the log's outcome field) 0 rubric points; incident evaluations are excluded and counted, a completed evaluation without a value is excluded and counted as excluded. Reason: a valued-only mean drops failed runs and favours candidates that fail; a task failure, invalid submission or timeout is an outcome whose cost counts, only infrastructure incidents follow the incident policy. Adaptive failures are read from each run's log (split adaptive); log rows count once per evaluation id (the last row). Archive entries (mean_value), Phase 1 prior rows (each Phase 1 pool's read_pool rows, failures included) and the readout's adaptive and validation means all follow it"
 }

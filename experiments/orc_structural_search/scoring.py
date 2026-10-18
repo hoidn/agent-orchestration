@@ -17,7 +17,10 @@ own arm and knows nothing of policies. This module adds the three steps around t
   read_pool          one task's pool: joined rows plus the task's failed and incident evaluations from the log
                      (collect records no patch for them, so summarize has no run row), summarize's anchors,
                      agreement and excluded judges, and the completed evaluations no run row names (`unpooled`);
-                     refuses another criterion's results.
+                     refuses another criterion's results. Log rows count once per evaluation id
+                     (latest_evaluations: the last row wins, so a resumed incident counts as its later outcome).
+  log_only_pool      a task with no completed evaluation has no pool: its failed and incident rows from the log
+                     alone (`no_pool`; anchors not applicable, so the anchor gate skips it).
   phase1_readout     per task: catalog policy, child and pooled `unguided` stats; separation over arms with two or
                      more primary values (primary_value: a completed run's value, 0 for a failed run; criterion
                      amendment of 2026-10-18); DIRECT's rank; anchor order and cross-batch spread per judge; the
@@ -132,6 +135,19 @@ def build_pool(task: Path, criterion: Path, out: Path, judges: Sequence[str], re
           f"each followed by: prepare.py verify-pool --pool {out}")
 
 
+def latest_evaluations(rows: Sequence[Mapping]) -> list[dict]:
+    """The evaluation rows among log `rows`, one per evaluation id: the last appended."""
+    return list({row["evaluation_id"]: row for row in rows if row["kind"] == "evaluation"}.values())
+
+
+def outcome_rows(records: Sequence[Mapping], task: str) -> list[dict]:
+    """A scored row (value and hidden None; calls and wall clock the log's) per failed or incident evaluation of
+    `task` among the deduplicated log `records`."""
+    return [evaluation_row(r, value=None, hidden=None, calls=r.get("provider_calls", UNAVAILABLE),
+                           wall_clock_sec=r.get("wall_clock_sec", UNAVAILABLE))
+            for r in records if r["task_id"] == task and r["outcome"] in ("failed", "incident")]
+
+
 def evaluation_row(record: Mapping, **measures) -> dict:
     """A log evaluation record as a scored row: identity, outcome, then `measures` (value, hidden, calls,
     wall_clock_sec)."""
@@ -149,8 +165,7 @@ def primary_value(row: Mapping) -> float | None:
 def join_scores(results_json: Path, log: Path) -> list[dict]:
     """One row per summarize run: {evaluation_id, candidate_id, mode, policy, task, replicate, outcome, value, hidden,
     calls, wall_clock_sec}."""
-    evaluations = {str(Path(row["records_dir"]).resolve()): row
-                   for row in read_records(log) if row["kind"] == "evaluation"}
+    evaluations = {str(Path(row["records_dir"]).resolve()): row for row in latest_evaluations(read_records(log))}
     rows = []
     for run in json.loads(Path(results_json).read_text())["runs"]:
         record = evaluations.get(str(Path(run["run"]).resolve()))
@@ -179,15 +194,24 @@ def read_pool(results_json: Path, log: Path, criterion: Path) -> dict:
     if len(tasks) != 1:
         raise ValueError(f"{results_json}: expected the runs of one task, found {sorted(tasks)}")
     task, pooled = tasks.pop(), {row["evaluation_id"] for row in rows}
-    mine = [r for r in read_records(log) if r["kind"] == "evaluation" and r["task_id"] == task]
-    unpooled = sorted(r["evaluation_id"] for r in mine
-                      if r["outcome"] == "completed" and r["evaluation_id"] not in pooled)
-    rows += [evaluation_row(r, value=None, hidden=None, calls=r.get("provider_calls", UNAVAILABLE),
-                            wall_clock_sec=r.get("wall_clock_sec", UNAVAILABLE))
-             for r in mine if r["outcome"] in ("failed", "incident")]
-    return {"task": task, "results": str(results_json), "rows": rows, "anchors": results["anchors"],
-            "agreement": results["agreement"], "excluded_judges": results["excluded_judges"], "unpooled": unpooled,
-            "criterion_sha256": sha}
+    records = latest_evaluations(read_records(log))
+    unpooled = sorted(r["evaluation_id"] for r in records
+                      if r["task_id"] == task and r["outcome"] == "completed" and r["evaluation_id"] not in pooled)
+    return {"task": task, "results": str(results_json), "rows": rows + outcome_rows(records, task),
+            "anchors": results["anchors"], "agreement": results["agreement"],
+            "excluded_judges": results["excluded_judges"], "unpooled": unpooled, "criterion_sha256": sha,
+            "no_pool": False}
+
+
+def log_only_pool(log: Path, task: str) -> dict:
+    """read_pool's shape for a task with no completed evaluation in `log` (so no pool): its failed and incident
+    rows, no anchors, `no_pool` true. Refuses a task with a completed evaluation: that one needs its pool."""
+    records = latest_evaluations(read_records(log))
+    completed = sorted(r["evaluation_id"] for r in records if r["task_id"] == task and r["outcome"] == "completed")
+    if completed:
+        raise ValueError(f"{task} has completed evaluations {completed} in {log}: pass its pool's results.json")
+    return {"task": task, "results": UNAVAILABLE, "rows": outcome_rows(records, task), "anchors": [],
+            "agreement": {}, "excluded_judges": {}, "unpooled": [], "no_pool": True}
 
 
 def pooled_sd(groups: Sequence[Sequence[float]]) -> float | str:
@@ -273,22 +297,24 @@ def task_readout(pool: Mapping, criterion: Mapping) -> dict:
     compared = {p: values for p, values in primary.items() if len(values) > 1}
     sd = pooled_sd(list(compared.values()))
     split = separation({p: mean(v) for p, v in compared.items()}, sd, rules)
-    checks = anchor_checks(pool["anchors"], criterion["anchors"][pool["task"]], rules["anchor_spread_limit"])
+    checks = ({"anchors_ok": UNAVAILABLE, "anchor_spread": {}, "spread_ok": True} if pool["no_pool"] else
+              anchor_checks(pool["anchors"], criterion["anchors"][pool["task"]], rules["anchor_spread_limit"]))
     return {"policies": {p: policy_stats(g) for p, g in sorted(catalog.items())},
             "children": {p: policy_stats(g) for p, g in sorted(children.items())},
             UNGUIDED: policy_stats(unguided) if unguided else UNAVAILABLE, "compared": sorted(compared),
             "pooled_sd": sd, **split, **checks, "separated": split["gap_separated"] and checks["spread_ok"],
-            "agreement": pool["agreement"], "excluded_judges": pool["excluded_judges"], "unpooled": pool["unpooled"]}
+            "agreement": pool["agreement"], "excluded_judges": pool["excluded_judges"], "unpooled": pool["unpooled"],
+            "no_pool": pool["no_pool"]}
 
 
 def decision(tasks: Mapping[str, Mapping], collapsed: bool | str, min_tasks: int) -> dict:
     """Roadmap "Decision Points And Stop Rules", first rule that fires: an anchor inversion in any pool
-    (anchors_inverted); fewer than `min_tasks` separated tasks (within_tolerance); DIRECT the sole winner on every
+    (anchors_inverted; a no_pool task has no anchors and is skipped); fewer than `min_tasks` separated tasks (within_tolerance); DIRECT the sole winner on every
     separated task (direct_sole_winner); the only Phase 1 interface (I1) without a collapse figure, no accepted
     child, so the adaptive claim is untested (collapse_unavailable), or collapsed (collapsed); otherwise separated
     and Phase 2 is selected."""
     separated = sorted(t for t, r in tasks.items() if r["separated"])
-    if not all(r["anchors_ok"] for r in tasks.values()):
+    if not all(r["anchors_ok"] for r in tasks.values() if not r["no_pool"]):
         rule = "anchors_inverted"
     elif len(separated) < min_tasks:
         rule = "within_tolerance"
@@ -330,6 +356,9 @@ def readout_command(a: argparse.Namespace) -> dict:
     if len(a.log) != 1 or a.driver_readout is None or not a.results:
         raise SystemExit("--phase 1 takes one --log, --driver-readout and each task pool's results.json")
     pools = [read_pool(results, a.log[0], a.criterion) for results in a.results]
+    pooled = {pool["task"] for pool in pools}
+    pools += [log_only_pool(a.log[0], Path(task).name) for task in json.loads(a.criterion.read_text())["tasks"]
+              if Path(task).name not in pooled]
     return phase1_readout(pools, json.loads(a.driver_readout.read_text()), json.loads(a.criterion.read_text()))
 
 

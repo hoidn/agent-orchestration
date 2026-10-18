@@ -12,10 +12,10 @@ from pathlib import Path
 import pytest
 
 from experiments.orc_structural_search.adaptive import (
-    feedback, incumbent, initial_archive, retain, run_mode2, select_parent, validate_finalists)
+    feedback, incumbent, initial_archive, judge_generation, retain, run_mode2, select_parent, validate_finalists)
 from experiments.orc_structural_search.config import load_config
 from experiments.orc_structural_search.ledger import CallCapExceeded
-from experiments.orc_structural_search.records import read_records
+from experiments.orc_structural_search.records import append_record, read_records
 from experiments.orc_structural_search.scoring import read_pool
 from experiments.orc_structural_search.scoring_phase2 import phase2_readout
 from tests.experiments.compare_harness_support import skip_without_sandbox, write_memo
@@ -60,9 +60,10 @@ def entry(cid, mean_value, mean_calls, seed=None):
             "evidence": "adaptive", "generation": 1}
 
 
-def joined(policy, task, value, calls=1, mode="catalog"):
+def joined(policy, task, value, calls=1, mode="catalog", outcome="completed"):
     return {"evaluation_id": f"{policy}-{task}", "candidate_id": f"sha256:{policy}", "mode": mode, "policy": policy,
-            "task": task, "replicate": 1, "value": value, "hidden": 0.5, "calls": calls, "wall_clock_sec": 10.0}
+            "task": task, "replicate": 1, "outcome": outcome, "value": value, "hidden": 0.5, "calls": calls,
+            "wall_clock_sec": 10.0}
 
 
 def test_initial_archive_from_phase1_rows_names_the_best_seed_incumbent():
@@ -73,6 +74,26 @@ def test_initial_archive_from_phase1_rows_names_the_best_seed_incumbent():
     assert ([(e["candidate_id"], e["seed"], e["mean_value"], e["mean_calls"], e["evidence"]) for e in entries],
             incumbent(entries)["seed"]) == (
         [("sha256:b", "best_of_n", 7, 3, "phase1-prior"), ("sha256:d", "direct", 5, 1, "phase1-prior")], "best_of_n")
+
+
+def test_archive_mean_value_counts_a_failed_evaluation_as_zero_and_leaves_out_an_incident():
+    rows = [joined("direct", "t1", 4), joined("direct", "t1", None, outcome="failed"), joined("direct", "t2", 6),
+            joined("direct", "t2", None, outcome="incident")]
+    (entry,) = initial_archive(rows, {"direct": "/e/candidates/sha256:d"}, tasks=["t1", "t2"])
+    assert entry["mean_value"] == 4  # t1 mean(4, 0) = 2, t2 6
+
+
+def test_judge_generation_returns_a_tasks_failed_evaluations_without_a_pool(tmp_path):
+    evidence = tmp_path / "e"
+    evidence.mkdir()
+    for eid, generation in (("f1", 1), ("f0", 0)):
+        append_record(evidence / "log.jsonl", {
+            "kind": "evaluation", "mode": "adaptive", "evaluation_id": eid, "candidate_id": "c", "task_id": "t1",
+            "replicate": 1, "outcome": "failed", "split": "adaptive", "generation": generation,
+            "records_dir": str(tmp_path / eid), "provider_calls": 2, "wall_clock_sec": 5.0})
+    rows = judge_generation(evidence, 1, [tmp_path / "t1"], criterion=tmp_path / "c.json", judges=JUDGES,
+                            solutions={}, call_cap=1, pool_root=tmp_path / "pools")
+    assert [(r["evaluation_id"], r["outcome"], r["calls"]) for r in rows] == [("f1", "failed", 2)]
 
 
 def test_initial_archive_refuses_rows_of_a_task_that_is_not_adaptive():
