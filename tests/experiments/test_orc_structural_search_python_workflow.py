@@ -19,21 +19,18 @@ from tests.experiments.orc_structural_search_support import SCRIPTED, script
 
 REPO = Path(__file__).resolve().parents[2]
 PARENT = REPO / "experiments" / "orc_structural_search" / "three_arm" / "python"
-# run() replaced by a stub that makes nine coder calls
-NINE_CALLS = """
-import sys
-sys.path.insert(0, sys.argv.pop(1))
-import direct
-
-def run(task, intent, repo):
+# `python -c` programs that run the parent with run() replaced by a stub (argv: the candidate root, inputs.json)
+STUB_HEAD = "import sys\nsys.path.insert(0, sys.argv.pop(1))\nimport direct\n\n"
+STUB_TAIL = "\ndirect.run = run\nsys.exit(direct.main(sys.argv[1:]))\n"
+NINE_CALLS = STUB_HEAD + """def run(task, intent, repo):
     for _ in range(9):
         direct.provider_result(direct.PROVIDERS["coder"], "x", model="m", effort="e", timeout_sec=30,
                                result=direct.Change)
     return direct.DONE(summary="unreachable")
-
-direct.run = run
-sys.exit(direct.main(sys.argv[1:]))
-"""
+""" + STUB_TAIL
+RAISES = STUB_HEAD + """def run(task, intent, repo):
+    return {}["missing"]
+""" + STUB_TAIL
 
 
 @pytest.fixture
@@ -73,6 +70,18 @@ def test_a_provider_failure_is_a_failed_terminal_not_an_exception(world):
     status, terminal = run_parent(world)
     assert (status, terminal["outcome"], terminal["value"], terminal["failure"]["code"]) == (
         1, "failed", None, "provider_exit_nonzero")
+
+
+def test_a_result_with_an_undeclared_field_completes_as_in_the_runtime(world):
+    script(world, [{"match": "", "result": {"summary": "s", "account": "a", "extra": 1}}])
+    status, terminal = run_parent(world)
+    assert (status, terminal["outcome"], terminal["value"]) == (0, "completed", {"variant": "DONE", "summary": "s"})
+
+
+def test_an_exception_in_run_is_a_failed_terminal_with_workflow_error(world):
+    status, terminal = run_parent(world, "-c", RAISES, str(world.candidate))
+    assert (status, terminal["outcome"], terminal["failure"]) == (
+        1, "failed", {"code": "workflow_error", "message": "KeyError: 'missing'"})
 
 
 def test_the_call_budget_refuses_the_ninth_provider_call(world):

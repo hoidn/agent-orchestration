@@ -48,3 +48,28 @@ def test_collect_refuses_a_generic_command_run_without_a_terminal(world):
     (Path(record["state_root"]) / "r1").mkdir(parents=True)
     with pytest.raises(SystemExit, match="finish the run first"):
         prepare.collect(records)
+
+
+def test_collect_records_a_failed_generic_command_runs_failure_without_patches(world):
+    records, record = command_run(world)
+    assert call(world, record, "true").returncode == 0
+    failure = {"code": "provider_exit_nonzero", "message": "codex exited 1"}
+    write_terminal(record, outcome="failed", value=None, failure=failure, started_at=1.0, finished_at=3.0, calls=1)
+    collected = prepare.collect(records)
+    assert (collected["outcome"], collected["failure"], collected["patches"], collected["calls"]) == (
+        "failed", failure, {}, 1)
+
+
+@pytest.mark.parametrize("calls, keep_patch, message", [
+    (2, True, "counts 2 provider calls but the shims recorded 1"),
+    (1, False, "is missing: the run is invalid"),
+])
+def test_collect_refuses_a_generic_command_run_the_shims_did_not_record(world, calls, keep_patch, message):
+    records, record = command_run(world)
+    assert call(world, record, edit("$PWD", "a + b")).returncode == 0
+    if not keep_patch:
+        (records / "calls" / "1" / "patch-cand-1.diff").unlink()
+    write_terminal(record, outcome="completed", value={"variant": "DONE", "summary": "s"}, failure=None,
+                   started_at=1.0, finished_at=2.0, calls=calls)
+    with pytest.raises(SystemExit, match=message):
+        prepare.collect(records)

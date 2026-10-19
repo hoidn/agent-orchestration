@@ -5,7 +5,8 @@ is frozen; a child may rewrite `run` and add top-level functions. `provider_resu
 ORC runtime would send: the prompt body, then the runtime's file/2 output contract block for the result record
 (orchestrator.contracts), whose `- path:` line names .orchestrate/runs/<run_id>/effects/<n>/attempt-1/result.json
 relative to the working directory; it runs the registry template's argv (orchestrator.providers.registry) with the
-call's model and effort, the prompt on stdin, and validates the result file as the runtime does. `dev_check` runs
+call's model and effort, the prompt on stdin, and validates the result file as the runtime does (fields the record
+does not declare are dropped first, as the runtime projects them). `dev_check` runs
 the `python dev_check.py` command boundary of ../orc/commands.json in the working directory.
 
   python direct.py INPUTS_JSON    (cwd: the task clone; the runtime library on PYTHONPATH)
@@ -13,7 +14,8 @@ the `python dev_check.py` command boundary of ../orc/commands.json in the workin
 INPUTS_JSON holds `task`, `intent` and `repo`. The run writes .orchestrate/runs/<run_id>/terminal.json:
 {"outcome": "completed"|"failed", "value", "failure": {"code", "message"}|None, "started_at", "finished_at",
 "calls"} (times in epoch seconds, calls = provider calls launched) and exits 0 when completed, 1 when failed.
-A provider failure, an invalid result or a call beyond MAX_PROVIDER_CALLS is a failed terminal.
+A provider failure, an invalid result or a call beyond MAX_PROVIDER_CALLS is a failed terminal; any other exception
+from `run` is a failed terminal with code `workflow_error` (its traceback goes to stderr).
 """
 
 import json
@@ -21,8 +23,9 @@ import os
 import subprocess
 import sys
 import time
+import traceback
 import typing
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, dataclass, fields, is_dataclass
 from pathlib import Path
 from string import Template
 from typing import Any, TypeVar
@@ -90,9 +93,9 @@ STATE = RunState()
 def descriptor(hint: Any) -> dict[str, Any]:
     """The runtime's type descriptor of a result record, a list or a primitive."""
     if isinstance(hint, type) and is_dataclass(hint):
-        fields = typing.get_type_hints(hint).items()
+        hints = typing.get_type_hints(hint).items()
         return {"kind": "record", "name": hint.__name__,
-                "fields": [{"name": name, "type": descriptor(field)} for name, field in fields]}
+                "fields": [{"name": name, "type": descriptor(field)} for name, field in hints]}
     if typing.get_origin(hint) is list:
         return {"kind": "list", "item": descriptor(typing.get_args(hint)[0])}
     return {"kind": "primitive", "name": PRIMITIVES[hint]}
@@ -113,7 +116,10 @@ def read_result(path: Path, result: type[T], kind: str) -> T:
     except FileNotFoundError:
         raise ProviderFailure(f"{kind}_result_missing", f"{kind} did not create {path}") from None
     try:
-        value = coerce_evaluated_value(json.loads(raw), descriptor(result), context=f"{kind} result").json_value()
+        data = json.loads(raw)
+        if isinstance(data, dict):  # the runtime projects the declared fields before it coerces
+            data = {field.name: data[field.name] for field in fields(result) if field.name in data}
+        value = coerce_evaluated_value(data, descriptor(result), context=f"{kind} result").json_value()
     except ValueError as exc:
         raise ProviderFailure(f"{kind}_result_invalid", str(exc)) from exc
     return result(**value)
@@ -146,7 +152,8 @@ def provider_result(provider: str, prompt: str, *, model: str, effort: str, time
 def dev_check() -> CheckReport:
     """The task's agent-visible checks through the dev-check command boundary."""
     path = next_result_path()
-    done = subprocess.run(DEV_CHECK_COMMAND, env={**os.environ, "ORCHESTRATOR_OUTPUT_BUNDLE_PATH": str(path.resolve())})
+    env = {**os.environ, "ORCHESTRATOR_OUTPUT_BUNDLE_PATH": str(path.resolve()), "PYTHONDONTWRITEBYTECODE": "1"}
+    done = subprocess.run(DEV_CHECK_COMMAND, env=env)
     if done.returncode:
         raise ProviderFailure("command_exit_nonzero", f"{' '.join(DEV_CHECK_COMMAND)} exited {done.returncode}")
     return read_result(path, CheckReport, "command")
@@ -163,6 +170,10 @@ def main(argv: list[str]) -> int:
                     "failure": None}
     except ProviderFailure as failure:
         terminal = {"outcome": "failed", "value": None, "failure": {"code": failure.code, "message": failure.message}}
+    except Exception as exc:  # the child's own error: a failed run, as the ORC runtime records one
+        traceback.print_exc()
+        terminal = {"outcome": "failed", "value": None,
+                    "failure": {"code": "workflow_error", "message": f"{type(exc).__name__}: {exc}"}}
     terminal |= {"started_at": started, "finished_at": time.time(), "calls": STATE.calls}
     (STATE.root / "terminal.json").write_text(json.dumps(terminal, indent=2) + "\n")
     return 0 if terminal["outcome"] == "completed" else 1

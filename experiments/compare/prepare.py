@@ -325,13 +325,17 @@ def copy_patches(records, picks):
 
 def command_outcome(records, record):
     """A generic-command run's outcome, failure, call count and wall clock from the terminal.json in its one run
-    directory under the state root; when completed, the last call's patch as `final`."""
+    directory under the state root, whose `calls` must equal the shims' call directories; when completed, the last
+    call's patch as `final`."""
     runs = [path for path in Path(record["state_root"]).glob("*") if path.is_dir()]
     if len(runs) != 1 or not (runs[0] / "terminal.json").is_file():
         raise SystemExit(f"{record['state_root']}: expected one run directory with a terminal.json, found "
                          f"{[path.name for path in runs]}; finish the run first")
     terminal = load(runs[0] / "terminal.json")
     calls = sorted((records / "calls").glob("*"), key=lambda p: int(p.name))
+    if terminal["calls"] != len(calls):
+        raise SystemExit(f"{records}: the terminal counts {terminal['calls']} provider calls but the shims recorded "
+                         f"{len(calls)}: the run is invalid (shim not first on PATH?)")
     out = {"outcome": terminal["outcome"], "failure": terminal["failure"], "selected": None, "variant": None,
            "patches": {}, "calls": len(calls), "wall_clock_sec": terminal["finished_at"] - terminal["started_at"]}
     if out["outcome"] == "completed":

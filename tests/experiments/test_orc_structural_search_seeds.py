@@ -80,7 +80,8 @@ def test_the_rebound_direct_parent_compiles_with_the_codex_coder():
 
 
 def test_no_seed_names_a_fable_model():
-    for path in (p for p in SEEDS_DIR.iterdir() if p.is_file()):
+    roots = (SEEDS_DIR, THREE_ARM_ORC, THREE_ARM_ORC.parent / "python")
+    for path in (p for root in roots for p in root.iterdir() if p.is_file()):
         assert "fable" not in path.read_text().lower(), path
 
 
