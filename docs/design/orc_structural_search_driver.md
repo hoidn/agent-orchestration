@@ -10,7 +10,10 @@
   ([Phase 2 plan](../plans/2026-10-18-orc-structural-search-phase2-plan.md));
   live Phase 1 ran on 2026-10-18 and 2026-10-19 and did not select Phase 2
   for family (a) ([Phase 1 report](../reports/2026-10-18-orc-structural-search-phase1.md));
-  a live Phase 2 needs a new owner selection and budget approval; I3 is not implemented. Fixed-workflow comparisons use
+  a live Phase 2 needs a new owner selection and budget approval. I3 is implemented
+  offline for the three-arm compile-only readout (`three_arm.py`, scripted providers
+  only; not in mode 2) and has not run live
+  ([three-arm plan](../plans/2026-10-19-orc-structural-search-three-arm-readout-plan.md)). Fixed-workflow comparisons use
   [`experiments/compare/`](../../experiments/compare/README.md) today.
 - **Kind:** experiment-side apparatus contract: controller modes, proposal
   interfaces, edit validation and transactions, candidate identities,
@@ -99,6 +102,18 @@ Within that restriction the session is ordinary (configured tools, project
 instructions, skills, context management, LSP). An interface narrows the edit
 scope validation accepts, never the agent's facilities; `--no-tools`,
 compiler-only feedback or a source-only prompt is a disclosed ablation.
+
+Isolation is by masking, not an allowlist: every shimmed CLI call of an
+episode runs with `COMPARE_HIDE` naming the evidence root, the work root's
+`episodes`, `records`, `runs`, `agents` and `env-manifests` directories and
+the operator's `--hide` roots (other runs' roots); bubblewrap mounts an empty
+tmpfs over each and binds the episode's own tree back
+(`driver.hidden_roots`). A mutator therefore reads its own copy, its private
+`/tmp` and the runtime copy for the compile line, but no sibling episode,
+evaluation, archive candidate or log row. Home, the runtime and every other
+directory stay readable; the contamination scan, not the mask, reports reads
+there. Only the agent CLIs a mutator command starts through `PATH` run in the
+sandbox: a wrapper command itself runs unsandboxed.
 
 ## Proposal Interfaces
 
@@ -354,6 +369,14 @@ python -m orchestrator run <candidate entry .orc> [frontend flags] \
   roots (`experiments/orc_structural_search/quota.py`, README "Quota guard");
   mode 2 has no quota guard for episodes, and each `evaluate_all` starts an
   unpaused guard (README "Not implemented").
+- An I3 candidate (a Python entry module) runs through the comparison
+  harness's generic-command arm instead: `python -P <candidate>/direct.py
+  inputs.json` behind the same shims in the fresh clone, its run state in the
+  clone's `.orchestrate/runs/<run_id>/`. Its terminal is that directory's
+  `terminal.json` (`outcome` completed or failed, `value`, `failure`, times
+  and calls), classified like a memo's terminal row; a run without one is an
+  incident, which is not resumable (`evaluation.resume` refuses it), and
+  `prepare.collect` takes the last call's patch as the final one.
 - The clone is the working directory, so the workspace lock, guard and build
   cache land in its `.orchestrate/`. The lock admits one active run per
   working directory (`orchestrator/run_lock.py`), so concurrent evaluations
@@ -568,7 +591,7 @@ information-removal condition is a disclosed custom profile.
 
 The amendment was applied in place in the boundaries document on 2026-10-18
 under the owner's directive to execute the structural search roadmap
-([change note](workflow_lisp_program_search_boundaries.md#proposed-amendment-2026-10-17));
+([change note](workflow_lisp_program_search_boundaries.md#change-note));
 this design carries the rationale.
 
 Rationale. Invariant 1 names a registered child run, but no route executes a

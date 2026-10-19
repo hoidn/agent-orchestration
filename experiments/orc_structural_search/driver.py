@@ -56,10 +56,11 @@ import tempfile
 import threading
 import time
 from collections import namedtuple
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, replace
 from pathlib import Path
+from types import MappingProxyType
 
 from experiments.compare import prepare
 from experiments.compare.repos import (
@@ -220,16 +221,18 @@ def evaluate_all(jobs: Sequence[tuple[Path, ExperimentConfig, Mapping[str, objec
     return launch_units(units(jobs, tasks, replicates), concurrency=concurrency, guard=guard, **launch)
 
 
-def launch_units(pending: Sequence[Unit], *, concurrency: int, guard: QuotaGuard | None = None, **launch) -> list[dict]:
+def launch_units(pending: Sequence[Unit], *, concurrency: int, guard: QuotaGuard | None = None,
+                 gate: Callable[[Callable[[], dict]], dict] | None = None, **launch) -> list[dict]:
     """Evaluate each unit with at most `concurrency` evaluations in flight, a quota incident relaunched as the
     next attempt after the guard's pause (quota.with_retries); each unit's last row, in unit order. Every
-    evaluation is attempted before the first failure (a launch refused at the call cap among them) is raised."""
-    guard = guard or QuotaGuard()
+    evaluation is attempted before the first failure (a launch refused at the call cap among them) is raised.
+    `gate` (three_arm.CapGate.run) runs each attempt's launch, e.g. to retry one refused at the call cap."""
+    guard, gate = guard or QuotaGuard(), gate or (lambda launch_one: launch_one())
 
     def run(unit: Unit) -> dict:
-        return with_retries(lambda attempt: evaluate_and_scan(
+        return with_retries(lambda attempt: gate(lambda: evaluate_and_scan(
             unit.root, unit.config, task=unit.task, replicate=unit.replicate, fields=unit.fields, attempt=attempt,
-            **launch), guard, unit.attempt)
+            **launch)), guard, unit.attempt)
 
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         futures = [pool.submit(run, unit) for unit in pending]
@@ -373,12 +376,13 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
                 work_root: Path, evidence_root: Path, episode_index: int, runtime: Path, env: Mapping[str, str],
                 solutions: Mapping[str, str], call_cap: int, holdouts: Sequence[Path] = (),
                 site: Mapping | None = None, feedback: Mapping | None = None, generation: int | None = None,
-                run_seed: int | None = None, hide: Sequence[Path] = ()) -> dict:
+                run_seed: int | None = None, hide: Sequence[Path] = (),
+                fields: Mapping[str, object] = MappingProxyType({})) -> dict:
     """One episode against the archived parent (refused beyond the call cap): the agent command edits a copy of it
     behind the shims (see the module docstring), which mask hidden_roots (with `hide`) from its CLI calls, briefed
     by `briefs.episode_brief` (I2: `site`, which I1 must not have; `feedback`, the parent's own evidence); the child
     is the copy's final files, whose diff is kept. The episode is scanned and judged (judge_child; I2 through the
-    one-site transaction); an accepted child is archived; the episode record is appended to the log."""
+    one-site transaction); an accepted child is archived; the episode record (with `fields`) is appended to the log."""
     if (interface == "I2") != (site is not None):
         raise ValueError(f"interface {interface} with site {site and site['site_id']}: an I2 episode needs a site, "
                          "an I1 episode takes none")
@@ -417,7 +421,7 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
         parent_root, copy, config, runtime=runtime, site=site, parent_candidate_id=parent_id)
     drop_hypothesis(copy)  # judge_child read it into the receipt; it is never part of the child
     (evidence_root / "episodes" / f"{episode_id}.diff").write_text(episode_diff(parent_root, copy))
-    row = {"kind": "episode", "mode": mode, "interface": interface, "condition": config.condition,
+    row = {**fields, "kind": "episode", "mode": mode, "interface": interface, "condition": config.condition,
            "episode_id": episode_id, "episode_index": episode_index, "generation": generation, "run_seed": run_seed,
            "site_id": site_id, "feedback": feedback, "parent_candidate_id": parent_id,
            "candidate_id": candidate_id(copy, orchestrator_commit=commit), "agent_cmd": list(agent_cmd),

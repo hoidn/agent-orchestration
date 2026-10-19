@@ -10,8 +10,11 @@ children with the parent's skeleton but another provider allocation, which do no
 Mode 2 (`adaptive.py`, Phase 2 plan
 [`2026-10-18-orc-structural-search-phase2-plan.md`](../../docs/plans/2026-10-18-orc-structural-search-phase2-plan.md))
 runs generations of interleaved I1 and I2 episodes against an archive (the incumbent plus a quality/call frontier),
-judges each generation's evaluations blind, and evaluates the finalists on a held-out validation task. Both modes
-are implemented and tested with scripted providers only.
+judges each generation's evaluations blind, and evaluates the finalists on a held-out validation task. The
+three-arm run (`three_arm.py`, plan
+[`2026-10-19-orc-structural-search-three-arm-readout-plan.md`](../../docs/plans/2026-10-19-orc-structural-search-three-arm-readout-plan.md))
+runs I1, I2 and I3 episodes against the rebound `direct` parents and evaluates a stratified subset of their children
+(recipe below). All three are implemented and tested with scripted providers only.
 
 | Module | Role |
 | --- | --- |
@@ -29,10 +32,12 @@ are implemented and tested with scripted providers only.
 | `sites.py` | I2: the candidate's source-site manifest, eligible sites, seeded site selection, the site brief, receipt derivation |
 | `briefs.py` | The mutator's `EPISODE.md` (I1, I2, and mode 2 feedback) |
 | `adaptive.py` | Mode 2: `run_mode2` (archive, generations, parent and site selection) and `validate_finalists` |
+| `three_arm.py` | The three-arm compile-only readout: I1, I2 and I3 episodes, the subset, reservation-aware evaluations, judging through the ledger, the per-arm readout; its command line (`run`, `judge`, `readout`) |
 | `judging.py` | Mode 2 per-generation blind judging: pools, judge ledger entries, waiting for scan verdicts, judge retry |
 | `scoring.py` | Blind judging pools, the join of judge scores to evaluation records, the Phase 1 readout and `--joined-out` |
 | `scoring_phase2.py` | The Phase 2 readout (`scoring readout --phase 2`) |
-| `criteria/` | The frozen Phase 1 and Phase 2 criteria (`phase1.json`, `phase2.json`) |
+| `criteria/` | The frozen Phase 1, Phase 2 and three-arm criteria (`phase1.json`, `phase2.json`, `three_arm.json`) |
+| `three_arm/` | The three-arm parents: `orc/` (the `direct` seed with its coder rebound to Codex `gpt-6.1-sol`) and `python/` (its matched typed Python workflow) |
 | `seeds/` | The 2.39 seed catalog sharing one entry contract (`run ((task String) (intent String) (repo String)) -> Outcome`) |
 
 ## Offline recipe
@@ -200,6 +205,85 @@ value, is excluded, not zero; so is a quota incident (`quota_incident`, counted 
 a `failed` row from before the quota guard whose records hold a quota line. Log rows count once per job
 (candidate, task, replicate, and mode 2's split and generation; the last row wins, so a quota relaunch supersedes
 its quota incident). A task with no completed, uncontaminated evaluation has no pool; its rows come from the log alone (`scoring.log_only_pool`).
+
+## Three-arm recipe
+
+The three-arm compile-only readout (criterion `criteria/three_arm.json`; prerequisites as in the offline recipe,
+plus `pyright` on `PATH`, which admits I3 children) runs from the frozen runtime `$RT`, with `PYTHONPATH=$RT`.
+`config.json` is an `ExperimentConfig` whose `episode_wall_clock_sec` and `criterion_sha256` the arms share;
+`three_arm.arm_config` sets each arm's mutable file (`direct.orc` for I1 and I2, `direct.py` for I3), entry
+`direct::run` and condition `topology-only`. Every run (smoke and main) needs its own fresh `E` and `W`.
+
+Smoke: each parent evaluated once on one task (`mode: "smoke"`, no episode); reserving the ORC parent's planned
+maximum (1) and the Python parent's (8) at once needs `--call-cap 9`:
+
+```bash
+PYTHONPATH=$RT python -m experiments.orc_structural_search.three_arm run --smoke --episodes-per-arm 0 \
+  --config config.json --criterion $RT/experiments/orc_structural_search/criteria/three_arm.json \
+  --parents orc=$RT/experiments/orc_structural_search/three_arm/orc python=$RT/experiments/orc_structural_search/three_arm/python \
+  --tasks $RT/experiments/compare/tasks/resume-projection-integrity --runtime $RT \
+  --work-root $W_SMOKE --evidence $E_SMOKE --agent-cmd '<mutator command>' --eval-timeout-sec 14400 \
+  --solution resume-projection-integrity=$SOL1 --call-cap 9 --run-seed 1 --subset-seed 1
+```
+
+Main run (the mutator command is the criterion's `envelope.mutator`; pass every earlier run's roots with `--hide`):
+
+```bash
+PYTHONPATH=$RT python -m experiments.orc_structural_search.three_arm run \
+  --config config.json --criterion $RT/experiments/orc_structural_search/criteria/three_arm.json \
+  --parents orc=$RT/experiments/orc_structural_search/three_arm/orc python=$RT/experiments/orc_structural_search/three_arm/python \
+  --tasks $RT/experiments/compare/tasks/{resume-projection-integrity,pure-result-replay} --runtime $RT \
+  --work-root $W --evidence $E --episodes-per-arm 6 --eval-timeout-sec 14400 \
+  --agent-cmd 'codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --model gpt-6.1-sol --config model_reasoning_effort=high' \
+  --solution resume-projection-integrity=$SOL1 --solution pure-result-replay=$SOL2 --call-cap N --concurrency 4 \
+  --run-seed 1 --subset-seed 1 --hide /home/ollie/ss-evidence2 --hide /home/ollie/ss-work2 --hide /home/ollie/ss-pools \
+  --hide /home/ollie/ss-evidence-smoke --hide /home/ollie/ss-work-smoke --hide /home/ollie/ss-evidence-meta [--continue]
+```
+
+The run archives both parents and logs one `{"kind": "parents", "orc", "python", "run_seed", "subset_seed",
+"pyright", "program_digests"}` row. Episodes run one at a time, arm by arm (I1, I2, I3), until each arm has
+`--episodes-per-arm` non-quota episodes (accepted, rejected, exhausted or incident); a quota episode is relaunched
+under the next index (the quota guard), and episode indexes are global over the run. Every episode row carries
+`arm` and `mode: "three_arm"`; an I2 episode's site is drawn uniformly from the parent's eligible sites with
+`random.Random(f"{run_seed} {index}")`, and its row carries `site_id` and `run_seed`. Then, per arm, the subset (two
+children): accepted children of uncontaminated episodes whose candidate id differs from the parent's and from every
+child chosen before (in any arm), by episode index: the first, then the first later child with another skeleton than
+the first's, else the one with the smallest `sha256(f"{subset_seed}:{candidate_id}")`. An accepted episode with scan
+hits and no verdict stops the run here (`ValueError`): adjudicate it (`prepare.py scan --run
+E/episodes/<episode_id> --verdict ...`) and rerun with `--continue`. `E/readout.json` (per arm, never pooled: episode
+outcomes, completed and judged episodes, acceptance rate, refusals, locality, files touched per episode, distinct
+skeletons, revisit rate, terminal-only share, `allocation_distinct`, exact repeats by `program_digest`, collapse
+against the criterion's threshold, the subset's candidate ids) is written before the evaluations. Each subset child
+is then evaluated once per task (`mode: "three_arm"`, `arm`), at most `--concurrency` at a time. Launches are
+reservation-aware (`three_arm.CapGate`): an evaluation whose planned maximum (an I3 child's `MAX_PROVIDER_CALLS`, 8)
+does not fit under `--call-cap` beside the evaluations in flight waits for one to end and is retried; it is refused
+(`CallCapExceeded`, before any workspace) only when nothing is in flight. `--continue` (same `W`, same parents and
+seeds) keeps every arm that already has its episodes and every evaluation already logged.
+
+Judging: per task, build the pool with `scoring pool` and judge it with `three_arm judge`, which reserves each
+judge's ledger entry (one planned call per batch, `kind: "judge"`, key `three-arm <task> <judge>`) before any judge
+runs, waits for a verdict on any judge scan with hits, runs `summarize` and logs one `{"kind": "judging",
+"generation": -2, "task", "pool", "results"}` row; then the readout:
+
+```bash
+PYTHONPATH=$RT python -m experiments.orc_structural_search.scoring pool --evidence $E --task $RT/experiments/compare/tasks/<task> \
+  --out $P/<task> --criterion $RT/experiments/orc_structural_search/criteria/three_arm.json \
+  --judge claude-opus-5-5=$RT/experiments/compare/score.providers.json \
+  --judge gpt-6.1-sol=$RT/experiments/compare/providers/score_codex.json
+PYTHONPATH=$RT python -m experiments.orc_structural_search.three_arm judge --evidence $E --pool $P/<task> \
+  --task $RT/experiments/compare/tasks/<task> --criterion $RT/experiments/orc_structural_search/criteria/three_arm.json \
+  --judge claude-opus-5-5 --judge gpt-6.1-sol --solution $SOL --call-cap N
+PYTHONPATH=$RT python -m experiments.orc_structural_search.three_arm readout --log $E/log.jsonl \
+  --driver-readout $E/readout.json --criterion $RT/experiments/orc_structural_search/criteria/three_arm.json \
+  $P/*/records/results.json > $E/three-arm-readout.json
+```
+
+`P` lies outside `E` and `W`. The readout reads each task's `results.json` through `scoring.read_pool` (criterion
+hash checked; a task without one reads its log rows alone) and reports per task, per arm and per subset child
+`scoring.policy_stats` (the failure-inclusive mean, valued mean, failed, timeouts, incidents, excluded, hidden,
+calls and wall clock means) and each child's primary values, the anchors and `scoring.anchor_checks` (reported, not
+a gate), the compile-only figures of `E/readout.json`, and no decision: `"descriptive; no separation rule applied
+(Phase 1 decision stands)"`.
 
 ## Layout
 
