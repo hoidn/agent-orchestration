@@ -3,6 +3,7 @@
 Paths (`source_root`, `providers_file`, `command_boundaries_file`) are relative to a candidate root.
 """
 
+import argparse
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,3 +41,11 @@ def load_config(path: Path) -> ExperimentConfig:
             raise ValueError(f"{path}: {key} must be a JSON list of strings, not {data.get(key)!r}")
         data[key] = tuple(data[key])
     return ExperimentConfig(**data)
+
+
+def solution(text: str) -> tuple[str, str]:
+    """A `--solution TASK=HASH` argument as (task, hash)."""
+    task, sep, commit = text.partition("=")
+    if not (task and sep and commit):
+        raise argparse.ArgumentTypeError(f"expected TASK=HASH, not {text!r}")
+    return task, commit

@@ -5,16 +5,17 @@ exit 1 (no provider is called)."""
 import json
 import os
 import sys
+from pathlib import Path
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from experiments.orc_structural_search.config import ExperimentConfig
-from experiments.orc_structural_search.driver import archive, evaluate_all, run_mode1
-from experiments.orc_structural_search.evaluation import evaluate, evaluation_id
+from experiments.orc_structural_search.driver import LAUNCH_ENV, archive, evaluate_all, run_mode1
+from experiments.orc_structural_search.evaluation import evaluate, evaluation_id, records_root
 from experiments.orc_structural_search.quota import (
-    QuotaGuard, next_attempts, quota_hit, quota_reason, resume_time)
+    QuotaGuard, next_attempts, quota_hit, quota_reason, resume_time, with_retries)
 from experiments.orc_structural_search.records import read_records
 from experiments.orc_structural_search.scoring import latest_evaluations, policy_stats, scored_outcome
 from tests.experiments.compare_harness_support import skip_without_sandbox
@@ -86,8 +87,22 @@ def test_the_pause_lasts_until_the_named_reset_plus_five_minutes():
     assert resume_time(LIMIT, NOW) == datetime(2026, 10, 18, 17, 35, tzinfo=LA)
 
 
-def test_a_reset_time_already_past_today_is_tomorrows():
-    assert resume_time(LIMIT, NOW.replace(hour=18)) == datetime(2026, 10, 19, 17, 35, tzinfo=LA)
+def test_a_reset_time_more_than_three_hours_past_is_tomorrows():
+    assert resume_time(LIMIT, NOW.replace(hour=21)) == datetime(2026, 10, 19, 17, 35, tzinfo=LA)
+
+
+def test_a_reset_time_at_most_three_hours_past_resumes_in_five_minutes():
+    assert resume_time(LIMIT, NOW.replace(hour=18)) == NOW.replace(hour=18, minute=5)
+
+
+def test_a_retry_follows_the_attempt_the_launch_actually_ran_as():
+    seen = []
+
+    def launch(attempt):  # attempt `attempt` was skipped (a killed launch's records): it ran as the next one
+        seen.append(attempt)
+        return {"kind": "evaluation", "outcome": "incident", "attempt": attempt + 1, "incidents": [f"quota: {LIMIT}"]}
+    with_retries(launch, FakeClock().guard(retries=1), 2)
+    assert seen == [2, 4]
 
 
 def test_an_unparsed_quota_message_pauses_thirty_minutes():
@@ -206,3 +221,31 @@ def test_continue_keeps_completed_and_genuine_failures_and_relaunches_only_quota
             readout["catalog"]["plan_then_implement"]["outcomes"], readout["episodes"]) == (
         True, [("plan_then_implement", 2, "completed"), ("unguided", 1, "completed")], [(1, "accepted")],
         ["quota_incident", "completed"], {"quota_incident": 1, "accepted": 1})
+
+
+def test_a_continue_after_an_interrupted_continue_skips_and_settles_the_killed_launches(sandboxed, world):
+    script(world, [{"match": "# Episode", "print": LIMIT, "exit": 1},
+                   {"match": "Plan this task", "print": LIMIT, "exit": 1}, *ANSWERS])
+    mode1_run(world, agent=MUTATOR_ASKS_CLAUDE, continue_run=False)
+    evidence, work = world.tmp / "evidence", (world.outside / "work").resolve()
+    log = evidence / "log.jsonl"
+    (job,) = [r for r in read_records(log) if r.get("seed") == "plan_then_implement"]
+    killed = [records_root(Path(job["candidate_root"]), task_package=world.task, work_root=work, replicate=1,
+                           runtime=world.runtime, env={**scripted_env(world), **LAUNCH_ENV}, attempt=2) / "run-1",
+              evidence / "episodes" / "sha256:killed"]  # attempt 2 and episode 1 died in flight: no log rows
+    (work / "episodes" / "episode-1").mkdir(parents=True)
+    for records in killed:
+        (records / "calls" / "1").mkdir(parents=True)
+    ledger = json.loads((evidence / "calls.json").read_text()) + [
+        {"kind": "evaluation", "key": f"{job['candidate_id']} {world.task.name} replicate 1 attempt 2", "planned": 9,
+         "calls": None}, {"kind": "episode", "key": "sha256:killed", "planned": 1, "calls": None}]
+    (evidence / "calls.json").write_text(json.dumps(ledger))
+    before = len(read_records(log))
+    script(world, ANSWERS)
+    mode1_run(world, agent=MUTATOR, continue_run=True)
+    added = read_records(log)[before:]
+    settled = json.loads((evidence / "calls.json").read_text())[len(ledger) - 2:len(ledger)]
+    assert ([(r.get("seed") or r["mode"], r.get("attempt"), r["outcome"]) for r in added if r["kind"] == "evaluation"],
+            [(r["episode_index"], r["outcome"]) for r in added if r["kind"] == "episode"],
+            [entry["calls"] for entry in settled]) == (
+        [("plan_then_implement", 3, "completed")], [(2, "rejected")], [1, 1])  # the mutator's episode 2 is refused

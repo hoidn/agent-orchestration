@@ -93,19 +93,32 @@ def cli_version(name: str, env: Mapping[str, str]) -> str:
     return (done.stdout + done.stderr).strip()
 
 
-def record_env_manifest(work_root: Path, env: Mapping[str, str]) -> str:
-    """Write the environment manifest (Python, platform, installed distributions, CLI versions under `env`) under
-    the work root; return its sha256 digest."""
+def env_manifest(env: Mapping[str, str]) -> tuple[str, str]:
+    """(text, sha256 hex digest) of the environment manifest (Python, platform, installed distributions, CLI
+    versions under `env`)."""
     manifest = {"python": sys.version, "executable": sys.executable, "platform": platform.platform(),
                 "distributions": sorted({f"{d.metadata['Name']}=={d.version}"
                                          for d in importlib.metadata.distributions()}),
                 "cli": {name: cli_version(name, env) for name in CLIS}}
     text = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
-    digest = hashlib.sha256(text.encode()).hexdigest()
+    return text, hashlib.sha256(text.encode()).hexdigest()
+
+
+def record_env_manifest(work_root: Path, env: Mapping[str, str]) -> str:
+    """Write the environment manifest under the work root; return its "sha256:..." digest."""
+    text, digest = env_manifest(env)
     path = work_root / "env-manifests" / f"{digest}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
     return f"sha256:{digest}"
+
+
+def records_root(candidate_root: Path, *, task_package: Path, work_root: Path, replicate: int, runtime: Path,
+                 env: Mapping[str, str], attempt: int = 1) -> Path:
+    """<work>/records/<evaluation_id> of this attempt of the candidate on the task (writes nothing)."""
+    candidate = candidate_id(candidate_root.resolve(), orchestrator_commit=runtime_commit(runtime))
+    return work_root / "records" / evaluation_id(candidate, task_package.name, EVALUATOR_VERSION,
+                                                  f"sha256:{env_manifest(env)[1]}", replicate, attempt)
 
 
 def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Path, work_root: Path,

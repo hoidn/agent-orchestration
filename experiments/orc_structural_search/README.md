@@ -94,8 +94,9 @@ logged `failed` (evaluations) or `incident` (episodes). Those are infrastructure
 launch whose shim calls (`calls/<n>/stdout.txt`, `stderr.txt`) hold a quota line (a line starting with `you've hit
 your <word> limit`, `usage limit reached` or `rate limit reached`, case-insensitive; see `quota.py`) and that did
 not complete is now an `incident` whose latest incidents entry is `quota: <line>` (episodes: an `incidents` list).
-The driver then starts no new launch until the reset the message names (the next occurrence of `resets
-H[:MM]am|pm (Zone)` in that zone, plus 5 minutes; 30 minutes when none parses), printing one line with the resume
+The driver then starts no new launch until the reset the message names (`resets H[:MM]am|pm (Zone)` today in
+that zone, plus 5 minutes; a time at most 3 hours past resumes in 5 minutes, an earlier one tomorrow; 30 minutes
+when none parses), printing one line with the resume
 time; launches in flight that hit the limit join that pause. The job is then relaunched as a new attempt: an
 evaluation's id covers its attempt number after the first (first attempts keep their ids), and a quota episode
 is rerun under the next episode index. A job is relaunched at most 3 times per invocation; then it stays a quota
@@ -107,7 +108,10 @@ catalog or accepted-child job whose latest row (per candidate, task and replicat
 failure or another incident is kept; one whose latest row is a quota incident is relaunched as its next attempt,
 and so is a `failed` row written before the guard existed whose records hold a quota line. Unguided episodes
 continue after the highest existing index until `--episodes` non-quota episodes exist (quota episodes, including
-pre-guard `incident` rows whose shim records hold a quota line, do not count). `E/readout.json` is rewritten;
+pre-guard `incident` rows whose shim records hold a quota line, do not count). A launch killed in flight (the
+driver died) left no row: its attempt number (`W/records/<evaluation id>` exists) or episode index
+(`W/episodes/episode-<n>` exists) is skipped, and its unsettled ledger entry is settled from its shim records.
+`E/readout.json` is rewritten;
 quota rows read as `quota_incident` there.
 
 `config.json` is an `ExperimentConfig` (see `config.py`); its `entry_workflow` (e.g. `direct::run`) names the

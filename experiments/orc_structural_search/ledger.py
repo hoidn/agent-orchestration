@@ -63,6 +63,24 @@ def settle(evidence_root: Path, index: int, records: Path, **fields: object) -> 
     return calls
 
 
+def settle_killed(evidence_root: Path, kind: str, key: str, records: Path) -> None:
+    """Settle the first unsettled entry of `kind` and `key` (a launch killed before settling) from the shim calls
+    under `records`; no such entry: nothing."""
+    entries = _read(evidence_root / LEDGER)
+    index = next((i for i, e in enumerate(entries) if (e["kind"], e["key"], e["calls"]) == (kind, key, None)), None)
+    if index is not None:
+        settle(evidence_root, index, records)
+
+
+def settle_killed_episodes(evidence_root: Path) -> None:
+    """Settle every unsettled episode entry whose records <evidence>/episodes/<key> exist (episodes killed in
+    flight; a continue runs this before its first launch)."""
+    for entry in _read(evidence_root / LEDGER):
+        records = evidence_root / "episodes" / entry["key"]
+        if entry["kind"] == "episode" and entry["calls"] is None and records.is_dir():
+            settle_killed(evidence_root, "episode", entry["key"], records)
+
+
 def entry_of(root: Path, config: ExperimentConfig) -> tuple[Path, str]:
     """(the entry module's source, the entry definition's name) of the candidate at `root`."""
     module, entry = config.entry_workflow.split("::")

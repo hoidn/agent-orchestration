@@ -14,10 +14,12 @@ MAX_LINE characters that starts (after leading punctuation) with one of, case-in
 The match is anchored at the line start so a transcript or a document quoting these words mid-line does not match.
 
 A quota launch is relaunched as a new attempt after a pause (QuotaGuard): until the reset time the message names
-(`resets H[:MM]am|pm (Zone)`, the next occurrence of that wall-clock time in that zone, plus RESET_MARGIN) or, when
-none parses, UNPARSED_PAUSE; at most `retries` (MAX_QUOTA_RETRIES) relaunches per job and driver invocation.
+(`resets H[:MM]am|pm (Zone)`, that wall-clock time in that zone today, plus RESET_MARGIN; a time at most
+RECENT_RESET past resumes at now plus RESET_MARGIN, an earlier one tomorrow) or, when none parses, UNPARSED_PAUSE; at most `retries` (MAX_QUOTA_RETRIES) relaunches per job and driver invocation.
 A continued mode 1 run (prior_rows, next_attempts) relaunches each job whose latest log row is a quota incident as
-its next attempt and keeps every other job.
+its next attempt and keeps every other job. A launch killed in flight (the driver died) left no log row: a
+continue skips each attempt number and episode index whose records already exist and settles the killed launch's
+ledger reservation from its shim records (driver.py, ledger.settle_killed).
 """
 
 import functools
@@ -36,6 +38,7 @@ QUOTA_LINE = re.compile(r"^\W*(?:you['’]ve hit your \w+ limit|(?:claude ai )?u
 MAX_LINE = 300
 RESET = re.compile(r"resets (\d{1,2})(?::(\d{2}))?\s*([ap]m)\s*\(([^)]+)\)", re.IGNORECASE)
 RESET_MARGIN = timedelta(minutes=5)
+RECENT_RESET = timedelta(hours=3)
 UNPARSED_PAUSE = timedelta(minutes=30)
 MAX_QUOTA_RETRIES = 3
 PREFIX = "quota: "  # the incidents entry of a quota launch: "quota: <first matching line>"
@@ -82,8 +85,8 @@ def resume_time(line: str, now: datetime) -> datetime:
         return now + UNPARSED_PAUSE
     reset = local.replace(hour=int(hour) % 12 + (12 if half.lower() == "pm" else 0), minute=int(minute or 0),
                           second=0, microsecond=0)
-    if reset <= local:
-        reset += timedelta(days=1)
+    if reset <= local:  # a reset just past (the clocks disagree, or the CLI lags): retry soon; else tomorrow's
+        return now + RESET_MARGIN if local - reset <= RECENT_RESET else reset + timedelta(days=1) + RESET_MARGIN
     return reset + RESET_MARGIN
 
 
@@ -119,15 +122,16 @@ class QuotaGuard:
 
 def with_retries(launch: Callable[[int], dict], guard: QuotaGuard, first_attempt: int = 1) -> dict:
     """Launch attempt `first_attempt` after any pause; after a quota incident, pause and relaunch as the next
-    attempt, at most guard.retries times; the last row."""
-    last = first_attempt + guard.retries
-    for attempt in range(first_attempt, last + 1):
+    attempt (after the attempt the row names, when it names one), at most guard.retries times; the last row."""
+    attempt = first_attempt
+    for retry in range(guard.retries + 1):
         guard.wait()
         row = launch(attempt)
         reason = quota_reason(row)
-        if reason is None or attempt == last:
+        if reason is None or retry == guard.retries:
             return row
         guard.pause(reason)
+        attempt = row.get("attempt", attempt) + 1  # a launch skipping a killed attempt ran as a later one
     raise AssertionError("unreachable")
 
 

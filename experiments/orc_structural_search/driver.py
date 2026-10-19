@@ -67,8 +67,8 @@ from experiments.orc_structural_search import ledger
 from experiments.orc_structural_search.acceptance import judge_child
 from experiments.orc_structural_search.briefs import episode_brief
 from experiments.orc_structural_search.candidates import _file_names, candidate_id, imports, snapshot
-from experiments.orc_structural_search.config import ExperimentConfig, load_config
-from experiments.orc_structural_search.evaluation import EVALUATOR_VERSION, evaluate
+from experiments.orc_structural_search.config import ExperimentConfig, load_config, solution
+from experiments.orc_structural_search.evaluation import EVALUATOR_VERSION, evaluate, records_root
 from experiments.orc_structural_search.quota import (
     PREFIX, QuotaGuard, job_key, next_attempts, prior_rows, quota_hit, quota_reason, with_retries)
 from experiments.orc_structural_search.readout import readout
@@ -147,12 +147,16 @@ def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, repli
                       call_cap: int, attempt: int = 1) -> dict:
     """Evaluate the archived `root` once as `attempt` (refused beyond the call cap), scan the run and append the
     evaluation record (with `fields`) to the log."""
-    cid = check_archived(root, runtime_commit(runtime))
-    key = f"{cid} {task.name} replicate {replicate}" + (f" attempt {attempt}" if attempt > 1 else "")
-    slot = ledger.reserve(evidence_root, kind="evaluation", key=key, planned=ledger.planned_calls(root, config),
-                          cap=call_cap)
+    cid, env = check_archived(root, runtime_commit(runtime)), {**env, **LAUNCH_ENV}
+    key = lambda n: f"{cid} {task.name} replicate {replicate}" + (f" attempt {n}" if n > 1 else "")  # noqa: E731
+    while (killed := records_root(root, task_package=task, work_root=work_root, replicate=replicate, runtime=runtime,
+                                  env=env, attempt=attempt)).exists():  # killed in flight: skipped, settled
+        ledger.settle_killed(evidence_root, "evaluation", key(attempt), killed / "run-1")
+        attempt += 1
+    slot = ledger.reserve(evidence_root, kind="evaluation", key=key(attempt),
+                          planned=ledger.planned_calls(root, config), cap=call_cap)
     record = evaluate(root, config, task_package=task, work_root=work_root, replicate=replicate,
-                      runtime=runtime, env={**env, **LAUNCH_ENV}, timeout_sec=timeout_sec, attempt=attempt)
+                      runtime=runtime, env=env, timeout_sec=timeout_sec, attempt=attempt)
     ledger.settle(evidence_root, slot, record.records_dir, evaluation_id=record.evaluation_id)
     roots = [("archive", evidence_root), ("archive", work_root / "episodes"), ("lineage", evidence_root / "log.jsonl"),
              *(("holdout", holdout) for holdout in holdouts)]
@@ -446,7 +450,9 @@ def run_mode1(config_path: Path, *, seeds: Sequence[Path], tasks: Sequence[Path]
     before = [row for row in prior if row["kind"] == "episode"]
     children = [child_job(row, config) for row in before if row["outcome"] == "accepted"]
     launch_units(continued(seeded + children, tasks, replicates, prior), concurrency=concurrency, guard=guard, **launch)
-    index = itertools.count(1 + max((row["episode_index"] for row in before), default=-1))
+    ledger.settle_killed_episodes(evidence_root)  # an index whose tree exists was killed in flight: skipped
+    index = (i for i in itertools.count(1 + max((row["episode_index"] for row in before), default=-1))
+             if not (work_root / "episodes" / f"episode-{i}").exists())
     for _ in range(episodes - sum(quota_reason(row, evidence_root) is None for row in before)):
         episode = with_retries(lambda _attempt: run_episode(
             parent, config, interface="I1", mode="unguided", agent_cmd=agent_cmd, episode_index=next(index),
@@ -458,13 +464,6 @@ def run_mode1(config_path: Path, *, seeds: Sequence[Path], tasks: Sequence[Path]
     result = readout(read_records(evidence_root / "log.jsonl"), evidence_root)
     (evidence_root / "readout.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     return result
-
-
-def solution(text: str) -> tuple[str, str]:
-    task, sep, commit = text.partition("=")
-    if not (task and sep and commit):
-        raise argparse.ArgumentTypeError(f"expected TASK=HASH, not {text!r}")
-    return task, commit
 
 
 def main(argv: Sequence[str] | None = None) -> None:
