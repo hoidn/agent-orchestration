@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -13,11 +14,12 @@ from orchestrator.workflow_lisp.sexpr import KeywordAtom, ListExpr, StringAtom, 
 
 ROOT = Path(__file__).resolve().parents[2]
 SEEDS_DIR = ROOT / "experiments" / "orc_structural_search" / "seeds"
+THREE_ARM_ORC = ROOT / "experiments" / "orc_structural_search" / "three_arm" / "orc"
 SEEDS = ["direct", "plan_then_implement", "implement_review_revise", "best_of_n", "implement_check_diagnose_repair"]
 
 
-def compile_seed(seed):
-    rel = SEEDS_DIR.relative_to(ROOT)
+def compile_seed(seed, directory=SEEDS_DIR):
+    rel = directory.relative_to(ROOT)
     proc = subprocess.run(
         [sys.executable, "-P", "-m", "orchestrator", "compile", str(rel / f"{seed}.orc"),
          "--entry-workflow", f"{seed}::run", "--source-root", str(rel),
@@ -67,6 +69,14 @@ def test_seed_compiles_at_2_39_with_the_common_entry_contract(seed):
     assert out["status"] == "accepted", out
     assert read_header(seed)[":target-dsl"] == "2.39"
     assert entry_signature(seed) == "run ((task String) (intent String) (repo String)) -> Outcome"
+
+
+def test_the_rebound_direct_parent_compiles_with_the_codex_coder():
+    source = (THREE_ARM_ORC / "direct.orc").read_text()
+    providers = json.loads((THREE_ARM_ORC / "providers.json").read_text())
+    assert (compile_seed("direct", THREE_ARM_ORC)["status"], providers["providers.coder"],
+            re.findall(r':model "([^"]*)"', source), re.findall(r':effort "([^"]*)"', source)) == (
+        "accepted", "codex_unrestricted_workspace", ["gpt-6.1-sol"], ["high"])
 
 
 def test_no_seed_names_a_fable_model():

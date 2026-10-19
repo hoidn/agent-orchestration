@@ -18,7 +18,8 @@ reviews a given patch (--apply, a collected R/collected/final.diff), applied unc
 Neither W nor the runtime may lie under the main checkout's path prefix, and `run` and `pool` refuse a
 runtime with uncommitted changes to tracked files; record.json and mapping.json name its runtime_commit.
 `collect` adds the outcome, call count, wall clock and patches to record.json (for review_once also the
-review's blocker count and whether the reviewer changed the candidate); `scan` adds the hits and the
+review's blocker count and whether the reviewer changed the candidate; a generic-command run's from the
+terminal.json its command writes in its one run directory under the state root); `scan` adds the hits and the
 controller's verdict. `pool` creates P/clones/<id>/ (what judges read; P/clones is not listable),
 P/judges/<16 hex>/ (one working and state directory per judge) and P/records/ (mapping.json,
 patches/<id>.diff, score-inputs-<judge>.json, score-<judge>.sh, resume-<judge>.sh, judges/<judge>/
@@ -322,12 +323,33 @@ def copy_patches(records, picks):
     return {label: f"collected/{label}.diff" for label in picks}
 
 
+def command_outcome(records, record):
+    """A generic-command run's outcome, failure, call count and wall clock from the terminal.json in its one run
+    directory under the state root; when completed, the last call's patch as `final`."""
+    runs = [path for path in Path(record["state_root"]).glob("*") if path.is_dir()]
+    if len(runs) != 1 or not (runs[0] / "terminal.json").is_file():
+        raise SystemExit(f"{record['state_root']}: expected one run directory with a terminal.json, found "
+                         f"{[path.name for path in runs]}; finish the run first")
+    terminal = load(runs[0] / "terminal.json")
+    calls = sorted((records / "calls").glob("*"), key=lambda p: int(p.name))
+    out = {"outcome": terminal["outcome"], "failure": terminal["failure"], "selected": None, "variant": None,
+           "patches": {}, "calls": len(calls), "wall_clock_sec": terminal["finished_at"] - terminal["started_at"]}
+    if out["outcome"] == "completed":
+        if not calls:
+            raise SystemExit(f"{records}: no call directories: the run is invalid (shim not first on PATH?)")
+        out["patches"] = copy_patches(records, {"final": (calls[-1], Path(record["candidates"][0]).name)})
+    return out
+
+
 def collect(records):
-    """Pair the memo's provider effects with call directories and copy the comparator's patches."""
+    """Pair the memo's provider effects with call directories and copy the comparator's patches; a generic-command
+    run is read from its terminal.json instead."""
     records = records.resolve()
     record = load(records / "record.json")
     if record.get("arm_kind") == "generic-command":
-        raise SystemExit(f"{records} is a generic-command run: it has no orchestrator memo to collect")
+        record.update(command_outcome(records, record))
+        dump(records / "record.json", record)
+        return record
     memo, rows = finished_memo(record.get("state_root", records / "state"))  # R/state: prepared before R34
     calls = paired_calls(records, rows)
     committed = [calls[(r["identity"], r["attempt"])] for r in rows  # agent_turn: a native agent session's turn

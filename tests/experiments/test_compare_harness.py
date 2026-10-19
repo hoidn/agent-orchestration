@@ -650,10 +650,3 @@ def test_a_spec_may_not_take_the_name_of_a_fixed_arm(world):
     with pytest.raises(SystemExit, match="best_of_n names a fixed arm"):
         prepare.run_arm(world.task, "best_of_n", world.root, world.runtime,
                         spec=candidate_spec(world, candidate_root(world)))
-
-
-def test_collect_refuses_a_generic_command_run(world):
-    spec = candidate_spec(world, candidate_root(world), command=("true",))
-    records = prepare.run_arm(world.task, "control", world.root, world.runtime, spec=spec)
-    with pytest.raises(SystemExit, match="generic-command"):
-        prepare.collect(records)
