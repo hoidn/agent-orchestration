@@ -66,6 +66,11 @@ def test_the_claude_session_limit_line_in_call_stdout_is_a_quota_hit(tmp_path):
     assert quota_hit(call_records(tmp_path, stdout=LIMIT + "\n")) == LIMIT
 
 
+def test_the_codex_model_at_capacity_line_in_call_stderr_is_a_quota_hit(tmp_path):
+    line = "ERROR: Selected model is at capacity. Please try a different model."
+    assert quota_hit(call_records(tmp_path, stderr=line + "\n")) == line
+
+
 def test_a_quota_phrase_quoted_mid_line_is_not_a_quota_hit(tmp_path):
     records = call_records(tmp_path, stderr="the docs say the run stops once a usage limit reached message appears\n")
     assert quota_hit(records) is None

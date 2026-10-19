@@ -92,7 +92,8 @@ episodes ended at the Claude subscription session limit: the CLI printed `You've
 5:30pm (America/Los_Angeles)` on stdout and exited 1, the runtime recorded `provider_exit_nonzero`, and the driver
 logged `failed` (evaluations) or `incident` (episodes). Those are infrastructure incidents, not agent failures. A
 launch whose shim calls (`calls/<n>/stdout.txt`, `stderr.txt`) hold a quota line (a line starting with `you've hit
-your <word> limit`, `usage limit reached` or `rate limit reached`, case-insensitive; see `quota.py`) and that did
+your <word> limit`, `usage limit reached`, `rate limit reached` or Codex's transient `selected model is at
+capacity`, case-insensitive; see `quota.py`) and that did
 not complete is now an `incident` whose latest incidents entry is `quota: <line>` (episodes: an `incidents` list).
 The driver then starts no new launch until the reset the message names (`resets H[:MM]am|pm (Zone)` today in
 that zone, plus 5 minutes; a time at most 3 hours past resumes in 5 minutes, an earlier one tomorrow; 30 minutes
