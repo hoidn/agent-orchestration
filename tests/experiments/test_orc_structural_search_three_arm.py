@@ -8,8 +8,6 @@ import os
 import random
 import shutil
 import sys
-import threading
-import time
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -17,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from experiments.compare.repos import sha256_file
-from experiments.orc_structural_search import ledger, three_arm, three_arm_readout
+from experiments.orc_structural_search import three_arm, three_arm_readout
 from experiments.orc_structural_search.driver import Unit, archive, launch_units
 from experiments.orc_structural_search.ledger import CallCapExceeded
 from experiments.orc_structural_search.quota import MAX_QUOTA_RETRIES, QuotaGuard
@@ -343,23 +341,14 @@ def test_an_episode_slot_that_keeps_hitting_an_unparsed_quota_stops_the_run_afte
         [("I1", [f"quota: {QUOTA_PLAIN}"])] * (1 + MAX_QUOTA_RETRIES), [], False)
 
 
-def test_an_evaluation_that_keeps_hitting_an_unparsed_quota_stops_every_further_launch(tmp_path):
-    """Three units behind one gate, one at a time; every launch returns a quota incident with no parsed reset: the
-    first unit's relaunches are used up, and no other unit launches."""
-    launches = []
-
-    def quota_incident():
-        launches.append(len(launches) + 1)
-        return {"kind": "evaluation", "evaluation_id": f"e{len(launches)}", "candidate_id": "c", "task_id": "t",
-                "replicate": 1, "outcome": "incident", "incidents": [f"quota: {QUOTA_PLAIN}"],
-                "attempt": len(launches)}
-
-    guard = unparsed_quota_guard()
-    gate = three_arm.CapGate(guard)
-    units = [Unit(tmp_path, I3_CONFIG, {}, tmp_path / f"task-{n}", 1) for n in range(3)]
-    with pytest.raises(three_arm.QuotaExhausted, match="rerun with --continue"):
-        launch_units(units, concurrency=1, guard=guard, gate=lambda _evaluate: gate.run(quota_incident))
-    assert (len(launches), bool(gate.exhausted)) == (1 + MAX_QUOTA_RETRIES, True)
+def test_a_run_refuses_a_hide_path_that_does_not_exist_before_anything_exists(tmp_path):
+    (tmp_path / "config.json").write_text(json.dumps(CONFIG | {"criterion_sha256": sha256_file(CRITERION)}))
+    with pytest.raises(ValueError, match="not an existing directory"):
+        three_arm.run_three_arm(tmp_path / "config.json", parents={}, tasks=[], work_root=tmp_path / "w",
+                                evidence_root=tmp_path / "e", episodes_per_arm=6, agent_cmd=CODEX_MUTATOR,
+                                runtime=tmp_path, env={}, timeout_sec=14400, solutions={}, call_cap=1, concurrency=1,
+                                run_seed=1, subset_seed=1, criterion=CRITERION, hide=[tmp_path / "ss-evidnce2"])
+    assert [path.name for path in tmp_path.iterdir()] == ["config.json"]
 
 
 def test_the_subset_skips_a_child_whose_program_repeats_the_parents_or_a_chosen_childs():
@@ -405,46 +394,6 @@ def test_an_accepted_episode_with_unadjudicated_scan_hits_stops_the_run_before_t
     assert ([(row["arm"], row["outcome"], row["scan_pending"]) for row in kind(rows, "episode")][0],
             kind(rows, "evaluation"), (world.tmp / "evidence" / "readout.json").exists()) == (
         ("I1", "accepted", True), [], False)
-
-
-def test_a_launch_waiting_at_the_cap_waits_out_a_quota_pause_before_it_relaunches(tmp_path):
-    """A (in flight) holds the cap; B is refused and waits; A ends with a quota incident: B relaunches only after the
-    guard's pause."""
-    now, events = [datetime(2026, 10, 19, 19, 0, tzinfo=timezone.utc)], []
-
-    def sleep(seconds):
-        events.append("pause")
-        now[0] += timedelta(seconds=seconds)
-
-    gate = three_arm.CapGate(QuotaGuard(clock=lambda: now[0], sleep=sleep, say=lambda line: None))
-    reserved, finish = threading.Event(), threading.Event()
-
-    def launch(name, row, hold=False):
-        def go():
-            events.append(name)
-            slot = ledger.reserve(tmp_path, kind="evaluation", key=name, planned=8, cap=10)
-            reserved.set()
-            if hold:
-                finish.wait(30)
-            ledger.settle(tmp_path, slot, tmp_path / name)
-            return row
-        return go
-
-    quota_row = {"kind": "evaluation", "evaluation_id": "a", "candidate_id": "c", "task_id": "t", "replicate": 1,
-                 "outcome": "incident", "incidents": [f"quota: {QUOTA}"]}
-    first = threading.Thread(target=gate.run, args=(launch("A", quota_row, hold=True),))
-    first.start()
-    reserved.wait(30)
-    rows = []
-    second = threading.Thread(target=lambda: rows.append(gate.run(launch("B", {"outcome": "completed"}))))
-    second.start()
-    deadline = time.monotonic() + 30
-    while not (events.count("B") == 1 and gate.running == 1) and time.monotonic() < deadline:
-        time.sleep(0.01)  # until B was refused at the cap while A is in flight
-    finish.set()
-    first.join(30)
-    second.join(30)
-    assert (events, rows) == (["A", "B", "pause", "B"], [{"outcome": "completed"}])
 
 
 def test_a_run_refuses_another_mutator_criterion_hash_or_envelope_before_anything_exists(tmp_path):

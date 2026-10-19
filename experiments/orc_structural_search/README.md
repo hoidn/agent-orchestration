@@ -218,7 +218,7 @@ I2, `direct.py` for I3), entry `direct::run` and condition `topology-only`. Befo
 `--criterion`'s, an `episode_wall_clock_sec` other than `envelope.episode_wall_clock_sec` (3600) and an
 `--eval-timeout-sec` other than `envelope.evaluation_wall_clock_sec` (14400), and (`RuntimeError`) an ORC parent that
 does not compile against `$RT` or a Python parent that does not type-check against it (`acceptance.check_parent`).
-Every `--hide` path must be an existing directory. Every run (smoke and main) needs its own fresh `E` and `W`.
+Every `--hide` path must be an existing directory (refused before any root exists). Every run (smoke and main) needs its own fresh `E` and `W`.
 
 Call caps (controller ruling R15): the ledger `E/calls.json` is one total for the run and its judges, so the run
 leaves the four judge calls (2 tasks x 2 judges x 1 batch) free: the main run's `--call-cap` is 65 minus the smoke's
@@ -278,8 +278,10 @@ reservation-aware (`three_arm.CapGate`): an evaluation whose planned maximum (an
 does not fit under `--call-cap` beside the evaluations in flight waits for one to end and is retried; it is refused
 (`CallCapExceeded`, before any workspace) only when nothing is in flight. Every launch that starts after a quota
 pause waits it out, a relaunch from the cap's wait included: an evaluation that ends in a quota incident pauses the
-guard before the waiters wake. Once one evaluation's quota relaunches are used up, no further evaluation starts (those
-in flight finish) and the run raises `QuotaExhausted`: rerun with `--continue` after the reset. `--continue` (same
+guard before the waiters wake. Once more than 3 evaluation launches in a row (of any units) have ended in a quota
+incident, no further evaluation starts (those in flight finish) and the run raises `QuotaExhausted`: rerun with
+`--continue` after the reset. Under a lasting limit that is at most max(`--concurrency`, 4) launches; a capacity blip
+that hits four launches in flight at once also stops the run. `--continue` (same
 `W`, same parents and
 seeds) keeps every arm that already has its episodes and every evaluation already logged.
 

@@ -285,14 +285,18 @@ def episode_workspace(parent_root: Path, tree: Path, brief: str, runtime: Path) 
     return copy, git(copy, "rev-parse", "HEAD")
 
 
-def hidden_roots(work_root: Path, evidence_root: Path, hide: Sequence[Path] = ()) -> list[Path]:
-    """The directories the shims mask from an episode's CLI calls (COMPARE_HIDE): the evidence root, every episode
-    tree but the call's own (the shims bind it back), the work root's evaluation directories, each created so
-    bubblewrap finds a mount point, and the operator's `hide` (other runs' roots), which must exist: a mistyped path
-    is refused (ValueError), never created."""
+def check_hide(hide: Sequence[Path]) -> None:
+    """Refuse (ValueError) a `hide` path that is not an existing directory: a mistyped root is never created."""
     missing = [str(path) for path in hide if not Path(path).is_dir()]
     if missing:
         raise ValueError(f"--hide {missing}: not an existing directory; hide only roots that exist")
+
+
+def hidden_roots(work_root: Path, evidence_root: Path, hide: Sequence[Path] = ()) -> list[Path]:
+    """The directories the shims mask from an episode's CLI calls (COMPARE_HIDE): the evidence root, every episode
+    tree but the call's own (the shims bind it back), the work root's evaluation directories, each created so
+    bubblewrap finds a mount point, and the operator's `hide` (other runs' roots), which must exist (check_hide)."""
+    check_hide(hide)
     roots = [root.resolve() for root in (
         evidence_root, *(work_root / name for name in ("episodes", "records", "runs", "agents", "env-manifests")))]
     for root in roots:

@@ -7,7 +7,8 @@ episodes and evaluation launches are driver.py's (its module docstring); E is th
 
 A run (run_three_arm) on a fresh E, or continuing one (`--continue`, as mode 1: quota incidents relaunched, killed
 launches skipped); it refuses a mutator command other than the criterion's envelope.mutator and a run configuration
-whose criterion_sha256 or episode wall clock, or an evaluation wall clock, is not the criterion's:
+whose criterion_sha256 or episode wall clock, or an evaluation wall clock, is not the criterion's, and a `hide`
+path that is not an existing directory, before any root exists:
   parents      both parent roots (`orc`: the direct seed with its coder rebound, the parent of I1 and I2; `python`:
                its matched typed Python workflow, the parent of I3) archived, the ORC parent compiled and the Python
                parent type-checked against the runtime (else RuntimeError, never caught); one {"kind": "parents", "orc",
@@ -56,10 +57,10 @@ from experiments.orc_structural_search.acceptance import check_parent, diagnosis
 from experiments.orc_structural_search.candidates import compile_candidate
 from experiments.orc_structural_search.config import ExperimentConfig, load_config, solution
 from experiments.orc_structural_search.driver import (
-    archive, check_roots, check_solutions, launch_units, run_episode)
+    archive, check_hide, check_roots, check_solutions, launch_units, run_episode)
 from experiments.orc_structural_search.evaluation import cli_version
 from experiments.orc_structural_search.mode1 import continued
-from experiments.orc_structural_search.quota import QuotaGuard, job_key, prior_rows, quota_reason, with_retries
+from experiments.orc_structural_search.quota import QuotaGuard, prior_rows, quota_reason, with_retries
 from experiments.orc_structural_search.readout import diversity, outcome, share
 from experiments.orc_structural_search.records import (
     UNAVAILABLE, append_record, python_program_digest, read_records)
@@ -98,13 +99,14 @@ class CapGate:
     pause before every launch and relaunch, retries a launch refused at the call cap (ledger.reserve, before any
     workspace) once another launch of the gate has ended, and raises the refusal when no other launch is in flight
     and none ended since it started. A launch that returns a quota incident pauses the guard before the waiters
-    wake, so none relaunches into the provider's limit; once a job (quota.job_key) has had its last quota relaunch
-    (guard.retries + 1 quota incidents), no further launch starts: `run` raises QuotaExhausted (`exhausted`)."""
+    wake, so none relaunches into the provider's limit. Once more than guard.retries launches of the gate, any job's,
+    have ended in a quota incident since the last launch that did not (`streak`), no further launch starts: `run`
+    raises QuotaExhausted (`exhausted`). Under a lasting limit at most max(concurrency, 1 + guard.retries) launches
+    happen; a capacity blip that hits that many launches in flight at once also stops the run (for --continue)."""
 
     def __init__(self, guard: QuotaGuard) -> None:
         self.guard, self.running, self.ended, self.changed = guard, 0, 0, threading.Condition()
-        self.quota: Counter = Counter()  # quota incidents per job
-        self.exhausted: str | None = None
+        self.streak, self.exhausted = 0, None  # quota incidents since the last launch that ended without one
 
     def run(self, launch: Callable[[], dict]) -> dict:
         while True:
@@ -141,10 +143,11 @@ class CapGate:
         if reason:
             self.guard.pause(reason)
         with self.changed:
-            if reason:
-                self.quota[job_key(row)] += 1
-            if reason and self.quota[job_key(row)] > self.guard.retries:
-                self.exhausted = f"evaluation {row['evaluation_id']}: quota relaunches used up ({reason}); {CONTINUE}"
+            if row is not None:
+                self.streak = self.streak + 1 if reason else 0
+            if reason and self.streak > self.guard.retries:
+                self.exhausted = (f"{self.streak} evaluation launches in a row ended in a quota incident (the last "
+                                  f"{row['evaluation_id']}: {reason}); {CONTINUE}")
             self.running, self.ended = self.running - 1, self.ended + 1
             self.changed.notify_all()
 
@@ -261,6 +264,7 @@ def run_three_arm(config_path: Path, *, parents: Mapping[str, Path], tasks: Sequ
     if smoke and episodes_per_arm:
         raise ValueError("a smoke run evaluates the parents only: pass episodes_per_arm 0")
     frozen = check_run(config_path, criterion, agent_cmd, timeout_sec)
+    check_hide(hide)
     work_root, evidence_root = check_roots(work_root, evidence_root)
     prior = prior_rows(work_root, evidence_root, continue_run)
     guard, log = guard or QuotaGuard(), evidence_root / "log.jsonl"
