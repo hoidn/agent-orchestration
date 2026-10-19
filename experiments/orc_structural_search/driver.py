@@ -68,7 +68,8 @@ from experiments.compare.repos import (
 from experiments.orc_structural_search import ledger
 from experiments.orc_structural_search.acceptance import judge_child
 from experiments.orc_structural_search.briefs import episode_brief
-from experiments.orc_structural_search.candidates import _file_names, candidate_id, imports, snapshot
+from experiments.orc_structural_search.candidates import (
+    _exported_names, _file_names, _parent_forms, _split_forms, candidate_id, imports, snapshot)
 from experiments.orc_structural_search.config import ExperimentConfig, solution
 from experiments.orc_structural_search.evaluation import EVALUATOR_VERSION, evaluate, is_python, records_root
 from experiments.orc_structural_search.quota import PREFIX, QuotaGuard, quota_hit, with_retries
@@ -332,14 +333,29 @@ def skeleton(root: Path, config: ExperimentConfig) -> str:
     """The skeleton hash of the mutable definitions; prompts contribute nothing (records.skeleton_hash, for an I3
     module records.python_skeleton_hash)."""
     hash_of = python_skeleton_hash if is_python(config) else skeleton_hash
-    return hash_of(mutable_source(root, config), definitions=config.mutable_definitions)
+    return hash_of(mutable_source(root, config), definitions=metric_definitions(root, config))
 
 
 def allocation(root: Path, config: ExperimentConfig) -> dict[str, list[str]]:
     """The provider externs (an I3 module: provider keys) each non-prompt mutable definition names, in source
     order."""
     allocate = python_provider_allocation if is_python(config) else provider_allocation
-    return allocate(mutable_source(root, config), definitions=config.mutable_definitions)
+    return allocate(mutable_source(root, config), definitions=metric_definitions(root, config))
+
+
+def metric_definitions(root: Path, config: ExperimentConfig) -> tuple[str, ...]:
+    """Module metrics include the entry first, then every private declaration in source order."""
+    if config.condition != "module" or is_python(config):
+        return config.mutable_definitions
+    entry = config.entry_workflow.split("::")[1]
+    names = [entry]
+    for name in config.mutable_files:
+        if name.endswith(".orc"):
+            forms = _parent_forms(root / name)
+            exported = _exported_names(forms)
+            names.extend(name for _, name in _split_forms(forms, whole_module=True)[1]
+                         if name != entry and name not in exported)
+    return tuple(names)
 
 
 def episode_diff(parent: Path, child: Path) -> str:

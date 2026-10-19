@@ -28,6 +28,7 @@ from orchestrator.workflow_lisp.sexpr import (
 
 UNAVAILABLE = "unavailable"
 _DEFINITION_HEADS = {"defworkflow", "defproc", "defun"}
+_TYPE_HEADS = {"defrecord", "defunion", "defenum"}
 _PROMPT_HEAD = "defprompt"  # a named prompt is found but contributes nothing to the skeleton or allocation
 _LITERAL_KEYWORDS = {":model", ":effort"}
 _PROVIDER_PREFIX = "providers."
@@ -121,7 +122,7 @@ def _collect_definitions(expr: SExpr, found: dict[str, ListExpr]) -> None:
     if (
         len(items) >= 2
         and isinstance(items[0], SymbolAtom)
-        and items[0].value in _DEFINITION_HEADS | {_PROMPT_HEAD}
+        and items[0].value in _DEFINITION_HEADS | _TYPE_HEADS | {_PROMPT_HEAD}
         and isinstance(items[1], SymbolAtom)
     ):
         found[items[1].value] = expr
@@ -300,6 +301,8 @@ def _normalize_definition(definition: ListExpr) -> str:
 
     normalizer = _Normalizer()
     items = definition.items
+    if items[0].value in _TYPE_HEADS:
+        return normalizer.render(definition, {})
     head = normalizer._render_all(items[:2], {})
     if len(items) < 3 or not isinstance(items[2], ListExpr):
         return _wrap([*head, *normalizer._render_all(items[2:], {})])

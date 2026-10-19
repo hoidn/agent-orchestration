@@ -74,7 +74,7 @@ def snapshot(parent: Path, edited_files: Mapping[str, bytes], dest: Path) -> Pat
 
 
 def compile_candidate(root: Path, config: ExperimentConfig, *, runtime: Path) -> CompileOutcome:
-    """Compile with the runtime's orchestrator; output that is not JSON is a `compiler_crash` rejection."""
+    """Compile with the frozen runtime; invalid compiler output carries `compiler_crash` for incident reporting."""
     source_root = root / config.source_root
     module = config.entry_workflow.split("::")[0]
     command = [
@@ -91,14 +91,19 @@ def compile_candidate(root: Path, config: ExperimentConfig, *, runtime: Path) ->
     lines = result.stdout.strip().splitlines()
     try:
         document = json.loads(lines[-1])
+        if (isinstance(document, dict) and document.get("status") == "accepted" and result.returncode == 0
+                and all(isinstance(document.get(key), str) and document[key]
+                        for key in ("build_key", "program_digest"))):
+            return CompileOutcome("accepted", document["build_key"], document["program_digest"], ())
+        if (isinstance(document, dict) and document.get("status") == "rejected" and result.returncode != 0
+                and isinstance(document.get("diagnostics"), list) and document["diagnostics"]
+                and all(isinstance(d, dict) for d in document["diagnostics"])):
+            return CompileOutcome("rejected", None, None, tuple(document["diagnostics"]))
     except (IndexError, ValueError):
-        return CompileOutcome("rejected", None, None, (
-            {"code": "compiler_crash", "exit": result.returncode, "stderr": result.stderr[-CRASH_TAIL_CHARS:]},))
-    if document.get("status") == "accepted" and result.returncode == 0:
-        return CompileOutcome("accepted", document["build_key"], document["program_digest"], ())
-    if document.get("status") == "rejected" and result.returncode != 0:
-        return CompileOutcome("rejected", None, None, tuple(document["diagnostics"]))
-    raise RuntimeError(f"unexpected compile result (exit {result.returncode}): {lines[-1]}")
+        pass
+    return CompileOutcome("rejected", None, None, (
+        {"code": "compiler_crash", "exit": result.returncode, "stderr": result.stderr[-CRASH_TAIL_CHARS:],
+         "message": f"invalid compiler response: {result.stdout[-CRASH_TAIL_CHARS:]}"},))
 
 
 # --- Edit validation -------------------------------------------------------------------------------------------
@@ -107,11 +112,13 @@ FROZEN_HEADS = frozenset({"import", "deftype", "defrecord", "defunion", "defenum
                           ":target-dsl", ":language"})
 # What each condition permits to change (controller ruling, Task 3 review round 1). Role allocation (which provider
 # extern a call names) is topology; `:model`/`:effort` values are provider tuning.
-TOPOLOGY_CONDITIONS = frozenset({"topology-only", "joint"})
-PROMPT_CONDITIONS = frozenset({"prompt-only", "joint"})
+TOPOLOGY_CONDITIONS = frozenset({"topology-only", "joint", "module"})
+PROMPT_CONDITIONS = frozenset({"prompt-only", "joint", "module"})
 PROVIDER_CONDITIONS = frozenset({"provider-only", "joint"})
-PROMPT_SIGNATURE_CONDITIONS = frozenset({"joint"})
+PROMPT_SIGNATURE_CONDITIONS = frozenset({"joint", "module"})
 TUNING_KEYWORDS = frozenset({":model", ":effort"})
+PRIVATE_TYPE_HEADS = frozenset({"defrecord", "defunion", "defenum"})
+MODULE_DEFINITION_HEADS = PRIVATE_TYPE_HEADS | {"defproc", "defworkflow", "defprompt"}
 
 
 @dataclass(frozen=True)
@@ -180,18 +187,24 @@ def _top_level_forms(tree: ListExpr) -> tuple[SExpr, ...]:
     return tree.items
 
 
-def _split_forms(forms) -> tuple[list[object], dict[tuple[str, str], SExpr]]:
+def _split_forms(forms, *, whole_module: bool = False) -> tuple[list[object], dict[tuple[str, str], SExpr]]:
     """(frozen forms in order, named mutable-kind definitions keyed by (head, name)).
 
-    A form is a definition when its head starts with `def`, is not a frozen head and names a symbol; every other
-    form (directives, unrecognized forms) is frozen, which fails closed.
+    Legacy conditions use non-frozen `def*` heads. Whole-module editing admits only private types, prompts and
+    callables; exported types, directives and unrecognized forms stay frozen.
     """
     frozen: list[object] = []
     definitions: dict[tuple[str, str], SExpr] = {}
+    public = _exported_names(forms) | {name for form in forms if _head(form) == "import" and len(form.items) > 1
+                                      and isinstance(form.items[1], SymbolAtom)
+                                      for name in _import_names(form)}
     for form in forms:
         head = _head(form)
         named = head and head.startswith("def") and len(form.items) > 1 and isinstance(form.items[1], SymbolAtom)
-        if named and head not in FROZEN_HEADS:
+        private_type = named and head in PRIVATE_TYPE_HEADS and form.items[1].value not in public
+        mutable = (head in MODULE_DEFINITION_HEADS and (head not in PRIVATE_TYPE_HEADS or private_type)
+                   if whole_module else head not in FROZEN_HEADS)
+        if named and mutable:
             definitions[(head, form.items[1].value)] = form
         else:
             frozen.append(canonical_form(form))
@@ -241,7 +254,7 @@ def _condition_verdict(head: str, name: str, before: ListExpr, after: ListExpr, 
         tuning_changed = bool(set(tuning_after) - parent_tuning) if condition == "topology-only" else (
             tuning_before != tuning_after)
         surfaces = {"topology": (shape_before != shape_after, TOPOLOGY_CONDITIONS),
-                    ":model/:effort values": (tuning_changed, PROVIDER_CONDITIONS)}
+                    ":model/:effort values": (tuning_changed, PROVIDER_CONDITIONS | {"module"})}
     for surface, (changed, permitted) in surfaces.items():
         if changed and condition not in permitted:
             return _refuse("frozen_surface_changed", f"{surface} of {head} {name} changed under {condition}")
@@ -254,15 +267,32 @@ def _exported_names(forms) -> set[str]:
 
 
 def _module_verdict(parent_forms, child_forms, *, mutable: tuple[str, ...], condition: str,
-                    allowed_new: frozenset[str]) -> Verdict:
+                    allowed_new: frozenset[str], whole_module: bool = False) -> Verdict:
     """Compare one module's forms; exported signatures (all items but the body) are frozen under every condition."""
-    parent_frozen, parent_defs = _split_forms(parent_forms)
-    child_frozen, child_defs = _split_forms(child_forms)
+    if whole_module:
+        imported = {name for form in parent_forms if _head(form) == "import" for name in _import_names(form)}
+        declarations = [(_head(form), form.items[1].value) for form in child_forms
+                        if _head(form) in MODULE_DEFINITION_HEADS and len(form.items) > 1
+                        and isinstance(form.items[1], SymbolAtom)]
+        counts = Counter(name for _, name in declarations)
+        parent_public = {(_head(form), form.items[1].value) for form in parent_forms
+                         if _head(form) in MODULE_DEFINITION_HEADS and len(form.items) > 1
+                         and isinstance(form.items[1], SymbolAtom)
+                         and form.items[1].value in _exported_names(parent_forms)}
+        collisions = {name for head, name in declarations if name in imported or counts[name] > 1
+                      or (name in _exported_names(parent_forms) and (head, name) not in parent_public)}
+        if collisions:
+            return _refuse("declaration_collision", f"private declarations collide with bound names: {sorted(collisions)}")
+    parent_frozen, parent_defs = _split_forms(parent_forms, whole_module=whole_module)
+    child_frozen, child_defs = _split_forms(child_forms, whole_module=whole_module)
     if parent_frozen != child_frozen:
         return _refuse("frozen_surface_changed", "an import, type, export, module or language form differs")
     exported = _exported_names(parent_forms)
     parent_tuning = {value for form in parent_forms for value in _tuning_split(form)[1]}
-    for key in parent_defs.keys() | child_defs.keys():
+    if whole_module:
+        mutable = tuple(set(mutable) | {name for _, name in parent_defs.keys() | child_defs.keys()
+                                        if name not in exported})
+    for key in sorted(parent_defs.keys() | child_defs.keys()):
         verdict = _definition_verdict(key, parent_defs.get(key), child_defs.get(key), exported, mutable, condition,
                                       parent_tuning, allowed_new)
         if not verdict.accepted:
@@ -274,6 +304,8 @@ def _definition_verdict(key: tuple[str, str], before: SExpr | None, after: SExpr
                         mutable: tuple, condition: str, parent_tuning: set, allowed_new: frozenset) -> Verdict:
     """One definition of a module, parent `before` and child `after` (None where it does not exist)."""
     head, name = key
+    if condition == "module" and name in mutable and name not in exported and (before is None or after is None):
+        return ACCEPTED
     if before is None and name in allowed_new:  # a fresh I2 helper: a change from an empty form of its kind
         return _condition_verdict(head, name, ListExpr(after.items[:1], after.span), after, condition, parent_tuning)
     if before is None or after is None:
@@ -306,9 +338,13 @@ def _frozen_verdict(parent: Path, child: Path, config: ExperimentConfig, *, allo
 
 def _orc_file_verdict(name: str, before: Path, after: Path, config: ExperimentConfig, allowed: frozenset) -> Verdict:
     is_mutable = name in config.mutable_files
+    mutable = config.mutable_definitions if is_mutable else ()
+    if is_mutable and config.condition == "module":
+        mutable = (*mutable, config.entry_workflow.split("::")[1])
     verdict = _module_verdict(_parent_forms(before), _child_forms(after), condition=config.condition,
-                              mutable=config.mutable_definitions if is_mutable else (),
-                              allowed_new=allowed if is_mutable else frozenset())
+                              mutable=mutable,
+                              allowed_new=allowed if is_mutable else frozenset(),
+                              whole_module=is_mutable and config.condition == "module")
     return verdict if verdict.accepted else _refuse(verdict.code, f"{name}: {verdict.detail}")
 
 
@@ -318,7 +354,7 @@ def _plain_file_verdict(name: str, before: Path, after: Path, config: Experiment
         return ACCEPTED  # the condition permits the providers file whether or not it is in mutable_files
     if name in (config.command_boundaries_file, config.providers_file):
         return _refuse("frozen_surface_changed", f"{name} changed under {config.condition}")
-    if name not in config.mutable_files:
+    if name not in config.mutable_files or config.condition == "module":
         return _refuse("scope_exceeded", f"{name} is not a mutable file")
     return ACCEPTED
 
