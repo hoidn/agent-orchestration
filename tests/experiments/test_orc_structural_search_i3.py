@@ -23,10 +23,15 @@ assert source.count(old) == 1, old
 Path("direct.py").write_text(source.replace(old, "    if not dev_check().passed:\\n"
                                                  "        return BLOCKED(reason=change.summary)\\n" + old))
 """
+# the same edit, after running a Python command that imports a module of the workspace (as a mutator checking its
+# edit might); the command is not isolated, so it honours the episode environment's PYTHONDONTWRITEBYTECODE
+CODEX_IMPORT = CODEX_EDIT + f"""import subprocess
+subprocess.run([{sys.executable!r}, "-c", "import dev_check"], check=True)
+"""
 
 
-def test_an_i3_episode_runs_through_run_episode_with_the_codex_mutator_command(sandboxed, world, pyright):
-    (world.fakebin / "codex").write_text(CODEX_EDIT)
+def i3_episode(world, codex_source):
+    (world.fakebin / "codex").write_text(codex_source)
     shutil.copytree(PYTHON_PARENT, world.tmp / "python", ignore=shutil.ignore_patterns("__pycache__"))
     evidence = world.tmp / "evidence"
     _, parent = archive(world.tmp / "python", evidence, world.runtime)
@@ -34,7 +39,17 @@ def test_an_i3_episode_runs_through_run_episode_with_the_codex_mutator_command(s
                       work_root=world.outside / "work", evidence_root=evidence, episode_index=0, runtime=world.runtime,
                       env={**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}"},
                       solutions={world.task.name: world.solution}, call_cap=160)
+    return row, evidence
+
+
+def test_an_i3_episode_runs_through_run_episode_with_the_codex_mutator_command(sandboxed, world, pyright):
+    row, evidence = i3_episode(world, CODEX_EDIT)
     patch = (evidence / "episodes" / row["episode_id"] / "calls" / "1" / "patch-cand-1.diff").read_text()
     assert (row["interface"], row["agent_cmd"], row["provider_calls"], "b/direct.py" in patch, row["outcome"],
             row["program_digest"].startswith("sha256:"), row["skeleton"] != row["parent_skeleton"]) == (
         "I3", CODEX_MUTATOR, 1, True, "accepted", True, True), row
+
+
+def test_a_mutator_running_python_in_its_workspace_leaves_no_bytecode_in_the_child(sandboxed, world, pyright):
+    row, _ = i3_episode(world, CODEX_IMPORT)
+    assert (row["outcome"], row["refusal_code"]) == ("accepted", None), row

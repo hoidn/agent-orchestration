@@ -79,6 +79,9 @@ from experiments.orc_structural_search.sites import HYPOTHESIS, drop_hypothesis
 EPISODE = "EPISODE.md"
 _LOG_LOCK = threading.Lock()  # concurrent evaluations append to one log
 LAUNCH_ENV = {"DISABLE_AUTOUPDATER": "1"}  # added to every evaluation's and episode's environment
+# added to every episode's environment: Python the mutator runs in its workspace leaves no __pycache__ there (an
+# added file refuses the child)
+EPISODE_ENV = {"PYTHONDONTWRITEBYTECODE": "1"}
 
 
 # one evaluation job (root, config, log fields, task package, replicate) and the attempt it launches as
@@ -397,7 +400,8 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
     shim_env = {"COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": base, "TMPDIR": tree / "tmp",
                 "COMPARE_HIDE": os.pathsep.join(map(str, hidden))}
     stopped, status = run_agent(agent_cmd, copy, evidence_root / "episodes" / f"episode-{episode_index}.log",
-                                {**env, **LAUNCH_ENV}, config.episode_wall_clock_sec, runtime=runtime, shim_env=shim_env)
+                                {**env, **LAUNCH_ENV, **EPISODE_ENV}, config.episode_wall_clock_sec, runtime=runtime,
+                                shim_env=shim_env)
     elapsed = time.monotonic() - started
     calls = ledger.settle(evidence_root, slot, records)
     quota = quota_hit(records)  # a quota episode is an incident whatever the agent's exit status

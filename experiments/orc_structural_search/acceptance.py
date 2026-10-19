@@ -6,9 +6,14 @@ Design: docs/design/orc_structural_search_driver.md ("Edit Validation And Transa
 """
 
 import ast
+import builtins
+import hashlib
 import json
+import os
+import re
 import subprocess
 import tempfile
+import tokenize
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict
@@ -25,6 +30,9 @@ from experiments.orc_structural_search.sites import (
 
 
 TUNING_ARGUMENTS = ("model", "effort")  # an I3 call's provider tuning keywords
+SUPPRESSION = re.compile(r"type:\s*ignore|pyright:")  # a comment that silences pyright
+BUILTIN_NAMES = frozenset(dir(builtins))  # frozen code calls them, so an added function must not shadow one
+_CLEAN_PARENTS: set[tuple[str, Path]] = set()  # (entry module sha256, runtime) checked clean in this process
 
 
 def entry_result(root: Path, build_key: str) -> object:
@@ -92,12 +100,17 @@ def diagnosis(checked: CompileOutcome) -> dict:
 
 
 def judge_python_child(parent: Path, child: Path, config: ExperimentConfig, *, runtime: Path) -> dict:
-    """judge_child for an I3 child: validate_python_scope, check_python, then a bounded planned maximum (the
-    module's frozen call cap); no slot or entry-result check (the scope rule freezes the signature of `run`)."""
+    """judge_child for an I3 child: validate_python_scope, suppression_check, check_parent, check_python, then a
+    bounded planned maximum (the module's frozen call cap); no slot or entry-result check (the scope rule freezes
+    the signature of `run`)."""
     shown = {"receipt": None}
     verdict = validate_python_scope(parent, child, config)
     if not verdict.accepted:
         return {**shown, "outcome": "rejected", "refusal_code": verdict.code, "detail": verdict.detail}
+    suppressed = suppression_check(parent, child, config)
+    if suppressed is not None:
+        return {**shown, "outcome": "rejected", **diagnosis(suppressed)}
+    check_parent(parent, config, runtime=runtime)
     checked = check_python(child, config, runtime=runtime)
     if checked.status != "accepted":
         return {**shown, "outcome": "rejected", **diagnosis(checked)}
@@ -107,18 +120,56 @@ def judge_python_child(parent: Path, child: Path, config: ExperimentConfig, *, r
     return {**shown, "outcome": "accepted", "program_digest": checked.program_digest, "build_key": checked.build_key}
 
 
+def suppressions(source: Path) -> list[tuple[int, str]]:
+    """(line, text) of each comment of the Python module `source` that silences pyright."""
+    with source.open("rb") as handle:
+        return [(token.start[0], token.string) for token in tokenize.tokenize(handle.readline)
+                if token.type == tokenize.COMMENT and SUPPRESSION.search(token.string)]
+
+
+def suppression_check(parent: Path, child: Path, config: ExperimentConfig) -> CompileOutcome | None:
+    """A rejection (`type_check_failed`, rule `suppression_comment`) of a child whose entry module has a comment
+    silencing pyright (`type: ignore`, `pyright: ...`) that the parent's lacks, else None."""
+    (before, _), (after, _) = ledger.entry_of(parent, config), ledger.entry_of(child, config)
+    known = Counter(text for _, text in suppressions(before))
+    for line, text in suppressions(after):
+        if known[text] == 0:
+            diagnostic = {"code": "type_check_failed", "rule": "suppression_comment",
+                          "message": f"{after.name}:{line}: {text}"}
+            return CompileOutcome("rejected", None, None, (diagnostic,))
+        known[text] -= 1
+    return None
+
+
+def check_parent(parent: Path, config: ExperimentConfig, *, runtime: Path) -> None:
+    """Raise RuntimeError unless the parent type-checks clean against `runtime` (check_python; once per entry
+    module content and runtime in this process): a runtime that does not resolve or no longer matches the frozen
+    imports must never be what rejects a child."""
+    source, _ = ledger.entry_of(parent, config)
+    key = (hashlib.sha256(source.read_bytes()).hexdigest(), runtime.resolve())
+    if key in _CLEAN_PARENTS:
+        return
+    checked = check_python(parent, config, runtime=runtime)
+    if checked.status != "accepted":
+        raise RuntimeError(f"the parent does not type-check against {runtime}: {diagnosis(checked)['detail']}")
+    _CLEAN_PARENTS.add(key)
+
+
 def check_python(root: Path, config: ExperimentConfig, *, runtime: Path, pyright: str = "pyright") -> CompileOutcome:
     """Type-check the candidate's entry module (ledger.entry_of) with pyright from `root`; `orchestrator` resolves
     against `runtime` (the runtime the candidate runs with) through the extraPaths of a generated
-    pyrightconfig.json, wherever `root` lies. Accepted, with the module's program digest and no build key, when
-    pyright reports no error; else rejected with one `type_check_failed` diagnostic per error. RuntimeError when
-    pyright is missing or fails (an exit status other than 0 or 1)."""
+    pyrightconfig.json, wherever `root` lies (PYTHONPATH is dropped from pyright's environment, so the interpreter's
+    path cannot resolve it elsewhere), and `type: ignore` comments are disabled. Accepted, with the module's program
+    digest and no build key, when pyright reports no error; else rejected with one `type_check_failed` diagnostic
+    per error. RuntimeError when pyright is missing or fails (an exit status other than 0 or 1)."""
     source, _ = ledger.entry_of(root, config)
+    settings = {"extraPaths": [str(runtime.resolve())], "enableTypeIgnoreComments": False}
+    env = {name: value for name, value in os.environ.items() if name != "PYTHONPATH"}
     with tempfile.TemporaryDirectory() as project:
-        (Path(project) / "pyrightconfig.json").write_text(json.dumps({"extraPaths": [str(runtime.resolve())]}))
+        (Path(project) / "pyrightconfig.json").write_text(json.dumps(settings))
         try:
             done = subprocess.run([pyright, "--outputjson", "--project", project, str(source.relative_to(root))],
-                                  cwd=root, capture_output=True, text=True)
+                                  cwd=root, capture_output=True, text=True, env=env)
         except FileNotFoundError as error:
             raise RuntimeError(f"{pyright} is not installed: an I3 child cannot be type-checked") from error
     if done.returncode not in (0, 1):
@@ -136,13 +187,17 @@ def check_python(root: Path, config: ExperimentConfig, *, runtime: Path, pyright
 def validate_python_scope(parent: Path, child: Path, config: ExperimentConfig) -> Verdict:
     """Refuse an I3 child whose change leaves the mutable functions of its mutable Python file.
 
-    Top-level nodes are compared by `ast.dump` (comments and formatting are free). `frozen_surface_changed`: a
-    top-level node other than a mutable function (`mutable_definitions`) changed, a mutable function's parameters
-    or return annotation changed, or (topology-only) a `model=`/`effort=` constant in the mutable functions or the
-    added ones is new to the parent module. `scope_exceeded`: a mutable function was removed, an added top-level
-    node is not a function, or another file differs (bytes; `.orc` forms). `declaration_collision`: an added
-    function's name is already bound at top level (an import included). `unreadable_child`: `ast` rejects the
-    child's mutable file."""
+    Top-level nodes are compared by `ast.dump` (comments and formatting are free; suppression_check covers
+    comments that silence pyright). `frozen_surface_changed`: a top-level node other than a mutable function
+    (`mutable_definitions`) changed; a mutable function's parameters, return annotation or decorators changed;
+    inside the mutable or added functions a `global`/`nonlocal` or import statement, a store (or `del`) whose
+    target's base name is bound at the parent's top level, or a non-constant `model=`/`effort=` value; or
+    (topology-only) a `model=`/`effort=` constant there that is new to the parent module. `scope_exceeded`: a
+    mutable function was removed, an added top-level node is not an undecorated function, or another file differs
+    (bytes; `.orc` forms). `declaration_collision`: an added function's name is already bound at top level (an
+    import included) or is a builtin's. `unreadable_child`: `ast` rejects the child's mutable file. Not refused (a
+    recorded limitation; the shims record every provider call): calls that mutate frozen state (`STATE.__init__()`,
+    `PROVIDERS.update(...)`), direct subprocess or CLI calls, and prompts written inline."""
     for name in _file_names(parent, child):
         before, after = parent / name, child / name
         if name in config.mutable_files and before.is_file() and after.is_file():
@@ -166,22 +221,29 @@ def _python_file_verdict(before: Path, after: Path, config: ExperimentConfig) ->
     mutable = set(config.mutable_definitions)
     parent_functions, parent_frozen = _split_python(parent, mutable)
     child_functions, child_rest = _split_python(child, mutable)
-    unmatched = Counter(ast.dump(node) for node in parent_frozen)
-    added = []
-    for node in child_rest:
-        if unmatched[ast.dump(node)] > 0:
-            unmatched[ast.dump(node)] -= 1
-        else:
-            added.append(node)
-    changed = [node for node in parent_frozen if unmatched[ast.dump(node)] > 0]
+    changed = _unmatched(parent_frozen, child_rest)
     if changed:
         return _refuse("frozen_surface_changed", f"the top-level {_label(changed[0])} changed")
-    verdict = _signature_verdict(parent_functions, child_functions)
-    if verdict.accepted:
-        verdict = _added_verdict(added, _top_names(parent))
-    if verdict.accepted and config.condition == "topology-only":
-        verdict = _tuning_verdict(parent, [*child_functions.values(), *added])
-    return verdict
+    added = _unmatched(child_rest, parent_frozen)
+    functions = [*child_functions.values(), *(node for node in added if isinstance(node, ast.FunctionDef))]
+    frozen = _top_names(parent)
+    verdicts = [_signature_verdict(parent_functions, child_functions), _added_verdict(added, frozen | BUILTIN_NAMES),
+                _body_verdict(functions, frozen)]
+    if config.condition == "topology-only":
+        verdicts.append(_tuning_verdict(parent, functions))
+    return next((verdict for verdict in verdicts if not verdict.accepted), ACCEPTED)
+
+
+def _unmatched(nodes: Sequence[ast.stmt], others: Sequence[ast.stmt]) -> list[ast.stmt]:
+    """The `nodes` left after each of `others` cancels at most one equal node (by `ast.dump`)."""
+    pending = Counter(ast.dump(node) for node in others)
+    left = []
+    for node in nodes:
+        if pending[ast.dump(node)] > 0:
+            pending[ast.dump(node)] -= 1
+        else:
+            left.append(node)
+    return left
 
 
 def _split_python(nodes: Sequence[ast.stmt], mutable: set[str]) -> tuple[dict[str, ast.FunctionDef], list[ast.stmt]]:
@@ -201,22 +263,52 @@ def _signature_verdict(parent: Mapping[str, ast.FunctionDef], child: Mapping[str
         after = child.get(name)
         if after is None:
             return _refuse("scope_exceeded", f"the mutable function {name} was removed")
-        if (ast.dump(before.args), before.returns and ast.dump(before.returns)) != (
-                ast.dump(after.args), after.returns and ast.dump(after.returns)):
+        if _signature(before) != _signature(after):
             return _refuse("frozen_surface_changed", f"exported signature of {name} changed")
     return ACCEPTED
+
+
+def _signature(function: ast.FunctionDef) -> tuple[str, ...]:
+    """A function's parameters, return annotation and decorators."""
+    return (ast.dump(function.args), function.returns and ast.dump(function.returns),
+            *(ast.dump(decorator) for decorator in function.decorator_list))
 
 
 def _added_verdict(added: Sequence[ast.stmt], bound: set[str]) -> Verdict:
     """Added top-level nodes must be functions with fresh names."""
     names = set(bound)
     for node in added:
-        if not isinstance(node, ast.FunctionDef):
-            return _refuse("scope_exceeded", f"the top-level {_label(node)} was added: only functions may be")
+        if not isinstance(node, ast.FunctionDef) or node.decorator_list:
+            return _refuse("scope_exceeded", f"the top-level {_label(node)} was added: only undecorated functions "
+                                             "may be")
         if node.name in names:
             return _refuse("declaration_collision", f"the added function {node.name} is already bound at top level")
         names.add(node.name)
     return ACCEPTED
+
+
+def _body_verdict(functions: Sequence[ast.FunctionDef], frozen: set[str]) -> Verdict:
+    """Refuse, inside `functions`, what rebinds or reaches past the frozen surface at run time (_body_problem)."""
+    for function in functions:
+        for node in ast.walk(function):
+            problem = _body_problem(node, frozen)
+            if problem:
+                return _refuse("frozen_surface_changed", f"{function.name}, line {node.lineno}: {problem}")
+    return ACCEPTED
+
+
+def _body_problem(node: ast.AST, frozen: set[str]) -> str | None:
+    if isinstance(node, (ast.Global, ast.Nonlocal, ast.Import, ast.ImportFrom)):
+        return f"a {type(node).__name__} statement ({ast.unparse(node)})"
+    if isinstance(node, ast.keyword) and node.arg in TUNING_ARGUMENTS and not isinstance(node.value, ast.Constant):
+        return f"a non-constant {node.arg}= value ({ast.unparse(node.value)})"
+    if isinstance(getattr(node, "ctx", None), (ast.Store, ast.Del)):
+        base = node
+        while isinstance(base, (ast.Attribute, ast.Subscript, ast.Starred)):
+            base = base.value
+        if isinstance(base, ast.Name) and base.id in frozen:
+            return f"a store to the frozen top-level name {base.id} ({ast.unparse(node)})"
+    return None
 
 
 def _top_names(nodes: Sequence[ast.stmt]) -> set[str]:

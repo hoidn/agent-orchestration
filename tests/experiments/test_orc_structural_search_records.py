@@ -233,8 +233,12 @@ def test_python_skeleton_is_invariant_under_renames_and_literals_and_differs_for
     branched = _python_edit(("    return DONE(summary=change.summary)",
                              "    if not change.account:\n        return BLOCKED(reason=intent)\n"
                              "    return DONE(summary=change.summary)"))
-    hashes = [python_skeleton_hash(source, definitions=["run"]) for source in (PYTHON, renamed, branched)]
-    assert (hashes[1] == hashes[0], hashes[2] == hashes[0]) == (True, False)
+    looped = _python_edit(("    change = provider_result", "    for _ in range(2):\n        change = provider_result"))
+    called = _python_edit(("    return DONE(summary=change.summary)",
+                           "    dev_check()\n    return DONE(summary=change.summary)"))
+    hashes = [python_skeleton_hash(source, definitions=["run"])
+              for source in (PYTHON, renamed, branched, looped, called)]
+    assert [digest == hashes[0] for digest in hashes[1:]] == [True, False, False, False]
 
 
 def test_python_program_digest_ignores_comments_and_changes_with_a_rename():
