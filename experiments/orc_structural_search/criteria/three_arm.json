@@ -45,7 +45,7 @@
     "mutator": "codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --model gpt-6.1-sol --config model_reasoning_effort=high",
     "episode_wall_clock_sec": 3600,
     "evaluation_wall_clock_sec": 14400,
-    "site_selection": "uniform over eligible manifest sites, random.Random((run_seed, episode_index))",
+    "site_selection": "uniform over eligible manifest sites, random.Random(f\"{run_seed} {episode_index}\") (as mode 2)",
     "episode_environment": "the mutator runs behind the shims with EPISODE.md on stdin, PYTHONDONTWRITEBYTECODE=1 and COMPARE_HIDE masking (bubblewrap mounts a tmpfs over each hidden directory after its --dev-bind / /, the episode's own tree bound back): the evidence root, sibling episodes, the work root's evaluation directories (records, runs, agents, env-manifests) and the operator's --hide roots, the Phase 1 roots among them; home stays readable and scan-detected",
     "order": "I1 rerun fresh (no Phase 1 episode reused); episodes one at a time; evaluations at concurrency 4"
   },
