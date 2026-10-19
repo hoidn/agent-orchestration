@@ -12,6 +12,7 @@ exceed the cap. One lock covers reading and writing, so concurrent launches of o
 overshoot the cap.
 """
 
+import ast
 import json
 import math
 import threading
@@ -24,6 +25,7 @@ from orchestrator.workflow_lisp.sexpr import IntAtom, KeywordAtom, ListExpr, SEx
 LEDGER = "calls.json"
 DEFINITIONS = ("defproc", "defworkflow", "defun")
 BINDING_FORMS = ("let*", "list/map", "list/map-effect")  # (form ((name value) ...) body ...)
+CALL_CAP = "MAX_PROVIDER_CALLS"  # an I3 module's frozen runtime cap on provider calls
 _LOCK = threading.Lock()  # ponytail: per process; two driver processes on one evidence root are not serialized
 
 
@@ -82,14 +84,31 @@ def settle_killed_episodes(evidence_root: Path) -> None:
 
 
 def entry_of(root: Path, config: ExperimentConfig) -> tuple[Path, str]:
-    """(the entry module's source, the entry definition's name) of the candidate at `root`."""
+    """(the entry module's source, the entry definition's name) of the candidate at `root`: <module>.py when that
+    file is one of the mutable files (an I3 candidate), else <module>.orc."""
     module, entry = config.entry_workflow.split("::")
-    return (root / config.source_root / module).with_suffix(".orc"), entry
+    python = Path(config.source_root, f"{module}.py") in {Path(name) for name in config.mutable_files}
+    return (root / config.source_root / module).with_suffix(".py" if python else ".orc"), entry
 
 
 def planned_calls(root: Path, config: ExperimentConfig) -> int:
-    """The planned maximum of one evaluation of the candidate at `root` (max_provider_calls of its entry)."""
-    return max_provider_calls(*entry_of(root, config))
+    """The planned maximum of one evaluation of the candidate at `root`: max_provider_calls of its entry, or for a
+    Python entry module its frozen call cap (python_call_cap)."""
+    source, entry = entry_of(root, config)
+    return python_call_cap(source) if source.suffix == ".py" else max_provider_calls(source, entry)
+
+
+def python_call_cap(source: Path) -> int:
+    """The integer literal of the Python module's last top-level `MAX_PROVIDER_CALLS` assignment: the runtime cap
+    its provider adapter enforces. Refuses (CallCapExceeded) a module without one."""
+    caps = [node.value for node in ast.parse(source.read_text()).body if isinstance(node, (ast.Assign, ast.AnnAssign))
+            and any(isinstance(target, ast.Name) and target.id == CALL_CAP
+                    for target in (node.targets if isinstance(node, ast.Assign) else [node.target]))]
+    cap = caps[-1] if caps else None
+    if not (isinstance(cap, ast.Constant) and type(cap.value) is int):
+        raise CallCapExceeded(f"{source}: no top-level {CALL_CAP} integer literal, so the planned maximum is "
+                              "unbounded; the launch is refused")
+    return cap.value
 
 
 def unbounded_refusal(root: Path, config: ExperimentConfig) -> dict | None:

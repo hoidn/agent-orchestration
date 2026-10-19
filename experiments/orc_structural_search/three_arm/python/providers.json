@@ -1,0 +1,6 @@
+{
+  "coder": "codex_unrestricted_workspace",
+  "planner": "claude_unrestricted_workspace",
+  "reviewer": "codex_unrestricted_workspace",
+  "judge": "codex_unrestricted_workspace"
+}

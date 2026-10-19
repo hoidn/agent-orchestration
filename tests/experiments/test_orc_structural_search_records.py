@@ -10,9 +10,12 @@ import pytest
 from experiments.orc_structural_search.records import (
     append_record,
     final_choice,
+    python_program_digest,
+    python_skeleton_hash,
     read_records,
     skeleton_hash,
 )
+from tests.experiments.orc_structural_search_support import PYTHON_PARENT
 
 SOURCE = """
 (workflow-lisp
@@ -209,3 +212,38 @@ def test_final_choice_refuses_non_numeric_cost_ceiling():
     criterion = {**CRITERION, "mean_cost_ceiling": "unavailable"}
     with pytest.raises(ValueError, match="mean_cost_ceiling must be numeric"):
         final_choice(rows, criterion=criterion)
+
+
+PYTHON = (PYTHON_PARENT / "direct.py").read_text()  # the I3 parent
+
+
+def _python_edit(*edits: tuple[str, str]) -> str:
+    source = PYTHON
+    for old, new in edits:
+        assert source.count(old) == 1, old
+        source = source.replace(old, new)
+    return source
+
+
+def test_python_skeleton_is_invariant_under_renames_and_literals_and_differs_for_a_branch():
+    renamed = _python_edit(("    change = provider_result", "    outcome = provider_result"),
+                           ("summary=change.summary", "summary=outcome.summary"),
+                           ('model="gpt-6.1-sol", effort="high", timeout_sec=5400',
+                            'model="other", effort="low", timeout_sec=60'))
+    branched = _python_edit(("    return DONE(summary=change.summary)",
+                             "    if not change.account:\n        return BLOCKED(reason=intent)\n"
+                             "    return DONE(summary=change.summary)"))
+    looped = _python_edit(("    change = provider_result", "    for _ in range(2):\n        change = provider_result"))
+    called = _python_edit(("    return DONE(summary=change.summary)",
+                           "    dev_check()\n    return DONE(summary=change.summary)"))
+    hashes = [python_skeleton_hash(source, definitions=["run"])
+              for source in (PYTHON, renamed, branched, looped, called)]
+    assert [digest == hashes[0] for digest in hashes[1:]] == [True, False, False, False]
+
+
+def test_python_program_digest_ignores_comments_and_changes_with_a_rename():
+    commented = _python_edit(("def run(", "# the policy\n\n\ndef run("))
+    renamed = _python_edit(("    change = provider_result", "    outcome = provider_result"),
+                           ("summary=change.summary", "summary=outcome.summary"))
+    digests = [python_program_digest(source) for source in (PYTHON, commented, renamed)]
+    assert (digests[0].startswith("sha256:"), digests[1] == digests[0], digests[2] == digests[0]) == (True, True, False)

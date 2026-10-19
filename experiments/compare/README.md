@@ -47,12 +47,17 @@ What the sandbox isolates:
   private, and so are `/tmp` tmux sockets;
 - `/dev/shm` is private, and the process list shows only the agent's own processes;
 - `/var/tmp` is empty, because other sessions keep repository worktrees there.
+- with `COMPARE_HIDE` set (colon-separated absolute directories; the structural search driver sets it for its
+  mutator), each of them that exists is masked by an empty tmpfs after `--dev-bind / /`, and then
+  `--bind <tree> <tree>` binds the tree back, so masking a parent of the tree leaves the tree reachable. Without
+  the variable the `bwrap` command line is unchanged. The agent never sees it, like the other `COMPARE_*`
+  variables.
 - `/tmp` is private per run, not per agent: `best_of_n`'s implementers share the tree's `tmp/`;
 - the PID namespace ends with the call, so any server or tmux session an agent starts dies when
   its call ends.
 
 What it does not isolate:
-- the rest of the filesystem, home and the network stay shared;
+- the rest of the filesystem (except the `COMPARE_HIDE` directories), home and the network stay shared;
 - other sessions' transcripts (`~/.claude/projects`, `~/.codex/sessions`) stay readable;
 - the scan only detects reads there, it does not prevent them.
 
@@ -299,6 +304,18 @@ generic command: `command.sh` runs it from `cand-1` behind the shims with the sa
 --hash SOL --root NAME=PATH ...` (repeatable; `prepare.scan(..., roots=[(name, path)])` from Python)
 counts mentions of further prefixes, such as a search's archive, lineage log and holdout roots, as
 hits named NAME.
+
+`collect` reads a generic-command run from the `terminal.json` its command writes in its one run
+directory under `record.json`'s `state_root` (`cand-1/.orchestrate/runs/<run_id>/terminal.json`):
+`{"outcome": "completed" | "failed", "value", "failure": {"code", "message"} | null, "started_at",
+"finished_at", "calls", ...}`, times in epoch seconds. It records `outcome`, `failure`, `calls` (the shims'
+`calls/<n>/` directories), `wall_clock_sec` (`finished_at - started_at`) and, for a completed run, the
+last call's `patch-cand-1.diff` as `collected/final.diff`; `selected` and `variant` stay null. It
+refuses a state root without exactly one run directory holding a `terminal.json` (finish the run
+first; other directories there, such as an orchestrator run the agent started from `cand-1`, are
+ignored), a terminal whose `calls` (the provider calls it launched) differs from the shims' call count,
+and a completed run without that patch. The structural search's I3 parent
+(`experiments/orc_structural_search/three_arm/python/direct.py`) writes such a terminal.
 
 ## Measures
 

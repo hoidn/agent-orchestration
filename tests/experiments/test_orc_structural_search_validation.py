@@ -11,7 +11,11 @@ from experiments.orc_structural_search.candidates import (
     validate_frozen_surfaces,
     validate_one_site,
 )
+from experiments.orc_structural_search.acceptance import (
+    check_python, judge_child, suppression_check, validate_python_scope)
 from experiments.orc_structural_search.config import ExperimentConfig
+from experiments.orc_structural_search.records import python_provider_allocation, python_skeleton_hash
+from tests.experiments.orc_structural_search_support import I3_CONFIG, python_pair, pyright  # noqa: F401 (fixture)
 
 REPO = Path(__file__).resolve().parents[2]
 FILE = "plan_review_execute.orc"
@@ -253,3 +257,138 @@ def test_a_fresh_helper_obeys_the_conditions_tuning_and_prompt_rules(tmp_path, h
     verdict = validate_one_site(
         parent, child, receipt(parent, site_of(SOURCE, REVIEW_SITE), REVIEW_REPLACEMENT, [helper]), config())
     assert verdict.code == code, verdict
+
+
+# I3: edits of the Python parent (experiments/orc_structural_search/three_arm/python/direct.py)
+RUN = "def run(task: str, intent: str, repo: str) -> Outcome:\n"
+RUN_BODY = """    change = provider_result(PROVIDERS["coder"], IMPLEMENT_PROMPT.format(task=task, repo=repo),
+                             model="gpt-6.1-sol", effort="high", timeout_sec=5400, result=Change)
+    return DONE(summary=change.summary)
+"""
+# a check-then-repair child: a fresh helper runs the check, and run calls the coder again when it fails
+REPAIR = """def passes() -> bool:
+    return dev_check().passed
+
+
+def run(task: str, intent: str, repo: str) -> Outcome:
+    change = provider_result(PROVIDERS["coder"], IMPLEMENT_PROMPT.format(task=task, repo=repo), model="gpt-6.1-sol",
+                             effort="high", timeout_sec=5400, result=Change)
+    if not passes():
+        change = provider_result(PROVIDERS["coder"], IMPLEMENT_PROMPT.format(task=task, repo=repo),
+                                 model="gpt-6.1-sol", effort="high", timeout_sec=5400, result=Change)
+    return DONE(summary=change.summary)
+"""
+# a repair call that appends the check's excerpt to the task through the frozen prompt's fill
+FEEDBACK = RUN_BODY.replace("    return DONE", """    report = dev_check()
+    if not report.passed:
+        change = provider_result(PROVIDERS["coder"], IMPLEMENT_PROMPT.format(task=task + "\\n\\n" + report.excerpt,
+                                                                             repo=repo),
+                                 model="gpt-6.1-sol", effort="high", timeout_sec=5400, result=Change)
+    return DONE""")
+
+
+def test_i3_refuses_edits_outside_the_mutable_functions(tmp_path):
+    edits = [("Implement this change there", "Make this change there"),  # a prompt constant
+             ("    if done.returncode:\n        raise ProviderFailure(\"provider_exit_nonzero\"",
+              "    if done.returncode > 1:\n        raise ProviderFailure(\"provider_exit_nonzero\""),  # the adapter
+             (RUN, RUN.replace("repo: str)", "repo: str, rounds: int = 1)")),  # the signature of run
+             (RUN, f"@dataclass\n{RUN}"),  # a decorator on run
+             (RUN + RUN_BODY, ""),  # run removed
+             (RUN, f"EXTRA = 1\n\n\n{RUN}"),  # an added top-level node that is no function
+             (RUN, f"@dataclass\ndef helper() -> None:\n    pass\n\n\n{RUN}")]  # a decorated helper
+    codes = [validate_python_scope(*python_pair(tmp_path / str(i), edit), I3_CONFIG).code
+             for i, edit in enumerate(edits)]
+    assert codes == ["frozen_surface_changed"] * 4 + ["scope_exceeded"] * 3
+
+
+def test_i3_refuses_a_change_to_another_file(tmp_path):
+    parent, child = python_pair(tmp_path)
+    providers = child / "providers.json"
+    providers.write_text(providers.read_text().replace('"coder": "codex', '"coder": "claude'))
+    assert validate_python_scope(parent, child, I3_CONFIG).code == "scope_exceeded"
+
+
+def test_i3_refuses_runtime_rebinding_inside_the_mutable_functions(tmp_path):
+    edits = [(RUN, RUN + "    global MAX_PROVIDER_CALLS\n"),
+             (RUN, RUN + "    MAX_PROVIDER_CALLS = 99\n"),  # a store to a frozen name, even a local one
+             (RUN, RUN + "    STATE.calls = 0\n"),  # an attribute base
+             (RUN, RUN + '    PROVIDERS["coder"] = "claude_unrestricted_workspace"\n'),  # a subscript base
+             ('model="gpt-6.1-sol"', "model=intent"),  # a non-constant model
+             (RUN, RUN + "    import os\n"),
+             (RUN, f"def reset() -> None:\n    STATE.effects = 0\n\n\n{RUN}")]  # in an added helper
+    codes = [validate_python_scope(*python_pair(tmp_path / str(i), edit), I3_CONFIG).code
+             for i, edit in enumerate(edits)]
+    assert codes == ["frozen_surface_changed"] * len(edits)
+
+
+def test_i3_accepts_a_helper_and_a_rewired_run_with_a_new_skeleton(tmp_path, pyright):
+    parent, child = python_pair(tmp_path, (RUN + RUN_BODY, REPAIR))
+    verdict = judge_child(parent, child, I3_CONFIG, runtime=REPO)
+    sources = [(root / "direct.py").read_text() for root in (parent, child)]
+    skeletons = {python_skeleton_hash(source, definitions=["run"]) for source in sources}
+    assert (verdict["outcome"], verdict["program_digest"].startswith("sha256:"), len(skeletons),
+            python_provider_allocation(sources[1], definitions=["run"])) == (
+        "accepted", True, 2, {"run": ["coder", "coder"]}), verdict
+
+
+def test_i3_refuses_a_new_model_literal_under_topology_only(tmp_path):
+    verdict = validate_python_scope(*python_pair(tmp_path, ('model="gpt-6.1-sol"', 'model="gpt-7"')), I3_CONFIG)
+    assert (verdict.code, ":model/:effort values" in verdict.detail) == ("frozen_surface_changed", True)
+
+
+@pytest.mark.parametrize("name", ["descriptor", "asdict", "isinstance"])  # top-level, imported, builtin
+def test_i3_refuses_a_helper_colliding_with_a_frozen_name(tmp_path, name):
+    parent, child = python_pair(tmp_path, (RUN, f"def {name}() -> None:\n    pass\n\n\n{RUN}"))
+    assert validate_python_scope(parent, child, I3_CONFIG).code == "declaration_collision"
+
+
+def test_i3_rejects_a_child_pyright_refuses_with_type_check_failed(tmp_path, pyright):
+    parent, child = python_pair(tmp_path, ("    return DONE(summary=change.summary)\n", "    return change.summary\n"))
+    verdict = judge_child(parent, child, I3_CONFIG, runtime=REPO)
+    assert (verdict["outcome"], verdict["diagnostics_class"]) == ("rejected", "type_check_failed"), verdict
+
+
+def test_i3_rejects_an_unreadable_child(tmp_path):
+    parent, child = python_pair(tmp_path, (RUN, RUN.replace(":\n", "\n")))  # no colon after the signature
+    assert judge_child(parent, child, I3_CONFIG, runtime=REPO)["refusal_code"] == "unreadable_child"
+
+
+@pytest.mark.parametrize("comment", ["# type: ignore", "# pyright: ignore", "# pyright: basic"])
+def test_i3_rejects_a_child_that_silences_pyright_with_a_comment(tmp_path, pyright, comment):
+    parent, child = python_pair(tmp_path, (RUN + RUN_BODY, f"{comment}\n{REPAIR}"))  # type-correct otherwise
+    verdict = judge_child(parent, child, I3_CONFIG, runtime=REPO)
+    assert (verdict["outcome"], verdict["diagnostics_class"], comment in verdict["detail"]) == (
+        "rejected", "type_check_failed", True), verdict
+
+
+def test_i3_type_ignore_comments_do_not_silence_pyright(tmp_path, pyright):
+    _, child = python_pair(tmp_path, ("    return DONE(summary=change.summary)\n",
+                                      "    return change.summary  # type: ignore\n"))
+    assert check_python(child, I3_CONFIG, runtime=REPO).status == "rejected"
+
+
+def test_i3_a_parent_that_does_not_type_check_against_the_runtime_raises(tmp_path, pyright):
+    parent, child = python_pair(tmp_path, (RUN + RUN_BODY, REPAIR))
+    (tmp_path / "runtime").mkdir()  # no orchestrator: the parent's imports do not resolve
+    with pytest.raises(RuntimeError, match="does not type-check"):
+        judge_child(parent, child, I3_CONFIG, runtime=tmp_path / "runtime")
+
+
+def test_i3_prompts_only_through_a_frozen_prompt_constant_under_topology_only(tmp_path):
+    edits = [("IMPLEMENT_PROMPT.format(task=task, repo=repo)", 'f"Implement {task} in {repo}"'),  # an inline prompt
+             ("    change = provider_result(", "    call = provider_result\n    change = call("),  # an alias
+             (RUN_BODY, FEEDBACK)]  # feedback through the prompt's fill
+    codes = [validate_python_scope(*python_pair(tmp_path / str(i), edit), I3_CONFIG).code
+             for i, edit in enumerate(edits)]
+    assert codes == ["frozen_surface_changed", "frozen_surface_changed", None]
+
+
+def test_i3_prose_comments_naming_pyright_or_types_are_no_suppression(tmp_path):
+    comments = "# checked with pyright: 0 errors\n# result type: ignored fields are dropped\n"
+    assert suppression_check(*python_pair(tmp_path, (RUN, comments + RUN)), I3_CONFIG) is None
+
+
+def test_i3_a_bogus_coding_cookie_is_an_unreadable_child_not_a_crash(tmp_path):
+    parent, child = python_pair(tmp_path)
+    (child / "direct.py").write_text("# coding: bogus\n" + (child / "direct.py").read_text())
+    assert judge_child(parent, child, I3_CONFIG, runtime=REPO)["refusal_code"] == "unreadable_child"
