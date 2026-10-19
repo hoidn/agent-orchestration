@@ -64,6 +64,15 @@ comply rather than get refused; the frozen surfaces shape proposals without
 blocking them. That is a reason to measure the wider surface as an arm, not a
 reason to make it the default.
 
+The transcripts carry the strongest evidence for the arm, which the ADR does
+not cite: the frozen surfaces refused nothing and shaped everything. Both clean
+Phase 1 children fed the check output back through the `task` fill of the
+unchanged prompt, because prompt bodies were frozen; children referenced
+`common/CheckReport` by qualified name, because the `import` form was frozen;
+episode 11's child moved to an agent session to carry context across retries
+and hit `agent_turn_unresolved`. A `module` arm measures what those
+workarounds cost.
+
 What did limit the pilot is the measure, as the Phase 1 report states:
 
 - the upstream anchor scored at or below every candidate in its batch, and
@@ -87,24 +96,28 @@ Everything not listed is a frozen surface, refused as today by
 
 | Surface | `module` policy | Check |
 | --- | --- | --- |
-| Entry module name, `export` set, entry parameters and result type | Frozen | `_module_verdict` (module, export forms) and `_definition_verdict` (exported signature); `acceptance.judge_child` compares the closed program's resolved result type with the parent's (`entry_result`): a candidate that stops importing `common::Outcome` and declares its own `Outcome` is refused as `slot_type_changed` |
+| Entry module name, `export` set, entry parameters and result type | Frozen | `_module_verdict` (module, export forms) and `_definition_verdict` (exported signature); `acceptance.judge_child` compares the closed program's resolved result type with the parent's (`entry_result`), extended to the closed program's `params`, which today are not compared: a candidate that stops importing `common::Outcome` and declares its own `Outcome` is refused as `slot_type_changed` |
 | Public types (`common.orc`: `Change`, `Outcome`, `CheckReport`) | Frozen; `common.orc` is not a mutable file | `_frozen_verdict` on the file; the seeds already keep public types there |
 | Entry body and private `defproc`/`defworkflow` | Add, remove, rename, rewrite | `_definition_verdict` admits added and removed non-exported definitions under `module` (today: `scope_exceeded`) |
 | Private `defprompt` (signature and body) | Add, remove, rewrite | as above; `PROMPT_CONDITIONS` and `PROMPT_SIGNATURE_CONDITIONS` gain `module` |
 | Private `defrecord`/`defunion`/`defenum` | Add, remove, rewrite | `_split_forms` stops treating a type declaration as frozen when its name is not imported or exported; a declaration shadowing an imported name is refused (`declaration_collision`) |
-| `:model`/`:effort` values | Any literal from the criterion's allowlist | `_tuning_split` values checked against the allowlist at acceptance; a non-literal model or effort expression is refused (closes the open decision in the driver design's "Open decisions before Phase 1 comparisons"); the shim model guard enforces the same allowlist at launch (`shim/model-guard`, which today refuses Fable and defaults to `claude-opus-5-5`) |
+| `:model`/`:effort` values | Any literal from the criterion's allowlist | Checked on the compiled child's `perform` nodes (`policy.model` and `policy.effort` in `closed_program.json`): a `lit` outside the allowlist, or a `name` reference in place of a literal, is refused, which closes the driver design's open decision on non-literal tuning values; the shim model guard enforces the same allowlist at launch (`shim/model-guard`, which today refuses Fable and defaults to `claude-opus-5-5`) |
 | Provider bindings (`providers.json`) and command boundaries (`commands.json`) | Frozen | `_plain_file_verdict`; candidates compose the bound capabilities only |
-| Imports | **v1: frozen** (the parent's imports) | `_module_verdict` import forms. Bundle imports are v2 (below) |
+| Imports | **v1: frozen** (the parent's resolved module graph) | The compiled child's `configuration.imports` must equal the parent's. The `import` form alone freezes nothing: three Phase 1 children referenced `common/CheckReport` by qualified name although the import was `:only (Change Outcome)`, and the compiler accepted it. Bundle imports are v2 (below) |
 | `:timeout-sec` and every other per-call ceiling | Literals at most the criterion's per-call ceiling | acceptance check; the evaluation's wall clock and the ledger cap remain the outer bound |
 | Runtime, compiler, evaluator, task repositories, hidden checks, scoring | Outside the mutation workspace | unchanged |
 
 **v2, deferred: imports from a study bundle.** Letting a candidate import
 library modules (`std/*`, further `common`-style modules) changes its planned
 provider calls and effects in ways `ledger.max_provider_calls` does not count:
-it expands only the mutable module's own definitions, counts only
-`provider-result` heads, and ignores `agent` allocations and turns and
-`run-provider-phase`.
-Bundle imports open when both of these exist:
+it reads one file, expands only the mutable module's own definitions and
+counts `provider-result` heads (an agent turn is one, so turns are counted),
+so an imported effectful definition and `run-provider-phase` count 0, and the
+runtime's own retries and unresolved-turn reruns lie outside any static
+count. The bundle is passed as a second `--source-root`, never staged into the
+candidate root: `candidates.candidate_id` hashes every file under the root, so
+staging would change every candidate's identity. Bundle imports open when both
+of these exist:
 
 1. a planned maximum computed from the checked closed program the child's
    compile already produces (`closed_program.json`: `perform` nodes of class
@@ -116,8 +129,11 @@ Bundle imports open when both of these exist:
    undercount can cost at most one refused call, never an unbounded run.
 
 Until then a child whose compiled program contains a `perform` site of class
-`agent`, `agent_turn` or `provider_phased` is refused at acceptance
-(`unsupported_effect_shape`), and
+`provider_phased` (uncounted, and phased delivery's live qualification is
+unselected) or `agent`/`agent_turn` (counted, but a second turn inside
+`loop/recur` hits the `agent_turn_unresolved` runtime defect, and an agent
+session escapes the evaluation's process-group kill, per the driver design's
+Execution Contract) is refused at acceptance (`unsupported_effect_shape`), and
 `driver.seed_files` keeps copying only the parent's transitive imports.
 
 ## Episode
@@ -154,6 +170,12 @@ Two additions:
 - A child whose `candidate_id` was already evaluated is a revisit and is not
   re-evaluated (`mode1`, since `e473a00f`); a deliberate replicate is a new
   evaluation record.
+- `readout.py` and `scoring.py` group by interface and condition, so
+  `module` children never pool with legacy I1 children.
+- Each episode row records the path of the mutator's native session file
+  (`~/.claude/projects/…` or `~/.codex/sessions/…`), or the file is copied
+  under `E/episodes/<id>/` at settle; today only the final message
+  (`E/episodes/episode-<n>.log`) and the shim's per-call records are kept.
 - Cost is provider calls and wall clock until `metering.py` is wired into the
   evaluation and episode rows; dollars are reported only with complete
   metering coverage, per the roadmap. A CLI invocation is not a model request.
@@ -176,11 +198,16 @@ All of the following, each recorded in the ledger before any provider spend:
 3. **A family whose agent-visible check fails sometimes**, so repair and
    escalation branches execute and realized calls differ between structures.
    The Phase 1 report records that `dev-check` never failed on
-   `resume-projection-integrity` and `pure-result-replay`.
+   `resume-projection-integrity` and `pure-result-replay`. The fix is
+   task-package authoring with its own cost: a `seed/dev-check.json` argv that
+   fails at the base and passes at the solution, or a promoted subset of the
+   hidden tests.
 4. **Metering wired**, or the comparison stated in calls and wall clock only.
 5. **Mutator isolation present** (`COMPARE_HIDE` masking of the evidence root,
    sibling episodes and earlier roots) and the `agent_turn_unresolved` defect
    either fixed or excluded from the arm's vocabulary.
+6. **A sealed split** for the arm's final assessment. None exists today
+   (Phase 2 plan, Decision 9); authoring one is a cost of the live arm.
 
 When selected, the `module` arm joins the interface test as a fourth arm under
 the same envelope (same parent, mutator, episode wall clock, tasks, compile-only
@@ -188,19 +215,28 @@ metrics and stratified paid subset), never as a replacement for the frozen
 arms. Its primary endpoint is the test's: accepted improvements per completed
 episode. Attribution of a gain to a single change needs single-factor
 ablations, which the measured spread (pooled within-arm SD 0.93 and 1.20
-rubric points with two replicates) makes unaffordable at Phase 1 scale; the
-arm therefore reports whole-module moves and defers attribution to a
-replicated follow-up.
+rubric points with two replicates) makes unaffordable at Phase 1 scale. An
+ablation is a paired comparison with at least three replicates per task on the
+validation split under the frozen measure (the driver design's evidence rules),
+and a whole-module gain is retained only when it survives one.
+
+The arm makes no prompt-versus-topology claim: `module` changes prompts and
+topology together, and the charter requires the single-factor conditions
+(`prompt-only`, `topology-only`) before any joint claim; those remain the
+ablations, and the driver design's open ruling on `:text` fills under
+`topology-only` is closed before conditions are compared again. Nor does it
+make a representation claim: ORC against Python is the roadmap's Phase 3 test
+with its own budget.
 
 ## Implementation Steps (Offline, No Provider Spend)
 
 | Step | Change | Completion evidence |
 | --- | --- | --- |
-| 1. Condition | `config.CONDITIONS` gains `module`; `candidates.PROMPT_CONDITIONS`, `PROMPT_SIGNATURE_CONDITIONS`, `PROVIDER_CONDITIONS` and `TOPOLOGY_CONDITIONS` include it; `_definition_verdict` admits added and removed non-exported definitions under it; `_split_forms` frees private type declarations under it; `_tuning_split` values and `:timeout-sec` literals are checked against the criterion's allowlist and ceiling; a non-literal model/effort is refused | Existing fixtures for the four legacy conditions keep their outcomes; a child adding a review prompt, a private union, a helper and routing is accepted under `module` and refused under `joint` |
-| 2. Public contract | A test that a child declaring its own `Outcome` is refused (`slot_type_changed`), that a changed entry parameter is refused (`frozen_surface_changed`), that `common.orc` edits are refused (`scope_exceeded`) | The three refusals, with their codes |
-| 3. Effect shapes | `acceptance.judge_child` refuses a compiled child whose closed program has a `perform` site of class `agent`, `agent_turn` or `provider_phased` (`unsupported_effect_shape`) until the closed-program planned maximum exists | A child using `agent` is refused; `ledger.max_provider_calls` still refuses a non-literal `:max` |
+| 1. Condition | `config.CONDITIONS` gains `module`; `candidates.PROMPT_CONDITIONS`, `PROMPT_SIGNATURE_CONDITIONS`, `PROVIDER_CONDITIONS` and `TOPOLOGY_CONDITIONS` include it; `_definition_verdict` admits added and removed non-exported definitions under it; `_split_forms` frees private type declarations under it; on the compiled child, `perform` policies are checked against the allowlist (a `name` in place of a literal is refused), `:timeout-sec` literals against the ceiling, and `configuration.imports` against the parent's | Existing fixtures for the four legacy conditions keep their outcomes; a child adding a review prompt, a private union, a helper and routing is accepted under `module` and refused under `joint` |
+| 2. Public contract | `judge_child` compares the closed program's `params` beside its `result`; tests that a child declaring its own `Outcome` is refused (`slot_type_changed`), that a changed entry parameter is refused at the signature (`frozen_surface_changed`) and at the closed program, and that `common.orc` edits are refused (`scope_exceeded`) | The refusals, with their codes |
+| 3. Effect shapes | `acceptance.judge_child` refuses a compiled child whose closed program has a `perform` site of class `provider_phased` (until the closed-program planned maximum exists) or `agent`/`agent_turn` (until the unresolved-turn defect and the kill escape are fixed), as `unsupported_effect_shape` | A child using `agent` is refused; `ledger.max_provider_calls` still refuses a non-literal `:max` |
 | 4. Check command and brief | `briefs.episode_brief` renders the `module` surfaces and a check line that runs validation plus compile from the workspace (`PYTHONPATH=../py`); the shim model guard reads the allowlist | A scripted mutator reads a scope refusal from the check, repairs, and yields one accepted child; the guard refuses a model outside the allowlist |
-| 5. Records | `criterion_sha256` on evaluation and episode rows; `metering.py` wired for Claude session usage and Codex rollouts where present, `unavailable` otherwise | Rows carry the hash; a run with a readable session file reports tokens |
+| 5. Records | `criterion_sha256` on evaluation and episode rows; the native session file path on episode rows; `metering.py` wired for Claude session usage and Codex rollouts where present, `unavailable` otherwise | Rows carry the hash; a run with a readable session file reports tokens |
 | 6. Readout | The three-arm readout accepts a fourth arm; realized `perform` sites per evaluation (from the memo) and exercised branches are reported beside calls | A readout row per arm with realized sites |
 | 7. Design rows | The driver design's condition table gains the `module` row; the roadmap's interface table lists it as an arm | Links resolve; `pytest -q tests/experiments/` green |
 
@@ -237,7 +273,7 @@ cost. A fifth condition adds one more surface set to keep consistent across
 ## Placement
 
 This plan owns the decision and the steps. The condition's contract rows move
-into the driver design at selection; the gate's evaluator and family items are
+into the driver design at selection, and the roadmap's interface table lists the arm as I1 under `module`; the gate's evaluator and family items are
 owned by the roadmap and the Phase 1 report and are cited, not restated. The
 original ADR's "search and evaluation" section is retired into those
 citations; its one addition kept here is the realized-site readout (step 6).
