@@ -246,11 +246,27 @@ def test_legacy_unbounded_refusal_still_precedes_resolved_result_check(tmp_path)
 def test_compiler_crash_is_an_incident_but_diagnostics_are_rejection(tmp_path, monkeypatch):
     from experiments.orc_structural_search.candidates import CompileOutcome
     parent, child = pair(tmp_path)
-    for code, outcome in [("compiler_crash", "incident"), ("type_mismatch", "rejected")]:
+    incidents = ["compiler_crash", "compiler_defect", "compiler_defect_loop_control_value",
+                 "compiler_defect_hoisted_binding_rename", "compiler_defect_constructor_type_dropped"]
+    for code, outcome in [(code, "incident") for code in incidents] + [("type_mismatch", "rejected")]:
         monkeypatch.setattr(acceptance, "compile_candidate", lambda *a, **k: CompileOutcome(
             "rejected", None, None, ({"code": code, "message": "test failure"},)))
         result = acceptance.judge_child(parent, child, cfg(), runtime=REPO)
         assert (result["outcome"], result["diagnostics_class"]) == (outcome, code)
+        assert result["diagnostics"] == [{"code": code, "message": "test failure"}]
+        assert result["receipt"] is None
+
+
+def test_real_compiler_defect_is_an_incident_with_complete_diagnostics(tmp_path):
+    source = SOURCE.replace(":timeout-sec 5400", f":timeout-sec {10**400}")
+    parent, child = pair(tmp_path, source)
+    compiled = compile_candidate(child, cfg(), runtime=REPO)
+    assert compiled.status == "rejected"
+    assert compiled.diagnostics[0]["code"] == "compiler_defect"
+    result = acceptance.judge_child(parent, child, cfg(), runtime=REPO)
+    assert (result["outcome"], result["diagnostics_class"]) == ("incident", "compiler_defect")
+    assert result["diagnostics"] == list(compiled.diagnostics)
+    assert result["receipt"] is None
 
 
 def test_module_preserves_all_compile_diagnostics_for_repair(tmp_path):

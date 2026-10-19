@@ -36,6 +36,10 @@ SUPPRESSION = re.compile(r"#\s*(?:type:\s*ignore|pyright:)")  # a comment that s
 ADAPTER = "provider_result"  # an I3 module's provider adapter: provider_result(provider, prompt, *, ...)
 BUILTIN_NAMES = frozenset(dir(builtins))  # frozen code calls them, so an added function must not shadow one
 _CLEAN_PARENTS: set[tuple[str, Path]] = set()  # (entry module sha256, runtime) checked clean in this process
+COMPILER_INCIDENT_CODES = frozenset({
+    "compiler_crash", "compiler_defect", "compiler_defect_loop_control_value",
+    "compiler_defect_hoisted_binding_rename", "compiler_defect_constructor_type_dropped",
+})
 
 
 def entry_result(root: Path, build_key: str) -> object:
@@ -119,7 +123,7 @@ def judge_child(parent: Path, child: Path, config: ExperimentConfig, *, runtime:
         return {**shown, "outcome": "rejected", "refusal_code": verdict.code, "detail": verdict.detail}
     compiled = compile_candidate(child, config, runtime=runtime)
     if compiled.status != "accepted":
-        outcome = "incident" if any(d.get("code") == "compiler_crash" for d in compiled.diagnostics) else "rejected"
+        outcome = "incident" if any(d.get("code") in COMPILER_INCIDENT_CODES for d in compiled.diagnostics) else "rejected"
         return {**shown, "outcome": outcome, "diagnostics": list(compiled.diagnostics), **diagnosis(compiled)}
     refusal = slot_refusal(parent, child, site, config, runtime=runtime) if site else None
     if config.condition != "module":
