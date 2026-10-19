@@ -7,32 +7,32 @@ episodes and evaluation launches are driver.py's (its module docstring); E is th
 
 A run (run_three_arm) on a fresh E, or continuing one (`--continue`, as mode 1: quota incidents relaunched, killed
 launches skipped); it refuses a mutator command other than the criterion's envelope.mutator and a run configuration
-whose criterion_sha256 is not the criterion file's:
+whose criterion_sha256 or episode wall clock, or an evaluation wall clock, is not the criterion's:
   parents      both parent roots (`orc`: the direct seed with its coder rebound, the parent of I1 and I2; `python`:
-               its matched typed Python workflow, the parent of I3) archived, the Python parent type-checked against
-               the runtime (acceptance.check_parent: RuntimeError, never caught); one {"kind": "parents", "orc",
+               its matched typed Python workflow, the parent of I3) archived, the ORC parent compiled and the Python
+               parent type-checked against the runtime (else RuntimeError, never caught); one {"kind": "parents", "orc",
                "python", "run_seed", "subset_seed", "pyright", "program_digests"} row (a continued run must name the
                same parents and seeds; it logs no second row)
   episodes     per arm in ARMS order until `episodes_per_arm` non-quota episodes of the arm exist (accepted,
                rejected, exhausted or incident; a quota incident is relaunched under the next index, at most
                guard.retries times); one at a time; indexes are global over the run; an I2 episode's site is drawn
                uniformly from the parent's eligible sites with random.Random(f"{run_seed} {index}") and the row
-               carries run_seed; every row carries `arm` and `mode: "three_arm"`. An arm still short once its quota
-               relaunches are used up stops the run here (RuntimeError, check_episodes): rerun with --continue after
-               the reset
-  subset       per arm (subset), from the log, without the children of contaminated episodes
+               carries run_seed; every row carries `arm` and `mode: "three_arm"`. A slot whose quota relaunches are
+               used up stops the run at once (QuotaExhausted): rerun with --continue after the provider's reset
+  subset       per arm (subset), from the log, without the children of contaminated episodes or repeated programs
                (scoring.contaminated_children, which refuses an episode with scan hits and no verdict: adjudicate,
                then --continue)
   readout      E/readout.json (compile_readout), written before the evaluations
   evaluations  each chosen child once per task (replicate 1; `mode: "three_arm"`, `arm`), at most `concurrency` in
                flight; reservation-aware (CapGate): a launch refused at the call cap while another is in flight waits
-               for one to end and is retried; with none in flight the refusal (CallCapExceeded) is raised; a quota
-               pause holds every launch and relaunch
+               for one to end and is retried; with none in flight the refusal (CallCapExceeded) is raised; every
+               launch that starts after a quota pause waits it out; once a unit's quota relaunches are used up no
+               further launch starts and the run raises QuotaExhausted
 `smoke` evaluates the two archived parents once per task (`mode: "smoke"`, `parent`) and nothing else.
 
 Judging (judge) scores one task's pool, built by `scoring pool` from E, through judging.score_pool (each judge's
 ledger entry reserved before any judge runs) and logs one {"kind": "judging", "generation": -2, ...} row; the readout
-(readout) reads each task's results.json (scoring.read_pool) and reports per arm and per child, descriptively.
+(three_arm_readout.readout) reads each task's results.json (scoring.read_pool) and reports per arm and per child.
 """
 
 import argparse
@@ -52,19 +52,18 @@ from pathlib import Path
 from experiments.compare import summarize
 from experiments.compare.repos import sha256_file
 from experiments.orc_structural_search import judging, ledger
-from experiments.orc_structural_search.acceptance import check_parent
+from experiments.orc_structural_search.acceptance import check_parent, diagnosis
 from experiments.orc_structural_search.candidates import compile_candidate
 from experiments.orc_structural_search.config import ExperimentConfig, load_config, solution
 from experiments.orc_structural_search.driver import (
     archive, check_roots, check_solutions, launch_units, run_episode)
 from experiments.orc_structural_search.evaluation import cli_version
 from experiments.orc_structural_search.mode1 import continued
-from experiments.orc_structural_search.quota import QuotaGuard, prior_rows, quota_reason, with_retries
+from experiments.orc_structural_search.quota import QuotaGuard, job_key, prior_rows, quota_reason, with_retries
 from experiments.orc_structural_search.readout import diversity, outcome, share
 from experiments.orc_structural_search.records import (
     UNAVAILABLE, append_record, python_program_digest, read_records)
-from experiments.orc_structural_search.scoring import (
-    anchor_checks, contaminated_children, log_only_pool, policy_stats, primary_value, read_pool)
+from experiments.orc_structural_search.scoring import contaminated_children
 from experiments.orc_structural_search.sites import eligible_sites, select_site, site_manifest
 
 ARMS = ("I1", "I2", "I3")
@@ -77,7 +76,11 @@ OUT_OF_SCOPE = frozenset({"scope_exceeded", "frozen_surface_changed", "digest_mi
 DIFF_FILE = re.compile(r"^\+\+\+ b/(.+)$", re.M)  # driver.episode_diff's header of a file
 SEEDS = ("orc", "python", "run_seed", "subset_seed")  # the parents row fields a continued run must repeat
 EPISODE_KEYS = ("work_root", "evidence_root", "runtime", "env", "solutions", "call_cap", "holdouts")
-DECISION = "descriptive; no separation rule applied (Phase 1 decision stands)"
+CONTINUE = "rerun with --continue after the provider's reset"
+
+
+class QuotaExhausted(RuntimeError):
+    """A launch's quota relaunches are used up: the run stops before any further launch (see CONTINUE)."""
 
 
 def arm_config(base: Path, interface: str) -> ExperimentConfig:
@@ -95,15 +98,20 @@ class CapGate:
     pause before every launch and relaunch, retries a launch refused at the call cap (ledger.reserve, before any
     workspace) once another launch of the gate has ended, and raises the refusal when no other launch is in flight
     and none ended since it started. A launch that returns a quota incident pauses the guard before the waiters
-    wake, so none relaunches into the provider's limit."""
+    wake, so none relaunches into the provider's limit; once a job (quota.job_key) has had its last quota relaunch
+    (guard.retries + 1 quota incidents), no further launch starts: `run` raises QuotaExhausted (`exhausted`)."""
 
     def __init__(self, guard: QuotaGuard) -> None:
         self.guard, self.running, self.ended, self.changed = guard, 0, 0, threading.Condition()
+        self.quota: Counter = Counter()  # quota incidents per job
+        self.exhausted: str | None = None
 
     def run(self, launch: Callable[[], dict]) -> dict:
         while True:
             self.guard.wait()
             with self.changed:
+                if self.exhausted:
+                    raise QuotaExhausted(self.exhausted)
                 self.running, seen = self.running + 1, self.ended
             try:
                 row = launch()
@@ -133,6 +141,10 @@ class CapGate:
         if reason:
             self.guard.pause(reason)
         with self.changed:
+            if reason:
+                self.quota[job_key(row)] += 1
+            if reason and self.quota[job_key(row)] > self.guard.retries:
+                self.exhausted = f"evaluation {row['evaluation_id']}: quota relaunches used up ({reason}); {CONTINUE}"
             self.running, self.ended = self.running - 1, self.ended + 1
             self.changed.notify_all()
 
@@ -141,13 +153,17 @@ def archive_parents(parents: Mapping[str, Path], config_path: Path, *, evidence_
                     env: Mapping[str, str], run_seed: int, subset_seed: int) -> tuple[dict[str, Path], dict]:
     """(parent name -> archived root, the parents row): the program digests are the ORC parent's compiled one and
     the Python parent's entry module's (records.python_program_digest), exact repeats' references. The Python parent
-    must type-check against the runtime (acceptance.check_parent raises RuntimeError) before anything is spent."""
+    must type-check against the runtime (acceptance.check_parent) and the ORC parent compile with it, else
+    RuntimeError, before anything is spent."""
     if sorted(parents) != ["orc", "python"]:
         raise ValueError(f"parents must be orc and python, not {sorted(parents)}")
     roots = {name: archive(Path(root), evidence_root, runtime)[1] for name, root in parents.items()}
     orc, python = arm_config(config_path, "I1"), arm_config(config_path, "I3")
+    compiled = compile_candidate(roots["orc"], orc, runtime=runtime)
+    if compiled.status != "accepted":
+        raise RuntimeError(f"the ORC parent does not compile against {runtime}: {diagnosis(compiled)['detail']}")
     check_parent(roots["python"], python, runtime=runtime)
-    digests = {"orc": compile_candidate(roots["orc"], orc, runtime=runtime).program_digest,
+    digests = {"orc": compiled.program_digest,
                "python": python_program_digest(ledger.entry_of(roots["python"], python)[0].read_text())}
     row = {"kind": "parents", **{name: root.name for name, root in roots.items()}, "run_seed": run_seed,
            "subset_seed": subset_seed, "pyright": cli_version("pyright", env), "program_digests": digests}
@@ -195,8 +211,11 @@ def run_episodes(roots: Mapping[str, Path], config_path: Path, *, episodes_per_a
         config, root = arm_config(config_path, arm), roots[PARENT_OF[arm]]
         sites = eligible_sites(site_manifest(root, config, runtime=launch["runtime"]), config) if arm == "I2" else ()
         for _ in range(missing):
-            with_retries(lambda _attempt: episode(root, config, arm, next(indexes), sites, run_seed=run_seed,
-                                                  agent_cmd=agent_cmd, hide=hide, launch=launch), guard)
+            row = with_retries(lambda _attempt: episode(root, config, arm, next(indexes), sites, run_seed=run_seed,
+                                                        agent_cmd=agent_cmd, hide=hide, launch=launch), guard)
+            if reason := quota_reason(row, evidence_root):
+                raise QuotaExhausted(f"arm {arm}, episode {row['episode_index']}: quota relaunches used up "
+                                     f"({reason}); {CONTINUE}")
 
 
 def non_quota(rows: Sequence[Mapping], evidence_root: Path) -> Counter:
@@ -211,20 +230,22 @@ def check_episodes(rows: Sequence[Mapping], episodes_per_arm: int, evidence_root
     counts = non_quota(rows, evidence_root)
     short = {arm: counts[arm] for arm in ARMS if counts[arm] < episodes_per_arm}
     if short:
-        raise RuntimeError(f"non-quota episodes {short} of arms short of {episodes_per_arm} after the quota "
-                           "relaunches: rerun with --continue after the provider's reset")
+        raise RuntimeError(f"non-quota episodes {short} of arms short of {episodes_per_arm}: {CONTINUE}")
 
 
-def check_run(config_path: Path, criterion: Path, agent_cmd: Sequence[str]) -> dict:
-    """The frozen criterion; refuse a mutator command other than its envelope.mutator, or a run configuration whose
-    criterion_sha256 is not the criterion file's sha256 (hex)."""
-    frozen, sha = json.loads(Path(criterion).read_text()), sha256_file(criterion)
-    if list(agent_cmd) != shlex.split(frozen["envelope"]["mutator"]):
-        raise ValueError(f"--agent-cmd {shlex.join(agent_cmd)!r} is not the criterion's mutator "
-                         f"{frozen['envelope']['mutator']!r}")
-    if load_config(config_path).criterion_sha256 != sha:
-        raise ValueError(f"{config_path} names criterion_sha256 {load_config(config_path).criterion_sha256}, not "
-                         f"{criterion}'s {sha}")
+def check_run(config_path: Path, criterion: Path, agent_cmd: Sequence[str], timeout_sec: float) -> dict:
+    """The frozen criterion; refuse a mutator command other than its envelope.mutator, a run configuration whose
+    criterion_sha256 is not the criterion file's sha256 (hex) or whose episode wall clock is not the envelope's, and
+    an evaluation wall clock other than the envelope's."""
+    frozen, config = json.loads(Path(criterion).read_text()), load_config(config_path)
+    envelope = frozen["envelope"]
+    pairs = {"--agent-cmd": (list(agent_cmd), shlex.split(envelope["mutator"])),
+             "criterion_sha256": (config.criterion_sha256, sha256_file(criterion)),
+             "episode_wall_clock_sec": (config.episode_wall_clock_sec, envelope["episode_wall_clock_sec"]),
+             "--eval-timeout-sec": (timeout_sec, envelope["evaluation_wall_clock_sec"])}
+    wrong = [f"{name} {got!r}, not {want!r}" for name, (got, want) in pairs.items() if got != want]
+    if wrong:
+        raise ValueError(f"the run differs from the criterion {criterion}: {'; '.join(wrong)}")
     return frozen
 
 
@@ -239,7 +260,7 @@ def run_three_arm(config_path: Path, *, parents: Mapping[str, Path], tasks: Sequ
     pause state; `hide` adds directories every episode's CLI calls cannot see (driver.hidden_roots)."""
     if smoke and episodes_per_arm:
         raise ValueError("a smoke run evaluates the parents only: pass episodes_per_arm 0")
-    frozen = check_run(config_path, criterion, agent_cmd)
+    frozen = check_run(config_path, criterion, agent_cmd, timeout_sec)
     work_root, evidence_root = check_roots(work_root, evidence_root)
     prior = prior_rows(work_root, evidence_root, continue_run)
     guard, log = guard or QuotaGuard(), evidence_root / "log.jsonl"
@@ -267,8 +288,11 @@ def run_three_arm(config_path: Path, *, parents: Mapping[str, Path], tasks: Sequ
                  {"mode": MODE, "arm": arm, **{key: r[key] for key in (
                      "episode_id", "candidate_id", "parent_candidate_id", "candidate_root")}})
                 for arm, picked in chosen.items() for r in picked]
+    gate = CapGate(guard)
     evaluated = launch_units(continued(jobs, tasks, 1, read_records(log)), concurrency=concurrency, guard=guard,
-                             gate=CapGate(guard).run, **launch)
+                             gate=gate.run, **launch)
+    if gate.exhausted:  # the last unit used up its quota relaunches: no later unit raised it
+        raise QuotaExhausted(gate.exhausted)
     return result or {"smoke": evaluated}
 
 
@@ -277,19 +301,19 @@ def tie_break(seed: int, candidate: str) -> str:
 
 
 def pick(eligible: Sequence[Mapping], taken: set[str], seed: int, count: int) -> list[dict]:
-    """The criterion's subset rule over one arm's eligible children (by episode index), none of whose candidate ids
-    is in `taken` (which grows by the chosen ids): the first; then the first later child with another skeleton than
-    the first chosen child's, else the smallest tie_break among the rest; `count` at most."""
+    """The criterion's subset rule over one arm's eligible children (by episode index) whose candidate id and program
+    digest are not in `taken` (which grows by the chosen ones): the first; then the first later child with another
+    skeleton than the first chosen child's, else the smallest tie_break among the rest; `count` at most."""
     chosen: list[dict] = []
     for _ in range(count):
-        rest = [row for row in eligible if row["candidate_id"] not in taken]
+        rest = [row for row in eligible if row["candidate_id"] not in taken and row["program_digest"] not in taken]
         other = [row for row in rest if chosen and row["skeleton"] != chosen[0]["skeleton"]]
         if not rest:
             break
         row = rest[0] if not chosen else other[0] if other else min(
             rest, key=lambda r: tie_break(seed, r["candidate_id"]))
         chosen.append(dict(row))
-        taken.add(row["candidate_id"])
+        taken |= {row["candidate_id"], row["program_digest"]}
     return chosen
 
 
@@ -297,8 +321,11 @@ def subset(rows: Sequence[Mapping], criterion: Mapping, seed: int,
            contaminated: Collection[str] = frozenset()) -> dict[str, list[dict]]:
     """Per arm, the chosen episode rows (criterion["subset"]): accepted three-arm children not among `contaminated`
     (scoring.contaminated_children's candidate ids) whose candidate id differs from the parent's and from every
-    earlier chosen child's, in any arm (equal ids would share an evaluation id), by pick."""
-    taken: set[str] = set()
+    earlier chosen child's, in any arm in ARMS order (equal ids would share an evaluation id), and whose program
+    digest differs from the parents' (the parents row's program_digests) and every earlier chosen child's (a
+    comment-only or reformatted child is not paid for), by pick."""
+    parents = next((row for row in rows if row["kind"] == "parents"), {})
+    taken: set[str] = set(parents.get("program_digests", {}).values())  # candidate ids and program digests
     chosen = {}
     for arm in ARMS:
         eligible = sorted((row for row in rows if row["kind"] == "episode" and row.get("mode") == MODE
@@ -378,46 +405,6 @@ def judge(evidence_root: Path, pool: Path, task: Path, *, criterion: Path, judge
     return row
 
 
-def child_figures(rows: Sequence[Mapping]) -> dict:
-    """scoring.policy_stats and the primary value of each evaluation (unavailable when excluded)."""
-    return policy_stats(rows) | {"values": [UNAVAILABLE if v is None else v for v in map(primary_value, rows)]}
-
-
-def task_figures(pool: Mapping, arms: Mapping[str, str], chosen: Mapping[str, str], criterion: Mapping) -> dict:
-    """One task's figures: per arm (`arms`: evaluation id -> arm) scoring.policy_stats over its subset children's
-    evaluations and child_figures per subset child (`chosen`: candidate id -> arm; one without an evaluation of the
-    task has unavailable figures); the anchors, scoring.anchor_checks (reported, not a gate), agreement, excluded
-    judges and unpooled evaluations."""
-    rows = [row for row in pool["rows"] if row["evaluation_id"] in arms]
-    figures = {}
-    for arm in ARMS:
-        mine = [row for row in rows if arms[row["evaluation_id"]] == arm]
-        children = sorted(cid for cid, owner in chosen.items() if owner == arm)
-        figures[arm] = policy_stats(mine) | {"children": {
-            cid: child_figures([r for r in mine if r["candidate_id"] == cid]) for cid in children}}
-    checks = UNAVAILABLE if pool["no_pool"] else anchor_checks(
-        pool["anchors"], criterion["anchors"][pool["task"]], criterion["separation"]["anchor_spread_limit"])
-    return {"arms": figures, "anchors": pool["anchors"], "anchor_checks": checks, "agreement": pool["agreement"],
-            "excluded_judges": pool["excluded_judges"], "unpooled": pool["unpooled"], "no_pool": pool["no_pool"]}
-
-
-def readout(log: Path, driver_readout: Path, criterion: Path, results: Sequence[Path]) -> dict:
-    """Per task (scoring.read_pool of each results.json, criterion hash checked; a criterion task without one:
-    scoring.log_only_pool) task_figures over the evaluations of the subset children the driver's readout
-    (E/readout.json) names (a child a continued run's subset no longer chooses is left out); the driver readout's
-    compile-only figures; no decision rule."""
-    frozen, compile_only = json.loads(Path(criterion).read_text()), json.loads(Path(driver_readout).read_text())
-    chosen = {cid: arm for arm, figures in compile_only["arms"].items() for cid in figures["subset"]}
-    arms = {row["evaluation_id"]: row["arm"] for row in read_records(log) if row["kind"] == "evaluation"
-            and row.get("mode") == MODE and chosen.get(row["candidate_id"]) == row["arm"]}
-    pools = [read_pool(path, log, criterion) for path in results]
-    pooled = {pool["task"] for pool in pools}
-    pools += [log_only_pool(log, Path(task).name) for task in frozen["tasks"] if Path(task).name not in pooled]
-    return {"tasks": {pool["task"]: task_figures(pool, arms, chosen, frozen)
-                      for pool in sorted(pools, key=lambda p: p["task"])},
-            "compile_only": compile_only, "decision": DECISION}
-
-
 def run_parser(sub: argparse._SubParsersAction) -> None:
     run = sub.add_parser("run", help="parents, episodes, subset, compile-only readout, evaluations")
     run.add_argument("--config", type=Path, required=True, help="the run configuration (an ExperimentConfig)")
@@ -458,8 +445,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     readout_cmd = sub.add_parser("readout", help="the per-arm, per-child judged readout")
     for name in ("--log", "--driver-readout", "--criterion"):
         readout_cmd.add_argument(name, type=Path, required=True)
-    readout_cmd.add_argument("results", type=Path, nargs="+", help="each task pool's records/results.json")
+    readout_cmd.add_argument("results", type=Path, nargs="*", help="each task pool's records/results.json")
     a = parser.parse_args(argv)
+    from experiments.orc_structural_search.three_arm_readout import readout  # it imports this module
     if a.command == "judge":
         result = judge(a.evidence, a.pool, a.task, criterion=a.criterion, judges=a.judge, solution=a.solution,
                        call_cap=a.call_cap)

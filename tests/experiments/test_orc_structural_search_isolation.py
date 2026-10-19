@@ -4,6 +4,8 @@ directories from an episode's sandboxed CLI calls (scripted mutator and CLI; no 
 import sys
 from pathlib import Path
 
+import pytest
+
 from experiments.orc_structural_search.driver import archive, hidden_roots, run_episode
 from tests.experiments.orc_structural_search_support import world  # noqa: F401 (fixture)
 from tests.experiments.test_orc_structural_search_driver import (  # noqa: F401 (sandboxed: fixture)
@@ -32,11 +34,19 @@ def test_a_mutator_cannot_read_a_siblings_file_or_the_evidence_root(sandboxed, w
 
 def test_hide_paths_from_the_command_line_reach_the_episode(sandboxed, world):
     hidden = world.outside / "other-run"
+    hidden.mkdir()
     _, rows, _ = mode1(world, ["direct"], hide=[hidden])
     assert [str(hidden) in row["hidden_roots"] for row in rows if row["kind"] == "episode"] == [True] * 3
 
 
 def test_hidden_roots_are_absolute_whatever_the_operator_passes(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    (tmp_path / "other" / "run").mkdir(parents=True)
     roots = hidden_roots(Path("w"), Path("e"), hide=[Path("other/run")])
     assert all(root.is_absolute() for root in roots) and tmp_path / "other" / "run" in roots
+
+
+def test_a_hide_path_that_does_not_exist_is_refused_and_never_created(tmp_path):
+    with pytest.raises(ValueError, match="not an existing directory"):
+        hidden_roots(tmp_path / "w", tmp_path / "e", hide=[tmp_path / "ss-evidnce2"])
+    assert not (tmp_path / "ss-evidnce2").exists()

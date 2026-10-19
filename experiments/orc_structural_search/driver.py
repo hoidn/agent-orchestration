@@ -287,13 +287,17 @@ def episode_workspace(parent_root: Path, tree: Path, brief: str, runtime: Path) 
 
 def hidden_roots(work_root: Path, evidence_root: Path, hide: Sequence[Path] = ()) -> list[Path]:
     """The directories the shims mask from an episode's CLI calls (COMPARE_HIDE): the evidence root, every episode
-    tree but the call's own (the shims bind it back), the work root's evaluation directories and the operator's
-    `hide` (other runs' roots); each is created so bubblewrap finds a mount point."""
+    tree but the call's own (the shims bind it back), the work root's evaluation directories, each created so
+    bubblewrap finds a mount point, and the operator's `hide` (other runs' roots), which must exist: a mistyped path
+    is refused (ValueError), never created."""
+    missing = [str(path) for path in hide if not Path(path).is_dir()]
+    if missing:
+        raise ValueError(f"--hide {missing}: not an existing directory; hide only roots that exist")
     roots = [root.resolve() for root in (
-        evidence_root, *(work_root / name for name in ("episodes", "records", "runs", "agents", "env-manifests")), *hide)]
+        evidence_root, *(work_root / name for name in ("episodes", "records", "runs", "agents", "env-manifests")))]
     for root in roots:
         root.mkdir(parents=True, exist_ok=True)
-    return roots
+    return roots + [Path(path).resolve() for path in hide]
 
 
 def run_agent(agent_cmd: Sequence[str], cwd: Path, log: Path, env: Mapping[str, str], wall_clock_sec: float, *,

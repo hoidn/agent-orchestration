@@ -32,7 +32,8 @@ runs I1, I2 and I3 episodes against the rebound `direct` parents and evaluates a
 | `sites.py` | I2: the candidate's source-site manifest, eligible sites, seeded site selection, the site brief, receipt derivation |
 | `briefs.py` | The mutator's `EPISODE.md` (I1, I2, and mode 2 feedback) |
 | `adaptive.py` | Mode 2: `run_mode2` (archive, generations, parent and site selection) and `validate_finalists` |
-| `three_arm.py` | The three-arm compile-only readout: I1, I2 and I3 episodes, the subset, reservation-aware evaluations, judging through the ledger, the per-arm readout; its command line (`run`, `judge`, `readout`) |
+| `three_arm.py` | The three-arm compile-only readout: I1, I2 and I3 episodes, the subset, reservation-aware evaluations, judging through the ledger, the per-arm compile-only readout; its command line (`run`, `judge`, `readout`) |
+| `three_arm_readout.py` | The three-arm judged readout (`three_arm readout`): per task, arm and subset child, descriptively |
 | `judging.py` | Mode 2 per-generation blind judging: pools, judge ledger entries, waiting for scan verdicts, judge retry |
 | `scoring.py` | Blind judging pools, the join of judge scores to evaluation records, the Phase 1 readout and `--joined-out` |
 | `scoring_phase2.py` | The Phase 2 readout (`scoring readout --phase 2`) |
@@ -212,10 +213,18 @@ The three-arm compile-only readout (criterion `criteria/three_arm.json`; prerequ
 plus `pyright` on `PATH`, which admits I3 children) runs from the frozen runtime `$RT`, with `PYTHONPATH=$RT`.
 `config.json` is a full `ExperimentConfig` whose `episode_wall_clock_sec` and `criterion_sha256` (the criterion
 file's `sha256sum`, hex) the arms share; `three_arm.arm_config` sets each arm's mutable file (`direct.orc` for I1 and
-I2, `direct.py` for I3), entry `direct::run` and condition `topology-only`. A run refuses an `--agent-cmd` other
-than the criterion's `envelope.mutator`, a `criterion_sha256` other than `--criterion`'s, and (`RuntimeError`,
-`acceptance.check_parent`) a Python parent that does not type-check against `$RT`, all before any provider call.
-Every run (smoke and main) needs its own fresh `E` and `W`.
+I2, `direct.py` for I3), entry `direct::run` and condition `topology-only`. Before any provider call a run refuses
+(`ValueError`) an `--agent-cmd` other than the criterion's `envelope.mutator`, a `criterion_sha256` other than
+`--criterion`'s, an `episode_wall_clock_sec` other than `envelope.episode_wall_clock_sec` (3600) and an
+`--eval-timeout-sec` other than `envelope.evaluation_wall_clock_sec` (14400), and (`RuntimeError`) an ORC parent that
+does not compile against `$RT` or a Python parent that does not type-check against it (`acceptance.check_parent`).
+Every `--hide` path must be an existing directory. Every run (smoke and main) needs its own fresh `E` and `W`.
+
+Call caps (controller ruling R15): the ledger `E/calls.json` is one total for the run and its judges, so the run
+leaves the four judge calls (2 tasks x 2 judges x 1 batch) free: the main run's `--call-cap` is 65 minus the smoke's
+recorded calls minus 4, and each `three_arm judge` takes `--call-cap` 65 minus the smoke's recorded calls. The ledger
+charges every recorded call, a quota refusal's included (conservative); the report lists immediate zero-work
+refusals separately.
 
 Smoke: each parent evaluated once on one task (`mode: "smoke"`, no episode); reserving the ORC parent's planned
 maximum (1) and the Python parent's (8) at once needs `--call-cap 9`:
@@ -239,7 +248,7 @@ PYTHONPATH=$RT python -m experiments.orc_structural_search.three_arm run \
   --tasks $RT/experiments/compare/tasks/{resume-projection-integrity,pure-result-replay} --runtime $RT \
   --work-root $W --evidence $E --episodes-per-arm 6 --eval-timeout-sec 14400 \
   --agent-cmd 'codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --model gpt-6.1-sol --config model_reasoning_effort=high' \
-  --solution resume-projection-integrity=$SOL1 --solution pure-result-replay=$SOL2 --call-cap N --concurrency 4 \
+  --solution resume-projection-integrity=$SOL1 --solution pure-result-replay=$SOL2 --call-cap $((61 - SMOKE_CALLS)) --concurrency 4 \
   --run-seed 1 --subset-seed 1 --hide /home/ollie/ss-evidence2 --hide /home/ollie/ss-work2 --hide /home/ollie/ss-pools \
   --hide /home/ollie/ss-evidence-smoke --hide /home/ollie/ss-work-smoke --hide /home/ollie/ss-evidence-meta \
   --hide /home/ollie/ss3-evidence-smoke --hide /home/ollie/ss3-work-smoke [--continue]
@@ -248,15 +257,17 @@ PYTHONPATH=$RT python -m experiments.orc_structural_search.three_arm run \
 The run archives both parents and logs one `{"kind": "parents", "orc", "python", "run_seed", "subset_seed",
 "pyright", "program_digests"}` row. Episodes run one at a time, arm by arm (I1, I2, I3), until each arm has
 `--episodes-per-arm` non-quota episodes (accepted, rejected, exhausted or incident); a quota episode is relaunched
-under the next index (the quota guard, at most 3 times), and episode indexes are global over the run. An arm still
-short of `--episodes-per-arm` once those relaunches are used up stops the run before the subset (`RuntimeError`):
-rerun with `--continue` after the provider's reset (also the rule when a Codex limit line names no reset time the
-guard can parse: it then pauses 30 minutes per relaunch). Every episode row carries
+under the next index (the quota guard, at most 3 times), and episode indexes are global over the run. A slot whose
+relaunches are used up stops the run at once, before the next slot (`three_arm.QuotaExhausted`): rerun with
+`--continue` after the provider's reset (also the rule when a Codex limit line names no reset time the guard can
+parse: it then pauses 30 minutes per relaunch, so a slot stops after about 1.5 hours). Every episode row carries
 `arm` and `mode: "three_arm"`; an I2 episode's site is drawn uniformly from the parent's eligible sites with
 `random.Random(f"{run_seed} {index}")`, and its row carries `site_id` and `run_seed`. Then, per arm, the subset (two
 children): accepted children of uncontaminated episodes whose candidate id differs from the parent's and from every
-child chosen before (in any arm), by episode index: the first, then the first later child with another skeleton than
-the first's, else the one with the smallest `sha256(f"{subset_seed}:{candidate_id}")`. An accepted episode with scan
+child chosen before (in any arm, arms in the order I1, I2, I3), and whose program digest differs from the parents'
+and every chosen child's (a comment-only or reformatted child is not paid for), by episode index: the first, then the
+first later child with another skeleton than the first's, else the one with the smallest
+`sha256(f"{subset_seed}:{candidate_id}")`. An accepted episode with scan
 hits and no verdict stops the run here (`ValueError`): adjudicate it (`prepare.py scan --run
 E/episodes/<episode_id> --verdict ...`) and rerun with `--continue`. `E/readout.json` (per arm, never pooled: episode
 outcomes, completed and judged episodes, acceptance rate, refusals, locality, files touched per episode, distinct
@@ -265,9 +276,11 @@ against the criterion's threshold, the subset's candidate ids) is written before
 is then evaluated once per task (`mode: "three_arm"`, `arm`), at most `--concurrency` at a time. Launches are
 reservation-aware (`three_arm.CapGate`): an evaluation whose planned maximum (an I3 child's `MAX_PROVIDER_CALLS`, 8)
 does not fit under `--call-cap` beside the evaluations in flight waits for one to end and is retried; it is refused
-(`CallCapExceeded`, before any workspace) only when nothing is in flight. A quota pause holds every launch and
-relaunch, a waiting one included: an evaluation that ends in a quota incident pauses the guard before the waiters
-wake. `--continue` (same `W`, same parents and
+(`CallCapExceeded`, before any workspace) only when nothing is in flight. Every launch that starts after a quota
+pause waits it out, a relaunch from the cap's wait included: an evaluation that ends in a quota incident pauses the
+guard before the waiters wake. Once one evaluation's quota relaunches are used up, no further evaluation starts (those
+in flight finish) and the run raises `QuotaExhausted`: rerun with `--continue` after the reset. `--continue` (same
+`W`, same parents and
 seeds) keeps every arm that already has its episodes and every evaluation already logged.
 
 Judging: per task, build the pool with `scoring pool` and judge it with `three_arm judge`, which reserves each
@@ -282,14 +295,15 @@ PYTHONPATH=$RT python -m experiments.orc_structural_search.scoring pool --eviden
   --judge gpt-6.1-sol=$RT/experiments/compare/providers/score_codex.json
 PYTHONPATH=$RT python -m experiments.orc_structural_search.three_arm judge --evidence $E --pool $P/<task> \
   --task $RT/experiments/compare/tasks/<task> --criterion $RT/experiments/orc_structural_search/criteria/three_arm.json \
-  --judge claude-opus-5-5 --judge gpt-6.1-sol --solution $SOL --call-cap N
+  --judge claude-opus-5-5 --judge gpt-6.1-sol --solution $SOL --call-cap $((65 - SMOKE_CALLS))
 PYTHONPATH=$RT python -m experiments.orc_structural_search.three_arm readout --log $E/log.jsonl \
   --driver-readout $E/readout.json --criterion $RT/experiments/orc_structural_search/criteria/three_arm.json \
   $P/*/records/results.json > $E/three-arm-readout.json
 ```
 
 `P` lies outside `E` and `W`. The readout reads each task's `results.json` through `scoring.read_pool` (criterion
-hash checked; a task without one reads its log rows alone) and reports per task, per arm and per subset child
+hash checked; a task without one reads its log rows alone, so with no pool at all the command takes no results file)
+and reports per task, per arm and per subset child
 `scoring.policy_stats` (the failure-inclusive mean, valued mean, failed, timeouts, incidents, excluded, hidden,
 calls and wall clock means) and each child's primary values, the anchors and `scoring.anchor_checks` (reported, not
 a gate), the compile-only figures of `E/readout.json`, and no decision: `"descriptive; no separation rule applied
@@ -305,7 +319,8 @@ hashes to its directory name.
 
 What the mutator cannot see: every `claude` or `codex` call of an episode runs with the shims' `COMPARE_HIDE`
 naming `E`, `W/episodes`, `W/records`, `W/runs`, `W/agents`, `W/env-manifests` and each mode 1 `--hide` directory
-(`driver.hidden_roots`, created if missing and recorded as the episode row's `hidden_roots`). The shims mask each
+(`driver.hidden_roots`: the driver's own directories are created if missing, a `--hide` path that is not an existing
+directory is refused with `ValueError`; all are recorded as the episode row's `hidden_roots`). The shims mask each
 with an empty tmpfs and bind the episode's own tree back, so the call reads its `cand-1`, `tmp/` and `py/` but
 no sibling episode, evaluation, archive candidate or log row; a path into them is not found. With a `claude` or
 `codex` `--agent-cmd` that is the whole mutator; a mutator command that is neither runs outside the sandbox and

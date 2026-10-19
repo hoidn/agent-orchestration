@@ -17,10 +17,10 @@ from pathlib import Path
 import pytest
 
 from experiments.compare.repos import sha256_file
-from experiments.orc_structural_search import ledger, three_arm
+from experiments.orc_structural_search import ledger, three_arm, three_arm_readout
 from experiments.orc_structural_search.driver import Unit, archive, launch_units
 from experiments.orc_structural_search.ledger import CallCapExceeded
-from experiments.orc_structural_search.quota import QuotaGuard
+from experiments.orc_structural_search.quota import MAX_QUOTA_RETRIES, QuotaGuard
 from experiments.orc_structural_search.records import append_record, read_records
 from experiments.orc_structural_search.scoring import contaminated_children, pool_evaluations
 from experiments.orc_structural_search.sites import eligible_sites, select_site, site_manifest
@@ -34,9 +34,10 @@ CRITERION = REPO / "experiments" / "orc_structural_search" / "criteria" / "three
 PARENTS = REPO / "experiments" / "orc_structural_search" / "three_arm"
 CONFIG = {"mutable_files": ["direct.orc"], "mutable_definitions": ["run"], "condition": "topology-only",
           "interface": "I1", "entry_workflow": "direct::run", "source_root": ".", "providers_file": "providers.json",
-          "command_boundaries_file": "commands.json", "episode_wall_clock_sec": 300, "criterion_sha256": None}
+          "command_boundaries_file": "commands.json", "episode_wall_clock_sec": 3600, "criterion_sha256": None}
 CHANGE = {"summary": "set VALUE", "account": "edited pkg"}
 QUOTA = "You've hit your usage limit · resets 5:30pm (America/Los_Angeles)"
+QUOTA_PLAIN = "You've hit your usage limit."  # no reset time the guard parses: it pauses quota.UNPARSED_PAUSE
 # the I3 edit of test_orc_structural_search_i3, plus a comment naming the episode: every I3 child is another
 # candidate with the same program digest
 I3_EDIT = CODEX_EDIT + """import re
@@ -45,8 +46,9 @@ Path("direct.py").write_text(Path("direct.py").read_text() + f"# episode {index}
 """
 # The scripted `codex`: in an episode's workspace (EPISODE.md present) the mutator for its arm (I2: the brief names a
 # site; I3: direct.py; else I1), the I1 and I2 edits cycling over the global episode index; with quota-once beside
-# it, the next I2 episode prints a quota line and exits 1 instead (once); with print-once beside it, the next episode
-# prints that file's text first (once). Elsewhere the scripted provider.
+# it, the next I2 episode prints a quota line and exits 1 instead (once), with quota-always every episode prints one
+# without a reset time; with print-once beside it, the next episode prints that file's text first (once). Elsewhere
+# the scripted provider.
 CODEX = """#!{python} -I
 import re, runpy, sys
 from pathlib import Path
@@ -59,6 +61,9 @@ site = re.search(r"^Site: ", brief, re.M)
 if (here / "print-once").exists():
     print((here / "print-once").read_text(), flush=True)
     (here / "print-once").unlink()
+if (here / "quota-always").exists():
+    print({plain!r}, flush=True)
+    sys.exit(1)
 if site and (here / "quota-once").exists():
     (here / "quota-once").unlink()
     print({quota!r}, flush=True)
@@ -67,15 +72,18 @@ runpy.run_path(str(here / ("i2.py" if site else "i3.py" if Path("direct.py").exi
 """
 
 
-def install(world, quota_once=False, print_once=None):
+def install(world, quota_once=False, print_once=None, quota_always=False):
     """The scripted codex and its parts in the world's fakebin; the parents copied outside the repository."""
     for name, source in {"provider.py": SCRIPTED, "i1.py": MUTATOR.replace("][index]", "][index % 3]"),
                          "i2.py": MUTATOR_I2.replace("][index]", "][index % 4]"), "i3.py": I3_EDIT,
-                         "codex": CODEX.format(python=sys.executable, here=str(world.fakebin), quota=QUOTA)}.items():
+                         "codex": CODEX.format(python=sys.executable, here=str(world.fakebin), quota=QUOTA,
+                                              plain=QUOTA_PLAIN)}.items():
         (world.fakebin / name).write_text(source)
     (world.fakebin / "codex").chmod(0o755)
     if quota_once:
         (world.fakebin / "quota-once").write_text("")
+    if quota_always:
+        (world.fakebin / "quota-always").write_text("")
     if print_once:
         (world.fakebin / "print-once").write_text(print_once)
     script(world, [{"match": "Implement this change", "result": CHANGE}])
@@ -103,17 +111,19 @@ def criterion_for(world, tasks):
     return path
 
 
-def run(world, *, episodes=1, tasks=None, call_cap=200, continue_run=False, run_seed=7, criterion=CRITERION):
+def run(world, *, episodes=1, tasks=None, call_cap=200, continue_run=False, run_seed=7, criterion=CRITERION,
+        guard=None):
     """(result, log rows, evidence root) of one scripted three-arm run (installed with `install`)."""
     evidence = world.tmp / "evidence"
     configure(world, criterion)
     result = three_arm.run_three_arm(
         world.tmp / "config.json", parents={name: world.tmp / "parents" / name for name in ("orc", "python")},
         tasks=tasks or [world.task], work_root=world.outside / "work", evidence_root=evidence,
-        episodes_per_arm=episodes, agent_cmd=CODEX_MUTATOR, runtime=world.runtime, env=env_of(world), timeout_sec=600,
-        solutions={t.name: world.solution for t in tasks or [world.task]}, call_cap=call_cap, concurrency=4,
+        episodes_per_arm=episodes, agent_cmd=CODEX_MUTATOR, runtime=world.runtime, env=env_of(world),
+        timeout_sec=14400, solutions={t.name: world.solution for t in tasks or [world.task]}, call_cap=call_cap,
+        concurrency=4,
         run_seed=run_seed, subset_seed=3, criterion=criterion, continue_run=continue_run,
-        guard=QuotaGuard(retries=0))
+        guard=guard or QuotaGuard(retries=0))
     return result, read_records(evidence / "log.jsonl"), evidence
 
 
@@ -138,13 +148,13 @@ def test_three_arm_runs_six_episodes_per_arm_against_the_two_parents_and_writes_
             json.loads((evidence / "readout.json").read_text()) == result) == (
         dict.fromkeys(("I1", "I2", "I3"), 6), ["arms", "collapse_threshold"], list(range(18)), {"three_arm"}, True,
         {("I1", False, None), ("I2", True, 7), ("I3", False, None)}, (4, {"frozen_surface_changed": 2}), (6, 5),
-        i1[:2], 2, True)
+        i1[:2], 1, True)  # I3: one child, the others repeat its program (comments only)
 
 
-def episode_row(arm, index, cid, skeleton, outcome="accepted", parent="p", mode="three_arm"):
+def episode_row(arm, index, cid, skeleton, outcome="accepted", parent="p", mode="three_arm", program=None):
     return {"kind": "episode", "mode": mode, "arm": arm, "interface": arm, "episode_index": index,
             "episode_id": f"e{index}", "candidate_id": cid, "parent_candidate_id": parent, "skeleton": skeleton,
-            "outcome": outcome}
+            "outcome": outcome, "program_digest": program or f"program-{cid}"}
 
 
 def tie(seed, cid):
@@ -217,13 +227,14 @@ def test_three_arm_cap_refuses_a_launch_and_judges_enter_the_ledger(sandboxed, w
     judging = three_arm.judge(evidence, pool, world.task, criterion=criterion, judges=JUDGES, solution=world.solution,
                               call_cap=200, scorer=scripted_judge(evidence / "log.jsonl"))
     entries = json.loads((evidence / "calls.json").read_text())
-    result = three_arm.readout(evidence / "log.jsonl", evidence / "readout.json", criterion, [Path(judging["results"])])
+    result = three_arm_readout.readout(evidence / "log.jsonl", evidence / "readout.json", criterion,
+                                       [Path(judging["results"])])
     assert ([row["arm"] for row in kind(refused, "episode")], kind(refused, "evaluation"), trees,
             [(e["key"], e["planned"], e["calls"]) for e in entries if e["kind"] == "judge"],
             kind(read_records(evidence / "log.jsonl"), "judging") == [judging], judging["generation"],
             sorted(result["tasks"][world.task.name]["arms"]), result["decision"]) == (
         ["I1", "I2", "I3"], [], [], [(f"three-arm {world.task.name} {judge}", 1, 0) for judge in JUDGES], True, -2,
-        ["I1", "I2", "I3"], three_arm.DECISION)
+        ["I1", "I2", "I3"], three_arm_readout.DECISION)
 
 
 def test_a_launch_beyond_the_cap_waits_for_an_evaluation_in_flight_to_settle(sandboxed, world):
@@ -268,7 +279,7 @@ def test_three_arm_readout_reports_per_arm_and_per_child_descriptively_without_a
     driver = {"arms": {"I1": {"completed": 6, "subset": ["c1"]}, "I2": {"subset": ["c2", "c5"]},
                        "I3": {"subset": ["c3", "c4"]}}}
     (tmp_path / "readout.json").write_text(json.dumps(driver))
-    result = three_arm.readout(tmp_path / "log.jsonl", tmp_path / "readout.json", criterion, [results])
+    result = three_arm_readout.readout(tmp_path / "log.jsonl", tmp_path / "readout.json", criterion, [results])
     task = result["tasks"]["t1"]
     arms = task["arms"]
     assert ((arms["I1"]["mean"], arms["I1"]["failed"], arms["I3"]["mean"], arms["I3"]["failed"], arms["I2"]["mean"],
@@ -293,9 +304,10 @@ def test_i2_site_draw_is_reproducible_for_a_run_seed(sandboxed, world, pyright):
                      for row in kind(rows, "episode") if row["arm"] == "I2"]
 
 
-def test_an_arm_short_after_its_quota_relaunches_stops_the_run_and_continue_completes_it(sandboxed, world, pyright):
+def test_a_slot_whose_quota_relaunches_are_used_up_stops_the_run_and_continue_completes_it(sandboxed, world,
+                                                                                         pyright):
     install(world, quota_once=True)
-    with pytest.raises(RuntimeError, match="rerun with --continue"):
+    with pytest.raises(three_arm.QuotaExhausted, match="rerun with --continue"):
         run(world)
     stopped = read_records(world.tmp / "evidence" / "log.jsonl")
     readout_written = (world.tmp / "evidence" / "readout.json").exists()
@@ -306,8 +318,83 @@ def test_an_arm_short_after_its_quota_relaunches_stops_the_run_and_continue_comp
             result["arms"]["I2"]["completed"], sum(result["arms"]["I2"]["episodes"].values()),
             max(Counter(row["evaluation_id"] for row in kind(rows, "evaluation")).values()),
             len(kind(rows, "parents"))) == (
-        [("I1", 0), ("I2", 1), ("I3", 2)], [], False, [("I1", 0), ("I2", 1), ("I3", 2), ("I2", 3)],
+        [("I1", 0), ("I2", 1)], [], False, [("I1", 0), ("I2", 1), ("I2", 2), ("I3", 3)],
         [f"quota: {QUOTA}"], 1, 2, 1, 1)
+
+
+def unparsed_quota_guard():
+    """A quota guard with every relaunch (MAX_QUOTA_RETRIES) and a fake clock its pauses advance."""
+    now = [datetime(2026, 10, 19, 19, 0, tzinfo=timezone.utc)]
+
+    def sleep(seconds):
+        now[0] += timedelta(seconds=seconds)
+
+    return QuotaGuard(retries=MAX_QUOTA_RETRIES, clock=lambda: now[0], sleep=sleep, say=lambda line: None)
+
+
+def test_an_episode_slot_that_keeps_hitting_an_unparsed_quota_stops_the_run_after_its_relaunches(sandboxed, world,
+                                                                                               pyright):
+    install(world, quota_always=True)
+    with pytest.raises(three_arm.QuotaExhausted, match="rerun with --continue"):
+        run(world, episodes=6, guard=unparsed_quota_guard())
+    rows = read_records(world.tmp / "evidence" / "log.jsonl")
+    assert ([(row["arm"], row["incidents"]) for row in kind(rows, "episode")], kind(rows, "evaluation"),
+            (world.tmp / "evidence" / "readout.json").exists()) == (
+        [("I1", [f"quota: {QUOTA_PLAIN}"])] * (1 + MAX_QUOTA_RETRIES), [], False)
+
+
+def test_an_evaluation_that_keeps_hitting_an_unparsed_quota_stops_every_further_launch(tmp_path):
+    """Three units behind one gate, one at a time; every launch returns a quota incident with no parsed reset: the
+    first unit's relaunches are used up, and no other unit launches."""
+    launches = []
+
+    def quota_incident():
+        launches.append(len(launches) + 1)
+        return {"kind": "evaluation", "evaluation_id": f"e{len(launches)}", "candidate_id": "c", "task_id": "t",
+                "replicate": 1, "outcome": "incident", "incidents": [f"quota: {QUOTA_PLAIN}"],
+                "attempt": len(launches)}
+
+    guard = unparsed_quota_guard()
+    gate = three_arm.CapGate(guard)
+    units = [Unit(tmp_path, I3_CONFIG, {}, tmp_path / f"task-{n}", 1) for n in range(3)]
+    with pytest.raises(three_arm.QuotaExhausted, match="rerun with --continue"):
+        launch_units(units, concurrency=1, guard=guard, gate=lambda _evaluate: gate.run(quota_incident))
+    assert (len(launches), bool(gate.exhausted)) == (1 + MAX_QUOTA_RETRIES, True)
+
+
+def test_the_subset_skips_a_child_whose_program_repeats_the_parents_or_a_chosen_childs():
+    rows = [{"kind": "parents", "subset_seed": 1, "program_digests": {"orc": "parent-orc", "python": "parent-py"}},
+            episode_row("I1", 0, "a", "s1", program="pa"), episode_row("I1", 1, "b", "s2", program="parent-orc"),
+            episode_row("I1", 2, "c", "s2", program="pa"), episode_row("I1", 3, "d", "s2", program="pd"),
+            episode_row("I3", 4, "e", "s5", program="pa"), episode_row("I3", 5, "f", "s5", program="pf")]
+    chosen = three_arm.subset(rows, json.loads(CRITERION.read_text()), 1)
+    assert {arm: [row["candidate_id"] for row in picked] for arm, picked in chosen.items()} == {
+        "I1": ["a", "d"], "I2": [], "I3": ["f"]}
+
+
+def test_a_run_refuses_an_orc_parent_that_does_not_compile_before_any_spend(world):
+    install(world)
+    entry = world.tmp / "parents" / "orc" / "direct.orc"
+    entry.write_text(entry.read_text().replace("(export run)", "(export run missing)"))
+    with pytest.raises(RuntimeError, match="does not compile"):
+        run(world)
+    evidence = world.tmp / "evidence"
+    assert ((evidence / "log.jsonl").exists(), (evidence / "calls.json").exists()) == (False, False)
+
+
+def test_the_readout_command_reads_the_log_alone_without_results(tmp_path, capsys):
+    criterion = tmp_path / "criterion.json"
+    criterion.write_text(json.dumps(json.loads(CRITERION.read_text()) | {"tasks": ["tasks/t1"]}))
+    append_record(tmp_path / "log.jsonl", {
+        "kind": "evaluation", "mode": "three_arm", "arm": "I1", "evaluation_id": "e1", "candidate_id": "c1",
+        "task_id": "t1", "replicate": 1, "outcome": "failed", "split": "unavailable", "records_dir": str(tmp_path),
+        "provider_calls": 1, "wall_clock_sec": 5.0, "incidents": []})
+    (tmp_path / "readout.json").write_text(json.dumps({"arms": {"I1": {"subset": ["c1"]}, "I2": {"subset": []},
+                                                                "I3": {"subset": []}}}))
+    three_arm.main(["readout", "--log", str(tmp_path / "log.jsonl"), "--driver-readout",
+                    str(tmp_path / "readout.json"), "--criterion", str(criterion)])
+    task = json.loads(capsys.readouterr().out)["tasks"]["t1"]
+    assert (task["no_pool"], task["arms"]["I1"]["failed"], task["arms"]["I1"]["mean"]) == (True, 1, 0.0)
 
 
 def test_an_accepted_episode_with_unadjudicated_scan_hits_stops_the_run_before_the_subset(sandboxed, world, pyright):
@@ -343,7 +430,8 @@ def test_a_launch_waiting_at_the_cap_waits_out_a_quota_pause_before_it_relaunche
             return row
         return go
 
-    quota_row = {"kind": "evaluation", "outcome": "incident", "incidents": [f"quota: {QUOTA}"]}
+    quota_row = {"kind": "evaluation", "evaluation_id": "a", "candidate_id": "c", "task_id": "t", "replicate": 1,
+                 "outcome": "incident", "incidents": [f"quota: {QUOTA}"]}
     first = threading.Thread(target=gate.run, args=(launch("A", quota_row, hold=True),))
     first.start()
     reserved.wait(30)
@@ -359,20 +447,22 @@ def test_a_launch_waiting_at_the_cap_waits_out_a_quota_pause_before_it_relaunche
     assert (events, rows) == (["A", "B", "pause", "B"], [{"outcome": "completed"}])
 
 
-def test_a_run_refuses_another_mutator_or_criterion_hash_before_anything_exists(tmp_path):
-    (tmp_path / "config.json").write_text(json.dumps(CONFIG | {"criterion_sha256": sha256_file(CRITERION)}))
-    stale = tmp_path / "stale.json"
-    stale.write_text(json.dumps(CONFIG | {"criterion_sha256": "0" * 64}))
-    errors = []
-    for config, agent_cmd in ((tmp_path / "config.json", ["claude", "-p"]), (stale, CODEX_MUTATOR)):
+def test_a_run_refuses_another_mutator_criterion_hash_or_envelope_before_anything_exists(tmp_path):
+    hashed = CONFIG | {"criterion_sha256": sha256_file(CRITERION)}
+    cases = [(hashed, ["claude", "-p"], 14400, "--agent-cmd"), (CONFIG | {"criterion_sha256": "0" * 64},
+                                                                 CODEX_MUTATOR, 14400, "criterion_sha256"),
+             (hashed | {"episode_wall_clock_sec": 600}, CODEX_MUTATOR, 14400, "episode_wall_clock_sec"),
+             (hashed, CODEX_MUTATOR, 600, "--eval-timeout-sec")]
+    named = []
+    for config, agent_cmd, timeout, field in cases:
+        (tmp_path / "config.json").write_text(json.dumps(config))
         with pytest.raises(ValueError) as error:
-            three_arm.run_three_arm(config, parents={}, tasks=[], work_root=tmp_path / "w",
+            three_arm.run_three_arm(tmp_path / "config.json", parents={}, tasks=[], work_root=tmp_path / "w",
                                     evidence_root=tmp_path / "e", episodes_per_arm=6, agent_cmd=agent_cmd,
-                                    runtime=tmp_path, env={}, timeout_sec=1, solutions={}, call_cap=1, concurrency=1,
-                                    run_seed=1, subset_seed=1, criterion=CRITERION)
-        errors.append(str(error.value))
-    assert (["mutator" in errors[0], "criterion_sha256" in errors[1]], (tmp_path / "e").exists()) == (
-        [True, True], False)
+                                    runtime=tmp_path, env={}, timeout_sec=timeout, solutions={}, call_cap=1,
+                                    concurrency=1, run_seed=1, subset_seed=1, criterion=CRITERION)
+        named.append(str(error.value).split(": ", 1)[1].split(" ")[0] == field)
+    assert (named, (tmp_path / "e").exists()) == ([True] * 4, False)
 
 
 def test_a_smoke_evaluates_the_two_parents_once_per_task_through_the_command_line(sandboxed, world, pyright,
@@ -386,7 +476,7 @@ def test_a_smoke_evaluates_the_two_parents_once_per_task_through_the_command_lin
                     "--criterion", str(CRITERION), "--tasks", str(world.task),
                     "--work-root", str(world.outside / "work"), "--evidence", str(evidence),
                     "--agent-cmd", " ".join(CODEX_MUTATOR), "--runtime", str(world.runtime),
-                    "--eval-timeout-sec", "600",
+                    "--eval-timeout-sec", "14400",
                     "--solution", f"{world.task.name}={world.solution}", "--call-cap", "9", "--run-seed", "1",
                     "--subset-seed", "1"])
     rows = read_records(evidence / "log.jsonl")
