@@ -28,6 +28,8 @@ own arm and knows nothing of policies. This module adds the three steps around t
                      or incident evaluation whose launch hit a provider quota (quota.quota_reason, which also reads
                      the records of failed rows from before the quota guard) is a `quota_incident`: excluded,
                      counted as quota_incidents.
+  contaminated_children  the children of unguided episodes with a contaminated scan verdict: the Phase 1 readout
+                     leaves out every row of them (and lists them as `excluded_children`).
   phase1_readout     per task: catalog policy, child and pooled `unguided` stats; separation over arms with two or
                      more primary values (primary_value: a completed run's value, 0 for a failed run; criterion
                      amendment of 2026-10-18); DIRECT's rank; anchor order and cross-batch spread per judge; the
@@ -250,6 +252,23 @@ def log_only_pool(log: Path, task: str) -> dict:
             "no_pool": True}
 
 
+def contaminated_children(log: Path) -> set[str]:
+    """The candidate ids of the accepted unguided children whose episode scan (<log's directory>/episodes/
+    <episode_id>/record.json) has a contaminated verdict: the mutator read sibling episodes or the evidence root, so
+    the child is no independent unguided sample and the readout leaves out every row of it. Refuses an episode with
+    scan hits and no verdict."""
+    children = set()
+    for row in read_records(log):
+        if row["kind"] != "episode" or row["outcome"] != "accepted":
+            continue
+        scan = load(Path(log).parent / "episodes" / row["episode_id"] / "record.json")["scan"]
+        if scan["hits"] and scan["verdict"] is None:
+            raise ValueError(f"episode {row['episode_id']} has {len(scan['hits'])} scan hits and no verdict")
+        if scan["verdict"] and scan["verdict"]["verdict"] == "contaminated":
+            children.add(row["candidate_id"])
+    return children
+
+
 def pooled_sd(groups: Sequence[Sequence[float]]) -> float | str:
     """sqrt(sum((n-1) s^2) / sum(n-1)) over groups with two or more values; unavailable without any."""
     multi = [g for g in groups if len(g) > 1]
@@ -398,7 +417,10 @@ def readout_command(a: argparse.Namespace) -> dict:
     pooled = {pool["task"] for pool in pools}
     pools += [log_only_pool(a.log[0], Path(task).name) for task in json.loads(a.criterion.read_text())["tasks"]
               if Path(task).name not in pooled]
+    excluded = contaminated_children(a.log[0])
+    pools = [pool | {"rows": [r for r in pool["rows"] if r["candidate_id"] not in excluded]} for pool in pools]
     result = phase1_readout(pools, json.loads(a.driver_readout.read_text()), json.loads(a.criterion.read_text()))
+    result["excluded_children"] = sorted(excluded)
     if a.joined_out:  # the Phase 2 initial archive's input (adaptive.run_mode2 phase1_joined); only after a readout
         a.joined_out.write_text(json.dumps([row for pool in pools for row in pool["rows"]], indent=2) + "\n")
     return result

@@ -11,7 +11,8 @@ from experiments.compare import pool as pooling, prepare, summarize
 from experiments.compare.repos import sha256_file
 from experiments.orc_structural_search.records import UNAVAILABLE, append_record
 from experiments.orc_structural_search.scoring import (
-    join_scores, log_only_pool, main, phase1_readout, pool_evaluations, read_pool, split_batches,
+    contaminated_children, join_scores, log_only_pool, main, phase1_readout, pool_evaluations, read_pool,
+    split_batches,
 )
 from tests.experiments.compare_harness_support import (  # noqa: F401 (world is a fixture)
     REPO, call, edit, skip_without_sandbox, world, write_memo,
@@ -421,3 +422,48 @@ def test_readout_cli_phase1_writes_no_joined_rows_when_the_readout_fails(tmp_pat
         main(["readout", "--log", str(log), "--driver-readout", str(tmp_path / "readout.json"), "--criterion",
               str(CRITERION), "--joined-out", str(tmp_path / "joined.json")])
     assert not (tmp_path / "joined.json").exists()
+
+
+def episode(log, name, verdict, *, hits=1):
+    """An accepted unguided episode row whose child is sha256:<name>, and its scan record under E/episodes/."""
+    records = log.parent / "episodes" / name
+    records.mkdir(parents=True)
+    (records / "record.json").write_text(json.dumps({"scan": {
+        "calls": 1, "hits": [{}] * hits, "verdict": verdict and {"verdict": verdict, "reason": "r"}}}))
+    append_record(log, {"kind": "episode", "episode_id": name, "outcome": "accepted",
+                        "candidate_id": f"sha256:{name}", "scan_pending": bool(hits)})
+
+
+def test_contaminated_children_are_the_children_of_episodes_with_a_contaminated_verdict(tmp_path):
+    log = tmp_path / "log.jsonl"
+    for name, verdict, hits in (("c1", "contaminated", 2), ("c2", "cleared", 1), ("c3", None, 0)):
+        episode(log, name, verdict, hits=hits)
+    assert contaminated_children(log) == {"sha256:c1"}
+
+
+def test_contaminated_children_refuses_an_episode_with_hits_and_no_verdict(tmp_path):
+    log = tmp_path / "log.jsonl"
+    episode(log, "c1", None)
+    with pytest.raises(ValueError, match="no verdict"):
+        contaminated_children(log)
+
+
+def test_readout_cli_phase1_leaves_out_every_row_of_a_contaminated_episodes_child(tmp_path, capsys):
+    criterion, log = json.loads(CRITERION.read_text()), tmp_path / "log.jsonl"
+    pooled, failing = (Path(t).name for t in criterion["tasks"])
+    roles = criterion["anchors"][pooled]
+    records = tmp_path / "records" / "p" / "run-1"
+    append_record(log, log_row(records, eid="p", task=pooled))
+    episode(log, "c", "contaminated")
+    append_record(log, log_row(tmp_path / "records" / "c", eid="c", task=pooled, outcome="failed", mode="unguided"))
+    append_record(log, log_row(tmp_path / "records" / "f", eid="f", task=failing, outcome="failed"))
+    path = tmp_path / "results.json"
+    path.write_text(json.dumps({"runs": [run_row(records, "p")], "criterion_sha256": sha256_file(CRITERION),
+                                "agreement": {}, "excluded_judges": {}, "anchors": [
+                                    {"batch": 0, "judge": "j", "anchor": roles["upstream"], "total": 8},
+                                    {"batch": 0, "judge": "j", "anchor": roles["stub"], "total": 1}]}))
+    (tmp_path / "readout.json").write_text(json.dumps(DIVERSE))
+    main(["readout", "--log", str(log), "--driver-readout", str(tmp_path / "readout.json"), "--criterion",
+          str(CRITERION), "--joined-out", str(tmp_path / "joined.json"), str(path)])
+    result, joined = json.loads(capsys.readouterr().out), json.loads((tmp_path / "joined.json").read_text())
+    assert (result["excluded_children"], [r["evaluation_id"] for r in joined]) == (["sha256:c"], ["p", "f"])

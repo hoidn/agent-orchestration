@@ -246,6 +246,11 @@ After every episode `prepare.scan` runs over `E/episodes/<episode_id>/` with `E`
 `lineage` and each `--holdout` `holdout` (other episodes' trees are the scan's sibling trees), once per distinct
 solution hash until a scan hits; hits mark the episode `scan_pending`. Its `record.json` holds the scan that hit:
 after clearing it, rescan with the remaining hashes (`prepare.py scan --run E/episodes/<episode_id> --hash ...`).
+A contaminated episode verdict (the mutator read sibling episodes' trees or the evidence root) takes its child
+out of the Phase 1 readout: every row of that child is left out and the readout lists it under
+`excluded_children` (`scoring.contaminated_children`); mark the child's evaluation records contaminated too so
+the pool leaves them out. The scan matches absolute paths only: a `cd <work root>` followed by relative
+`episodes/episode-N` reads is missed, so read each episode transcript's commands before clearing it.
 
 The evaluation id covers the environment manifest, so it changes with a CLI version; model names are the
 candidate's provider bindings and `:model` values, already in its candidate id.
