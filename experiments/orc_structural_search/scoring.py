@@ -63,7 +63,7 @@ from statistics import mean, stdev, variance
 from experiments.compare import pool as pooling, prepare
 from experiments.compare.repos import dump, guard, load, runtime_commit, sha256_file, visible_in_sandbox
 from experiments.orc_structural_search.quota import job_key
-from experiments.orc_structural_search.readout import QUOTA_INCIDENT, outcome, share
+from experiments.orc_structural_search.readout import QUOTA_INCIDENT, diversity, outcome, share
 from experiments.orc_structural_search.records import UNAVAILABLE, read_records
 
 DIRECT = "direct"  # the DIRECT seed's stem
@@ -237,13 +237,16 @@ def contaminated(records_dir: Path) -> bool:
     return pooling.exclusion(record["scan"], record["calls"], f"prepare.py scan --run {records_dir}") is not None
 
 
-def log_only_pool(log: Path, task: str) -> dict:
+def log_only_pool(log: Path, task: str, excluded: frozenset[str] = frozenset()) -> dict:
     """read_pool's shape for a task with no completed, uncontaminated evaluation in `log` (so no pool): an unvalued
     row per completed (contaminated: counted as excluded), failed or incident evaluation, no anchors, `no_pool`
-    true. Refuses a task with a completed, uncontaminated evaluation: that one needs its pool."""
+    true. Refuses a task with a completed, uncontaminated evaluation that is not an `excluded` child's: that one
+    needs its pool."""
     records = [r for r in latest_evaluations(read_records(log)) if r["task_id"] == task]
     completed = [r for r in records if r["outcome"] == "completed"]
-    usable = sorted(r["evaluation_id"] for r in completed if not contaminated(r["records_dir"]))
+    usable = sorted(r["evaluation_id"] for r in completed
+                    if not (r["mode"] != "catalog" and r["candidate_id"] in excluded)
+                    and not contaminated(r["records_dir"]))
     if usable:
         raise ValueError(f"{task} has completed, uncontaminated evaluations {usable} in {log}: pass its pool's "
                          "results.json")
@@ -255,13 +258,16 @@ def log_only_pool(log: Path, task: str) -> dict:
 def contaminated_children(log: Path) -> set[str]:
     """The candidate ids of the accepted unguided children whose episode scan (<log's directory>/episodes/
     <episode_id>/record.json) has a contaminated verdict: the mutator read sibling episodes or the evidence root, so
-    the child is no independent unguided sample and the readout leaves out every row of it. Refuses an episode with
-    scan hits and no verdict."""
+    the child is no independent unguided sample and the readout leaves out every unguided row of it and its
+    episode's diversity figures. Refuses an accepted episode that was not scanned, or has scan hits and no
+    verdict."""
     children = set()
     for row in read_records(log):
         if row["kind"] != "episode" or row["outcome"] != "accepted":
             continue
-        scan = load(Path(log).parent / "episodes" / row["episode_id"] / "record.json")["scan"]
+        scan = load(Path(log).parent / "episodes" / row["episode_id"] / "record.json").get("scan")
+        if scan is None:
+            raise ValueError(f"episode {row['episode_id']} was not scanned: prepare.py scan --run <its records>")
         if scan["hits"] and scan["verdict"] is None:
             raise ValueError(f"episode {row['episode_id']} has {len(scan['hits'])} scan hits and no verdict")
         if scan["verdict"] and scan["verdict"]["verdict"] == "contaminated":
@@ -413,16 +419,28 @@ def readout_command(a: argparse.Namespace) -> dict:
         return phase2_readout(a.log, a.archive, pool, a.criterion)
     if len(a.log) != 1 or a.driver_readout is None:
         raise SystemExit("--phase 1 takes one --log, --driver-readout and each task pool's results.json")
-    pools = [read_pool(results, a.log[0], a.criterion) for results in a.results]
+    return phase1_command(a.log[0], a.driver_readout, a.criterion, a.results, a.joined_out)
+
+
+def phase1_command(log: Path, driver_readout: Path, criterion: Path, results: Sequence[Path],
+                   joined_out: Path | None) -> dict:
+    """The Phase 1 readout over each task's pool (a log-only pool for a task without one), without the children
+    of contaminated episodes (contaminated_children): their unguided rows leave the pools and, when there are any,
+    the driver's diversity figures are recomputed over the remaining accepted children (readout.diversity, the
+    driver's own computation); `excluded_children` lists them."""
+    excluded = frozenset(contaminated_children(log))
+    pools = [read_pool(path, log, criterion) for path in results]
     pooled = {pool["task"] for pool in pools}
-    pools += [log_only_pool(a.log[0], Path(task).name) for task in json.loads(a.criterion.read_text())["tasks"]
+    pools += [log_only_pool(log, Path(task).name, excluded) for task in json.loads(criterion.read_text())["tasks"]
               if Path(task).name not in pooled]
-    excluded = contaminated_children(a.log[0])
-    pools = [pool | {"rows": [r for r in pool["rows"] if r["candidate_id"] not in excluded]} for pool in pools]
-    result = phase1_readout(pools, json.loads(a.driver_readout.read_text()), json.loads(a.criterion.read_text()))
-    result["excluded_children"] = sorted(excluded)
-    if a.joined_out:  # the Phase 2 initial archive's input (adaptive.run_mode2 phase1_joined); only after a readout
-        a.joined_out.write_text(json.dumps([row for pool in pools for row in pool["rows"]], indent=2) + "\n")
+    pools = [pool | {"rows": [r for r in pool["rows"] if r["mode"] == "catalog" or r["candidate_id"] not in excluded]}
+             for pool in pools]
+    accepted = [r for r in read_records(log) if r["kind"] == "episode" and r["outcome"] == "accepted"
+                and r["candidate_id"] not in excluded]
+    figures = json.loads(driver_readout.read_text()) | (diversity(accepted) if excluded else {})
+    result = phase1_readout(pools, figures, json.loads(criterion.read_text())) | {"excluded_children": sorted(excluded)}
+    if joined_out:  # the Phase 2 initial archive's input (adaptive.run_mode2 phase1_joined); only after a readout
+        joined_out.write_text(json.dumps([row for pool in pools for row in pool["rows"]], indent=2) + "\n")
     return result
 
 

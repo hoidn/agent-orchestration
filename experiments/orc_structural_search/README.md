@@ -249,8 +249,11 @@ after clearing it, rescan with the remaining hashes (`prepare.py scan --run E/ep
 A contaminated episode verdict (the mutator read sibling episodes' trees or the evidence root) takes its child
 out of the Phase 1 readout: every row of that child is left out and the readout lists it under
 `excluded_children` (`scoring.contaminated_children`); mark the child's evaluation records contaminated too so
-the pool leaves them out. The scan matches absolute paths only: a `cd <work root>` followed by relative
-`episodes/episode-N` reads is missed, so read each episode transcript's commands before clearing it.
+the pool leaves them out. The scan matches path patterns, not reads: it catches a literal `episode-N` but
+misses `episode-$i`, `episode-*` globs and relative reads of the work root's `records/`, `runs/` and `agents/`,
+which give no hit at all. Read every accepted episode's transcript commands, those with no hits included,
+before the readout (Phase 1, 2026-10-19: episode 11's `for e in 6 7 8 9 10; do diff ... episode-$e/...` had no
+driver hit).
 
 The evaluation id covers the environment manifest, so it changes with a CLI version; model names are the
 candidate's provider bindings and `:model` values, already in its candidate id.

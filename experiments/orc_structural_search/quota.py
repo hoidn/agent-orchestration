@@ -10,8 +10,10 @@ Detection (quota_hit) reads <records>/calls/<n>/stdout.txt and stderr.txt. A quo
 MAX_LINE characters that starts (after leading punctuation) with one of, case-insensitively:
   you've hit your <word> limit    Claude's session or weekly limit; Codex's usage limit
   [claude ai ]usage limit reached Claude's older wording; Codex
-  rate limit reached              Codex
-  [error: ]selected model is at capacity  Codex (a transient capacity refusal; seen 2026-10-18 on the reviewer)
+  (Codex) rate limit reached
+or that starts, with no leading punctuation, with Codex's transient capacity refusal (seen 2026-10-18 on the
+reviewer; Codex echoes its transcript, quotes and patch lines included, to stderr):
+  [error: ]selected model is at capacity
 The match is anchored at the line start so a transcript or a document quoting these words mid-line does not match.
 
 A quota launch is relaunched as a new attempt after a pause (QuotaGuard): until the reset time the message names
@@ -34,7 +36,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from experiments.orc_structural_search.records import read_records
 
-QUOTA_LINE = re.compile(r"^\W*(?:you['’]ve hit your \w+ limit|(?:claude ai )?usage limit reached|rate limit reached"
+QUOTA_LINE = re.compile(r"^(?:\W*(?:you['’]ve hit your \w+ limit|(?:claude ai )?usage limit reached|rate limit reached)"
                         r"|(?:error:\s*)?selected model is at capacity)", re.IGNORECASE)
 MAX_LINE = 300
 RESET = re.compile(r"resets (\d{1,2})(?::(\d{2}))?\s*([ap]m)\s*\(([^)]+)\)", re.IGNORECASE)

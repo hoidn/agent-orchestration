@@ -424,14 +424,16 @@ def test_readout_cli_phase1_writes_no_joined_rows_when_the_readout_fails(tmp_pat
     assert not (tmp_path / "joined.json").exists()
 
 
-def episode(log, name, verdict, *, hits=1):
-    """An accepted unguided episode row whose child is sha256:<name>, and its scan record under E/episodes/."""
+def episode(log, name, verdict, *, hits=1, outcome="accepted", skeleton="parent"):
+    """An unguided episode row whose child is sha256:<name> (its skeleton `skeleton`, the parent's `parent`, one
+    provider allocation), and its scan record under E/episodes/."""
     records = log.parent / "episodes" / name
     records.mkdir(parents=True)
     (records / "record.json").write_text(json.dumps({"scan": {
         "calls": 1, "hits": [{}] * hits, "verdict": verdict and {"verdict": verdict, "reason": "r"}}}))
-    append_record(log, {"kind": "episode", "episode_id": name, "outcome": "accepted",
-                        "candidate_id": f"sha256:{name}", "scan_pending": bool(hits)})
+    append_record(log, {"kind": "episode", "episode_id": name, "outcome": outcome, "candidate_id": f"sha256:{name}",
+                        "scan_pending": bool(hits), "skeleton": skeleton, "parent_skeleton": "parent",
+                        "provider_allocation": "a", "parent_provider_allocation": "a"})
 
 
 def test_contaminated_children_are_the_children_of_episodes_with_a_contaminated_verdict(tmp_path):
@@ -441,6 +443,12 @@ def test_contaminated_children_are_the_children_of_episodes_with_a_contaminated_
     assert contaminated_children(log) == {"sha256:c1"}
 
 
+def test_contaminated_children_leaves_a_contaminated_episode_that_was_not_accepted(tmp_path):
+    log = tmp_path / "log.jsonl"
+    episode(log, "c1", "contaminated", outcome="incident")
+    assert contaminated_children(log) == set()
+
+
 def test_contaminated_children_refuses_an_episode_with_hits_and_no_verdict(tmp_path):
     log = tmp_path / "log.jsonl"
     episode(log, "c1", None)
@@ -448,13 +456,17 @@ def test_contaminated_children_refuses_an_episode_with_hits_and_no_verdict(tmp_p
         contaminated_children(log)
 
 
-def test_readout_cli_phase1_leaves_out_every_row_of_a_contaminated_episodes_child(tmp_path, capsys):
+def phase1_with_a_contaminated_child(tmp_path):
+    """A readout whose pooled task has a catalog run `p` and a failed run of the contaminated episode c's
+    terminal-only child, a clean episode k with another skeleton, and a failed catalog run on the other task; the
+    readout goes to stdout, the joined rows to <tmp_path>/joined.json."""
     criterion, log = json.loads(CRITERION.read_text()), tmp_path / "log.jsonl"
     pooled, failing = (Path(t).name for t in criterion["tasks"])
     roles = criterion["anchors"][pooled]
     records = tmp_path / "records" / "p" / "run-1"
     append_record(log, log_row(records, eid="p", task=pooled))
     episode(log, "c", "contaminated")
+    episode(log, "k", None, hits=0, skeleton="other")
     append_record(log, log_row(tmp_path / "records" / "c", eid="c", task=pooled, outcome="failed", mode="unguided"))
     append_record(log, log_row(tmp_path / "records" / "f", eid="f", task=failing, outcome="failed"))
     path = tmp_path / "results.json"
@@ -465,5 +477,18 @@ def test_readout_cli_phase1_leaves_out_every_row_of_a_contaminated_episodes_chil
     (tmp_path / "readout.json").write_text(json.dumps(DIVERSE))
     main(["readout", "--log", str(log), "--driver-readout", str(tmp_path / "readout.json"), "--criterion",
           str(CRITERION), "--joined-out", str(tmp_path / "joined.json"), str(path)])
-    result, joined = json.loads(capsys.readouterr().out), json.loads((tmp_path / "joined.json").read_text())
-    assert (result["excluded_children"], [r["evaluation_id"] for r in joined]) == (["sha256:c"], ["p", "f"])
+
+
+def test_readout_cli_phase1_leaves_out_every_row_of_a_contaminated_episodes_child(tmp_path, capsys):
+    phase1_with_a_contaminated_child(tmp_path)
+    assert [r["evaluation_id"] for r in json.loads((tmp_path / "joined.json").read_text())] == ["p", "f"]
+
+
+def test_readout_cli_phase1_lists_the_excluded_children(tmp_path, capsys):
+    phase1_with_a_contaminated_child(tmp_path)
+    assert json.loads(capsys.readouterr().out)["excluded_children"] == ["sha256:c"]
+
+
+def test_readout_cli_phase1_recomputes_diversity_without_the_excluded_children(tmp_path, capsys):
+    phase1_with_a_contaminated_child(tmp_path)
+    assert json.loads(capsys.readouterr().out)["unguided"]["terminal_only_share"] == 0.0
