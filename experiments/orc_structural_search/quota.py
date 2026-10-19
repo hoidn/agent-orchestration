@@ -15,14 +15,18 @@ or that starts, with no leading punctuation, with Codex's transient capacity ref
 reviewer; Codex echoes its transcript, quotes and patch lines included, to stderr):
   [error: ]selected model is at capacity
 The match is anchored at the line start so a transcript or a document quoting these words mid-line does not match.
+QUOTA_LINE matches plain-text lines only, so a quota message inside a stream-json line (agent-session children,
+whose session commands print `--output-format stream-json`) is not detected (unverified: no provider call has
+shown how the CLI prints the limit there).
 
 A quota launch is relaunched as a new attempt after a pause (QuotaGuard): until the reset time the message names
 (`resets H[:MM]am|pm (Zone)`, that wall-clock time in that zone today, plus RESET_MARGIN; a time at most
 RECENT_RESET past resumes at now plus RESET_MARGIN, an earlier one tomorrow) or, when none parses, UNPARSED_PAUSE; at most `retries` (MAX_QUOTA_RETRIES) relaunches per job and driver invocation.
 A continued mode 1 run (prior_rows, next_attempts) relaunches each job whose latest log row is a quota incident as
 its next attempt and keeps every other job. A launch killed in flight (the driver died) left no log row: a
-continue skips each attempt number and episode index whose records already exist and settles the killed launch's
-ledger reservation from its shim records (driver.py, ledger.settle_killed).
+continue skips each attempt number and episode index whose records already exist (an attempt only when no log row
+names its id; a logged one is refused) and settles the killed launch's ledger reservation from its shim records
+(driver.py, mode1.py, ledger.settle_killed).
 """
 
 import functools

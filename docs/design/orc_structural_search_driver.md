@@ -65,7 +65,7 @@ swap (invariant 1); a population database before a query needs one.
 
 | Responsibility | Lives in | Notes |
 | --- | --- | --- |
-| Driver | `experiments/orc_structural_search/driver.py` | Mode 1 (catalog enumeration, unguided I1 episodes), the episode function I1 and I2 share (`run_episode`: workspace, envelope, child judging), evaluation launches under the call cap, the archive and its tamper check, scans, the mode 1 readout; mode 2 parent and site selection live in `adaptive.py` |
+| Driver | `experiments/orc_structural_search/driver.py`; `run_mode1` in `.../mode1.py` | Mode 1 (catalog enumeration, unguided I1 episodes), the episode function I1 and I2 share (`run_episode`: workspace, envelope, child judging), evaluation launches under the call cap, the archive and its tamper check, scans, the mode 1 readout; mode 2 parent and site selection live in `adaptive.py` |
 | Candidates | `.../candidates.py` | Candidate identity, snapshots, compilation with the runtime's orchestrator, frozen-surface validation and the one-site transaction |
 | Sites | `.../sites.py` | The candidate's source-site manifest, eligible sites, seeded site selection, the site brief and receipt derivation from the child's final files |
 | Adaptive loop | `.../adaptive.py`, `.../judging.py` | Mode 2: archive, generations, parent and site selection, finalist validation (`validate_finalists`); per-generation blind judging, scan-verdict waits and the judge retry (`judging.judge_generation`) |
@@ -351,7 +351,9 @@ python -m orchestrator run <candidate entry .orc> [frontend flags] \
   failure; the driver pauses new launches until the named reset and
   relaunches the job as a new attempt whose evaluation id covers the attempt
   number, and `--continue` reruns a run's quota incidents into its existing
-  roots (`experiments/orc_structural_search/quota.py`, README "Quota guard").
+  roots (`experiments/orc_structural_search/quota.py`, README "Quota guard");
+  mode 2 has no quota guard for episodes, and each `evaluate_all` starts an
+  unpaused guard (README "Not implemented").
 - The clone is the working directory, so the workspace lock, guard and build
   cache land in its `.orchestrate/`. The lock admits one active run per
   working directory (`orchestrator/run_lock.py`), so concurrent evaluations

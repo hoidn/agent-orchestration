@@ -1,11 +1,11 @@
 # ORC structural search (offline)
 
-Mode 1 of the [structural search driver](../../docs/design/orc_structural_search_driver.md): enumerate the
-authored seed catalog on matched tasks, then sample unguided I1 (whole-file rewrite) episodes against one
-seed and evaluate every accepted child like a seed. The readout says whether structurally distinct candidates
-exist and differ, and how diverse the accepted children are (distinct skeletons, revisit rate, terminal-only
-share, collapse above 0.75, and `allocation_distinct`: children with the parent's skeleton but another provider
-allocation, which do not count as terminal-only).
+Mode 1 of the [structural search driver](../../docs/design/orc_structural_search_driver.md): enumerate the authored
+seed catalog on matched tasks, then sample unguided I1 (whole-file rewrite) episodes against one seed and evaluate
+every accepted child like a seed (a revisit, whose candidate id was already evaluated, is logged but not evaluated
+again). The readout says whether structurally distinct candidates exist and differ, and how diverse the accepted
+children are (distinct skeletons, revisit rate, terminal-only share, collapse above 0.75, and `allocation_distinct`:
+children with the parent's skeleton but another provider allocation, which do not count as terminal-only).
 
 Mode 2 (`adaptive.py`, Phase 2 plan
 [`2026-10-18-orc-structural-search-phase2-plan.md`](../../docs/plans/2026-10-18-orc-structural-search-phase2-plan.md))
@@ -21,7 +21,8 @@ are implemented and tested with scripted providers only.
 | `evaluation.py` | One evaluation through the public `run` route in a fresh clone behind the comparison-harness shims |
 | `metering.py` | Consumption receipts (not yet wired into the driver: consumption is recorded `unavailable`) |
 | `ledger.py` | The provider-call ledger `E/calls.json` and each launch's planned maximum of provider calls |
-| `driver.py` | Mode 1: catalog enumeration (bounded concurrency), unguided I1 episodes behind the shims, scans, call cap |
+| `driver.py` | Catalog enumeration (bounded concurrency), the episode function behind the shims, scans, call cap; the mode 1 command line |
+| `mode1.py` | Mode 1: `run_mode1` (catalog, unguided I1 episodes, child evaluations, `--continue`) |
 | `acceptance.py` | Child judging of an episode (`judge_child`): validation, compilation, the I2 slot check, bounded planned calls, the entry's result type |
 | `quota.py` | Provider quota incidents: detection in shim call records, the reset-time pause, attempt relaunches, `--continue` row selection |
 | `readout.py` | The mode 1 readout (`E/readout.json`): outcomes, refusals, skeleton diversity, collapse, scan-pending records |
@@ -78,14 +79,15 @@ python -m experiments.orc_structural_search.driver --config config.json \
   [--continue]
 ```
 
-`--concurrency` (default 4) bounds the evaluations in flight (a thread pool; each has its own clone, records and state
-directories; log and ledger writes are serialized; episodes run one at a time). `--call-cap` bounds the provider
-calls of evaluations and episodes in `E/calls.json`: before each launch the driver reserves its planned maximum
-(an evaluation: every `provider-result` of the entry module times the `:max` of each enclosing `loop/recur` or
-`list/map-effect`; an episode: 1) and refuses it (`CallCapExceeded`) when the ledger total (counted calls of
-finished launches, planned maxima of unfinished ones) plus that maximum would exceed the cap; after the launch it
-records the calls the shims recorded. A refused evaluation does not stop the others in the pool; the refusal is
-raised once all have ended. Judge calls are not in the ledger.
+`--concurrency` (default 4) bounds the evaluations in flight (a thread pool; each has its own clone, records and
+state directories; log and ledger writes are serialized; episodes run one at a time). `--call-cap` bounds the
+provider calls of evaluations and episodes in `E/calls.json`: before each launch the driver reserves its planned
+maximum (an evaluation: `ledger.max_provider_calls`, the provider calls of the module's own definitions the entry
+calls, in expression positions, times every enclosing literal `:max`; an episode: 1) and refuses it
+(`CallCapExceeded`) when the ledger total (counted calls of finished launches, planned maxima of unfinished ones)
+plus that maximum would exceed the cap; after the launch it records the calls the shims recorded. A refused
+evaluation does not stop the others in the pool; the refusal is raised once all have ended. Judge calls are not in
+the ledger.
 
 **Quota guard** (`quota.py`). In the live Phase 1 run of 2026-10-18, 16 of 20 evaluations and all 6 unguided
 episodes ended at the Claude subscription session limit: the CLI printed `You've hit your session limit · resets
@@ -110,8 +112,9 @@ failure or another incident is kept; one whose latest row is a quota incident is
 and so is a `failed` row written before the guard existed whose records hold a quota line. Unguided episodes
 continue after the highest existing index until `--episodes` non-quota episodes exist (quota episodes, including
 pre-guard `incident` rows whose shim records hold a quota line, do not count). A launch killed in flight (the
-driver died) left no row: its attempt number (`W/records/<evaluation id>` exists) or episode index
-(`W/episodes/episode-<n>` exists) is skipped, and its unsettled ledger entry is settled from its shim records.
+driver died) left no row: its attempt number (`W/records/<evaluation id>` exists and no log row names that id) or
+episode index (`W/episodes/episode-<n>` exists) is skipped, and its unsettled ledger entry is settled from its shim
+records; an attempt whose records exist and whose id a log row names is refused (`FileExistsError`).
 `E/readout.json` is rewritten;
 quota rows read as `quota_incident` there.
 
@@ -242,18 +245,19 @@ record `scan_pending`. The log is append-only, so that flag is never cleared: th
 (`prepare.py scan --run R --verdict ...`) lives in the run's `<records_dir>/record.json`, which is the record to
 read before using a flagged evaluation.
 
-After every episode `prepare.scan` runs over `E/episodes/<episode_id>/` with `E` named `archive`, `E/log.jsonl`
-`lineage` and each `--holdout` `holdout` (other episodes' trees are the scan's sibling trees), once per distinct
-solution hash until a scan hits; hits mark the episode `scan_pending`. Its `record.json` holds the scan that hit:
-after clearing it, rescan with the remaining hashes (`prepare.py scan --run E/episodes/<episode_id> --hash ...`).
-A contaminated episode verdict (the mutator read sibling episodes' trees or the evidence root) takes its child
-out of the Phase 1 readout: every row of that child is left out and the readout lists it under
-`excluded_children` (`scoring.contaminated_children`); mark the child's evaluation records contaminated too so
-the pool leaves them out. The scan matches path patterns, not reads: it catches a literal `episode-N` but
-misses `episode-$i`, `episode-*` globs and relative reads of the work root's `records/`, `runs/` and `agents/`,
-which give no hit at all. Read every accepted episode's transcript commands, those with no hits included,
-before the readout (Phase 1, 2026-10-19: episode 11's `for e in 6 7 8 9 10; do diff ... episode-$e/...` had no
-driver hit).
+After every episode `prepare.scan` runs over `E/episodes/<episode_id>/` with `E`, `W/records`, `W/runs`, `W/agents`
+and `W/env-manifests` named `archive`, `E/log.jsonl` `lineage` and each `--holdout` `holdout` (other episodes' trees
+are the scan's sibling trees), once per distinct solution hash until a scan hits; hits mark the episode
+`scan_pending`. Its `record.json` holds the scan that hit: after clearing it, rescan with the remaining hashes
+(`prepare.py scan --run E/episodes/<episode_id> --hash ...`). A contaminated episode verdict (the mutator read
+sibling episodes' trees or the evidence root) takes its child out of the Phase 1 readout: every row of that child is
+left out and the readout lists it under `excluded_children` (`scoring.contaminated_children`); mark the child's
+evaluation records contaminated too so the pool leaves them out. The scan matches path patterns, not reads: it
+catches a literal `episode-N` and absolute (or `~`) paths into those roots, but misses relative reads
+(`../../records/...`, the work root's `records/`, `runs/` and `agents/` included) and globs (`episode-$i`,
+`episode-*`, `W/rec*`), which give no hit at all. Read every accepted episode's transcript commands, those with no
+hits included, before the readout (Phase 1, 2026-10-19: episode 11's
+`for e in 6 7 8 9 10; do diff ... episode-$e/...` had no driver hit).
 
 The evaluation id covers the environment manifest, so it changes with a CLI version; model names are the
 candidate's provider bindings and `:model` values, already in its candidate id.
@@ -267,6 +271,9 @@ candidate's provider bindings and `:model` values, already in its candidate id.
   ([Phase 1 report](../../docs/reports/2026-10-18-orc-structural-search-phase1.md)); a live run needs a new owner
   selection and budget approval. The server-side model revision is recorded `unavailable`.
 - Consumption metering in the log (`metering.py` exists; the driver records `unavailable`).
+- A quota guard for mode 2: mode 2 has no quota guard for episodes, and each `evaluate_all` starts an unpaused guard
+  (`adaptive.py`), so a quota episode is an incident that uses its slot and a generation's first evaluations can hit
+  the limit again before they pause.
 - Isolation of the mutator command itself: only the agent CLIs it starts through `PATH` run in the sandbox; the
   command (e.g. a wrapper script) runs unsandboxed with the shim environment.
 
@@ -277,9 +284,9 @@ candidate's provider bindings and `:model` values, already in its candidate id.
 - A wall-clock kill (evaluation launch or mutator command) kills the launcher's process group only; a process
   that starts its own session escapes it.
 - The call ledger's lock is per driver process: two drivers on one evidence root are not serialized.
-- An evaluation's planned maximum counts a provider call in a definition the entry calls several times once (the
-  seeds call none of their own definitions), and provider retries are not in it; the ledger records the actual
-  calls afterwards.
+- An evaluation's planned maximum (`ledger.max_provider_calls`) counts the provider calls of the module's own
+  definitions the entry calls (in expression positions; binder names are no calls), times every enclosing literal
+  `:max`; provider retries are not in it, and the ledger records the actual calls afterwards.
 - A mode 2 frontier wider than the archive size keeps its best-valued members (`adaptive.prune`), no crowding
   distance.
 - An episode scan stops at the first solution hash that hits (see Layout).

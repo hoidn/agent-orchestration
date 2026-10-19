@@ -1,4 +1,4 @@
-"""The mode 1 readout (driver.run_mode1 writes it to <evidence>/readout.json): per-seed outcomes, episode outcomes
+"""The mode 1 readout (mode1.run_mode1 writes it to <evidence>/readout.json): per-seed outcomes, episode outcomes
 and refusals, skeleton diversity and provider allocation among accepted children, their evaluation outcomes and
 the records pending a scan verdict. Input: the log's records (records.read_records). A failed or incident row
 whose launch hit a provider quota (quota.quota_reason) reads as `quota_incident`."""

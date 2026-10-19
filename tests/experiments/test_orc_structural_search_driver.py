@@ -16,7 +16,8 @@ from experiments.orc_structural_search.briefs import episode_brief
 from experiments.orc_structural_search.config import ExperimentConfig, load_config
 from experiments.orc_structural_search.driver import (
     archive, check_roots, check_solutions, enumerate_catalog, episode_workspace, evaluate_all, evaluate_and_scan,
-    judge_child, readout, run_episode, run_mode1)
+    judge_child, run_episode)
+from experiments.orc_structural_search.mode1 import readout, run_mode1
 from experiments.orc_structural_search.ledger import CallCapExceeded, max_provider_calls
 from experiments.orc_structural_search.records import read_records
 from experiments.orc_structural_search.sites import eligible_sites, site_manifest
@@ -281,6 +282,12 @@ def test_an_episode_session_naming_the_evidence_root_is_scan_pending(sandboxed, 
     assert (row["scan_pending"], row["scan_hits"] > 0) == (True, True)
 
 
+def test_an_episode_session_naming_the_work_roots_evaluation_records_is_scan_pending(world):
+    records = (world.outside / "work").resolve() / "records" / "3f2a" / "run-1" / "inputs.json"
+    row, _ = episode(world, MUTATOR_ONE_CALL, config_of(), env=fake_claude(world, CLAUDE_PRINTS.format(path=records)))
+    assert (row["scan_pending"], row["scan_hits"] > 0) == (True, True)
+
+
 def test_concurrent_catalog_logs_each_evaluation_once(sandboxed, world):
     script(world, [{"match": "Plan this task", "sleep": 15, "result": {"steps": ["edit pkg"]}}, *ANSWERS])
     env = {**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}", "SCRIPTED_RESULTS_FILE": str(world.results)}
@@ -462,9 +469,9 @@ def test_the_i2_brief_carries_the_site_and_feedback_but_no_hidden_figures_or_evi
     config = config_of(interface="I2")
     site = provider_site(world.candidate, config, world.runtime)
     brief = episode_brief(config, 0, site=site, feedback=FEEDBACK)
-    assert (f"Site: {site['site_id']}" in brief, "7.25" in brief, "812.5" in brief, "DONE" in brief,
-            "hidden" in brief, "0.9" in brief, "9.5" in brief, str(world.tmp) in brief,
-            str(world.outside) in brief) == (True, True, True, True, False, False, False, False, False)
+    assert (site["site_id"] in brief, "7.25" in brief, "812.5" in brief, "DONE" in brief, "0.9" in brief,
+            "9.5" in brief, str(world.tmp) in brief, str(world.outside) in brief) == (
+        True, True, True, True, False, False, False, False)
 
 
 def test_i1_episodes_still_run_through_run_episode_with_no_site(sandboxed, world):

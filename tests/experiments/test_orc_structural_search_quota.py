@@ -1,6 +1,6 @@
 """Quota guard: provider quota messages make a launch an incident, pause new launches until the reset, relaunch the
-job as a new attempt, and let a mode 1 run continue past them. Scripted providers print the Claude limit line and
-exit 1 (no provider is called)."""
+job as a new attempt, and let a mode 1 run continue past them; a launch that ran and was logged is never taken for a
+killed one. Scripted providers print the Claude limit line and exit 1 (no provider is called)."""
 
 import json
 import os
@@ -12,11 +12,12 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from experiments.orc_structural_search.config import ExperimentConfig
-from experiments.orc_structural_search.driver import LAUNCH_ENV, archive, evaluate_all, run_mode1
+from experiments.orc_structural_search.driver import LAUNCH_ENV, archive, evaluate_all, evaluate_and_scan
+from experiments.orc_structural_search.mode1 import run_mode1
 from experiments.orc_structural_search.evaluation import evaluate, evaluation_id, records_root
 from experiments.orc_structural_search.quota import (
     QuotaGuard, next_attempts, quota_hit, quota_reason, resume_time, with_retries)
-from experiments.orc_structural_search.records import read_records
+from experiments.orc_structural_search.records import append_record, read_records
 from experiments.orc_structural_search.scoring import latest_evaluations, policy_stats, scored_outcome
 from tests.experiments.compare_harness_support import skip_without_sandbox
 from tests.experiments.orc_structural_search_support import MUTATOR, SEEDS, script, world  # noqa: F401 (fixture)
@@ -32,6 +33,7 @@ import subprocess
 from pathlib import Path
 subprocess.run(["claude", "-p"], input=Path("EPISODE.md").read_text(), text=True, check=True)
 """
+NOOP = f"#!{sys.executable} -I\nprint('no change')\n"  # its child is the parent: the same candidate id
 
 
 @pytest.fixture
@@ -259,3 +261,26 @@ def test_a_continue_after_an_interrupted_continue_skips_and_settles_the_killed_l
             [(r["episode_index"], r["outcome"]) for r in added if r["kind"] == "episode"],
             [entry["calls"] for entry in settled]) == (
         [("plan_then_implement", 3, "completed")], [(2, "rejected")], [1, 1])  # the mutator's episode 2 is refused
+
+
+def test_a_child_with_an_evaluated_candidate_id_is_logged_but_not_evaluated_again(sandboxed, world):
+    script(world, ANSWERS)
+    mode1_run(world, agent=NOOP, continue_run=False)
+    rows = read_records(world.tmp / "evidence" / "log.jsonl")
+    (child,) = [r for r in rows if r["kind"] == "episode"]
+    (direct,) = [r for r in rows if r.get("seed") == "direct"]
+    assert ((child["outcome"], child["candidate_id"]), [r["mode"] for r in rows if r["kind"] == "evaluation"],
+            direct in latest_evaluations(rows)) == (("accepted", direct["candidate_id"]), ["catalog"] * 3, True)
+
+
+def test_an_attempt_whose_records_exist_and_whose_id_is_logged_is_refused(world):
+    evidence, work, env = world.tmp / "evidence", world.outside / "work", scripted_env(world)
+    cid, root = archive(world.candidate, evidence, world.runtime)
+    ran = records_root(root, task_package=world.task, work_root=work, replicate=1, runtime=world.runtime,
+                       env={**env, **LAUNCH_ENV})
+    ran.mkdir(parents=True)
+    append_record(evidence / "log.jsonl", {"kind": "evaluation", "evaluation_id": ran.name, "candidate_id": cid})
+    with pytest.raises(FileExistsError, match=ran.name):
+        evaluate_and_scan(root, EVAL_CONFIG, task=world.task, replicate=1, work_root=work, evidence_root=evidence,
+                          runtime=world.runtime, env=env, timeout_sec=600, solutions={world.task.name: world.solution},
+                          holdouts=(), fields={}, call_cap=160)

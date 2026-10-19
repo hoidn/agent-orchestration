@@ -35,6 +35,8 @@ lives in the scanned records' record.json. The mutator runs behind the shims (ru
 `concurrency` at a time (evaluate_all; log and ledger writes are serialized); every launch is refused beyond the
 call cap (ledger.py).
 
+`run_mode1` (mode1.py) runs mode 1 over these functions; `main` is its command line.
+
 Dependencies: everything evaluation.py needs (git, bwrap, a clean runtime checkout, the shims); `env` is the
 launch environment of evaluations and of the mutator command (the driver adds the shims itself). Consumption is
 not metered here: it is recorded "unavailable".
@@ -51,7 +53,6 @@ import shutil
 import signal
 import subprocess
 import tempfile
-import itertools
 import threading
 import time
 from collections import namedtuple
@@ -67,11 +68,9 @@ from experiments.orc_structural_search import ledger
 from experiments.orc_structural_search.acceptance import judge_child
 from experiments.orc_structural_search.briefs import episode_brief
 from experiments.orc_structural_search.candidates import _file_names, candidate_id, imports, snapshot
-from experiments.orc_structural_search.config import ExperimentConfig, load_config, solution
+from experiments.orc_structural_search.config import ExperimentConfig, solution
 from experiments.orc_structural_search.evaluation import EVALUATOR_VERSION, evaluate, records_root
-from experiments.orc_structural_search.quota import (
-    PREFIX, QuotaGuard, job_key, next_attempts, prior_rows, quota_hit, quota_reason, with_retries)
-from experiments.orc_structural_search.readout import readout
+from experiments.orc_structural_search.quota import PREFIX, QuotaGuard, quota_hit, with_retries
 from experiments.orc_structural_search.records import (
     UNAVAILABLE, append_record, provider_allocation, read_records, skeleton_hash)
 from experiments.orc_structural_search.sites import HYPOTHESIS, drop_hypothesis
@@ -141,6 +140,14 @@ def seed_config(seed: Path, config: ExperimentConfig) -> ExperimentConfig:
     return replace(config, entry_workflow=f"{seed.stem}::{entry}", mutable_files=(seed.name,))
 
 
+def logged_evaluations(evidence_root: Path) -> set[str]:
+    """The evaluation ids the log's evaluation rows name."""
+    log = evidence_root / "log.jsonl"
+    with _LOG_LOCK:
+        rows = read_records(log) if log.exists() else []
+    return {row["evaluation_id"] for row in rows if row["kind"] == "evaluation"}
+
+
 def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, replicate: int, work_root: Path,
                       evidence_root: Path, runtime: Path, env: Mapping[str, str], timeout_sec: float,
                       solutions: Mapping[str, str], holdouts: Sequence[Path], fields: Mapping[str, object],
@@ -150,7 +157,10 @@ def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, repli
     cid, env = check_archived(root, runtime_commit(runtime)), {**env, **LAUNCH_ENV}
     key = lambda n: f"{cid} {task.name} replicate {replicate}" + (f" attempt {n}" if n > 1 else "")  # noqa: E731
     while (killed := records_root(root, task_package=task, work_root=work_root, replicate=replicate, runtime=runtime,
-                                  env=env, attempt=attempt)).exists():  # killed in flight: skipped, settled
+                                  env=env, attempt=attempt)).exists():  # killed in flight, unlogged: skipped, settled
+        if killed.name in logged_evaluations(evidence_root):
+            raise FileExistsError(f"{killed}: evaluation {killed.name} already ran and is logged; resume it rather "
+                                  "than rerun it")
         ledger.settle_killed(evidence_root, "evaluation", key(attempt), killed / "run-1")
         attempt += 1
     slot = ledger.reserve(evidence_root, kind="evaluation", key=key(attempt),
@@ -307,13 +317,15 @@ def episode_diff(parent: Path, child: Path) -> str:
                    for line in difflib.unified_diff(lines(parent / name), lines(child / name), f"a/{name}", f"b/{name}"))
 
 
-def scan_episode(records: Path, tree: Path, *, runtime: Path, evidence_root: Path, solutions: Mapping[str, str],
-                 holdouts: Sequence[Path], created_at: float) -> list[dict]:
+def scan_episode(records: Path, tree: Path, *, runtime: Path, work_root: Path, evidence_root: Path,
+                 solutions: Mapping[str, str], holdouts: Sequence[Path], created_at: float) -> list[dict]:
     """`prepare.scan` over the episode's shim records, once per distinct solution hash until one scan hits; its
-    record.json then holds the scan that hit (or the last one)."""
+    record.json then holds the scan that hit (or the last one). The work root's evaluation directories are archive
+    roots; the work root itself is none (the episode's own tree lies under it)."""
     dump(records / "record.json", {"tree": str(tree), "main": str(main_checkout(runtime)), "runtime": str(runtime),
                                    "created_at": created_at})
     roots = [("archive", evidence_root), ("lineage", evidence_root / "log.jsonl"),
+             *(("archive", work_root / name) for name in ("records", "runs", "agents", "env-manifests")),
              *(("holdout", holdout) for holdout in holdouts)]
     # ponytail: stops at the first hit; after clearing that scan, rescan with the remaining hashes (prepare.py scan)
     for solution in sorted(set(solutions.values())):
@@ -371,8 +383,8 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
     calls = ledger.settle(evidence_root, slot, records)
     quota = quota_hit(records)  # a quota episode is an incident whatever the agent's exit status
     incidents = [f"{PREFIX}{quota}"] * bool(quota)
-    hits = scan_episode(records, tree, runtime=runtime, evidence_root=evidence_root, solutions=solutions,
-                        holdouts=holdouts, created_at=created_at)
+    hits = scan_episode(records, tree, runtime=runtime, work_root=work_root, evidence_root=evidence_root,
+                        solutions=solutions, holdouts=holdouts, created_at=created_at)
     (copy / EPISODE).unlink(missing_ok=True)
     intact = drop_git(copy, base)
     stopped = "incident" if quota else stopped or (None if intact else "incident")  # intact: the shims' base
@@ -400,73 +412,8 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
     return row
 
 
-def continued(jobs: Sequence[tuple[Path, ExperimentConfig, Mapping]], tasks: Sequence[Path], replicates: int,
-              prior: Sequence[Mapping]) -> list[Unit]:
-    """The units still to launch: those without a log row in `prior`, and those whose latest row is a quota
-    incident, as their next attempt (quota.next_attempts)."""
-    pending = units(jobs, tasks, replicates)
-    attempts = next_attempts([job_key({"split": UNAVAILABLE, **u.fields, "task_id": u.task.name,  # as the row
-                                       "replicate": u.replicate}) for u in pending], prior)
-    return [u._replace(attempt=a) for u, a in zip(pending, attempts, strict=True) if a is not None]
-
-
-def child_job(episode: Mapping, config: ExperimentConfig) -> tuple[Path, ExperimentConfig, dict]:
-    """An accepted unguided child's (root, config, fields) evaluation job."""
-    fields = {"mode": "unguided", "episode_id": episode["episode_id"], "candidate_id": episode["candidate_id"],
-              "parent_candidate_id": episode["parent_candidate_id"], "candidate_root": episode["candidate_root"]}
-    return Path(episode["candidate_root"]), config, fields
-
-
-def entry_parent(seeded: Sequence[tuple[Path, ExperimentConfig, Mapping]], config: ExperimentConfig) -> Path:
-    """The archived root of the seed the configuration's entry names (the unguided episodes' parent)."""
-    module = config.entry_workflow.split("::")[0]
-    parents = [Path(fields["candidate_root"]) for _, _, fields in seeded if fields["seed"] == module]
-    if len(parents) != 1:
-        raise ValueError(f"the entry {config.entry_workflow} names no seed among {[f['seed'] for _, _, f in seeded]}")
-    return parents[0]
-
-
-def run_mode1(config_path: Path, *, seeds: Sequence[Path], tasks: Sequence[Path], work_root: Path,
-              evidence_root: Path, episodes: int, agent_cmd: Sequence[str], replicates: int, runtime: Path,
-              env: Mapping[str, str], timeout_sec: float, solutions: Mapping[str, str], call_cap: int,
-              concurrency: int = 4, holdouts: Sequence[Path] = (), continue_run: bool = False,
-              guard: QuotaGuard | None = None) -> dict:
-    """Enumerate the catalog, run `episodes` unguided I1 episodes (not counting quota incidents, each relaunched at
-    most guard.retries times) against the seed the configuration's entry names, evaluate every accepted child like
-    a seed (`mode: "unguided"`) and write <evidence>/readout.json. Evaluations run at most `concurrency` at a time;
-    every launch is refused beyond `call_cap` provider calls. `continue_run` continues the run already in the
-    evidence root (see the module docstring); `guard` (tests) is the invocation's quota pause state."""
-    config = load_config(config_path)
-    if config.interface != "I1":
-        raise ValueError(f"mode 1 runs I1 episodes only; {config_path} names interface {config.interface}")
-    work_root, evidence_root = check_roots(work_root, evidence_root)
-    prior = prior_rows(work_root, evidence_root, continue_run)
-    solutions = check_solutions(tasks, solutions, runtime)
-    guard = guard or QuotaGuard()
-    launch = {"work_root": work_root, "evidence_root": evidence_root, "runtime": runtime, "env": env,
-              "timeout_sec": timeout_sec, "solutions": solutions, "holdouts": holdouts, "call_cap": call_cap}
-    seeded = catalog_jobs(seeds, config, evidence_root, runtime)
-    parent = entry_parent(seeded, config)
-    before = [row for row in prior if row["kind"] == "episode"]
-    children = [child_job(row, config) for row in before if row["outcome"] == "accepted"]
-    launch_units(continued(seeded + children, tasks, replicates, prior), concurrency=concurrency, guard=guard, **launch)
-    ledger.settle_killed_episodes(evidence_root)  # an index whose tree exists was killed in flight: skipped
-    index = (i for i in itertools.count(1 + max((row["episode_index"] for row in before), default=-1))
-             if not (work_root / "episodes" / f"episode-{i}").exists())
-    for _ in range(episodes - sum(quota_reason(row, evidence_root) is None for row in before)):
-        episode = with_retries(lambda _attempt: run_episode(
-            parent, config, interface="I1", mode="unguided", agent_cmd=agent_cmd, episode_index=next(index),
-            env=env, **{key: launch[key] for key in ("work_root", "evidence_root", "runtime", "solutions",
-                                                    "call_cap", "holdouts")}), guard)
-        if episode["outcome"] == "accepted":
-            launch_units(units([child_job(episode, config)], tasks, replicates), concurrency=concurrency, guard=guard,
-                         **launch)
-    result = readout(read_records(evidence_root / "log.jsonl"), evidence_root)
-    (evidence_root / "readout.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
-    return result
-
-
 def main(argv: Sequence[str] | None = None) -> None:
+    from experiments.orc_structural_search.mode1 import run_mode1  # mode1 imports this module
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--seeds", type=Path, nargs="+", required=True, help="seed .orc files")
