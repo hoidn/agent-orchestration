@@ -4,8 +4,10 @@ Status: proposed implementation roadmap for research unit R3 (search and
 representation), drafted 2026-10-18 against `main` at `90ae778c` (target 2.39
 merged) and revised after an independent design review. Phases 0 and 1 were
 selected on 2026-10-18 under the owner's directive to execute the roadmap,
-with the allocation below; Phases 2–5 remain conditional on the Phase 1
-decision. It replaces an earlier
+with the allocation below. Phase 1 ran on 2026-10-18 and 2026-10-19 without its
+compile-only three-arm readout, which remains an unmet gate. Its decision rule fired
+`anchors_inverted`, and neither task separated within tolerance, so Phases 2–5
+are not selected for family (a) ([Phase 1 report](../reports/2026-10-18-orc-structural-search-phase1.md)). It replaces an earlier
 external draft ("ORC as a Searchable Workflow Language", 2026-10-16, not in
 the repository).
 
@@ -388,7 +390,12 @@ valid.
 The immediate commitment, selected 2026-10-18, is **Phases 0 and 1**: the
 governance and integration spike, then the catalog, enumeration and unguided
 search that establish whether the space is worth adaptive work. Phase 2 and
-the three-arm test follow only on that evidence.
+the three-arm test follow only on that evidence. Phase 1 ran; its compile-only
+three-arm readout and the per-interface collapse verdicts for I2 and I3 remain
+unmet. The [Phase 1 report](../reports/2026-10-18-orc-structural-search-phase1.md)
+records an inconclusive pilot: the upstream anchor scored at or below every
+candidate, and one anchor pair was inverted. Phase 2 is not selected, and a
+better-targeted experiment needs a new owner selection.
 
 ## Routing And Records
 

@@ -263,8 +263,9 @@ candidate's provider bindings and `:model` values, already in its candidate id.
 - I3 episodes, feedback-targeted site selection and failure- or cost-weighted parent selection (mode 2 draws
   uniformly).
 - A command line for mode 2 (`run_mode2` and `validate_finalists` are called from Python).
-- Live mode 2: Phase 2 live runs wait on the Phase 1 decision and the owner's budget approval; mode 1's live Phase 1
-  is under way. The server-side model revision is recorded `unavailable`.
+- Live mode 2: the live Phase 1 decision did not select Phase 2 for family (a)
+  ([Phase 1 report](../../docs/reports/2026-10-18-orc-structural-search-phase1.md)); a live run needs a new owner
+  selection and budget approval. The server-side model revision is recorded `unavailable`.
 - Consumption metering in the log (`metering.py` exists; the driver records `unavailable`).
 - Isolation of the mutator command itself: only the agent CLIs it starts through `PATH` run in the sandbox; the
   command (e.g. a wrapper script) runs unsandboxed with the shim environment.

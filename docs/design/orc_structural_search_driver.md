@@ -8,8 +8,9 @@
   (`experiments/orc_structural_search/`), mode 1 and mode 2 with I1 and I2
   episodes, is implemented and tested with scripted providers only
   ([Phase 2 plan](../plans/2026-10-18-orc-structural-search-phase2-plan.md));
-  live Phase 1 is under way; live Phase 2 is gated on the Phase 1 decision
-  and the owner's budget approval; I3 is not implemented. Fixed-workflow comparisons use
+  live Phase 1 ran on 2026-10-18 and 2026-10-19 and did not select Phase 2
+  for family (a) ([Phase 1 report](../reports/2026-10-18-orc-structural-search-phase1.md));
+  a live Phase 2 needs a new owner selection and budget approval; I3 is not implemented. Fixed-workflow comparisons use
   [`experiments/compare/`](../../experiments/compare/README.md) today.
 - **Kind:** experiment-side apparatus contract: controller modes, proposal
   interfaces, edit validation and transactions, candidate identities,
