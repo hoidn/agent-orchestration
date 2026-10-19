@@ -177,6 +177,7 @@ def _provider_report(tokens: list[int | str], unmatched: int) -> dict:
 def receipts(records_dir: Path, *, tree: Path, since: float, home: Path) -> dict:
     """Scoped native receipts; absent, ambiguous or incomplete coverage remains unavailable."""
     unavailable = {"consumption": UNAVAILABLE, "native_session_paths": UNAVAILABLE}
+    paths: list[str] = []
     try:
         claude = [path for path in scan.claude_sessions(tree, home) if path.stat().st_mtime >= since]
         codex = []
@@ -185,13 +186,13 @@ def receipts(records_dir: Path, *, tree: Path, since: float, home: Path) -> dict
                 cwd = scan.codex_cwd(path)
                 if cwd and Path(cwd).is_relative_to(tree):
                     codex.append(path)
-        paths: list[str] = []
         report = coverage(records_dir, claude_sessions=claude, codex_rollouts=codex, session_paths=paths)
     except (OSError, ValueError, TypeError, KeyError):
         # A timeout can leave a partial native JSONL; consumption never prevents settling the attempt.
         return unavailable
+    known = sorted(paths) if paths else UNAVAILABLE
     if not report["calls"] or report["unmatched_calls"] or any(
             report[provider]["calls"] and report[provider]["tokens"] == UNAVAILABLE
             for provider in ("claude", "codex")):
-        return unavailable
-    return {"consumption": report, "native_session_paths": sorted(paths)}
+        return {"consumption": UNAVAILABLE, "native_session_paths": known}
+    return {"consumption": report, "native_session_paths": known}

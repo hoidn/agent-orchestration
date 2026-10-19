@@ -34,8 +34,6 @@ def check_workspace(workspace: Path, metadata: Path) -> dict:
             shutil.copyfile(hypothesis, child / hypothesis.name)
         result = judge_child(parent, child, config, runtime=metadata.parent / "py", site=settings.get("site"),
                              parent_candidate_id=settings.get("parent_candidate_id"))
-        if "diagnostics" in result:
-            result["diagnostics_schema_version"] = "workflow_lisp_compile_diagnostics.v1"
         return result
 
 

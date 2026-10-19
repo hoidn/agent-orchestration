@@ -144,7 +144,7 @@ def test_three_arm_runs_six_episodes_per_arm_against_the_two_parents_and_writes_
             (arms["I1"]["accepted"], arms["I1"]["refused"]), (arms["I3"]["accepted"], arms["I3"]["exact_repeats"]),
             arms["I1"]["subset"], len(arms["I3"]["subset"]),
             json.loads((evidence / "readout.json").read_text()) == result) == (
-        dict.fromkeys(("I1", "I2", "I3"), 6), ["arms", "collapse_threshold"], list(range(18)), {"three_arm"}, True,
+        dict.fromkeys(("I1", "I2", "I3"), 6), ["arms", "collapse_threshold", "criterion_sha256"], list(range(18)), {"three_arm"}, True,
         {("I1", False, None), ("I2", True, 7), ("I3", False, None)}, (4, {"frozen_surface_changed": 2}), (6, 5),
         i1[:2], 1, True)  # I3: one child, the others repeat its program (comments only)
 
@@ -265,7 +265,7 @@ def test_three_arm_readout_reports_per_arm_and_per_child_descriptively_without_a
     for eid, arm, cid, outcome in evaluations:
         append_record(tmp_path / "log.jsonl", {
             "kind": "evaluation", "mode": "three_arm", "arm": arm, "evaluation_id": eid, "candidate_id": cid,
-            "task_id": "t1", "replicate": 1, "outcome": outcome, "split": "unavailable",
+            "criterion_sha256": hashlib.sha256(criterion.read_bytes()).hexdigest(), "task_id": "t1", "replicate": 1, "outcome": outcome, "split": "unavailable",
             "records_dir": str(tmp_path / eid), "provider_calls": 1, "wall_clock_sec": 5.0, "incidents": []})
     runs = [{"run": str(tmp_path / eid), "arm": eid, "value": value, "hidden_value": None, "calls": 1,
              "wall_clock_sec": 5.0} for eid, value in (("e1", 6.0), ("e2", 4.0), ("e4", None))]
@@ -274,7 +274,8 @@ def test_three_arm_readout_reports_per_arm_and_per_child_descriptively_without_a
     results = tmp_path / "results.json"
     results.write_text(json.dumps({"criterion_sha256": hashlib.sha256(criterion.read_bytes()).hexdigest(),
                                    "runs": runs, "anchors": anchors, "agreement": {}, "excluded_judges": {}}))
-    driver = {"arms": {"I1": {"completed": 6, "subset": ["c1"]}, "I2": {"subset": ["c2", "c5"]},
+    driver = {"criterion_sha256": hashlib.sha256(criterion.read_bytes()).hexdigest(),
+              "arms": {"I1": {"completed": 6, "subset": ["c1"]}, "I2": {"subset": ["c2", "c5"]},
                        "I3": {"subset": ["c3", "c4"]}}}
     (tmp_path / "readout.json").write_text(json.dumps(driver))
     result = three_arm_readout.readout(tmp_path / "log.jsonl", tmp_path / "readout.json", criterion, [results])
@@ -376,9 +377,10 @@ def test_the_readout_command_reads_the_log_alone_without_results(tmp_path, capsy
     criterion.write_text(json.dumps(json.loads(CRITERION.read_text()) | {"tasks": ["tasks/t1"]}))
     append_record(tmp_path / "log.jsonl", {
         "kind": "evaluation", "mode": "three_arm", "arm": "I1", "evaluation_id": "e1", "candidate_id": "c1",
-        "task_id": "t1", "replicate": 1, "outcome": "failed", "split": "unavailable", "records_dir": str(tmp_path),
+        "criterion_sha256": sha256_file(criterion), "task_id": "t1", "replicate": 1, "outcome": "failed", "split": "unavailable", "records_dir": str(tmp_path),
         "provider_calls": 1, "wall_clock_sec": 5.0, "incidents": []})
-    (tmp_path / "readout.json").write_text(json.dumps({"arms": {"I1": {"subset": ["c1"]}, "I2": {"subset": []},
+    (tmp_path / "readout.json").write_text(json.dumps({"criterion_sha256": sha256_file(criterion),
+                                                       "arms": {"I1": {"subset": ["c1"]}, "I2": {"subset": []},
                                                                 "I3": {"subset": []}}}))
     three_arm.main(["readout", "--log", str(tmp_path / "log.jsonl"), "--driver-readout",
                     str(tmp_path / "readout.json"), "--criterion", str(criterion)])

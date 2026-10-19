@@ -175,4 +175,4 @@ def test_missing_ambiguous_or_incomplete_native_receipts_are_unavailable(tmp_pat
         if state == "truncated":
             session.write_text(session.read_text() + '{"type":')
     assert metering.receipts(records, tree=tree, since=0, home=home) == {
-        "consumption": U, "native_session_paths": U}
+        "consumption": U, "native_session_paths": [str(session)] if state == "incomplete" else U}

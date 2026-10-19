@@ -105,6 +105,8 @@ def test_unfinished_memo_is_recorded_as_incident(sandboxed, world):
     record, _ = run(world, timeout_sec=KILL_AFTER_SEC)
     assert (record.outcome, record.resume_count, len(record.incidents), record.run_id != "unavailable") == (
         "incident", 0, 1, True)
+    assert len(record.realized_perform_sites) == 1
+    assert (record.realized_perform_sites[0]["status"], record.realized_perform_sites[0]["attempts"]) == ("running", 1)
 
 
 def test_killed_launch_leaves_no_process_of_the_run(sandboxed, world):
@@ -127,6 +129,8 @@ def test_resume_keeps_evaluation_id_and_completes(sandboxed, world):
     resumed = resume(first, env=env, timeout_sec=NO_KILL_SEC)
     assert (resumed.evaluation_id, resumed.run_id, resumed.outcome, resumed.resume_count, resumed.incidents) == (
         first.evaluation_id, first.run_id, "completed", 1, first.incidents)
+    assert [(site["identity"], site["attempts"], site["status"]) for site in resumed.realized_perform_sites] == [
+        (first.realized_perform_sites[0]["identity"], 2, "completed")]
 
 
 def test_evaluation_id_changes_with_replicate_and_env_manifest():

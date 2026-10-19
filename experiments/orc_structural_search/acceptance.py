@@ -124,7 +124,8 @@ def judge_child(parent: Path, child: Path, config: ExperimentConfig, *, runtime:
     compiled = compile_candidate(child, config, runtime=runtime)
     if compiled.status != "accepted":
         outcome = "incident" if any(d.get("code") in COMPILER_INCIDENT_CODES for d in compiled.diagnostics) else "rejected"
-        return {**shown, "outcome": outcome, "diagnostics": list(compiled.diagnostics), **diagnosis(compiled)}
+        return {**shown, "outcome": outcome, "diagnostics": list(compiled.diagnostics),
+                "compile_diagnostics": compile_diagnostics(compiled), **diagnosis(compiled)}
     refusal = slot_refusal(parent, child, site, config, runtime=runtime) if site else None
     if config.condition != "module":
         refusal = refusal or ledger.unbounded_refusal(child, config)
@@ -132,7 +133,7 @@ def judge_child(parent: Path, child: Path, config: ExperimentConfig, *, runtime:
         parent_compiled = compile_candidate(parent, config, runtime=runtime)
         if parent_compiled.status != "accepted":
             return {**shown, "outcome": "incident", "diagnostics": list(parent_compiled.diagnostics),
-                    **diagnosis(parent_compiled)}
+                    "compile_diagnostics": compile_diagnostics(parent_compiled), **diagnosis(parent_compiled)}
         refusal = compiled_refusal(closed_program(parent, parent_compiled.build_key),
                                    closed_program(child, compiled.build_key), config)
     if config.condition == "module":
@@ -156,6 +157,13 @@ def slot_refusal(parent: Path, child: Path, site: Mapping, config: ExperimentCon
     if found != expected:
         return {"refusal_code": "slot_type_changed", "detail": f"the replacement is {found}, the site {expected}"}
     return None
+
+
+
+def compile_diagnostics(checked: CompileOutcome) -> dict:
+    """The ordinary rejected full-compiler envelope, including every serialized diagnostic field."""
+    return {"schema_version": "workflow_lisp_compile_diagnostics.v1", "status": "rejected",
+            "diagnostics": list(checked.diagnostics)}
 
 
 def diagnosis(checked: CompileOutcome) -> dict:
