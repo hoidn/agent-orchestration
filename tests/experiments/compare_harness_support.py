@@ -133,14 +133,14 @@ def call(world, record, script, binary="claude", args=("-p",)):
                           cwd=record["cwd"], env=env)
 
 
-def write_memo(record, prompts, value, outcome="completed", run_id="r1"):
+def write_memo(record, prompts, value, outcome="completed", run_id="r1", effect_class="provider"):
     rows = []
     for index, prompt in enumerate(prompts):
         identity = f"workflow / effect {index}"
         digest = "sha256:" + hashlib.sha256(prompt.encode()).hexdigest()
         rows.append({"record": "started", "identity": identity, "attempt": 1, "time": 100.0 + index,
                      "input_parts": {"prompt": digest}})
-        rows.append({"record": "committed", "identity": identity, "attempt": 1, "effect_class": "provider",
+        rows.append({"record": "committed", "identity": identity, "attempt": 1, "effect_class": effect_class,
                      "value": {}, "time": 101.0 + index})
     terminal = {"record": "terminal", "outcome": outcome}
     terminal |= {"value": value} if outcome == "completed" else {"code": "provider_timeout", "message": "t"}

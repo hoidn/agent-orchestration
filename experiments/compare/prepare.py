@@ -330,8 +330,8 @@ def collect(records):
         raise SystemExit(f"{records} is a generic-command run: it has no orchestrator memo to collect")
     memo, rows = finished_memo(record.get("state_root", records / "state"))  # R/state: prepared before R34
     calls = paired_calls(records, rows)
-    committed = [calls[(r["identity"], r["attempt"])] for r in rows
-                 if r["record"] == "committed" and r["effect_class"] == "provider"]
+    committed = [calls[(r["identity"], r["attempt"])] for r in rows  # agent_turn: a native agent session's turn
+                 if r["record"] == "committed" and r["effect_class"] in ("provider", "agent_turn")]
     names = [Path(c).name for c in record["candidates"]]
     first_start = min((r["time"] for r in rows if r["record"] == "started"), default=memo.stat().st_mtime)
     record.update(outcome_of(record, rows[-1], names), patches={}, calls=len(calls),

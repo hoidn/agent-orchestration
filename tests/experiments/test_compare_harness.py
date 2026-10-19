@@ -270,6 +270,13 @@ def test_collect_takes_first_and_final_patches_of_reviewed_change(world):
         True, True, "READY")
 
 
+def test_collect_takes_the_final_patch_of_a_native_agent_turn(world):
+    records, record = start(world, "direct_task")
+    call(world, record, edit("$PWD", "a + b"))
+    write_memo(record, [edit("$PWD", "a + b")], True, effect_class="agent_turn")
+    assert "a + b" in (records / prepare.collect(records)["patches"]["final"]).read_text()
+
+
 @pytest.mark.parametrize("memo_prompts, message", [(["true", "true"], "2 provider starts"), (["false"], "prompt")])
 def test_collect_refuses_calls_that_do_not_pair_with_the_memo(world, memo_prompts, message):
     records, record = start(world, "direct_task")
