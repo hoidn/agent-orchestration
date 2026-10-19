@@ -13,7 +13,7 @@ import pytest
 from experiments.compare import prepare
 from experiments.orc_structural_search.config import ExperimentConfig
 from experiments.orc_structural_search.evaluation import (
-    evaluate, evaluation_id, is_python, record_env_manifest, resume)
+    EvaluationRecord, evaluate, evaluation_id, is_python, record_env_manifest, resume)
 from tests.experiments.compare_harness_support import skip_without_sandbox
 from orchestrator.providers.registry import ProviderRegistry
 from tests.experiments.orc_structural_search_support import (  # noqa: F401 (pyright and world are fixtures)
@@ -168,11 +168,18 @@ def run_python(world, timeout_sec=NO_KILL_SEC):
     return run(world, timeout_sec, candidate=three_arm_parent(world, "python"), config=I3_CONFIG)[0]
 
 
-def print_argv(world):
-    """Make the scripted codex print its arguments as JSON first (the shim keeps them in calls/<n>/stdout.txt)."""
+def scripted_codex(world, code):
+    """Make the scripted codex run `code` first, once it has read its prompt."""
     anchor = "prompt = sys.stdin.read()\n"
     assert SCRIPTED.count(anchor) == 1
-    (world.fakebin / "codex").write_text(SCRIPTED.replace(anchor, anchor + "print(json.dumps(sys.argv[1:]))\n"))
+    (world.fakebin / "codex").write_text(SCRIPTED.replace(anchor, anchor + code))
+
+
+PRINT_ARGV = "print(json.dumps(sys.argv[1:]))\n"  # the shim keeps it in calls/<n>/stdout.txt
+# an orchestrator run the coder starts from the clone root: a completed memo in the default state directory
+CODER_RUN = ('os.makedirs(".orchestrate/runs/coder-run")\n'
+             'open(".orchestrate/runs/coder-run/memo.jsonl", "w").write(json.dumps('
+             '{"record": "terminal", "outcome": "completed", "value": {"x": 1}}) + "\\n")\n')
 
 
 def coder_prompt(record):
@@ -183,7 +190,7 @@ def coder_prompt(record):
 
 def test_i3_parent_sends_the_orc_parents_prompt_except_the_result_path(sandboxed, world, pyright):
     script(world, [CHANGE])
-    print_argv(world)
+    scripted_codex(world, PRINT_ARGV)
     orc, _ = run(world, candidate=three_arm_parent(world, "orc"))
     python = run_python(world)
     changed = [line[2:] for line in ndiff(coder_prompt(orc), coder_prompt(python)) if line[:2] in ("- ", "+ ")]
@@ -214,3 +221,16 @@ def test_i3_launch_killed_before_its_terminal_is_an_incident(sandboxed, world, p
     script(world, [HANG])
     record = run_python(world, timeout_sec=KILL_AFTER_SEC)
     assert (record.outcome, len(record.incidents)) == ("incident", 1)
+
+
+def test_i3_launch_killed_beside_an_orchestrator_run_of_the_coder_is_an_incident(sandboxed, world, pyright):
+    script(world, [HANG])
+    scripted_codex(world, CODER_RUN)
+    record = run_python(world, timeout_sec=KILL_AFTER_SEC)
+    assert (record.outcome, record.run_id) == ("incident", "unavailable")
+
+
+def test_a_generic_command_incident_is_not_resumable(tmp_path):
+    record = EvaluationRecord("e", "unavailable", tmp_path, tmp_path, "sha256:e", "incident", None, 0.0, 0, 0, ())
+    with pytest.raises(ValueError, match="no resume.sh"):
+        resume(record, env={}, timeout_sec=1)

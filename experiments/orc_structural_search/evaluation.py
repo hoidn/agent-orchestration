@@ -171,6 +171,8 @@ def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Pa
 def resume(record: EvaluationRecord, *, env: Mapping[str, str], timeout_sec: float) -> EvaluationRecord:
     """Resume an incident's run (`orchestrator resume <run_id> --state-dir <state_dir>` through resume.sh)
     under the same evaluation id; resume_count goes up by one."""
+    if not (record.records_dir / "resume.sh").is_file():
+        raise ValueError(f"evaluation {record.evaluation_id} has no resume.sh: a generic-command run is not resumable")
     if record.outcome != "incident" or record.run_id == UNAVAILABLE:
         raise ValueError(f"evaluation {record.evaluation_id} is {record.outcome} with run id {record.run_id}: "
                          "only an incident with a started run can be resumed")
@@ -196,7 +198,8 @@ def _launch(record: EvaluationRecord, argv: list[str], env: Mapping[str, str],
             os.killpg(launcher.pid, signal.SIGKILL)
             status = launcher.wait()
     elapsed = time.monotonic() - started
-    run_id, outcome, value = _classify(record.state_dir)
+    run_id, outcome, value = _classify(record.state_dir,
+                                       generic=load(records / "record.json")["arm_kind"] == "generic-command")
     incidents = record.incidents
     quota = quota_hit(records, after=before) if outcome != "completed" else None
     if quota:
@@ -209,15 +212,16 @@ def _launch(record: EvaluationRecord, argv: list[str], env: Mapping[str, str],
                    provider_calls=len(list((records / "calls").glob("*"))))
 
 
-def _classify(state_dir: Path) -> tuple[str, str, object | None]:
-    """(run id, outcome, terminal value) of the one run under `state_dir`: a generic command's <run_id>/terminal.json
-    when there is one (a run killed before writing it has no run id here), else the memo's terminal row."""
-    runs = sorted(state_dir.glob("*/terminal.json")) or sorted(state_dir.glob("*/memo.jsonl"))
+def _classify(state_dir: Path, *, generic: bool) -> tuple[str, str, object | None]:
+    """(run id, outcome, terminal value) of the one run under `state_dir`: its memo's terminal row, or for a
+    `generic` command the run directory holding a terminal.json (other directories there, such as an orchestrator run
+    the agent started from the clone, are not the run; a run killed before writing it has no run id here)."""
+    runs = sorted(state_dir.glob("*/terminal.json" if generic else "*/memo.jsonl"))
     if len(runs) > 1:
         raise RuntimeError(f"{state_dir}: expected at most one run, found {[m.parent.name for m in runs]}")
     if not runs:
         return UNAVAILABLE, "incident", None
-    if runs[0].name == "terminal.json":
+    if generic:
         terminal = load(runs[0])
     else:
         rows = read_memo(runs[0])

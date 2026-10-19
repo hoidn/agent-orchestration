@@ -324,14 +324,14 @@ def copy_patches(records, picks):
 
 
 def command_outcome(records, record):
-    """A generic-command run's outcome, failure, call count and wall clock from the terminal.json in its one run
-    directory under the state root, whose `calls` must equal the shims' call directories; when completed, the last
-    call's patch as `final`."""
-    runs = [path for path in Path(record["state_root"]).glob("*") if path.is_dir()]
-    if len(runs) != 1 or not (runs[0] / "terminal.json").is_file():
+    """A generic-command run's outcome, failure, call count and wall clock from the terminal.json of the one run
+    directory under the state root that holds one (an orchestrator run the agent started there is not the run), whose
+    `calls` must equal the shims' call directories; when completed, the last call's patch as `final`."""
+    terminals = sorted(Path(record["state_root"]).glob("*/terminal.json"))
+    if len(terminals) != 1:
         raise SystemExit(f"{record['state_root']}: expected one run directory with a terminal.json, found "
-                         f"{[path.name for path in runs]}; finish the run first")
-    terminal = load(runs[0] / "terminal.json")
+                         f"{[path.parent.name for path in terminals]}; finish the run first")
+    terminal = load(terminals[0])
     calls = sorted((records / "calls").glob("*"), key=lambda p: int(p.name))
     if terminal["calls"] != len(calls):
         raise SystemExit(f"{records}: the terminal counts {terminal['calls']} provider calls but the shims recorded "

@@ -312,7 +312,8 @@ directory under `record.json`'s `state_root` (`cand-1/.orchestrate/runs/<run_id>
 `calls/<n>/` directories), `wall_clock_sec` (`finished_at - started_at`) and, for a completed run, the
 last call's `patch-cand-1.diff` as `collected/final.diff`; `selected` and `variant` stay null. It
 refuses a state root without exactly one run directory holding a `terminal.json` (finish the run
-first), a terminal whose `calls` (the provider calls it launched) differs from the shims' call count,
+first; other directories there, such as an orchestrator run the agent started from `cand-1`, are
+ignored), a terminal whose `calls` (the provider calls it launched) differs from the shims' call count,
 and a completed run without that patch. The structural search's I3 parent
 (`experiments/orc_structural_search/three_arm/python/direct.py`) writes such a terminal.
 

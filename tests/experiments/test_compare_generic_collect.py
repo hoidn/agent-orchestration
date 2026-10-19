@@ -25,8 +25,8 @@ def command_run(world):
     return records, json.loads((records / "record.json").read_text())
 
 
-def write_terminal(record, **terminal):
-    run = Path(record["state_root"]) / "r1"
+def write_terminal(record, run_id="r1", **terminal):
+    run = Path(record["state_root"]) / run_id
     run.mkdir(parents=True)
     (run / "terminal.json").write_text(json.dumps(terminal))
 
@@ -72,4 +72,24 @@ def test_collect_refuses_a_generic_command_run_the_shims_did_not_record(world, c
     write_terminal(record, outcome="completed", value={"variant": "DONE", "summary": "s"}, failure=None,
                    started_at=1.0, finished_at=2.0, calls=calls)
     with pytest.raises(SystemExit, match=message):
+        prepare.collect(records)
+
+
+def test_collect_ignores_a_run_directory_without_a_terminal(world):
+    records, record = command_run(world)
+    assert call(world, record, "true").returncode == 0
+    coder_run = Path(record["state_root"]) / "coder-run"  # an orchestrator run the agent started in cand-1
+    coder_run.mkdir(parents=True)
+    (coder_run / "memo.jsonl").write_text("{}\n")
+    write_terminal(record, outcome="completed", value={"variant": "DONE", "summary": "s"}, failure=None,
+                   started_at=1.0, finished_at=2.0, calls=1)
+    assert prepare.collect(records)["outcome"] == "completed"
+
+
+def test_collect_refuses_a_generic_command_run_with_two_terminals(world):
+    records, record = command_run(world)
+    for run_id in ("r1", "r2"):
+        write_terminal(record, run_id, outcome="failed", value=None, failure=None, started_at=1.0, finished_at=2.0,
+                       calls=0)
+    with pytest.raises(SystemExit, match="expected one run directory with a terminal.json"):
         prepare.collect(records)

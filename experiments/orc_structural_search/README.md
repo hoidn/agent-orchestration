@@ -248,9 +248,10 @@ instead of the compiler and runs through the comparison harness's generic-comman
 `arm_kind: generic-command` and its `state_root` (the clone's `.orchestrate/runs`, the evaluation record's
 `state_dir`), and `command.sh` runs `python -P <candidate>/direct.py inputs.json` behind the same shims, so its
 calls, patches and scans are recorded like an ORC evaluation's. The run's `terminal.json` is classified like a
-memo's terminal row (`completed`, `failed`; none: `incident`) and `prepare.collect` reads it. There is no
-`resume.sh`: an I3 incident is not resumable, and one killed before its terminal is recorded with run id
-`unavailable`.
+memo's terminal row (`completed`, `failed`; none: `incident`) and `prepare.collect` reads it; other directories
+there, such as an orchestrator run the coder started from the clone, are not the run. There is no `resume.sh`: an
+I3 incident is not resumable (`evaluation.resume` refuses it), and one killed before its terminal is recorded with
+run id `unavailable`.
 
 Mode 2 adds four kinds of log rows: one `{"kind": "reference", "candidate_id", "run"}` row naming the initial
 incumbent; one `{"kind": "judging", "generation", "task", "pool", "results"}` row per judged pool; one
@@ -284,8 +285,8 @@ candidate's provider bindings and `:model` values, already in its candidate id.
 
 ## Not implemented
 
-- I3 episodes, feedback-targeted site selection and failure- or cost-weighted parent selection (mode 2 draws
-  uniformly).
+- I3 in mode 2 (it interleaves I1 and I2; `run_episode` and `evaluate` take I3 candidates), feedback-targeted
+  site selection and failure- or cost-weighted parent selection (mode 2 draws uniformly).
 - A command line for mode 2 (`run_mode2` and `validate_finalists` are called from Python).
 - Live mode 2: the live Phase 1 decision did not select Phase 2 for family (a)
   ([Phase 1 report](../../docs/reports/2026-10-18-orc-structural-search-phase1.md)); a live run needs a new owner
