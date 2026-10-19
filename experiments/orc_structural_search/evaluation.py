@@ -4,10 +4,13 @@ Design: docs/design/orc_structural_search_driver.md, "Execution Contract". `eval
 with the runtime's orchestrator (a rejected one is refused: only accepted children are evaluated), lets the
 comparison harness's `run_arm` build the clone and write `command.sh`/`resume.sh` behind the shims, copies the
 candidate root's `dev_check.py` (covered by its candidate id) into the clone (excluded from its patches), runs
-`command.sh` and classifies the run's memo. The work root is `run_arm`'s work root, so it must be visible in the
-shims' sandbox (not under /tmp, /dev/shm or /var/tmp) and outside the main checkout's prefix:
+`command.sh` and classifies the run's memo. An I3 candidate (`is_python`) is type-checked instead
+(`acceptance.check_python`) and runs as the harness's generic command `python -P <entry module> inputs.json`
+(no resume.sh); its state is <clone>/.orchestrate/runs, where it writes <run_id>/terminal.json, classified like a
+memo's terminal row. The work root is `run_arm`'s work root, so it must be visible in the shims' sandbox (not
+under /tmp, /dev/shm or /var/tmp) and outside the main checkout's prefix:
 
-  <work>/runs/<evaluation_id>/<run_id>/   the orchestrator's state (--state-dir): run.json, memo.jsonl
+  <work>/runs/<evaluation_id>/<run_id>/   the orchestrator's state (--state-dir): run.json, memo.jsonl (not I3)
   <work>/records/<evaluation_id>/run-1/   record.json, inputs.json, command.sh, resume.sh, calls/<n>/,
                                           launch-<k>.log (k = resume count)
   <work>/agents/<16 hex>/cand-1/          the clone (the run's working directory)
@@ -46,7 +49,7 @@ from pathlib import Path
 
 from experiments.compare.prepare import ArmSpec, read_memo, run_arm
 from experiments.compare.repos import load, runtime_commit
-from experiments.orc_structural_search import ledger
+from experiments.orc_structural_search import acceptance, ledger  # acceptance imports this module: call time only
 from experiments.orc_structural_search.candidates import candidate_id, compile_candidate
 from experiments.orc_structural_search.config import ExperimentConfig
 from experiments.orc_structural_search.quota import PREFIX, quota_hit
@@ -133,7 +136,9 @@ def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Pa
     """Run the accepted candidate once in a fresh clone of the task package; `work_root` is the sandbox-visible
     work root (see the module docstring); `attempt` > 1 is a quota relaunch of the same job."""
     candidate_root, work_root = candidate_root.resolve(), work_root.resolve()
-    compiled = compile_candidate(candidate_root, config, runtime=runtime)
+    python = is_python(config)
+    compiled = (acceptance.check_python(candidate_root, config, runtime=runtime) if python
+                else compile_candidate(candidate_root, config, runtime=runtime))
     if compiled.status != "accepted":
         raise ValueError(f"{candidate_root} does not compile; only accepted candidates are evaluated: "
                          f"{compiled.diagnostics}")
@@ -142,18 +147,19 @@ def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Pa
     candidate = candidate_id(candidate_root, orchestrator_commit=runtime_commit(runtime))
     env_digest = record_env_manifest(work_root, env)
     eid = evaluation_id(candidate, task_package.name, EVALUATOR_VERSION, env_digest, replicate, attempt)
-    state_dir = work_root / "runs" / eid
     if (work_root / "records" / eid).exists():  # even a launch that died before its run started
         raise FileExistsError(f"{work_root / 'records' / eid}: evaluation {eid} already ran; "
                               "resume it rather than rerun it")
-    source_root = candidate_root / config.source_root
+    source = ledger.entry_of(candidate_root, config)[0]
     spec = ArmSpec(
-        source=(source_root / config.entry_workflow.split("::")[0]).with_suffix(".orc"),
-        entry=config.entry_workflow, source_root=source_root, providers=candidate_root / config.providers_file,
-        inputs=INPUTS, state_dir=state_dir,
-        command_boundaries=config.command_boundaries_file and candidate_root / config.command_boundaries_file)
+        source=source, entry=config.entry_workflow, source_root=candidate_root / config.source_root,
+        providers=candidate_root / config.providers_file, inputs=INPUTS,
+        state_dir=None if python else work_root / "runs" / eid,
+        command_boundaries=config.command_boundaries_file and candidate_root / config.command_boundaries_file,
+        command=(sys.executable, "-P", str(source)) if python else None)
     records = run_arm(task_package, eid, work_root, runtime, spec=spec)
-    clone = Path(load(records / "record.json")["candidates"][0])
+    arm = load(records / "record.json")
+    state_dir, clone = Path(arm["state_root"]), Path(arm["candidates"][0])
     shutil.copyfile(candidate_root / DEV_CHECK, clone / DEV_CHECK)
     with (clone / ".git" / "info" / "exclude").open("a") as exclude:  # not part of the agent's patch
         exclude.write(f"/{DEV_CHECK}\n")
@@ -204,16 +210,20 @@ def _launch(record: EvaluationRecord, argv: list[str], env: Mapping[str, str],
 
 
 def _classify(state_dir: Path) -> tuple[str, str, object | None]:
-    """(run id, outcome, terminal value) of the one run under `state_dir`."""
-    memos = sorted(state_dir.glob("*/memo.jsonl"))
-    if len(memos) > 1:
-        raise RuntimeError(f"{state_dir}: expected at most one run, found {[m.parent.name for m in memos]}")
-    if not memos:
+    """(run id, outcome, terminal value) of the one run under `state_dir`: a generic command's <run_id>/terminal.json
+    when there is one (a run killed before writing it has no run id here), else the memo's terminal row."""
+    runs = sorted(state_dir.glob("*/terminal.json")) or sorted(state_dir.glob("*/memo.jsonl"))
+    if len(runs) > 1:
+        raise RuntimeError(f"{state_dir}: expected at most one run, found {[m.parent.name for m in runs]}")
+    if not runs:
         return UNAVAILABLE, "incident", None
-    rows = read_memo(memos[0])
-    terminal = rows[-1] if rows and rows[-1]["record"] == "terminal" else None
+    if runs[0].name == "terminal.json":
+        terminal = load(runs[0])
+    else:
+        rows = read_memo(runs[0])
+        terminal = rows[-1] if rows and rows[-1]["record"] == "terminal" else None
     if terminal is None:
-        return memos[0].parent.name, "incident", None
+        return runs[0].parent.name, "incident", None
     if terminal["outcome"] == "completed":
-        return memos[0].parent.name, "completed", terminal["value"]
-    return memos[0].parent.name, "failed", None
+        return runs[0].parent.name, "completed", terminal["value"]
+    return runs[0].parent.name, "failed", None

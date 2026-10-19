@@ -3,15 +3,21 @@ with scripted providers (no provider is called)."""
 
 import json
 import os
+import shutil
+from difflib import ndiff
 from pathlib import Path
+from string import Template
 
 import pytest
 
+from experiments.compare import prepare
 from experiments.orc_structural_search.config import ExperimentConfig
 from experiments.orc_structural_search.evaluation import (
     evaluate, evaluation_id, is_python, record_env_manifest, resume)
 from tests.experiments.compare_harness_support import skip_without_sandbox
-from tests.experiments.orc_structural_search_support import I3_CONFIG, script, world  # noqa: F401 (fixture)
+from orchestrator.providers.registry import ProviderRegistry
+from tests.experiments.orc_structural_search_support import (  # noqa: F401 (pyright and world are fixtures)
+    I3_CONFIG, PYTHON_PARENT, SCRIPTED, pyright, script, world)
 
 CONFIG = ExperimentConfig(
     mutable_files=("direct.orc",), mutable_definitions=("run",), condition="topology-only", interface="I1",
@@ -30,9 +36,9 @@ def sandboxed():
     skip_without_sandbox()
 
 
-def run(world, timeout_sec=NO_KILL_SEC):
+def run(world, timeout_sec=NO_KILL_SEC, candidate=None, config=CONFIG):
     env = {**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}", "SCRIPTED_RESULTS_FILE": str(world.results)}
-    record = evaluate(world.candidate, CONFIG, task_package=world.task, work_root=world.evidence,
+    record = evaluate(candidate or world.candidate, config, task_package=world.task, work_root=world.evidence,
                       replicate=1, runtime=world.runtime, env=env, timeout_sec=timeout_sec)
     return record, env
 
@@ -149,3 +155,62 @@ def test_env_manifest_digest_changes_with_cli_versions(tmp_path):
 
 def test_only_a_python_entry_module_is_python():
     assert (is_python(I3_CONFIG), is_python(CONFIG)) == (True, False)
+
+
+def three_arm_parent(world, arm):
+    """A copy of the three-arm parent `arm` ("orc", the rebound direct seed, or "python", its I3 counterpart)."""
+    root = world.tmp / arm
+    shutil.copytree(PYTHON_PARENT.parent / arm, root, ignore=shutil.ignore_patterns("__pycache__"))
+    return root
+
+
+def run_python(world, timeout_sec=NO_KILL_SEC):
+    return run(world, timeout_sec, candidate=three_arm_parent(world, "python"), config=I3_CONFIG)[0]
+
+
+def print_argv(world):
+    """Make the scripted codex print its arguments as JSON first (the shim keeps them in calls/<n>/stdout.txt)."""
+    anchor = "prompt = sys.stdin.read()\n"
+    assert SCRIPTED.count(anchor) == 1
+    (world.fakebin / "codex").write_text(SCRIPTED.replace(anchor, anchor + "print(json.dumps(sys.argv[1:]))\n"))
+
+
+def coder_prompt(record):
+    """The run's first prompt as lines, its own clone (the `repo` input, one per evaluation) replaced by a token."""
+    repo = json.loads((record.records_dir / "inputs.json").read_text())["repo"]
+    return (record.records_dir / "calls" / "1" / "prompt.txt").read_text().replace(repo, "<repo>").splitlines(True)
+
+
+def test_i3_parent_sends_the_orc_parents_prompt_except_the_result_path(sandboxed, world, pyright):
+    script(world, [CHANGE])
+    print_argv(world)
+    orc, _ = run(world, candidate=three_arm_parent(world, "orc"))
+    python = run_python(world)
+    changed = [line[2:] for line in ndiff(coder_prompt(orc), coder_prompt(python)) if line[:2] in ("- ", "+ ")]
+    argv = json.loads((python.records_dir / "calls" / "1" / "stdout.txt").read_text().splitlines()[0])
+    template = ProviderRegistry().get("codex_unrestricted_workspace")
+    expected = [Template(arg).substitute(model="gpt-6.1-sol", reasoning_effort="high") for arg in template.command[1:]]
+    assert ([line.startswith("- path:") for line in changed], python.value, argv) == (
+        [True, True], orc.value, expected)
+
+
+def test_i3_evaluation_runs_the_generic_command_arm_and_records_a_completed_terminal(sandboxed, world, pyright):
+    script(world, [CHANGE])
+    record = run_python(world)
+    arm = json.loads((record.records_dir / "record.json").read_text())
+    collected = prepare.collect(record.records_dir)
+    assert (record.outcome, record.value, record.provider_calls, arm["arm_kind"], record.state_dir,
+            (record.records_dir / collected["patches"]["final"]).is_file()) == (
+        "completed", {"variant": "DONE", "summary": "set VALUE"}, 1, "generic-command", Path(arm["state_root"]), True)
+
+
+def test_i3_provider_failure_is_recorded_as_failed(sandboxed, world, pyright):
+    script(world, [{"match": "Implement this change", "exit": 1}])
+    record = run_python(world)
+    assert (record.outcome, record.value) == ("failed", None)
+
+
+def test_i3_launch_killed_before_its_terminal_is_an_incident(sandboxed, world, pyright):
+    script(world, [HANG])
+    record = run_python(world, timeout_sec=KILL_AFTER_SEC)
+    assert (record.outcome, len(record.incidents)) == ("incident", 1)

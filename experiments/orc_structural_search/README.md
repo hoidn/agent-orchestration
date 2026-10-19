@@ -220,8 +220,10 @@ directory stay readable and only the scan reports reads there, so pass other run
 
 ```
 W/records/<evaluation_id>/run-1/   run_arm's records: record.json (with the scan), inputs.json, command.sh, calls/
-W/runs/<evaluation_id>/<run_id>/   the run's state (memo.jsonl)
+W/runs/<evaluation_id>/<run_id>/   the run's state (memo.jsonl); none for an I3 evaluation
 W/agents/<tree>/cand-1/            the clone the run works in
+W/agents/<tree>/cand-1/.orchestrate/runs/<run_id>/
+                                   I3: the Python run's state (terminal.json, effects/<n>/attempt-1/result.json)
 W/env-manifests/<digest>.json      Python, platform, distributions and claude/codex/bwrap/git --version output
 W/episodes/episode-<n>/cand-1/     the mutator's copy of the parent, a git repository whose one commit is the parent
                                    snapshot (the shims' COMPARE_BASE); the child is its final files (.git removed)
@@ -240,6 +242,15 @@ P/gen-<n>/<task>/                  mode 2: the generation's blind judging pool (
                                    P, the pools root, lies outside E and W: judges must not see the archive or the
                                    log, and mutators and evaluated agents must not find the pools at a known place
 ```
+
+An I3 candidate (a Python entry module, `evaluation.is_python`) is admitted by `acceptance.check_python` (pyright)
+instead of the compiler and runs through the comparison harness's generic-command arm: `record.json` names
+`arm_kind: generic-command` and its `state_root` (the clone's `.orchestrate/runs`, the evaluation record's
+`state_dir`), and `command.sh` runs `python -P <candidate>/direct.py inputs.json` behind the same shims, so its
+calls, patches and scans are recorded like an ORC evaluation's. The run's `terminal.json` is classified like a
+memo's terminal row (`completed`, `failed`; none: `incident`) and `prepare.collect` reads it. There is no
+`resume.sh`: an I3 incident is not resumable, and one killed before its terminal is recorded with run id
+`unavailable`.
 
 Mode 2 adds four kinds of log rows: one `{"kind": "reference", "candidate_id", "run"}` row naming the initial
 incumbent; one `{"kind": "judging", "generation", "task", "pool", "results"}` row per judged pool; one
