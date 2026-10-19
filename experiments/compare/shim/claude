@@ -56,7 +56,11 @@ if [ -n "${COMPARE_HIDE-}" ]; then
 fi
 cat > "$call/prompt.txt"
 exec 3> >(tee "$call/stderr.txt" >&2); errors=$!
-env -u PYTHONPATH -u OLDPWD -u COMPARE_ROOT -u COMPARE_TREE -u COMPARE_BASE -u COMPARE_HIDE "${attempt[@]}" \
+model_env=(-u ORC_ALLOWED_CLAUDE_MODELS)
+if [ -n "${COMPARE_CLAUDE_MODELS+set}" ]; then
+  model_env=("ORC_ALLOWED_CLAUDE_MODELS=$COMPARE_CLAUDE_MODELS")
+fi
+env -u PYTHONPATH -u OLDPWD -u COMPARE_ROOT -u COMPARE_TREE -u COMPARE_BASE -u COMPARE_HIDE -u COMPARE_CLAUDE_MODELS "${attempt[@]}" "${model_env[@]}" \
   PATH="$guard:$path" CLAUDE_CODE_SUBAGENT_MODEL=claude-opus-5-5 CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 "$sandbox" \
   --dev-bind / / "${hide[@]}" --bind "$COMPARE_TREE/tmp" /tmp --tmpfs /dev/shm --tmpfs /var/tmp --unshare-pid --proc /proc --die-with-parent \
   "$real" "$@" < "$call/prompt.txt" 2>&3 3>&- | tee "$call/stdout.txt" 3>&-

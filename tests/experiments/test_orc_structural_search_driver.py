@@ -339,7 +339,7 @@ def test_planned_maximum_counts_provider_calls_under_loop_and_map_bounds():
 def test_the_brief_names_no_runtime_path_and_its_compile_line_runs_from_the_runtime_copy(world):
     _, parent = archive(world.candidate, world.tmp / "evidence", world.runtime)
     brief, tree = episode_brief(config_of(), 0), world.outside / "work" / "episodes" / "episode-0"
-    copy, _ = episode_workspace(parent, tree, brief, world.runtime)
+    copy, _ = episode_workspace(parent, tree, brief, world.runtime, config=config_of())
     env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}  # the shims strip it
     compiled = subprocess.run(["bash", "-c", brief.split("Check an edit with: ")[1].strip()], cwd=copy, env=env,
                               capture_output=True, text=True)

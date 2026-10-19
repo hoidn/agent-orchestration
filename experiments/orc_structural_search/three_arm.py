@@ -84,12 +84,44 @@ class QuotaExhausted(RuntimeError):
     """A launch's quota relaunches are used up: the run stops before any further launch (see CONTINUE)."""
 
 
-def arm_config(base: Path, interface: str) -> ExperimentConfig:
-    """The arm's configuration: the run configuration at `base` (its envelope and criterion hash) with the parent's
-    mutable file and entry; I1 and I2 edit direct.orc, I3 direct.py."""
-    python = interface == "I3"
+HISTORICAL_CRITERION_SHA256 = "d994f8daad608b76e342fa4bedcbc03f1e3c771f719877937331035eb0ae97ba"
+
+
+def load_criterion(path: Path) -> dict:
+    return {**json.loads(Path(path).read_text()), "criterion_sha256": sha256_file(path)}
+
+
+def arm_specs(criterion: Mapping) -> dict:
+    return criterion.get("arms") or {arm: {"interface": arm, "condition": criterion["envelope"]["condition"],
+                                           "parent": PARENT_OF[arm]}
+                                       for arm in criterion["envelope"]["interfaces"]}
+
+
+def check_row_criteria(rows: Sequence[Mapping], criterion: Mapping) -> None:
+    """Never reuse another study's rows; only the frozen original admits historical rows without a hash."""
+    expected = criterion.get("criterion_sha256")
+    if expected is None:
+        if "arms" in criterion:
+            raise ValueError("criterion_sha256 required: load the successor with load_criterion")
+        return  # historical helper callers supply the original criterion mapping without its file hash
+    for row in rows:
+        if row["kind"] not in {"episode", "evaluation"}:
+            continue
+        got = row.get("criterion_sha256")
+        if got != expected and not (got is None and expected == HISTORICAL_CRITERION_SHA256):
+            raise ValueError(f"{row['kind']} criterion_sha256 {got!r} differs from {expected}")
+        if row.get("mode") == MODE and row.get("arm") not in arm_specs(criterion):
+            raise ValueError(f"arm {row.get('arm')!r} is outside this criterion")
+
+
+def arm_config(base: Path, arm: str, criterion: Mapping | None = None) -> ExperimentConfig:
+    """Use an arm's interface and condition independently; its key is only a record/readout label."""
+    interface, _, condition = arm.partition("/")
+    spec = arm_specs(criterion)[arm] if criterion is not None else {
+        "interface": interface, "condition": condition or "topology-only"}
+    python = spec["interface"] == "I3"
     return replace(load_config(base), mutable_files=("direct.py",) if python else ("direct.orc",),
-                   mutable_definitions=("run",), condition="topology-only", interface=interface,
+                   mutable_definitions=("run",), condition=spec["condition"], interface=spec["interface"],
                    entry_workflow="direct::run", source_root=".", providers_file="providers.json",
                    command_boundaries_file=None if python else "commands.json")
 
@@ -187,7 +219,7 @@ def episode(root: Path, config: ExperimentConfig, arm: str, index: int, sites: S
             agent_cmd: Sequence[str], hide: Sequence[Path], launch: Mapping) -> dict:
     """One episode of the arm against its archived parent; I2 at the seeded uniform site of `sites`."""
     site = select_site(sites, random.Random(f"{run_seed} {index}")) if arm == "I2" else None
-    return run_episode(root, config, interface=arm, mode=MODE, agent_cmd=agent_cmd, episode_index=index, site=site,
+    return run_episode(root, config, interface=config.interface, mode=MODE, agent_cmd=agent_cmd, episode_index=index, site=site,
                        run_seed=run_seed if site else None, hide=hide, fields={"arm": arm},
                        **{key: launch[key] for key in EPISODE_KEYS})
 
@@ -201,17 +233,17 @@ def episode_indexes(before: Sequence[Mapping], work_root: Path) -> Iterator[int]
 
 def run_episodes(roots: Mapping[str, Path], config_path: Path, *, episodes_per_arm: int, prior: Sequence[Mapping],
                  run_seed: int, agent_cmd: Sequence[str], hide: Sequence[Path], guard: QuotaGuard,
-                 launch: Mapping) -> None:
+                 launch: Mapping, criterion: Mapping) -> None:
     """Each arm's episodes until `episodes_per_arm` non-quota episodes of it exist (see the module docstring)."""
     evidence_root = launch["evidence_root"]
     ledger.settle_killed_episodes(evidence_root)
     indexes = episode_indexes([row for row in prior if row["kind"] == "episode"], launch["work_root"])
     done = non_quota(prior, evidence_root)
-    for arm in ARMS:
+    for arm, spec in arm_specs(criterion).items():
         missing = episodes_per_arm - done[arm]
         if missing <= 0:
             continue
-        config, root = arm_config(config_path, arm), roots[PARENT_OF[arm]]
+        config, root = arm_config(config_path, arm, criterion), roots[spec["parent"]]
         sites = eligible_sites(site_manifest(root, config, runtime=launch["runtime"]), config) if arm == "I2" else ()
         for _ in range(missing):
             row = with_retries(lambda _attempt: episode(root, config, arm, next(indexes), sites, run_seed=run_seed,
@@ -227,11 +259,12 @@ def non_quota(rows: Sequence[Mapping], evidence_root: Path) -> Counter:
                    and quota_reason(row, evidence_root) is None)
 
 
-def check_episodes(rows: Sequence[Mapping], episodes_per_arm: int, evidence_root: Path) -> None:
+def check_episodes(rows: Sequence[Mapping], episodes_per_arm: int, evidence_root: Path,
+                   criterion: Mapping | None = None) -> None:
     """Refuse to choose the subset while an arm has fewer than `episodes_per_arm` non-quota episodes (its quota
     relaunches were used up): its subset could still change, and the provider is still at its limit."""
     counts = non_quota(rows, evidence_root)
-    short = {arm: counts[arm] for arm in ARMS if counts[arm] < episodes_per_arm}
+    short = {arm: counts[arm] for arm in (arm_specs(criterion) if criterion else ARMS) if counts[arm] < episodes_per_arm}
     if short:
         raise RuntimeError(f"non-quota episodes {short} of arms short of {episodes_per_arm}: {CONTINUE}")
 
@@ -240,11 +273,13 @@ def check_run(config_path: Path, criterion: Path, agent_cmd: Sequence[str], time
     """The frozen criterion; refuse a mutator command other than its envelope.mutator, a run configuration whose
     criterion_sha256 is not the criterion file's sha256 (hex) or whose episode wall clock is not the envelope's, and
     an evaluation wall clock other than the envelope's."""
-    frozen, config = json.loads(Path(criterion).read_text()), load_config(config_path)
+    frozen, config = load_criterion(criterion), load_config(config_path)
     envelope = frozen["envelope"]
     pairs = {"--agent-cmd": (list(agent_cmd), shlex.split(envelope["mutator"])),
              "criterion_sha256": (config.criterion_sha256, sha256_file(criterion)),
              "episode_wall_clock_sec": (config.episode_wall_clock_sec, envelope["episode_wall_clock_sec"]),
+             "models": (config.models, frozen.get("models")),
+             "per_call_timeout_sec": (config.per_call_timeout_sec, frozen.get("per_call_timeout_sec")),
              "--eval-timeout-sec": (timeout_sec, envelope["evaluation_wall_clock_sec"])}
     wrong = [f"{name} {got!r}, not {want!r}" for name, (got, want) in pairs.items() if got != want]
     if wrong:
@@ -267,12 +302,14 @@ def run_three_arm(config_path: Path, *, parents: Mapping[str, Path], tasks: Sequ
     check_hide(hide)
     work_root, evidence_root = check_roots(work_root, evidence_root)
     prior = prior_rows(work_root, evidence_root, continue_run)
+    check_row_criteria(prior, frozen)
     guard, log = guard or QuotaGuard(), evidence_root / "log.jsonl"
     launch = {"work_root": work_root, "evidence_root": evidence_root, "runtime": runtime, "env": env,
               "timeout_sec": timeout_sec, "solutions": check_solutions(tasks, solutions, runtime),
               "holdouts": holdouts, "call_cap": call_cap}
     roots, row = archive_parents(parents, config_path, evidence_root=evidence_root, runtime=runtime, env=env,
                                  run_seed=run_seed, subset_seed=subset_seed)
+    row["criterion_sha256"] = frozen["criterion_sha256"]
     log_parents(row, prior, log)
     result: dict = {}
     if smoke:
@@ -282,13 +319,13 @@ def run_three_arm(config_path: Path, *, parents: Mapping[str, Path], tasks: Sequ
                 for name, arm in (("orc", "I1"), ("python", "I3"))]
     else:
         run_episodes(roots, config_path, episodes_per_arm=episodes_per_arm, prior=prior, run_seed=run_seed,
-                     agent_cmd=agent_cmd, hide=hide, guard=guard, launch=launch)
+                     agent_cmd=agent_cmd, hide=hide, guard=guard, launch=launch, criterion=frozen)
         rows = read_records(log)
-        check_episodes(rows, episodes_per_arm, evidence_root)
+        check_episodes(rows, episodes_per_arm, evidence_root, frozen)
         chosen = subset(rows, frozen, subset_seed, contaminated_children(log))
         result = compile_readout(rows, frozen, evidence_root)
         (evidence_root / "readout.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
-        jobs = [(Path(r["candidate_root"]), arm_config(config_path, arm),
+        jobs = [(Path(r["candidate_root"]), arm_config(config_path, arm, frozen),
                  {"mode": MODE, "arm": arm, **{key: r[key] for key in (
                      "episode_id", "candidate_id", "parent_candidate_id", "candidate_root")}})
                 for arm, picked in chosen.items() for r in picked]
@@ -328,10 +365,11 @@ def subset(rows: Sequence[Mapping], criterion: Mapping, seed: int,
     earlier chosen child's, in any arm in ARMS order (equal ids would share an evaluation id), and whose program
     digest differs from the parents' (the parents row's program_digests) and every earlier chosen child's (a
     comment-only or reformatted child is not paid for), by pick."""
+    check_row_criteria(rows, criterion)
     parents = next((row for row in rows if row["kind"] == "parents"), {})
     taken: set[str] = set(parents.get("program_digests", {}).values())  # candidate ids and program digests
     chosen = {}
-    for arm in ARMS:
+    for arm in arm_specs(criterion):
         eligible = sorted((row for row in rows if row["kind"] == "episode" and row.get("mode") == MODE
                            and row.get("arm") == arm and row["outcome"] == "accepted"
                            and row["candidate_id"] not in contaminated), key=lambda row: row["episode_index"])
@@ -386,10 +424,11 @@ def compile_readout(rows: Sequence[Mapping], criterion: Mapping, evidence_root: 
     parents = next(row for row in rows if row["kind"] == "parents")
     chosen = subset(rows, criterion, parents["subset_seed"], contaminated_children(evidence_root / "log.jsonl"))
     episodes = [row for row in rows if row["kind"] == "episode" and row.get("mode") == MODE]
-    return {"collapse_threshold": criterion["collapse_threshold"],
+    return {"criterion_sha256": criterion.get("criterion_sha256", UNAVAILABLE),
+            "collapse_threshold": criterion["collapse_threshold"],
             "arms": {arm: arm_figures([row for row in episodes if row["arm"] == arm], criterion, evidence_root,
-                                      parents["program_digests"][PARENT_OF[arm]])
-                     | {"subset": [row["candidate_id"] for row in chosen[arm]]} for arm in ARMS}}
+                                      parents["program_digests"][spec["parent"]])
+                     | {"subset": [row["candidate_id"] for row in chosen[arm]]} for arm, spec in arm_specs(criterion).items()}}
 
 
 def judge(evidence_root: Path, pool: Path, task: Path, *, criterion: Path, judges: Sequence[str], solution: str,

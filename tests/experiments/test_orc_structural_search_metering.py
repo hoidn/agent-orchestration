@@ -1,6 +1,8 @@
 """Metering receipts: Claude session usage, Codex rollout token events, per-provider coverage."""
 
 import json
+
+import pytest
 from pathlib import Path
 
 from experiments.orc_structural_search import metering
@@ -140,3 +142,37 @@ def test_coverage_ignores_prompt_text_outside_user_turns(tmp_path):
     report = metering.coverage(records, claude_sessions=[quoted], codex_rollouts=[])
 
     assert report["unmatched_calls"] == 1
+
+
+def test_scoped_receipts_find_claude_and_codex_and_record_only_identified_paths(tmp_path):
+    import re
+    home, tree, records = tmp_path / "home", tmp_path / "tree", tmp_path / "records"
+    _call(records, 1, "claude task")
+    _call(records, 2, "codex task")
+    slug = re.sub(r"[^A-Za-z0-9]", "-", str(tree))
+    claude = _jsonl(home / ".claude/projects" / slug / "one.jsonl", [_user("claude task"), _assistant("m", FULL)])
+    codex = _jsonl(home / ".codex/sessions/2026/10/19/rollout-one.jsonl", [
+        {"type": "session_meta", "payload": {"cwd": str(tree / "cand-1")}},
+        {"type": "event_msg", "payload": {"type": "user_message", "message": "codex task"}}, _token_count(33)])
+    _jsonl(home / ".codex/sessions/2026/10/19/rollout-unrelated.jsonl", [
+        {"type": "session_meta", "payload": {"cwd": str(tmp_path / "other")}},
+        {"type": "event_msg", "payload": {"type": "user_message", "message": "codex task"}}, _token_count(900)])
+    got = metering.receipts(records, tree=tree, since=0, home=home)
+    assert (got["consumption"]["claude"]["tokens"], got["consumption"]["codex"]["tokens"],
+            set(got["native_session_paths"])) == (20, 33, {str(claude), str(codex)})
+
+
+@pytest.mark.parametrize("state", ["absent", "ambiguous", "truncated", "incomplete"])
+def test_missing_ambiguous_or_incomplete_native_receipts_are_unavailable(tmp_path, state):
+    import re
+    records, tree, home = tmp_path / "records", tmp_path / "tree", tmp_path / "home"
+    _call(records, 1, "task")
+    root = home / ".claude/projects" / re.sub(r"[^A-Za-z0-9]", "-", str(tree))
+    if state != "absent":
+        session = _jsonl(root / "one.jsonl", [_user("task"), _assistant("m", {} if state == "incomplete" else FULL)])
+        if state == "ambiguous":
+            _jsonl(root / "two.jsonl", [_user("task"), _assistant("n", FULL)])
+        if state == "truncated":
+            session.write_text(session.read_text() + '{"type":')
+    assert metering.receipts(records, tree=tree, since=0, home=home) == {
+        "consumption": U, "native_session_paths": U}

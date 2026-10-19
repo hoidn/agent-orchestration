@@ -78,14 +78,18 @@ def python_scope(config: ExperimentConfig) -> str:
 
 def lisp_scope(config: ExperimentConfig, site: Mapping | None) -> str:
     """An I1 or I2 brief's scope, frozen surfaces and compile line."""
-    module = config.entry_workflow.split("::")[0]
-    compile_args = ["python", "-P", "-m", "orchestrator", "compile", f"{module}.orc", "--entry-workflow",
-                    config.entry_workflow, "--source-root", config.source_root, "--provider-externs-file",
-                    config.providers_file]
-    boundary = ""
-    if config.command_boundaries_file:
-        compile_args += ["--command-boundaries-file", config.command_boundaries_file]
-        boundary = f"the command boundary file {config.command_boundaries_file}; "
+    boundary = (f"the command boundary file {config.command_boundaries_file}; "
+                if config.command_boundaries_file else "")
+    if config.condition == "module":
+        return (f"Mutable scope: files {', '.join(config.mutable_files)}; the entry body and private procedures, "
+                "workflows, prompts and types may be added, removed or rewritten; condition module.\n\n"
+                "Frozen surfaces: imports, module and language forms, exports, exported entry parameters and result, "
+                f"imported public types, provider bindings; {boundary}all other files.\n\n"
+                f"Models and efforts (literal values only): {config.models}. Every provider call needs a positive "
+                f"literal :timeout-sec at most {config.per_call_timeout_sec}. Agent sessions and phased providers "
+                "are refused. Claude launches through PATH enforce model IDs; Codex models are checked at admission.\n\n"
+                "Check an edit with: PYTHONPATH=../py python -P -m experiments.orc_structural_search.check "
+                "--metadata ../admission.json\n")
     added = "Adding or removing files or definitions" + (" (other than the site's fresh helpers)" if site else "")
     return (f"Mutable scope: files {', '.join(config.mutable_files)}; definitions "
             f"{', '.join(config.mutable_definitions)}; condition {config.condition}.\n\n"
@@ -93,7 +97,8 @@ def lisp_scope(config: ExperimentConfig, site: Mapping | None) -> str:
             f"language forms; exported signatures; {boundary}and what the condition does not permit (topology-only "
             "freezes prompts, the providers file and any :model/:effort value the module does not already use). "
             f"{added}, or changing a frozen surface, refuses the proposal.\n\n"
-            f"Check an edit with: PYTHONPATH=../py {shlex.join(compile_args)}\n")
+            "Check an edit with: PYTHONPATH=../py python -P -m experiments.orc_structural_search.check "
+            "--metadata ../admission.json\n")
 
 
 def feedback_text(feedback: Mapping) -> str:

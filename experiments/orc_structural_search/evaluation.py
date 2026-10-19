@@ -48,7 +48,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from experiments.compare.prepare import ArmSpec, read_memo, run_arm
-from experiments.compare.repos import load, runtime_commit
+from experiments.compare.repos import dump, load, runtime_commit
 from experiments.orc_structural_search import acceptance, ledger  # acceptance imports this module: call time only
 from experiments.orc_structural_search.candidates import candidate_id, compile_candidate
 from experiments.orc_structural_search.config import ExperimentConfig
@@ -76,6 +76,10 @@ class EvaluationRecord:
     resume_count: int
     incidents: tuple[str, ...]
     attempt: int = 1  # quota relaunches of one job are attempts 2, 3, ...
+    criterion_sha256: str | None = None
+    realized_perform_sites: list[dict] | str = UNAVAILABLE
+    exercised_branches: str = UNAVAILABLE
+    branch_coverage_reason: str = "run_not_started"
 
 
 def is_python(config: ExperimentConfig) -> bool:
@@ -159,12 +163,15 @@ def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Pa
         command=(sys.executable, "-P", str(source)) if python else None)
     records = run_arm(task_package, eid, work_root, runtime, spec=spec)
     arm = load(records / "record.json")
+    if config.models is not None:
+        arm["allowed_claude_models"] = list(config.models)
+        dump(records / "record.json", arm)
     state_dir, clone = Path(arm["state_root"]), Path(arm["candidates"][0])
     shutil.copyfile(candidate_root / DEV_CHECK, clone / DEV_CHECK)
     with (clone / ".git" / "info" / "exclude").open("a") as exclude:  # not part of the agent's patch
         exclude.write(f"/{DEV_CHECK}\n")
     pending = EvaluationRecord(eid, UNAVAILABLE, state_dir, records, env_digest, "incident", None, 0.0, 0, 0, (),
-                               attempt)
+                               attempt, config.criterion_sha256)
     return _launch(pending, ["bash", str(records / "command.sh")], env, timeout_sec)
 
 
@@ -188,6 +195,10 @@ def _launch(record: EvaluationRecord, argv: list[str], env: Mapping[str, str],
     log = records / f"launch-{record.resume_count}.log"
     before = len(list((records / "calls").glob("*")))
     started = time.monotonic()
+    metadata = load(records / "record.json")
+    env = dict(env)
+    if "allowed_claude_models" in metadata:
+        env["COMPARE_CLAUDE_MODELS"] = ",".join(metadata["allowed_claude_models"])
     with log.open("w") as out:
         launcher = subprocess.Popen(argv, env=dict(env), stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
         try:
@@ -209,7 +220,24 @@ def _launch(record: EvaluationRecord, argv: list[str], env: Mapping[str, str],
                       f"(launcher exit {status}; see {log})",)
     return replace(record, run_id=run_id, outcome=outcome, value=value, incidents=incidents,
                    wall_clock_sec=record.wall_clock_sec + elapsed,
-                   provider_calls=len(list((records / "calls").glob("*"))))
+                   provider_calls=len(list((records / "calls").glob("*"))),
+                   **realized_effects(record.state_dir, run_id, generic=metadata["arm_kind"] == "generic-command"))
+
+
+
+def realized_effects(state_dir: Path, run_id: str, *, generic: bool) -> dict:
+    """Validated memo effects are execution evidence; they do not identify exercised source branches."""
+    result = {"realized_perform_sites": UNAVAILABLE, "exercised_branches": UNAVAILABLE,
+              "branch_coverage_reason": "generic_command_has_no_orc_memo" if generic else "run_not_started"}
+    if generic or run_id == UNAVAILABLE:
+        return result
+    from orchestrator.workflow.evaluated.views import load_evaluated_view
+    view = load_evaluated_view(state_dir / run_id)
+    result.update(realized_perform_sites=[
+        {"identity": step["identity"], "effect_class": step["effect_class"],
+         "attempts": step["attempt"], "status": step["status"]}
+        for step in view["steps"].values()], branch_coverage_reason="memo_records_effects_only")
+    return result
 
 
 def _classify(state_dir: Path, *, generic: bool) -> tuple[str, str, object | None]:

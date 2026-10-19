@@ -13,6 +13,8 @@ from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
+from experiments.compare import scan
+
 UNAVAILABLE = "unavailable"
 CLAUDE_FIELDS = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
 
@@ -119,7 +121,8 @@ def _codex_tokens(rollout: Path) -> int | str:
     return rows[0].get("total_tokens", UNAVAILABLE) if rows != UNAVAILABLE else UNAVAILABLE
 
 
-def coverage(records_dir: Path, *, claude_sessions: Sequence[Path], codex_rollouts: Sequence[Path]) -> dict:
+def coverage(records_dir: Path, *, claude_sessions: Sequence[Path], codex_rollouts: Sequence[Path],
+             session_paths: list[str] | None = None) -> dict:
     """Join each shim call to a native session whose user-turn text equals its stripped `prompt.txt`.
 
     Calls sharing a prompt pair one to one, in order, with the sessions holding it, but only when the two counts
@@ -129,7 +132,7 @@ def coverage(records_dir: Path, *, claude_sessions: Sequence[Path], codex_rollou
     calls = sorted((records_dir / "calls").glob("*"), key=lambda p: int(p.name))
     candidates = [("claude", s) for s in claude_sessions if s.parent.name != "subagents"]
     candidates += [("codex", r) for r in codex_rollouts]
-    matched, unmatched = _match_calls(calls, candidates, claude_sessions)
+    matched, unmatched = _match_calls(calls, candidates, claude_sessions, session_paths)
     report: dict[str, Any] = {"calls": len(calls), "unmatched_calls": unmatched}
     for provider, tokens in matched.items():
         report[provider] = _provider_report(tokens, unmatched)
@@ -137,7 +140,8 @@ def coverage(records_dir: Path, *, claude_sessions: Sequence[Path], codex_rollou
 
 
 def _match_calls(calls: Sequence[Path], candidates: Sequence[tuple[str, Path]],
-                 claude_sessions: Sequence[Path]) -> tuple[dict[str, list[int | str]], int]:
+                 claude_sessions: Sequence[Path], session_paths: list[str] | None = None
+                 ) -> tuple[dict[str, list[int | str]], int]:
     """(tokens of each matched call per provider, number of unmatched calls); see `coverage`."""
     texts = {c: _user_texts(*c) for c in candidates}
     by_prompt: dict[str, list[Path]] = {}
@@ -152,6 +156,8 @@ def _match_calls(calls: Sequence[Path], candidates: Sequence[tuple[str, Path]],
             unmatched += len(group)
             continue
         claimed.update(holders)
+        if session_paths is not None:
+            session_paths.extend(str(path) for _, path in holders)
         for provider, path in holders:
             tokens = _claude_tokens(path, claude_sessions) if provider == "claude" else _codex_tokens(path)
             matched[provider].append(tokens)
@@ -166,3 +172,26 @@ def _provider_report(tokens: list[int | str], unmatched: int) -> dict:
             # The shim records no per-call timing; only run-level wall clock has a receipt
             # (recorded by the evaluation records).
             "wall_clock_sec": UNAVAILABLE}
+
+
+def receipts(records_dir: Path, *, tree: Path, since: float, home: Path) -> dict:
+    """Scoped native receipts; absent, ambiguous or incomplete coverage remains unavailable."""
+    unavailable = {"consumption": UNAVAILABLE, "native_session_paths": UNAVAILABLE}
+    try:
+        claude = [path for path in scan.claude_sessions(tree, home) if path.stat().st_mtime >= since]
+        codex = []
+        for path in sorted((home / ".codex" / "sessions").glob("*/*/*/rollout-*.jsonl")):
+            if path.stat().st_mtime >= since:
+                cwd = scan.codex_cwd(path)
+                if cwd and Path(cwd).is_relative_to(tree):
+                    codex.append(path)
+        paths: list[str] = []
+        report = coverage(records_dir, claude_sessions=claude, codex_rollouts=codex, session_paths=paths)
+    except (OSError, ValueError, TypeError, KeyError):
+        # A timeout can leave a partial native JSONL; consumption never prevents settling the attempt.
+        return unavailable
+    if not report["calls"] or report["unmatched_calls"] or any(
+            report[provider]["calls"] and report[provider]["tokens"] == UNAVAILABLE
+            for provider in ("claude", "codex")):
+        return unavailable
+    return {"consumption": report, "native_session_paths": sorted(paths)}

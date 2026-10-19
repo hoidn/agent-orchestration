@@ -17,6 +17,18 @@ for d in "${dirs[@]}"; do
   [ -x "$d/claude" ] && { real="$d/claude"; break; }
 done
 [ -n "$real" ] || { echo "model guard: no real claude on PATH outside $here" >&2; exit 127; }
+check_model() {
+  local model=$1
+  shopt -s nocasematch
+  [[ $model == *fable* ]] && { echo "model guard: '$model' names a Fable model, which no experiment call may use" >&2; exit 2; }
+  shopt -u nocasematch
+  if [ -n "${ORC_ALLOWED_CLAUDE_MODELS+set}" ]; then
+    case ,$ORC_ALLOWED_CLAUDE_MODELS, in
+      *,"$model",*) [ -n "$model" ] && return ;;
+    esac
+    echo "model guard: '$model' is outside the criterion's allowed Claude model IDs" >&2; exit 2
+  fi
+}
 given=; args=("$@")
 for ((i = 0; i < ${#args[@]}; i++)); do
   case ${args[i]} in
@@ -26,9 +38,13 @@ for ((i = 0; i < ${#args[@]}; i++)); do
     --fallback-model=*) model=${args[i]#--fallback-model=} ;;
     *) continue ;;
   esac
-  shopt -s nocasematch
-  [[ $model == *fable* ]] && { echo "model guard: '$model' names a Fable model, which no experiment call may use" >&2; exit 2; }
-  shopt -u nocasematch
+  IFS=, read -ra models <<< "$model"
+  [ ${#models[@]} -gt 0 ] || check_model ""
+  for selected in "${models[@]}"; do check_model "$selected"; done
 done
-[ -n "$given" ] || set -- --model claude-opus-5-5 "$@"
+check_model "${CLAUDE_CODE_SUBAGENT_MODEL:-claude-opus-5-5}"
+if [ -z "$given" ]; then
+  check_model claude-opus-5-5
+  set -- --model claude-opus-5-5 "$@"
+fi
 exec "$real" "$@"

@@ -1,0 +1,148 @@
+{
+  "experiment": "Offline preparation of a successor four-arm structural-search study; no live study selected.",
+  "plan": "docs/plans/2026-10-19-orc-structural-search-module-rewrite-plan.md",
+  "tasks": [
+    "experiments/compare/tasks/resume-projection-integrity",
+    "experiments/compare/tasks/pure-result-replay"
+  ],
+  "base_commits": {
+    "resume-projection-integrity": "1cd607673c89170dc96c74a0b5eb4aef204da82d",
+    "pure-result-replay": "f80e551a6cdeca6a2913ce640326495be1ae1cc5"
+  },
+  "solutions": "not recorded here: this file sits in the runtime agents can read; the operator passes each task's solution commit with --solution and the scan uses it",
+  "judges": [
+    "claude-opus-5-5",
+    "gpt-6.1-sol"
+  ],
+  "judge_bindings": {
+    "claude-opus-5-5": "experiments/compare/score.providers.json",
+    "gpt-6.1-sol": "experiments/compare/providers/score_codex.json"
+  },
+  "judge_note": "score_codex.json binds only providers.judge (codex_unrestricted_workspace) and stays unchanged; the judge's model is score.orc's judge_model input, written from the judge's name (--judge gpt-6.1-sol=experiments/compare/providers/score_codex.json, E-B3's pattern)",
+  "anchors": {
+    "resume-projection-integrity": {
+      "upstream": "resume-projection-integrity-upstream",
+      "stub": "resume-projection-integrity-stub"
+    },
+    "pure-result-replay": {
+      "upstream": "pure-result-replay-upstream",
+      "stub": "pure-result-replay-stub"
+    }
+  },
+  "parents": {
+    "orc": "experiments/orc_structural_search/three_arm/orc",
+    "python": "experiments/orc_structural_search/three_arm/python"
+  },
+  "parents_note": "Same ORC direct parent for I1, I2 and I1/module; matched Python parent for I3. Demonstrative offline configuration; live parent and task qualification require owner selection.",
+  "envelope": {
+    "episodes_per_arm": 6,
+    "interfaces": [
+      "I1",
+      "I2",
+      "I3"
+    ],
+    "condition": "topology-only",
+    "mutator": "codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --model gpt-6.1-sol --config model_reasoning_effort=high",
+    "episode_wall_clock_sec": 3600,
+    "evaluation_wall_clock_sec": 14400,
+    "site_selection": "uniform over eligible manifest sites, random.Random(f\"{run_seed} {episode_index}\") (as mode 2)",
+    "episode_environment": "the mutator runs behind the shims with EPISODE.md on stdin, PYTHONDONTWRITEBYTECODE=1 and COMPARE_HIDE masking (bubblewrap mounts a tmpfs over each hidden directory after its --dev-bind / /, the episode's own tree bound back): the evidence root, sibling episodes, the work root's evaluation directories (records, runs, agents, env-manifests) and the operator's --hide roots, the Phase 1 roots among them; home stays readable and scan-detected",
+    "order": "I1, I2, I3, I1/module; fresh episodes, sequential; evaluation concurrency selected at launch",
+    "episode_count": "episodes_per_arm counts non-quota episodes (accepted, rejected, exhausted or incident; quota incidents are relaunched)"
+  },
+  "type_checker": {
+    "name": "pyright",
+    "version": "1.1.403",
+    "args": [
+      "--outputjson"
+    ],
+    "strictness": "pyright default rules (typeCheckingMode unset: standard in 1.1.403); errorCount must be 0; warnings do not refuse",
+    "admission": "acceptance.check_python: pyright on the entry module from the candidate root with a generated pyrightconfig.json (extraPaths the runtime the candidate runs with, enableTypeIgnoreComments false; PYTHONPATH dropped); accepted when errorCount is 0, else rejected type_check_failed with one diagnostic per error; pyright missing or exiting other than 0 or 1 raises",
+    "suppression": "a child whose entry module adds a comment silencing pyright (type: ignore, pyright: ...) that the parent lacks is rejected type_check_failed, rule suppression_comment",
+    "parent": "the parent must type-check clean against the runtime (acceptance.check_parent) or the run stops (RuntimeError): a runtime that does not resolve the frozen imports never rejects a child",
+    "mutator_check": "PYTHONPATH=../py pyright direct.py"
+  },
+  "i3": {
+    "scope": "acceptance.validate_python_scope: the mutable file's top level is frozen except the bodies of the mutable functions and added undecorated top-level functions; frozen_surface_changed for any other top-level change, a mutable function's changed parameters, return annotation or decorators, and inside the mutable or added functions a global/nonlocal or import statement, a store (or del) to a name bound at the parent's top level, a non-constant model=/effort= value or (topology-only) a model/effort constant new to the parent module; scope_exceeded for a removed mutable function, an added top-level node that is not an undecorated function, or any other file changed; declaration_collision for an added function named like a top-level name or a builtin; under topology-only every provider_result call takes its prompt as <NAME>_PROMPT.format(...) written in the call, <NAME>_PROMPT a frozen top-level constant of the parent (format arguments free), and provider_result is never aliased (controller ruling R10, parity with ORC's frozen defprompt bodies); the I3 brief renders every refusal rule from briefs.PYTHON_RULES; a child adding a suppression comment (#\\s*(?:type:\\s*ignore|pyright:)) is rejected type_check_failed (suppression_comment)",
+    "planned_maximum": "MAX_PROVIDER_CALLS = 8 per I3 child: the module's frozen runtime cap (ledger.python_call_cap) is the planned maximum its evaluations reserve; launches are reservation-aware: a launch waits for in-flight evaluations to settle and is refused only when it cannot fit under the cap with nothing in flight",
+    "skeleton": "records.python_skeleton_hash over the mutable functions only (mutable_definitions; added helper bodies excluded, as for I2); provider allocation from records.python_provider_allocation over the same functions",
+    "prompt": "the I3 parent sends the coder the ORC parent's prompt bytes once each clone's repo path is normalised; only the output contract's '- path:' line differs"
+  },
+  "collapse_threshold": 0.75,
+  "collapse": "per arm: collapsed when the terminal-only share of the arm's accepted children (skeleton and provider allocation both equal the parent's) exceeds collapse_threshold; children with the parent's skeleton but another allocation count as allocation_distinct, not as collapsed; unavailable without an accepted child",
+  "locality": "an episode is out of scope when its verdict is scope_exceeded, frozen_surface_changed, digest_mismatch, site_unlocatable or declaration_collision; locality per arm = out-of-scope episodes over judged episodes (accepted + rejected), and files touched per episode from the final diff",
+  "subset": {
+    "per_arm": 2,
+    "rule": "Per configured arm in arms order: accepted uncontaminated children; exclude candidate and program repeats across all arms and the parents; first by episode index, then first distinct skeleton, else seeded hash tie-break.",
+    "replicates": 1,
+    "tasks": "both"
+  },
+  "primary_measure": "the failure-inclusive blind rubric mean per task and arm: the mean over the arm's evaluations whose outcome is completed or failed, a completed evaluation contributing summarize's run value and a failed evaluation (the driver log's outcome field; collect records no patch for it, so summarize has no run row) 0 rubric points; incident evaluations are excluded and counted, and a completed evaluation without a value (excluded by summarize, e.g. contamination) is excluded and counted as excluded; read from results.json joined by scoring.join_scores and the task's failed and incident evaluations in the log (scoring.read_pool); arms are the configured arms, including I1/module, each over its subset children's evaluations; log rows count once per job (quota.job_key: candidate, task, replicate, split, generation; the last row, so a resumed incident counts as its later outcome and a quota relaunch, which has another evaluation id, supersedes its quota incident); a timeout (an incident whose latest incidents entry shows 'launcher exit -9', scoring.scored_outcome) is a failure scored 0 and also reported apart. Reported descriptively per arm and per child: no separation decision; the Phase 1/Phase 2 decision stands",
+  "scale": "each clone scores 0-8, the sum of score.orc's four rubric criteria (root_cause, scope, generality, layering), each 0-2, averaged over the judges not excluded; an evaluation's value is its final clone's (summarize's run value)",
+  "reported": [
+    "per arm, never pooled across arms: completed episodes, acceptance per episode, locality and files touched per episode, distinct skeletons, revisit rate, exact repeats by program_digest, terminal-only share, allocation_distinct, collapsed",
+    "per arm and task: the subset children, mean (primary, failure-inclusive), valued_mean, failed, timeouts, incidents, excluded; per child its values per task",
+    "anchor scores per task and judge (summarize results.json); missing receipts are unavailable, never 0"
+  ],
+  "budget": {
+    "status": "unselected",
+    "call_cap": null,
+    "note": "No allocation for a successor study; historical owner approval does not authorize this criterion."
+  },
+  "model_policy": "Literal model/effort allowlist and per-call ceiling enforced for module admission. Claude IDs enforced for all arms through the shim guard, including the implicit Opus default, fallbacks and forced subagents. Codex model enforcement is at module admission. Fable is always refused.",
+  "known_differences": [
+    "I3's scope rule does not refuse direct subprocess or CLI calls, a ** splat of tuning values, or calls that mutate frozen state (STATE.__init__(), PROVIDERS.update(...)); the shims record every provider call",
+    "the I3 and ORC parents' prompts differ only in the output contract's '- path:' line, once each clone's repo path is normalised",
+    "mutator isolation masks the named roots; home stays readable and the scan reads it"
+  ],
+  "written_before_scoring": true,
+  "scoring_join": "summarize's clone-id join (scoring.join_scores); three_arm readout",
+  "separation": {
+    "anchor_spread_limit": 2.0,
+    "note": "Phase 1's value; used only by scoring.anchor_checks for the reported anchor figures; no separation rule is applied"
+  },
+  "anchor_trust": "from each pool's results.json anchors: anchors_ok when, in every batch and for every judge not excluded, the upstream anchor's total is strictly above the stub's (a missing anchor fails); anchor_spread per judge is the largest difference of one anchor's total across batches. Each pool's results.json criterion_sha256 must equal this file's SHA-256; reported, not a gate",
+  "models": {
+    "gpt-6.1-sol": [
+      "high"
+    ],
+    "claude-opus-5-5": [
+      "high"
+    ]
+  },
+  "per_call_timeout_sec": 5400,
+  "arms": {
+    "I1": {
+      "interface": "I1",
+      "condition": "topology-only",
+      "parent": "orc"
+    },
+    "I2": {
+      "interface": "I2",
+      "condition": "topology-only",
+      "parent": "orc"
+    },
+    "I3": {
+      "interface": "I3",
+      "condition": "topology-only",
+      "parent": "python"
+    },
+    "I1/module": {
+      "interface": "I1",
+      "condition": "module",
+      "parent": "orc"
+    }
+  },
+  "live_gates": {
+    "status": "unselected",
+    "required": [
+      "three-arm readout and scans adjudicated",
+      "discriminating evaluator anchors",
+      "family with failing agent-visible checks",
+      "metering or calls and wall-clock-only comparison",
+      "mutator isolation",
+      "sealed assessment split",
+      "owner selection and allocation"
+    ]
+  }
+}

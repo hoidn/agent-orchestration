@@ -65,7 +65,7 @@ from types import MappingProxyType
 from experiments.compare import prepare
 from experiments.compare.repos import (
     SEED_COMMIT, SEED_DATES, dump, git, guard, main_checkout, runtime_commit, shim_prefix, visible_in_sandbox)
-from experiments.orc_structural_search import ledger
+from experiments.orc_structural_search import ledger, metering
 from experiments.orc_structural_search.acceptance import judge_child
 from experiments.orc_structural_search.briefs import episode_brief
 from experiments.orc_structural_search.candidates import (
@@ -182,10 +182,18 @@ def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, repli
     row = {"split": UNAVAILABLE, **fields,  # mode 2 names the split
            **{k: str(v) if isinstance(v, Path) else v for k, v in asdict(record).items()},
            "kind": "evaluation", "task_id": task.name, "replicate": replicate, "evaluator_version": EVALUATOR_VERSION,
-           "consumption": UNAVAILABLE, "scan_hits": len(hits), "scan_pending": bool(hits)}
+           "criterion_sha256": config.criterion_sha256,
+           "consumption": evaluation_consumption(record), "scan_hits": len(hits), "scan_pending": bool(hits)}
     with _LOG_LOCK:
         append_record(evidence_root / "log.jsonl", row)
     return row
+
+
+
+def evaluation_consumption(record) -> dict | str:
+    metadata = json.loads((record.records_dir / "record.json").read_text())
+    return metering.receipts(record.records_dir, tree=Path(metadata["tree"]),
+                            since=metadata["created_at"], home=Path.home())["consumption"]
 
 
 def object_type(repo: Path, name: str) -> str:
@@ -265,7 +273,9 @@ def enumerate_catalog(seeds: Sequence[Path], config: ExperimentConfig, *, tasks:
                         solutions=solutions, holdouts=holdouts, call_cap=call_cap)
 
 
-def episode_workspace(parent_root: Path, tree: Path, brief: str, runtime: Path) -> tuple[Path, str]:
+def episode_workspace(parent_root: Path, tree: Path, brief: str, runtime: Path, *,
+                      config: ExperimentConfig, site: Mapping | None = None,
+                      parent_candidate_id: str | None = None) -> tuple[Path, str]:
     """(<tree>/cand-1, its commit): a git repository holding the parent snapshot in one commit, with the brief
     in EPISODE.md (excluded from patches, like the build cache and the I2 HYPOTHESIS.txt); <tree>/tmp; and
     <tree>/py/orchestrator, a copy of the runtime's orchestrator for the brief's compile line (the shims strip
@@ -274,6 +284,13 @@ def episode_workspace(parent_root: Path, tree: Path, brief: str, runtime: Path) 
     visible_in_sandbox(tree)
     shutil.copytree(runtime / "orchestrator", tree / "py" / "orchestrator",
                     ignore=shutil.ignore_patterns("__pycache__"))
+    for package in ("compare", "orc_structural_search"):
+        destination = tree / "py" / "experiments" / package
+        destination.mkdir(parents=True)
+        for module in (runtime / "experiments" / package).glob("*.py"):
+            shutil.copyfile(module, destination / module.name)
+        (destination / "__init__.py").touch(exist_ok=True)
+    (tree / "py" / "experiments" / "__init__.py").touch()
     copy = snapshot(parent_root, {}, tree / "cand-1")
     git(copy, "init", "-q")
     git(copy, "add", "-A", "-f", ".")
@@ -283,7 +300,13 @@ def episode_workspace(parent_root: Path, tree: Path, brief: str, runtime: Path) 
         exclude.write(f"/{EPISODE}\n/{HYPOTHESIS}\n/.orchestrate/\n")
     (copy / EPISODE).write_text(brief)
     (tree / "tmp").mkdir()
-    return copy, git(copy, "rev-parse", "HEAD")
+    base = git(copy, "rev-parse", "HEAD")
+    dump(tree / "config.json", asdict(config))
+    dump(tree / "admission.json", {"base": base, "config": "config.json", "site": site,
+                                   "parent_candidate_id": parent_candidate_id})
+    for name in ("config.json", "admission.json"):
+        (tree / name).chmod(0o444)
+    return copy, base
 
 
 def check_hide(hide: Sequence[Path]) -> None:
@@ -423,12 +446,15 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
                     "parent_provider_allocation": allocation(parent_root, config)}
     tree, records = work_root / "episodes" / f"episode-{episode_index}", evidence_root / "episodes" / episode_id
     brief = episode_brief(config, episode_index, site=site, feedback=feedback)
-    copy, base = episode_workspace(parent_root, tree, brief, runtime)
+    copy, base = episode_workspace(parent_root, tree, brief, runtime, config=config, site=site,
+                                   parent_candidate_id=parent_id)
     records.mkdir(parents=True)
     created_at, started = time.time(), time.monotonic()
     hidden = hidden_roots(work_root, evidence_root, hide)
     shim_env = {"COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": base, "TMPDIR": tree / "tmp",
                 "COMPARE_HIDE": os.pathsep.join(map(str, hidden))}
+    if config.models is not None:
+        shim_env["COMPARE_CLAUDE_MODELS"] = ",".join(config.models)
     stopped, status = run_agent(agent_cmd, copy, evidence_root / "episodes" / f"episode-{episode_index}.log",
                                 {**env, **LAUNCH_ENV, **EPISODE_ENV}, config.episode_wall_clock_sec, runtime=runtime,
                                 shim_env=shim_env)
@@ -452,7 +478,9 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
            "agent_exit": status, "envelope": {"wall_clock_sec": config.episode_wall_clock_sec},
            "wall_clock_sec": elapsed, "provider_calls": calls, "scan_hits": len(hits), "scan_pending": bool(hits),
            "workspace_intact": intact, "incidents": incidents, "hidden_roots": [str(root) for root in hidden],
-           "consumption": UNAVAILABLE, "model_revision": UNAVAILABLE,
+           "criterion_sha256": config.criterion_sha256,
+           **metering.receipts(records, tree=tree, since=created_at, home=Path.home()),
+           "model_revision": UNAVAILABLE,
            "hypothesis": verdict["receipt"]["hypothesis"] if verdict["receipt"] else UNAVAILABLE,
            "refusal_code": None, "diagnostics_class": None, "skeleton": None,
            "provider_allocation": None, **parent_shape, **verdict}

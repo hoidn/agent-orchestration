@@ -234,3 +234,45 @@ def test_a_generic_command_incident_is_not_resumable(tmp_path):
     record = EvaluationRecord("e", "unavailable", tmp_path, tmp_path, "sha256:e", "incident", None, 0.0, 0, 0, ())
     with pytest.raises(ValueError, match="no resume.sh"):
         resume(record, env={}, timeout_sec=1)
+
+
+def test_effect_evidence_distinguishes_not_started_generic_and_pure_zero(sandboxed, world):
+    from experiments.orc_structural_search import evaluation
+    absent = evaluation.realized_effects(world.tmp / "absent", "unavailable", generic=False)
+    generic = evaluation.realized_effects(world.tmp / "absent", "unavailable", generic=True)
+    source = world.candidate / "direct.orc"
+    text = source.read_text()
+    begin = text.index("    (let* ((change")
+    source.write_text(text[:begin] + '    (variant Outcome DONE :summary "pure"))\n)\n')
+    record, _ = run(world)
+    assert (absent["realized_perform_sites"], generic["branch_coverage_reason"],
+            record.realized_perform_sites, record.exercised_branches, record.branch_coverage_reason) == (
+        "unavailable", "generic_command_has_no_orc_memo", [], "unavailable", "memo_records_effects_only")
+
+
+@pytest.mark.parametrize("fails,expected_calls,expected_classes", [
+    (False, 1, ["provider", "command"]),
+    (True, 3, ["provider", "command", "provider", "provider"]),
+])
+def test_public_run_realizes_repair_only_after_failed_development_check(sandboxed, world, fails, expected_calls,
+                                                                        expected_classes):
+    from dataclasses import replace
+    from experiments.orc_structural_search import evaluation
+    # The task-visible check is deterministic and fails at the base only in the repair case.
+    (world.task / "seed/dev-check.json").write_text(json.dumps({
+        "argv": [__import__("sys").executable, "-c", "raise SystemExit(1)" if fails else "import pkg"],
+        "timeout_sec": 30}))
+    script(world, [CHANGE, {"match": "diagnose why", "result": {"findings": ["base check fails"]}},
+                   {"match": "Fix the root causes", "result": {"summary": "repaired", "account": "repair"}}])
+    config = replace(CONFIG, entry_workflow="implement_check_diagnose_repair::run",
+                     mutable_files=("implement_check_diagnose_repair.orc",))
+    record, _ = run(world, config=config)
+    assert (record.outcome, record.provider_calls,
+            [site["effect_class"] for site in record.realized_perform_sites]) == (
+        "completed", expected_calls, expected_classes)
+    assert all(site["attempts"] == 1 and site["status"] == "completed" for site in record.realized_perform_sites)
+    assert record.exercised_branches == "unavailable"
+    memo = record.state_dir / record.run_id / "memo.jsonl"
+    memo.write_text(memo.read_text() + '{"invalid":true}\n')
+    with pytest.raises(ValueError):
+        evaluation.realized_effects(record.state_dir, record.run_id, generic=False)

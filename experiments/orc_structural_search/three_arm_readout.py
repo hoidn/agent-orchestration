@@ -10,7 +10,8 @@ from pathlib import Path
 from experiments.orc_structural_search.records import UNAVAILABLE, read_records
 from experiments.orc_structural_search.scoring import (
     anchor_checks, log_only_pool, policy_stats, primary_value, read_pool)
-from experiments.orc_structural_search.three_arm import ARMS, MODE
+from experiments.orc_structural_search.three_arm import (
+    HISTORICAL_CRITERION_SHA256, MODE, arm_specs, check_row_criteria, load_criterion)
 
 DECISION = "descriptive; no separation rule applied (Phase 1 decision stands)"
 
@@ -27,7 +28,7 @@ def task_figures(pool: Mapping, arms: Mapping[str, str], chosen: Mapping[str, st
     judges and unpooled evaluations."""
     rows = [row for row in pool["rows"] if row["evaluation_id"] in arms]
     figures = {}
-    for arm in ARMS:
+    for arm in arm_specs(criterion):
         mine = [row for row in rows if arms[row["evaluation_id"]] == arm]
         children = sorted(cid for cid, owner in chosen.items() if owner == arm)
         figures[arm] = policy_stats(mine) | {"children": {
@@ -43,9 +44,16 @@ def readout(log: Path, driver_readout: Path, criterion: Path, results: Sequence[
     scoring.log_only_pool) task_figures over the evaluations of the subset children the driver's readout
     (E/readout.json) names (a child a continued run's subset no longer chooses is left out); the driver readout's
     compile-only figures; no decision rule."""
-    frozen, compile_only = json.loads(Path(criterion).read_text()), json.loads(Path(driver_readout).read_text())
+    frozen, compile_only = load_criterion(criterion), json.loads(Path(driver_readout).read_text())
+    rows = read_records(log)
+    check_row_criteria(rows, frozen)
+    got = compile_only.get("criterion_sha256")
+    if got != frozen["criterion_sha256"] and not (got is None and frozen["criterion_sha256"] == HISTORICAL_CRITERION_SHA256):
+        raise ValueError("driver readout criterion_sha256 differs from the criterion")
+    if set(compile_only["arms"]) != set(arm_specs(frozen)):
+        raise ValueError("driver readout arms differ from the criterion")
     chosen = {cid: arm for arm, figures in compile_only["arms"].items() for cid in figures["subset"]}
-    arms = {row["evaluation_id"]: row["arm"] for row in read_records(log) if row["kind"] == "evaluation"
+    arms = {row["evaluation_id"]: row["arm"] for row in rows if row["kind"] == "evaluation"
             and row.get("mode") == MODE and chosen.get(row["candidate_id"]) == row["arm"]}
     pools = [read_pool(path, log, criterion) for path in results]
     pooled = {pool["task"] for pool in pools}
