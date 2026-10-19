@@ -174,7 +174,9 @@ def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, repli
     ledger.settle(evidence_root, slot, record.records_dir, evaluation_id=record.evaluation_id)
     roots = [("archive", evidence_root), ("archive", work_root / "episodes"), ("lineage", evidence_root / "log.jsonl"),
              *(("holdout", holdout) for holdout in holdouts)]
-    hits = prepare.scan(record.records_dir, solutions[task.name], roots=roots)
+    # the other evaluations' runs: an ORC run's scan finds them beside its state root; an I3 run's state is in its clone
+    runs = [path.name for path in (work_root / "runs").glob("*") if path.name != record.evaluation_id]
+    hits = prepare.scan(record.records_dir, solutions[task.name], roots=roots, others=runs)
     row = {"split": UNAVAILABLE, **fields,  # mode 2 names the split
            **{k: str(v) if isinstance(v, Path) else v for k, v in asdict(record).items()},
            "kind": "evaluation", "task_id": task.name, "replicate": replicate, "evaluator_version": EVALUATOR_VERSION,

@@ -261,7 +261,9 @@ pool has a `kind: "judge"` entry in `E/calls.json`, reserved (one planned call p
 judging records (`mapping.json`, each judge's records, `results.json`) are under `P/.../records/`.
 
 After every evaluation `prepare.scan` runs over its records with `E` and `W/episodes` named `archive`,
-`E/log.jsonl` named `lineage` and each `--holdout` named `holdout`. A nonzero hit count marks the evaluation
+`E/log.jsonl` named `lineage`, each `--holdout` named `holdout`, and the names of the other evaluations' run
+directories under `W/runs` counted as other trees (an I3 run keeps its state in its clone, so its scan names them as
+an ORC run's does). A nonzero hit count marks the evaluation
 record `scan_pending`. The log is append-only, so that flag is never cleared: the adjudicated verdict
 (`prepare.py scan --run R --verdict ...`) lives in the run's `<records_dir>/record.json`, which is the record to
 read before using a flagged evaluation.
