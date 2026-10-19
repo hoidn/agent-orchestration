@@ -47,12 +47,17 @@ What the sandbox isolates:
   private, and so are `/tmp` tmux sockets;
 - `/dev/shm` is private, and the process list shows only the agent's own processes;
 - `/var/tmp` is empty, because other sessions keep repository worktrees there.
+- with `COMPARE_HIDE` set (colon-separated absolute directories; the structural search driver sets it for its
+  mutator), each of them that exists is masked by an empty tmpfs after `--dev-bind / /`, and then
+  `--bind <tree> <tree>` binds the tree back, so masking a parent of the tree leaves the tree reachable. Without
+  the variable the `bwrap` command line is unchanged. The agent never sees it, like the other `COMPARE_*`
+  variables.
 - `/tmp` is private per run, not per agent: `best_of_n`'s implementers share the tree's `tmp/`;
 - the PID namespace ends with the call, so any server or tmux session an agent starts dies when
   its call ends.
 
 What it does not isolate:
-- the rest of the filesystem, home and the network stay shared;
+- the rest of the filesystem (but the `COMPARE_HIDE` directories), home and the network stay shared;
 - other sessions' transcripts (`~/.claude/projects`, `~/.codex/sessions`) stay readable;
 - the scan only detects reads there, it does not prevent them.
 

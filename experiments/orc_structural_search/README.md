@@ -76,7 +76,7 @@ python -m experiments.orc_structural_search.driver --config config.json \
   --tasks $RT/experiments/compare/tasks/<task> --runtime $RT \
   --work-root $W --evidence $E --episodes N --agent-cmd '<mutator command>' \
   --eval-timeout-sec 7200 --solution <task>=$SOL --call-cap 160 [--concurrency 4] [--replicates K] [--holdout PATH ...] \
-  [--continue]
+  [--hide PATH ...] [--continue]
 ```
 
 `--concurrency` (default 4) bounds the evaluations in flight (a thread pool; each has its own clone, records and
@@ -203,11 +203,20 @@ its quota incident). A task with no completed, uncontaminated evaluation has no 
 
 ## Layout
 
-`W` (the work root, sandbox-visible) and `E` (the evidence root) must not nest: agents work under `W` and must
+`W` (the work root) and `E` (the evidence root) must not nest: agents work under `W` and must
 never see the archive or the log. `E` must be fresh unless the run is continued (`--continue`, above): the
 driver refuses an `E/log.jsonl` that already exists and never resumes an incident (an evaluation without a
 terminal row stays an incident in the log; `evaluation.resume` is the operator's tool). Before each episode and evaluation the driver checks that an archived candidate still
 hashes to its directory name.
+
+What the mutator cannot see: every `claude` or `codex` call of an episode runs with the shims' `COMPARE_HIDE`
+naming `E`, `W/episodes`, `W/records`, `W/runs`, `W/agents`, `W/env-manifests` and each mode 1 `--hide` directory
+(`driver.hidden_roots`, created if missing and recorded as the episode row's `hidden_roots`). The shims mask each
+with an empty tmpfs and bind the episode's own tree back, so the call reads its `cand-1`, `tmp/` and `py/` but
+no sibling episode, evaluation, archive candidate or log row; a path into them is not found. With a `claude` or
+`codex` `--agent-cmd` that is the whole mutator; a mutator command that is neither runs outside the sandbox and
+only its CLI calls are masked. The mask names roots and is no allowlist: home, the runtime and every other
+directory stay readable and only the scan reports reads there, so pass other runs' roots with `--hide`.
 
 ```
 W/records/<evaluation_id>/run-1/   run_arm's records: record.json (with the scan), inputs.json, command.sh, calls/

@@ -4,13 +4,13 @@ function I1 and I2 share (run_episode).
 Design: docs/design/orc_structural_search_driver.md ("Search Modes" mode 1, "Proposal Interfaces" I1 and I2,
 "Edit Validation And Transactions", "Records", "Evaluation Hygiene"). Two roots, neither inside the other:
 
-  work root (sandbox-visible; `run_arm`'s work root)
+  work root (`run_arm`'s work root; an episode's CLI calls see only their own episode tree of it: hidden_roots)
     records/, runs/, agents/, env-manifests/   evaluations (see evaluation.py)
     episodes/episode-<n>/cand-1/               the mutator's working copy of the parent: a git repository whose
                                                one commit (the shims' COMPARE_BASE) is the parent snapshot
     episodes/episode-<n>/tmp/                  the mutator's private /tmp under the shims
     episodes/episode-<n>/py/orchestrator/      the runtime's orchestrator, for the brief's compile line
-  evidence root (never shown to an agent)
+  evidence root (never shown to an agent; masked from an episode's CLI calls)
     log.jsonl                                  every episode and evaluation record, append-only
     calls.json                                 the provider-call ledger (ledger.py)
     candidates/<candidate_id>/                 the archive: catalog seeds and accepted children
@@ -276,11 +276,22 @@ def episode_workspace(parent_root: Path, tree: Path, brief: str, runtime: Path) 
     return copy, git(copy, "rev-parse", "HEAD")
 
 
+def hidden_roots(work_root: Path, evidence_root: Path, hide: Sequence[Path] = ()) -> list[Path]:
+    """The directories the shims mask from an episode's CLI calls (COMPARE_HIDE): the evidence root, every episode
+    tree but the call's own (the shims bind it back), the work root's evaluation directories and the operator's
+    `hide` (other runs' roots); each is created so bubblewrap finds a mount point."""
+    roots = [evidence_root, *(work_root / name for name in ("episodes", "records", "runs", "agents", "env-manifests")),
+             *hide]
+    for root in roots:
+        root.mkdir(parents=True, exist_ok=True)
+    return roots
+
+
 def run_agent(agent_cmd: Sequence[str], cwd: Path, log: Path, env: Mapping[str, str], wall_clock_sec: float, *,
               runtime: Path, shim_env: Mapping[str, object]) -> tuple[str | None, int | str]:
     """Run the command from `cwd` behind the shim prefix (`shim_env`: COMPARE_ROOT, COMPARE_TREE, COMPARE_BASE,
-    TMPDIR) with <cwd>/EPISODE.md on stdin: (None when it exited 0, else "incident"; or "exhausted" after the
-    wall clock), exit status."""
+    COMPARE_HIDE, TMPDIR) with <cwd>/EPISODE.md on stdin: (None when it exited 0, else "incident"; or "exhausted"
+    after the wall clock), exit status."""
     log.parent.mkdir(parents=True, exist_ok=True)
     argv = ["bash", "-c", shim_prefix(cwd, runtime, shim_env) + shlex.join(agent_cmd)]
     with log.open("w") as out, (cwd / EPISODE).open() as brief:
@@ -351,12 +362,12 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
                 work_root: Path, evidence_root: Path, episode_index: int, runtime: Path, env: Mapping[str, str],
                 solutions: Mapping[str, str], call_cap: int, holdouts: Sequence[Path] = (),
                 site: Mapping | None = None, feedback: Mapping | None = None, generation: int | None = None,
-                run_seed: int | None = None) -> dict:
+                run_seed: int | None = None, hide: Sequence[Path] = ()) -> dict:
     """One episode against the archived parent (refused beyond the call cap): the agent command edits a copy of it
-    behind the shims (see the module docstring), briefed by `briefs.episode_brief` (I2: `site`, which I1 must not
-    have; `feedback`, the parent's own evidence); the child is the copy's final files, whose diff is kept. The
-    episode is scanned and judged (judge_child; I2 through the one-site transaction); an accepted child is
-    archived; the episode record is appended to the log."""
+    behind the shims (see the module docstring), which mask hidden_roots (with `hide`) from its CLI calls, briefed
+    by `briefs.episode_brief` (I2: `site`, which I1 must not have; `feedback`, the parent's own evidence); the child
+    is the copy's final files, whose diff is kept. The episode is scanned and judged (judge_child; I2 through the
+    one-site transaction); an accepted child is archived; the episode record is appended to the log."""
     if (interface == "I2") != (site is not None):
         raise ValueError(f"interface {interface} with site {site and site['site_id']}: an I2 episode needs a site, "
                          "an I1 episode takes none")
@@ -376,7 +387,9 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
     copy, base = episode_workspace(parent_root, tree, brief, runtime)
     records.mkdir(parents=True)
     created_at, started = time.time(), time.monotonic()
-    shim_env = {"COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": base, "TMPDIR": tree / "tmp"}
+    hidden = hidden_roots(work_root, evidence_root, hide)
+    shim_env = {"COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": base, "TMPDIR": tree / "tmp",
+                "COMPARE_HIDE": os.pathsep.join(map(str, hidden))}
     stopped, status = run_agent(agent_cmd, copy, evidence_root / "episodes" / f"episode-{episode_index}.log",
                                 {**env, **LAUNCH_ENV}, config.episode_wall_clock_sec, runtime=runtime, shim_env=shim_env)
     elapsed = time.monotonic() - started
@@ -398,7 +411,7 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
            "candidate_id": candidate_id(copy, orchestrator_commit=commit), "agent_cmd": list(agent_cmd),
            "agent_exit": status, "envelope": {"wall_clock_sec": config.episode_wall_clock_sec},
            "wall_clock_sec": elapsed, "provider_calls": calls, "scan_hits": len(hits), "scan_pending": bool(hits),
-           "workspace_intact": intact, "incidents": incidents,
+           "workspace_intact": intact, "incidents": incidents, "hidden_roots": [str(root) for root in hidden],
            "consumption": UNAVAILABLE, "model_revision": UNAVAILABLE,
            "hypothesis": verdict["receipt"]["hypothesis"] if verdict["receipt"] else UNAVAILABLE,
            "refusal_code": None, "diagnostics_class": None, "skeleton": None,
@@ -428,6 +441,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--solution", type=solution, action="append", default=[], metavar="TASK=HASH", required=True,
                         help="a task package's solution commit for the scan (repeatable, one per task)")
     parser.add_argument("--holdout", type=Path, action="append", default=[], help="a holdout root (repeatable)")
+    parser.add_argument("--hide", type=Path, action="append", default=[],
+                        help="a directory masked from every episode's CLI calls, e.g. another run's root (repeatable)")
     parser.add_argument("--call-cap", type=int, required=True,
                         help="provider calls (evaluations and episodes) recorded in <evidence>/calls.json, at most")
     parser.add_argument("--concurrency", type=int, default=4, help="evaluations in flight, at most")
@@ -437,7 +452,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     run_mode1(a.config, seeds=a.seeds, tasks=a.tasks, work_root=a.work_root, evidence_root=a.evidence,
               episodes=a.episodes, agent_cmd=shlex.split(a.agent_cmd), replicates=a.replicates, runtime=a.runtime,
               env=os.environ, timeout_sec=a.eval_timeout_sec, solutions=dict(a.solution), call_cap=a.call_cap,
-              concurrency=a.concurrency, holdouts=a.holdout, continue_run=a.continue_run)
+              concurrency=a.concurrency, holdouts=a.holdout, continue_run=a.continue_run, hide=a.hide)
     print(a.evidence / "readout.json")
 
 
