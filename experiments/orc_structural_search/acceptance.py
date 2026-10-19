@@ -1,20 +1,30 @@
 """Child judging of an episode: validation, compilation, the I2 slot check, the bounded planned maximum and the
-entry's result type (driver.run_episode calls judge_child).
+entry's result type (driver.run_episode calls judge_child); for an I3 child (a Python module) AST scope validation
+over the mutable functions and a pyright check instead.
 
-Design: docs/design/orc_structural_search_driver.md ("Edit Validation And Transactions").
+Design: docs/design/orc_structural_search_driver.md ("Edit Validation And Transactions", "Proposal Interfaces" I3).
 """
 
+import ast
 import json
-from collections.abc import Mapping
+import subprocess
+import tempfile
+from collections import Counter
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from pathlib import Path
 
-from experiments.orc_structural_search import ledger
-from experiments.orc_structural_search.candidates import compile_candidate, validate_frozen_surfaces, validate_one_site
+from experiments.orc_structural_search import evaluation, ledger
+from experiments.orc_structural_search.candidates import (
+    ACCEPTED, CompileOutcome, Verdict, _file_names, _refuse, _same_file, compile_candidate, validate_frozen_surfaces,
+    validate_one_site)
 from experiments.orc_structural_search.config import ExperimentConfig
-from experiments.orc_structural_search.records import UNAVAILABLE
+from experiments.orc_structural_search.records import UNAVAILABLE, python_program_digest
 from experiments.orc_structural_search.sites import (
     derive_receipt, drop_hypothesis, replacement_start, site_manifest, slot_type)
+
+
+TUNING_ARGUMENTS = ("model", "effort")  # an I3 call's provider tuning keywords
 
 
 def entry_result(root: Path, build_key: str) -> object:
@@ -28,7 +38,10 @@ def judge_child(parent: Path, child: Path, config: ExperimentConfig, *, runtime:
     the parent's. Without `site`: frozen-surface validation. With
     `site` (I2): the receipt is derived from the child (`receipt` in the verdict), <child>/HYPOTHESIS.txt is then
     removed, and the one-site transaction validates the child; it applies the frozen-surface rule itself with the
-    receipt's helpers allowed (a plain frozen-surface check would refuse any helper)."""
+    receipt's helpers allowed (a plain frozen-surface check would refuse any helper). An I3 child
+    (evaluation.is_python) is judged by judge_python_child."""
+    if evaluation.is_python(config):
+        return judge_python_child(parent, child, config, runtime=runtime)
     receipt = None
     if site is None:
         verdict = validate_frozen_surfaces(parent, child, config)
@@ -41,9 +54,7 @@ def judge_child(parent: Path, child: Path, config: ExperimentConfig, *, runtime:
         return {**shown, "outcome": "rejected", "refusal_code": verdict.code, "detail": verdict.detail}
     compiled = compile_candidate(child, config, runtime=runtime)
     if compiled.status != "accepted":
-        first = compiled.diagnostics[0] if compiled.diagnostics else {}
-        return {**shown, "outcome": "rejected", "diagnostics_class": first.get("code", UNAVAILABLE),
-                "detail": first.get("message") or first.get("stderr", "")}
+        return {**shown, "outcome": "rejected", **diagnosis(compiled)}
     refusal = slot_refusal(parent, child, site, config, runtime=runtime) if site else None
     refusal = refusal or ledger.unbounded_refusal(child, config)  # an unbounded child never reaches an evaluation
     # Fires only when the entry is not exported or lacks a result annotation: frozen-surface validation already
@@ -71,3 +82,171 @@ def slot_refusal(parent: Path, child: Path, site: Mapping, config: ExperimentCon
     if found != expected:
         return {"refusal_code": "slot_type_changed", "detail": f"the replacement is {found}, the site {expected}"}
     return None
+
+
+def diagnosis(checked: CompileOutcome) -> dict:
+    """The rejection fields of a failed compilation or type check: its first diagnostic's code and message."""
+    first = checked.diagnostics[0] if checked.diagnostics else {}
+    return {"diagnostics_class": first.get("code", UNAVAILABLE),
+            "detail": first.get("message") or first.get("stderr", "")}
+
+
+def judge_python_child(parent: Path, child: Path, config: ExperimentConfig, *, runtime: Path) -> dict:
+    """judge_child for an I3 child: validate_python_scope, check_python, then a bounded planned maximum (the
+    module's frozen call cap); no slot or entry-result check (the scope rule freezes the signature of `run`)."""
+    shown = {"receipt": None}
+    verdict = validate_python_scope(parent, child, config)
+    if not verdict.accepted:
+        return {**shown, "outcome": "rejected", "refusal_code": verdict.code, "detail": verdict.detail}
+    checked = check_python(child, config, runtime=runtime)
+    if checked.status != "accepted":
+        return {**shown, "outcome": "rejected", **diagnosis(checked)}
+    refusal = ledger.unbounded_refusal(child, config)
+    if refusal is not None:
+        return {**shown, "outcome": "rejected", **refusal}
+    return {**shown, "outcome": "accepted", "program_digest": checked.program_digest, "build_key": checked.build_key}
+
+
+def check_python(root: Path, config: ExperimentConfig, *, runtime: Path, pyright: str = "pyright") -> CompileOutcome:
+    """Type-check the candidate's entry module (ledger.entry_of) with pyright from `root`; `orchestrator` resolves
+    against `runtime` (the runtime the candidate runs with) through the extraPaths of a generated
+    pyrightconfig.json, wherever `root` lies. Accepted, with the module's program digest and no build key, when
+    pyright reports no error; else rejected with one `type_check_failed` diagnostic per error. RuntimeError when
+    pyright is missing or fails (an exit status other than 0 or 1)."""
+    source, _ = ledger.entry_of(root, config)
+    with tempfile.TemporaryDirectory() as project:
+        (Path(project) / "pyrightconfig.json").write_text(json.dumps({"extraPaths": [str(runtime.resolve())]}))
+        try:
+            done = subprocess.run([pyright, "--outputjson", "--project", project, str(source.relative_to(root))],
+                                  cwd=root, capture_output=True, text=True)
+        except FileNotFoundError as error:
+            raise RuntimeError(f"{pyright} is not installed: an I3 child cannot be type-checked") from error
+    if done.returncode not in (0, 1):
+        raise RuntimeError(f"{pyright} exited {done.returncode} on {source}: "
+                           f"{done.stdout[-2000:]}{done.stderr[-2000:]}")
+    report = json.loads(done.stdout)
+    if report["summary"]["errorCount"] == 0:
+        return CompileOutcome("accepted", UNAVAILABLE, python_program_digest(source.read_text()), ())
+    return CompileOutcome("rejected", None, None, tuple(
+        {"code": "type_check_failed", "rule": d.get("rule", UNAVAILABLE),
+         "message": f"{Path(d['file']).name}:{d['range']['start']['line'] + 1}: {d['message']}"}
+        for d in report["generalDiagnostics"] if d["severity"] == "error"))
+
+
+def validate_python_scope(parent: Path, child: Path, config: ExperimentConfig) -> Verdict:
+    """Refuse an I3 child whose change leaves the mutable functions of its mutable Python file.
+
+    Top-level nodes are compared by `ast.dump` (comments and formatting are free). `frozen_surface_changed`: a
+    top-level node other than a mutable function (`mutable_definitions`) changed, a mutable function's parameters
+    or return annotation changed, or (topology-only) a `model=`/`effort=` constant in the mutable functions or the
+    added ones is new to the parent module. `scope_exceeded`: a mutable function was removed, an added top-level
+    node is not a function, or another file differs (bytes; `.orc` forms). `declaration_collision`: an added
+    function's name is already bound at top level (an import included). `unreadable_child`: `ast` rejects the
+    child's mutable file."""
+    for name in _file_names(parent, child):
+        before, after = parent / name, child / name
+        if name in config.mutable_files and before.is_file() and after.is_file():
+            verdict = _python_file_verdict(before, after, config)
+        elif _same_file(before, after):
+            continue
+        else:
+            change = "was added" if not before.is_file() else "was removed" if not after.is_file() else "changed"
+            verdict = _refuse("scope_exceeded", f"{name} {change}: only {', '.join(config.mutable_files)} may change")
+        if not verdict.accepted:
+            return verdict
+    return ACCEPTED
+
+
+def _python_file_verdict(before: Path, after: Path, config: ExperimentConfig) -> Verdict:
+    parent = ast.parse(before.read_text()).body
+    try:
+        child = ast.parse(after.read_text(), filename=after.name).body
+    except (SyntaxError, ValueError) as error:  # ValueError: undecodable bytes, a null byte
+        return _refuse("unreadable_child", f"{after.name}: {error}")
+    mutable = set(config.mutable_definitions)
+    parent_functions, parent_frozen = _split_python(parent, mutable)
+    child_functions, child_rest = _split_python(child, mutable)
+    unmatched = Counter(ast.dump(node) for node in parent_frozen)
+    added = []
+    for node in child_rest:
+        if unmatched[ast.dump(node)] > 0:
+            unmatched[ast.dump(node)] -= 1
+        else:
+            added.append(node)
+    changed = [node for node in parent_frozen if unmatched[ast.dump(node)] > 0]
+    if changed:
+        return _refuse("frozen_surface_changed", f"the top-level {_label(changed[0])} changed")
+    verdict = _signature_verdict(parent_functions, child_functions)
+    if verdict.accepted:
+        verdict = _added_verdict(added, _top_names(parent))
+    if verdict.accepted and config.condition == "topology-only":
+        verdict = _tuning_verdict(parent, [*child_functions.values(), *added])
+    return verdict
+
+
+def _split_python(nodes: Sequence[ast.stmt], mutable: set[str]) -> tuple[dict[str, ast.FunctionDef], list[ast.stmt]]:
+    """(the first top-level function of each mutable name, every other top-level node)."""
+    functions: dict[str, ast.FunctionDef] = {}
+    rest = []
+    for node in nodes:
+        if isinstance(node, ast.FunctionDef) and node.name in mutable and node.name not in functions:
+            functions[node.name] = node
+        else:
+            rest.append(node)
+    return functions, rest
+
+
+def _signature_verdict(parent: Mapping[str, ast.FunctionDef], child: Mapping[str, ast.FunctionDef]) -> Verdict:
+    for name, before in parent.items():
+        after = child.get(name)
+        if after is None:
+            return _refuse("scope_exceeded", f"the mutable function {name} was removed")
+        if (ast.dump(before.args), before.returns and ast.dump(before.returns)) != (
+                ast.dump(after.args), after.returns and ast.dump(after.returns)):
+            return _refuse("frozen_surface_changed", f"exported signature of {name} changed")
+    return ACCEPTED
+
+
+def _added_verdict(added: Sequence[ast.stmt], bound: set[str]) -> Verdict:
+    """Added top-level nodes must be functions with fresh names."""
+    names = set(bound)
+    for node in added:
+        if not isinstance(node, ast.FunctionDef):
+            return _refuse("scope_exceeded", f"the top-level {_label(node)} was added: only functions may be")
+        if node.name in names:
+            return _refuse("declaration_collision", f"the added function {node.name} is already bound at top level")
+        names.add(node.name)
+    return ACCEPTED
+
+
+def _top_names(nodes: Sequence[ast.stmt]) -> set[str]:
+    """The names the top-level `nodes` bind."""
+    names: set[str] = set()
+    for node in nodes:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            names |= {alias.asname or alias.name.split(".")[0] for alias in node.names}
+        else:
+            names |= {n.id for n in ast.walk(node) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+    return names
+
+
+def _label(node: ast.stmt) -> str:
+    """A top-level node by the names it binds, else by its first line."""
+    return ", ".join(sorted(_top_names([node]))) or ast.unparse(node).splitlines()[0]
+
+
+def _tuning_verdict(parent: Sequence[ast.stmt], functions: Sequence[ast.FunctionDef]) -> Verdict:
+    """Topology-only: the functions may use only `model=`/`effort=` constants the parent module already uses."""
+    new = _tuning(functions) - _tuning(parent)
+    if new:
+        return _refuse("frozen_surface_changed",
+                       f":model/:effort values {sorted(new, key=repr)} are new to the module under topology-only")
+    return ACCEPTED
+
+
+def _tuning(nodes: Sequence[ast.AST]) -> set[tuple[str | None, object]]:
+    """The (keyword, value) of every `model=`/`effort=` keyword with a constant value under `nodes`."""
+    return {(k.arg, k.value.value) for node in nodes for k in ast.walk(node)
+            if isinstance(k, ast.keyword) and k.arg in TUNING_ARGUMENTS and isinstance(k.value, ast.Constant)}

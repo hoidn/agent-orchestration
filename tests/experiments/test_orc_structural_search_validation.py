@@ -11,7 +11,10 @@ from experiments.orc_structural_search.candidates import (
     validate_frozen_surfaces,
     validate_one_site,
 )
+from experiments.orc_structural_search.acceptance import judge_child, validate_python_scope
 from experiments.orc_structural_search.config import ExperimentConfig
+from experiments.orc_structural_search.records import python_provider_allocation, python_skeleton_hash
+from tests.experiments.orc_structural_search_support import I3_CONFIG, python_pair, pyright  # noqa: F401 (fixture)
 
 REPO = Path(__file__).resolve().parents[2]
 FILE = "plan_review_execute.orc"
@@ -253,3 +256,68 @@ def test_a_fresh_helper_obeys_the_conditions_tuning_and_prompt_rules(tmp_path, h
     verdict = validate_one_site(
         parent, child, receipt(parent, site_of(SOURCE, REVIEW_SITE), REVIEW_REPLACEMENT, [helper]), config())
     assert verdict.code == code, verdict
+
+
+# I3: edits of the Python parent (experiments/orc_structural_search/three_arm/python/direct.py)
+RUN = "def run(task: str, intent: str, repo: str) -> Outcome:\n"
+RUN_BODY = """    change = provider_result(PROVIDERS["coder"], IMPLEMENT_PROMPT.format(task=task, repo=repo),
+                             model="gpt-6.1-sol", effort="high", timeout_sec=5400, result=Change)
+    return DONE(summary=change.summary)
+"""
+# a check-then-repair child: a fresh helper runs the check, and run calls the coder again when it fails
+REPAIR = """def passes() -> bool:
+    return dev_check().passed
+
+
+def run(task: str, intent: str, repo: str) -> Outcome:
+    prompt = IMPLEMENT_PROMPT.format(task=task, repo=repo)
+    change = provider_result(PROVIDERS["coder"], prompt, model="gpt-6.1-sol", effort="high", timeout_sec=5400,
+                             result=Change)
+    if not passes():
+        change = provider_result(PROVIDERS["coder"], prompt, model="gpt-6.1-sol", effort="high", timeout_sec=5400,
+                                 result=Change)
+    return DONE(summary=change.summary)
+"""
+
+
+def test_i3_refuses_edits_outside_the_mutable_functions(tmp_path):
+    edits = [("Implement this change there", "Make this change there"),  # a prompt constant
+             ("    if done.returncode:\n        raise ProviderFailure(\"provider_exit_nonzero\"",
+              "    if done.returncode > 1:\n        raise ProviderFailure(\"provider_exit_nonzero\""),  # the adapter
+             (RUN, RUN.replace("repo: str)", "repo: str, rounds: int = 1)")),  # the signature of run
+             (RUN + RUN_BODY, "")]  # run removed
+    codes = [validate_python_scope(*python_pair(tmp_path / str(i), edit), I3_CONFIG).code
+             for i, edit in enumerate(edits)]
+    assert codes == ["frozen_surface_changed", "frozen_surface_changed", "frozen_surface_changed", "scope_exceeded"]
+
+
+def test_i3_accepts_a_helper_and_a_rewired_run_with_a_new_skeleton(tmp_path, pyright):
+    parent, child = python_pair(tmp_path, (RUN + RUN_BODY, REPAIR))
+    verdict = judge_child(parent, child, I3_CONFIG, runtime=REPO)
+    sources = [(root / "direct.py").read_text() for root in (parent, child)]
+    skeletons = {python_skeleton_hash(source, definitions=["run"]) for source in sources}
+    assert (verdict["outcome"], verdict["program_digest"].startswith("sha256:"), len(skeletons),
+            python_provider_allocation(sources[1], definitions=["run"])) == (
+        "accepted", True, 2, {"run": ["coder", "coder"]}), verdict
+
+
+def test_i3_refuses_a_new_model_literal_under_topology_only(tmp_path):
+    verdict = validate_python_scope(*python_pair(tmp_path, ('model="gpt-6.1-sol"', 'model="gpt-7"')), I3_CONFIG)
+    assert (verdict.code, ":model/:effort values" in verdict.detail) == ("frozen_surface_changed", True)
+
+
+@pytest.mark.parametrize("name", ["descriptor", "asdict"])  # a top-level function, an imported name
+def test_i3_refuses_a_helper_colliding_with_a_frozen_name(tmp_path, name):
+    parent, child = python_pair(tmp_path, (RUN, f"def {name}() -> None:\n    pass\n\n\n{RUN}"))
+    assert validate_python_scope(parent, child, I3_CONFIG).code == "declaration_collision"
+
+
+def test_i3_rejects_a_child_pyright_refuses_with_type_check_failed(tmp_path, pyright):
+    parent, child = python_pair(tmp_path, ("    return DONE(summary=change.summary)\n", "    return change.summary\n"))
+    verdict = judge_child(parent, child, I3_CONFIG, runtime=REPO)
+    assert (verdict["outcome"], verdict["diagnostics_class"]) == ("rejected", "type_check_failed"), verdict
+
+
+def test_i3_rejects_an_unreadable_child(tmp_path):
+    parent, child = python_pair(tmp_path, (RUN, RUN.replace(":\n", "\n")))  # no colon after the signature
+    assert judge_child(parent, child, I3_CONFIG, runtime=REPO)["refusal_code"] == "unreadable_child"

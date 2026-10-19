@@ -8,9 +8,10 @@ from pathlib import Path
 import pytest
 
 from experiments.orc_structural_search.config import ExperimentConfig
-from experiments.orc_structural_search.evaluation import evaluate, evaluation_id, record_env_manifest, resume
+from experiments.orc_structural_search.evaluation import (
+    evaluate, evaluation_id, is_python, record_env_manifest, resume)
 from tests.experiments.compare_harness_support import skip_without_sandbox
-from tests.experiments.orc_structural_search_support import script, world  # noqa: F401 (fixture)
+from tests.experiments.orc_structural_search_support import I3_CONFIG, script, world  # noqa: F401 (fixture)
 
 CONFIG = ExperimentConfig(
     mutable_files=("direct.orc",), mutable_definitions=("run",), condition="topology-only", interface="I1",
@@ -144,3 +145,7 @@ def test_env_manifest_digest_changes_with_cli_versions(tmp_path):
     manifest = json.loads((tmp_path / "work" / "env-manifests" / f"{digests[1].removeprefix('sha256:')}.json").read_text())
     assert (digests[0] != digests[1], manifest["cli"]["claude"], sorted(manifest["cli"])) == (
         True, "claude 1.0.1", ["bwrap", "claude", "codex", "git"])
+
+
+def test_only_a_python_entry_module_is_python():
+    assert (is_python(I3_CONFIG), is_python(CONFIG)) == (True, False)

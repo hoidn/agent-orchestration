@@ -69,10 +69,11 @@ from experiments.orc_structural_search.acceptance import judge_child
 from experiments.orc_structural_search.briefs import episode_brief
 from experiments.orc_structural_search.candidates import _file_names, candidate_id, imports, snapshot
 from experiments.orc_structural_search.config import ExperimentConfig, solution
-from experiments.orc_structural_search.evaluation import EVALUATOR_VERSION, evaluate, records_root
+from experiments.orc_structural_search.evaluation import EVALUATOR_VERSION, evaluate, is_python, records_root
 from experiments.orc_structural_search.quota import PREFIX, QuotaGuard, quota_hit, with_retries
 from experiments.orc_structural_search.records import (
-    UNAVAILABLE, append_record, provider_allocation, read_records, skeleton_hash)
+    UNAVAILABLE, append_record, provider_allocation, python_provider_allocation, python_skeleton_hash, read_records,
+    skeleton_hash)
 from experiments.orc_structural_search.sites import HYPOTHESIS, drop_hypothesis
 
 EPISODE = "EPISODE.md"
@@ -307,17 +308,22 @@ def run_agent(agent_cmd: Sequence[str], cwd: Path, log: Path, env: Mapping[str, 
 
 
 def mutable_source(root: Path, config: ExperimentConfig) -> str:
-    return "\n".join((root / name).read_text() for name in config.mutable_files if name.endswith(".orc"))
+    suffix = ".py" if is_python(config) else ".orc"
+    return "\n".join((root / name).read_text() for name in config.mutable_files if name.endswith(suffix))
 
 
 def skeleton(root: Path, config: ExperimentConfig) -> str:
-    """The skeleton hash of the mutable definitions; prompts contribute nothing (records.skeleton_hash)."""
-    return skeleton_hash(mutable_source(root, config), definitions=config.mutable_definitions)
+    """The skeleton hash of the mutable definitions; prompts contribute nothing (records.skeleton_hash, for an I3
+    module records.python_skeleton_hash)."""
+    hash_of = python_skeleton_hash if is_python(config) else skeleton_hash
+    return hash_of(mutable_source(root, config), definitions=config.mutable_definitions)
 
 
 def allocation(root: Path, config: ExperimentConfig) -> dict[str, list[str]]:
-    """The provider externs each non-prompt mutable definition names, in source order."""
-    return provider_allocation(mutable_source(root, config), definitions=config.mutable_definitions)
+    """The provider externs (an I3 module: provider keys) each non-prompt mutable definition names, in source
+    order."""
+    allocate = python_provider_allocation if is_python(config) else provider_allocation
+    return allocate(mutable_source(root, config), definitions=config.mutable_definitions)
 
 
 def episode_diff(parent: Path, child: Path) -> str:

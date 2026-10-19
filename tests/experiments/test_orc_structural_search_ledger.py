@@ -1,8 +1,11 @@
 """The planned maximum of one launch (ledger.max_provider_calls) over the module's own definitions."""
 
+import shutil
+
 import pytest
 
-from experiments.orc_structural_search.ledger import CallCapExceeded, max_provider_calls
+from experiments.orc_structural_search.ledger import CallCapExceeded, max_provider_calls, planned_calls
+from tests.experiments.orc_structural_search_support import I3_CONFIG, PYTHON_PARENT
 
 MODULE = """(workflow-lisp
   (:language "0.1")
@@ -62,3 +65,13 @@ def test_recursion_through_a_provider_call_refuses_the_launch(tmp_path):
                                                     "(review (provider-result providers.reviewer :prompt task))"))
     with pytest.raises(CallCapExceeded, match="unbounded"):
         max_provider_calls(tmp_path / "m.orc", "run")
+
+
+def test_a_python_entry_plans_its_frozen_call_cap_and_refuses_without_one(tmp_path):
+    for name in ("capped", "uncapped"):
+        shutil.copytree(PYTHON_PARENT, tmp_path / name, ignore=shutil.ignore_patterns("__pycache__"))
+    source = tmp_path / "uncapped" / "direct.py"
+    source.write_text(source.read_text().replace("MAX_PROVIDER_CALLS: int = 8\n", ""))
+    with pytest.raises(CallCapExceeded, match="unbounded"):
+        planned_calls(tmp_path / "uncapped", I3_CONFIG)
+    assert planned_calls(tmp_path / "capped", I3_CONFIG) == 8

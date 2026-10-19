@@ -46,6 +46,7 @@ from pathlib import Path
 
 from experiments.compare.prepare import ArmSpec, read_memo, run_arm
 from experiments.compare.repos import load, runtime_commit
+from experiments.orc_structural_search import ledger
 from experiments.orc_structural_search.candidates import candidate_id, compile_candidate
 from experiments.orc_structural_search.config import ExperimentConfig
 from experiments.orc_structural_search.quota import PREFIX, quota_hit
@@ -72,6 +73,11 @@ class EvaluationRecord:
     resume_count: int
     incidents: tuple[str, ...]
     attempt: int = 1  # quota relaunches of one job are attempts 2, 3, ...
+
+
+def is_python(config: ExperimentConfig) -> bool:
+    """An I3 configuration: the entry module file (ledger.entry_of) is a Python module."""
+    return ledger.entry_of(Path(), config)[0].suffix == ".py"
 
 
 def evaluation_id(candidate: str, task_id: str, evaluator_version: str, env_manifest_digest: str,
