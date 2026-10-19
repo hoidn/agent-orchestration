@@ -282,7 +282,7 @@ def test_an_episode_session_naming_the_evidence_root_is_scan_pending(sandboxed, 
     assert (row["scan_pending"], row["scan_hits"] > 0) == (True, True)
 
 
-def test_an_episode_session_naming_the_work_roots_evaluation_records_is_scan_pending(world):
+def test_an_episode_session_naming_the_work_roots_evaluation_records_is_scan_pending(sandboxed, world):
     records = (world.outside / "work").resolve() / "records" / "3f2a" / "run-1" / "inputs.json"
     row, _ = episode(world, MUTATOR_ONE_CALL, config_of(), env=fake_claude(world, CLAUDE_PRINTS.format(path=records)))
     assert (row["scan_pending"], row["scan_hits"] > 0) == (True, True)
