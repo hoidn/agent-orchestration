@@ -210,9 +210,12 @@ its quota incident). A task with no completed, uncontaminated evaluation has no 
 
 The three-arm compile-only readout (criterion `criteria/three_arm.json`; prerequisites as in the offline recipe,
 plus `pyright` on `PATH`, which admits I3 children) runs from the frozen runtime `$RT`, with `PYTHONPATH=$RT`.
-`config.json` is an `ExperimentConfig` whose `episode_wall_clock_sec` and `criterion_sha256` the arms share;
-`three_arm.arm_config` sets each arm's mutable file (`direct.orc` for I1 and I2, `direct.py` for I3), entry
-`direct::run` and condition `topology-only`. Every run (smoke and main) needs its own fresh `E` and `W`.
+`config.json` is a full `ExperimentConfig` whose `episode_wall_clock_sec` and `criterion_sha256` (the criterion
+file's `sha256sum`, hex) the arms share; `three_arm.arm_config` sets each arm's mutable file (`direct.orc` for I1 and
+I2, `direct.py` for I3), entry `direct::run` and condition `topology-only`. A run refuses an `--agent-cmd` other
+than the criterion's `envelope.mutator`, a `criterion_sha256` other than `--criterion`'s, and (`RuntimeError`,
+`acceptance.check_parent`) a Python parent that does not type-check against `$RT`, all before any provider call.
+Every run (smoke and main) needs its own fresh `E` and `W`.
 
 Smoke: each parent evaluated once on one task (`mode: "smoke"`, no episode); reserving the ORC parent's planned
 maximum (1) and the Python parent's (8) at once needs `--call-cap 9`:
@@ -222,11 +225,12 @@ PYTHONPATH=$RT python -m experiments.orc_structural_search.three_arm run --smoke
   --config config.json --criterion $RT/experiments/orc_structural_search/criteria/three_arm.json \
   --parents orc=$RT/experiments/orc_structural_search/three_arm/orc python=$RT/experiments/orc_structural_search/three_arm/python \
   --tasks $RT/experiments/compare/tasks/resume-projection-integrity --runtime $RT \
-  --work-root $W_SMOKE --evidence $E_SMOKE --agent-cmd '<mutator command>' --eval-timeout-sec 14400 \
+  --work-root $W_SMOKE --evidence $E_SMOKE --eval-timeout-sec 14400 \
+  --agent-cmd 'codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --model gpt-6.1-sol --config model_reasoning_effort=high' \
   --solution resume-projection-integrity=$SOL1 --call-cap 9 --run-seed 1 --subset-seed 1
 ```
 
-Main run (the mutator command is the criterion's `envelope.mutator`; pass every earlier run's roots with `--hide`):
+Main run (pass every earlier run's roots with `--hide`: Phase 1's and this campaign's smoke roots):
 
 ```bash
 PYTHONPATH=$RT python -m experiments.orc_structural_search.three_arm run \
@@ -237,13 +241,17 @@ PYTHONPATH=$RT python -m experiments.orc_structural_search.three_arm run \
   --agent-cmd 'codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --model gpt-6.1-sol --config model_reasoning_effort=high' \
   --solution resume-projection-integrity=$SOL1 --solution pure-result-replay=$SOL2 --call-cap N --concurrency 4 \
   --run-seed 1 --subset-seed 1 --hide /home/ollie/ss-evidence2 --hide /home/ollie/ss-work2 --hide /home/ollie/ss-pools \
-  --hide /home/ollie/ss-evidence-smoke --hide /home/ollie/ss-work-smoke --hide /home/ollie/ss-evidence-meta [--continue]
+  --hide /home/ollie/ss-evidence-smoke --hide /home/ollie/ss-work-smoke --hide /home/ollie/ss-evidence-meta \
+  --hide /home/ollie/ss3-evidence-smoke --hide /home/ollie/ss3-work-smoke [--continue]
 ```
 
 The run archives both parents and logs one `{"kind": "parents", "orc", "python", "run_seed", "subset_seed",
 "pyright", "program_digests"}` row. Episodes run one at a time, arm by arm (I1, I2, I3), until each arm has
 `--episodes-per-arm` non-quota episodes (accepted, rejected, exhausted or incident); a quota episode is relaunched
-under the next index (the quota guard), and episode indexes are global over the run. Every episode row carries
+under the next index (the quota guard, at most 3 times), and episode indexes are global over the run. An arm still
+short of `--episodes-per-arm` once those relaunches are used up stops the run before the subset (`RuntimeError`):
+rerun with `--continue` after the provider's reset (also the rule when a Codex limit line names no reset time the
+guard can parse: it then pauses 30 minutes per relaunch). Every episode row carries
 `arm` and `mode: "three_arm"`; an I2 episode's site is drawn uniformly from the parent's eligible sites with
 `random.Random(f"{run_seed} {index}")`, and its row carries `site_id` and `run_seed`. Then, per arm, the subset (two
 children): accepted children of uncontaminated episodes whose candidate id differs from the parent's and from every
@@ -257,7 +265,9 @@ against the criterion's threshold, the subset's candidate ids) is written before
 is then evaluated once per task (`mode: "three_arm"`, `arm`), at most `--concurrency` at a time. Launches are
 reservation-aware (`three_arm.CapGate`): an evaluation whose planned maximum (an I3 child's `MAX_PROVIDER_CALLS`, 8)
 does not fit under `--call-cap` beside the evaluations in flight waits for one to end and is retried; it is refused
-(`CallCapExceeded`, before any workspace) only when nothing is in flight. `--continue` (same `W`, same parents and
+(`CallCapExceeded`, before any workspace) only when nothing is in flight. A quota pause holds every launch and
+relaunch, a waiting one included: an evaluation that ends in a quota incident pauses the guard before the waiters
+wake. `--continue` (same `W`, same parents and
 seeds) keeps every arm that already has its episodes and every evaluation already logged.
 
 Judging: per task, build the pool with `scoring pool` and judge it with `three_arm judge`, which reserves each

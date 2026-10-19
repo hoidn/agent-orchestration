@@ -6,23 +6,28 @@ from criteria/three_arm.json (envelope, subset, locality, collapse_threshold, se
 episodes and evaluation launches are driver.py's (its module docstring); E is the evidence root, W the work root.
 
 A run (run_three_arm) on a fresh E, or continuing one (`--continue`, as mode 1: quota incidents relaunched, killed
-launches skipped):
+launches skipped); it refuses a mutator command other than the criterion's envelope.mutator and a run configuration
+whose criterion_sha256 is not the criterion file's:
   parents      both parent roots (`orc`: the direct seed with its coder rebound, the parent of I1 and I2; `python`:
-               its matched typed Python workflow, the parent of I3) archived; one {"kind": "parents", "orc",
+               its matched typed Python workflow, the parent of I3) archived, the Python parent type-checked against
+               the runtime (acceptance.check_parent: RuntimeError, never caught); one {"kind": "parents", "orc",
                "python", "run_seed", "subset_seed", "pyright", "program_digests"} row (a continued run must name the
                same parents and seeds; it logs no second row)
   episodes     per arm in ARMS order until `episodes_per_arm` non-quota episodes of the arm exist (accepted,
                rejected, exhausted or incident; a quota incident is relaunched under the next index, at most
                guard.retries times); one at a time; indexes are global over the run; an I2 episode's site is drawn
                uniformly from the parent's eligible sites with random.Random(f"{run_seed} {index}") and the row
-               carries run_seed; every row carries `arm` and `mode: "three_arm"`
+               carries run_seed; every row carries `arm` and `mode: "three_arm"`. An arm still short once its quota
+               relaunches are used up stops the run here (RuntimeError, check_episodes): rerun with --continue after
+               the reset
   subset       per arm (subset), from the log, without the children of contaminated episodes
                (scoring.contaminated_children, which refuses an episode with scan hits and no verdict: adjudicate,
                then --continue)
   readout      E/readout.json (compile_readout), written before the evaluations
   evaluations  each chosen child once per task (replicate 1; `mode: "three_arm"`, `arm`), at most `concurrency` in
                flight; reservation-aware (CapGate): a launch refused at the call cap while another is in flight waits
-               for one to end and is retried; with none in flight the refusal (CallCapExceeded) is raised
+               for one to end and is retried; with none in flight the refusal (CallCapExceeded) is raised; a quota
+               pause holds every launch and relaunch
 `smoke` evaluates the two archived parents once per task (`mode: "smoke"`, `parent`) and nothing else.
 
 Judging (judge) scores one task's pool, built by `scoring pool` from E, through judging.score_pool (each judge's
@@ -45,7 +50,9 @@ from dataclasses import replace
 from pathlib import Path
 
 from experiments.compare import summarize
+from experiments.compare.repos import sha256_file
 from experiments.orc_structural_search import judging, ledger
+from experiments.orc_structural_search.acceptance import check_parent
 from experiments.orc_structural_search.candidates import compile_candidate
 from experiments.orc_structural_search.config import ExperimentConfig, load_config, solution
 from experiments.orc_structural_search.driver import (
@@ -84,44 +91,62 @@ def arm_config(base: Path, interface: str) -> ExperimentConfig:
 
 
 class CapGate:
-    """Reservation-aware launches (criterion i3.planned_maximum): `run` retries a launch refused at the call cap
-    (ledger.reserve, before any workspace) once another launch of the gate has ended, and raises the refusal when no
-    other launch is in flight and none ended since it started."""
+    """Reservation-aware launches (criterion i3.planned_maximum) under the run's quota guard: `run` waits out a quota
+    pause before every launch and relaunch, retries a launch refused at the call cap (ledger.reserve, before any
+    workspace) once another launch of the gate has ended, and raises the refusal when no other launch is in flight
+    and none ended since it started. A launch that returns a quota incident pauses the guard before the waiters
+    wake, so none relaunches into the provider's limit."""
 
-    def __init__(self) -> None:
-        self.running, self.ended, self.changed = 0, 0, threading.Condition()
+    def __init__(self, guard: QuotaGuard) -> None:
+        self.guard, self.running, self.ended, self.changed = guard, 0, 0, threading.Condition()
 
     def run(self, launch: Callable[[], dict]) -> dict:
         while True:
+            self.guard.wait()
             with self.changed:
                 self.running, seen = self.running + 1, self.ended
-            refused = False
             try:
-                return launch()
-            except ledger.CallCapExceeded:
-                refused = True
-                with self.changed:
-                    self.running -= 1
-                    if self.ended == seen and self.running == 0:
-                        self.changed.notify_all()  # waiters retry and find nothing in flight either
-                        raise
-                    if self.ended == seen:
-                        self.changed.wait()
-            finally:
-                if not refused:
-                    with self.changed:
-                        self.running, self.ended = self.running - 1, self.ended + 1
-                        self.changed.notify_all()
+                row = launch()
+            except ledger.CallCapExceeded as refusal:
+                self.refused(refusal, seen)
+                continue
+            except BaseException:
+                self.end(None)
+                raise
+            self.end(row)
+            return row
+
+    def refused(self, refusal: ledger.CallCapExceeded, seen: int) -> None:
+        """Leave the gate; raise `refusal` when no launch is in flight and none ended since this one started (`seen`),
+        else wait for one to end, unless one already has."""
+        with self.changed:
+            self.running -= 1
+            if self.ended == seen and self.running == 0:
+                self.changed.notify_all()  # waiters retry and find nothing in flight either
+                raise refusal
+            if self.ended == seen:
+                self.changed.wait()
+
+    def end(self, row: Mapping | None) -> None:
+        """Leave the gate after a launch ended (`row`, None when it raised) and wake the waiters."""
+        reason = quota_reason(row) if row is not None else None
+        if reason:
+            self.guard.pause(reason)
+        with self.changed:
+            self.running, self.ended = self.running - 1, self.ended + 1
+            self.changed.notify_all()
 
 
 def archive_parents(parents: Mapping[str, Path], config_path: Path, *, evidence_root: Path, runtime: Path,
                     env: Mapping[str, str], run_seed: int, subset_seed: int) -> tuple[dict[str, Path], dict]:
     """(parent name -> archived root, the parents row): the program digests are the ORC parent's compiled one and
-    the Python parent's entry module's (records.python_program_digest), exact repeats' references."""
+    the Python parent's entry module's (records.python_program_digest), exact repeats' references. The Python parent
+    must type-check against the runtime (acceptance.check_parent raises RuntimeError) before anything is spent."""
     if sorted(parents) != ["orc", "python"]:
         raise ValueError(f"parents must be orc and python, not {sorted(parents)}")
     roots = {name: archive(Path(root), evidence_root, runtime)[1] for name, root in parents.items()}
     orc, python = arm_config(config_path, "I1"), arm_config(config_path, "I3")
+    check_parent(roots["python"], python, runtime=runtime)
     digests = {"orc": compile_candidate(roots["orc"], orc, runtime=runtime).program_digest,
                "python": python_program_digest(ledger.entry_of(roots["python"], python)[0].read_text())}
     row = {"kind": "parents", **{name: root.name for name, root in roots.items()}, "run_seed": run_seed,
@@ -161,11 +186,10 @@ def run_episodes(roots: Mapping[str, Path], config_path: Path, *, episodes_per_a
     """Each arm's episodes until `episodes_per_arm` non-quota episodes of it exist (see the module docstring)."""
     evidence_root = launch["evidence_root"]
     ledger.settle_killed_episodes(evidence_root)
-    before = [row for row in prior if row["kind"] == "episode"]
-    indexes = episode_indexes(before, launch["work_root"])
+    indexes = episode_indexes([row for row in prior if row["kind"] == "episode"], launch["work_root"])
+    done = non_quota(prior, evidence_root)
     for arm in ARMS:
-        missing = episodes_per_arm - sum(quota_reason(row, evidence_root) is None for row in before
-                                         if row.get("arm") == arm)
+        missing = episodes_per_arm - done[arm]
         if missing <= 0:
             continue
         config, root = arm_config(config_path, arm), roots[PARENT_OF[arm]]
@@ -173,6 +197,35 @@ def run_episodes(roots: Mapping[str, Path], config_path: Path, *, episodes_per_a
         for _ in range(missing):
             with_retries(lambda _attempt: episode(root, config, arm, next(indexes), sites, run_seed=run_seed,
                                                   agent_cmd=agent_cmd, hide=hide, launch=launch), guard)
+
+
+def non_quota(rows: Sequence[Mapping], evidence_root: Path) -> Counter:
+    """Per arm, its three-arm episodes that are no quota incident (the envelope's episode count)."""
+    return Counter(row["arm"] for row in rows if row["kind"] == "episode" and row.get("mode") == MODE
+                   and quota_reason(row, evidence_root) is None)
+
+
+def check_episodes(rows: Sequence[Mapping], episodes_per_arm: int, evidence_root: Path) -> None:
+    """Refuse to choose the subset while an arm has fewer than `episodes_per_arm` non-quota episodes (its quota
+    relaunches were used up): its subset could still change, and the provider is still at its limit."""
+    counts = non_quota(rows, evidence_root)
+    short = {arm: counts[arm] for arm in ARMS if counts[arm] < episodes_per_arm}
+    if short:
+        raise RuntimeError(f"non-quota episodes {short} of arms short of {episodes_per_arm} after the quota "
+                           "relaunches: rerun with --continue after the provider's reset")
+
+
+def check_run(config_path: Path, criterion: Path, agent_cmd: Sequence[str]) -> dict:
+    """The frozen criterion; refuse a mutator command other than its envelope.mutator, or a run configuration whose
+    criterion_sha256 is not the criterion file's sha256 (hex)."""
+    frozen, sha = json.loads(Path(criterion).read_text()), sha256_file(criterion)
+    if list(agent_cmd) != shlex.split(frozen["envelope"]["mutator"]):
+        raise ValueError(f"--agent-cmd {shlex.join(agent_cmd)!r} is not the criterion's mutator "
+                         f"{frozen['envelope']['mutator']!r}")
+    if load_config(config_path).criterion_sha256 != sha:
+        raise ValueError(f"{config_path} names criterion_sha256 {load_config(config_path).criterion_sha256}, not "
+                         f"{criterion}'s {sha}")
+    return frozen
 
 
 def run_three_arm(config_path: Path, *, parents: Mapping[str, Path], tasks: Sequence[Path], work_root: Path,
@@ -186,6 +239,7 @@ def run_three_arm(config_path: Path, *, parents: Mapping[str, Path], tasks: Sequ
     pause state; `hide` adds directories every episode's CLI calls cannot see (driver.hidden_roots)."""
     if smoke and episodes_per_arm:
         raise ValueError("a smoke run evaluates the parents only: pass episodes_per_arm 0")
+    frozen = check_run(config_path, criterion, agent_cmd)
     work_root, evidence_root = check_roots(work_root, evidence_root)
     prior = prior_rows(work_root, evidence_root, continue_run)
     guard, log = guard or QuotaGuard(), evidence_root / "log.jsonl"
@@ -204,7 +258,8 @@ def run_three_arm(config_path: Path, *, parents: Mapping[str, Path], tasks: Sequ
     else:
         run_episodes(roots, config_path, episodes_per_arm=episodes_per_arm, prior=prior, run_seed=run_seed,
                      agent_cmd=agent_cmd, hide=hide, guard=guard, launch=launch)
-        rows, frozen = read_records(log), json.loads(Path(criterion).read_text())
+        rows = read_records(log)
+        check_episodes(rows, episodes_per_arm, evidence_root)
         chosen = subset(rows, frozen, subset_seed, contaminated_children(log))
         result = compile_readout(rows, frozen, evidence_root)
         (evidence_root / "readout.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
@@ -213,7 +268,7 @@ def run_three_arm(config_path: Path, *, parents: Mapping[str, Path], tasks: Sequ
                      "episode_id", "candidate_id", "parent_candidate_id", "candidate_root")}})
                 for arm, picked in chosen.items() for r in picked]
     evaluated = launch_units(continued(jobs, tasks, 1, read_records(log)), concurrency=concurrency, guard=guard,
-                             gate=CapGate().run, **launch)
+                             gate=CapGate(guard).run, **launch)
     return result or {"smoke": evaluated}
 
 
@@ -328,17 +383,18 @@ def child_figures(rows: Sequence[Mapping]) -> dict:
     return policy_stats(rows) | {"values": [UNAVAILABLE if v is None else v for v in map(primary_value, rows)]}
 
 
-def task_figures(pool: Mapping, arms: Mapping[str, str], criterion: Mapping) -> dict:
+def task_figures(pool: Mapping, arms: Mapping[str, str], chosen: Mapping[str, str], criterion: Mapping) -> dict:
     """One task's figures: per arm (`arms`: evaluation id -> arm) scoring.policy_stats over its subset children's
-    evaluations and child_figures per child; the anchors, scoring.anchor_checks (reported, not a gate), agreement,
-    excluded judges and unpooled evaluations."""
+    evaluations and child_figures per subset child (`chosen`: candidate id -> arm; one without an evaluation of the
+    task has unavailable figures); the anchors, scoring.anchor_checks (reported, not a gate), agreement, excluded
+    judges and unpooled evaluations."""
     rows = [row for row in pool["rows"] if row["evaluation_id"] in arms]
     figures = {}
     for arm in ARMS:
         mine = [row for row in rows if arms[row["evaluation_id"]] == arm]
-        children = {row["candidate_id"] for row in mine}
+        children = sorted(cid for cid, owner in chosen.items() if owner == arm)
         figures[arm] = policy_stats(mine) | {"children": {
-            cid: child_figures([r for r in mine if r["candidate_id"] == cid]) for cid in sorted(children)}}
+            cid: child_figures([r for r in mine if r["candidate_id"] == cid]) for cid in children}}
     checks = UNAVAILABLE if pool["no_pool"] else anchor_checks(
         pool["anchors"], criterion["anchors"][pool["task"]], criterion["separation"]["anchor_spread_limit"])
     return {"arms": figures, "anchors": pool["anchors"], "anchor_checks": checks, "agreement": pool["agreement"],
@@ -357,7 +413,7 @@ def readout(log: Path, driver_readout: Path, criterion: Path, results: Sequence[
     pools = [read_pool(path, log, criterion) for path in results]
     pooled = {pool["task"] for pool in pools}
     pools += [log_only_pool(log, Path(task).name) for task in frozen["tasks"] if Path(task).name not in pooled]
-    return {"tasks": {pool["task"]: task_figures(pool, arms, frozen)
+    return {"tasks": {pool["task"]: task_figures(pool, arms, chosen, frozen)
                       for pool in sorted(pools, key=lambda p: p["task"])},
             "compile_only": compile_only, "decision": DECISION}
 
@@ -390,7 +446,7 @@ def run_parser(sub: argparse._SubParsersAction) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description="The structural search three-arm compile-only readout.")
     sub = parser.add_subparsers(dest="command", required=True)
     run_parser(sub)
     judge_cmd = sub.add_parser("judge", help="score one task's pool through the ledger, then summarize it")

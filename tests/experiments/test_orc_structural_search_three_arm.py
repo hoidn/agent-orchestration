@@ -8,12 +8,16 @@ import os
 import random
 import shutil
 import sys
+import threading
+import time
 from collections import Counter
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
-from experiments.orc_structural_search import three_arm
+from experiments.compare.repos import sha256_file
+from experiments.orc_structural_search import ledger, three_arm
 from experiments.orc_structural_search.driver import Unit, archive, launch_units
 from experiments.orc_structural_search.ledger import CallCapExceeded
 from experiments.orc_structural_search.quota import QuotaGuard
@@ -41,7 +45,8 @@ Path("direct.py").write_text(Path("direct.py").read_text() + f"# episode {index}
 """
 # The scripted `codex`: in an episode's workspace (EPISODE.md present) the mutator for its arm (I2: the brief names a
 # site; I3: direct.py; else I1), the I1 and I2 edits cycling over the global episode index; with quota-once beside
-# it, the next I2 episode prints a quota line and exits 1 instead (once). Elsewhere the scripted provider.
+# it, the next I2 episode prints a quota line and exits 1 instead (once); with print-once beside it, the next episode
+# prints that file's text first (once). Elsewhere the scripted provider.
 CODEX = """#!{python} -I
 import re, runpy, sys
 from pathlib import Path
@@ -51,6 +56,9 @@ if not Path("EPISODE.md").exists():
     sys.exit(0)
 brief = Path("EPISODE.md").read_text()
 site = re.search(r"^Site: ", brief, re.M)
+if (here / "print-once").exists():
+    print((here / "print-once").read_text(), flush=True)
+    (here / "print-once").unlink()
 if site and (here / "quota-once").exists():
     (here / "quota-once").unlink()
     print({quota!r}, flush=True)
@@ -59,7 +67,7 @@ runpy.run_path(str(here / ("i2.py" if site else "i3.py" if Path("direct.py").exi
 """
 
 
-def install(world, quota_once=False):
+def install(world, quota_once=False, print_once=None):
     """The scripted codex and its parts in the world's fakebin; the parents copied outside the repository."""
     for name, source in {"provider.py": SCRIPTED, "i1.py": MUTATOR.replace("][index]", "][index % 3]"),
                          "i2.py": MUTATOR_I2.replace("][index]", "][index % 4]"), "i3.py": I3_EDIT,
@@ -68,11 +76,18 @@ def install(world, quota_once=False):
     (world.fakebin / "codex").chmod(0o755)
     if quota_once:
         (world.fakebin / "quota-once").write_text("")
+    if print_once:
+        (world.fakebin / "print-once").write_text(print_once)
     script(world, [{"match": "Implement this change", "result": CHANGE}])
     for name in ("orc", "python"):
         if not (world.tmp / "parents" / name).exists():
             shutil.copytree(PARENTS / name, world.tmp / "parents" / name, ignore=shutil.ignore_patterns("__pycache__"))
-    (world.tmp / "config.json").write_text(json.dumps(CONFIG))
+    configure(world, CRITERION)
+
+
+def configure(world, criterion):
+    """The run configuration naming `criterion`'s sha256."""
+    (world.tmp / "config.json").write_text(json.dumps(CONFIG | {"criterion_sha256": sha256_file(criterion)}))
 
 
 def env_of(world):
@@ -91,6 +106,7 @@ def criterion_for(world, tasks):
 def run(world, *, episodes=1, tasks=None, call_cap=200, continue_run=False, run_seed=7, criterion=CRITERION):
     """(result, log rows, evidence root) of one scripted three-arm run (installed with `install`)."""
     evidence = world.tmp / "evidence"
+    configure(world, criterion)
     result = three_arm.run_three_arm(
         world.tmp / "config.json", parents={name: world.tmp / "parents" / name for name in ("orc", "python")},
         tasks=tasks or [world.task], work_root=world.outside / "work", evidence_root=evidence,
@@ -213,7 +229,7 @@ def test_three_arm_cap_refuses_a_launch_and_judges_enter_the_ledger(sandboxed, w
 def test_a_launch_beyond_the_cap_waits_for_an_evaluation_in_flight_to_settle(sandboxed, world):
     """Three I3 evaluations (eight planned calls each) under a cap that fits two in flight but not three: without
     the gate the third is refused, with it the third waits for one to settle (one recorded call) and runs."""
-    script(world, [{"match": "Implement this change", "sleep": 3, "result": CHANGE}])
+    script(world, [{"match": "Implement this change", "sleep": 6, "result": CHANGE}])
     shutil.copytree(PARENTS / "python", world.tmp / "python", ignore=shutil.ignore_patterns("__pycache__"))
     tasks = [world.task] + [shutil.copytree(world.task, world.tmp / f"task-{n}") for n in (2, 3)]
 
@@ -227,7 +243,7 @@ def test_a_launch_beyond_the_cap_waits_for_an_evaluation_in_flight_to_settle(san
 
     with pytest.raises(CallCapExceeded):
         launch("plain", None)
-    rows = launch("gated", three_arm.CapGate().run)
+    rows = launch("gated", three_arm.CapGate(QuotaGuard()).run)
     assert [row["outcome"] for row in rows] == ["completed"] * 3
 
 
@@ -249,7 +265,7 @@ def test_three_arm_readout_reports_per_arm_and_per_child_descriptively_without_a
     results = tmp_path / "results.json"
     results.write_text(json.dumps({"criterion_sha256": hashlib.sha256(criterion.read_bytes()).hexdigest(),
                                    "runs": runs, "anchors": anchors, "agreement": {}, "excluded_judges": {}}))
-    driver = {"arms": {"I1": {"completed": 6, "subset": ["c1"]}, "I2": {"subset": ["c2"]},
+    driver = {"arms": {"I1": {"completed": 6, "subset": ["c1"]}, "I2": {"subset": ["c2", "c5"]},
                        "I3": {"subset": ["c3", "c4"]}}}
     (tmp_path / "readout.json").write_text(json.dumps(driver))
     result = three_arm.readout(tmp_path / "log.jsonl", tmp_path / "readout.json", criterion, [results])
@@ -259,8 +275,10 @@ def test_three_arm_readout_reports_per_arm_and_per_child_descriptively_without_a
              arms["I2"]["excluded"]),
             {arm: sorted(figures["children"]) for arm, figures in arms.items()},
             arms["I3"]["children"]["c4"]["values"], task["anchor_checks"]["anchors_ok"],
+            arms["I2"]["children"]["c5"]["mean"],
             result["compile_only"], result["decision"]) == (
-        (6.0, 0, 2.0, 1, "unavailable", 1), {"I1": ["c1"], "I2": ["c2"], "I3": ["c3", "c4"]}, [0.0], True, driver,
+        (6.0, 0, 2.0, 1, "unavailable", 1), {"I1": ["c1"], "I2": ["c2", "c5"], "I3": ["c3", "c4"]}, [0.0], True,
+        "unavailable", driver,
         "descriptive; no separation rule applied (Phase 1 decision stands)")
 
 
@@ -275,20 +293,90 @@ def test_i2_site_draw_is_reproducible_for_a_run_seed(sandboxed, world, pyright):
                      for row in kind(rows, "episode") if row["arm"] == "I2"]
 
 
-def test_continue_resumes_after_a_quota_episode_without_repeating_an_arm(sandboxed, world, pyright):
+def test_an_arm_short_after_its_quota_relaunches_stops_the_run_and_continue_completes_it(sandboxed, world, pyright):
     install(world, quota_once=True)
-    first, _, _ = run(world)
-    _, rows, _ = run(world, continue_run=True)
+    with pytest.raises(RuntimeError, match="rerun with --continue"):
+        run(world)
+    stopped = read_records(world.tmp / "evidence" / "log.jsonl")
+    readout_written = (world.tmp / "evidence" / "readout.json").exists()
+    result, rows, _ = run(world, continue_run=True)
     episodes = kind(rows, "episode")
-    assert ([(row["arm"], row["episode_index"]) for row in episodes], episodes[1]["incidents"],
-            first["arms"]["I2"]["episodes"],
+    assert ([(row["arm"], row["episode_index"]) for row in kind(stopped, "episode")], kind(stopped, "evaluation"),
+            readout_written, [(row["arm"], row["episode_index"]) for row in episodes], episodes[1]["incidents"],
+            result["arms"]["I2"]["completed"], sum(result["arms"]["I2"]["episodes"].values()),
             max(Counter(row["evaluation_id"] for row in kind(rows, "evaluation")).values()),
             len(kind(rows, "parents"))) == (
-        [("I1", 0), ("I2", 1), ("I3", 2), ("I2", 3)], [f"quota: {QUOTA}"], {"quota_incident": 1}, 1, 1)
+        [("I1", 0), ("I2", 1), ("I3", 2)], [], False, [("I1", 0), ("I2", 1), ("I3", 2), ("I2", 3)],
+        [f"quota: {QUOTA}"], 1, 2, 1, 1)
 
 
-def test_a_smoke_evaluates_the_two_parents_once_per_task_through_the_command_line(sandboxed, world, monkeypatch,
-                                                                                  capsys):
+def test_an_accepted_episode_with_unadjudicated_scan_hits_stops_the_run_before_the_subset(sandboxed, world, pyright):
+    install(world, print_once=str(world.tmp / "evidence" / "log.jsonl"))  # the I1 episode names the evidence root
+    with pytest.raises(ValueError, match="no verdict"):
+        run(world)
+    rows = read_records(world.tmp / "evidence" / "log.jsonl")
+    assert ([(row["arm"], row["outcome"], row["scan_pending"]) for row in kind(rows, "episode")][0],
+            kind(rows, "evaluation"), (world.tmp / "evidence" / "readout.json").exists()) == (
+        ("I1", "accepted", True), [], False)
+
+
+def test_a_launch_waiting_at_the_cap_waits_out_a_quota_pause_before_it_relaunches(tmp_path):
+    """A (in flight) holds the cap; B is refused and waits; A ends with a quota incident: B relaunches only after the
+    guard's pause."""
+    now, events = [datetime(2026, 10, 19, 19, 0, tzinfo=timezone.utc)], []
+
+    def sleep(seconds):
+        events.append("pause")
+        now[0] += timedelta(seconds=seconds)
+
+    gate = three_arm.CapGate(QuotaGuard(clock=lambda: now[0], sleep=sleep, say=lambda line: None))
+    reserved, finish = threading.Event(), threading.Event()
+
+    def launch(name, row, hold=False):
+        def go():
+            events.append(name)
+            slot = ledger.reserve(tmp_path, kind="evaluation", key=name, planned=8, cap=10)
+            reserved.set()
+            if hold:
+                finish.wait(30)
+            ledger.settle(tmp_path, slot, tmp_path / name)
+            return row
+        return go
+
+    quota_row = {"kind": "evaluation", "outcome": "incident", "incidents": [f"quota: {QUOTA}"]}
+    first = threading.Thread(target=gate.run, args=(launch("A", quota_row, hold=True),))
+    first.start()
+    reserved.wait(30)
+    rows = []
+    second = threading.Thread(target=lambda: rows.append(gate.run(launch("B", {"outcome": "completed"}))))
+    second.start()
+    deadline = time.monotonic() + 30
+    while not (events.count("B") == 1 and gate.running == 1) and time.monotonic() < deadline:
+        time.sleep(0.01)  # until B was refused at the cap while A is in flight
+    finish.set()
+    first.join(30)
+    second.join(30)
+    assert (events, rows) == (["A", "B", "pause", "B"], [{"outcome": "completed"}])
+
+
+def test_a_run_refuses_another_mutator_or_criterion_hash_before_anything_exists(tmp_path):
+    (tmp_path / "config.json").write_text(json.dumps(CONFIG | {"criterion_sha256": sha256_file(CRITERION)}))
+    stale = tmp_path / "stale.json"
+    stale.write_text(json.dumps(CONFIG | {"criterion_sha256": "0" * 64}))
+    errors = []
+    for config, agent_cmd in ((tmp_path / "config.json", ["claude", "-p"]), (stale, CODEX_MUTATOR)):
+        with pytest.raises(ValueError) as error:
+            three_arm.run_three_arm(config, parents={}, tasks=[], work_root=tmp_path / "w",
+                                    evidence_root=tmp_path / "e", episodes_per_arm=6, agent_cmd=agent_cmd,
+                                    runtime=tmp_path, env={}, timeout_sec=1, solutions={}, call_cap=1, concurrency=1,
+                                    run_seed=1, subset_seed=1, criterion=CRITERION)
+        errors.append(str(error.value))
+    assert (["mutator" in errors[0], "criterion_sha256" in errors[1]], (tmp_path / "e").exists()) == (
+        [True, True], False)
+
+
+def test_a_smoke_evaluates_the_two_parents_once_per_task_through_the_command_line(sandboxed, world, pyright,
+                                                                                  monkeypatch):
     install(world)
     for name, value in env_of(world).items():
         monkeypatch.setenv(name, value)
@@ -301,11 +389,10 @@ def test_a_smoke_evaluates_the_two_parents_once_per_task_through_the_command_lin
                     "--eval-timeout-sec", "600",
                     "--solution", f"{world.task.name}={world.solution}", "--call-cap", "9", "--run-seed", "1",
                     "--subset-seed", "1"])
-    out, rows = capsys.readouterr().out, read_records(evidence / "log.jsonl")
-    printed = json.loads(out[out.rfind("\n{") + 1:])  # the result, after run_arm's command lines
+    rows = read_records(evidence / "log.jsonl")
     (parents_row,) = kind(rows, "parents")
-    assert (sorted((row["parent"], row["candidate_id"], row["outcome"]) for row in printed["smoke"]),
-            [row["mode"] for row in kind(rows, "evaluation")], kind(rows, "episode"),
+    assert (sorted((row["mode"], row["parent"], row["candidate_id"], row["outcome"])
+                   for row in kind(rows, "evaluation")), kind(rows, "episode"),
             (evidence / "readout.json").exists()) == (
-        [("orc", parents_row["orc"], "completed"), ("python", parents_row["python"], "completed")], ["smoke"] * 2, [],
-        False)
+        [("smoke", "orc", parents_row["orc"], "completed"), ("smoke", "python", parents_row["python"], "completed")],
+        [], False)
