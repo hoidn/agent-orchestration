@@ -108,30 +108,36 @@ Everything not listed is a frozen surface, refused as today by
 | `:timeout-sec` and every other per-call ceiling | Literals at most the successor criterion's per-call ceiling (a new field) | acceptance check; the evaluation's wall clock and the ledger cap remain the outer bound |
 | Runtime, compiler, evaluator, task repositories, hidden checks, scoring | Outside the mutation workspace | unchanged |
 
+**Planned maximum and hard cap (v1).** `ledger.max_provider_calls` is not a
+sound bound for a rewritten module: it reads one file, expands only the
+module's own definitions by name and counts `provider-result` heads (an agent
+turn is one, so turns are counted), so a provider call reached through a
+local procedure binding or a `proc-ref` passed as an argument, an imported
+effectful definition and `run-provider-phase` count 0, and the runtime's own
+retries and unresolved-turn reruns lie outside any static count. Under
+`module` both of these are in v1:
+
+1. the planned maximum (the ledger reservation) is computed from the checked
+   closed program the child's compile already produces (`closed_program.json`:
+   `perform` nodes of class `provider`, `provider_phased`, `agent` and
+   `agent_turn`, multiplied by the budgets of their enclosing loops and par-map
+   maxima; the checker already refuses a loop without a budget), which covers
+   local bindings, imports and phased calls by construction; and
+2. the shim enforces the cap at launch: the evaluation's reserved maximum
+   reaches the shim as one environment variable beside `COMPARE_ROOT`, and the
+   shim refuses the call whose `calls/<n>` index would exceed it, so the run
+   fails as a provider failure under the frozen rule. An undercount can then
+   cost at most one refused call, never an unbounded run.
+
 **v2, deferred: imports from a study bundle.** Letting a candidate import
-library modules (`std/*`, further `common`-style modules) changes its planned
-provider calls and effects in ways `ledger.max_provider_calls` does not count:
-it reads one file, expands only the mutable module's own definitions and
-counts `provider-result` heads (an agent turn is one, so turns are counted),
-so an imported effectful definition and `run-provider-phase` count 0, and the
-runtime's own retries and unresolved-turn reruns lie outside any static
-count. The bundle is passed as a second `--source-root`, never staged into the
-candidate root: `candidates.candidate_id` hashes every file under the root, so
-staging it would change the identity of every candidate staged afterwards and break comparability with earlier ones. Bundle imports open when both
-of these exist:
+library modules (`std/*`, further `common`-style modules) opens once the v1
+bound is in place; the bundle is passed as a second `--source-root`, never
+staged into the candidate root: `candidates.candidate_id` hashes every file
+under the root, so staging it would change the identity of every candidate
+staged afterwards and break comparability with earlier ones.
 
-1. a planned maximum computed from the checked closed program the child's
-   compile already produces (`closed_program.json`: `perform` nodes of class
-   `provider`, `provider_phased`, `agent` and `agent_turn`, multiplied by the
-   budgets of their enclosing loops), which covers imports, agent turns and
-   phased calls by construction; and
-2. a hard per-evaluation cap in the shim: the shim refuses the call whose
-   `calls/<n>` index would exceed the evaluation's reserved maximum, so an
-   undercount can cost at most one refused call, never an unbounded run.
-
-Until then a child whose compiled program contains a `perform` site of class
-`provider_phased` (uncounted, and phased delivery's live qualification is
-unselected) or `agent`/`agent_turn` (counted, but a second turn inside
+A child whose compiled program contains a `perform` site of class
+`provider_phased` (phased delivery's live qualification is unselected) or `agent`/`agent_turn` (counted, but a second turn inside
 `loop/recur` hits the `agent_turn_unresolved` runtime defect, and an agent
 session escapes the evaluation's process-group kill, per the driver design's
 Execution Contract) is refused at acceptance (`unsupported_effect_shape`), and
@@ -199,8 +205,11 @@ All of the following, each recorded in the ledger before any provider spend:
    transcript names a frozen surface the agent worked around or asked for
    (both clean Phase 1 children: 2 of 2). The figure is reported, not a
    trigger; selection rests on gates 2–6 and the owner's allocation.
-2. **An evaluator whose anchors discriminate** on the family (upstream above
-   the stub and above every candidate, in every batch, for every judge).
+2. **An evaluator calibrated on known controls.** The upstream anchor scores
+   strictly above the stub in every batch, for every judge (`anchor_trust` in
+   the three-arm criterion), and the criterion predeclares the tolerated error
+   rate on those controls. Nothing is required of the candidates' ranks: a
+   candidate may equal or beat the upstream fix.
    Making hidden acceptance the primary measure would reverse the owner's
    evaluation policy of 2026-10-15; that is an owner decision, not an
    alternative this plan offers.
@@ -226,11 +235,14 @@ fourth arm (the frozen `three_arm.json` cannot gain an arm, and no three-arm
 row is reused), never as a replacement for the frozen arms. Its primary endpoint is the test's: accepted improvements per completed
 episode. Attribution of a gain to a single change needs single-factor
 ablations, which the measured spread (pooled within-arm SD 0.93 and 1.20
-rubric points with two replicates) makes unaffordable at Phase 1 scale. An
-ablation is a paired comparison with at least three replicates per task on the
-validation split under the frozen measure (a rule this plan owns; the driver
-design states no replicate count),
-and a whole-module gain is retained only when it survives one.
+rubric points with two replicates) makes unaffordable at Phase 1 scale. A
+whole-module gain is retained when it reproduces on the validation split, at
+least three replicates per task under the frozen measure, within the
+allocation (a rule this plan owns; the driver design states no replicate
+count); a prompt, a decision type and a routing change may help only
+together, and that interaction is what the condition exists to find.
+Ablations are for claims about why a gain works, never a condition of
+retaining it.
 
 The arm makes no prompt-versus-topology claim: `module` changes prompts and
 topology together, and the charter requires the single-factor conditions
@@ -247,7 +259,8 @@ with its own budget.
 | 1. Condition | `config.CONDITIONS` gains `module`; `candidates.PROMPT_CONDITIONS`, `PROMPT_SIGNATURE_CONDITIONS` and `TOPOLOGY_CONDITIONS` include it, `PROVIDER_CONDITIONS` does not (membership would unfreeze `providers.json` in `_plain_file_verdict`); `_definition_verdict` admits added and removed non-exported definitions under it; `_split_forms` frees private type declarations under it; on the compiled child, `perform` policies are checked against the allowlist (a `name` in place of a literal is refused), `:timeout-sec` literals against the ceiling, and the module qualifiers of its `definitions`/`types` against the parent's; a compiler crash becomes an `incident` (today `compile_candidate` records it as `rejected`, `compiler_crash`) | Existing fixtures for the four legacy conditions keep their outcomes; a child adding a review prompt, a private union, a helper and routing is accepted under `module` and refused under `joint` |
 | 1b. Metrics | Under `module`, `driver.skeleton` and `driver.allocation` (`records.skeleton_hash`) cover every non-exported definition of the mutable file, parent and child alike, entry first, instead of `mutable_definitions` only | A child that moves its loop into a new helper hashes by the loop, not by the call; legacy conditions hash as before |
 | 2. Public contract | `judge_child` compares the closed program's `params` beside its `result`; tests that a child declaring its own `Outcome` beside the frozen import is refused (`declaration_collision`, before compilation), that a changed entry parameter is refused at the signature (`frozen_surface_changed`), that a `common.orc` type edit is `frozen_surface_changed` and an added definition there `scope_exceeded`, and that the `params`/`result` backstop fires for an entry without a result annotation (calling `judge_child`'s post-compile step directly) | The refusals, with the code that fires first |
-| 3. Effect shapes | `acceptance.judge_child` refuses a compiled child whose closed program has a `perform` site of class `provider_phased` (until the closed-program planned maximum exists) or `agent`/`agent_turn` (until the unresolved-turn defect and the kill escape are fixed), as `unsupported_effect_shape` | A child using `agent` is refused; `ledger.max_provider_calls` still refuses a non-literal `:max` |
+| 3. Effect shapes | `acceptance.judge_child` refuses a compiled child whose closed program has a `perform` site of class `provider_phased` (phased qualification unselected) or `agent`/`agent_turn` (until the unresolved-turn defect and the kill escape are fixed), as `unsupported_effect_shape` | A child using `agent` is refused; `ledger.max_provider_calls` still refuses a non-literal `:max` |
+| 3b. Bound and cap | `ledger.planned_calls` for a `module` child walks the closed program (perform classes × loop budgets × par-map maxima); the evaluation launch passes the reserved maximum to the shim, which refuses the call whose `calls/<n>` index would exceed it | A child calling a provider through a local `proc-ref` binding plans the right count; a scripted run whose agent makes one call too many fails at the shim with the cap in its stderr, and the ledger settles the recorded count |
 | 4. Check command and brief | `briefs.episode_brief` renders the `module` surfaces, may carry typed-site context from the manifest without a one-site receipt, and gives a check line that runs validation plus compile from the workspace: `episode_workspace` copies `experiments/orc_structural_search` beside `py/` (today it copies only `orchestrator/`), and the check takes the parent snapshot (`COMPARE_BASE`) and the configuration as inputs; the shim model guard reads the allowlist for Claude launches | A scripted mutator reads a scope refusal from the check, repairs, and yields one accepted child; the guard refuses a Claude model outside the allowlist, and a Codex model outside it is refused at acceptance |
 | 5. Records | `criterion_sha256` on evaluation and episode rows; the native session file path on episode rows; `metering.py` wired for Claude session usage and Codex rollouts where present, `unavailable` otherwise | Rows carry the hash; a run with a readable session file reports tokens |
 | 6. Readout | A successor criterion (own SHA-256; `models`, the per-call ceiling, the fourth arm) and `three_arm.py` keyed by interface and condition (`arm_config` per arm); realized `perform` sites per evaluation (from the memo) and exercised branches are reported beside calls | A readout row per arm with realized sites |
