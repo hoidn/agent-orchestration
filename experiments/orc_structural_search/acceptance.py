@@ -8,6 +8,7 @@ Design: docs/design/orc_structural_search_driver.md ("Edit Validation And Transa
 import ast
 import builtins
 import hashlib
+import io
 import json
 import os
 import re
@@ -24,13 +25,14 @@ from experiments.orc_structural_search.candidates import (
     ACCEPTED, CompileOutcome, Verdict, _file_names, _refuse, _same_file, compile_candidate, validate_frozen_surfaces,
     validate_one_site)
 from experiments.orc_structural_search.config import ExperimentConfig
-from experiments.orc_structural_search.records import UNAVAILABLE, python_program_digest
+from experiments.orc_structural_search.records import _PROMPT_SUFFIX, UNAVAILABLE, python_program_digest
 from experiments.orc_structural_search.sites import (
     derive_receipt, drop_hypothesis, replacement_start, site_manifest, slot_type)
 
 
 TUNING_ARGUMENTS = ("model", "effort")  # an I3 call's provider tuning keywords
-SUPPRESSION = re.compile(r"type:\s*ignore|pyright:")  # a comment that silences pyright
+SUPPRESSION = re.compile(r"#\s*(?:type:\s*ignore|pyright:)")  # a comment that silences pyright (pyright's forms)
+ADAPTER = "provider_result"  # an I3 module's provider adapter: provider_result(provider, prompt, *, ...)
 BUILTIN_NAMES = frozenset(dir(builtins))  # frozen code calls them, so an added function must not shadow one
 _CLEAN_PARENTS: set[tuple[str, Path]] = set()  # (entry module sha256, runtime) checked clean in this process
 
@@ -121,10 +123,11 @@ def judge_python_child(parent: Path, child: Path, config: ExperimentConfig, *, r
 
 
 def suppressions(source: Path) -> list[tuple[int, str]]:
-    """(line, text) of each comment of the Python module `source` that silences pyright."""
-    with source.open("rb") as handle:
-        return [(token.start[0], token.string) for token in tokenize.tokenize(handle.readline)
-                if token.type == tokenize.COMMENT and SUPPRESSION.search(token.string)]
+    """(line, text) of each comment of the Python module `source` (decoded as UTF-8, a coding cookie ignored) that
+    silences pyright."""
+    tokens = tokenize.generate_tokens(io.StringIO(source.read_text()).readline)
+    return [(token.start[0], token.string) for token in tokens
+            if token.type == tokenize.COMMENT and SUPPRESSION.search(token.string)]
 
 
 def suppression_check(parent: Path, child: Path, config: ExperimentConfig) -> CompileOutcome | None:
@@ -195,9 +198,12 @@ def validate_python_scope(parent: Path, child: Path, config: ExperimentConfig) -
     (topology-only) a `model=`/`effort=` constant there that is new to the parent module. `scope_exceeded`: a
     mutable function was removed, an added top-level node is not an undecorated function, or another file differs
     (bytes; `.orc` forms). `declaration_collision`: an added function's name is already bound at top level (an
-    import included) or is a builtin's. `unreadable_child`: `ast` rejects the child's mutable file. Not refused (a
-    recorded limitation; the shims record every provider call): calls that mutate frozen state (`STATE.__init__()`,
-    `PROVIDERS.update(...)`), direct subprocess or CLI calls, and prompts written inline."""
+    import included) or is a builtin's. Topology-only also refuses (`frozen_surface_changed`) an ADAPTER call in
+    those functions whose prompt is not a top-level prompt constant's `.format(...)` (_prompt_verdict).
+    `unreadable_child`: `ast` rejects the child's mutable file, decoded as UTF-8 or with its coding cookie. Not
+    refused (a recorded limitation; the shims record every provider call): calls that mutate frozen state
+    (`STATE.__init__()`, `PROVIDERS.update(...)`), a `**` splat of tuning values, and direct subprocess or CLI
+    calls."""
     for name in _file_names(parent, child):
         before, after = parent / name, child / name
         if name in config.mutable_files and before.is_file() and after.is_file():
@@ -215,7 +221,8 @@ def validate_python_scope(parent: Path, child: Path, config: ExperimentConfig) -
 def _python_file_verdict(before: Path, after: Path, config: ExperimentConfig) -> Verdict:
     parent = ast.parse(before.read_text()).body
     try:
-        child = ast.parse(after.read_text(), filename=after.name).body
+        child = ast.parse(after.read_text(), filename=after.name).body  # UTF-8, as pyright and the records read it
+        ast.parse(after.read_bytes(), filename=after.name)  # with its coding cookie, as Python runs it
     except (SyntaxError, ValueError) as error:  # ValueError: undecodable bytes, a null byte
         return _refuse("unreadable_child", f"{after.name}: {error}")
     mutable = set(config.mutable_definitions)
@@ -230,7 +237,8 @@ def _python_file_verdict(before: Path, after: Path, config: ExperimentConfig) ->
     verdicts = [_signature_verdict(parent_functions, child_functions), _added_verdict(added, frozen | BUILTIN_NAMES),
                 _body_verdict(functions, frozen)]
     if config.condition == "topology-only":
-        verdicts.append(_tuning_verdict(parent, functions))
+        prompts = {name for name in frozen if name.endswith(_PROMPT_SUFFIX)}
+        verdicts += [_tuning_verdict(parent, functions), _prompt_verdict(functions, prompts)]
     return next((verdict for verdict in verdicts if not verdict.accepted), ACCEPTED)
 
 
@@ -336,6 +344,42 @@ def _tuning_verdict(parent: Sequence[ast.stmt], functions: Sequence[ast.Function
         return _refuse("frozen_surface_changed",
                        f":model/:effort values {sorted(new, key=repr)} are new to the module under topology-only")
     return ACCEPTED
+
+
+def _prompt_verdict(functions: Sequence[ast.FunctionDef], prompts: set[str]) -> Verdict:
+    """Topology-only (ORC's frozen defprompt): in `functions`, every ADAPTER call passes as its prompt a call
+    `<prompt constant>.format(...)` written in place (the format arguments are free), and ADAPTER is used only by
+    calls."""
+    for function in functions:
+        names, calls = _adapter_uses(function)
+        if len(calls) != len(names):
+            return _refuse("frozen_surface_changed", f"{function.name}: {ADAPTER} used other than as a direct call")
+        bad = next((call for call in calls if not _frozen_prompt(_prompt_argument(call), prompts)), None)
+        if bad is not None:
+            prompt = _prompt_argument(bad)
+            return _refuse("frozen_surface_changed", f"{function.name}, line {bad.lineno}: a {ADAPTER} prompt other "
+                           f"than <a top-level *{_PROMPT_SUFFIX}>.format(...) under topology-only "
+                           f"({ast.unparse(prompt) if prompt else 'no prompt argument'})")
+    return ACCEPTED
+
+
+def _adapter_uses(function: ast.FunctionDef) -> tuple[list[ast.Name], list[ast.Call]]:
+    """(every ADAPTER name in `function`, the calls whose callee is one of them)."""
+    names = [node for node in ast.walk(function) if isinstance(node, ast.Name) and node.id == ADAPTER]
+    return names, [node for node in ast.walk(function) if isinstance(node, ast.Call) and node.func in names]
+
+
+def _frozen_prompt(prompt: ast.expr | None, prompts: set[str]) -> bool:
+    """`prompt` is `<one of prompts>.format(...)`."""
+    return (isinstance(prompt, ast.Call) and isinstance(prompt.func, ast.Attribute) and prompt.func.attr == "format"
+            and isinstance(prompt.func.value, ast.Name) and prompt.func.value.id in prompts)
+
+
+def _prompt_argument(call: ast.Call) -> ast.expr | None:
+    """The prompt argument of an ADAPTER call: the second positional argument or `prompt=`."""
+    if len(call.args) > 1:
+        return call.args[1]
+    return next((keyword.value for keyword in call.keywords if keyword.arg == "prompt"), None)
 
 
 def _tuning(nodes: Sequence[ast.AST]) -> set[tuple[str | None, object]]:

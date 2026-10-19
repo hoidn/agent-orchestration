@@ -11,7 +11,8 @@ from experiments.orc_structural_search.candidates import (
     validate_frozen_surfaces,
     validate_one_site,
 )
-from experiments.orc_structural_search.acceptance import check_python, judge_child, validate_python_scope
+from experiments.orc_structural_search.acceptance import (
+    check_python, judge_child, suppression_check, validate_python_scope)
 from experiments.orc_structural_search.config import ExperimentConfig
 from experiments.orc_structural_search.records import python_provider_allocation, python_skeleton_hash
 from tests.experiments.orc_structural_search_support import I3_CONFIG, python_pair, pyright  # noqa: F401 (fixture)
@@ -270,14 +271,20 @@ REPAIR = """def passes() -> bool:
 
 
 def run(task: str, intent: str, repo: str) -> Outcome:
-    prompt = IMPLEMENT_PROMPT.format(task=task, repo=repo)
-    change = provider_result(PROVIDERS["coder"], prompt, model="gpt-6.1-sol", effort="high", timeout_sec=5400,
-                             result=Change)
+    change = provider_result(PROVIDERS["coder"], IMPLEMENT_PROMPT.format(task=task, repo=repo), model="gpt-6.1-sol",
+                             effort="high", timeout_sec=5400, result=Change)
     if not passes():
-        change = provider_result(PROVIDERS["coder"], prompt, model="gpt-6.1-sol", effort="high", timeout_sec=5400,
-                                 result=Change)
+        change = provider_result(PROVIDERS["coder"], IMPLEMENT_PROMPT.format(task=task, repo=repo),
+                                 model="gpt-6.1-sol", effort="high", timeout_sec=5400, result=Change)
     return DONE(summary=change.summary)
 """
+# a repair call that appends the check's excerpt to the task through the frozen prompt's fill
+FEEDBACK = RUN_BODY.replace("    return DONE", """    report = dev_check()
+    if not report.passed:
+        change = provider_result(PROVIDERS["coder"], IMPLEMENT_PROMPT.format(task=task + "\\n\\n" + report.excerpt,
+                                                                             repo=repo),
+                                 model="gpt-6.1-sol", effort="high", timeout_sec=5400, result=Change)
+    return DONE""")
 
 
 def test_i3_refuses_edits_outside_the_mutable_functions(tmp_path):
@@ -365,3 +372,23 @@ def test_i3_a_parent_that_does_not_type_check_against_the_runtime_raises(tmp_pat
     (tmp_path / "runtime").mkdir()  # no orchestrator: the parent's imports do not resolve
     with pytest.raises(RuntimeError, match="does not type-check"):
         judge_child(parent, child, I3_CONFIG, runtime=tmp_path / "runtime")
+
+
+def test_i3_prompts_only_through_a_frozen_prompt_constant_under_topology_only(tmp_path):
+    edits = [("IMPLEMENT_PROMPT.format(task=task, repo=repo)", 'f"Implement {task} in {repo}"'),  # an inline prompt
+             ("    change = provider_result(", "    call = provider_result\n    change = call("),  # an alias
+             (RUN_BODY, FEEDBACK)]  # feedback through the prompt's fill
+    codes = [validate_python_scope(*python_pair(tmp_path / str(i), edit), I3_CONFIG).code
+             for i, edit in enumerate(edits)]
+    assert codes == ["frozen_surface_changed", "frozen_surface_changed", None]
+
+
+def test_i3_prose_comments_naming_pyright_or_types_are_no_suppression(tmp_path):
+    comments = "# checked with pyright: 0 errors\n# result type: ignored fields are dropped\n"
+    assert suppression_check(*python_pair(tmp_path, (RUN, comments + RUN)), I3_CONFIG) is None
+
+
+def test_i3_a_bogus_coding_cookie_is_an_unreadable_child_not_a_crash(tmp_path):
+    parent, child = python_pair(tmp_path)
+    (child / "direct.py").write_text("# coding: bogus\n" + (child / "direct.py").read_text())
+    assert judge_child(parent, child, I3_CONFIG, runtime=REPO)["refusal_code"] == "unreadable_child"

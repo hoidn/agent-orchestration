@@ -25,6 +25,22 @@ TYPED_HEADS = {"provider-result": "provider-call", "run-provider-phase": "provid
                "(<procedure> ...)": "procedure-call", "call": "workflow-call", "run-ref": "run-ref", "let*": "let*",
                "if": "if", "cond": "cond", "match": "match", "loop/recur": "loop", "list/map": "list-map",
                "list/map-effect": "list-map"}
+# What else refuses an I3 proposal inside `run` and added functions (acceptance.validate_python_scope and
+# suppression_check), keyed by the construct; "prompt" applies under topology-only. The I3 brief renders each text.
+PYTHON_RULES = {
+    "import": "import statements",
+    "global": "global or nonlocal statements",
+    "names": "a local variable or added function named like any top-level name, and assigning to, deleting or "
+             "mutating through a top-level name",
+    "tuning": "a model= or effort= value that is not a literal",
+    "decorator": "decorators",
+    "builtin": "an added function named like a builtin",
+    "prompt": "a provider_result call whose prompt argument is not written as <NAME>_PROMPT.format(...), with "
+              "<NAME>_PROMPT one of the top-level prompt constants (the format arguments are free, e.g. task=task + "
+              "feedback)",
+    "suppression": "comments that silence pyright (`# type: ignore`, `# pyright: ...`), which the check line below "
+                   "does not report",
+}
 
 
 def episode_brief(config: ExperimentConfig, index: int, *, site: Mapping | None = None,
@@ -47,13 +63,16 @@ def episode_brief(config: ExperimentConfig, index: int, *, site: Mapping | None 
 def python_scope(config: ExperimentConfig) -> str:
     """An I3 brief's scope, frozen surfaces and check line (acceptance.validate_python_scope, check_python)."""
     module = ledger.entry_of(Path(), config)[0].as_posix()
+    rules = [text for rule, text in PYTHON_RULES.items() if rule != "prompt" or config.condition == "topology-only"]
     return (f"Mutable scope: files {', '.join(config.mutable_files)}; functions "
             f"{', '.join(config.mutable_definitions)} and fresh top-level functions; condition {config.condition}.\n\n"
             "Frozen surfaces: every other top-level definition: imports, dataclasses, prompt constants, the provider "
             f"adapter and `main`; the signature of {', '.join(f'`{name}`' for name in config.mutable_definitions)}; "
             "and what the condition does not permit (topology-only freezes prompts, the providers file and any "
             "model=/effort= value the module does not already use). Adding any other top-level statement or file, "
-            "or changing a frozen surface, refuses the proposal.\n\n"
+            "or changing a frozen surface, refuses the proposal. Inside "
+            f"{', '.join(f'`{name}`' for name in config.mutable_definitions)} and added functions these also refuse "
+            f"it: {'; '.join(rules)}.\n\n"
             f"Check an edit with: PYTHONPATH=../py pyright {module}\n")
 
 
