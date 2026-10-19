@@ -73,7 +73,7 @@
   "locality": "an episode is out of scope when its verdict is scope_exceeded, frozen_surface_changed, digest_mismatch, site_unlocatable or declaration_collision; locality per arm = out-of-scope episodes over judged episodes (accepted + rejected), and files touched per episode from the final diff",
   "subset": {
     "per_arm": 2,
-    "rule": "accepted, uncontaminated children whose candidate_id differs from the parent's and from every earlier chosen child's (a candidate-id repeat, not the readout's skeleton revisit), by episode index; the first; then the first later child with another skeleton than the first chosen child's; else the child with the smallest sha256(f'{subset_seed}:{candidate_id}') among the rest",
+    "rule": "accepted, uncontaminated children whose candidate_id differs from the parent's and from every earlier chosen child's in any arm, arms taken in the order I1, I2, I3 (a candidate-id repeat, not the readout's skeleton revisit), by episode index; the first; then the first later child with another skeleton than the first chosen child's; else the child with the smallest sha256(f'{subset_seed}:{candidate_id}') among the rest",
     "replicates": 1,
     "tasks": "both"
   },
