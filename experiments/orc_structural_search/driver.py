@@ -280,8 +280,8 @@ def hidden_roots(work_root: Path, evidence_root: Path, hide: Sequence[Path] = ()
     """The directories the shims mask from an episode's CLI calls (COMPARE_HIDE): the evidence root, every episode
     tree but the call's own (the shims bind it back), the work root's evaluation directories and the operator's
     `hide` (other runs' roots); each is created so bubblewrap finds a mount point."""
-    roots = [evidence_root, *(work_root / name for name in ("episodes", "records", "runs", "agents", "env-manifests")),
-             *hide]
+    roots = [root.resolve() for root in (
+        evidence_root, *(work_root / name for name in ("episodes", "records", "runs", "agents", "env-manifests")), *hide)]
     for root in roots:
         root.mkdir(parents=True, exist_ok=True)
     return roots

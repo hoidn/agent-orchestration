@@ -2,8 +2,9 @@
 directories from an episode's sandboxed CLI calls (scripted mutator and CLI; no provider is called)."""
 
 import sys
+from pathlib import Path
 
-from experiments.orc_structural_search.driver import archive, run_episode
+from experiments.orc_structural_search.driver import archive, hidden_roots, run_episode
 from tests.experiments.orc_structural_search_support import world  # noqa: F401 (fixture)
 from tests.experiments.test_orc_structural_search_driver import (  # noqa: F401 (sandboxed: fixture)
     MUTATOR_ONE_CALL, config_of, fake_claude, mode1, sandboxed)
@@ -33,3 +34,9 @@ def test_hide_paths_from_the_command_line_reach_the_episode(sandboxed, world):
     hidden = world.outside / "other-run"
     _, rows, _ = mode1(world, ["direct"], hide=[hidden])
     assert [str(hidden) in row["hidden_roots"] for row in rows if row["kind"] == "episode"] == [True] * 3
+
+
+def test_hidden_roots_are_absolute_whatever_the_operator_passes(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    roots = hidden_roots(Path("w"), Path("e"), hide=[Path("other/run")])
+    assert all(root.is_absolute() for root in roots) and tmp_path / "other" / "run" in roots

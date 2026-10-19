@@ -57,7 +57,7 @@ What the sandbox isolates:
   its call ends.
 
 What it does not isolate:
-- the rest of the filesystem (but the `COMPARE_HIDE` directories), home and the network stay shared;
+- the rest of the filesystem (except the `COMPARE_HIDE` directories), home and the network stay shared;
 - other sessions' transcripts (`~/.claude/projects`, `~/.codex/sessions`) stay readable;
 - the scan only detects reads there, it does not prevent them.
 
