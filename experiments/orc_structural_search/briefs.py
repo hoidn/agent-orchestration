@@ -1,7 +1,7 @@
 """The mutator's episode brief (EPISODE.md, read on the mutator's stdin).
 
 Design: docs/design/orc_structural_search_driver.md ("Proposal Interfaces" I1/I2/I3, "Evaluation Hygiene"); Phase
-2 plan Decision 7 (feedback). The brief names the objective, the mutable scope, the frozen surfaces and a compile
+2 plan Decision 7 (feedback). The brief names the objective, the mutable scope, the frozen surfaces and an admission-check
 line that runs from the workspace (`PYTHONPATH=../py`; an I3 brief's Python module: a pyright line, whose
 `orchestrator` imports resolve there too); an I2 brief adds the site (`sites.site_brief`), and a
 brief with feedback adds the parent's own evidence: judged mean per task with n, and per evaluation the outcome,
@@ -9,7 +9,6 @@ terminal variant, provider calls and wall clock. Any other feedback field (a hid
 score) is never rendered, and nothing here names a runtime or evidence path.
 """
 
-import shlex
 from collections.abc import Mapping
 from pathlib import Path
 

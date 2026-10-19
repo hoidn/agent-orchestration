@@ -62,6 +62,7 @@ from statistics import mean, stdev, variance
 
 from experiments.compare import pool as pooling, prepare
 from experiments.compare.repos import dump, guard, load, runtime_commit, sha256_file, visible_in_sandbox
+from experiments.orc_structural_search.config import check_criterion_hashes
 from experiments.orc_structural_search.quota import job_key
 from experiments.orc_structural_search.readout import QUOTA_INCIDENT, diversity, outcome, share
 from experiments.orc_structural_search.records import UNAVAILABLE, read_records
@@ -96,6 +97,7 @@ def pool_evaluations(evidence_root: Path, task_package: Path, *, out: Path, judg
                  and include(row)]
     if not completed:
         raise ValueError(f"no completed evaluation of {task.name} in {evidence_root}/log.jsonl")
+    check_criterion_hashes(completed, sha256_file(criterion))
     records, policies = {}, {}
     for row in completed:
         path = Path(row["records_dir"]).resolve()

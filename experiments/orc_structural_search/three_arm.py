@@ -55,7 +55,8 @@ from experiments.compare.repos import sha256_file
 from experiments.orc_structural_search import judging, ledger
 from experiments.orc_structural_search.acceptance import check_parent, diagnosis
 from experiments.orc_structural_search.candidates import compile_candidate
-from experiments.orc_structural_search.config import ExperimentConfig, load_config, solution
+from experiments.orc_structural_search.config import (
+    ExperimentConfig, check_criterion_hashes, load_config, solution)
 from experiments.orc_structural_search.driver import (
     archive, check_hide, check_roots, check_solutions, launch_units, run_episode)
 from experiments.orc_structural_search.evaluation import cli_version
@@ -104,12 +105,9 @@ def check_row_criteria(rows: Sequence[Mapping], criterion: Mapping) -> None:
         if "arms" in criterion:
             raise ValueError("criterion_sha256 required: load the successor with load_criterion")
         return  # historical helper callers supply the original criterion mapping without its file hash
-    for row in rows:
-        if row["kind"] not in {"episode", "evaluation"}:
-            continue
-        got = row.get("criterion_sha256")
-        if got != expected and not (got is None and expected == HISTORICAL_CRITERION_SHA256):
-            raise ValueError(f"{row['kind']} criterion_sha256 {got!r} differs from {expected}")
+    sources = [row for row in rows if row["kind"] in {"episode", "evaluation"}]
+    check_criterion_hashes(sources, expected)
+    for row in sources:
         if row.get("mode") == MODE and row.get("arm") not in arm_specs(criterion):
             raise ValueError(f"arm {row.get('arm')!r} is outside this criterion")
 
@@ -437,6 +435,11 @@ def judge(evidence_root: Path, pool: Path, task: Path, *, criterion: Path, judge
     through judging.score_pool (ledger entries reserved before any judge runs, refused beyond `call_cap`), wait for
     a verdict on each judge scan with hits, summarize, and log the judging row (returned)."""
     names, pool = [spec.partition("=")[0] for spec in judges], Path(pool).resolve()
+    frozen = load_criterion(criterion)
+    mapping = json.loads((pool / "records" / "mapping.json").read_text())
+    if mapping.get("criterion_sha256") != frozen["criterion_sha256"]:
+        raise ValueError("pool criterion_sha256 differs from the requested criterion")
+    check_row_criteria(read_records(evidence_root / "log.jsonl"), frozen)
     judging.score_pool(evidence_root, pool, f"three-arm {task.name}", names=names, solution=solution,
                        call_cap=call_cap, scorer=scorer or judging.run_judge)
     for name in names:

@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+from experiments.compare.repos import sha256_file
+
 from experiments.compare import pool as pooling, prepare
 from experiments.orc_structural_search import judging
 from experiments.orc_structural_search.adaptive import (
@@ -216,7 +218,7 @@ def m2(world):
         "adaptive_tasks": [str(world.task)], "validation_task": str(validation), "judges": JUDGES,
         "anchors": {t.name: {"upstream": f"{t.name}-upstream", "stub": f"{t.name}-stub"} for t in (world.task, validation)}}))
     (world.tmp / "joined.json").write_text(json.dumps([joined("direct", world.task.name, 4.0)]))
-    (world.tmp / "config.json").write_text(json.dumps(CONFIG))
+    (world.tmp / "config.json").write_text(json.dumps(CONFIG | {"criterion_sha256": sha256_file(criterion)}))
     mutator = world.outside / "mutator.py"
     mutator.write_text(MUTATOR)
     script(world, [{"match": "Implement this change", "result": {"summary": "set VALUE", "account": "edited pkg"}}])

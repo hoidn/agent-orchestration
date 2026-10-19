@@ -39,7 +39,7 @@ call cap (ledger.py).
 
 Dependencies: everything evaluation.py needs (git, bwrap, a clean runtime checkout, the shims); `env` is the
 launch environment of evaluations and of the mutator command (the driver adds the shims itself). Consumption is
-not metered here: it is recorded "unavailable".
+matched to scoped native-session receipts; missing coverage remains "unavailable".
 """
 
 import argparse
@@ -278,8 +278,8 @@ def episode_workspace(parent_root: Path, tree: Path, brief: str, runtime: Path, 
                       parent_candidate_id: str | None = None) -> tuple[Path, str]:
     """(<tree>/cand-1, its commit): a git repository holding the parent snapshot in one commit, with the brief
     in EPISODE.md (excluded from patches, like the build cache and the I2 HYPOTHESIS.txt); <tree>/tmp; and
-    <tree>/py/orchestrator, a copy of the runtime's orchestrator for the brief's compile line (the shims strip
-    PYTHONPATH, and naming the runtime would be a scan hit)."""
+    <tree>/py/orchestrator and the experiment Python modules for the brief's admission check. Its local base
+    commit and config live outside cand-1; tasks, seeds and evidence are never copied into py/."""
     guard(main_checkout(runtime), tree)
     visible_in_sandbox(tree)
     shutil.copytree(runtime / "orchestrator", tree / "py" / "orchestrator",

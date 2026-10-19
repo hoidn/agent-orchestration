@@ -51,12 +51,13 @@ def evaluations(world):
     log = world.outside / "evidence" / "log.jsonl"
     log.parent.mkdir(parents=True)
     runs = {"e1": evaluation(world, "e1", "a + b"), "e2": evaluation(world, "e2", "b + a")}
-    for eid, records in runs.items():
-        append_record(log, log_row(records, eid=eid, seed={"e1": "direct", "e2": "best_of_n"}[eid]))
-    append_record(log, log_row(world.root / "records" / "e3" / "run-1", eid="e3", outcome="incident"))
-    append_record(log, log_row(world.root / "records" / "e4" / "run-1", eid="e4", task="other"))
     criterion = world.tmp / "criterion.json"
     criterion.write_text(json.dumps({"judges": ["judge-a", "judge-b"], "primary": [], "secondary": []}))
+    for eid, records in runs.items():
+        append_record(log, log_row(records, eid=eid, seed={"e1": "direct", "e2": "best_of_n"}[eid]) |
+                      {"criterion_sha256": sha256_file(criterion)})
+    append_record(log, log_row(world.root / "records" / "e3" / "run-1", eid="e3", outcome="incident"))
+    append_record(log, log_row(world.root / "records" / "e4" / "run-1", eid="e4", task="other"))
     out = pool_evaluations(log.parent, world.task, out=world.outside / "pool", criterion=criterion,
                            judges=["judge-a", f"judge-b={REPO / 'experiments/compare/providers/score_codex.json'}"])
     return out, json.loads((out / "records" / "mapping.json").read_text()), runs, log, criterion

@@ -286,3 +286,43 @@ rows = [{{"type": "user", "message": {{"content": prompt}}}},
         assert row["consumption"]["claude"]["tokens"] == 20
     else:
         assert row["consumption"] == "unavailable"
+
+
+@pytest.mark.parametrize("digest", [None, "foreign"])
+def test_successor_pool_refuses_missing_or_foreign_source_hash_before_collect(tmp_path, monkeypatch, digest):
+    from experiments.orc_structural_search import scoring
+    from experiments.orc_structural_search.records import append_record
+    from tests.experiments.orc_structural_search_support import REPO
+    criterion = REPO / "experiments/orc_structural_search/criteria/module.json"
+    evidence, task = tmp_path / "evidence", tmp_path / "task"
+    evidence.mkdir()
+    append_record(evidence / "log.jsonl", {"kind": "evaluation", "task_id": task.name, "outcome": "completed",
+        "records_dir": str(tmp_path / "foreign-record"), "mode": "three_arm", "candidate_id": "foreign-child",
+        "criterion_sha256": digest})
+    def unexpected(*args, **kwargs):
+        pytest.fail("invalid criterion reached collect")
+    monkeypatch.setattr(scoring.prepare, "collect", unexpected)
+    with pytest.raises(ValueError, match="criterion_sha256"):
+        scoring.pool_evaluations(evidence, task, out=tmp_path / "pool", criterion=criterion,
+                                judges=json.loads(criterion.read_text())["judges"])
+
+
+@pytest.mark.parametrize("pool_hash,row_hash", [(None, "correct"), ("foreign", "correct"),
+                                                ("correct", None), ("correct", "foreign")])
+def test_successor_judge_refuses_invalid_pool_or_source_hash_before_dispatch(tmp_path, monkeypatch, pool_hash, row_hash):
+    from experiments.orc_structural_search.records import append_record
+    from tests.experiments.orc_structural_search_support import REPO
+    criterion = REPO / "experiments/orc_structural_search/criteria/module.json"
+    digest = three_arm.load_criterion(criterion)["criterion_sha256"]
+    evidence, pool = tmp_path / "evidence", tmp_path / "pool"
+    evidence.mkdir()
+    (pool / "records").mkdir(parents=True)
+    (pool / "records/mapping.json").write_text(json.dumps({"criterion_sha256": digest if pool_hash == "correct" else pool_hash}))
+    append_record(evidence / "log.jsonl", {"kind": "evaluation", "task_id": "task", "mode": "three_arm", "arm": "I1/module",
+                                          "criterion_sha256": digest if row_hash == "correct" else row_hash})
+    def unexpected(*args, **kwargs):
+        pytest.fail("invalid criterion reached provider dispatch")
+    monkeypatch.setattr(three_arm.judging, "score_pool", unexpected)
+    with pytest.raises(ValueError, match="criterion_sha256"):
+        three_arm.judge(evidence, pool, tmp_path / "task", criterion=criterion,
+                        judges=json.loads(criterion.read_text())["judges"], solution="solution", call_cap=100)
