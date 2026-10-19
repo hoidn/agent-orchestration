@@ -179,7 +179,7 @@ reader rejects a child `.orc` file or receipt text); plus the frozen-surface
 rule, refused as `frozen_surface_changed`. When the child's manifest
 reports no type at the replacement's start (for example a literal
 replacement), the driver refuses with `slot_type_unavailable`
-(`slot_refusal` in `experiments/orc_structural_search/driver.py`), since
+(`slot_refusal` in `experiments/orc_structural_search/acceptance.py`), since
 the slot check cannot be made. Any child (I1 or I2) whose planned maximum
 of provider calls is unbounded (a provider call under a non-literal
 `:max`, or a recursion reaching one; `ledger.max_provider_calls`) is
@@ -344,6 +344,13 @@ python -m orchestrator run <candidate entry .orc> [frontend flags] \
   wall-clock limit; at expiry the launcher's process group is killed and the
   run is an incident. Known limit: agent-turn providers start their own
   session and escape that process-group kill.
+- A provider quota message in a launch's shim call records (the 2026-10-18
+  live Phase 1 incident: the Claude session limit ended 16 of 20 evaluations
+  and all 6 episodes) makes an unfinished launch a quota incident, not a
+  failure; the driver pauses new launches until the named reset and
+  relaunches the job as a new attempt whose evaluation id covers the attempt
+  number, and `--continue` reruns a run's quota incidents into its existing
+  roots (`experiments/orc_structural_search/quota.py`, README "Quota guard").
 - The clone is the working directory, so the workspace lock, guard and build
   cache land in its `.orchestrate/`. The lock admits one active run per
   working directory (`orchestrator/run_lock.py`), so concurrent evaluations

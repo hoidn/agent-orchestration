@@ -18,7 +18,8 @@ The validation pool is scoring.read_pool's result for the validation task's resu
 
 Means are failure-inclusive (criteria amendment of 2026-10-18): a failed evaluation, or an incident killed at its
 wall-clock envelope (scoring.scored_outcome: timeout), counts FAILED_POINTS (0); other incidents are left out
-(scoring.primary_value). Adaptive failures come from each run's log (`kind: evaluation`,
+(scoring.primary_value), and so are quota incidents (scoring.scored_outcome: quota_incident). Adaptive
+failures come from each run's log (`kind: evaluation`,
 `split: adaptive`, failed or timeout), not from the pools: a generation whose evaluations of a task all failed has no
 pool, and each pool's read_pool rows hold every generation's failures of its task.
 
@@ -196,7 +197,7 @@ def validation_rows(grouped: Mapping[str, list], runs: Sequence[Sequence[tuple[i
                       "shrinkage": UNAVAILABLE if UNAVAILABLE in (screening, validation) else screening - validation,
                       "mean_cost": stats["wall_clock_mean"], "provider_calls": stats["calls_mean"],
                       **{key: stats[key] for key in ("valued_mean", "failed", "timeouts", "failure_rate", "incidents",
-                                                     "excluded")}})
+                                                     "quota_incidents", "excluded")}})
     return table
 
 

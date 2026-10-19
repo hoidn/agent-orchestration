@@ -18,12 +18,16 @@ own arm and knows nothing of policies. This module adds the three steps around t
                      (collect records no patch for them, so summarize has no run row), summarize's anchors,
                      agreement and excluded judges, and the completed evaluations no run row names (`unpooled`);
                      refuses another criterion's results. Log rows count once per evaluation id
-                     (latest_evaluations: the last row wins, so a resumed incident counts as its later outcome).
+                     (latest_evaluations: per job, quota.job_key, the last row wins, so a resumed
+                     incident counts as its later outcome and a quota relaunch supersedes its quota incident).
   log_only_pool      a task with no completed, uncontaminated evaluation has no pool: its rows from the log alone
                      (`no_pool`; contaminated completed runs unvalued; anchors not applicable, so the anchor gate
                      skips it).
   scored_outcome     an incident whose latest incidents entry shows `launcher exit -9` (killed at its wall-clock
-                     envelope) is a `timeout`: 0 points, counted under failed and reported as timeouts.
+                     envelope) is a `timeout`: 0 points, counted under failed and reported as timeouts. A failed
+                     or incident evaluation whose launch hit a provider quota (quota.quota_reason, which also reads
+                     the records of failed rows from before the quota guard) is a `quota_incident`: excluded,
+                     counted as quota_incidents.
   phase1_readout     per task: catalog policy, child and pooled `unguided` stats; separation over arms with two or
                      more primary values (primary_value: a completed run's value, 0 for a failed run; criterion
                      amendment of 2026-10-18); DIRECT's rank; anchor order and cross-batch spread per judge; the
@@ -56,7 +60,8 @@ from statistics import mean, stdev, variance
 
 from experiments.compare import pool as pooling, prepare
 from experiments.compare.repos import dump, guard, load, runtime_commit, sha256_file, visible_in_sandbox
-from experiments.orc_structural_search.readout import share
+from experiments.orc_structural_search.quota import job_key
+from experiments.orc_structural_search.readout import QUOTA_INCIDENT, outcome, share
 from experiments.orc_structural_search.records import UNAVAILABLE, read_records
 
 DIRECT = "direct"  # the DIRECT seed's stem
@@ -141,15 +146,17 @@ def build_pool(task: Path, criterion: Path, out: Path, judges: Sequence[str], re
 
 
 def latest_evaluations(rows: Sequence[Mapping]) -> list[dict]:
-    """The evaluation rows among log `rows`, one per evaluation id: the last appended."""
-    return list({row["evaluation_id"]: row for row in rows if row["kind"] == "evaluation"}.values())
+    """The evaluation rows among log `rows`, one per job (quota.job_key: candidate, task, replicate, split,
+    generation; a quota relaunch has another evaluation id): the last appended."""
+    return list({job_key(row): row for row in rows if row["kind"] == "evaluation"}.values())
 
 
 def scored_outcome(record: Mapping) -> str:
-    """The log outcome, except an incident whose latest incidents entry shows the launcher killed at the wall-clock
-    envelope (KILLED) is a `timeout`."""
+    """The log outcome, except a quota launch is a `quota_incident` (readout.outcome) and an incident whose latest
+    incidents entry shows the launcher killed at the wall-clock envelope (KILLED) is a `timeout`."""
     incidents = record.get("incidents") or ()
-    return "timeout" if record["outcome"] == "incident" and incidents and KILLED in incidents[-1] else record["outcome"]
+    killed = record["outcome"] == "incident" and incidents and KILLED in incidents[-1]
+    return "timeout" if killed else outcome(record)
 
 
 def unvalued_row(record: Mapping) -> dict:
@@ -263,8 +270,8 @@ def primary_values(rows: Sequence[Mapping]) -> list[float]:
 def policy_stats(rows: Sequence[Mapping]) -> dict:
     """One arm's rows (any outcome): runs, mean and sd over primary values; valued_runs and valued_mean over
     completed runs' values; failed (failed and timed-out runs), timeouts, failure_rate (failed over completed and
-    failed), incidents, excluded (completed without a value); hidden, calls and wall clock means over the rows
-    with a primary value."""
+    failed), incidents (quota incidents not included), quota_incidents, excluded (completed without a value);
+    hidden, calls and wall clock means over the rows with a primary value."""
     values, counted = primary_values(rows), [r for r in rows if primary_value(r) is not None]
     valued = [r["value"] for r in counted if r["outcome"] == "completed"]
     outcomes = [r["outcome"] for r in rows]
@@ -273,6 +280,7 @@ def policy_stats(rows: Sequence[Mapping]) -> dict:
             "valued_runs": len(valued), "valued_mean": known_mean(valued), "failed": failed,
             "timeouts": outcomes.count("timeout"),
             "failure_rate": share(failed, failed + completed), "incidents": outcomes.count("incident"),
+            "quota_incidents": outcomes.count(QUOTA_INCIDENT),
             "excluded": completed - len(valued),
             "hidden_mean": known_mean([r["hidden"] for r in counted if r["hidden"] is not None]),
             "calls_mean": known_mean([r["calls"] for r in counted]),

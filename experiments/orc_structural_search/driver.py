@@ -19,9 +19,10 @@ Design: docs/design/orc_structural_search_driver.md ("Search Modes" mode 1, "Pro
     episodes/<episode_id>.diff                 the episode's final diff against its parent, whatever the outcome
     readout.json                               the mode 1 readout
 
-The evidence root must be fresh: `run_mode1` refuses one that already holds a log, and the driver never resumes
-an incident. An archived candidate is checked before each episode and evaluation: its content must still hash to
-its directory name (archive tamper check).
+The evidence root must be fresh unless `run_mode1` continues its run (`--continue`: quota.py, README "Quota
+guard"); the driver never resumes an incident. A quota launch pauses new launches until the reset and is relaunched
+as a new attempt (quota.QuotaGuard, with_retries). An archived candidate is checked before each episode and
+evaluation: its content must still hash to its directory name (archive tamper check).
 
 A seed is one `.orc` file of a catalog directory; its candidate root holds that file, the `.orc` modules it
 imports (transitively) and every other regular file of the directory, and its entry is `<stem>::<entry
@@ -50,8 +51,10 @@ import shutil
 import signal
 import subprocess
 import tempfile
+import itertools
 import threading
 import time
+from collections import namedtuple
 from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, replace
@@ -61,20 +64,25 @@ from experiments.compare import prepare
 from experiments.compare.repos import (
     SEED_COMMIT, SEED_DATES, dump, git, guard, main_checkout, runtime_commit, shim_prefix, visible_in_sandbox)
 from experiments.orc_structural_search import ledger
+from experiments.orc_structural_search.acceptance import judge_child
 from experiments.orc_structural_search.briefs import episode_brief
-from experiments.orc_structural_search.candidates import (
-    _file_names, candidate_id, compile_candidate, imports, snapshot, validate_frozen_surfaces, validate_one_site)
+from experiments.orc_structural_search.candidates import _file_names, candidate_id, imports, snapshot
 from experiments.orc_structural_search.config import ExperimentConfig, load_config
 from experiments.orc_structural_search.evaluation import EVALUATOR_VERSION, evaluate
+from experiments.orc_structural_search.quota import (
+    PREFIX, QuotaGuard, job_key, next_attempts, prior_rows, quota_hit, quota_reason, with_retries)
 from experiments.orc_structural_search.readout import readout
 from experiments.orc_structural_search.records import (
     UNAVAILABLE, append_record, provider_allocation, read_records, skeleton_hash)
-from experiments.orc_structural_search.sites import (
-    HYPOTHESIS, derive_receipt, drop_hypothesis, replacement_start, site_manifest, slot_type)
+from experiments.orc_structural_search.sites import HYPOTHESIS, drop_hypothesis
 
 EPISODE = "EPISODE.md"
 _LOG_LOCK = threading.Lock()  # concurrent evaluations append to one log
 LAUNCH_ENV = {"DISABLE_AUTOUPDATER": "1"}  # added to every evaluation's and episode's environment
+
+
+# one evaluation job (root, config, log fields, task package, replicate) and the attempt it launches as
+Unit = namedtuple("Unit", "root config fields task replicate attempt", defaults=(1,))
 
 
 def check_roots(work_root: Path, evidence_root: Path) -> tuple[Path, Path]:
@@ -136,14 +144,15 @@ def seed_config(seed: Path, config: ExperimentConfig) -> ExperimentConfig:
 def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, replicate: int, work_root: Path,
                       evidence_root: Path, runtime: Path, env: Mapping[str, str], timeout_sec: float,
                       solutions: Mapping[str, str], holdouts: Sequence[Path], fields: Mapping[str, object],
-                      call_cap: int) -> dict:
-    """Evaluate the archived `root` once (refused beyond the call cap), scan the run and append the evaluation
-    record (with `fields`) to the log."""
+                      call_cap: int, attempt: int = 1) -> dict:
+    """Evaluate the archived `root` once as `attempt` (refused beyond the call cap), scan the run and append the
+    evaluation record (with `fields`) to the log."""
     cid = check_archived(root, runtime_commit(runtime))
-    slot = ledger.reserve(evidence_root, kind="evaluation", key=f"{cid} {task.name} replicate {replicate}",
-                          planned=ledger.planned_calls(root, config), cap=call_cap)
+    key = f"{cid} {task.name} replicate {replicate}" + (f" attempt {attempt}" if attempt > 1 else "")
+    slot = ledger.reserve(evidence_root, kind="evaluation", key=key, planned=ledger.planned_calls(root, config),
+                          cap=call_cap)
     record = evaluate(root, config, task_package=task, work_root=work_root, replicate=replicate,
-                      runtime=runtime, env={**env, **LAUNCH_ENV}, timeout_sec=timeout_sec)
+                      runtime=runtime, env={**env, **LAUNCH_ENV}, timeout_sec=timeout_sec, attempt=attempt)
     ledger.settle(evidence_root, slot, record.records_dir, evaluation_id=record.evaluation_id)
     roots = [("archive", evidence_root), ("archive", work_root / "episodes"), ("lineage", evidence_root / "log.jsonl"),
              *(("holdout", holdout) for holdout in holdouts)]
@@ -179,15 +188,43 @@ def check_solutions(tasks: Sequence[Path], solutions: Mapping[str, str], runtime
     return solutions
 
 
+def units(jobs: Sequence[tuple[Path, ExperimentConfig, Mapping[str, object]]], tasks: Sequence[Path],
+          replicates: int) -> list[Unit]:
+    return [Unit(root, config, fields, task, replicate)
+            for root, config, fields in jobs for task in tasks for replicate in range(1, replicates + 1)]
+
+
 def evaluate_all(jobs: Sequence[tuple[Path, ExperimentConfig, Mapping[str, object]]], *, tasks: Sequence[Path],
-                 replicates: int, concurrency: int, **launch) -> list[dict]:
-    """Evaluate each (root, config, fields) job once per task and replicate with at most `concurrency`
-    evaluations in flight; rows in job order. Every evaluation is attempted before the first failure (a launch
-    refused at the call cap among them) is raised."""
+                 replicates: int, concurrency: int, guard: QuotaGuard | None = None, **launch) -> list[dict]:
+    """Evaluate each (root, config, fields) job once per task and replicate (launch_units)."""
+    return launch_units(units(jobs, tasks, replicates), concurrency=concurrency, guard=guard, **launch)
+
+
+def launch_units(pending: Sequence[Unit], *, concurrency: int, guard: QuotaGuard | None = None, **launch) -> list[dict]:
+    """Evaluate each unit with at most `concurrency` evaluations in flight, a quota incident relaunched as the
+    next attempt after the guard's pause (quota.with_retries); each unit's last row, in unit order. Every
+    evaluation is attempted before the first failure (a launch refused at the call cap among them) is raised."""
+    guard = guard or QuotaGuard()
+
+    def run(unit: Unit) -> dict:
+        return with_retries(lambda attempt: evaluate_and_scan(
+            unit.root, unit.config, task=unit.task, replicate=unit.replicate, fields=unit.fields, attempt=attempt,
+            **launch), guard, unit.attempt)
+
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
-        futures = [pool.submit(evaluate_and_scan, root, config, task=task, replicate=replicate, fields=fields, **launch)
-                   for root, config, fields in jobs for task in tasks for replicate in range(1, replicates + 1)]
+        futures = [pool.submit(run, unit) for unit in pending]
     return [future.result() for future in futures]
+
+
+def catalog_jobs(seeds: Sequence[Path], config: ExperimentConfig, evidence_root: Path,
+                 runtime: Path) -> list[tuple[Path, ExperimentConfig, dict]]:
+    """Each seed archived, as a (root, config, fields) job of `mode: "catalog"`."""
+    jobs = []
+    for seed in seeds:
+        cid, root = archive_seed(seed, evidence_root, runtime)
+        jobs.append((root, seed_config(seed, config),
+                     {"mode": "catalog", "seed": seed.stem, "candidate_id": cid, "candidate_root": str(root)}))
+    return jobs
 
 
 def enumerate_catalog(seeds: Sequence[Path], config: ExperimentConfig, *, tasks: Sequence[Path], work_root: Path,
@@ -198,12 +235,8 @@ def enumerate_catalog(seeds: Sequence[Path], config: ExperimentConfig, *, tasks:
     evaluations at a time."""
     work_root, evidence_root = check_roots(work_root, evidence_root)
     solutions = check_solutions(tasks, solutions, runtime)
-    jobs = []
-    for seed in seeds:
-        cid, root = archive_seed(seed, evidence_root, runtime)
-        jobs.append((root, seed_config(seed, config),
-                     {"mode": "catalog", "seed": seed.stem, "candidate_id": cid, "candidate_root": str(root)}))
-    return evaluate_all(jobs, tasks=tasks, replicates=replicates, concurrency=concurrency, work_root=work_root,
+    return evaluate_all(catalog_jobs(seeds, config, evidence_root, runtime), tasks=tasks, replicates=replicates,
+                        concurrency=concurrency, work_root=work_root,
                         evidence_root=evidence_root, runtime=runtime, env=env, timeout_sec=timeout_sec,
                         solutions=solutions, holdouts=holdouts, call_cap=call_cap)
 
@@ -246,62 +279,6 @@ def run_agent(agent_cmd: Sequence[str], cwd: Path, log: Path, env: Mapping[str, 
             agent.wait()
             return "exhausted", UNAVAILABLE
     return (None if status == 0 else "incident"), status
-
-
-def entry_result(root: Path, build_key: str) -> object:
-    return json.loads((root / ".orchestrate" / "build" / build_key / "closed_program.json").read_text())["result"]
-
-
-def judge_child(parent: Path, child: Path, config: ExperimentConfig, *, runtime: Path, site: Mapping | None = None,
-                parent_candidate_id: str | None = None) -> dict:
-    """Validation, full compilation with the runtime's orchestrator (a compiler crash is a rejection), the I2 slot
-    check, a bounded planned maximum of provider calls (`unbounded_calls`), then the entry's result type against
-    the parent's. Without `site`: frozen-surface validation. With
-    `site` (I2): the receipt is derived from the child (`receipt` in the verdict), <child>/HYPOTHESIS.txt is then
-    removed, and the one-site transaction validates the child; it applies the frozen-surface rule itself with the
-    receipt's helpers allowed (a plain frozen-surface check would refuse any helper)."""
-    receipt = None
-    if site is None:
-        verdict = validate_frozen_surfaces(parent, child, config)
-    else:
-        receipt = derive_receipt(parent, child, site, config, parent_candidate_id=parent_candidate_id)
-        drop_hypothesis(child)
-        verdict = validate_one_site(parent, child, receipt, config)
-    shown = {"receipt": asdict(receipt) if receipt else None}
-    if not verdict.accepted:
-        return {**shown, "outcome": "rejected", "refusal_code": verdict.code, "detail": verdict.detail}
-    compiled = compile_candidate(child, config, runtime=runtime)
-    if compiled.status != "accepted":
-        first = compiled.diagnostics[0] if compiled.diagnostics else {}
-        return {**shown, "outcome": "rejected", "diagnostics_class": first.get("code", UNAVAILABLE),
-                "detail": first.get("message") or first.get("stderr", "")}
-    refusal = slot_refusal(parent, child, site, config, runtime=runtime) if site else None
-    refusal = refusal or ledger.unbounded_refusal(child, config)  # an unbounded child never reaches an evaluation
-    # Fires only when the entry is not exported or lacks a result annotation: frozen-surface validation already
-    # freezes an exported signature and every type declaration.
-    if refusal is None and entry_result(parent, compile_candidate(parent, config, runtime=runtime).build_key) != \
-            entry_result(child, compiled.build_key):
-        refusal = {"refusal_code": "slot_type_changed",
-                   "detail": f"the result type of {config.entry_workflow} differs from the parent's"}
-    if refusal is not None:
-        return {**shown, "outcome": "rejected", **refusal}
-    return {**shown, "outcome": "accepted", "program_digest": compiled.program_digest,
-            "build_key": compiled.build_key}
-
-
-def slot_refusal(parent: Path, child: Path, site: Mapping, config: ExperimentConfig, *, runtime: Path) -> dict | None:
-    """The slot check of an accepted one-site child: the child manifest's type at the replacement's start against
-    the parent site's (`slot_type_changed`; `slot_type_unavailable` when the manifest reports none, e.g. for a
-    literal replacement), or None when they are equal."""
-    file_name, line, column = replacement_start(parent, child, site)  # the one-site transaction located it
-    found = slot_type(site_manifest(child, config, runtime=runtime), site["owner"]["name"], file_name, line, column)
-    expected = site["result_type"]["canonical"]
-    if found is None:
-        return {"refusal_code": "slot_type_unavailable",
-                "detail": f"the manifest reports no type at {file_name}:{line}:{column}"}
-    if found != expected:
-        return {"refusal_code": "slot_type_changed", "detail": f"the replacement is {found}, the site {expected}"}
-    return None
 
 
 def mutable_source(root: Path, config: ExperimentConfig) -> str:
@@ -388,11 +365,13 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
                                 {**env, **LAUNCH_ENV}, config.episode_wall_clock_sec, runtime=runtime, shim_env=shim_env)
     elapsed = time.monotonic() - started
     calls = ledger.settle(evidence_root, slot, records)
+    quota = quota_hit(records)  # a quota episode is an incident whatever the agent's exit status
+    incidents = [f"{PREFIX}{quota}"] * bool(quota)
     hits = scan_episode(records, tree, runtime=runtime, evidence_root=evidence_root, solutions=solutions,
                         holdouts=holdouts, created_at=created_at)
     (copy / EPISODE).unlink(missing_ok=True)
     intact = drop_git(copy, base)
-    stopped = stopped or (None if intact else "incident")  # the shims' patches were taken against a lost base
+    stopped = "incident" if quota else stopped or (None if intact else "incident")  # intact: the shims' base
     verdict = {"outcome": stopped, "receipt": None} if stopped else judge_child(
         parent_root, copy, config, runtime=runtime, site=site, parent_candidate_id=parent_id)
     drop_hypothesis(copy)  # judge_child read it into the receipt; it is never part of the child
@@ -403,7 +382,7 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
            "candidate_id": candidate_id(copy, orchestrator_commit=commit), "agent_cmd": list(agent_cmd),
            "agent_exit": status, "envelope": {"wall_clock_sec": config.episode_wall_clock_sec},
            "wall_clock_sec": elapsed, "provider_calls": calls, "scan_hits": len(hits), "scan_pending": bool(hits),
-           "workspace_intact": intact,
+           "workspace_intact": intact, "incidents": incidents,
            "consumption": UNAVAILABLE, "model_revision": UNAVAILABLE,
            "hypothesis": verdict["receipt"]["hypothesis"] if verdict["receipt"] else UNAVAILABLE,
            "refusal_code": None, "diagnostics_class": None, "skeleton": None,
@@ -417,39 +396,66 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
     return row
 
 
+def continued(jobs: Sequence[tuple[Path, ExperimentConfig, Mapping]], tasks: Sequence[Path], replicates: int,
+              prior: Sequence[Mapping]) -> list[Unit]:
+    """The units still to launch: those without a log row in `prior`, and those whose latest row is a quota
+    incident, as their next attempt (quota.next_attempts)."""
+    pending = units(jobs, tasks, replicates)
+    attempts = next_attempts([job_key({"split": UNAVAILABLE, **u.fields, "task_id": u.task.name,  # as the row
+                                       "replicate": u.replicate}) for u in pending], prior)
+    return [u._replace(attempt=a) for u, a in zip(pending, attempts, strict=True) if a is not None]
+
+
+def child_job(episode: Mapping, config: ExperimentConfig) -> tuple[Path, ExperimentConfig, dict]:
+    """An accepted unguided child's (root, config, fields) evaluation job."""
+    fields = {"mode": "unguided", "episode_id": episode["episode_id"], "candidate_id": episode["candidate_id"],
+              "parent_candidate_id": episode["parent_candidate_id"], "candidate_root": episode["candidate_root"]}
+    return Path(episode["candidate_root"]), config, fields
+
+
+def entry_parent(seeded: Sequence[tuple[Path, ExperimentConfig, Mapping]], config: ExperimentConfig) -> Path:
+    """The archived root of the seed the configuration's entry names (the unguided episodes' parent)."""
+    module = config.entry_workflow.split("::")[0]
+    parents = [Path(fields["candidate_root"]) for _, _, fields in seeded if fields["seed"] == module]
+    if len(parents) != 1:
+        raise ValueError(f"the entry {config.entry_workflow} names no seed among {[f['seed'] for _, _, f in seeded]}")
+    return parents[0]
+
+
 def run_mode1(config_path: Path, *, seeds: Sequence[Path], tasks: Sequence[Path], work_root: Path,
               evidence_root: Path, episodes: int, agent_cmd: Sequence[str], replicates: int, runtime: Path,
               env: Mapping[str, str], timeout_sec: float, solutions: Mapping[str, str], call_cap: int,
-              concurrency: int = 1, holdouts: Sequence[Path] = ()) -> dict:
-    """Enumerate the catalog, run `episodes` unguided I1 episodes against the seed the configuration's entry
-    names, evaluate every accepted child like a seed (`mode: "unguided"`) and write <evidence>/readout.json.
-    Evaluations run at most `concurrency` at a time; every launch is refused beyond `call_cap` provider calls."""
+              concurrency: int = 4, holdouts: Sequence[Path] = (), continue_run: bool = False,
+              guard: QuotaGuard | None = None) -> dict:
+    """Enumerate the catalog, run `episodes` unguided I1 episodes (not counting quota incidents, each relaunched at
+    most guard.retries times) against the seed the configuration's entry names, evaluate every accepted child like
+    a seed (`mode: "unguided"`) and write <evidence>/readout.json. Evaluations run at most `concurrency` at a time;
+    every launch is refused beyond `call_cap` provider calls. `continue_run` continues the run already in the
+    evidence root (see the module docstring); `guard` (tests) is the invocation's quota pause state."""
     config = load_config(config_path)
     if config.interface != "I1":
         raise ValueError(f"mode 1 runs I1 episodes only; {config_path} names interface {config.interface}")
     work_root, evidence_root = check_roots(work_root, evidence_root)
-    if (evidence_root / "log.jsonl").exists():
-        raise FileExistsError(f"{evidence_root / 'log.jsonl'} exists: give every mode 1 run a fresh evidence root "
-                              "(the driver never resumes or appends to an earlier run)")
+    prior = prior_rows(work_root, evidence_root, continue_run)
     solutions = check_solutions(tasks, solutions, runtime)
+    guard = guard or QuotaGuard()
     launch = {"work_root": work_root, "evidence_root": evidence_root, "runtime": runtime, "env": env,
               "timeout_sec": timeout_sec, "solutions": solutions, "holdouts": holdouts, "call_cap": call_cap}
-    catalog = enumerate_catalog(seeds, config, tasks=tasks, replicates=replicates, concurrency=concurrency, **launch)
-    module = config.entry_workflow.split("::")[0]
-    parents = {row["candidate_root"] for row in catalog if row["seed"] == module}
-    if len(parents) != 1:
-        raise ValueError(f"the entry {config.entry_workflow} names no seed among {[s.name for s in seeds]}")
-    parent = Path(parents.pop())
-    for index in range(episodes):
-        episode = run_episode(parent, config, interface="I1", mode="unguided", agent_cmd=agent_cmd,
-                              work_root=work_root, evidence_root=evidence_root, episode_index=index, runtime=runtime,
-                              env=env, solutions=solutions, call_cap=call_cap, holdouts=holdouts)
+    seeded = catalog_jobs(seeds, config, evidence_root, runtime)
+    parent = entry_parent(seeded, config)
+    before = [row for row in prior if row["kind"] == "episode"]
+    children = [child_job(row, config) for row in before if row["outcome"] == "accepted"]
+    launch_units(continued(seeded + children, tasks, replicates, prior), concurrency=concurrency, guard=guard, **launch)
+    index = itertools.count(1 + max((row["episode_index"] for row in before), default=-1))
+    for _ in range(episodes - sum(quota_reason(row, evidence_root) is None for row in before)):
+        episode = with_retries(lambda _attempt: run_episode(
+            parent, config, interface="I1", mode="unguided", agent_cmd=agent_cmd, episode_index=next(index),
+            env=env, **{key: launch[key] for key in ("work_root", "evidence_root", "runtime", "solutions",
+                                                    "call_cap", "holdouts")}), guard)
         if episode["outcome"] == "accepted":
-            fields = {"mode": "unguided", "episode_id": episode["episode_id"], "candidate_id": episode["candidate_id"],
-                      "parent_candidate_id": episode["parent_candidate_id"], "candidate_root": episode["candidate_root"]}
-            evaluate_all([(Path(episode["candidate_root"]), config, fields)], tasks=tasks, replicates=replicates,
-                         concurrency=concurrency, **launch)
-    result = readout(read_records(evidence_root / "log.jsonl"))
+            launch_units(units([child_job(episode, config)], tasks, replicates), concurrency=concurrency, guard=guard,
+                         **launch)
+    result = readout(read_records(evidence_root / "log.jsonl"), evidence_root)
     (evidence_root / "readout.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     return result
 
@@ -478,12 +484,14 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--holdout", type=Path, action="append", default=[], help="a holdout root (repeatable)")
     parser.add_argument("--call-cap", type=int, required=True,
                         help="provider calls (evaluations and episodes) recorded in <evidence>/calls.json, at most")
-    parser.add_argument("--concurrency", type=int, default=1, help="evaluations in flight, at most")
+    parser.add_argument("--concurrency", type=int, default=4, help="evaluations in flight, at most")
+    parser.add_argument("--continue", dest="continue_run", action="store_true",
+                        help="continue the run in --evidence (same --work-root): relaunch its quota incidents")
     a = parser.parse_args(argv)
     run_mode1(a.config, seeds=a.seeds, tasks=a.tasks, work_root=a.work_root, evidence_root=a.evidence,
               episodes=a.episodes, agent_cmd=shlex.split(a.agent_cmd), replicates=a.replicates, runtime=a.runtime,
               env=os.environ, timeout_sec=a.eval_timeout_sec, solutions=dict(a.solution), call_cap=a.call_cap,
-              concurrency=a.concurrency, holdouts=a.holdout)
+              concurrency=a.concurrency, holdouts=a.holdout, continue_run=a.continue_run)
     print(a.evidence / "readout.json")
 
 

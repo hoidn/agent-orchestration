@@ -22,6 +22,8 @@ are implemented and tested with scripted providers only.
 | `metering.py` | Consumption receipts (not yet wired into the driver: consumption is recorded `unavailable`) |
 | `ledger.py` | The provider-call ledger `E/calls.json` and each launch's planned maximum of provider calls |
 | `driver.py` | Mode 1: catalog enumeration (bounded concurrency), unguided I1 episodes behind the shims, scans, call cap |
+| `acceptance.py` | Child judging of an episode (`judge_child`): validation, compilation, the I2 slot check, bounded planned calls, the entry's result type |
+| `quota.py` | Provider quota incidents: detection in shim call records, the reset-time pause, attempt relaunches, `--continue` row selection |
 | `readout.py` | The mode 1 readout (`E/readout.json`): outcomes, refusals, skeleton diversity, collapse, scan-pending records |
 | `sites.py` | I2: the candidate's source-site manifest, eligible sites, seeded site selection, the site brief, receipt derivation |
 | `briefs.py` | The mutator's `EPISODE.md` (I1, I2, and mode 2 feedback) |
@@ -72,10 +74,11 @@ python -m experiments.orc_structural_search.driver --config config.json \
   --seeds experiments/orc_structural_search/seeds/{direct,plan_then_implement,implement_review_revise,best_of_n,implement_check_diagnose_repair}.orc \
   --tasks $RT/experiments/compare/tasks/<task> --runtime $RT \
   --work-root $W --evidence $E --episodes N --agent-cmd '<mutator command>' \
-  --eval-timeout-sec 7200 --solution <task>=$SOL --call-cap 160 [--concurrency 4] [--replicates K] [--holdout PATH ...]
+  --eval-timeout-sec 7200 --solution <task>=$SOL --call-cap 160 [--concurrency 4] [--replicates K] [--holdout PATH ...] \
+  [--continue]
 ```
 
-`--concurrency` bounds the evaluations in flight (a thread pool; each has its own clone, records and state
+`--concurrency` (default 4) bounds the evaluations in flight (a thread pool; each has its own clone, records and state
 directories; log and ledger writes are serialized; episodes run one at a time). `--call-cap` bounds the provider
 calls of evaluations and episodes in `E/calls.json`: before each launch the driver reserves its planned maximum
 (an evaluation: every `provider-result` of the entry module times the `:max` of each enclosing `loop/recur` or
@@ -83,6 +86,29 @@ calls of evaluations and episodes in `E/calls.json`: before each launch the driv
 finished launches, planned maxima of unfinished ones) plus that maximum would exceed the cap; after the launch it
 records the calls the shims recorded. A refused evaluation does not stop the others in the pool; the refusal is
 raised once all have ended. Judge calls are not in the ledger.
+
+**Quota guard** (`quota.py`). In the live Phase 1 run of 2026-10-18, 16 of 20 evaluations and all 6 unguided
+episodes ended at the Claude subscription session limit: the CLI printed `You've hit your session limit · resets
+5:30pm (America/Los_Angeles)` on stdout and exited 1, the runtime recorded `provider_exit_nonzero`, and the driver
+logged `failed` (evaluations) or `incident` (episodes). Those are infrastructure incidents, not agent failures. A
+launch whose shim calls (`calls/<n>/stdout.txt`, `stderr.txt`) hold a quota line (a line starting with `you've hit
+your <word> limit`, `usage limit reached` or `rate limit reached`, case-insensitive; see `quota.py`) and that did
+not complete is now an `incident` whose latest incidents entry is `quota: <line>` (episodes: an `incidents` list).
+The driver then starts no new launch until the reset the message names (the next occurrence of `resets
+H[:MM]am|pm (Zone)` in that zone, plus 5 minutes; 30 minutes when none parses), printing one line with the resume
+time; launches in flight that hit the limit join that pause. The job is then relaunched as a new attempt: an
+evaluation's id covers its attempt number after the first (first attempts keep their ids), and a quota episode
+is rerun under the next episode index. A job is relaunched at most 3 times per invocation; then it stays a quota
+incident. The guard is the only throttle: concurrency stays as given.
+
+**`--continue`** continues the run in an existing `E` with its own `W` (the evaluations' records must lie under
+it) instead of refusing `E/log.jsonl`. The log, the ledger and the archive are appended to, never rewritten. Each
+catalog or accepted-child job whose latest row (per candidate, task and replicate) is completed, a genuine
+failure or another incident is kept; one whose latest row is a quota incident is relaunched as its next attempt,
+and so is a `failed` row written before the guard existed whose records hold a quota line. Unguided episodes
+continue after the highest existing index until `--episodes` non-quota episodes exist (quota episodes, including
+pre-guard `incident` rows whose shim records hold a quota line, do not count). `E/readout.json` is rewritten;
+quota rows read as `quota_incident` there.
 
 `config.json` is an `ExperimentConfig` (see `config.py`); its `entry_workflow` (e.g. `direct::run`) names the
 seed the episodes start from, and every seed is evaluated under `<seed stem>::<entry definition>`. The tests
@@ -162,15 +188,17 @@ python -m experiments.orc_structural_search.scoring readout --phase 2 \
 **Failure rule.** The primary value of an evaluation (`scoring.primary_value`) is its judged value when completed and
 0 rubric points when failed or timed out; a timeout is an incident killed at its wall-clock envelope (`launcher exit
 -9` in its latest incidents entry, `scoring.scored_outcome`). Every other incident, and a completed run without a
-value, is excluded, not zero. Log rows count once per evaluation id (the last row wins). A task with no completed,
-uncontaminated evaluation has no pool; its rows come from the log alone (`scoring.log_only_pool`).
+value, is excluded, not zero; so is a quota incident (`quota_incident`, counted as `quota_incidents`), including
+a `failed` row from before the quota guard whose records hold a quota line. Log rows count once per job
+(candidate, task, replicate, and mode 2's split and generation; the last row wins, so a quota relaunch supersedes
+its quota incident). A task with no completed, uncontaminated evaluation has no pool; its rows come from the log alone (`scoring.log_only_pool`).
 
 ## Layout
 
 `W` (the work root, sandbox-visible) and `E` (the evidence root) must not nest: agents work under `W` and must
-never see the archive or the log. `E` must be fresh: the driver refuses an `E/log.jsonl` that already exists and
-never resumes an incident (an evaluation without a terminal row stays an incident in the log; `evaluation.resume`
-is the operator's tool). Before each episode and evaluation the driver checks that an archived candidate still
+never see the archive or the log. `E` must be fresh unless the run is continued (`--continue`, above): the
+driver refuses an `E/log.jsonl` that already exists and never resumes an incident (an evaluation without a
+terminal row stays an incident in the log; `evaluation.resume` is the operator's tool). Before each episode and evaluation the driver checks that an archived candidate still
 hashes to its directory name.
 
 ```

@@ -20,7 +20,10 @@ candidate's provider bindings and `:model` values, already in its candidate id.
 
 Outcome: the memo's terminal row `completed` -> completed, another terminal -> failed (the runtime writes a
 failed terminal when a provider exits nonzero), no terminal (the run died, or never started) -> incident; an
-incident is resumed under the same evaluation id, never replicated. A launch still running after `timeout_sec`
+incident is resumed under the same evaluation id, never replicated. A launch that is not completed and whose own
+shim calls show a provider quota message (quota.py) is an incident whose latest incidents entry is
+`quota: <first matching line>`: the driver relaunches it as a new attempt, whose evaluation id covers the attempt
+number (attempts after the first only, so first attempts keep their ids). A launch still running after `timeout_sec`
 seconds (required) has its process group killed (SIGKILL), which leaves no terminal: an incident.
 
 Dependencies: git and bwrap on PATH; `env` (the launch environment) must put the real or scripted
@@ -45,6 +48,7 @@ from experiments.compare.prepare import ArmSpec, read_memo, run_arm
 from experiments.compare.repos import load, runtime_commit
 from experiments.orc_structural_search.candidates import candidate_id, compile_candidate
 from experiments.orc_structural_search.config import ExperimentConfig
+from experiments.orc_structural_search.quota import PREFIX, quota_hit
 from experiments.orc_structural_search.records import UNAVAILABLE
 
 EVALUATOR_VERSION = "public-run-1"
@@ -67,12 +71,14 @@ class EvaluationRecord:
     provider_calls: int | str  # shim call directories, summed over launch and resumes
     resume_count: int
     incidents: tuple[str, ...]
+    attempt: int = 1  # quota relaunches of one job are attempts 2, 3, ...
 
 
 def evaluation_id(candidate: str, task_id: str, evaluator_version: str, env_manifest_digest: str,
-                  replicate: int) -> str:
-    """Bare sha256 hex over the identity fields (it names the state directory)."""
+                  replicate: int, attempt: int = 1) -> str:
+    """Bare sha256 hex over the identity fields (it names the state directory); the attempt only after the first."""
     fields = [candidate, task_id, evaluator_version, env_manifest_digest, replicate]
+    fields += [attempt] if attempt > 1 else []
     return hashlib.sha256(json.dumps(fields).encode()).hexdigest()
 
 
@@ -103,9 +109,10 @@ def record_env_manifest(work_root: Path, env: Mapping[str, str]) -> str:
 
 
 def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Path, work_root: Path,
-             replicate: int, runtime: Path, env: Mapping[str, str], timeout_sec: float) -> EvaluationRecord:
+             replicate: int, runtime: Path, env: Mapping[str, str], timeout_sec: float,
+             attempt: int = 1) -> EvaluationRecord:
     """Run the accepted candidate once in a fresh clone of the task package; `work_root` is the sandbox-visible
-    work root (see the module docstring)."""
+    work root (see the module docstring); `attempt` > 1 is a quota relaunch of the same job."""
     candidate_root, work_root = candidate_root.resolve(), work_root.resolve()
     compiled = compile_candidate(candidate_root, config, runtime=runtime)
     if compiled.status != "accepted":
@@ -115,7 +122,7 @@ def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Pa
         raise FileNotFoundError(f"{candidate_root} has no {DEV_CHECK}: the clone's dev-check boundary would not run")
     candidate = candidate_id(candidate_root, orchestrator_commit=runtime_commit(runtime))
     env_digest = record_env_manifest(work_root, env)
-    eid = evaluation_id(candidate, task_package.name, EVALUATOR_VERSION, env_digest, replicate)
+    eid = evaluation_id(candidate, task_package.name, EVALUATOR_VERSION, env_digest, replicate, attempt)
     state_dir = work_root / "runs" / eid
     if (work_root / "records" / eid).exists():  # even a launch that died before its run started
         raise FileExistsError(f"{work_root / 'records' / eid}: evaluation {eid} already ran; "
@@ -131,7 +138,8 @@ def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Pa
     shutil.copyfile(candidate_root / DEV_CHECK, clone / DEV_CHECK)
     with (clone / ".git" / "info" / "exclude").open("a") as exclude:  # not part of the agent's patch
         exclude.write(f"/{DEV_CHECK}\n")
-    pending = EvaluationRecord(eid, UNAVAILABLE, state_dir, records, env_digest, "incident", None, 0.0, 0, 0, ())
+    pending = EvaluationRecord(eid, UNAVAILABLE, state_dir, records, env_digest, "incident", None, 0.0, 0, 0, (),
+                               attempt)
     return _launch(pending, ["bash", str(records / "command.sh")], env, timeout_sec)
 
 
@@ -147,9 +155,11 @@ def resume(record: EvaluationRecord, *, env: Mapping[str, str], timeout_sec: flo
 
 def _launch(record: EvaluationRecord, argv: list[str], env: Mapping[str, str],
             timeout_sec: float) -> EvaluationRecord:
-    """Run `argv` (output in launch-<resume_count>.log) and fold its run's memo into `record`."""
+    """Run `argv` (output in launch-<resume_count>.log) and fold its run's memo and its calls' quota messages into
+    `record`."""
     records = record.records_dir
     log = records / f"launch-{record.resume_count}.log"
+    before = len(list((records / "calls").glob("*")))
     started = time.monotonic()
     with log.open("w") as out:
         launcher = subprocess.Popen(argv, env=dict(env), stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
@@ -163,7 +173,10 @@ def _launch(record: EvaluationRecord, argv: list[str], env: Mapping[str, str],
     elapsed = time.monotonic() - started
     run_id, outcome, value = _classify(record.state_dir)
     incidents = record.incidents
-    if outcome == "incident":
+    quota = quota_hit(records, after=before) if outcome != "completed" else None
+    if quota:
+        outcome, incidents = "incident", incidents + (f"{PREFIX}{quota}",)
+    elif outcome == "incident":
         incidents += (f"launch {record.resume_count}: no terminal row in run {run_id} "
                       f"(launcher exit {status}; see {log})",)
     return replace(record, run_id=run_id, outcome=outcome, value=value, incidents=incidents,
