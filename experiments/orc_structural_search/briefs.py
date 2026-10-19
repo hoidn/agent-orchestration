@@ -35,9 +35,9 @@ PYTHON_RULES = {
     "tuning": "a model= or effort= value that is not a literal",
     "decorator": "decorators",
     "builtin": "an added function named like a builtin",
-    "prompt": "a provider_result call whose prompt argument is not written as <NAME>_PROMPT.format(...), with "
-              "<NAME>_PROMPT one of the top-level prompt constants (the format arguments are free, e.g. task=task + "
-              "feedback)",
+    "prompt": "a provider_result call whose prompt argument is not <NAME>_PROMPT.format(...) written in the call "
+              "itself (a variable or parameter holding one is refused), with <NAME>_PROMPT one of the top-level prompt "
+              "constants (the format arguments are free, e.g. task=task + feedback)",
     "suppression": "comments that silence pyright (`# type: ignore`, `# pyright: ...`), which the check line below "
                    "does not report",
 }
