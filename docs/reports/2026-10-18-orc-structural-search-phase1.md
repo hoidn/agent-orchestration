@@ -287,6 +287,10 @@ is unmet.
 - **Contaminated children.** A controller ruling (2026-10-19, `149f6f09`) was made after the outcomes existed but
   before any score. It drops contaminated episodes' children from the readout entirely (`excluded_children`). The
   frozen criterion text would instead have counted their one failed row as 0.
+- **Row deduplication.** The frozen criterion says log rows count "once per evaluation id (the last row …)", but
+  `scoring.latest_evaluations` deduplicates per job (`quota.job_key`: candidate, task, replicate, split, generation),
+  because a quota relaunch gets a new evaluation id. Phase 1's figures are the same either way: every superseded row
+  is a quota incident, and quota incidents are excluded.
 
 ## Next Step
 
