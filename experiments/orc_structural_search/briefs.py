@@ -9,13 +9,20 @@ terminal variant, provider calls and wall clock. Any other feedback field (a hid
 score) is never rendered, and nothing here names a runtime or evidence path.
 """
 
+import hashlib
+import json
+import re
 from collections.abc import Mapping
 from pathlib import Path
 
-from experiments.orc_structural_search import ledger
+from experiments.orc_structural_search import ledger, site_evidence
 from experiments.orc_structural_search.config import ExperimentConfig
 from experiments.orc_structural_search.evaluation import is_python
+from experiments.orc_structural_search.metrics import allocation, metric_definitions, mutable_source
+from experiments.orc_structural_search.record_normalization import _named_definitions, control_heads
+from experiments.orc_structural_search.records import UNAVAILABLE
 from experiments.orc_structural_search.sites import site_brief
+from orchestrator.workflow_lisp.sexpr import ListExpr, SymbolAtom
 
 
 # The replacement heads whose sites the manifest types (orchestrator/workflow_lisp/source_sites.py _KINDS), so the
@@ -108,4 +115,147 @@ def feedback_text(feedback: Mapping) -> str:
     lines += [f"- run on task {run['task']}: outcome {run['outcome']}, terminal {run['terminal']}, "
               f"{run['provider_calls']} provider calls, {run['wall_clock_sec']} s wall clock"
               for run in feedback.get("runs", ())]
+    rows = feedback.get("evaluated_structures", ())
+    if not isinstance(rows, (list, tuple)):
+        rows = ()
+    if structures := [_structure_line(row) for row in rows if isinstance(row, Mapping)]:
+        lines += ["", "Structures already tried (make the proposal differ structurally from each):", *structures]
     return "\n".join(lines)
+
+
+def _structure_line(summary: Mapping) -> str:
+    """Render only a bounded, typed projection of a controller-authored structural summary."""
+    idea = summary.get("idea_key", "")
+    idea_prefix = idea[:12] if isinstance(idea, str) and re.fullmatch(r"[0-9a-f]{64}", idea) else "unavailable"
+    return (f"- heads [{_heads_text(summary)}]; control [{_control_text(summary)}]; roles [{_role_text(summary)}]; "
+            f"loop {_yes_no(summary.get('loop'))}; check-gated {_yes_no(summary.get('check_gated'))}; "
+            f"idea: {idea_prefix}")
+
+
+def _control_text(summary: Mapping) -> str:
+    controls = summary.get("control_heads", {})
+    if not isinstance(controls, Mapping):
+        return ""
+    return ", ".join(f"{head}={controls[head]}" for head in ("if", "cond", "match", "loop/recur",
+                                                                  "list/map-effect")
+                      if type(controls.get(head)) is int)
+
+
+def _role_text(summary: Mapping) -> str:
+    roles = summary.get("provider_roles", ())
+    if not isinstance(roles, (list, tuple)):
+        return ""
+    return ", ".join(role for role in roles
+                      if isinstance(role, str) and re.fullmatch(r"providers\.[A-Za-z0-9_.-]+", role))
+
+
+def _heads_text(summary: Mapping) -> str:
+    outline = summary.get("heads_outline", ())
+    if not isinstance(outline, (list, tuple)):
+        return ""
+    return "; ".join(text for row in outline if (text := _definition_text(row)))
+
+
+def _definition_text(definition) -> str:
+    if not isinstance(definition, Mapping) or not isinstance(definition.get("forms"), list):
+        return ""
+    name = definition.get("definition")
+    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+", name):
+        return ""
+    forms = ", ".join(f"{form['head']}/{form['arity']}" for form in definition["forms"]
+                       if isinstance(form, Mapping) and isinstance(form.get("head"), str)
+                       and re.fullmatch(r"[A-Za-z0-9_.*!?+:-]+(?:/[A-Za-z0-9_.*!?+:-]+)*", form["head"])
+                       and type(form.get("arity")) is int and form["arity"] >= 0)
+    return f"{name}: {forms}"
+
+
+def _yes_no(value) -> str:
+    return "yes" if value is True else "no" if value is False else "unavailable"
+
+
+def structural_summary(candidate_root: Path, config: ExperimentConfig, *, runtime: Path) -> dict:
+    """Summarize mutable authored ORC forms and compiled provider policy, without reading evaluation artifacts."""
+    source = mutable_source(candidate_root, config)
+    definitions = metric_definitions(candidate_root, config)
+    selected = _named_definitions(source, definitions)
+    outline = [{"definition": definition.items[1].value, "forms": _form_outline(definition)}
+               for definition in selected]
+    controls = control_heads(source, definitions=definitions)
+    roles = [role for assigned in allocation(candidate_root, config).values() for role in assigned]
+    evidence = site_evidence.candidate_evidence(candidate_root, config, runtime=runtime)
+    policies = site_evidence._policy_set(evidence["allocation_signature"])
+    policy_set = sorted([list(policy) for policy in policies]) if policies is not None else UNAVAILABLE
+    check_gated = _check_gated(selected)
+    identity = hashlib.sha256(json.dumps({"control_heads": controls, "provider_roles": roles,
+                                          "check_gated": check_gated}, sort_keys=True).encode()).hexdigest()
+    return {"heads_outline": outline, "control_heads": controls, "provider_roles": roles,
+            "policy_set": policy_set,
+            "call_sites": len(roles), "loop": controls["loop/recur"] > 0, "check_gated": check_gated,
+            "private_definitions": max(0, len(definitions) - 1), "idea_key": identity}
+
+
+def _form_outline(expression: ListExpr) -> list[dict]:
+    forms, pending = [], [expression]
+    while pending:
+        current = pending.pop()
+        if isinstance(current, ListExpr):
+            head = current.items[0].value if current.items and isinstance(current.items[0], SymbolAtom) else "?"
+            forms.append({"head": head, "arity": max(0, len(current.items) - 1)})
+            pending.extend(reversed(current.items))
+    return forms
+
+
+def _has_head(expression, name: str) -> bool:
+    pending = [expression]
+    while pending:
+        current = pending.pop()
+        if isinstance(current, ListExpr):
+            if current.items and isinstance(current.items[0], SymbolAtom) and current.items[0].value == name:
+                return True
+            pending.extend(current.items)
+    return False
+
+
+def _command_result_names(expression: ListExpr) -> set[str]:
+    names, pending = set(), [expression]
+    while pending:
+        current = pending.pop()
+        if not isinstance(current, ListExpr):
+            continue
+        if len(current.items) > 1 and isinstance(current.items[0], SymbolAtom) and current.items[0].value == "let*":
+            bindings = current.items[1]
+            if isinstance(bindings, ListExpr):
+                names.update(binding.items[0].value for binding in bindings.items
+                             if isinstance(binding, ListExpr) and len(binding.items) > 1
+                             and isinstance(binding.items[0], SymbolAtom)
+                             and _has_head(binding.items[1], "command-result"))
+        pending.extend(current.items)
+    return names
+
+
+def _mentions_result(expression, names: set[str]) -> bool:
+    pending = [expression]
+    while pending:
+        current = pending.pop()
+        if isinstance(current, SymbolAtom) and any(current.value == name or current.value.startswith(name + ".")
+                                                   for name in names):
+            return True
+        if isinstance(current, ListExpr):
+            pending.extend(current.items)
+    return False
+
+
+def _check_gated(definitions: list[ListExpr]) -> bool:
+    # shortcut: direct let* result to if only; extend if candidates use helper, cond or match gates.
+    for definition in definitions:
+        names, pending = _command_result_names(definition), [definition]
+        while pending:
+            current = pending.pop()
+            if not isinstance(current, ListExpr):
+                continue
+            if (len(current.items) >= 4 and isinstance(current.items[0], SymbolAtom)
+                    and current.items[0].value == "if" and _mentions_result(current.items[1], names)
+                    and any(_has_head(branch, "provider-result") for branch in current.items[2:])):
+                return True
+            pending.extend(current.items)
+    return False

@@ -9,12 +9,14 @@ import hashlib
 import json
 import os
 import re
-from collections.abc import Mapping, Sequence
+from collections import defaultdict
+from collections.abc import Collection, Mapping, Sequence
 from pathlib import Path
 from statistics import mean, stdev
 
 from experiments.compare import repos
 from experiments.orc_structural_search import driver, pareto_readout, pricing, scoring
+from experiments.orc_structural_search.briefs import structural_summary
 from experiments.orc_structural_search.config import check_criterion_hashes
 from experiments.orc_structural_search.quota import job_key
 from experiments.orc_structural_search.pareto import bounded_frontier, reservoir_update, select_parent
@@ -114,7 +116,8 @@ def warm_start_id(store: Store, context: str) -> str | None:
 
 
 def register_subject(store: Store, candidate_root: Path, *, runtime: Path, parent: str | None, skeleton: str,
-                     policies: frozenset, idea_key: str, descriptor: Mapping, campaign_id: str) -> str:
+                     policies: frozenset, idea_key: str, descriptor: Mapping, campaign_id: str,
+                     structure: Mapping | None = None, program_digest: str | None = None) -> str:
     """Archive `candidate_root` into S/candidates/ and register it for `campaign_id` once."""
     if not store.writer:
         raise PermissionError(f"the store {store.root} is open read-only")
@@ -124,7 +127,8 @@ def register_subject(store: Store, candidate_root: Path, *, runtime: Path, paren
     if not any(row["candidate_id"] == cid and row["campaign_id"] == campaign_id for row in store.rows("subject")):
         store.append({"kind": "subject", "candidate_id": cid, "parent": parent, "source": str(dest),
                       "skeleton": skeleton, "policies": sorted(policies), "idea_key": idea_key,
-                      "descriptor": dict(descriptor), "campaign_id": campaign_id})
+                      "descriptor": dict(descriptor), "structure": dict(structure or {}),
+                      "program_digest": program_digest, "campaign_id": campaign_id})
     return cid
 
 
@@ -395,3 +399,131 @@ def read_checkpoint(store: Store, campaign_id: str) -> dict | None:
     if any(state.get(key) != value for key, value in identity.items()):
         raise ValueError(f"{path} is not a {CHECKPOINT} of campaign {campaign_id} under its context and criterion")
     return state
+
+
+def behaviour_descriptor(evaluation_rows: Sequence[Mapping], episode_row: Mapping | None) -> dict:
+    """A reporting-only descriptor from recorded provider effects and the accepted episode's source evidence."""
+    calls = _realized_provider_calls(evaluation_rows)
+    roles, loop = _descriptor_roles(calls, episode_row), _loop_present(episode_row)
+    return {"realized_provider_calls": calls, "distinct_provider_roles": len(roles), "loop_present": loop,
+            "allocation_changed": episode_row.get("allocation_changed", UNAVAILABLE)
+            if episode_row is not None else UNAVAILABLE}
+
+
+def _realized_provider_calls(evaluation_rows: Sequence[Mapping]) -> list[dict]:
+    calls = []
+    for row in evaluation_rows:
+        sites = row.get("realized_perform_sites")
+        if not isinstance(sites, list):
+            continue
+        calls.extend({"task_id": row.get("task_id"), "identity": site["identity"],
+                      "attempts": site.get("attempts", 1)}
+                     for site in sites if isinstance(site, Mapping) and site.get("effect_class") == "provider"
+                     and isinstance(site.get("identity"), str))
+    return calls
+
+
+def _descriptor_roles(calls: Sequence[Mapping], episode_row: Mapping | None) -> set[str]:
+    signature = episode_row.get("allocation_signature", {}) if episode_row is not None else {}
+    if not isinstance(signature, Mapping):
+        return set()
+    return {signature[call["identity"]]["provider"] for call in calls
+            if isinstance(signature.get(call["identity"]), Mapping)
+            and isinstance(signature[call["identity"]].get("provider"), str)}
+
+
+def _loop_present(episode_row: Mapping | None) -> bool:
+    if episode_row is None:
+        return False
+    structure = episode_row.get("structure", {})
+    if not isinstance(structure, Mapping):
+        structure = {}
+    if type(structure.get("loop")) is bool:
+        return structure["loop"]
+    controls = structure.get("control_heads", {})
+    return isinstance(controls, Mapping) and type(controls.get("loop/recur")) is int \
+        and controls["loop/recur"] > 0
+
+
+def evaluated_structures(store: Store, campaign_id: str, *, scheduled: Sequence[Mapping]) -> list[dict]:
+    """The newest twelve campaign-local source summaries, ordered by candidate id for the brief."""
+    candidates = campaign_candidates(store, campaign_id, scheduled=scheduled)
+    campaign = _campaign(store, campaign_id)
+    initial = set(campaign["warm_start"])
+    recency = {}
+    for position, trial in enumerate(store.rows("trial")):
+        if trial["trial_id"] in initial or trial["campaign_id"] == campaign_id:
+            recency[trial["candidate_id"]] = trial.get("seq", position)
+    latest = max(recency.values(), default=0)
+    for position, subject in enumerate(scheduled, latest + 1):
+        recency[subject["candidate_id"]] = position
+    candidates = {candidate_id: subject for candidate_id, subject in candidates.items()
+                  if isinstance(subject.get("structure"), Mapping)}
+    recent = sorted(candidates.items(), key=lambda item: recency.get(item[0], item[1].get("seq", -1)), reverse=True)[:12]
+    fields = ("heads_outline", "control_heads", "provider_roles", "policy_set", "call_sites", "loop",
+              "check_gated", "private_definitions", "idea_key")
+    return [{"candidate_id": candidate_id,
+             **{key: subject["structure"][key] for key in fields if key in subject["structure"]}}
+            for candidate_id, subject in sorted(recent) if isinstance(subject.get("structure"), Mapping)]
+
+
+def _policy_set(value) -> frozenset | None:
+    if not isinstance(value, Collection) or isinstance(value, (str, bytes, Mapping)):
+        return None
+    if any(not isinstance(policy, Collection) or isinstance(policy, (str, bytes, Mapping)) for policy in value):
+        return None
+    return frozenset(tuple(policy) for policy in value)
+
+
+def known_structures(store: Store, campaign_id: str, *, scheduled: Sequence[Mapping]) \
+        -> tuple[Mapping[str, Collection[frozenset]], Collection[str]]:
+    """Return this campaign's seen skeleton/policy sets and compiled program digests."""
+    known, digests = defaultdict(set), set()
+    for subject in campaign_candidates(store, campaign_id, scheduled=scheduled).values():
+        skeleton, policies, digest = subject.get("skeleton"), _policy_set(subject.get("policies")), subject.get("program_digest")
+        if isinstance(skeleton, str) and policies is not None:
+            known[skeleton].add(policies)
+        if isinstance(digest, str) and digest and digest != UNAVAILABLE:
+            digests.add(digest)
+    return dict(known), digests
+
+
+def is_revisit(skeleton: str, program_digest: str | None, policies: frozenset, *,
+               known: Mapping[str, Collection[frozenset]], known_digests: Collection[str]) -> bool:
+    """A compiled digest repeats exactly; otherwise only a seen skeleton and full policy set repeats."""
+    return ((isinstance(program_digest, str) and program_digest in known_digests)
+            or policies in known.get(skeleton, ()))
+
+
+def futility(outcomes: Sequence[str], *, consecutive: int) -> bool:
+    """Whether the trailing episode streak reaches its limit; incidents preserve, and fresh children reset it."""
+    if type(consecutive) is not int or consecutive < 1:
+        raise ValueError("consecutive must be a positive integer")
+    streak = 0
+    for outcome in outcomes:
+        if outcome == "incident":
+            continue
+        if outcome == "fresh":
+            streak = 0
+        elif outcome in ("revisit", "rejected", "exhausted"):
+            streak += 1
+        else:
+            raise ValueError(f"unknown episode outcome {outcome!r}")
+    return streak >= consecutive
+
+
+def convergence(store: Store, campaign_id: str) -> dict:
+    """Share of this campaign's distinct evaluated children per coarse idea key; warm starts and siblings do not count."""
+    candidates = campaign_candidates(store, campaign_id)
+    children = {trial["candidate_id"] for trial in store.rows("trial") if trial["campaign_id"] == campaign_id}
+    counts = defaultdict(int)
+    for candidate_id in children:
+        subject = candidates[candidate_id]
+        structure = subject.get("structure")
+        idea = subject.get("idea_key") or (structure.get("idea_key") if isinstance(structure, Mapping) else None)
+        if not isinstance(idea, str):
+            raise ValueError(f"evaluated candidate {candidate_id} has no structural idea_key")
+        counts[idea] += 1
+    total = len(children)
+    shares = {idea: count / total for idea, count in sorted(counts.items())} if total else {}
+    return {"shares": shares, "max_share": max(shares.values(), default=0.0)}
