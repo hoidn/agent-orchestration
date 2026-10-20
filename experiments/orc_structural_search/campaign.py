@@ -19,7 +19,7 @@ from experiments.orc_structural_search import driver, metering, pareto_readout, 
 from experiments.orc_structural_search.briefs import structural_summary
 from experiments.orc_structural_search.config import check_criterion_hashes
 from experiments.orc_structural_search.quota import job_key
-from experiments.orc_structural_search.readout import behaviour_descriptor, convergence
+from experiments.orc_structural_search.readout import behaviour_descriptor, convergence, evidence, candidate_table
 from experiments.orc_structural_search.pareto import bounded_frontier, reservoir_update, select_parent
 from experiments.orc_structural_search.records import (
     CHECKPOINT, CHECKPOINT_KEYS, LOG, SCHEMA, Index, Store, UNAVAILABLE, _checkpoint,
@@ -36,6 +36,16 @@ FORBIDDEN = {"adaptive": {"sealed"}, "validation": {"adaptive", "sealed"},  # pr
              "sealed": {"adaptive", "validation", "sealed"}}
 DISPOSITIONS = ("contaminated", "invalidated", "superseded", "frozen", "sealed_opened")
 budget_union = metering.budget_union
+
+
+def freeze(store: Store, campaign_ids: Sequence[str], reason: str) -> int:
+    from experiments.orc_structural_search.records import freeze_study
+    return freeze_study(store, campaign_ids, reason)
+
+
+def open_sealed(store: Store, campaign_ids: Sequence[str], sealed_task: Path) -> int:
+    from experiments.orc_structural_search.records import open_sealed_study
+    return open_sealed_study(store, campaign_ids, sealed_task)
 
 
 def _sha(value) -> str:
@@ -207,6 +217,8 @@ def ingest(store: Store, campaign_id: str, context: str, evidence_root: Path, po
     rows = read_records(log)
     evaluations = [row for row in rows if row["kind"] == "evaluation"]
     check_criterion_hashes(evaluations, sha)
+    from experiments.orc_structural_search.readout_join import authorize_final_ingestion
+    authorize_final_ingestion(store, campaign_id, evidence_root, pools, evaluations)
     read = [(str(Path(results).resolve()), scoring.read_pool(results, log, criterion)) for results in pools]
     if measure_free := [results for results, pool in read if "rows" not in pool]:
         raise ValueError(f"{measure_free}: a measure-free criterion carries no assessment")
@@ -218,113 +230,8 @@ def ingest(store: Store, campaign_id: str, context: str, evidence_root: Path, po
             "position": len(rows)}
 
 
-def _evidence_trials(index: Index, candidate_id: str, context: str, names: Sequence[str]) -> tuple[list, list, list]:
-    attempts = [t for t in index.trials.values() if (t["candidate_id"], t["context_key"]) == (candidate_id, context)
-                and t["origin_trial_id"] is None and t["task"] in names]
-    excluded = sorted(t["trial_id"] for t in attempts if t["trial_id"] in index.dispositions)
-    counted = [t for t in attempts if t["trial_id"] not in excluded]
-    return attempts, excluded, counted
-
-
-def _evidence_values(index: Index, counted: Sequence[Mapping], names: Sequence[str]) -> dict[str, list]:
-    values = {name: [] for name in names}
-    for trial in counted:
-        assessed = index.assessments.get(trial["trial_id"])
-        row = assessed[-1] if assessed else {
-            "outcome": scoring.scored_outcome(trial | {"kind": "evaluation", "task_id": trial["task"]}),
-            "value": None}
-        if (value := scoring.primary_value(row)) is not None:
-            values[trial["task"]].append(value)
-    return values
-
-
-def _observed_summary(values: Mapping[str, Sequence], counted: Sequence[Mapping], price_table: Mapping,
-                      min_trials: int) -> dict:
-    per_task = {name: {"n": len(v), "mean": mean(v) if v else UNAVAILABLE,
-                       "sd": stdev(v) if len(v) > 1 else "insufficient_support"} for name, v in values.items()}
-    supported = all(summary["n"] >= min_trials for summary in per_task.values())
-    costs = [pricing.cost(trial, price_table) for trial in counted]
-    return {"tasks": per_task, "support": "every_adaptive_task" if supported else "insufficient",
-            "quality": mean(summary["mean"] for summary in per_task.values()) if supported else UNAVAILABLE,
-            "cost": UNAVAILABLE if UNAVAILABLE in costs else mean(costs),
-            "calls": scoring.known_mean([trial["provider_calls"] for trial in counted]),
-            "wall_clock_sec": scoring.known_mean([trial["wall_clock_sec"] for trial in counted])}
-
-
-def evidence(store: Store, candidate_id: str, context: str, *, tasks: Sequence[str], price_table: Mapping,
-             min_trials: int) -> dict:
-    """The observed estimate of `candidate_id` on `tasks` over every non-disposed original trial of equal
-    `context`, across campaigns: per-task primary means (failure-inclusive) with n and SD, quality = their
-    equal-weight mean when every task has `min_trials`, mean metered cost per trial (unavailable when any is),
-    calls and wall clock; `unobserved` without trials, never a score."""
-    index, names = store.index(), [Path(task).name for task in tasks]
-    attempts, excluded, counted = _evidence_trials(index, candidate_id, context, names)
-    result = {"estimator_version": ESTIMATOR_VERSION, "candidate_id": candidate_id, "context_key": context,
-              "trial_ids": sorted(t["trial_id"] for t in counted), "trials": len(counted),
-              "attempts": len(attempts), "disposed": len(excluded), "excluded": excluded}
-    if not counted:
-        return result | {"kind": "unobserved", "quality": UNAVAILABLE, "cost": UNAVAILABLE}
-    return result | {"kind": "observed"} | _observed_summary(
-        _evidence_values(index, counted, names), counted, price_table, min_trials)
-
-
 def quality_floor(pools: Sequence[Mapping], criterion: Mapping) -> float | str:
     return pareto_readout.stub_floor(pools, criterion)
-
-
-def _candidate_row(store: Store, candidate_id: str, context: str, tasks: Sequence[str], price_table: Mapping,
-                   floor: float | str, min_trials: int) -> dict:
-    estimate = evidence(store, candidate_id, context, tasks=tasks, price_table=price_table, min_trials=min_trials)
-    quality, cost = estimate["quality"], estimate["cost"]
-    above_floor = (estimate.get("support") == "every_adaptive_task" and floor != UNAVAILABLE
-                   and pricing.number(quality) and quality > floor)
-    if estimate["kind"] == "unobserved":
-        reason = "unobserved"
-    elif estimate.get("support") != "every_adaptive_task":
-        reason = "insufficient_support"
-    elif floor == UNAVAILABLE:
-        reason = "quality_floor_unavailable"
-    elif not pricing.number(quality):
-        reason = "quality_unavailable"
-    elif not above_floor:
-        reason = "below_quality_floor"
-    elif cost == UNAVAILABLE:
-        reason = "cost_unavailable"
-    else:
-        reason = None
-    return {"candidate_id": candidate_id, "quality": quality, "cost": cost, "above_floor": above_floor,
-            "reason": reason, "support": estimate.get("support", "unobserved"),
-            "provider_calls": estimate.get("calls", UNAVAILABLE),
-            "wall_clock_sec": estimate.get("wall_clock_sec", UNAVAILABLE)}
-
-
-def _candidate_table_names(context, tasks):
-    if not isinstance(context, str) or not context or not isinstance(tasks, Sequence) or not tasks:
-        raise ValueError("candidate table requires a context and nonempty tasks")
-    names = [Path(task).name for task in tasks]
-    if any(not name for name in names) or len(set(names)) != len(names):
-        raise ValueError("candidate table tasks must have unique nonempty basenames")
-    return names
-
-
-def _validate_candidate_cost(min_trials, floor, price_table):
-    if type(min_trials) is not int or min_trials < 1:
-        raise ValueError("candidate table min_trials must be a positive integer")
-    if floor != UNAVAILABLE and not pricing.number(floor):
-        raise ValueError("candidate table floor must be a finite nonnegative number or unavailable")
-    pricing.validate(price_table)
-
-
-def candidate_table(store: Store, campaign_id: str, *, context: str, tasks: Sequence[str], price_table: Mapping,
-                    floor: float | str, min_trials: int, scheduled: Sequence[Mapping] = ()) -> dict[str, dict]:
-    _candidate_table_names(context, tasks)
-    _validate_candidate_cost(min_trials, floor, price_table)
-    campaign = _campaign(store, campaign_id)
-    if campaign["context_key"] != context:
-        raise ValueError(f"candidate table context {context} differs from campaign {campaign_id}'s context")
-    subjects = campaign_candidates(store, campaign_id, scheduled=scheduled)
-    return {candidate_id: _candidate_row(store, candidate_id, context, tasks, price_table, floor, min_trials)
-            for candidate_id in sorted(subjects)}
 
 
 def _rebuild_options(criterion, generation, previous):
@@ -365,7 +272,7 @@ def rebuild(store: Store, campaign_id: str, *, criterion: Mapping, pools: Sequen
     disposed = {trial["candidate_id"] for trial_id, trial in index.trials.items()
                 if trial["candidate_id"] in table and trial["origin_trial_id"] is None
                 and trial["context_key"] == campaign["context_key"]
-                and trial_id in index.dispositions}
+                and trial.get("split") not in ("validation", "sealed") and trial_id in index.dispositions}
     admissions = _reservoir_admissions(table, previous, bounded)
     reservoir = reservoir_update(previous.get("reservoir", ()), admissions, bounded, generation=generation,
                                  capacity=capacity, disposed=disposed)
@@ -379,7 +286,7 @@ def evaluated_structures(store: Store, campaign_id: str, *, scheduled: Sequence[
     initial = set(campaign["warm_start"])
     recency = {}
     for position, trial in enumerate(store.rows("trial")):
-        if trial["trial_id"] in initial or trial["campaign_id"] == campaign_id:
+        if trial.get("split") not in ("validation", "sealed") and (trial["trial_id"] in initial or trial["campaign_id"] == campaign_id):
             recency[trial["candidate_id"]] = trial.get("seq", position)
     latest = max(recency.values(), default=0)
     for position, subject in enumerate(scheduled, latest + 1):
@@ -447,13 +354,20 @@ def main(argv=None):
     from experiments.orc_structural_search.config import solution
     parser = argparse.ArgumentParser(description='Cumulative structural search campaigns')
     sub = parser.add_subparsers(dest='command', required=True)
-    for name in ('warm-start', 'run'):
+    for name in ('warm-start', 'run', 'validate'):
         command = sub.add_parser(name)
         for option in ('config', 'criterion', 'store', 'work-root', 'evidence', 'pools-root', 'runtime',
-                       'validation-task', 'sealed-task'):
+                       'validation-task'):
             command.add_argument('--' + option, type=Path, required=True)
-        command.add_argument('--seeds', type=Path, nargs='+', required=True)
-        command.add_argument('--tasks', type=Path, nargs='+', required=True)
+        if name != 'validate':
+            command.add_argument('--sealed-task', type=Path, required=True)
+            command.add_argument('--seeds', type=Path, nargs='+', required=True)
+            command.add_argument('--tasks', type=Path, nargs='+', required=True)
+        else:
+            command.add_argument('--campaign', action='append', required=True)
+            command.add_argument('--ceiling', type=float, required=True)
+            for option in ('sealed-work-root', 'sealed-evidence', 'sealed-pools-root'):
+                command.add_argument('--' + option, type=Path, required=True)
         command.add_argument('--agent-cmd', required=True)
         command.add_argument('--eval-timeout-sec', type=float, required=True)
         command.add_argument('--call-cap', type=int, required=True)
@@ -468,7 +382,22 @@ def main(argv=None):
             command.add_argument('--generations', type=int, required=True)
             command.add_argument('--episodes-per-generation', type=int, required=True)
             command.add_argument('--run-seed', type=int, required=True)
+    for name in ('readout', 'freeze', 'open-sealed'):
+        command = sub.add_parser(name)
+        command.add_argument('--store', type=Path, required=True)
+        command.add_argument('--campaign', action='append', required=True)
+        if name == 'readout':
+            command.add_argument('--criterion', type=Path, required=True)
+            command.add_argument('--ceiling', type=float, required=True)
+            command.add_argument('--validation-results', type=Path)
+            command.add_argument('--sealed-results', type=Path)
+        elif name == 'freeze':
+            command.add_argument('--reason', required=True)
+        else:
+            command.add_argument('--sealed-task', type=Path, required=True)
     args = parser.parse_args(argv)
+    if args.command in ('readout', 'freeze', 'open-sealed'):
+        return final_command(args)
     launch = dict(work_root=args.work_root, evidence_root=args.evidence, pools_root=args.pools_root,
         runtime=args.runtime, env=os.environ, timeout_sec=args.eval_timeout_sec, solutions=dict(args.solution),
         call_cap=args.call_cap, concurrency=args.concurrency, agent_cmd=shlex.split(args.agent_cmd))
@@ -480,12 +409,35 @@ def main(argv=None):
             launch['resume'] = args.continue_run
             result = adaptive.warm_start(store, args.criterion, args.config, seeds=args.seeds,
                 adaptive_tasks=args.tasks, launch=launch, judge={'criterion': args.criterion, 'judges': args.judge})
+        elif args.command == 'validate':
+            frozen = json.loads(args.criterion.read_text())
+            launch.update(config_path=args.config, sealed_roots={'work_root': args.sealed_work_root,
+                'evidence_root': args.sealed_evidence, 'pools_root': args.sealed_pools_root})
+            result = adaptive.validate_campaign_finalists(store, args.campaign, validation_task=args.validation_task,
+                replicates=frozen['horizon']['validation_replicates'], finalists=frozen['horizon']['finalists_per_campaign'],
+                mean_cost_ceiling=args.ceiling, launch=launch, judge={'criterion': args.criterion, 'judges': args.judge})
         else:
             result = adaptive.run_campaign(args.config, criterion=args.criterion, store=store,
                 seeds=args.seeds, adaptive_tasks=args.tasks, validation_task=args.validation_task,
                 sealed_task=args.sealed_task, label=args.label, policy=args.policy, generations=args.generations,
                 episodes_per_generation=args.episodes_per_generation, run_seed=args.run_seed,
                 judges=args.judge, hide=args.hide, continue_run=args.continue_run, **launch)
+    finally:
+        store.close()
+    print(json.dumps(result, indent=2))
+
+
+def final_command(args):
+    from experiments.orc_structural_search.readout import campaign_report
+    store = open_store(args.store, writer=args.command != 'readout')
+    try:
+        if args.command == 'readout':
+            result = campaign_report(store, args.campaign, criterion=args.criterion, ceiling=args.ceiling,
+                validation_results=args.validation_results, sealed_results=args.sealed_results)
+        elif args.command == 'freeze':
+            result = freeze(store, args.campaign, args.reason)
+        else:
+            result = open_sealed(store, args.campaign, args.sealed_task)
     finally:
         store.close()
     print(json.dumps(result, indent=2))

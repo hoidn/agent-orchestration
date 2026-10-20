@@ -155,7 +155,7 @@ def tuples(value):
 def campaign_candidates(store: Store, campaign_id: str, *, scheduled: Sequence[Mapping] = ()) -> dict[str, dict]:
     campaign, trials = find_campaign(store, campaign_id), store.index().trials
     held = [trials[t]["candidate_id"] for t in campaign["warm_start"]]
-    held += [t["candidate_id"] for t in trials.values() if t["campaign_id"] == campaign_id]
+    held += [t["candidate_id"] for t in trials.values() if t["campaign_id"] == campaign_id and t.get("split") not in ("validation", "sealed")]
     subjects = {}
     for row in store.rows("subject"):
         if row["candidate_id"] not in subjects or row["campaign_id"] == campaign_id:
@@ -269,3 +269,197 @@ def replay_judge_incidents(state, rows):
             state.update({key: row[key] for key in ('generation', 'completed_generation', 'judge_incidents',
                                                   'rng_state', 'stopped')})
             state['scheduled'] = []
+
+
+def study_manifest(store, campaign_ids):
+    ids = sorted(campaign_ids)
+    found = [row for row in store.rows('exposure') if row['role'] == 'validation'
+             and set(row.get('campaign_ids', ())).intersection(ids)]
+    if len(found) != 1 or found[0]['campaign_ids'] != ids:
+        raise ValueError('study requires its complete frozen validation manifest')
+    return found[0]
+
+
+def _payload(row):
+    return {key: value for key, value in row.items() if key not in ('schema', 'seq')}
+
+
+def require_adaptive(store, campaign_id):
+    if any(campaign_id in row.get('campaign_ids', ()) for row in store.rows('exposure') if row['role'] == 'validation'):
+        raise ValueError('validation exposure forbids further adaptive continuation')
+
+
+def _study_headers(store, campaign_ids, criterion, config_path):
+    from experiments.compare.repos import sha256_file
+    ids = sorted(campaign_ids)
+    frozen = json.loads(Path(criterion).read_text())
+    headers = [find_campaign(store, cid) for cid in ids]
+    expected = {(r['label'], r['policy'], r['run_seed']) for r in frozen['campaigns']}
+    actual = {(r['label'], r['policy'], r['run_seed']) for r in headers}
+    if len(headers) != len(expected) or actual != expected:
+        raise ValueError('validation requires the complete frozen campaign pair')
+    if len({(r['context_key'], r['criterion_sha256'], tuple(r['warm_start'])) for r in headers}) != 1:
+        raise ValueError('final campaigns differ in context, criterion or warm start')
+    if any(r['criterion_sha256'] != sha256_file(criterion) for r in headers):
+        raise ValueError('campaign criterion differs from requested final study')
+    if any(r['parameters']['config_sha256'] != sha256_file(config_path) for r in headers):
+        raise ValueError('final configuration differs from frozen campaign config')
+    return frozen, headers
+
+
+def _assessment_roots(store, launch):
+    from itertools import combinations
+    keys = ('work_root', 'evidence_root', 'pools_root')
+    validation = {key: str(Path(launch[key]).resolve()) for key in keys}
+    sealed = {key: str(Path(launch['sealed_roots'][key]).resolve()) for key in keys}
+    roots = [Path(path) for path in [*validation.values(), *sealed.values()]]
+    check_roots(store.root, roots)
+    previous = [Path(path).resolve() for row in store.rows('campaign') for path in row['roots'].values()]
+    for left, right in [*combinations(roots, 2), *((a, b) for a in roots for b in previous)]:
+        if left.is_relative_to(right) or right.is_relative_to(left):
+            raise ValueError('final assessment roots must be separate from each other and adaptive roots')
+    return validation, sealed
+
+
+def _validation_record(store, campaign_ids, frozen, headers, checkpoints, reference, launch, criterion, validation, sealed, finalists, replicates, mean_cost_ceiling):
+    from experiments.orc_structural_search.qualification_io import package_digest
+    selected = {cid: sorted(state['frontier'], key=lambda c: (-state['table'][c]['quality'], state['table'][c]['cost'], c))[:finalists]
+                for cid, (state, _) in checkpoints.items()}
+    validation_roots, sealed_roots = _assessment_roots(store, launch)
+    ids = sorted(campaign_ids)
+    record = {'kind': 'exposure', 'role': 'validation', 'campaign_id': min(ids), 'campaign_ids': ids,
+        'criterion_sha256': headers[0]['criterion_sha256'], 'context_key': headers[0]['context_key'],
+        'criterion_path': str(Path(criterion).resolve()), 'package_sha256': package_digest(validation),
+        'validation_task': str(validation), 'sealed_task': str(sealed), 'reference_id': reference['candidate_id'],
+        'warm_reference_trial_ids': reference['trial_ids'], 'reference': reference, 'replicates': replicates,
+        'mean_cost_ceiling': mean_cost_ceiling, 'checkpoints': {cid: ref for cid, (_, ref) in checkpoints.items()},
+        'finalists': selected, 'candidate_ids': sorted({reference['candidate_id'], *(c for values in selected.values() for c in values)}),
+        'finalist_projection': {cid: {c: state['table'][c] for c in selected[cid]} for cid, (state, _) in checkpoints.items()},
+        'validation_roots': validation_roots, 'sealed_roots': sealed_roots}
+    return record
+
+
+def validation_manifest(store, campaign_ids, *, validation_task, replicates, finalists,
+                        mean_cost_ceiling, launch, criterion):
+    from experiments.orc_structural_search import campaign, readout_join
+    from experiments.orc_structural_search.qualification_io import package_digest
+    from experiments.orc_structural_search.pareto_readout import _comparison_reference
+    frozen, headers = _study_headers(store, campaign_ids, criterion, launch['config_path'])
+    if (replicates, finalists) != (frozen['horizon']['validation_replicates'], frozen['horizon']['finalists_per_campaign']):
+        raise ValueError('final assessment support differs from frozen horizon')
+    runtime = Path(headers[0]['parameters']['runtime'])
+    validation, sealed = ((runtime / frozen[key]).resolve() for key in ('validation_task', 'sealed_task'))
+    if Path(validation_task).resolve() != validation:
+        raise ValueError('validation task differs from frozen package')
+    checkpoints = {r['campaign_id']: readout_join.terminal_checkpoint(store, r['campaign_id'], criterion) for r in headers}
+    reference = readout_join.warm_reference(store, headers[0], criterion)
+    _comparison_reference({'P0': {'reference': reference}}, mean_cost_ceiling)
+    record = _validation_record(store, campaign_ids, frozen, headers, checkpoints, reference, launch,
+                                criterion, validation, sealed, finalists, replicates, mean_cost_ceiling)
+    ids = sorted(campaign_ids)
+    prior = [row for row in store.rows('exposure') if row['role'] == 'validation'
+             and (row['package_sha256'] == record['package_sha256'] or set(row.get('campaign_ids', ())).intersection(ids))]
+    if prior:
+        if len(prior) != 1 or _payload(prior[0]) != record:
+            raise ValueError('validation manifest differs from exact retry')
+        return prior[0]
+    campaign.check_split_roles(store, adaptive=[], validation=record['package_sha256'], sealed=package_digest(sealed))
+    store.append(record)
+    return store.rows()[-1]
+
+
+def _frozen_rows(store, manifest, reason):
+    from experiments.orc_structural_search import readout_join, selection
+    from experiments.compare.repos import sha256_file
+    criterion = Path(manifest['criterion_path'])
+    for cid, expected in manifest['checkpoints'].items():
+        _, actual = readout_join.terminal_checkpoint(store, cid, criterion)
+        if actual != expected:
+            raise ValueError('terminal checkpoint or adaptive evidence changed after validation exposure')
+    pool = readout_join.final_pool(store, manifest, role='validation')
+    projection = selection.validation_projection(store, manifest, pool)
+    assessment_seqs = selection.assessment_sequences(store, manifest, pool)
+    return [{'kind': 'disposition', 'target_kind': 'campaign', 'target_id': cid, 'disposition': 'frozen',
+        'reason': reason, 'supersedes': [], 'validation_manifest_seq': manifest['seq'],
+        'checkpoint_sha256': manifest['checkpoints'][cid]['checkpoint_sha256'],
+        'validation_log_sha256': pool['log_sha256'], 'validation_results': pool['results'],
+        'validation_results_sha256': pool['results_sha256'], 'assessment_seqs': assessment_seqs,
+        'numeric_rule': {'mean_cost_ceiling': manifest['mean_cost_ceiling']}, **projection[cid]}
+        for cid in manifest['campaign_ids']]
+
+
+def frozen_rows(store, manifest, reason):
+    records = _frozen_rows(store, manifest, reason)
+    prior = {r['target_id']: r for r in store.rows('disposition') if r['disposition'] == 'frozen'
+             and r['target_id'] in manifest['campaign_ids']}
+    for record in records:
+        if record['target_id'] in prior and _payload(prior[record['target_id']]) != record:
+            raise ValueError('frozen disposition differs from exact retry')
+    return records, prior
+
+
+def freeze_study(store, campaign_ids, reason):
+    manifest = study_manifest(store, campaign_ids)
+    records, prior = frozen_rows(store, manifest, reason)
+    for record in records:
+        if record['target_id'] not in prior:
+            store.append(record)
+    return len(records) - len(prior)
+
+
+def _sealed_record(manifest, frozen, sealed_task):
+    from experiments.orc_structural_search.qualification_io import package_digest
+    frozen_criterion = json.loads(Path(manifest['criterion_path']).read_text())
+    record = {**{k: v for k, v in manifest.items() if k not in ('schema', 'seq')}, 'role': 'sealed',
+        'package_sha256': package_digest(sealed_task), 'validation_manifest_seq': manifest['seq'],
+        'frozen_seqs': sorted(r['seq'] for r in frozen), 'replicates': frozen_criterion['horizon']['sealed_replicates'],
+        'candidate_ids': sorted({manifest['reference_id'], *(r['choice'] for r in frozen)})}
+    return record
+
+
+def _commit_sealed_exposure(store, manifest, record):
+    from experiments.orc_structural_search import campaign
+    prior = [r for r in store.rows('exposure') if r['role'] == 'sealed' and r.get('validation_manifest_seq') == manifest['seq']]
+    if prior:
+        if len(prior) != 1 or _payload(prior[0]) != record:
+            raise ValueError('sealed authorization differs from exact retry')
+        exposure_seq = prior[0]['seq']
+    else:
+        campaign.check_split_roles(store, adaptive=[], validation=None, sealed=record['package_sha256'])
+        exposure_seq = store.append(record)
+    return exposure_seq
+
+
+def open_sealed_study(store, campaign_ids, sealed_task):
+    from experiments.orc_structural_search import campaign
+    from experiments.orc_structural_search.qualification_io import package_digest
+    manifest = study_manifest(store, campaign_ids)
+    frozen = [r for r in store.rows('disposition') if r['disposition'] == 'frozen'
+              and r.get('validation_manifest_seq') == manifest['seq']]
+    if {r['target_id'] for r in frozen} != set(manifest['campaign_ids']):
+        raise ValueError('sealed split requires every selected campaign frozen')
+    if any(r['disposition'] == 'sealed_opened' and r.get('validation_manifest_seq') == manifest['seq'] for r in store.rows('disposition')):
+        raise ValueError('sealed study was already opened; a second opening is refused')
+    if Path(sealed_task).resolve() != Path(manifest['sealed_task']):
+        raise ValueError('sealed task differs from frozen manifest')
+    freeze_study(store, campaign_ids, frozen[0]['reason'])
+    record = _sealed_record(manifest, frozen, sealed_task)
+    exposure_seq = _commit_sealed_exposure(store, manifest, record)
+    return store.append({'kind': 'disposition', 'target_kind': 'campaign', 'target_id': manifest['campaign_id'],
+        'disposition': 'sealed_opened', 'reason': 'open frozen study holdout', 'supersedes': [],
+        'campaign_ids': manifest['campaign_ids'], 'validation_manifest_seq': manifest['seq'], 'exposure_seq': exposure_seq})
+
+
+def campaign_parameters(config_path, frozen, *, seeds, run_seed, call_cap, concurrency, runtime, judges, roots):
+    from experiments.orc_structural_search import mode1
+    return {'criterion_sha256': frozen['criterion_sha256'], 'config_sha256': repos.sha256_file(config_path),
+        'horizon': frozen['horizon'], 'seeds': {str(p.resolve()): mode1.seed_digest(p) for p in seeds},
+        'run_seed': run_seed, 'call_cap': call_cap, 'concurrency': concurrency,
+        'runtime': str(runtime.resolve()), 'runtime_commit': repos.runtime_commit(runtime),
+        'judges': list(judges), 'roots': {k: str(Path(v).resolve()) for k, v in roots.items()}}
+
+
+def require_adaptive_label(store, label):
+    header = next((row for row in store.rows('campaign') if row['label'] == label), None)
+    if header:
+        require_adaptive(store, header['campaign_id'])

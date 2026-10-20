@@ -3,12 +3,16 @@ and refusals, skeleton diversity and provider allocation among accepted children
 the records pending a scan verdict. Input: the log's records (records.read_records). A failed or incident row
 whose launch hit a provider quota (quota.quota_reason) reads as `quota_incident`."""
 
+import json
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 from pathlib import Path
+from statistics import mean, stdev
 
 from experiments.orc_structural_search.quota import quota_reason
-from experiments.orc_structural_search.records import UNAVAILABLE
+from experiments.orc_structural_search.records import UNAVAILABLE, Store, Index, campaign_candidates, find_campaign, read_records
+from experiments.orc_structural_search import pricing
+ESTIMATOR_VERSION = "campaign-estimate-1"
 
 QUOTA_INCIDENT = "quota_incident"
 
@@ -130,7 +134,7 @@ def convergence(store, campaign_id: str) -> dict:
     trials = store.index().trials
     initial = {trials[trial_id]["candidate_id"] for trial_id in campaign["warm_start"]}
     children = {trial["candidate_id"] for trial in store.rows("trial")
-                if trial["campaign_id"] == campaign_id and trial["candidate_id"] not in initial}
+                if trial["campaign_id"] == campaign_id and trial["candidate_id"] not in initial and trial.get("split") not in ("validation", "sealed")}
     counts = defaultdict(int)
     for candidate_id in children:
         subject, structure = candidates[candidate_id], candidates[candidate_id].get("structure")
@@ -226,3 +230,222 @@ def campaign_diagnostics(checkpoint, log_rows, *, criterion, initial_ids):
             'reservoir_empty_draws': sum(row['parent_source'] == 'reservoir_empty' for row in draws.values()),
             'reservoir_frontier_entries': [cid for cid in entries if fresh[cid]['parent_source'] == 'reservoir'],
             **_campaign_lineage(checkpoint['frontier'], fresh, initial_ids)}
+
+
+def _evidence_trials(index: Index, candidate_id: str, context: str, names: Sequence[str]) -> tuple[list, list, list]:
+    attempts = [t for t in index.trials.values() if (t["candidate_id"], t["context_key"]) == (candidate_id, context)
+                and t["origin_trial_id"] is None and t["task"] in names and t.get("split") not in ("validation", "sealed")]
+    excluded = sorted(t["trial_id"] for t in attempts if t["trial_id"] in index.dispositions)
+    counted = [t for t in attempts if t["trial_id"] not in excluded]
+    return attempts, excluded, counted
+
+
+def _evidence_values(index: Index, counted: Sequence[Mapping], names: Sequence[str]) -> dict[str, list]:
+    from experiments.orc_structural_search import scoring
+    values = {name: [] for name in names}
+    for trial in counted:
+        assessed = index.assessments.get(trial["trial_id"])
+        row = assessed[-1] if assessed else {
+            "outcome": scoring.scored_outcome(trial | {"kind": "evaluation", "task_id": trial["task"]}),
+            "value": None}
+        if (value := scoring.primary_value(row)) is not None:
+            values[trial["task"]].append(value)
+    return values
+
+
+def _observed_summary(values: Mapping[str, Sequence], counted: Sequence[Mapping], price_table: Mapping,
+                      min_trials: int) -> dict:
+    from experiments.orc_structural_search import scoring
+    per_task = {name: {"n": len(v), "mean": mean(v) if v else UNAVAILABLE,
+                       "sd": stdev(v) if len(v) > 1 else "insufficient_support"} for name, v in values.items()}
+    supported = all(summary["n"] >= min_trials for summary in per_task.values())
+    costs = [pricing.cost(trial, price_table) for trial in counted]
+    return {"tasks": per_task, "support": "every_adaptive_task" if supported else "insufficient",
+            "quality": mean(summary["mean"] for summary in per_task.values()) if supported else UNAVAILABLE,
+            "cost": UNAVAILABLE if UNAVAILABLE in costs else mean(costs),
+            "calls": scoring.known_mean([trial["provider_calls"] for trial in counted]),
+            "wall_clock_sec": scoring.known_mean([trial["wall_clock_sec"] for trial in counted])}
+
+
+def evidence(store: Store, candidate_id: str, context: str, *, tasks: Sequence[str], price_table: Mapping,
+             min_trials: int) -> dict:
+    """The observed estimate of `candidate_id` on `tasks` over every non-disposed original trial of equal
+    `context`, across campaigns: per-task primary means (failure-inclusive) with n and SD, quality = their
+    equal-weight mean when every task has `min_trials`, mean metered cost per trial (unavailable when any is),
+    calls and wall clock; `unobserved` without trials, never a score."""
+    index, names = store.index(), [Path(task).name for task in tasks]
+    attempts, excluded, counted = _evidence_trials(index, candidate_id, context, names)
+    result = {"estimator_version": ESTIMATOR_VERSION, "candidate_id": candidate_id, "context_key": context,
+              "trial_ids": sorted(t["trial_id"] for t in counted), "trials": len(counted),
+              "attempts": len(attempts), "disposed": len(excluded), "excluded": excluded}
+    if not counted:
+        return result | {"kind": "unobserved", "quality": UNAVAILABLE, "cost": UNAVAILABLE}
+    return result | {"kind": "observed"} | _observed_summary(
+        _evidence_values(index, counted, names), counted, price_table, min_trials)
+
+
+def _candidate_row(store: Store, candidate_id: str, context: str, tasks: Sequence[str], price_table: Mapping,
+                   floor: float | str, min_trials: int) -> dict:
+    estimate = evidence(store, candidate_id, context, tasks=tasks, price_table=price_table, min_trials=min_trials)
+    quality, cost = estimate["quality"], estimate["cost"]
+    above_floor = (estimate.get("support") == "every_adaptive_task" and floor != UNAVAILABLE
+                   and pricing.number(quality) and quality > floor)
+    if estimate["kind"] == "unobserved":
+        reason = "unobserved"
+    elif estimate.get("support") != "every_adaptive_task":
+        reason = "insufficient_support"
+    elif floor == UNAVAILABLE:
+        reason = "quality_floor_unavailable"
+    elif not pricing.number(quality):
+        reason = "quality_unavailable"
+    elif not above_floor:
+        reason = "below_quality_floor"
+    elif cost == UNAVAILABLE:
+        reason = "cost_unavailable"
+    else:
+        reason = None
+    return {"candidate_id": candidate_id, "quality": quality, "cost": cost, "above_floor": above_floor,
+            "reason": reason, "support": estimate.get("support", "unobserved"),
+            "provider_calls": estimate.get("calls", UNAVAILABLE),
+            "wall_clock_sec": estimate.get("wall_clock_sec", UNAVAILABLE)}
+
+
+def _candidate_table_names(context, tasks):
+    if not isinstance(context, str) or not context or not isinstance(tasks, Sequence) or not tasks:
+        raise ValueError("candidate table requires a context and nonempty tasks")
+    names = [Path(task).name for task in tasks]
+    if any(not name for name in names) or len(set(names)) != len(names):
+        raise ValueError("candidate table tasks must have unique nonempty basenames")
+    return names
+
+
+def _validate_candidate_cost(min_trials, floor, price_table):
+    if type(min_trials) is not int or min_trials < 1:
+        raise ValueError("candidate table min_trials must be a positive integer")
+    if floor != UNAVAILABLE and not pricing.number(floor):
+        raise ValueError("candidate table floor must be a finite nonnegative number or unavailable")
+    pricing.validate(price_table)
+
+
+def candidate_table(store: Store, campaign_id: str, *, context: str, tasks: Sequence[str], price_table: Mapping,
+                    floor: float | str, min_trials: int, scheduled: Sequence[Mapping] = ()) -> dict[str, dict]:
+    _candidate_table_names(context, tasks)
+    _validate_candidate_cost(min_trials, floor, price_table)
+    campaign = find_campaign(store, campaign_id)
+    if campaign["context_key"] != context:
+        raise ValueError(f"candidate table context {context} differs from campaign {campaign_id}'s context")
+    subjects = campaign_candidates(store, campaign_id, scheduled=scheduled)
+    return {candidate_id: _candidate_row(store, candidate_id, context, tasks, price_table, floor, min_trials)
+            for candidate_id in sorted(subjects)}
+
+
+def _assessment_log(authorization):
+    role = authorization['role']
+    roots = authorization[f'{role}_roots']
+    log = Path(roots['evidence_root']) / 'log.jsonl'
+    rows = read_records(log) if log.exists() else []
+    mine = [Path(r['pool']) for r in rows if r['kind'] in ('judge_pool', 'judging')]
+    if any(not path.resolve().is_relative_to(Path(roots['pools_root']).resolve()) for path in mine):
+        raise ValueError('assessment budget pool is outside authorized roots')
+    return rows, mine
+
+
+def _study_assessments(store, manifest):
+    from experiments.orc_structural_search import readout_join, selection
+    opened = next((r for r in store.rows('disposition') if r['disposition'] == 'sealed_opened'
+                   and r.get('validation_manifest_seq') == manifest['seq']), None)
+    authorizations = [manifest]
+    if opened:
+        authorizations += [r for r in store.rows('exposure') if r['seq'] == opened['exposure_seq']]
+    final, logs, pools = {}, [], []
+    for authorization in authorizations:
+        role = authorization['role']
+        rows, mine = _assessment_log(authorization)
+        logs.extend(rows)
+        pools.extend(mine)
+        if not any(r['kind'] == 'judging' for r in rows):
+            continue
+        verified = readout_join.final_pool(store, authorization, role=role)
+        selection.assessment_sequences(store, authorization, verified)
+        final[role] = _verified_validation(store, manifest, verified) if role == 'validation' else selection.final_figures(authorization, verified)
+    return final, opened, logs, pools
+
+
+def _verified_validation(store, manifest, pool):
+    from experiments.orc_structural_search import records, selection
+    frozen = [r for r in store.rows('disposition') if r['disposition'] == 'frozen'
+              and r.get('validation_manifest_seq') == manifest['seq']]
+    if frozen:
+        records.frozen_rows(store, manifest, frozen[0]['reason'])
+    return selection.validation_projection(store, manifest, pool)
+
+
+def _campaign_view(store, header, criterion, reference):
+    from experiments.orc_structural_search.records import read_checkpoint
+    state = read_checkpoint(store, header['campaign_id'])
+    if not state or not state.get('trajectory') or state['trajectory'][0]['generation'] != 0:
+        raise ValueError('campaign readout requires its generation-zero trajectory baseline')
+    rows = read_records(Path(header['roots']['evidence']) / 'log.jsonl')
+    initial_ids = set(state['trajectory'][0]['table'])
+    trajectory = [snapshot | {'diagnostics': campaign_diagnostics(snapshot, rows, criterion=criterion, initial_ids=initial_ids)}
+                  for snapshot in state['trajectory']]
+    return state | {'trajectory': trajectory, 'reference': reference, 'policy': header['policy']}
+
+
+def _final_views(store, campaign_ids, views):
+    exposures = [r for r in store.rows('exposure') if r['role'] == 'validation'
+                 and set(r.get('campaign_ids', ())).intersection(campaign_ids)]
+    final, opened, logs, pools = {}, None, [], []
+    if exposures:
+        if len(exposures) != 1:
+            raise ValueError('readout requires one authorized study manifest')
+        manifest = exposures[0]
+        final, opened, logs, pools = _study_assessments(store, manifest)
+        for cid, view in views.items():
+            if 'validation' in final:
+                view['final_assessment'] = {'validation': final['validation'][cid]}
+            if opened and 'sealed' in final:
+                choice = final['validation'][cid]['choice']
+                view['sealed_opened'] = opened
+                view['final_assessment']['sealed'] = {'choice': _sealed_figure(final['sealed'][choice]),
+                    'reference': _sealed_figure(final['sealed'][manifest['reference_id']])}
+    return exposures, logs, pools
+
+
+def _sealed_figure(figure):
+    return {key: figure[key] for key in ('candidate_id', 'mean_cost', 'provider_calls')} | {'quality': figure['validation_success']}
+
+
+def campaign_report(store, campaign_ids, *, criterion, ceiling, validation_results=None, sealed_results=None):
+    from experiments.orc_structural_search import campaign, pareto_readout, qualification, readout_join, records
+    from experiments.compare.repos import sha256_file
+    frozen = json.loads(Path(criterion).read_text())
+    headers = [find_campaign(store, cid) for cid in campaign_ids]
+    if not headers or any(r['criterion_sha256'] != sha256_file(criterion) for r in headers):
+        raise ValueError('readout campaign criterion mismatch')
+    qualification.validate(criterion, runtime=Path(headers[0]['parameters']['runtime']), operation='readout')
+    references = [readout_join.warm_reference(store, header, criterion) for header in headers]
+    reference = {key: references[0][key] for key in ('candidate_id', 'quality', 'cost')}
+    views = {header['campaign_id']: _campaign_view(store, header, frozen,
+        {key: ref[key] for key in ('candidate_id', 'quality', 'cost')}) for header, ref in zip(headers, references, strict=True)}
+    exposures, logs, pools = _final_views(store, campaign_ids, views)
+    _requested_results(store, exposures, validation_results, sealed_results)
+    report = pareto_readout.compare_campaigns(views, criterion=frozen, ceiling=ceiling)
+    return report | {'reference': reference, 'warm_start': headers[0]['budget'].get('warm_start'),
+                     'final_budget': campaign.budget_union(logs, pools, frozen['price_table'])}
+
+
+def _requested_results(store, exposures, validation_results, sealed_results):
+    from experiments.orc_structural_search.readout_join import _ingestion_authorization
+    for role, supplied in (('validation', validation_results), ('sealed', sealed_results)):
+        if supplied is None:
+            continue
+        allowed = [r for r in store.rows('exposure') if r['role'] == role and exposures
+                   and r.get('campaign_ids') == exposures[0]['campaign_ids']]
+        if len(allowed) != 1:
+            raise ValueError('results argument lacks an authorized study manifest')
+        roots = allowed[0][f'{role}_roots']
+        _ingestion_authorization(store, allowed[0]['campaign_id'], roots['evidence_root'], role)
+        logged = [Path(r['results']).resolve() for r in read_records(Path(roots['evidence_root']) / 'log.jsonl') if r['kind'] == 'judging']
+        if [Path(supplied).resolve()] != logged:
+            raise ValueError('results argument is not the authorized judging result reference')

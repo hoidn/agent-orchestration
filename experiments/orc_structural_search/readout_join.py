@@ -1,5 +1,6 @@
 """Verify the harness's clone-ID lineage before exposing its run values."""
 import json
+from statistics import mean
 from pathlib import Path
 
 from experiments.compare import pool, summarize
@@ -64,3 +65,179 @@ def episode_exclusion(records, row):
         return pool.exclusion(scan, calls, str(records)) is not None
     except SystemExit as error:
         raise ValueError(str(error)) from error
+
+
+def calibrated_pool(results, log, criterion):
+    from experiments.orc_structural_search.scoring import read_pool
+    joined = read_pool(Path(results), Path(log), Path(criterion))
+    mapping = json.loads((Path(results).parent / 'mapping.json').read_text())
+    frozen = json.loads(Path(criterion).read_text())
+    checked = summarize.calibration(json.loads(Path(results).read_text()), mapping,
+                                    frozen | {'purpose': 'calibration'})
+    if not checked or not checked['passed']:
+        raise ValueError(f'current pool calibration failed: {results}')
+    return joined | {'calibration': checked, 'proof_sha256': frozen['qualification']['sha256']}
+
+
+def logged_pools(evidence, pools_root, criterion):
+    from experiments.orc_structural_search.records import read_records
+    found = {}
+    for row in read_records(Path(evidence) / 'log.jsonl'):
+        if row['kind'] != 'judging':
+            continue
+        directory, results = Path(row['pool']).resolve(), Path(row['results']).resolve()
+        if not directory.is_relative_to(Path(pools_root).resolve()) or results != directory / 'records/results.json':
+            raise ValueError('judging results are outside their authorized pool roots')
+        joined = calibrated_pool(results, Path(evidence) / 'log.jsonl', criterion)
+        if row['task'] != joined['task']:
+            raise ValueError('judging task differs from its pool')
+        found[str(results)] = joined
+    return list(found.values())
+
+
+def terminal_checkpoint(store, campaign_id, criterion):
+    from experiments.compare.repos import sha256_file
+    from experiments.orc_structural_search.records import find_campaign, read_checkpoint, _checkpoint, read_records
+    header, state = find_campaign(store, campaign_id), read_checkpoint(store, campaign_id)
+    if not state or not state.get('stopped') or state['stopped'] == 'invalid_evidence':
+        raise ValueError('final assessment requires a valid terminal campaign checkpoint')
+    evidence = Path(header['roots']['evidence'])
+    ledger = evidence / 'calls.json'
+    entries = json.loads(ledger.read_text())
+    if any(row['calls'] is None for row in entries) or len(entries) != state['ledger_index']:
+        raise ValueError('final assessment refuses pending or unsettled ledger work')
+    trajectory = state.get('trajectory', [])
+    if not trajectory or not state.get('table') or (trajectory[-1].get('table'), trajectory[-1].get('frontier')) != (state['table'], state['frontier']):
+        raise ValueError('final assessment requires the persisted calibrated table')
+    log = evidence / 'log.jsonl'
+    if len(read_records(log)) != state['ingestion_position']:
+        raise ValueError('final checkpoint has unaccounted log work')
+    pools = logged_pools(evidence, header['roots']['pools'], criterion)
+    return state, {'checkpoint_sha256': sha256_file(_checkpoint(store, campaign_id)[0]),
+        'ledger_index': len(entries), 'ledger_sha256': sha256_file(ledger), 'log_sha256': sha256_file(log),
+        'pools': {pool['results']: sha256_file(Path(pool['results'])) for pool in pools}}
+
+
+def _warm_originals(store, header):
+    from experiments.orc_structural_search import records
+    originals = [store.index().trials[tid] for tid in header['warm_start']]
+    owners = {trial['campaign_id'] for trial in originals}
+    if len(owners) != 1 or any(trial['origin_trial_id'] is not None for trial in originals):
+        raise ValueError('reference requires original shared warm-start trials')
+    warm = records.find_campaign(store, owners.pop())
+    if warm['policy'] != 'warm_start' or warm['context_key'] != header['context_key']:
+        raise ValueError('reference warm-start owner differs from the campaign context')
+    return warm, originals
+
+
+def _reference_identity(evidence, frozen):
+    from experiments.orc_structural_search import scoring, records
+    raw = scoring.latest_evaluations(records.read_records(evidence / 'log.jsonl'))
+    ids = {row['candidate_id'] for row in raw
+           if row.get('mode') == 'catalog' and row.get('seed') == frozen['reference_seed']}
+    if len(ids) != 1:
+        raise ValueError('warm reference seed must name exactly one candidate')
+    return ids.pop()
+
+
+def _reference_summary(cid, values, originals, frozen):
+    from experiments.orc_structural_search import scoring
+    expected = {(Path(task).name, rep) for task in frozen['tasks']
+                for rep in range(1, frozen['horizon']['warm_start']['replicates'] + 1)}
+    _matched_rows(values, expected)
+    trials = {row['evaluation_id']: row for row in originals}
+    counted = [trials[row['evaluation_id']] for row in values]
+    costs = [pricing.cost(row, frozen['price_table']) for row in counted]
+    if not all(pricing.number(value) for value in costs):
+        raise ValueError('warm reference cost is unavailable')
+    return {'candidate_id': cid, 'quality': mean(scoring.primary_value(row) for row in values),
+            'cost': mean(costs), 'trial_ids': sorted(row['trial_id'] for row in counted)}
+
+
+def warm_reference(store, header, criterion):
+    from experiments.orc_structural_search import records, scoring, selection
+    frozen = json.loads(Path(criterion).read_text())
+    warm, originals = _warm_originals(store, header)
+    evidence = Path(warm['roots']['evidence'])
+    cid = _reference_identity(evidence, frozen)
+    pools = logged_pools(evidence, warm['roots']['pools'], criterion)
+    raw = {row['evaluation_id']: row for row in scoring.latest_evaluations(records.read_records(evidence / 'log.jsonl'))}
+    for pool in pools:
+        selection.assessment_sequences(store, warm, pool | {'raw': raw})
+    values = [row for pool in pools for row in pool['rows'] if row['candidate_id'] == cid]
+    return _reference_summary(cid, values, originals, frozen)
+
+
+def _matched_rows(rows, expected):
+    from experiments.orc_structural_search.scoring import primary_value
+    keys = [(row['task'], row['replicate']) for row in rows]
+    if len(keys) != len(set(keys)) or set(keys) != expected or any(primary_value(row) is None for row in rows):
+        raise ValueError('assessment lacks exact valued task/replicate support')
+
+
+def _authorized_evaluations(raw, roots, role, task, candidates):
+    for row in raw:
+        if (row.get('split'), row['task_id']) != (role, task) or row['candidate_id'] not in candidates:
+            raise ValueError('evaluation is outside the authorized assessment split or candidate set')
+        if not Path(row['records_dir']).resolve().is_relative_to(Path(roots['work_root']).resolve()):
+            raise ValueError('assessment records are outside the authorized work root')
+
+
+def _final_support(pool, task, candidates, replicates):
+    expected = {(task, rep) for rep in range(1, replicates + 1)}
+    if {row['candidate_id'] for row in pool['rows']} != candidates or pool['unpooled']:
+        raise ValueError('assessment pool differs from the complete authorized candidate set')
+    for cid in sorted(candidates):
+        _matched_rows([row for row in pool['rows'] if row['candidate_id'] == cid], expected)
+
+
+def final_pool(store, authorization, *, role):
+    from experiments.compare.repos import sha256_file
+    from experiments.orc_structural_search import records, scoring
+    criterion = Path(authorization['criterion_path'])
+    if sha256_file(criterion) != authorization['criterion_sha256']:
+        raise ValueError('assessment criterion differs from its authorization')
+    roots = authorization['validation_roots'] if role == 'validation' else authorization['sealed_roots']
+    task = Path(authorization[f'{role}_task']).name
+    candidates = set(authorization['candidate_ids'])
+    log = Path(roots['evidence_root']) / 'log.jsonl'
+    if not log.is_file():
+        raise ValueError('final assessment has no committed results log')
+    rows = records.read_records(log)
+    raw = [row for row in rows if row['kind'] == 'evaluation']
+    _authorized_evaluations(raw, roots, role, task, candidates)
+    pools = logged_pools(roots['evidence_root'], roots['pools_root'], criterion)
+    if len(pools) != 1 or pools[0]['task'] != task:
+        raise ValueError('assessment requires its one authorized task pool')
+    pool = pools[0]
+    _final_support(pool, task, candidates, authorization['replicates'])
+    from experiments.orc_structural_search.adaptive import scan_work
+    scan_work(Path(roots['evidence_root']), json.loads(criterion.read_text()))
+    return pool | {'raw': {row['evaluation_id']: row for row in scoring.latest_evaluations(rows)},
+        'log_sha256': sha256_file(log), 'results_sha256': sha256_file(Path(pool['results']))}
+
+
+def _ingestion_authorization(store, campaign_id, evidence, role):
+    key = 'validation_roots' if role == 'validation' else 'sealed_roots'
+    authorizations = [row for row in store.rows('exposure') if row['role'] == role and key in row
+                      and Path(row[key]['evidence_root']).resolve() == Path(evidence).resolve()]
+    if len(authorizations) != 1 or authorizations[0]['campaign_id'] != campaign_id:
+        raise ValueError('final ingestion requires its authorized original trial owner')
+    authorization = authorizations[0]
+    if role == 'sealed' and not any(row.get('exposure_seq') == authorization['seq'] and row['disposition'] == 'sealed_opened'
+                                    for row in store.rows('disposition')):
+        raise ValueError('sealed assessment requires committed opening authorization')
+    return authorization
+
+
+def authorize_final_ingestion(store, campaign_id, evidence, pools, evaluations):
+    roles = {row.get('split') for row in evaluations}.intersection({'validation', 'sealed'})
+    if not roles:
+        return
+    if len(roles) != 1:
+        raise ValueError('final ingestion requires one assessment split')
+    role = roles.pop()
+    authorization = _ingestion_authorization(store, campaign_id, evidence, role)
+    verified = final_pool(store, authorization, role=role)
+    if [Path(path).resolve() for path in pools] != [Path(verified['results']).resolve()]:
+        raise ValueError('final ingestion results differ from authorized pool')

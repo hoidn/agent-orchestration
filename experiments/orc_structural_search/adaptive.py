@@ -17,7 +17,7 @@ from experiments.orc_structural_search.qualification_io import package_digest
 from experiments.orc_structural_search.quota import quota_reason, with_retries, campaign_guard, campaign_elapsed
 from experiments.orc_structural_search.three_arm_gate import QuotaExhausted, CapGate
 from experiments.orc_structural_search.three_arm import episode_indexes
-from experiments.orc_structural_search.records import UNAVAILABLE, append_record, find_campaign, read_records, tuples, prepare_log, replay_judge_incidents
+from experiments.orc_structural_search.records import campaign_parameters as parameters, require_adaptive_label, UNAVAILABLE, append_record, find_campaign, read_records, tuples, prepare_log, replay_judge_incidents
 from experiments.orc_structural_search.scoring_phase2 import (
     rank, make_entry, initial_archive, incumbent, dominates, frontier, prune, retain, select_parent,
     terminal, feedback, lineage_config, write_archive, mode2_readout, validate_finalists,
@@ -32,7 +32,6 @@ EVALUATION_KEYS = ('work_root', 'evidence_root', 'runtime', 'env', 'timeout_sec'
 
 def read_log(path):
     return read_records(path) if path.exists() else []
-
 
 
 def subject_config(subject, config):
@@ -362,14 +361,6 @@ def mark_evaluated(state, generation, draw):
         state['futility_streak'] = 0
 
 
-def parameters(config_path, frozen, *, seeds, run_seed, call_cap, concurrency, runtime, judges, roots):
-    return {'criterion_sha256': frozen['criterion_sha256'], 'config_sha256': repos.sha256_file(config_path),
-        'horizon': frozen['horizon'], 'seeds': {str(p.resolve()): mode1.seed_digest(p) for p in seeds},
-        'run_seed': run_seed, 'call_cap': call_cap, 'concurrency': concurrency,
-        'runtime': str(runtime.resolve()), 'runtime_commit': repos.runtime_commit(runtime),
-        'judges': list(judges), 'roots': {k: str(Path(v).resolve()) for k, v in roots.items()}}
-
-
 def start_state(store, label, policy, ctx, params, frozen, adaptive_tasks, validation_task, sealed_task):
     warm_id = campaign.warm_start_id(store, ctx)
     if not warm_id:
@@ -400,6 +391,7 @@ def run_campaign(config_path, *, criterion, label, policy, store, seeds, adaptiv
     frozen = check_campaign(config_path, criterion, agent_cmd=agent_cmd, timeout_sec=timeout_sec, policy=policy, runtime=runtime)
     check_run_parameters(frozen, generations, episodes_per_generation, label, policy, run_seed, call_cap, concurrency,
                          adaptive_tasks, validation_task, sealed_task, runtime)
+    require_adaptive_label(store, label)
     work_root, evidence_root = driver.check_roots(work_root, evidence_root)
     pools_root = check_pools_root(pools_root, work_root, evidence_root)
     roots = {'work': work_root, 'evidence': evidence_root, 'pools': pools_root}
@@ -469,3 +461,40 @@ def masked_roots(store, cid, hide):
     previous = [Path(value) for row in store.rows('campaign') if row['campaign_id'] != cid
                 for value in row['roots'].values() if Path(value).is_dir()]
     return list(dict.fromkeys([store.root, *hide, *previous]))
+
+
+def validate_campaign_finalists(store, campaign_ids, *, validation_task, replicates, finalists,
+                               mean_cost_ceiling, launch, judge):
+    from experiments.orc_structural_search import records, readout_join, selection
+    if 'config_path' not in launch:
+        raise ValueError('final assessment requires explicit launch config_path')
+    criterion = Path(judge['criterion'])
+    frozen = check_campaign(launch['config_path'], criterion, agent_cmd=launch['agent_cmd'],
+        timeout_sec=launch['timeout_sec'], policy='frontier_only', runtime=launch['runtime'])
+    if (launch['call_cap'], launch['concurrency']) != (frozen['budget']['steps']['P3']['cap'], frozen['envelope']['concurrency']):
+        raise ValueError('validation launch differs from frozen budget or concurrency')
+    solutions = driver.check_solutions([validation_task], launch['solutions'], launch['runtime'])
+    authorization = records.validation_manifest(store, campaign_ids, validation_task=validation_task,
+        replicates=replicates, finalists=finalists, mean_cost_ceiling=mean_cost_ceiling, launch=launch, criterion=criterion)
+    work, evidence = driver.check_roots(Path(launch['work_root']), Path(launch['evidence_root']))
+    pools = Path(launch['pools_root'])
+    pools.mkdir(parents=True, exist_ok=True)
+    config = load_config(launch['config_path'])
+    subjects = {r['candidate_id']: r for r in store.rows('subject')}
+    jobs = [(Path(subjects[cid]['source']), subject_config(subjects[cid], config),
+             {'mode': 'campaign', 'split': 'validation', 'generation': -1,
+              'campaign_id': authorization['campaign_id'], 'candidate_id': cid, 'candidate_root': subjects[cid]['source']})
+            for cid in authorization['candidate_ids']]
+    final_launch = {key: value for key, value in launch.items() if key not in ('gate', 'guard', 'cap_gate', 'settled')}
+    hidden = [store.root, pools, *(Path(value) for row in store.rows('campaign') for value in row['roots'].values()),
+              *(Path(value) for value in authorization['sealed_roots'].values())]
+    final_launch.update(work_root=work, evidence_root=evidence, pools_root=pools, resume=True, solutions=solutions,
+        holdouts=[Path(authorization['sealed_task'])], scan_roots=hidden,
+        settled=lambda: scan_work(evidence, frozen),
+        judge_env={**launch['env'], 'COMPARE_CLAUDE_MODELS': 'gpt-5.6-terra', 'ORC_ALLOWED_CLAUDE_MODELS': 'gpt-5.6-terra'})
+    evaluate_and_judge(jobs, -1, [validation_task], replicates=replicates, launch=final_launch, judge=judge,
+                       include=lambda row: row.get('split') == 'validation')
+    verified = readout_join.final_pool(store, authorization, role='validation')
+    campaign.ingest(store, authorization['campaign_id'], authorization['context_key'], evidence,
+                    [Path(verified['results'])], criterion=criterion)
+    return selection.validation_projection(store, authorization, verified)
