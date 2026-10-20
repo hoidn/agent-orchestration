@@ -89,6 +89,8 @@ class EvaluationRecord:
     allocation_signature: dict | str = UNAVAILABLE
     allocation_signature_reason: str | None = "missing_closed_program"
     qualification: dict | None = None
+    candidate_identity: str = UNAVAILABLE
+    program_digest: str = UNAVAILABLE
 
 
 def evaluation_id(candidate: str, task_id: str, evaluator_version: str, env_manifest_digest: str,
@@ -149,6 +151,8 @@ def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Pa
                                           workspace_roots=[candidate_root, work_root])
     env = qualification.hidden_env(env, private)
     candidate_root, work_root = candidate_root.resolve(), work_root.resolve()
+    orchestrator_commit = runtime_commit(runtime)
+    candidate = candidate_id(candidate_root, orchestrator_commit=orchestrator_commit)
     python = is_python(config)
     compiled = (acceptance.check_python(candidate_root, config, runtime=runtime) if python
                 else compile_candidate(candidate_root, config, runtime=runtime))
@@ -159,7 +163,6 @@ def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Pa
                          f"{compiled.diagnostics}")
     if not (candidate_root / DEV_CHECK).is_file():
         raise FileNotFoundError(f"{candidate_root} has no {DEV_CHECK}: the clone's dev-check boundary would not run")
-    candidate = candidate_id(candidate_root, orchestrator_commit=runtime_commit(runtime))
     env_digest = record_env_manifest(work_root, env)
     eid = evaluation_id(candidate, task_package.name, EVALUATOR_VERSION, env_digest, replicate, attempt)
     if (work_root / "records" / eid).exists():  # even a launch that died before its run started
@@ -187,10 +190,13 @@ def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Pa
     with (clone / ".git" / "info" / "exclude").open("a") as exclude:  # not part of the agent's patch
         exclude.write(f"/{DEV_CHECK}\n")
     pending = EvaluationRecord(eid, UNAVAILABLE, state_dir, records, env_digest, "incident", None, 0.0, 0, 0, (),
-                               attempt, config.criterion_sha256)
+                               attempt, config.criterion_sha256, candidate_identity=candidate,
+                               program_digest=compiled.program_digest or UNAVAILABLE)
     pending = replace(pending, qualification=checked)
     pending = replace(pending, **site_evidence.candidate_evidence(candidate_root, config, runtime=runtime,
-                                                                  compiled=compiled))
+                                                                  compiled=compiled,
+                                                                  candidate_identity=candidate,
+                                                                  orchestrator_commit=orchestrator_commit))
     return _launch(pending, ["bash", str(records / "command.sh")], env, timeout_sec)
 
 
@@ -256,10 +262,14 @@ def _launch(record: EvaluationRecord, argv: list[str], env: Mapping[str, str],
     return replace(record, run_id=run_id, outcome=outcome, value=value, incidents=incidents,
                    wall_clock_sec=record.wall_clock_sec + elapsed,
                    provider_calls=len(list((records / "calls").glob("*"))),
-                   **realized_effects(record.state_dir, run_id, generic=metadata["arm_kind"] == "generic-command"))
+                   **realized_effects(record.state_dir, run_id, generic=metadata["arm_kind"] == "generic-command",
+                                      planned_sites=record.planned_perform_sites,
+                                      candidate_identity=record.candidate_identity,
+                                      program_digest=record.program_digest))
 
 
-def realized_effects(state_dir: Path, run_id: str, *, generic: bool) -> dict:
+def realized_effects(state_dir: Path, run_id: str, *, generic: bool, planned_sites=UNAVAILABLE,
+                     candidate_identity=UNAVAILABLE, program_digest=UNAVAILABLE) -> dict:
     """Validated memo effects are execution evidence; they do not identify exercised source branches."""
     result = {"realized_perform_sites": UNAVAILABLE, "unexercised_perform_sites": UNAVAILABLE,
               "exercised_branches": UNAVAILABLE,
@@ -268,20 +278,34 @@ def realized_effects(state_dir: Path, run_id: str, *, generic: bool) -> dict:
         return result
     from orchestrator.workflow.evaluated.views import load_evaluated_view
     view = load_evaluated_view(state_dir / run_id)
-    from orchestrator.contracts.closed_program.program import ClosedProgram
-    program = ClosedProgram.from_artifact((state_dir / run_id / "closed_program.json").read_text())
-    planned = site_evidence.planned_sites(program)
+    planned = _bound_planned_sites(state_dir / run_id, planned_sites, candidate_identity, program_digest)
     realized = []
     for step in view["steps"].values():
         row = {"identity": step["identity"], "effect_class": step["effect_class"],
                "attempts": step.get("attempt", UNAVAILABLE), "status": step.get("status", UNAVAILABLE)}
         if row["effect_class"] == "provider":
-            row["provider_role"] = site_evidence.provider_role(row["identity"], planned)
+            row["provider_role"] = (site_evidence.provider_role(row["identity"], planned)
+                                     if isinstance(planned, list) else UNAVAILABLE)
         realized.append(row)
     result.update(realized_perform_sites=realized, branch_coverage_reason="memo_records_effects_only")
-    result.update(planned_perform_sites=planned, unexercised_perform_sites=site_evidence.unexercised_sites(
-        planned, result["realized_perform_sites"], completed=view["status"] == "completed"))
+    result.update(planned_perform_sites=planned, unexercised_perform_sites=(
+        site_evidence.unexercised_sites(planned, result["realized_perform_sites"],
+                                        completed=view["status"] == "completed")
+        if isinstance(planned, list) else UNAVAILABLE))
     return result
+
+
+def _bound_planned_sites(run_dir: Path, planned_sites, candidate_identity, program_digest):
+    if (not isinstance(planned_sites, list) or not isinstance(candidate_identity, str)
+            or candidate_identity == UNAVAILABLE or not isinstance(program_digest, str)
+            or program_digest == UNAVAILABLE):
+        return UNAVAILABLE
+    from orchestrator.contracts.closed_program.program import ClosedProgram, ClosedProgramInvalid
+    try:
+        program = ClosedProgram.from_artifact((run_dir / "closed_program.json").read_text())
+    except (ClosedProgramInvalid, OSError, UnicodeDecodeError):
+        return UNAVAILABLE
+    return planned_sites if program.digest == program_digest else UNAVAILABLE
 
 
 def _classify(state_dir: Path, *, generic: bool) -> tuple[str, str, object | None]:

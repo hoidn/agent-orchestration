@@ -5,7 +5,8 @@ import json
 from pathlib import Path
 
 from experiments.orc_structural_search import campaign, evaluation, site_evidence
-from experiments.orc_structural_search.candidates import compile_candidate
+from experiments.compare.repos import runtime_commit
+from experiments.orc_structural_search.candidates import candidate_id, compile_candidate
 from experiments.orc_structural_search.briefs import feedback_text
 from experiments.orc_structural_search.config import ExperimentConfig
 from experiments.orc_structural_search.records import UNAVAILABLE
@@ -161,8 +162,11 @@ def test_convergence_excludes_a_warm_start_seed_if_this_campaign_evaluates_it_ag
 
 def test_behaviour_descriptor_joins_actual_compiled_and_realized_site_identities(monkeypatch, world):
     compiled = compile_candidate(world.candidate, _config(), runtime=world.runtime)
-    program = site_evidence.checked_program(world.candidate, compiled.build_key)
-    planned = site_evidence.planned_sites(program)
+    commit = runtime_commit(world.runtime)
+    identity = candidate_id(world.candidate, orchestrator_commit=commit)
+    planned = site_evidence.candidate_evidence(
+        world.candidate, _config(), runtime=world.runtime, compiled=compiled,
+        candidate_identity=identity, orchestrator_commit=commit)["planned_perform_sites"]
     providers = [site for site in planned if site["effect_class"] == "provider"]
     assert [site.get("provider_role") for site in providers] == [
         "providers.coder", "providers.reviewer", "providers.coder"]
@@ -176,7 +180,11 @@ def test_behaviour_descriptor_joins_actual_compiled_and_realized_site_identities
     run_dir.mkdir(parents=True)
     (run_dir / "closed_program.json").write_text(
         (world.candidate / ".orchestrate/build" / compiled.build_key / "closed_program.json").read_text())
-    effects = evaluation.realized_effects(state_dir, "fixture-run", generic=False)
+    source = world.candidate / "implement_check_diagnose_repair.orc"
+    source.write_text("(")
+    effects = evaluation.realized_effects(
+        state_dir, "fixture-run", generic=False, planned_sites=planned,
+        candidate_identity=identity, program_digest=compiled.program_digest)
     descriptor = campaign.behaviour_descriptor(
         [{"task_id": "task-1", **effects}],
         {"structure": {"loop": False}, "allocation_changed": False})
@@ -211,7 +219,11 @@ def test_behaviour_descriptor_preserves_unavailable_and_incomplete_call_evidence
 
 def test_realized_effects_adds_provider_roles_without_dropping_recorded_fields(monkeypatch, world):
     compiled = compile_candidate(world.candidate, _config(), runtime=world.runtime)
-    planned = site_evidence.planned_sites(site_evidence.checked_program(world.candidate, compiled.build_key))
+    commit = runtime_commit(world.runtime)
+    identity = candidate_id(world.candidate, orchestrator_commit=commit)
+    planned = site_evidence.candidate_evidence(
+        world.candidate, _config(), runtime=world.runtime, compiled=compiled,
+        candidate_identity=identity, orchestrator_commit=commit)["planned_perform_sites"]
     providers = [site for site in planned if site["effect_class"] == "provider"]
     steps = {site["identity"]: {"identity": site["identity"], "effect_class": "provider",
                                 "attempt": index + 1, "status": "completed"}
@@ -223,9 +235,101 @@ def test_realized_effects_adds_provider_roles_without_dropping_recorded_fields(m
     run_dir.mkdir(parents=True)
     (run_dir / "closed_program.json").write_text(
         (world.candidate / ".orchestrate/build" / compiled.build_key / "closed_program.json").read_text())
-    result = evaluation.realized_effects(state_dir, "fixture-run", generic=False)
+    source = world.candidate / "implement_check_diagnose_repair.orc"
+    source.write_text(source.read_text().replace("providers.reviewer", "providers.forged"))
+    result = evaluation.realized_effects(
+        state_dir, "fixture-run", generic=False, planned_sites=planned,
+        candidate_identity=identity, program_digest=compiled.program_digest)
     assert result["realized_perform_sites"] == [
         {"identity": site["identity"], "effect_class": "provider", "attempts": index + 1,
          "status": "completed", "provider_role": role}
         for index, (site, role) in enumerate(zip(providers,
                                                  ("providers.coder", "providers.reviewer", "providers.coder")))]
+    mismatch = evaluation.realized_effects(
+        state_dir, "fixture-run", generic=False, planned_sites=planned,
+        candidate_identity=identity, program_digest="sha256:mismatch")
+    assert [(site["identity"], site["attempts"], site["provider_role"])
+            for site in mismatch["realized_perform_sites"]] == [
+                (site["identity"], index + 1, UNAVAILABLE) for index, site in enumerate(providers)]
+
+
+def test_planned_site_roles_require_candidate_identity_and_ignore_mutated_source(world):
+    compiled = compile_candidate(world.candidate, _config(), runtime=world.runtime)
+    commit = runtime_commit(world.runtime)
+    identity = candidate_id(world.candidate, orchestrator_commit=commit)
+    source = world.candidate / "implement_check_diagnose_repair.orc"
+    source.write_text(source.read_text().replace("providers.reviewer", "providers.forged"))
+    result = site_evidence.candidate_evidence(
+        world.candidate, _config(), runtime=world.runtime, compiled=compiled,
+        candidate_identity=identity, orchestrator_commit=commit)
+    roles = [row["provider_role"] for row in result["planned_perform_sites"]
+             if row["effect_class"] == "provider"]
+    assert roles == [UNAVAILABLE, UNAVAILABLE, UNAVAILABLE]
+
+
+def test_planned_sites_without_a_verified_source_binding_do_not_open_span_paths(world):
+    compiled = compile_candidate(world.candidate, _config(), runtime=world.runtime)
+    program = site_evidence.checked_program(world.candidate, compiled.build_key)
+    (world.candidate / "implement_check_diagnose_repair.orc").write_text("(")
+    rows = site_evidence.planned_sites(program)
+    assert all(row["provider_role"] == UNAVAILABLE for row in rows if row["effect_class"] == "provider")
+
+
+def test_candidate_evidence_reports_malformed_postcompile_source_as_unavailable(world):
+    compiled = compile_candidate(world.candidate, _config(), runtime=world.runtime)
+    commit = runtime_commit(world.runtime)
+    identity = candidate_id(world.candidate, orchestrator_commit=commit)
+    (world.candidate / "implement_check_diagnose_repair.orc").write_text("(")
+    result = site_evidence.candidate_evidence(
+        world.candidate, _config(), runtime=world.runtime, compiled=compiled,
+        candidate_identity=identity, orchestrator_commit=commit)
+    roles = [row["provider_role"] for row in result["planned_perform_sites"]
+             if row["effect_class"] == "provider"]
+    assert roles == [UNAVAILABLE, UNAVAILABLE, UNAVAILABLE]
+    assert result["allocation_signature"] == UNAVAILABLE and result["allocation_signature_reason"]
+
+
+def test_realized_effects_preserves_known_empty_and_incomplete_fields(monkeypatch, tmp_path, world):
+    run_dir = tmp_path / "state" / "run"
+    run_dir.mkdir(parents=True)
+    compiled = compile_candidate(world.candidate, _config(), runtime=world.runtime)
+    commit = runtime_commit(world.runtime)
+    identity = candidate_id(world.candidate, orchestrator_commit=commit)
+    planned = site_evidence.candidate_evidence(
+        world.candidate, _config(), runtime=world.runtime, compiled=compiled,
+        candidate_identity=identity, orchestrator_commit=commit)["planned_perform_sites"]
+    (run_dir / "closed_program.json").write_text(
+        (world.candidate / ".orchestrate/build" / compiled.build_key / "closed_program.json").read_text())
+    monkeypatch.setattr("orchestrator.workflow.evaluated.views.load_evaluated_view",
+                        lambda _root: {"status": "completed", "steps": {}})
+    empty = evaluation.realized_effects(
+        tmp_path / "state", "run", generic=False, planned_sites=planned,
+        candidate_identity=identity, program_digest=compiled.program_digest)
+    assert empty["realized_perform_sites"] == [] and empty["planned_perform_sites"] == planned
+    assert len(empty["unexercised_perform_sites"]) == len(planned)
+    zero = campaign.behaviour_descriptor([empty], {"structure": {"loop": False}, "allocation_changed": False})
+    assert (zero["realized_provider_calls"], zero["distinct_provider_roles"]) == ([], 0)
+
+    provider = next(site for site in planned if site["effect_class"] == "provider")
+    step_id = provider["identity"]
+    steps = {step_id: {"identity": step_id, "effect_class": "provider", "status": "completed"}}
+    monkeypatch.setattr("orchestrator.workflow.evaluated.views.load_evaluated_view",
+                        lambda _root: {"status": "completed", "steps": steps})
+    incomplete = evaluation.realized_effects(
+        tmp_path / "state", "run", generic=False, planned_sites=planned,
+        candidate_identity=identity, program_digest=compiled.program_digest)
+    assert incomplete["realized_perform_sites"] == [{
+        "identity": step_id, "effect_class": "provider", "attempts": UNAVAILABLE,
+        "status": "completed", "provider_role": provider["provider_role"]}]
+    incomplete_descriptor = campaign.behaviour_descriptor(
+        [incomplete], {"structure": {"loop": True}, "allocation_changed": False})
+    assert incomplete_descriptor["realized_provider_calls"] == UNAVAILABLE
+    role_missing = [{key: value for key, value in site.items() if key != "provider_role"} if site == provider else site
+                    for site in planned]
+    steps[step_id]["attempt"] = 2
+    no_role = evaluation.realized_effects(
+        tmp_path / "state", "run", generic=False, planned_sites=role_missing,
+        candidate_identity=identity, program_digest=compiled.program_digest)
+    assert no_role["realized_perform_sites"] == [{
+        "identity": step_id, "effect_class": "provider", "attempts": 2,
+        "status": "completed", "provider_role": UNAVAILABLE}]

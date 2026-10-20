@@ -19,6 +19,7 @@ from experiments.orc_structural_search import driver, pareto_readout, pricing, s
 from experiments.orc_structural_search.briefs import structural_summary
 from experiments.orc_structural_search.config import check_criterion_hashes
 from experiments.orc_structural_search.quota import job_key
+from experiments.orc_structural_search.readout import behaviour_descriptor, convergence
 from experiments.orc_structural_search.pareto import bounded_frontier, reservoir_update, select_parent
 from experiments.orc_structural_search.records import (
     CHECKPOINT, CHECKPOINT_KEYS, LOG, SCHEMA, Index, Store, UNAVAILABLE, _checkpoint,
@@ -370,64 +371,6 @@ def rebuild(store: Store, campaign_id: str, *, criterion: Mapping, pools: Sequen
     return {"floor": floor, "table": table, "frontier": bounded, "reservoir": reservoir}
 
 
-def behaviour_descriptor(evaluation_rows: Sequence[Mapping], episode_row: Mapping | None) -> dict:
-    """A reporting-only descriptor from recorded provider effects and the accepted episode's source evidence."""
-    calls = _realized_provider_calls(evaluation_rows)
-    role_count = UNAVAILABLE if calls == UNAVAILABLE else len(_descriptor_roles(calls))
-    loop = _loop_present(episode_row)
-    changed = episode_row.get("allocation_changed", UNAVAILABLE) if episode_row is not None else UNAVAILABLE
-    return {"realized_provider_calls": calls, "distinct_provider_roles": role_count, "loop_present": loop,
-            "allocation_changed": changed if type(changed) is bool else UNAVAILABLE}
-
-
-def _realized_provider_calls(evaluation_rows: Sequence[Mapping]) -> list[dict] | str:
-    if not evaluation_rows:
-        return UNAVAILABLE
-    calls = []
-    for row in evaluation_rows:
-        sites = row.get("realized_perform_sites")
-        if not isinstance(sites, list):
-            return UNAVAILABLE
-        for site in sites:
-            call = _provider_call(site)
-            if call == UNAVAILABLE:
-                return UNAVAILABLE
-            if call is not None:
-                if isinstance(row.get("task_id"), str):
-                    call["task_id"] = row["task_id"]
-                calls.append(call)
-    return calls
-
-
-def _provider_call(site: Mapping) -> dict | None | str:
-    if not isinstance(site, Mapping):
-        return UNAVAILABLE
-    if site.get("effect_class") != "provider":
-        return None
-    identity, attempts, role = site.get("identity"), site.get("attempts"), site.get("provider_role")
-    if (not isinstance(identity, str) or type(attempts) is not int or attempts < 1
-            or not isinstance(role, str) or not role or role == UNAVAILABLE):
-        return UNAVAILABLE
-    return {"identity": identity, "attempts": attempts, "provider_role": role}
-
-
-def _descriptor_roles(calls: Sequence[Mapping]) -> set[str]:
-    return {call["provider_role"] for call in calls}
-
-
-def _loop_present(episode_row: Mapping | None) -> bool:
-    if episode_row is None:
-        return False
-    structure = episode_row.get("structure", {})
-    if not isinstance(structure, Mapping):
-        structure = {}
-    if type(structure.get("loop")) is bool:
-        return structure["loop"]
-    controls = structure.get("control_heads", {})
-    return isinstance(controls, Mapping) and type(controls.get("loop/recur")) is int \
-        and controls["loop/recur"] > 0
-
-
 def evaluated_structures(store: Store, campaign_id: str, *, scheduled: Sequence[Mapping]) -> list[dict]:
     """The newest twelve campaign-local source summaries, ordered by candidate id for the brief."""
     candidates = campaign_candidates(store, campaign_id, scheduled=scheduled)
@@ -493,24 +436,3 @@ def futility(outcomes: Sequence[str], *, consecutive: int) -> bool:
         else:
             raise ValueError(f"unknown episode outcome {outcome!r}")
     return streak >= consecutive
-
-
-def convergence(store: Store, campaign_id: str) -> dict:
-    """Share of this campaign's distinct evaluated children per coarse idea key; warm starts and siblings do not count."""
-    candidates = campaign_candidates(store, campaign_id)
-    campaign = _campaign(store, campaign_id)
-    trials = store.index().trials
-    initial = {trials[trial_id]["candidate_id"] for trial_id in campaign["warm_start"]}
-    children = {trial["candidate_id"] for trial in store.rows("trial")
-                if trial["campaign_id"] == campaign_id and trial["candidate_id"] not in initial}
-    counts = defaultdict(int)
-    for candidate_id in children:
-        subject = candidates[candidate_id]
-        structure = subject.get("structure")
-        idea = subject.get("idea_key") or (structure.get("idea_key") if isinstance(structure, Mapping) else None)
-        if not isinstance(idea, str):
-            raise ValueError(f"evaluated candidate {candidate_id} has no structural idea_key")
-        counts[idea] += 1
-    total = len(children)
-    shares = {idea: count / total for idea, count in sorted(counts.items())} if total else {}
-    return {"shares": shares, "max_share": max(shares.values(), default=0.0)}

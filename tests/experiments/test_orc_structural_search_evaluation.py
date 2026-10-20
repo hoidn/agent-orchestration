@@ -159,6 +159,7 @@ def test_direct_seed_runs_in_fresh_clone_and_records_run_id(sandboxed, world):
                                              **({"provider_role": site["provider_role"]}
                                                 if site["effect_class"] == "provider" else {})}
                                              for site in record.realized_perform_sites]
+    assert record.candidate_identity.startswith("sha256:") and record.program_digest != "unavailable"
     assert record.unexercised_perform_sites == []
 
 
@@ -236,6 +237,12 @@ def test_resume_keeps_evaluation_id_and_completes(sandboxed, world):
         first.evaluation_id, first.run_id, "completed", 1, first.incidents)
     assert [(site["identity"], site["attempts"], site["status"]) for site in resumed.realized_perform_sites] == [
         (first.realized_perform_sites[0]["identity"], 2, "completed")]
+    assert resumed.realized_perform_sites[0]["provider_role"] == "providers.coder"
+    (world.candidate / "direct.orc").write_text("(")
+    reported = evaluation.realized_effects(
+        resumed.state_dir, resumed.run_id, generic=False, planned_sites=resumed.planned_perform_sites,
+        candidate_identity=resumed.candidate_identity, program_digest=resumed.program_digest)
+    assert reported["realized_perform_sites"][0]["provider_role"] == "providers.coder"
 
 
 def test_evaluation_id_changes_with_replicate_and_env_manifest():

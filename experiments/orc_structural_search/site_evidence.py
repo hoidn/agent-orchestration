@@ -7,9 +7,10 @@ from pathlib import Path
 from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.contracts.closed_program.node_walk import _ast_nodes
 from orchestrator.workflow.evaluated.machine import site_nodes
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.reader import read_sexpr_text
 from orchestrator.workflow_lisp.sexpr import ListExpr, SymbolAtom
-from experiments.orc_structural_search.candidates import compile_candidate
+from experiments.orc_structural_search.candidates import candidate_id, compile_candidate
 from experiments.orc_structural_search.metrics import is_python, metric_definitions, mutable_source
 from experiments.orc_structural_search.records import UNAVAILABLE
 from experiments.orc_structural_search.record_normalization import _module_names, _named_definitions
@@ -20,23 +21,32 @@ def checked_program(root: Path, build_key: str) -> ClosedProgram:
     return ClosedProgram.from_artifact(path.read_text())
 
 
-def planned_sites(program: ClosedProgram) -> list[dict]:
+def planned_sites(program: ClosedProgram, *, provider_roles: Mapping[str, str] | None = None) -> list[dict]:
+    """Describe closed-program sites; roles require an explicit prelaunch source binding."""
     rows = []
     for identity, node in site_nodes(program).items():
         row = {"identity": identity, "effect_class": node["class"]}
         if node["class"] == "provider":
-            row["provider_role"] = _authored_provider_role(node)
+            row["provider_role"] = (provider_roles or {}).get(identity, UNAVAILABLE)
         rows.append(row)
     return rows
 
 
-def _authored_provider_role(node) -> str:
-    span = node.get("@", {}).get("span", "")
+def _authored_provider_role(node, candidate_root: Path) -> str:
     try:
+        span = node.get("@", {}).get("span", "")
         path, line, column = span.rsplit(":", 2)
-        source = read_sexpr_text(Path(path).read_text(), source_path=path)
-    except (AttributeError, OSError, ValueError):
+        source_path = Path(path)
+        source_path = (candidate_root / source_path if not source_path.is_absolute() else source_path).resolve()
+        if not source_path.is_relative_to(candidate_root.resolve()):
+            return UNAVAILABLE
+        source = read_sexpr_text(source_path.read_text(), source_path=str(source_path))
+    except (AttributeError, LispFrontendCompileError, OSError, UnicodeDecodeError, ValueError):
         return UNAVAILABLE
+    return _role_at_position(source, line, column)
+
+
+def _role_at_position(source, line: str, column: str) -> str:
     pending = [source]
     while pending:
         expression = pending.pop()
@@ -51,6 +61,20 @@ def _authored_provider_role(node) -> str:
             return role.value
         pending.extend(reversed(expression.items))
     return UNAVAILABLE
+
+
+def _provider_roles(program: ClosedProgram, candidate_root: Path) -> dict[str, str]:
+    return {identity: _authored_provider_role(node, candidate_root)
+            for identity, node in site_nodes(program).items() if node["class"] == "provider"}
+
+
+def _candidate_matches(root: Path, identity: str | None, orchestrator_commit: str | None) -> bool:
+    if not identity or not orchestrator_commit:
+        return False
+    try:
+        return candidate_id(root, orchestrator_commit=orchestrator_commit) == identity
+    except OSError:
+        return False
 
 
 def _identity_pattern(identity):
@@ -123,7 +147,7 @@ def _signature(program, names, own_module):
     return _expand_signature(program.tree["body"], program.tree["entry"], program.tree["definitions"], owners, set())
 
 
-def candidate_evidence(root, config, *, runtime, compiled=None):
+def candidate_evidence(root, config, *, runtime, compiled=None, candidate_identity=None, orchestrator_commit=None):
     result = {"allocation_signature": UNAVAILABLE, "allocation_signature_reason": "generic_command_has_no_closed_program",
               "planned_perform_sites": UNAVAILABLE}
     if is_python(config):
@@ -133,12 +157,17 @@ def candidate_evidence(root, config, *, runtime, compiled=None):
         if compiled.status != "accepted":
             raise ValueError("candidate_does_not_compile")
         program = checked_program(root, compiled.build_key)
-        result["planned_perform_sites"] = planned_sites(program)
+        roles = {}
+        if _candidate_matches(Path(root), candidate_identity, orchestrator_commit):
+            roles = _provider_roles(program, Path(root))
+            if not _candidate_matches(Path(root), candidate_identity, orchestrator_commit):
+                roles = {}
+        result["planned_perform_sites"] = planned_sites(program, provider_roles=roles)
         names = (_module_names(_named_definitions(mutable_source(root, config), metric_definitions(root, config)),
                                config.entry_workflow) if config.condition == "module" else {})
         result.update(allocation_signature=_signature(program, names, config.entry_workflow.split("::")[0]),
                       allocation_signature_reason=None)
-    except (OSError, KeyError, TypeError, ValueError, RecursionError) as error:
+    except (LispFrontendCompileError, OSError, KeyError, TypeError, ValueError, RecursionError) as error:
         result["allocation_signature_reason"] = str(error)
     return result
 
