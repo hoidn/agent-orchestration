@@ -1,8 +1,11 @@
 # Structural search over orchestration programs
 
 Check a whole-module proposal locally and inspect structural-search evidence without
-provider calls. This apparatus remains experimental; no live successor study,
-calibration experiment or provider allocation is selected.
+provider calls. This apparatus remains experimental; no live successor study or
+structural-search provider allocation is selected. The separate
+[measurement plan](../../docs/plans/2026-10-19-orc-structural-search-measurement-plan.md)
+records verified offline preparation and I/F freeze, with approved calibration
+Step A in progress (8 calls, cap10); no calibration verdict is available yet.
 
 The [driver design](../../docs/design/orc_structural_search_driver.md) owns admission,
 qualification, metering and selection. The [delivery plan](../../docs/plans/2026-10-19-orc-structural-search-module-condition-implementation-plan.md)

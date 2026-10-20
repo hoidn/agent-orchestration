@@ -27,8 +27,9 @@
   accounting are implemented and reviewed at `9adcf56c`; that plan records
   their focused and full-suite verification evidence. The separate
   [measurement plan](../plans/2026-10-19-orc-structural-search-measurement-plan.md)
-  owns the next offline calibration preparation; its live steps keep their own
-  owner budget gates.
+  records completed and verified offline calibration preparation with independent
+  I/F freeze review; approved Step A (8 calls, cap10) is in progress without a
+  calibration verdict. Later live steps keep their own owner budget gates.
   No live successor study or provider budget is selected. Fixed-workflow comparisons use
   [`experiments/compare/`](../../experiments/compare/README.md) today.
 - **Kind:** experiment-side apparatus contract: controller modes, proposal

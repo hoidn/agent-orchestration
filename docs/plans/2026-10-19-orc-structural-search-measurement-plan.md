@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Status:** selected for offline Tasks 1–5 and live Step A. The owner explicitly approved Step A at 8 calls, cap 10 on 2026-10-19 (`ac58e0ba`); do not ask for the same approval again. Tasks 1–2, the current model guard and Task3 package/helper integration are implemented; the real controller matrix has passed, while final integration verification and the implementation/criterion freeze remain pending. Task4 reuses audited receipt/pricing APIs. Steps A′, B, B2 and C retain separate approval gates. No calibration or quality result is implied by preparation.
+> **Status:** selected for offline Tasks 1–5 and live Step A. The owner explicitly approved Step A at 8 calls, cap 10 on 2026-10-19 (`ac58e0ba`); do not ask for the same approval again. Offline Tasks 1–5 are complete and verified; implementation `I=25ca21e1` and criterion freeze `F=cc5464ac` passed independent review. Task4 reuses audited receipt/pricing APIs. Step A is in progress with the exact Sonnet/Terra judges under its existing 8-call/cap10 approval; no result is available yet. Steps A′, B, B2 and C retain separate approval gates. Preparation and freeze establish no calibration or quality result.
 
 > **Revision 2026-10-19** (after the independent review, coordinator rulings C1 and I1–I10 applied): a fourth blind control per task, the `mutant` (upstream with one behaviour-breaking edit), and rule P3 `total(upstream) − total(mutant) ≥ 2`, so a judge that scores similarity to the disclosed reference fails calibration; fillers are only patches that pass `git apply --check` on the amended seeded base, drawn from the retained Phase 1 pools and the three-arm final patches, with exact counts and a minimum; the authoritative gate-3 check is controller-side and restores the package's `dev-check.json` and promoted test before running (`evaluation.check_first_attempt`); Step C (the check-gated seed's own coder) is required and is the gate-3 measurement, Step B's figure beside it; a new `calibration-amends-5.json` references the unchanged historical criterion and records `amends_5` (frozen implementation commit, reviewer `gpt-6.1-sol`, amended package hashes) before Step B; B2 has its own per-pool verdict plus `summarize.calibration_over`; the failure-policy rerun is its own owner-gated step (A′) and the worst-case total is stated (50 calls); the driver design and harness D6 are amended offline before any spend; `summarize` skips `reference` clones and reads a mapping without `rubric` as the historical rubric; `score_ref.orc` runs end to end with scripted providers before the criterion freezes; no `calibrate.py` (shared `pool.write_pool`, `pool.pool_from_diffs`); citation, count, metering-mapping, measurement-order, batch-size, judge-scan and ledger minors applied.
 
@@ -14,7 +14,7 @@
 - [x] Install both guarded names atomically, preserve stdin, arguments, live capture and status, and cover nested PATH launches. Disable Codex `multi_agent`, `multi_agent_v2` and `multi_agent_v2_dynamic_tools`; reject model/config/profile/provider and multiagent-enabling overrides while retaining ordinary effort overrides.
 - [x] Make actual Claude `message.model` and Codex `turn_context.model` violations non-clearable; printed model names remain ordinary text. Absolute CLI paths, reset PATH and direct APIs remain explicit prevention boundaries.
 - [x] Bind the current `review_once` reviewer to Terra high and compare its shared review contract with model masked. Dedicated guard/scan, parallel installation and scripted public-CLI checks passed; guard `9b878563` was independently approved with 14 additional targeted checks. Broad integration remains a separate pending gate; no new criterion was frozen and no paid call ran.
-- [ ] Before Task 5 freezes prospective inputs, verify judges Sonnet/Terra high; Step B direct/review Terra high; Step C coder Sonnet medium and diagnosis Terra high in the external measurement-specific seed copy, preserving the historical seed. Step A′ retains both judge IDs and selects only the predeclared alternative (b), rubric-only without a reference; there is no third admitted judge ID to swap in.
+- [x] Before Task 5 freezes prospective inputs, verify judges Sonnet/Terra high; Step B direct/review Terra high; Step C coder Sonnet medium and diagnosis Terra high in the external measurement-specific seed copy, preserving the historical seed. Step A′ retains both judge IDs and selects only the predeclared alternative (b), rubric-only without a reference; there is no third admitted judge ID to swap in.
 
 Model-cap offline evidence (2026-10-19): implementation commits `c639f171` and
 `f900bf5d`; dedicated guard/scan suite **75 passed in 5.00 s**, including public
@@ -282,7 +282,7 @@ def test_check_first_attempt_passes_on_the_upstream_anchor(world): ...
 - [x] **Step 5: Integrate the existing mutant anchors, without new construction.** Verify selected patch hashes, the single early-return edit, ≥95% retained upstream added lines and the exact upstream-pass/mutant-fail functional counterexample; copy the approved first mutants. Record hidden fractions, failing nodes and visible-check results descriptively. Preserve the independent proof/review identities before any criterion freeze.
 - [x] **Step 6: Blind first-attempt figure at zero spend.** Run `check_first_attempt` on every applicable filler (Task 2 Step 5's list); record `failed/applicable` per task in the ledger as the upper-bound estimate (patches made without seeing the test).
 - [x] **Step 7: Ladder rows.** Record per package: promoted file and its node ids, new hidden counts, partial and mutant construction, fractions and failing nodes, the note that the two extra anchors enter `anchor_checks`' spread under the frozen `phase2.json` for any future pool of the package, and the package sha256 (`find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum`).
-- [ ] **Step 8: Run** `pytest tests/experiments/test_orc_structural_search_evaluation.py tests/experiments/test_orc_structural_search_seeds.py -v` — PASS. **Commit** — "feat(tasks): partial and mutant controls, promoted agent-visible check and a controller-side first-attempt check for rungs 2 and 4".
+- [x] **Step 8: Run** `pytest tests/experiments/test_orc_structural_search_evaluation.py tests/experiments/test_orc_structural_search_seeds.py -v` — PASS. **Commit** — "feat(tasks): partial and mutant controls, promoted agent-visible check and a controller-side first-attempt check for rungs 2 and 4".
 
 Task3 integration at `2f495d0a` preserves approved package hashes and exposes the
 controller check through the existing evaluation API/CLI. The root's clean-`3655c6f4` controller matrix completed 36 real checks, exit0:
@@ -293,7 +293,8 @@ applicability reproduced11/20 and19/19. Evidence:
 `/home/ollie/sc-evidence/preparation/controller-checks/results.json`.
 This is an upper-bound estimate on historical patches made before the promoted
 check; it is not StepC's live first-attempt gate. Independent Task3 review
-approved nine targeted checks. Final broad integration remains pending.
+approved nine targeted checks. Final broad integration passed; the completed
+Task5 evidence below records its scope and frozen identities.
 Calibration hidden-run skip `3655c6f4` has a behavioral test that makes any hidden
 execution raise and confirms null clone hidden fields with score joins/verdicts
 retained. No live calibration or quality claim follows.
@@ -339,17 +340,47 @@ call or price inference from incomplete evidence was added.
 - C uses its own `purpose: "measure-free"` criterion with tasks, the frozen implementation identity, external capped seed path/hash and its declared cap12; the existing `ExperimentConfig.criterion_sha256` equals that file's actual SHA. It cannot pool/judge/select quality. Do not submit either calibration criterion or amended family evidence to structural V1 as a substitute for qualification.
 - Retain raw evidence for future V2: criterion/source/workflow/binding hashes, package/control/filler identities, pool mapping and clone-ID joins, patches/results, original records/inputs/applied paths, scans/verdicts, calls, native receipt provenance and the accepted A or A2 identity. A passed calibration does not itself select or authorize a successor quality study.
 
-- [ ] **Step 1: Complete final behavioral verification** for reference exclusion, the complete calibration denominator, amendment/frozen-file identity and `review_once`'s `gpt-5.6-terra` reviewer. Compare the shared reviewer contract with model masked and pin the deliberate new model separately; no literal prompt tests.
-- [ ] **Step 2: Complete offline implementation and documentation**, run all required scripted tests, confirm immutable bytes and create an independently reviewed implementation commit `I`. Record `I` before authoring criteria that name it. Detach `RT` at `I`; keep the new criterion artifacts outside that runtime so no commit hash refers to itself.
-- [ ] **Step 3: Freeze criteria against `I`**, with exact amended package/control/filler hashes, official readout price sources/date, the new family amendment and the separate C criterion/configuration. Verify hashes and complete field/dataflow checks, run the reduced scripted reference-rubric and four-evaluation zero-episode C smoke. Generate `E/freeze` artifacts first, copy the exact amendment and judge-criterion bytes into the repository and commit those two files separately as git freeze `F`. Keep C's criterion/configuration/seed external; hash them in `E/freeze/identities.json`. Record `F` in `E/criterion.sha256` and the ledger after that commit to avoid self-reference. `RT` stays at `I`; every live operator command explicitly uses the `E/freeze` copies.
-- [ ] **Step 4: Finalize the concrete Step-A packet**, after offline review: criterion hashes, implementation runtime/bindings, control construction and its disclosed pre-judge amendment, exact applicable filler counts, prices, quota reading, 8 calls/cap10 and overall maximum50. Cite the existing `ac58e0ba` approval and verify this packet stays within it; no duplicate approval is requested. This completes preparation; later paid steps keep their own recorded gates.
+- [x] **Step 1: Complete final behavioral verification** for reference exclusion, the complete calibration denominator, amendment/frozen-file identity and `review_once`'s `gpt-5.6-terra` reviewer. Compare the shared reviewer contract with model masked and pin the deliberate new model separately; no literal prompt tests.
+- [x] **Step 2: Complete offline implementation and documentation**, run all required scripted tests, confirm immutable bytes and create an independently reviewed implementation commit `I`. Record `I` before authoring criteria that name it. Detach `RT` at `I`; keep the new criterion artifacts outside that runtime so no commit hash refers to itself.
+- [x] **Step 3: Freeze criteria against `I`**, with exact amended package/control/filler hashes, official readout price sources/date, the new family amendment and the separate C criterion/configuration. Verify hashes and complete field/dataflow checks, run the reduced scripted reference-rubric and four-evaluation zero-episode C smoke. Generate `E/freeze` artifacts first, copy the exact amendment and judge-criterion bytes into the repository and commit those two files separately as git freeze `F`. Keep C's criterion/configuration/seed external; hash them in `E/freeze/identities.json`. Record `F` in `E/criterion.sha256` and the ledger after that commit to avoid self-reference. `RT` stays at `I`; every live operator command explicitly uses the `E/freeze` copies.
+- [x] **Step 4: Finalize the concrete Step-A packet**, after offline review: criterion hashes, implementation runtime/bindings, control construction and its disclosed pre-judge amendment, exact applicable filler counts, prices, quota reading, 8 calls/cap10 and overall maximum50. Cite the existing `ac58e0ba` approval and verify this packet stays within it; no duplicate approval is requested. This completes preparation; later paid steps keep their own recorded gates.
+
+**Completed offline verification and freeze.** Implementation `I` is
+`25ca21e1476f5c060feb04a838e1a6cbf844c63b`; `RT=/home/ollie/sc-runtime` stays
+detached there. Its code is identical to `3ce4ea72`, where the complete experiment
+and public scoring suite passed **1124 tests in 228.63 s**, exit0
+([verification record](/home/ollie/sc-evidence/preparation/final-verification.json)).
+The preceding run's two stale anchor-inventory expectations were corrected;
+its native quiescence failure passed isolated and in the full repeat. Final-I
+reference compile/run/resume and invalid-rating smoke passed **3 in 17.09 s**.
+The [final C scripted smoke](/home/ollie/sc-evidence/preparation/taskc-smoke/run-final-I/verification.json)
+completed four evaluations, twelve fake calls and all seventeen assertions.
+These are offline apparatus checks, not live calibration or gate-3 results.
+Earlier pending-verification paragraphs preserve their checkpoint history;
+this completion record supersedes that status.
+
+Independent [freeze review](/home/ollie/sc-evidence/preparation/freeze-review.json)
+passed. Git freeze `F=cc5464acc0aa7bebe07964f073886bfda09114ba` contains exact
+copies of the external [family amendment](../../experiments/compare/criteria/calibration-amends-5.json)
+and [judge criterion](../../experiments/compare/criteria/judge-calibration.json).
+Their SHA-256 values are respectively
+`8cef38ccaf7600b9add5bb51a231e242a00796a424fa92cc5eefb1739b26498e` and
+`5991b7ce208c53d6b33654a0d8d644574798a1eaf26826632703c7541ff87796`.
+The external [identity manifest](/home/ollie/sc-evidence/freeze/identities.json)
+and [hash record](/home/ollie/sc-evidence/criterion.sha256) also bind the external-only
+C criterion, configuration and capped seed. Historical criteria, provider files,
+`score.orc` and the original seed remain unchanged. Live commands use the explicit
+`E/freeze` copies with runtime I. The concrete approved-A packet, quota observation
+and unchanged 8-call/cap10 and maximum50 allocation are recorded in the
+[operator ledger](/home/ollie/sc-evidence/ledger.md). Step A is now in progress;
+its calibration verdict and all later live gates remain open.
 
 
 ### Task 6: Live Step A — judge calibration on known controls (owner gate: 8 calls, cap 10)
 
 **Files:** operator commands only; outputs under `P/<task>/A`, `E`; ledger entries.
 
-- [x] **Step 1: Owner approval recorded.** `ac58e0ba` selects Step A: 2 tasks × 2 batches × 2 judges = 8 calls, cap10, with the other paid stages separately gated. Before launch, attach the verified freeze/runtime/bindings, current Sonnet/Terra pair, control-construction amendment, quota reading and overall maximum50 to the ledger. Approval is already granted; final verified preparation remains required.
+- [x] **Step 1: Owner approval recorded.** `ac58e0ba` selects Step A: 2 tasks × 2 batches × 2 judges = 8 calls, cap10, with the other paid stages separately gated. Before launch, attach the verified freeze/runtime/bindings, current Sonnet/Terra pair, control-construction amendment, quota reading and overall maximum50 to the ledger. Approval is already granted; the verified packet and freeze are recorded in Task5 and the external ledger.
 - [ ] **Step 2: Use the frozen `RT`** at Task 5's implementation commit `I`, with the explicit `E/freeze` criterion copies byte-identical to git freeze `F`; per task: `$PY $H/prepare.py calibrate --task $RT/experiments/compare/tasks/<task> --criterion <criterion> --out $P/<task>/A --judge claude-sonnet-5-5 --judge gpt-5.6-terra=$H/providers/score_codex.json --runtime $RT --batches 2 --per-batch 5 --min-per-batch 4 --filler-seed <seed> --filler <applicable paths>`.
 - [ ] **Step 3: Score** one judge after another behind the shims (`bash $P/<task>/A/records/score-<judge>.sh`; `verify-pool` after each; `scan --pool --judge --hash SOL`; adjudicate, with `judge ran tests` hits reported; a stopped judge is resumed, never rerun).
 - [ ] **Step 4: Summarize** each pool; read `results.json["calibration"]`; count, by reading each judge's `reason` fields, ratings stating a blind clone equals the reference (reported). Read each judge's scoped native receipts through the existing receipt/report join and price with `criterion.price_table`; record unavailable coverage explicitly.
@@ -416,7 +447,7 @@ The command derives its repeated `--holdout` arguments from exactly the inherite
 
 | Decision | Consequence |
 | --- | --- |
-| Owner selects offline preparation and approves Step A | `ac58e0ba` approves A8/cap10; verified concrete freeze still precedes launch. A′, B, B2 and C retain separate approvals |
+| Owner selects offline preparation and approves Step A | `ac58e0ba` approves A8/cap10; verified I/F and the concrete packet are recorded, and A is in progress without a result. A′, B, B2 and C retain separate approvals |
 | Reuse the merged receipt/pricing apparatus | No second metering API, price-table alias or session discovery path |
 | Keep generic calibration separate from structural V1 quality | Preserve `qualification.validate` and `mapping.qualification`; defer V2 until a later successor study is selected |
 | Freeze implementation before criteria that name it | Runtime commit `I` and criterion freeze `F` are distinct; preserve all historical bytes |

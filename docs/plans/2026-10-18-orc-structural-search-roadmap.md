@@ -493,8 +493,9 @@ execute offline is the [measurement calibration plan](2026-10-19-orc-structural-
 an evaluator calibrated on known controls and
 a task family whose agent-visible check fails sometimes. Generic reference
 calibration and the current Sonnet/Terra guard are implemented, and the real
-controller matrix has passed. Final integration and freeze remain pending. Step A's 8 calls,
-cap10 are approved; later paid stages remain separately gated. No calibration
+controller matrix has passed. Offline preparation and final verification are complete;
+implementation I and criterion freeze F passed independent review. Step A's approved
+8 calls, cap10 are in progress without a result; later paid stages remain separately gated. No calibration
 result or live `module` arm follows from implementation. It precedes any
 live `module` arm
 ([module condition](2026-10-19-orc-structural-search-module-rewrite-plan.md#gate-for-a-live-module-arm)).

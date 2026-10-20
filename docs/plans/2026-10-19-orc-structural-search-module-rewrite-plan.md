@@ -271,11 +271,12 @@ All of the following, each recorded in the ledger before any provider spend:
 Gates 2 and 3 are the blocking work: an evaluator calibrated on known controls
 and a family whose agent-visible check fails sometimes. The
 [measurement calibration implementation plan](2026-10-19-orc-structural-search-measurement-plan.md)
-owns that next offline preparation under the
+owns the measurement preparation and live gates under the
 [roadmap](2026-10-18-orc-structural-search-roadmap.md#decision-criteria-and-next-commitment).
 Its generic calibration and package/helper preparation is implemented; the real
-controller matrix has passed; full integration and verified freeze remain pending. The
-owner approved calibration Step A (8 calls, cap10), not a live `module` arm;
+controller matrix, final integration and independently reviewed I/F freeze have
+passed. Approved calibration Step A (8 calls, cap10) is in progress without a
+result; the owner has selected no live `module` arm;
 no such arm precedes the required gate results or its own selection. Both gates instantiate the rule that no uncalibrated
 experiment runs (driver design,
 Task Family And Evaluator; roadmap, Decision Points), and they bind every
