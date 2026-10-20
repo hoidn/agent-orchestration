@@ -415,3 +415,28 @@ def test_failed_scan_removes_stale_cleared_receipt(tmp_path, failure):
     metadata = json.loads((tmp_path / "record.json").read_text())
     assert hits == "unavailable" and diagnostic
     assert "scan" not in metadata and metadata["scan_error"] == diagnostic
+
+
+@pytest.mark.parametrize("incomplete_scan", [False, True])
+def test_quota_keeps_priority_over_timeout_and_incomplete_scan(sandboxed, world, monkeypatch, incomplete_scan):
+    from experiments.orc_structural_search.driver import run_episode
+    from experiments.orc_structural_search.quota import PREFIX, quota_reason
+    from experiments.orc_structural_search.readout import outcome
+    monkeypatch.setenv("HOME", str(world.outside / "home"))
+    quota = "You've hit your usage limit."
+    executable = world.fakebin / "claude"
+    executable.write_text(f"#!{sys.executable} -I\nimport json, os, sys, time\nprompt = sys.stdin.read()\n" +
+                          (truncated_native_writer("claude") if incomplete_scan else "") +
+                          f"print({quota!r}, flush=True)\ntime.sleep(600)\n")
+    evidence = world.tmp / "evidence"
+    _, parent = archive(world.candidate, evidence, world.runtime)
+    row = run_episode(parent, replace(module_config(), episode_wall_clock_sec=5), interface="I1", mode="three_arm",
+                      agent_cmd=["claude", "-p"], work_root=world.outside / "work", evidence_root=evidence,
+                      episode_index=0, runtime=world.runtime,
+                      env={**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}"},
+                      solutions={world.task.name: world.solution}, call_cap=160, fields={"arm": "I1"})
+    assert (row["outcome"], quota_reason(row), outcome(row), three_arm.non_quota([row], evidence)["I1"]) == (
+        "incident", quota, "quota_incident", 0)
+    assert row["incidents"][-1] == PREFIX + quota
+    assert row["provider_calls"] == 1 and not row.get("candidate_root")
+    assert row["scan_pending"] == incomplete_scan

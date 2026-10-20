@@ -485,11 +485,10 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
         records, tree, runtime=runtime, work_root=work_root, evidence_root=evidence_root,
         solutions=solutions, holdouts=holdouts, created_at=created_at))
     if scan_error:
-        incidents.append(scan_error)
+        incidents.insert(0, scan_error)
     (copy / EPISODE).unlink(missing_ok=True)
     intact = drop_git(copy, base)
-    if stopped != "exhausted":
-        stopped = "incident" if quota or scan_error else stopped or (None if intact else "incident")
+    stopped = "incident" if quota else stopped or (None if intact and scan_error is None else "incident")
     verdict = {"outcome": stopped, "receipt": None} if stopped else judge_child(
         parent_root, copy, config, runtime=runtime, site=site, parent_candidate_id=parent_id)
     drop_hypothesis(copy)  # judge_child read it into the receipt; it is never part of the child
