@@ -376,6 +376,10 @@ class _ModuleNormalizer(_Normalizer):
     def _render_list(self, expr: ListExpr, scope: dict[str, str]) -> str:
         items = expr.items
         head = items[0].value if items and isinstance(items[0], SymbolAtom) else None
+        if head == "call" and len(items) >= 2 and isinstance(items[1], SymbolAtom):
+            target = items[1].value
+            return _wrap([head, scope.get(target, self.calls.get(target, target)),
+                          *self._render_all(items[2:], scope)])
         if head in {"record", "variant"} and len(items) >= 2:
             prefix = [head, self._type(items[1])]
             start = 2
@@ -399,21 +403,27 @@ class _ModuleNormalizer(_Normalizer):
         return super()._render_list(expr, scope)
 
     def _render_let_proc(self, items: Sequence[SExpr], scope: dict[str, str]) -> str:
-        procs = [proc for proc in items[1].items if isinstance(proc, ListExpr) and len(proc.items) >= 2 and _binder_name(proc)]
+        single = bool(items[1].items) and isinstance(items[1].items[0], SymbolAtom)
+        bindings = (items[1],) if single else items[1].items
+        procs = [proc for proc in bindings if isinstance(proc, ListExpr) and len(proc.items) >= 2 and _binder_name(proc)]
         outer = self.local_procs
         for proc in procs:
             scope = self.bind(proc.items[0].value, scope)
         self.local_procs = {**outer, **{proc.items[0].value: scope[proc.items[0].value] for proc in procs}}
         try:
             rendered = []
-            for proc in items[1].items:
+            for proc in bindings:
                 if proc not in procs:
                     rendered.append(self.render(proc, scope))
                     continue
                 params, inner = self.bind_params(proc.items[1], scope)
-                rendered.append(_wrap([self.local_procs[proc.items[0].value], params,
-                                       *self._render_all(proc.items[2:], inner)]))
-            return _wrap(["let-proc", _wrap(rendered), *self._render_all(items[2:], scope)])
+                header = self._render_items(proc.items[2:-1], scope)[1:-1]
+                parts = [self.local_procs[proc.items[0].value], params]
+                if header:
+                    parts.append(header)
+                rendered.append(_wrap([*parts, self.render(proc.items[-1], inner)]))
+            return _wrap(["let-proc", rendered[0] if single else _wrap(rendered),
+                          *self._render_all(items[2:], scope)])
         finally:
             self.local_procs = outer
 
@@ -436,11 +446,12 @@ class _ModuleNormalizer(_Normalizer):
                 parts.append(_wrap(clauses))
             elif previous == ":prompt":
                 parts.append(self._render_prompt(item, scope))
+            elif previous == ":captures" and isinstance(item, ListExpr):
+                parts.append(_wrap(self._render_all(item.items, scope)))
             elif previous in _LITERAL_KEYWORDS:
                 parts.append("#lit")
             elif index == 0 and isinstance(item, SymbolAtom):
-                parts.append(_render_symbol(item.value, scope) if item.value.partition(".")[0] in scope
-                             else self.calls.get(item.value, self.render(item, scope)))
+                parts.append(self.local_procs.get(item.value, self.calls.get(item.value, self.render(item, scope))))
             else:
                 parts.append(self.render(item, scope))
             previous = item.value if isinstance(item, (KeywordAtom, SymbolAtom)) else None

@@ -288,6 +288,44 @@ def test_module_metrics_cover_private_types_too(tmp_path):
     assert tuple(driver.allocation(child, cfg())) == ("run", "$decl0", "$decl1")
 
 
+@pytest.mark.parametrize("declarations,entry,renamed_declarations,renamed_entry", [
+    ('(defworkflow worker ((x String)) -> String x)',
+     '(defworkflow run ((x String)) -> String (call worker :x x))',
+     '(defworkflow renamed ((x String)) -> String x)',
+     '(defworkflow run ((x String)) -> String (call renamed :x x))'),
+    ('(defproc helper () -> String "x")',
+     '(defworkflow run ((helper String)) -> String (helper))',
+     '(defproc renamed () -> String "x")',
+     '(defworkflow run ((helper String)) -> String (renamed))'),
+])
+def test_module_compiled_callable_renames_preserve_metrics(
+        tmp_path, declarations, entry, renamed_declarations, renamed_entry):
+    header = '(workflow-lisp (:language "0.1") (:target-dsl "2.39") (defmodule direct) (export run)'
+    parent, child = pair(tmp_path, header + renamed_declarations + renamed_entry + ')')
+    (parent / "direct.orc").write_text(header + declarations + entry + ')')
+    for root in (parent, child):
+        program(root, cfg())
+    assert driver.skeleton(parent, cfg()) == driver.skeleton(child, cfg())
+    assert driver.allocation(parent, cfg()) == driver.allocation(child, cfg())
+
+
+@pytest.mark.parametrize("container", ["({binding})", "{binding}"], ids=["multiple", "single"])
+def test_module_compiled_local_proc_type_renames_preserve_metrics(tmp_path, container):
+    binding = container.format(binding='(identity ((item Review)) -> Review item)')
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39") (defmodule direct) (export run)
+      (defrecord Review (text String))
+      (defproc use ((hook ProcRef[Review->Review]) (item Review)) -> Review (hook item))
+      (defworkflow run ((x String)) -> String
+        (let* ((value (let-proc BINDING (use (proc-ref identity) (record Review :text x))))) value.text)))'''.replace(
+            "BINDING", binding)
+    parent, child = pair(tmp_path, source.replace("Review", "Assessment"))
+    (parent / "direct.orc").write_text(source)
+    for root in (parent, child):
+        program(root, cfg())
+    assert driver.skeleton(parent, cfg()) == driver.skeleton(child, cfg())
+    assert driver.allocation(parent, cfg()) == driver.allocation(child, cfg())
+
+
 def test_module_keeps_plain_files_frozen_even_if_listed_as_mutable(tmp_path):
     parent, child = pair(tmp_path)
     (child / "dev_check.py").write_text("# edited\n")
