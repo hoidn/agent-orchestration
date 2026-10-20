@@ -275,8 +275,10 @@ owns the measurement preparation and live gates under the
 [roadmap](2026-10-18-orc-structural-search-roadmap.md#decision-criteria-and-next-commitment).
 Its generic calibration and package/helper preparation is implemented; the real
 controller matrix, final integration and independently reviewed I/F freeze have
-passed. Approved calibration Step A (8 calls, cap10) is in progress without a
-result; the owner has selected no live `module` arm;
+passed. Calibration Step A completed 8 calls within cap 10 and failed
+(RPI spread; PRR passed). A′ offline preparation is verified; its new freeze
+and approval are pending. The no-Claude experiment directive blocks A′ on
+2026-10-19 (America/Los_Angeles). The owner has selected no live `module` arm;
 no such arm precedes the required gate results or its own selection. Both gates instantiate the rule that no uncalibrated
 experiment runs (driver design,
 Task Family And Evaluator; roadmap, Decision Points), and they bind every

@@ -495,7 +495,10 @@ a task family whose agent-visible check fails sometimes. Generic reference
 calibration and the current Sonnet/Terra guard are implemented, and the real
 controller matrix has passed. Offline preparation and final verification are complete;
 implementation I and criterion freeze F passed independent review. Step A's approved
-8 calls, cap10 are in progress without a result; later paid stages remain separately gated. No calibration
+8 calls completed within cap 10; A failed calibration (RPI spread; PRR passed).
+A′ offline preparation is verified, with new freeze and approval pending; the
+no-Claude experiment directive blocks it on 2026-10-19 (America/Los_Angeles).
+Later paid stages remain separately gated. No calibration
 result or live `module` arm follows from implementation. It precedes any
 live `module` arm
 ([module condition](2026-10-19-orc-structural-search-module-rewrite-plan.md#gate-for-a-live-module-arm)).

@@ -28,8 +28,10 @@
   their focused and full-suite verification evidence. The separate
   [measurement plan](../plans/2026-10-19-orc-structural-search-measurement-plan.md)
   records completed and verified offline calibration preparation with independent
-  I/F freeze review; approved Step A (8 calls, cap10) is in progress without a
-  calibration verdict. Later live steps keep their own owner budget gates.
+  I/F freeze review; Step A completed 8 calls within cap 10 and failed calibration
+  (RPI spread; PRR passed). A′ offline preparation is verified; its new freeze
+  and approval are pending. The no-Claude experiment directive blocks it on
+  2026-10-19 (America/Los_Angeles). Later live steps keep their own owner budget gates.
   No live successor study or provider budget is selected. Fixed-workflow comparisons use
   [`experiments/compare/`](../../experiments/compare/README.md) today.
 - **Kind:** experiment-side apparatus contract: controller modes, proposal

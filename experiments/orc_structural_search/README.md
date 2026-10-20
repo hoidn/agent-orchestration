@@ -4,8 +4,10 @@ Check a whole-module proposal locally and inspect structural-search evidence wit
 provider calls. This apparatus remains experimental; no live successor study or
 structural-search provider allocation is selected. The separate
 [measurement plan](../../docs/plans/2026-10-19-orc-structural-search-measurement-plan.md)
-records verified offline preparation and I/F freeze, with approved calibration
-Step A in progress (8 calls, cap10); no calibration verdict is available yet.
+records verified offline preparation and I/F freeze. Approved calibration
+Step A completed 8 calls within cap 10 and failed (RPI spread;
+PRR passed). A′ offline preparation is verified; its new freeze and approval
+are pending; the no-Claude experiment directive blocks it on 2026-10-19 (America/Los_Angeles).
 
 The [driver design](../../docs/design/orc_structural_search_driver.md) owns admission,
 qualification, metering and selection. The [delivery plan](../../docs/plans/2026-10-19-orc-structural-search-module-condition-implementation-plan.md)
