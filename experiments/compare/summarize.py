@@ -248,10 +248,28 @@ def markdown(results):
     return "\n".join(lines) + "\n"
 
 
+
+def reference_paths(pool, mapping):
+    """Reference-selected pools require one valid disclosed clone per batch before any judge join."""
+    if not mapping.get("rubric", DEFAULT_RUBRIC)["reference"]:
+        return []
+    refs = mapping.get("references")
+    if not isinstance(refs, list) or len(refs) != len(mapping["batches"]):
+        raise SystemExit("reference metadata must name exactly one reference per batch")
+    blind = {cid for batch in mapping["batches"] for cid in batch}
+    for cid in refs:
+        if not isinstance(cid, str) or cid not in mapping["clones"]:
+            raise SystemExit("reference metadata names an unknown clone")
+        if mapping["clones"][cid].get("arm") != "reference" or cid in blind:
+            raise SystemExit("reference metadata must name disclosed clones outside every blind batch")
+    if len(set(refs)) != len(refs):
+        raise SystemExit("reference metadata repeats a clone across batches")
+    return [str(pool / "clones" / cid) for cid in refs]
+
 def judged_ratings(pool, mapping, sha):
     """(left-out judges with reasons, ratings by judge of every other listed judge)."""
+    references = reference_paths(pool, mapping)
     excluded = {judge: reason for judge in mapping["judges"] if (reason := judge_exclusion(pool, judge))}
-    references = [str(pool / "clones" / cid) for cid in mapping.get("references", [])]
     ratings = {judge: join(*scoring_run(pool, judge, info, sha), mapping["batches"], criteria_of(mapping), references)
                for judge, info in mapping["judges"].items() if judge not in excluded}
     if not ratings:
