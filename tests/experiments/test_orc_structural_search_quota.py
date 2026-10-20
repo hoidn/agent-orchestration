@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from experiments.compare.repos import sha256_file
 from experiments.orc_structural_search.config import ExperimentConfig
 from experiments.orc_structural_search.driver import LAUNCH_ENV, archive, evaluate_all, evaluate_and_scan
 from experiments.orc_structural_search.mode1 import run_mode1
@@ -20,7 +21,7 @@ from experiments.orc_structural_search.quota import (
 from experiments.orc_structural_search.records import append_record, read_records
 from experiments.orc_structural_search.scoring import latest_evaluations, policy_stats, scored_outcome
 from tests.experiments.compare_harness_support import skip_without_sandbox
-from tests.experiments.orc_structural_search_support import MUTATOR, SEEDS, script, world  # noqa: F401 (fixture)
+from tests.experiments.orc_structural_search_support import MUTATOR, SEEDS, launch_config, script, world  # noqa: F401 (fixture)
 from tests.experiments.test_orc_structural_search_driver import ANSWERS, CONFIG
 
 LIMIT = "You've hit your session limit · resets 5:30pm (America/Los_Angeles)"
@@ -173,8 +174,8 @@ EVAL_CONFIG = ExperimentConfig(
 
 def test_a_provider_printing_the_session_limit_makes_the_evaluation_a_quota_incident(sandboxed, world):
     script(world, [QUOTA_CHANGE])
-    record = evaluate(world.candidate, EVAL_CONFIG, task_package=world.task, work_root=world.evidence, replicate=1,
-                      runtime=world.runtime, env=scripted_env(world), timeout_sec=600)
+    record = evaluate(world.candidate, launch_config(world, EVAL_CONFIG), task_package=world.task, work_root=world.evidence, replicate=1,
+                      runtime=world.runtime, env=scripted_env(world), timeout_sec=600, criterion=world.criterion)
     assert (record.outcome, record.incidents[-1]) == ("incident", f"quota: {LIMIT}")
 
 
@@ -183,10 +184,10 @@ def test_a_quota_incident_is_relaunched_after_the_pause_as_a_new_attempt(sandbox
     clock = FakeClock(on_sleep=lambda: script(world, [CHANGE]))
     evidence = world.tmp / "evidence"
     cid, root = archive(world.candidate, evidence, world.runtime)
-    (row,) = evaluate_all([(root, EVAL_CONFIG, {"candidate_id": cid})], tasks=[world.task],
+    (row,) = evaluate_all([(root, launch_config(world, EVAL_CONFIG), {"candidate_id": cid})], tasks=[world.task],
                           replicates=1, concurrency=2, guard=clock.guard(), work_root=world.outside / "work",
                           evidence_root=evidence, runtime=world.runtime, env=scripted_env(world), timeout_sec=600,
-                          solutions={world.task.name: world.solution}, holdouts=(), call_cap=160)
+                          solutions={world.task.name: world.solution}, holdouts=(), call_cap=160, criterion=world.criterion)
     logged = read_records(evidence / "log.jsonl")
     assert ([(r["attempt"], r["outcome"]) for r in logged], logged[0]["evaluation_id"] != row["evaluation_id"],
             [r["evaluation_id"] for r in latest_evaluations(logged)] == [row["evaluation_id"]], clock.slept,
@@ -195,7 +196,7 @@ def test_a_quota_incident_is_relaunched_after_the_pause_as_a_new_attempt(sandbox
 
 
 def mode1_run(world, *, agent: str, continue_run: bool):
-    (world.tmp / "config.json").write_text(json.dumps(CONFIG))
+    (world.tmp / "config.json").write_text(json.dumps(CONFIG | {"criterion_sha256": sha256_file(world.criterion)}))
     mutator = world.outside / "mutator.py"
     mutator.write_text(agent)
     return run_mode1(world.tmp / "config.json", seeds=[SEEDS / f"{name}.orc" for name in
@@ -203,7 +204,7 @@ def mode1_run(world, *, agent: str, continue_run: bool):
                      tasks=[world.task], work_root=world.outside / "work", evidence_root=world.tmp / "evidence",
                      episodes=1, agent_cmd=[sys.executable, "-I", str(mutator)], replicates=1, runtime=world.runtime,
                      env=scripted_env(world), timeout_sec=600, solutions={world.task.name: world.solution},
-                     call_cap=160, concurrency=2, continue_run=continue_run, guard=FakeClock().guard(retries=0))
+                     call_cap=160, concurrency=2, continue_run=continue_run, guard=FakeClock().guard(retries=0), criterion=world.criterion)
 
 
 def as_old_format(log):
@@ -281,6 +282,6 @@ def test_an_attempt_whose_records_exist_and_whose_id_is_logged_is_refused(world)
     ran.mkdir(parents=True)
     append_record(evidence / "log.jsonl", {"kind": "evaluation", "evaluation_id": ran.name, "candidate_id": cid})
     with pytest.raises(FileExistsError, match=ran.name):
-        evaluate_and_scan(root, EVAL_CONFIG, task=world.task, replicate=1, work_root=work, evidence_root=evidence,
+        evaluate_and_scan(root, launch_config(world, EVAL_CONFIG), task=world.task, replicate=1, work_root=work, evidence_root=evidence,
                           runtime=world.runtime, env=env, timeout_sec=600, solutions={world.task.name: world.solution},
-                          holdouts=(), fields={}, call_cap=160)
+                          holdouts=(), fields={}, call_cap=160, criterion=world.criterion)

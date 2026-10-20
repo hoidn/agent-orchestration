@@ -99,12 +99,16 @@ def test_resume_restores_reserved_cap_even_when_caller_changes_environment(tmp_p
     import json
     import os
     from experiments.orc_structural_search.evaluation import EvaluationRecord, resume
+    from tests.experiments.qualification_support import measure_free, sha
+    criterion = measure_free(tmp_path)
     records, state = tmp_path / "records", tmp_path / "state"
     records.mkdir()
     state.mkdir()
-    (records / "record.json").write_text(json.dumps({"arm_kind": "generic-command", "planned_maximum": "1"}))
+    (records / "record.json").write_text(json.dumps({"arm_kind": "generic-command", "planned_maximum": "1",
+        "runtime": str(tmp_path), "task": str(tmp_path / "task"), "tree": str(tmp_path / "tree")}))
     (records / "resume.sh").write_text('printf %s "$COMPARE_MAX_CALLS" > "$CAP_RESULT"\n')
-    record = EvaluationRecord("e", "r", state, records, "digest", "incident", None, 0, 0, 0, ())
+    record = EvaluationRecord("e", "r", state, records, "digest", "incident", None, 0, 0, 0, (),
+                              criterion_sha256=sha(criterion))
     env = {**os.environ, "COMPARE_MAX_CALLS": "999", "CAP_RESULT": str(tmp_path / "cap")}
-    resume(record, env=env, timeout_sec=10)
+    resume(record, env=env, timeout_sec=10, criterion=criterion)
     assert (tmp_path / "cap").read_text() == "1"

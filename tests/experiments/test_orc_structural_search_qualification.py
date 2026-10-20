@@ -109,6 +109,10 @@ def blockers(q, counts):
                 write(new, record)
             third[key]['file'] = str(new)
         samples.append(third)
+        source = Path(receipt['family']['tasks']['task']['sources'][0]['file'])
+        value = json.loads(source.read_text())
+        value['single_calls'].append({'run': 'direct_task/run-3'})
+        write(source, value)
         write(q.receipt, receipt)
     for sample, count in zip(samples, counts):
         path = Path(sample['review_record']['file'])
@@ -403,3 +407,64 @@ def test_fresh_private_scan_hits_invalidate_old_pool_clearance_at_same_call_coun
     assert new['qualification_scan']['calls'] == 1
     with pytest.raises(SystemExit, match='scanned'):
         pool.pool_runs({str(records): new})
+
+
+def test_launch_qualification_resolves_declared_judge_bindings_in_runtime(tmp_path):
+    runtime = tmp_path / 'runtime'
+    base = runtime / 'experiments/compare'
+    default = write(base / 'score.providers.json', {'providers.judge': 'claude_unrestricted_workspace'})
+    codex = write(base / 'providers/score_codex.json', {'providers.judge': 'codex_unrestricted_workspace'})
+    sol, claude = 'gpt-6.1-sol', 'claude-opus-5-5'
+    q = qualified(tmp_path / 'qualification', runtime=runtime, judges=[sol, claude], providers={sol: codex})
+    study = json.loads(q.criterion.read_text())
+    study['judge_bindings'] = {sol: str(codex.relative_to(runtime)), claude: str(default.relative_to(runtime))}
+    write(q.criterion, study)
+    assert validate(q)['mode'] == 'quality'
+    with pytest.raises(ValueError, match='provider binding'):
+        validate(q, judges=[sol, claude])
+
+
+def test_launch_uses_verified_measurement_binding_when_no_legacy_mapping_exists(tmp_path):
+    runtime = tmp_path / 'runtime'
+    base = runtime / 'experiments/compare'
+    write(base / 'score.providers.json', {'providers.judge': 'claude_unrestricted_workspace'})
+    codex = write(base / 'providers/score_codex.json', {'providers.judge': 'codex_unrestricted_workspace'})
+    q = qualified(tmp_path / 'qualification', runtime=runtime, providers={'gpt-6.1-sol': codex})
+    study = json.loads(q.criterion.read_text())
+    del study['judge_bindings']
+    write(q.criterion, study)
+    assert validate(q)['mode'] == 'quality'
+    assert validate(q, judges=[f'gpt-6.1-sol={codex}'])['mode'] == 'quality'
+    with pytest.raises(ValueError, match='provider binding'):
+        validate(q, judges=['gpt-6.1-sol'])
+
+
+@pytest.mark.parametrize('bindings', [{}, {'undeclared': 'providers.json'},
+                                    {'gpt-6.1-sol': 'experiments/compare/score.providers.json'}])
+def test_launch_refuses_planned_binding_mapping_that_disagrees_with_measurement(tmp_path, bindings):
+    runtime = tmp_path / 'runtime'
+    base = runtime / 'experiments/compare'
+    write(base / 'score.providers.json', {'providers.judge': 'claude_unrestricted_workspace'})
+    codex = write(base / 'providers/score_codex.json', {'providers.judge': 'codex_unrestricted_workspace'})
+    q = qualified(tmp_path / 'qualification', runtime=runtime, providers={'gpt-6.1-sol': codex})
+    study = json.loads(q.criterion.read_text()) | {'judge_bindings': bindings}
+    write(q.criterion, study)
+    with pytest.raises(ValueError, match='bindings differ|provider binding'):
+        validate(q)
+
+
+
+from tests.experiments.orc_structural_search_support import world, script  # noqa: F401
+from tests.experiments.test_orc_structural_search_driver import sandboxed  # noqa: F401
+
+
+def test_evaluate_qualifies_mixed_planned_judge_backends_without_defaulting_sol_to_claude(sandboxed, world):
+    from tests.experiments.test_orc_structural_search_evaluation import run, CHANGE
+    codex = world.runtime / 'experiments/compare/providers/score_codex.json'
+    q = qualified(world.outside / 'qualification', runtime=world.runtime, tasks=[world.task],
+                  judges=['gpt-6.1-sol', 'claude-opus-5-5'], providers={'gpt-6.1-sol': codex})
+    world.criterion = q.criterion
+    script(world, [CHANGE])
+    record, _ = run(world)
+    assert record.outcome == 'completed'
+    assert record.qualification['qualification_sha256'] == sha(q.receipt)

@@ -43,7 +43,7 @@ def dispatch(criterion, containing, runtime, judges):
     require(evaluator['score_workflow']['sha256'] == V1_RUBRIC, 'unsupported v1 rubric workflow')
     require(workflow.is_file() and digest(workflow) == evaluator['score_workflow']['sha256'],
             'actual runtime score workflow differs from measurement')
-    specs = judges if judges is not None else criterion['judges']
+    specs = judges if judges is not None else planned_judges(criterion, containing, runtime)
     selected = {}
     for spec in specs:
         require(isinstance(spec, str) and bool(spec), 'invalid judge dispatch')
@@ -55,6 +55,23 @@ def dispatch(criterion, containing, runtime, judges):
         expected = evaluator['judges'][name]['providers']
         reference(expected, containing)
         require(binding.is_file() and digest(binding) == expected['sha256'], 'actual judge provider binding differs')
+
+
+def planned_judges(criterion, containing, runtime):
+    """Launches validate planned bindings; explicit judge arguments still own actual dispatch."""
+    evaluator = criterion['measurement']['evaluator']['judges']
+    declared = criterion.get('judge_bindings')
+    if 'judge_bindings' in criterion:
+        require(isinstance(declared, dict) and set(declared) == set(evaluator), 'planned judge bindings differ')
+    selected = []
+    for name, info in evaluator.items():
+        path = reference(info['providers'], containing)
+        if declared is not None:
+            raw = declared[name]
+            require(isinstance(raw, str) and bool(raw), 'invalid planned judge binding path')
+            path = Path(runtime) / raw
+        selected.append(f'{name}={path}')
+    return selected
 
 
 def rating_total(value):

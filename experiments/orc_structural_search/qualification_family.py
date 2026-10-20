@@ -5,6 +5,7 @@ from pathlib import Path
 from statistics import mean
 
 from experiments.compare import pool, prepare
+from experiments.orc_structural_search.qualification_lineage import validate_membership
 from experiments.orc_structural_search.qualification_io import (
     hash_value, names, read, reference, require)
 
@@ -51,9 +52,9 @@ def review_blockers(record):
     return prepare.blockers(review)
 
 
-def review_sample(sample, containing, task, index, identities):
+def review_sample(sample, containing, task, identities):
     direct, original = completed(sample['direct_record'], containing, 'direct_task')
-    require(original.name == f'run-{index}' and str(original) not in identities, 'sample order or duplicate run identity')
+    require(str(original) not in identities, 'duplicate run identity')
     identities.add(str(original))
     require(Path(direct['task']).name == task.name, 'difficulty sample task mismatch')
     inputs = read(reference(sample['direct_inputs'], containing))
@@ -65,7 +66,7 @@ def review_sample(sample, containing, task, index, identities):
             'invalid final patch path')
     if not patch.stat().st_size:
         require(sample.get('review_record') is None, 'empty diff must not have a review')
-        return 1, (direct['task'], direct['base'], direct['compare_base'])
+        return 1, (Path(direct['task']).name, direct['base'], direct['compare_base']), original
     review, review_original = completed(sample['review_record'], containing, 'review_once')
     require(str(review_original) not in identities,
             'review order or duplicate run identity')
@@ -75,23 +76,20 @@ def review_sample(sample, containing, task, index, identities):
     applied = review['applied']
     require(applied['sha256'] == sample['patch']['sha256'] and
             Path(applied['path']) == original / final, 'review is not paired with original final diff')
-    return review_blockers(review), (direct['task'], direct['base'], direct['compare_base'])
+    return review_blockers(review), (Path(direct['task']).name, direct['base'], direct['compare_base']), original
 
 
 def r55_task(evidence, containing, task, package):
     require(evidence['package_sha256'] == package, 'family package hash mismatch')
-    sources = evidence['sources']
-    require(isinstance(sources, list) and sources, 'missing family provenance sources')
-    for source in sources:
-        reference(source, containing)
     samples = evidence['samples']
     require(isinstance(samples, list) and len(samples) in (2, 3), 'R55 needs exactly two or three samples')
     identities = set()
-    values = [review_sample(sample, containing, task, i, identities) for i, sample in enumerate(samples, 1)]
-    require(len({context for _, context in values}) == 1, 'difficulty samples disagree on task/base')
+    values = [review_sample(sample, containing, task, identities) for sample in samples]
+    validate_membership(evidence, containing, task, package, [original for _, _, original in values])
+    require(len({context for _, context, _ in values}) == 1, 'difficulty samples disagree on task/base')
     base = (task / 'base_commit').read_text().strip()
     require(values[0][1][1].startswith(base), 'difficulty sample base is not task base')
-    blockers = [value for value, _ in values]
+    blockers = [value for value, _, _ in values]
     initial = mean(blockers[:2])
     require(initial >= 1, 'family difficulty below threshold')
     expected = 3 if initial < 1.5 else 2

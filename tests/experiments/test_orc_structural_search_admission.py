@@ -6,6 +6,7 @@ from experiments.orc_structural_search import acceptance, closed_checks, driver,
 from experiments.orc_structural_search.candidates import CompileOutcome, compile_candidate
 from experiments.orc_structural_search.quota import QuotaGuard
 from tests.experiments.test_orc_structural_search_module import SOURCE, REPO, cfg, pair
+from tests.experiments.qualification_support import measure_free, sha
 
 
 @pytest.mark.parametrize("condition", ["joint", "module"])
@@ -14,13 +15,14 @@ def test_unsupported_parent_refuses_before_reservation_or_launch(tmp_path, monke
     source = SOURCE.replace("(let* ((change", '(let* ((session (agent providers.coder :model "gpt-6.1-sol" :effort "high")) (change')
     parent, _ = pair(tmp_path, source)
     (parent / "direct.orc").write_text(source)
-    config = cfg(condition=condition)
+    criterion = measure_free(tmp_path)
+    config = cfg(condition=condition, criterion_sha256=sha(criterion))
     assert compile_candidate(parent, config, runtime=REPO).status == "accepted"
     monkeypatch.setattr(ledger, "reserve", lambda *a, **k: pytest.fail("unsupported parent reached reservation"))
     monkeypatch.setattr(evaluation, "run_arm", lambda *a, **k: pytest.fail("unsupported parent reached run_arm"))
     monkeypatch.setattr(driver, "run_agent", lambda *a, **k: pytest.fail("unsupported parent reached mutator"))
     monkeypatch.setattr(driver, "runtime_commit", lambda runtime: "frozen")
-    common = dict(runtime=REPO, env={}, work_root=tmp_path / "work")
+    common = dict(runtime=REPO, env={}, work_root=tmp_path / "work", criterion=criterion)
     with pytest.raises(ValueError, match="unsupported_effect_shape"):
         if boundary == "direct_evaluation":
             evaluation.evaluate(parent, config, task_package=tmp_path / "task", replicate=1, timeout_sec=1, **common)

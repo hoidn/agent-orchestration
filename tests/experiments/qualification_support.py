@@ -86,7 +86,8 @@ def qualified(root, *, runtime=None, tasks=None, judges=("gpt-6.1-sol",), provid
                 "review": {"variant": "REQUEST_CHANGES", "findings": ["one", "two"]}})
             samples.append({"direct_record": ref(direct), "direct_inputs": ref(inputs), "patch": ref(patch),
                             "review_record": ref(review)})
-        source = write(root / "private" / task.name / "source.json", {"provenance": "synthetic"})
+        source = write(root / "private" / task.name / "source.json", {"slug": task.name, "package_sha256": digest,
+            "single_calls": [{"run": f"direct_task/run-{n}"} for n in (1, 2)]})
         family[task.name] = {"package_sha256": digest, "sources": [ref(source)], "samples": samples}
         measurements[task.name] = {"package_sha256": digest, "controls": controls}
     measurement = {"evaluator": {
@@ -126,6 +127,8 @@ def qualified(root, *, runtime=None, tasks=None, judges=("gpt-6.1-sol",), provid
                    "tasks": family}, "measure": {"criterion": ref(calibration), "pools": pools}})
     criterion = write(root / "criterion.json", {
         "purpose": "quality", "tasks": [str(t) for t in tasks], "judges": list(judges),
+        "judge_bindings": {name: info["providers"]["file"]
+                           for name, info in measurement["evaluator"]["judges"].items()},
         "calibration": {"margin": 2, "error_rate": 0}, "measurement": measurement, "qualification": ref(receipt)})
     return SimpleNamespace(criterion=criterion, receipt=receipt, calibration=calibration, runtime=runtime,
                            tasks=tasks, pools=pools, bindings=bindings, judges=list(judges))
@@ -135,6 +138,8 @@ def refresh(q):
     """Rehash edited referenced JSON files up to the study; changes remain subject to semantic validation."""
     receipt = json.loads(q.receipt.read_text())
     for task in receipt["family"]["tasks"].values():
+        for source in task.get("sources", []):
+            source.update(ref(Path(source["file"])))
         for sample in task.get("samples", []):
             for key, value in sample.items():
                 if value is not None:
