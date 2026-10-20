@@ -143,7 +143,7 @@ def arm_endpoints(episodes, table, parent, frontier, tolerances, evidence_root):
     completed = completed_episodes(episodes, evidence_root)
     children = sorted({row['candidate_id'] for row in completed
                        if row['outcome'] == 'accepted' and row['candidate_id'] != parent})
-    valued = [cid for cid in children if cid in table and comparable(table[cid], table[parent])]
+    valued = [cid for cid in children if cid in table and comparable(table[cid], table[cid])]
     improvements = dominating_children(valued, table, parent, tolerances)
     entries = [cid for cid in children if cid in frontier]
     result = {'parent_candidate_id': parent, 'frontier': frontier, 'completed': len(completed), 'dominating_improvements': improvements,
@@ -160,7 +160,7 @@ def completed_episodes(episodes, evidence_root):
 
 
 def dominating_children(valued, table, parent, tolerances):
-    return [cid for cid in valued if table[cid]['above_floor'] and
+    return [cid for cid in valued if table[cid]['above_floor'] and comparable(table[cid], table[parent]) and
             pareto.dominates(table[cid], table[parent], *tolerances)]
 
 

@@ -166,3 +166,14 @@ def test_proxy_never_reinterprets_ambiguous_receipts_as_known_identity(tmp_path,
     native.update(status=status, reason=reason)
     native['usage'][0]['provenance']['session_sha256'] = 'sha256:' + 'a' * 64
     assert (observed_pairs(row) is not None) == allowed
+
+
+def test_known_child_with_unpriced_parent_has_frontier_value_but_no_parent_improvement(tmp_path):
+    criterion, log, pools = fixture()
+    for row in log:
+        if row['kind'] == 'evaluation' and row['candidate_id'] == 'P':
+            row['receipt_usage'] = 'unavailable'
+    result = pareto_readout.report(pools, log, criterion, tmp_path)['arms']['module']
+    assert result['frontier_entries'] == ['M']
+    assert result['dominating_improvements'] == []
+    assert result['unvalued'] == ['U']
