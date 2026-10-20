@@ -521,9 +521,13 @@ calibration and the current Sonnet/Terra guard are implemented, and the real
 controller matrix has passed. Offline preparation and final verification are complete;
 implementation I and criterion freeze F passed independent review. Step A's approved
 8 calls completed within cap 10; A failed calibration (RPI spread; PRR passed).
-A′ offline packet is ready and frozen at I_A2/F2, with spend approval pending; the
-no-Claude experiment directive blocks it on 2026-10-19 (America/Los_Angeles).
-Later paid stages remain separately gated. No calibration
+The compatible Terra-only A′ (`AT`) is stopped incomplete: RPI passed both
+frozen batches; PRR committed none after two native-agent control incidents.
+Four CLI plus six native child sessions exhausted cap10, all Terra high. The
+combined calibration gate remains OPEN; enforcement must be fixed and verified
+before a later new owner budget. B/B2/C remain unrun and separately gated;
+I_A2/F2 and the AT freeze remain unchanged. The [AT interrupted readout](../reports/2026-10-20-orc-structural-search-measurement-at.md)
+records the evidence and incomplete metering. No combined calibration
 result or live `module` arm follows from implementation. It precedes any
 live `module` arm
 ([module condition](2026-10-19-orc-structural-search-module-rewrite-plan.md#gate-for-a-live-module-arm)).

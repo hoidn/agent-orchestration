@@ -126,9 +126,13 @@ Agents share `$HOME`, so the harness guards instrumented CLI routes and checks r
   local-model and feature-enabling overrides, and admits only scalar
   `model_reasoning_effort` configuration overrides used by the provider binding. It always adds
   `--disable multi_agent --disable multi_agent_v2 --disable multi_agent_v2_dynamic_tools`
-  and `-c agents.enabled=false` to disable native agents whose model selection does not pass
-  through `PATH`. The independent `agents.enabled` control is required; false feature flags
-  alone do not establish that native agent tools are disabled. The `app-server`
+  and `-c agents.enabled=false` to request that native agents be disabled; their dispatch does
+  not pass through `PATH`. Effective live prevention remains unqualified
+  ([AT incident](../../docs/reports/2026-10-20-orc-structural-search-measurement-at.md)).
+  False feature flags, transmitted configuration and an offline prompt without collaboration
+  instructions do not prove that the actual executed provider cannot launch native tools.
+  Further live calibration requires that proof; observed child sessions count toward its
+  budget and consumption. The `app-server`
   protocol (whose turn messages can choose another model), cloud/remote/dispatch,
   queue/resume/fork session dispatch and `--approve-for-me` routes also refuse; these are unused
   by the provider bindings and may select independent server or reviewer models. Orchestrator

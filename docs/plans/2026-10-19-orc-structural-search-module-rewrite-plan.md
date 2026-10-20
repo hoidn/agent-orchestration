@@ -276,8 +276,14 @@ owns the measurement preparation and live gates under the
 Its generic calibration and package/helper preparation is implemented; the real
 controller matrix, final integration and independently reviewed I/F freeze have
 passed. Calibration Step A completed 8 calls within cap 10 and failed
-(RPI spread; PRR passed). A′ offline packet is ready and frozen at I_A2/F2; spend approval is pending. The no-Claude experiment directive blocks A′ on
-2026-10-19 (America/Los_Angeles). The owner has selected no live `module` arm;
+(RPI spread; PRR passed). The compatible Terra-only A′ (`AT`) is now stopped
+incomplete: RPI passed both frozen batches, PRR committed none after two
+native-agent control incidents, and four CLI plus six native child sessions
+exhausted cap10. All dispatches used Terra high; the combined calibration gate
+remains OPEN. Enforcement must be fixed and verified before a later new owner
+budget; B/B2/C remain unrun and separately gated. I_A2/F2 and the AT freeze are
+unchanged. The [AT interrupted readout](../reports/2026-10-20-orc-structural-search-measurement-at.md)
+records the evidence and incomplete metering. The owner has selected no live `module` arm;
 no such arm precedes the required gate results or its own selection. Both gates instantiate the rule that no uncalibrated
 experiment runs (driver design,
 Task Family And Evaluator; roadmap, Decision Points), and they bind every
