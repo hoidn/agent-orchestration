@@ -180,28 +180,30 @@ def _campaign(store: Store, campaign_id: str) -> dict:
     raise KeyError(f"no campaign {campaign_id} in {store.root}")
 
 
+def _campaign_label_for(store: Store, policy: str, label: str, context: str) -> tuple[list[dict], str]:
+    if policy == WARM_START:
+        if label != "warm":
+            raise ValueError(f"a warm-start campaign takes the label 'warm', not {label!r}")
+        label = f"warm-{context[5:17]}"
+    campaigns = store.rows("campaign")
+    label = campaign_label(label)
+    if any(row["label"] == label for row in campaigns):
+        raise ValueError(f"the campaign label {label} is already used in {store.root}: a label is never reused")
+    return campaigns, label
+
+
 def start_campaign(store: Store, *, label: str, context: str, policy: str, parameters: Mapping, budget: Mapping,
                    seeds: Sequence[str], run_seed: int, warm_start: Sequence[str], declared_roles: Mapping[str, str],
                    roots: Mapping) -> str:
     """Register `<label>-<campaign sequence>` (a `warm_start` campaign, label `warm`, is `warm-<context_key[5:17]>`,
     one per context) and its adaptive exposures; `declared_roles` maps package sha256 to role, `parameters` carry
     `criterion_sha256`. Refuses a reused label, nested roots, foreign warm-start trials and forbidden roles."""
-    if policy == WARM_START:
-        if label != "warm":
-            raise ValueError(f"a warm-start campaign takes the label 'warm', not {label!r}")
-        label = f"warm-{context[5:17]}"
-    campaigns, label = store.rows("campaign"), campaign_label(label)
-    if any(row["label"] == label for row in campaigns):
-        raise ValueError(f"the campaign label {label} is already used in {store.root}: a label is never reused")
+    campaigns, label = _campaign_label_for(store, policy, label, context)
     check_roots(store.root, roots.values())
     trials = store.index().trials
     if foreign := sorted(t for t in warm_start if t not in trials or trials[t]["context_key"] != context):
         raise ValueError(f"warm-start trials {foreign} are not in the store under context {context}")
-    held = {role: [sha for sha, used in declared_roles.items() if used == role] for role in ROLES}
-    if set(declared_roles.values()) - set(ROLES) or len(held["validation"]) > 1 or len(held["sealed"]) > 1:
-        raise ValueError(f"declared roles {dict(declared_roles)}: roles are {ROLES}, one validation and one sealed")
-    check_split_roles(store, adaptive=held["adaptive"], validation=next(iter(held["validation"]), None),
-                      sealed=next(iter(held["sealed"]), None))
+    held = _held_roles(store, declared_roles)
     campaign_id, criterion_sha256 = f"{label}-{len(campaigns) + 1}", parameters["criterion_sha256"]
     store.append({"kind": "campaign", "campaign_id": campaign_id, "label": label, "context_key": context,
                   "criterion_sha256": criterion_sha256, "policy": policy, "parameters": dict(parameters),
@@ -211,6 +213,15 @@ def start_campaign(store: Store, *, label: str, context: str, policy: str, param
         record_exposure(store, package_sha256=package, role="adaptive", campaign_id=campaign_id,
                         criterion_sha256=criterion_sha256)
     return campaign_id
+
+
+def _held_roles(store: Store, declared_roles: Mapping[str, str]) -> dict[str, list[str]]:
+    held = {role: [sha for sha, used in declared_roles.items() if used == role] for role in ROLES}
+    if set(declared_roles.values()) - set(ROLES) or len(held["validation"]) > 1 or len(held["sealed"]) > 1:
+        raise ValueError(f"declared roles {dict(declared_roles)}: roles are {ROLES}, one validation and one sealed")
+    check_split_roles(store, adaptive=held["adaptive"], validation=next(iter(held["validation"]), None),
+                      sealed=next(iter(held["sealed"]), None))
+    return held
 
 
 def warm_start_id(store: Store, context: str) -> str | None:
@@ -371,22 +382,15 @@ def ingest(store: Store, campaign_id: str, context: str, evidence_root: Path, po
             "position": len(rows)}
 
 
-def evidence(store: Store, candidate_id: str, context: str, *, tasks: Sequence[str], price_table: Mapping,
-             min_trials: int) -> dict:
-    """The observed estimate of `candidate_id` on `tasks` over every non-disposed original trial of equal
-    `context`, across campaigns: per-task primary means (failure-inclusive) with n and SD, quality = their
-    equal-weight mean when every task has `min_trials`, mean metered cost per trial (unavailable when any is),
-    calls and wall clock; `unobserved` without trials, never a score."""
-    index, names = store.index(), [Path(task).name for task in tasks]
+def _evidence_trials(index: Index, candidate_id: str, context: str, names: Sequence[str]) -> tuple[list, list, list]:
     attempts = [t for t in index.trials.values() if (t["candidate_id"], t["context_key"]) == (candidate_id, context)
                 and t["origin_trial_id"] is None and t["task"] in names]
     excluded = sorted(t["trial_id"] for t in attempts if t["trial_id"] in index.dispositions)
     counted = [t for t in attempts if t["trial_id"] not in excluded]
-    result = {"estimator_version": ESTIMATOR_VERSION, "candidate_id": candidate_id, "context_key": context,
-              "trial_ids": sorted(t["trial_id"] for t in counted), "trials": len(counted), "attempts": len(attempts),
-              "disposed": len(excluded), "excluded": excluded}
-    if not counted:
-        return result | {"kind": "unobserved", "quality": UNAVAILABLE, "cost": UNAVAILABLE}
+    return attempts, excluded, counted
+
+
+def _evidence_values(index: Index, counted: Sequence[Mapping], names: Sequence[str]) -> dict[str, list]:
     values = {name: [] for name in names}
     for trial in counted:
         assessed = index.assessments.get(trial["trial_id"])
@@ -395,16 +399,37 @@ def evidence(store: Store, candidate_id: str, context: str, *, tasks: Sequence[s
             "value": None}
         if (value := scoring.primary_value(row)) is not None:
             values[trial["task"]].append(value)
+    return values
+
+
+def _observed_summary(values: Mapping[str, Sequence], counted: Sequence[Mapping], price_table: Mapping,
+                      min_trials: int) -> dict:
     per_task = {name: {"n": len(v), "mean": mean(v) if v else UNAVAILABLE,
                        "sd": stdev(v) if len(v) > 1 else "insufficient_support"} for name, v in values.items()}
     supported = all(summary["n"] >= min_trials for summary in per_task.values())
     costs = [pricing.cost(trial, price_table) for trial in counted]
-    return result | {
-        "kind": "observed", "tasks": per_task, "support": "every_adaptive_task" if supported else "insufficient",
-        "quality": mean(summary["mean"] for summary in per_task.values()) if supported else UNAVAILABLE,
-        "cost": UNAVAILABLE if UNAVAILABLE in costs else mean(costs),
-        "calls": scoring.known_mean([trial["provider_calls"] for trial in counted]),
-        "wall_clock_sec": scoring.known_mean([trial["wall_clock_sec"] for trial in counted])}
+    return {"tasks": per_task, "support": "every_adaptive_task" if supported else "insufficient",
+            "quality": mean(summary["mean"] for summary in per_task.values()) if supported else UNAVAILABLE,
+            "cost": UNAVAILABLE if UNAVAILABLE in costs else mean(costs),
+            "calls": scoring.known_mean([trial["provider_calls"] for trial in counted]),
+            "wall_clock_sec": scoring.known_mean([trial["wall_clock_sec"] for trial in counted])}
+
+
+def evidence(store: Store, candidate_id: str, context: str, *, tasks: Sequence[str], price_table: Mapping,
+             min_trials: int) -> dict:
+    """The observed estimate of `candidate_id` on `tasks` over every non-disposed original trial of equal
+    `context`, across campaigns: per-task primary means (failure-inclusive) with n and SD, quality = their
+    equal-weight mean when every task has `min_trials`, mean metered cost per trial (unavailable when any is),
+    calls and wall clock; `unobserved` without trials, never a score."""
+    index, names = store.index(), [Path(task).name for task in tasks]
+    attempts, excluded, counted = _evidence_trials(index, candidate_id, context, names)
+    result = {"estimator_version": ESTIMATOR_VERSION, "candidate_id": candidate_id, "context_key": context,
+              "trial_ids": sorted(t["trial_id"] for t in counted), "trials": len(counted),
+              "attempts": len(attempts), "disposed": len(excluded), "excluded": excluded}
+    if not counted:
+        return result | {"kind": "unobserved", "quality": UNAVAILABLE, "cost": UNAVAILABLE}
+    return result | {"kind": "observed"} | _observed_summary(
+        _evidence_values(index, counted, names), counted, price_table, min_trials)
 
 
 def _checkpoint(store: Store, campaign_id: str) -> tuple[Path, dict]:
