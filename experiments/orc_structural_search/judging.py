@@ -204,6 +204,15 @@ def judge_scan(pool: Path, name: str) -> dict:
                          f"{PREPARE} scan --pool {pool} --judge {name}")
 
 
+
+def judge_environment(criterion, env):
+    frozen = json.loads(Path(criterion).read_text())
+    if 'accepted_measure' not in frozen:
+        return env
+    allowed = ','.join(model for model in frozen['model_policy']['allowed'] if model.startswith('claude'))
+    return {**(os.environ if env is None else env), 'COMPARE_CLAUDE_MODELS': allowed,
+            'ORC_ALLOWED_CLAUDE_MODELS': allowed}
+
 def judge_generation(evidence_root: Path, generation: int, tasks: Sequence[Path], *, criterion: Path,
                      judges: Sequence[str], solutions: Mapping[str, str], call_cap: int, pool_root: Path,
                      scorer: Callable[[Path, str, str], None] | None = None,
@@ -214,6 +223,7 @@ def judge_generation(evidence_root: Path, generation: int, tasks: Sequence[Path]
     each task from the log (scoring.outcome_rows; once per evaluation id). A task without a completed,
     uncontaminated evaluation has no pool, only those rows and an unvalued row per contaminated one."""
     log = evidence_root / 'log.jsonl'
+    env = judge_environment(criterion, env)
     scorer = scorer or (lambda pool, name, script: run_judge(pool, name, script, env=env))
     include = include or (lambda row: row.get("generation") == generation)
     joined = []

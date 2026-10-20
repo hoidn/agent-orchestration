@@ -44,7 +44,7 @@ def pool(q, evidence, pools, task, specs, *, split='adaptive', generation=0):
           'tree': str(judge_records), 'created_at': 0, 'provider_calls': 0, 'receipt_usage': []})
     write(judge_records / 'scan.json', {'hits': [], 'verdict': None, 'calls': 0})
     mapping = {'runtime': str(q.runtime), 'task': str(task), 'criterion_sha256': sha(q.criterion),
-        'judges': {q.judges[0]: {'providers': str(q.bindings)}}, 'batches': [{}], 'clones': clones,
+        'judges': {q.judges[0]: {'providers': str(q.bindings), 'dir': 'tree'}}, 'created_at': 0, 'batches': [{}], 'clones': clones,
         'runs': {run['run']: {key: value for key, value in run.items() if key != 'run'} | {'selected': 'final'}
                  for run in runs},
         'rubric': json.loads(q.criterion.read_text())['rubric']}
@@ -121,6 +121,44 @@ def test_final_resume_plans_new_roots_before_the_first_evaluation(tmp_path):
     planned = judging.planned_judging([object(), object()], -1, [tmp_path / 'validation'], 3,
                                      launch, {'judges': ['gpt-5.6-terra=bindings']}, [4])
     assert planned == 2 and not launch['evidence_root'].exists()
+
+
+def test_C1_programmatic_judging_blocks_Claude_before_the_fake_backend(study, sandboxed, monkeypatch):
+    import os
+    import subprocess
+    from experiments.orc_structural_search import judging
+    from tests.experiments.compare_harness_support import OUTSIDE_SANDBOX_MOUNTS, REPO
+    s = study
+    results = validation_pool(s)
+    destination = s.launch['pools_root'] / 'validation' / s.q.validation.name
+    destination.parent.mkdir(parents=True)
+    shutil.move(results.parent.parent, destination)
+    log = s.launch['evidence_root'] / 'log.jsonl'
+    log.write_text(''.join(json.dumps(row) + '\n' for row in records.read_records(log) if row['kind'] != 'judging'))
+    OUTSIDE_SANDBOX_MOUNTS.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=OUTSIDE_SANDBOX_MOUNTS) as directory:
+        root = Path(directory)
+        (root / 'tree/tmp').mkdir(parents=True)
+        (root / 'bin').mkdir()
+        marker = root / 'backend-executed'
+        backend = root / 'bin/claude'
+        backend.write_text('#!/bin/sh\ntouch "$CLAUDE_TEST_MARKER"\nexit 17\n')
+        backend.chmod(0o755)
+        statuses = []
+        def fake_scorer(pool, name, script='score', *, env=None):
+            done = subprocess.run([str(REPO / 'experiments/compare/shim/claude'), '-p'],
+                input='synthetic prompt', text=True, capture_output=True,
+                env={**(env or os.environ), 'PATH': f'{root / "bin"}:{os.defpath}',
+                     'COMPARE_ROOT': str(root / 'records'), 'COMPARE_TREE': str(root / 'tree'),
+                     'COMPARE_BASE': 'synthetic-unused', 'CLAUDE_TEST_MARKER': str(marker)})
+            statuses.append(done.returncode)
+            raise subprocess.CalledProcessError(done.returncode, 'synthetic scorer')
+        monkeypatch.setattr(judging, 'run_judge', fake_scorer)
+        with pytest.raises(judging.JudgeIncident):
+            judging.judge_generation(s.launch['evidence_root'], -1, [s.q.validation], criterion=s.q.criterion,
+                judges=[f'{s.q.judges[0]}={s.q.bindings}'], solutions={s.q.validation.name: 'unused'},
+                call_cap=100, pool_root=s.launch['pools_root'], resume=True)
+        assert not marker.exists() and statuses == [2, 2]
 
 def test_validation_manifest_binds_the_exact_frozen_pair_and_is_idempotent(study):
     s = study

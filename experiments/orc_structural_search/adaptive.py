@@ -97,7 +97,7 @@ def warm_start(store, criterion, config_path, *, seeds, adaptive_tasks, launch, 
                  'ledger_index': 0, 'futility_streak': 0, 'budget': {}, 'stopped': None, 'started_at': time.time()}
     launch['pools_root'].mkdir(parents=True, exist_ok=True)
     launch.update(resume=True, scan_roots=[launch['pools_root'], *masked_roots(store, cid, launch.get('hide', ()))], judge_env={**launch['env'],
-        'COMPARE_CLAUDE_MODELS': 'gpt-5.6-terra', 'ORC_ALLOWED_CLAUDE_MODELS': 'gpt-5.6-terra'})
+        'COMPARE_CLAUDE_MODELS': '', 'ORC_ALLOWED_CLAUDE_MODELS': ''})
     settled = install_gate(store, cid, state, frozen, criterion, launch, random.Random(0))
     jobs = mode1.catalog_jobs(seeds, load_config(config_path), launch['evidence_root'], launch['runtime'])
     for root, config, fields in jobs:
@@ -421,7 +421,7 @@ def run_campaign(config_path, *, criterion, label, policy, store, seeds, adaptiv
         env=env, timeout_sec=timeout_sec, solutions=driver.check_solutions(adaptive_tasks, solutions, runtime),
         call_cap=call_cap, concurrency=concurrency, holdouts=[validation_task, sealed_task], hide=hidden,
         scan_roots=hidden, agent_cmd=agent_cmd, run_seed=run_seed, frozen=frozen, criterion=criterion, resume=True,
-        judge_env={**env, 'COMPARE_CLAUDE_MODELS': 'gpt-5.6-terra', 'ORC_ALLOWED_CLAUDE_MODELS': 'gpt-5.6-terra'})
+        judge_env={**env, 'COMPARE_CLAUDE_MODELS': '', 'ORC_ALLOWED_CLAUDE_MODELS': ''})
     settled = install_gate(store, cid, state, frozen, criterion, launch, rng)
     judge = {'criterion': criterion, 'judges': judges, 'scorer': scorer}
     settled()
@@ -491,7 +491,7 @@ def validate_campaign_finalists(store, campaign_ids, *, validation_task, replica
     final_launch.update(work_root=work, evidence_root=evidence, pools_root=pools, resume=True, solutions=solutions,
         holdouts=[Path(authorization['sealed_task'])], scan_roots=hidden,
         settled=lambda: scan_work(evidence, frozen),
-        judge_env={**launch['env'], 'COMPARE_CLAUDE_MODELS': 'gpt-5.6-terra', 'ORC_ALLOWED_CLAUDE_MODELS': 'gpt-5.6-terra'})
+        judge_env={**launch['env'], 'COMPARE_CLAUDE_MODELS': '', 'ORC_ALLOWED_CLAUDE_MODELS': ''})
     evaluate_and_judge(jobs, -1, [validation_task], replicates=replicates, launch=final_launch, judge=judge,
                        include=lambda row: row.get('split') == 'validation')
     verified = readout_join.final_pool(store, authorization, role='validation')
