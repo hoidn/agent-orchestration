@@ -61,7 +61,10 @@ def run_judge(pool: Path, judge: str, script: str = "score") -> None:
 def attempt_judge(scorer: Callable[[Path, str, str], None], pool: Path, name: str, *, criterion: Path) -> None:
     """Score; on a nonzero exit resume once; a second failure is a JudgeIncident."""
     def launch(script):
-        qualification.validate(criterion, **qualification.pool_context(pool), operation='quality')
+        checked = qualification.validate(criterion, **qualification.pool_context(pool), operation='quality')
+        mapping = json.loads((pool / 'records/mapping.json').read_text())
+        if mapping['criterion_sha256'] != checked['criterion_sha256']:
+            raise ValueError('qualification: actual pool criterion changed before dispatch')
         scorer(pool, name, script)
     try:
         launch('score')

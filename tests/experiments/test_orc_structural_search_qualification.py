@@ -368,3 +368,16 @@ def test_v1_rubric_cannot_be_changed_by_rehashing_all_references(tmp_path):
     refresh(q)
     with pytest.raises(ValueError, match='rubric'):
         validate(q)
+
+
+def test_original_calibration_tree_and_state_are_private(tmp_path):
+    from experiments.orc_structural_search.qualification import private_roots
+    q = qualified(tmp_path / 'qualification')
+    outside = tmp_path / 'original-agent-tree'
+    outside.mkdir()
+    sample = json.loads(q.receipt.read_text())['family']['tasks']['task']['samples'][0]
+    path = Path(sample['direct_record']['file'])
+    value = json.loads(path.read_text()) | {'tree': str(outside), 'state_root': str(outside / '.orchestrate')}
+    write(path, value)
+    refresh(q)
+    assert outside in private_roots(q.criterion, public_roots=[q.runtime, *q.tasks])

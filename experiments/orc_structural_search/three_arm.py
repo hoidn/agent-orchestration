@@ -298,9 +298,9 @@ def run_three_arm(config_path: Path, *, parents: Mapping[str, Path], tasks: Sequ
     if smoke and episodes_per_arm:
         raise ValueError("a smoke run evaluates the parents only: pass episodes_per_arm 0")
     frozen = check_run(config_path, criterion, agent_cmd, timeout_sec)
+    check_hide(hide)
     qualification.validate(criterion, tasks=tasks, config_sha256=load_config(config_path).criterion_sha256,
                            runtime=runtime)
-    check_hide(hide)
     work_root, evidence_root = check_roots(work_root, evidence_root)
     prior = prior_rows(work_root, evidence_root, continue_run)
     check_row_criteria(prior, frozen)

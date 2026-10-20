@@ -2,6 +2,7 @@
 
 import json
 import threading
+import pytest
 
 from experiments.orc_structural_search import judging
 
@@ -41,7 +42,8 @@ def test_score_pool_retries_once_and_settles_judge_reservations(evaluations, wor
     assert len(entries) == 2 and all(entry['calls'] == 0 for entry in entries)
 
 
-def test_retry_revalidates_receipt_before_resume_dispatch(evaluations):
+@pytest.mark.parametrize('tamper', ['receipt', 'pool-hash'])
+def test_retry_revalidates_receipt_before_resume_dispatch(evaluations, tamper):
     import subprocess
     import pytest
     out, mapping, _, log, criterion = evaluations
@@ -49,9 +51,19 @@ def test_retry_revalidates_receipt_before_resume_dispatch(evaluations):
     calls = []
     def scorer(pool, name, script):
         calls.append(script)
-        receipt.write_text(receipt.read_text() + ' ')
+        if tamper == 'receipt':
+            receipt.write_text(receipt.read_text() + ' ')
+        else:
+            data = json.loads((pool / 'records/mapping.json').read_text())
+            data['criterion_sha256'] = '0' * 64
+            (pool / 'records/mapping.json').write_text(json.dumps(data))
+            for judge in data['judges']:
+                path = pool / 'records' / f'score-inputs-{judge}.json'
+                inputs = json.loads(path.read_text())
+                inputs['criterion_sha256'] = '0' * 64
+                path.write_text(json.dumps(inputs))
         raise subprocess.CalledProcessError(1, 'scripted failure')
-    with pytest.raises(ValueError, match='hash mismatch'):
+    with pytest.raises(ValueError, match='hash mismatch|criterion changed'):
         judging.score_pool(log.parent, out, 'stale', names=list(mapping['judges']), solution='solution',
                            call_cap=10, scorer=scorer, criterion=criterion)
     assert calls == ['score']

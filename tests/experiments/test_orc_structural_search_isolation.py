@@ -51,3 +51,55 @@ def test_a_hide_path_that_does_not_exist_is_refused_and_never_created(tmp_path):
     with pytest.raises(ValueError, match="not an existing directory"):
         hidden_roots(tmp_path / "w", tmp_path / "e", hide=[tmp_path / "ss-evidnce2"])
     assert not (tmp_path / "ss-evidnce2").exists()
+
+
+def test_qualified_episode_masks_external_truth_and_scans_read_attempts(sandboxed, world):
+    from tests.experiments.qualification_support import qualified
+    from tests.experiments.test_orc_structural_search_driver import episode
+    q = qualified(world.outside / 'qualification', runtime=world.runtime, tasks=[world.task])
+    world.criterion = q.criterion
+    rule = Path(__file__).resolve().parents[2] / 'experiments/compare/criteria/calibration.json'
+    score = world.runtime / 'experiments/compare/score.orc'
+    env = fake_claude(world, f'#!/bin/sh\ncat {q.receipt} {q.calibration} {rule} {score} 2>/dev/null\n'
+                             f'echo "cat {q.receipt}"\nexit 0\n')
+    check_brief = f'assert {str(q.receipt)!r} not in Path("EPISODE.md").read_text()\n'
+    mutator = MUTATOR_ONE_CALL.replace('subprocess.run(', check_brief + 'subprocess.run(', 1)
+    row, evidence = episode(world, mutator, config_of(), env=env)
+    records = evidence / 'episodes' / row['episode_id']
+    output = (records / 'calls/1/stdout.txt').read_text()
+    assert row['outcome'] == 'accepted' and row['scan_hits'] > 0
+    assert str(q.receipt.parent) in row['hidden_roots']
+    assert 'orc-structural-qualification-v1' not in output and 'calibration_kind' not in output
+    assert 'owner_rule' in output and 'workflow-lisp' in output
+    import json
+    scan = json.loads((records / 'record.json').read_text())['scan']
+    assert any(hit['pattern'] == 'qualification' for hit in scan['hits'])
+
+
+def test_qualified_evaluation_and_resume_keep_truth_masked_and_rescan_history(sandboxed, world):
+    import json
+    from experiments.orc_structural_search.evaluation import resume
+    from tests.experiments.qualification_support import qualified
+    from tests.experiments.orc_structural_search_support import SCRIPTED, script
+    from tests.experiments.test_orc_structural_search_evaluation import run, HANG, CHANGE, KILL_AFTER_SEC
+    q = qualified(world.outside / 'qualification', runtime=world.runtime, tasks=[world.task])
+    world.criterion = q.criterion
+    probe = (f'import subprocess\nsubprocess.run(["cat", {str(q.receipt)!r}], check=False)\n'
+             f'print("cat {q.receipt}", flush=True)\n')
+    (world.fakebin / 'claude').write_text(SCRIPTED.replace('prompt = sys.stdin.read()\n',
+                                                        'prompt = sys.stdin.read()\n' + probe))
+    script(world, [HANG])
+    first, env = run(world, timeout_sec=KILL_AFTER_SEC)
+    metadata = json.loads((first.records_dir / 'record.json').read_text())
+    assert first.outcome == 'incident' and metadata['qualification_scan']['hits']
+    assert str(q.receipt.parent) in metadata['qualification_private_roots']
+    inputs = (first.records_dir / 'inputs.json').read_text()
+    assert str(q.receipt) not in inputs and 'orc-structural-qualification-v1' not in inputs
+    script(world, [CHANGE])
+    final = resume(first, env=env, timeout_sec=600, criterion=q.criterion)
+    metadata = json.loads((final.records_dir / 'record.json').read_text())
+    assert final.outcome == 'completed' and final.resume_count == 1
+    assert final.qualification['qualification_sha256'] == first.qualification['qualification_sha256']
+    assert metadata['qualification_scan']['calls'] == 2 and metadata['qualification_scan']['hits']
+    outputs = ''.join(path.read_text() for path in (final.records_dir / 'calls').glob('*/stdout.txt'))
+    assert 'orc-structural-qualification-v1' not in outputs

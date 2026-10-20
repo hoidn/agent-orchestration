@@ -426,9 +426,11 @@ def test_a_smoke_evaluates_the_two_parents_once_per_task_through_the_command_lin
     for name, value in env_of(world).items():
         monkeypatch.setenv(name, value)
     evidence, parents = world.tmp / "evidence", world.tmp / "parents"
+    criterion = measure_free(world.tmp / "cli-mechanics", template=CRITERION, tasks=[world.task])
+    configure(world, criterion)
     three_arm.main(["run", "--smoke", "--episodes-per-arm", "0", "--config", str(world.tmp / "config.json"),
                     "--parents", f"orc={parents / 'orc'}", f"python={parents / 'python'}",
-                    "--criterion", str(measure_free(world.tmp / "cli-mechanics", template=CRITERION, tasks=[world.task])), "--tasks", str(world.task),
+                    "--criterion", str(criterion), "--tasks", str(world.task),
                     "--work-root", str(world.outside / "work"), "--evidence", str(evidence),
                     "--agent-cmd", " ".join(CODEX_MUTATOR), "--runtime", str(world.runtime),
                     "--eval-timeout-sec", "14400",

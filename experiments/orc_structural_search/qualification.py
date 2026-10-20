@@ -163,10 +163,20 @@ def sample_roots(samples, receipt_path):
             path = reference(ref, receipt_path)
             roots.add(path.parent)
             if kind.endswith('_record'):
-                original = Path(read(path)['records'])
-                require(original.is_absolute(), 'original records path must be absolute')
-                if original.exists():
-                    roots.add(original.resolve())
+                roots.update(original_roots(read(path)))
+    return roots
+
+
+def original_roots(record):
+    roots = set()
+    for field in ('records', 'tree', 'state_root'):
+        if field not in record:
+            continue
+        require(isinstance(record[field], str) and bool(record[field]), 'malformed original evidence path')
+        original = Path(record[field])
+        require(original.is_absolute(), 'original evidence path must be absolute')
+        if original.exists():
+            roots.add(original.resolve())
     return roots
 
 

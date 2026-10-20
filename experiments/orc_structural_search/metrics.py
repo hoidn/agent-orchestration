@@ -48,5 +48,3 @@ def metric_definitions(root: Path, config: ExperimentConfig) -> tuple[str, ...]:
             names.extend(name for _, name in _split_forms(forms, whole_module=True)[1]
                          if name != entry and name not in exported)
     return tuple(names)
-
-
