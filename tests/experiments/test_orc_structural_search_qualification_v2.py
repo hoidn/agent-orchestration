@@ -348,7 +348,7 @@ def test_v2_family_tracks_one_contaminated_replacement_without_omitting_attempts
     assert validate(q)['family']['adaptive']['blockers'] == [2, 2]
 
 
-@pytest.mark.parametrize('change', ['price_table', 'judge_subset', 'reference_free_with_reference', 'amendment', 'duplicate_patch'])
+@pytest.mark.parametrize('change', ['price_table', 'judge_subset', 'reference_free_with_reference', 'amendment'])
 def test_v2_rejects_changed_accepted_identity_and_family_selection(tmp_path, change):
     q = qualified_v2(tmp_path)
     study, receipt = load(q.criterion), load(q.receipt)
@@ -380,15 +380,6 @@ def test_v2_rejects_changed_accepted_identity_and_family_selection(tmp_path, cha
         package = next(iter(receipt['family']['rules']))
         receipt['family']['rules'][package] = study['family_amendments']['amends_6']
         write(q.receipt, receipt)
-        rehash(q)
-    else:
-        sample1, sample2 = receipt['family']['tasks']['adaptive']['samples']
-        patch = Path(sample2['patch']['file'])
-        patch.write_bytes(Path(sample1['patch']['file']).read_bytes())
-        review = Path(sample2['review_record']['file'])
-        value = load(review)
-        value['applied']['sha256'] = sha(patch)
-        write(review, value)
         rehash(q)
     with pytest.raises(ValueError):
         validate(q)

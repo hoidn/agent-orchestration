@@ -4,7 +4,7 @@ from pathlib import Path
 
 from experiments.compare import pool as harness, summarize
 from experiments.compare.repos import runtime_commit
-from experiments.orc_structural_search.qualification_io import digest, names, read, reference, require
+from experiments.orc_structural_search.qualification_io import digest, names, read, reference, require, same_reference
 
 ROLES = frozenset(('upstream', 'stub', 'partial', 'mutant'))
 
@@ -209,8 +209,7 @@ def pool_observation(pool, containing, study, study_path, tasks, packages):
 def validate_v2(measure, containing, study, study_path, tasks, packages, runtime, judges):
     measurement(study, study_path, tasks, packages)
     dispatch(study, study_path, runtime, judges)
-    reference(measure['criterion'], containing)
-    require(measure['criterion'] == study['accepted_measure']['criterion'], 'accepted measure criterion differs')
+    same_reference(measure['criterion'], containing, study['accepted_measure']['criterion'], study_path)
     adaptive = {Path(path).name for path in study['tasks']}
     expected = {task: {study['accepted_measure']['step'], 'B2'} if task in adaptive else
                 {'Q1' if task == Path(study['sealed_task']).name else 'Q2'} for task in tasks}
@@ -222,7 +221,7 @@ def validate_v2(measure, containing, study, study_path, tasks, packages, runtime
         require(key not in seen, 'duplicate calibration task/stage')
         seen.add(key)
         if key[1] in ('A', 'A_prime'):
-            require(pool['criterion'] == measure['criterion'], 'baseline criterion differs from accepted measure')
+            same_reference(pool['criterion'], containing, measure['criterion'], containing)
         task, verdict, rows = pool_observation(pool, containing, study, study_path, tasks, packages)
         stages[task].add(key[1])
         figures[task].extend(verdict['pairs'])

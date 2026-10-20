@@ -44,6 +44,14 @@ def reference(value, containing):
     return path
 
 
+def same_reference(left, left_document, right, right_document):
+    """Resolve each scope and verify bytes before comparing frozen evidence identities."""
+    path = reference(left, left_document)
+    reference(right, right_document)
+    require(left['sha256'] == right['sha256'], 'evidence references differ')
+    return path
+
+
 def normalized(value, containing):
     if isinstance(value, dict):
         if 'file' in value or 'sha256' in value:

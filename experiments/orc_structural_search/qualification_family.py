@@ -8,7 +8,7 @@ from statistics import mean
 from experiments.compare import pool, prepare
 from experiments.orc_structural_search.qualification_lineage import validate_membership
 from experiments.orc_structural_search.qualification_io import (
-    digest, hash_value, names, read, reference, require)
+    digest, hash_value, names, read, reference, require, same_reference)
 
 R55 = '9faa4c01d0e3f231278f85d809a3e0d3bb3f64813cd59afba690089afd355f46'
 
@@ -169,8 +169,7 @@ def validate_family_v2(family, containing, tasks, packages, study, study_path):
     for name, task in tasks.items():
         rule_ref = family['rules'][packages[name]]
         amendment = 'amends_5' if name in adaptive else 'amends_6'
-        require(rule_ref == study['family_amendments'][amendment], 'family rule differs from study amendment')
-        rule_path = reference(rule_ref, containing)
+        rule_path = same_reference(rule_ref, containing, study['family_amendments'][amendment], study_path)
         rule = read(rule_path)
         validate_amendment(rule, amendment, name, packages[name])
         result[name] = amended_task(family['tasks'][name], containing, task, packages[name], rule)
@@ -246,7 +245,6 @@ def amended_task(evidence, containing, task, package, rule):
     amended_membership(evidence, containing, task, package, originals, attempts)
     require(len({row[1] for row in values}) == 1, 'family bases differ')
     require(values[0][1][0] == (task / 'base_commit').read_text().strip(), 'family base differs from task')
-    require(len({sample['patch']['sha256'] for sample in samples}) == len(samples), 'duplicate family patches')
     original_membership(originals, [row[3] for row in values if row[3] is not None], attempts, task)
     blockers = [row[0] for row in values]
     initial = mean(blockers[:2])

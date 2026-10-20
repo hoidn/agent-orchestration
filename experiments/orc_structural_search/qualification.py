@@ -123,6 +123,9 @@ def private_roots(criterion: Path | None, *, public_roots=(), workspace_roots=()
     protected += [reference(evaluator['score_workflow'], criterion)]
     protected += [reference(info['providers'], criterion) for info in evaluator['judges'].values()]
     evidence_privacy(receipt, receipt_path, roots, protected)
+    if 'accepted_measure' in frozen:
+        roots.update(reference(ref, criterion).parent for ref in
+                     (*frozen['family_amendments'].values(), frozen['accepted_measure']['criterion']))
     return allowed_roots(roots, protected)
 
 
@@ -320,13 +323,9 @@ def campaign_parameters(frozen):
             'invalid C1 exploration or tolerance')
     require(frozen['support'] == {'rule': 'every_adaptive_task', 'task_weights': 'equal', 'min_trials': 1},
             'invalid C1 support')
-    envelope = frozen['envelope']
-    for field in ('episode', 'evaluation', 'per_call_timeout_sec', 'concurrency',
-                  'child_planned_maximum', 'wall_clock_ceiling_h'):
-        positive(envelope[field], field)
-    require(envelope['per_call_timeout_sec'] == frozen['per_call_timeout_sec'], 'timeout envelope differs')
+    campaign_limits(frozen)
+    campaign_preregistration(frozen)
     positive(frozen['endpoints']['B_plan_usd'], 'B_plan_usd')
-    require(frozen['stop_rules']['persistent_infrastructure'] == 3, 'invalid infrastructure stop rule')
     rows = frozen['campaigns']
     require(isinstance(rows, list) and len(rows) == 2, 'C1 requires matched campaign pair')
     names([row['label'] for row in rows], 'campaign labels')
@@ -364,3 +363,69 @@ def campaign_nested_fields(frozen):
             frozen['endpoints']['calls_cuts'] == [39, 58, 77], 'invalid C1 endpoints')
     require(frozen['final_choice']['equivalence_tolerance'] == .5 and
             frozen['final_choice']['provider_calls'] == 'mean', 'invalid C1 final-choice rules')
+
+
+def campaign_limits(frozen):
+    envelope = frozen['envelope']
+    caps = {'episode': 3600, 'evaluation': 14400, 'per_call_timeout_sec': 5400,
+            'concurrency': 4, 'child_planned_maximum': 4, 'wall_clock_ceiling_h': 30}
+    for field, cap in caps.items():
+        positive(envelope[field], field)
+        require(envelope[field] <= cap, f'C1 envelope {field} exceeds bound')
+    for field in ('concurrency', 'child_planned_maximum', 'per_call_timeout_sec'):
+        require(type(envelope[field]) is int, f'C1 envelope {field} must be integer')
+    require(envelope['per_call_timeout_sec'] == frozen['per_call_timeout_sec'], 'timeout envelope differs')
+    require(envelope['per_call_timeout_sec'] <= envelope['evaluation'],
+            'seed per-call timeout exceeds evaluation envelope')
+    horizon = frozen['horizon']
+    require(horizon['generations'] <= 4 and horizon['episodes_per_generation'] <= 4, 'C1 horizon exceeds bound')
+    expected = {'adaptive_replicates': 1, 'validation_replicates': 3, 'sealed_replicates': 3,
+                'finalists_per_campaign': 2}
+    require(all(horizon[field] == value for field, value in expected.items()), 'C1 replicates or finalists differ')
+    require(type(horizon['warm_start']['replicates']) is int, 'warm-start count must be integer')
+    require(frozen['final_choice']['mean_cost_ceiling_rule'] ==
+            '4 x c_ref, resolved after P0 and passed as a readout argument', 'C1 final cost ceiling rule differs')
+
+
+def campaign_preregistration(frozen):
+    rules = {'horizon': True, 'futility': True, 'call_cap': True, 'quota_exhaustion': True,
+             'wall_clock_ceiling': True,
+             'invalid_evidence': ['calibration', 'unadjudicated_contamination', 'malformed_ingest'],
+             'judge_incidents': 2, 'persistent_infrastructure': 3}
+    require(frozen['stop_rules'] == rules, 'C1 requires every declared stop rule')
+    for key in ('horizon', 'futility', 'call_cap', 'quota_exhaustion', 'wall_clock_ceiling'):
+        require(frozen['stop_rules'][key] is True, f'C1 {key} stop rule must be enabled')
+    for key in ('judge_incidents', 'persistent_infrastructure'):
+        require(type(frozen['stop_rules'][key]) is int, f'C1 {key} stop count must be integer')
+    require(isinstance(frozen['context'], dict) and isinstance(frozen['context']['evaluator_version'], str) and
+            frozen['context']['evaluator_version'].strip(), 'C1 context requires evaluator_version')
+    campaign_budget(frozen['budget'])
+    campaign_power(frozen['power'])
+
+
+def campaign_budget(budget):
+    require(isinstance(budget, dict) and isinstance(budget['steps'], dict), 'C1 needs per-step budgets')
+    require(set(budget['steps']) >= {'P0', 'P1', 'P2', 'P3', 'P4'}, 'C1 budget omits a planned stage')
+    require(budget['cap_rule'] ==
+            'settled calls + next batch planned maximum + one relaunch of largest unit; stop before cap',
+            'C1 budget cap rule differs')
+    for name, step in budget['steps'].items():
+        require(isinstance(step, dict), f'C1 {name} budget must declare planned and cap')
+        require(all(type(step[key]) is int and step[key] > 0 for key in ('planned', 'cap')),
+                f'C1 {name} budget needs positive integer calls')
+        require(step['planned'] <= step['cap'], f'C1 {name} planned calls exceed cap')
+
+
+def campaign_power(power):
+    require(isinstance(power, dict) and isinstance(power['assumptions'], str) and power['assumptions'].strip(),
+            'C1 power requires declared assumptions')
+    require(power['formula'] == 'delta = (z_(1-alpha/2) + z_(1-beta)) * sigma_c * sqrt(2 / R)',
+            'C1 power formula differs')
+    require(type(power['delta']) in (int, float) and power['delta'] == 1 and
+            type(power['R']) is int and power['R'] == 1, 'C1 descriptive pilot requires delta=1 and R=1')
+    bracket = power['bracket']
+    require(isinstance(bracket, list) and len(bracket) == 2, 'C1 power needs a two-endpoint bracket')
+    for value in bracket:
+        positive(value, 'campaign SD bracket')
+    require(bracket[0] < bracket[1], 'C1 power bracket must increase')
+    require(power['statement'] == 'descriptive pilot; no policy claim', 'C1 power statement must remain descriptive')
