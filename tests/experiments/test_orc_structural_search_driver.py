@@ -1,3 +1,4 @@
+from tests.experiments.orc_structural_search_support import launch_config
 """Mode 1 driver: catalog enumeration and unguided I1 episodes with a scripted mutator and scripted providers
 (no provider is called)."""
 
@@ -11,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from experiments.compare.repos import sha256_file
 from experiments.orc_structural_search import ledger
 from experiments.orc_structural_search.briefs import episode_brief
 from experiments.orc_structural_search.config import ExperimentConfig, load_config
@@ -60,7 +62,7 @@ def sandboxed():
 
 def mode1(world, seeds, **launch):
     script(world, ANSWERS)
-    (world.tmp / "config.json").write_text(json.dumps(CONFIG))
+    (world.tmp / "config.json").write_text(json.dumps(CONFIG | {"criterion_sha256": sha256_file(world.criterion)}))
     mutator = world.outside / "mutator.py"
     mutator.write_text(MUTATOR)
     env = {**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}", "SCRIPTED_RESULTS_FILE": str(world.results)}
@@ -68,7 +70,7 @@ def mode1(world, seeds, **launch):
     readout = run_mode1(world.tmp / "config.json", seeds=[SEEDS / f"{name}.orc" for name in seeds], tasks=[world.task],
                         work_root=world.outside / "work", evidence_root=evidence, episodes=3,
                         agent_cmd=[sys.executable, "-I", str(mutator)], replicates=1, runtime=world.runtime, env=env,
-                        timeout_sec=600, solutions={world.task.name: world.solution}, call_cap=160, concurrency=1, **launch)
+                        timeout_sec=600, solutions={world.task.name: world.solution}, call_cap=160, concurrency=1, **launch, criterion=world.criterion)
     return readout, read_records(evidence / "log.jsonl"), evidence
 
 
@@ -144,11 +146,11 @@ def episode(world, mutator_source, config, tamper=False, env=os.environ, call_ca
         (parent / "direct.orc").write_text((parent / "direct.orc").read_text() + "\n;; edited in the archive\n")
     mutator = world.outside / f"mutator-{index}.py"
     mutator.write_text(mutator_source)
-    row = run_episode(parent, config, interface="I1" if site is None else "I2",
+    row = run_episode(parent, launch_config(world, config), interface="I1" if site is None else "I2",
                       mode="unguided" if site is None else "adaptive", agent_cmd=[sys.executable, "-I", str(mutator)],
                       work_root=world.outside / "work", evidence_root=evidence, episode_index=index,
                       runtime=world.runtime, env=env, solutions={world.task.name: world.solution},
-                      call_cap=call_cap, site=site)
+                      call_cap=call_cap, site=site, criterion=world.criterion)
     return row, evidence
 
 
@@ -201,9 +203,9 @@ def test_a_tampered_archived_candidate_is_refused_before_its_evaluation(world):
     _, root = archive(world.candidate, evidence, world.runtime)
     (root / "providers.json").write_text("{}\n")
     with pytest.raises(RuntimeError, match="archive"):
-        evaluate_and_scan(root, config_of(), task=world.task, replicate=1, work_root=world.outside / "work",
+        evaluate_and_scan(root, launch_config(world, config_of()), task=world.task, replicate=1, work_root=world.outside / "work",
                           evidence_root=evidence, runtime=world.runtime, env=os.environ, timeout_sec=1,
-                          solutions={world.task.name: world.solution}, holdouts=(), fields={}, call_cap=160)
+                          solutions={world.task.name: world.solution}, holdouts=(), fields={}, call_cap=160, criterion=world.criterion)
     assert not (world.outside / "work").exists()
 
 
@@ -223,9 +225,9 @@ def test_a_solution_hash_that_is_not_a_runtime_commit_is_refused(world, solution
         solution = subprocess.run(["git", "-C", str(world.runtime), "rev-parse", "HEAD^{tree}"], check=True,
                                   capture_output=True, text=True).stdout.strip()
     with pytest.raises(ValueError, match="not a commit"):
-        enumerate_catalog([SEEDS / "direct.orc"], config_of(), tasks=[world.task], work_root=world.outside / "work",
+        enumerate_catalog([SEEDS / "direct.orc"], launch_config(world, config_of()), tasks=[world.task], work_root=world.outside / "work",
                           evidence_root=world.tmp / "evidence", replicates=1, runtime=world.runtime, env={},
-                          timeout_sec=1, solutions={world.task.name: solution}, call_cap=160)
+                          timeout_sec=1, solutions={world.task.name: solution}, call_cap=160, criterion=world.criterion)
 
 
 def test_the_episode_brief_omits_the_command_boundary_when_none_is_configured():
@@ -291,10 +293,10 @@ def test_concurrent_catalog_logs_each_evaluation_once(sandboxed, world):
     script(world, [{"match": "Plan this task", "sleep": 15, "result": {"steps": ["edit pkg"]}}, *ANSWERS])
     env = {**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}", "SCRIPTED_RESULTS_FILE": str(world.results)}
     evidence = world.tmp / "evidence"
-    rows = enumerate_catalog([SEEDS / "plan_then_implement.orc", SEEDS / "direct.orc"], config_of(), tasks=[world.task],
+    rows = enumerate_catalog([SEEDS / "plan_then_implement.orc", SEEDS / "direct.orc"], launch_config(world, config_of()), tasks=[world.task],
                              work_root=world.outside / "work", evidence_root=evidence, replicates=1,
                              runtime=world.runtime, env=env, timeout_sec=600,
-                             solutions={world.task.name: world.solution}, call_cap=160, concurrency=2)
+                             solutions={world.task.name: world.solution}, call_cap=160, concurrency=2, criterion=world.criterion)
     logged = read_records(evidence / "log.jsonl")
     assert ([row["seed"] for row in logged], [row["outcome"] for row in logged],
             {row["seed"]: (row["evaluation_id"], row["candidate_id"]) for row in logged}) == (
@@ -316,10 +318,10 @@ def test_call_cap_refuses_launch(world):
     _, root = archive(world.candidate, evidence, world.runtime)
     ledger.reserve(evidence, kind="evaluation", key="in flight", planned=159, cap=160)
     with pytest.raises(CallCapExceeded, match="call cap 160"):
-        evaluate_and_scan(root, config_of(entry_workflow="best_of_n::run", mutable_files=["best_of_n.orc"]),
+        evaluate_and_scan(root, launch_config(world, config_of(entry_workflow="best_of_n::run", mutable_files=["best_of_n.orc"])),
                           task=world.task, replicate=1, work_root=world.outside / "work", evidence_root=evidence,
                           runtime=world.runtime, env=os.environ, timeout_sec=1,
-                          solutions={world.task.name: world.solution}, holdouts=(), fields={}, call_cap=160)
+                          solutions={world.task.name: world.solution}, holdouts=(), fields={}, call_cap=160, criterion=world.criterion)
     assert not (world.outside / "work").exists()
 
 
@@ -453,7 +455,7 @@ def test_two_structurally_different_i2_replacements_both_compile_and_execute(san
     evaluations = evaluate_all([(Path(row["candidate_root"]), config_of(), {}) for row in rows], tasks=[world.task],
                                replicates=1, concurrency=2, work_root=world.outside / "work",
                                evidence_root=world.tmp / "evidence", runtime=world.runtime, env=env, timeout_sec=600,
-                               solutions={world.task.name: world.solution}, holdouts=(), call_cap=160)
+                               solutions={world.task.name: world.solution}, holdouts=(), call_cap=160, criterion=world.criterion)
     assert ([row["outcome"] for row in rows], len({row["skeleton"] for row in rows} | {rows[0]["parent_skeleton"]}),
             [row["outcome"] for row in evaluations]) == (["accepted", "accepted"], 3, ["completed", "completed"])
 

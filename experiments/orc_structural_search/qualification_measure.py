@@ -5,6 +5,7 @@ from pathlib import Path
 from experiments.orc_structural_search.qualification_io import (
     calibration, digest, names, normalized, read, reference, require)
 
+V1_RUBRIC = '72ede203ff5ac3b7552d033474db2d8e45fdba11b3cfb514bce643e70c284700'
 COMPONENTS = ('root_cause', 'scope', 'generality', 'layering')
 
 
@@ -26,7 +27,7 @@ def measurement(criterion, containing, tasks, packages):
         for control in info['controls'].values():
             source = reference(control['source'], containing)
             label = control['label']
-            require(isinstance(label, str) and label and source.stem == label, 'anchor label mismatch')
+            require(isinstance(label, str) and label , 'anchor label mismatch')
             anchor = task / 'anchors' / f'{label}.diff'
             require(anchor.is_file() and digest(anchor) == control['source']['sha256'], 'control differs from task anchor')
             labels.append(label)
@@ -39,6 +40,7 @@ def dispatch(criterion, containing, runtime, judges):
     evaluator = criterion['measurement']['evaluator']
     workflow = Path(runtime) / 'experiments/compare/score.orc'
     reference(evaluator['score_workflow'], containing)
+    require(evaluator['score_workflow']['sha256'] == V1_RUBRIC, 'unsupported v1 rubric workflow')
     require(workflow.is_file() and digest(workflow) == evaluator['score_workflow']['sha256'],
             'actual runtime score workflow differs from measurement')
     specs = judges if judges is not None else criterion['judges']
@@ -62,6 +64,13 @@ def rating_total(value):
     return sum(components)
 
 
+def check_rating_judges(results, observed, declared):
+    for clone in results['clones'].values():
+        ratings = clone['ratings']
+        require(isinstance(ratings, dict) and set(ratings) <= observed <= declared,
+                'rating judges contradict results judge identities')
+
+
 def control_clones(pool, mapping, results, containing, controls):
     clones = mapping['clones']
     require(isinstance(clones, dict) and clones and set(clones) == set(results['clones']) == set(pool['patches']),
@@ -82,11 +91,13 @@ def control_clones(pool, mapping, results, containing, controls):
     return roles
 
 
-def pool_pairs(pool, containing, calibration_sha, study, expected):
+def pool_pairs(pool, containing, calibration_sha, study, study_path, expected):
     mapping = read(reference(pool['mapping'], containing))
     results = read(reference(pool['results'], containing))
     require(mapping['criterion_sha256'] == results['criterion_sha256'] == calibration_sha,
             'calibration criterion hash does not match pool/results')
+    dispatch(study, study_path, Path(mapping['runtime']),
+             [f"{name}={info['providers']}" for name, info in mapping['judges'].items()])
     task = pool['task_id']
     require(task in expected and Path(mapping['task']).name == task, 'calibration pool task mismatch')
     judges = set(study['judges'])
@@ -97,6 +108,7 @@ def pool_pairs(pool, containing, calibration_sha, study, expected):
     excluded = results['excluded_judges']
     require(isinstance(excluded, (dict, list)) and set(excluded) <= judges and not set(excluded) & set(observed_judges),
             'invalid excluded judges')
+    check_rating_judges(results, set(observed_judges), judges)
     controls = study['measurement']['tasks'][task]['controls']
     roles = control_clones(pool, mapping, results, containing, controls)
     require(not mapping.get('runs'), 'candidate runs in calibration pool')
@@ -140,10 +152,10 @@ def validate_measure(measure, containing, study, study_path, tasks, packages, id
     require(isinstance(pools, list) and pools, 'missing calibration pools')
     pairs, identities = {name: [] for name in tasks}, set()
     for pool in pools:
-        identity_key = (pool['mapping']['sha256'], pool['results']['sha256'])
+        identity_key = pool['mapping']['sha256']
         require(identity_key not in identities, 'duplicate calibration pool')
         identities.add(identity_key)
-        task, observed = pool_pairs(pool, containing, measure['criterion']['sha256'], study, tasks)
+        task, observed = pool_pairs(pool, containing, measure['criterion']['sha256'], study, study_path, tasks)
         pairs[task].extend(observed)
     return task_statistics(pairs, study)
 

@@ -24,6 +24,7 @@ from types import SimpleNamespace
 import pytest
 
 from experiments.orc_structural_search.config import ExperimentConfig
+from tests.experiments.qualification_support import measure_free, sha
 from tests.experiments.compare_harness_support import OUTSIDE_SANDBOX_MOUNTS, commit, git, open_up
 
 REPO = Path(__file__).resolve().parents[2]
@@ -157,8 +158,15 @@ def world(tmp_path):
     for name in ("claude", "codex"):
         (fakebin / name).write_text(SCRIPTED)
         (fakebin / name).chmod(0o755)
-    yield SimpleNamespace(tmp=tmp_path, runtime=runtime, task=task, candidate=candidate, fakebin=fakebin, solution=solution,
+    criterion = measure_free(tmp_path, tasks=[task])
+    yield SimpleNamespace(criterion=criterion, tmp=tmp_path, runtime=runtime, task=task, candidate=candidate, fakebin=fakebin, solution=solution,
                           results=outside / "results.json", evidence=outside / "evidence", outside=outside)
     open_up(tmp_path)
     open_up(outside)
     shutil.rmtree(outside)
+
+
+def launch_config(world, config):
+    """Mechanics fixtures declare measure-free execution explicitly and bind its actual criterion bytes."""
+    from dataclasses import replace
+    return replace(config, criterion_sha256=sha(world.criterion))

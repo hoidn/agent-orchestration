@@ -1,3 +1,4 @@
+from tests.experiments.orc_structural_search_support import launch_config
 """An I3 episode through run_episode: the Codex mutator command edits the Python parent behind the shims (a scripted
 `codex`; no provider is called)."""
 
@@ -37,10 +38,10 @@ def i3_episode(world, codex_source):
     shutil.copytree(PYTHON_PARENT, world.tmp / "python", ignore=shutil.ignore_patterns("__pycache__"))
     evidence = world.tmp / "evidence"
     _, parent = archive(world.tmp / "python", evidence, world.runtime)
-    row = run_episode(parent, I3_CONFIG, interface="I3", mode="unguided", agent_cmd=CODEX_MUTATOR,
+    row = run_episode(parent, launch_config(world, I3_CONFIG), interface="I3", mode="unguided", agent_cmd=CODEX_MUTATOR,
                       work_root=world.outside / "work", evidence_root=evidence, episode_index=0, runtime=world.runtime,
                       env={**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}"},
-                      solutions={world.task.name: world.solution}, call_cap=160)
+                      solutions={world.task.name: world.solution}, call_cap=160, criterion=world.criterion)
     return row, evidence
 
 
@@ -65,10 +66,10 @@ def test_an_i3_evaluations_scan_names_other_evaluations_runs(sandboxed, world, p
     shutil.copytree(PYTHON_PARENT, world.tmp / "python", ignore=shutil.ignore_patterns("__pycache__"))
     evidence = world.tmp / "evidence"
     _, root = archive(world.tmp / "python", evidence, world.runtime)
-    row = evaluate_and_scan(root, I3_CONFIG, task=world.task, replicate=1, work_root=work, evidence_root=evidence,
+    row = evaluate_and_scan(root, launch_config(world, I3_CONFIG), task=world.task, replicate=1, work_root=work, evidence_root=evidence,
                             runtime=world.runtime, env={**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}",
                                                         "SCRIPTED_RESULTS_FILE": str(world.results)},
                             timeout_sec=600, solutions={world.task.name: world.solution}, holdouts=(), fields={},
-                            call_cap=160)
+                            call_cap=160, criterion=world.criterion)
     hits = json.loads((Path(row["records_dir"]) / "record.json").read_text())["scan"]["hits"]
     assert [hit["pattern"] for hit in hits if other in hit["text"]] == ["other tree or judge"], hits

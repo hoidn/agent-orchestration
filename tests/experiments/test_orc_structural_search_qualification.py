@@ -236,7 +236,7 @@ def test_private_roots_hide_only_evidence_and_refuse_broad_layout(tmp_path):
     from experiments.orc_structural_search.qualification import private_roots
     q = qualified(tmp_path)
     roots = private_roots(q.criterion, public_roots=[q.runtime, *q.tasks])
-    assert roots == (q.receipt.parent,)
+    assert set(roots) == {q.receipt.parent, q.tasks[0] / 'anchors'}
     assert not any(q.runtime.is_relative_to(root) for root in roots)
     with pytest.raises(ValueError, match='mask public'):
         private_roots(q.criterion, workspace_roots=[q.receipt.parent / 'active'])
@@ -305,4 +305,66 @@ def test_oracle_rejects_bad_frozen_control_identities(tmp_path, change):
     write(q.receipt, receipt)
     refresh(q)
     with pytest.raises(ValueError):
+        validate(q)
+
+
+def test_direct_evaluate_gate_precedes_candidate_compilation(tmp_path):
+    from experiments.orc_structural_search.evaluation import evaluate
+    from tests.experiments.test_orc_structural_search_evaluation import CONFIG
+    with pytest.raises(ValueError, match='explicit criterion'):
+        evaluate(tmp_path, CONFIG, task_package=tmp_path, work_root=tmp_path, replicate=1,
+                 runtime=tmp_path, env={}, timeout_sec=1)
+
+
+@pytest.mark.parametrize('change', ['calibration-runtime', 'calibration-binding', 'judges-empty', 'extra-rating',
+                                    'scan-verdict', 'duplicate-pool'])
+def test_reviewed_identity_and_shape_bypasses_are_rejected(tmp_path, change):
+    from tests.experiments.qualification_support import ref
+    q = qualified(tmp_path)
+    receipt = json.loads(q.receipt.read_text())
+    pool = receipt['measure']['pools'][0]
+    mp, rp = Path(pool['mapping']['file']), Path(pool['results']['file'])
+    mapping, results = json.loads(mp.read_text()), json.loads(rp.read_text())
+    if change == 'calibration-runtime':
+        mapping['runtime'] = '/unrelated-runtime'
+    elif change == 'calibration-binding':
+        mapping['judges'][q.judges[0]]['providers'] = '/wrong-binding.json'
+    elif change == 'judges-empty':
+        results['judges'] = []
+    elif change == 'extra-rating':
+        results['clones']['upstream']['ratings']['undeclared'] = dict(results['clones']['upstream']['ratings'][q.judges[0]])
+    elif change == 'scan-verdict':
+        record = Path(receipt['family']['tasks']['task']['samples'][0]['direct_record']['file'])
+        data = json.loads(record.read_text())
+        data['scan'] = {'calls': 1, 'hits': [{'pattern': 'evidence'}], 'verdict': {'verdict': 'bogus'}}
+        write(record, data)
+    else:
+        other = q.receipt.parent / 'other/results.json'
+        other.parent.mkdir()
+        other.write_text(rp.read_text() + ' ')
+        receipt['measure']['pools'].append(pool | {'results': ref(other)})
+        write(q.receipt, receipt)
+    write(mp, mapping)
+    write(rp, results)
+    refresh(q)
+    with pytest.raises(ValueError):
+        validate(q)
+
+
+def test_v1_rubric_cannot_be_changed_by_rehashing_all_references(tmp_path):
+    from tests.experiments.qualification_support import ref
+    q = qualified(tmp_path)
+    workflow = q.runtime / 'experiments/compare/score.orc'
+    workflow.write_text(workflow.read_text().replace(':effort "high"', ':effort "low"'))
+    for path in (q.criterion, q.calibration):
+        value = json.loads(path.read_text())
+        value['measurement']['evaluator']['score_workflow'] = ref(workflow)
+        write(path, value)
+    for source in (q.pools[0]['mapping'], q.pools[0]['results']):
+        path = Path(source['file'])
+        value = json.loads(path.read_text())
+        value['criterion_sha256'] = sha(q.calibration)
+        write(path, value)
+    refresh(q)
+    with pytest.raises(ValueError, match='rubric'):
         validate(q)

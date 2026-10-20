@@ -18,6 +18,7 @@ def completed(ref, containing, arm):
     require(type(record.get('calls')) is int and record['calls'] == 1, f'{arm} must record one call')
     scan = record['scan']
     require(isinstance(scan.get('hits'), list) and type(scan.get('calls')) is int, 'malformed scan')
+    validate_scan(scan)
     require(pool.exclusion(scan, record['calls'], str(path)) is None, 'excluded difficulty sample')
     original = Path(record['records'])
     require(original.is_absolute() and re.fullmatch(r'run-[1-9][0-9]*', original.name), 'invalid original run identity')
@@ -25,6 +26,15 @@ def completed(ref, containing, arm):
     if (original / 'calls').exists():
         require(len(list((original / 'calls').iterdir())) == record['calls'], 'scan does not cover original calls')
     return record, original
+
+
+def validate_scan(scan):
+    verdict = scan.get('verdict')
+    require(all(isinstance(hit, dict) and isinstance(hit.get('pattern'), str) for hit in scan['hits']),
+            'malformed scan hits')
+    if verdict is not None:
+        require(isinstance(verdict, dict) and verdict.get('verdict') in ('cleared', 'contaminated') and
+                isinstance(verdict.get('reason'), str) and bool(verdict['reason']), 'malformed scan verdict')
 
 
 def review_blockers(record):

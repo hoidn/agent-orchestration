@@ -1,3 +1,4 @@
+from tests.experiments.orc_structural_search_support import launch_config
 """The three-arm run (three_arm.py): I1, I2 and I3 episodes against the rebound direct parents, the stratified subset,
 its evaluations, judging through the ledger and the per-arm readout, with a scripted `codex` (the mutator command's
 CLI and the parents' coder) and a scripted judge (no provider is called)."""
@@ -248,7 +249,7 @@ def test_a_launch_beyond_the_cap_waits_for_an_evaluation_in_flight_to_settle(san
         return launch_units([Unit(root, I3_CONFIG, {}, task, 1) for task in tasks], concurrency=3, gate=gate,
                             work_root=world.outside / f"work-{tag}", evidence_root=evidence, runtime=world.runtime,
                             env=env_of(world), timeout_sec=600, solutions={t.name: world.solution for t in tasks},
-                            holdouts=(), call_cap=20)
+                            holdouts=(), call_cap=20, criterion=world.criterion)
 
     with pytest.raises(CallCapExceeded):
         launch("plain", None)

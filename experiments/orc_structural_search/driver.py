@@ -49,7 +49,7 @@ from types import MappingProxyType
 from experiments.compare import prepare
 from experiments.compare.repos import (
     SEED_COMMIT, SEED_DATES, dump, git, guard, main_checkout, runtime_commit, shim_prefix, visible_in_sandbox)
-from experiments.orc_structural_search import ledger, metering, site_evidence
+from experiments.orc_structural_search import ledger, metering, site_evidence, qualification
 from experiments.orc_structural_search.acceptance import judge_child, require_candidate
 from experiments.orc_structural_search.briefs import episode_brief
 from experiments.orc_structural_search.candidates import (
@@ -114,7 +114,7 @@ def logged_evaluations(evidence_root: Path) -> set[str]:
 def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, replicate: int, work_root: Path,
                       evidence_root: Path, runtime: Path, env: Mapping[str, str], timeout_sec: float,
                       solutions: Mapping[str, str], holdouts: Sequence[Path], fields: Mapping[str, object],
-                      call_cap: int, attempt: int = 1) -> dict:
+                      call_cap: int, attempt: int = 1, criterion: Path | None = None) -> dict:
     """Evaluate the archived `root` once as `attempt` (refused beyond the call cap), scan the run and append the
     evaluation record (with `fields`) to the log."""
     cid, env = check_archived(root, runtime_commit(runtime)), {**env, **LAUNCH_ENV}
@@ -128,14 +128,16 @@ def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, repli
                                   "than rerun it")
         ledger.settle_killed(evidence_root, "evaluation", key(attempt), killed / "run-1")
         attempt += 1
+    qualification.validate(criterion, tasks=[task], config_sha256=config.criterion_sha256, runtime=runtime)
+    private = qualification.private_roots(criterion, public_roots=[runtime, task], workspace_roots=[root, work_root])
     planned = ledger.planned_calls(root, config, runtime=runtime)
     slot = ledger.reserve(evidence_root, kind="evaluation", key=key(attempt), planned=planned, cap=call_cap)
     env["COMPARE_MAX_CALLS"] = str(planned)
     record = evaluate(root, config, task_package=task, work_root=work_root, replicate=replicate,
-                      runtime=runtime, env=env, timeout_sec=timeout_sec, attempt=attempt)
+                      runtime=runtime, env=env, timeout_sec=timeout_sec, attempt=attempt, criterion=criterion)
     ledger.settle(evidence_root, slot, record.records_dir, evaluation_id=record.evaluation_id)
     roots = [("archive", evidence_root), ("archive", work_root / "episodes"), ("lineage", evidence_root / "log.jsonl"),
-             *(("holdout", holdout) for holdout in holdouts)]
+             *(("holdout", holdout) for holdout in holdouts), *(("qualification", path) for path in private)]
     # the other evaluations' runs: an ORC run's scan finds them beside its state root; an I3 run's state is in its clone
     runs = [path.name for path in (work_root / "runs").glob("*") if path.name != record.evaluation_id]
     hits, scan_error = settle_scan(record.records_dir, lambda: prepare.scan(
@@ -313,7 +315,7 @@ def episode_diff(parent: Path, child: Path) -> str:
 
 
 def scan_episode(records: Path, tree: Path, *, runtime: Path, work_root: Path, evidence_root: Path,
-                 solutions: Mapping[str, str], holdouts: Sequence[Path], created_at: float) -> list[dict]:
+                 solutions: Mapping[str, str], holdouts: Sequence[Path], created_at: float, private=()) -> list[dict]:
     """`prepare.scan` over the episode's shim records, once per distinct solution hash until one scan hits; its
     record.json then holds the scan that hit (or the last one). The work root's evaluation directories are archive
     roots; the work root itself is none (the episode's own tree lies under it)."""
@@ -321,7 +323,7 @@ def scan_episode(records: Path, tree: Path, *, runtime: Path, work_root: Path, e
                                    "created_at": created_at})
     roots = [("archive", evidence_root), ("lineage", evidence_root / "log.jsonl"),
              *(("archive", work_root / name) for name in ("records", "runs", "agents", "env-manifests")),
-             *(("holdout", holdout) for holdout in holdouts)]
+             *(("holdout", holdout) for holdout in holdouts), *(("qualification", path) for path in private)]
     # ponytail: stops at the first hit; after clearing that scan, rescan with the remaining hashes (prepare.py scan)
     for solution in sorted(set(solutions.values())):
         hits = prepare.scan(records, solution, roots=roots)
@@ -358,7 +360,7 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
                 solutions: Mapping[str, str], call_cap: int, holdouts: Sequence[Path] = (),
                 site: Mapping | None = None, feedback: Mapping | None = None, generation: int | None = None,
                 run_seed: int | None = None, hide: Sequence[Path] = (),
-                fields: Mapping[str, object] = MappingProxyType({})) -> dict:
+                fields: Mapping[str, object] = MappingProxyType({}), criterion: Path | None = None) -> dict:
     """One episode against the archived parent (refused beyond the call cap): the agent command edits a copy of it
     behind the shims (see the module docstring), which mask hidden_roots (with `hide`) from its CLI calls, briefed
     by `briefs.episode_brief` (I2: `site`, which I1 must not have; `feedback`, the parent's own evidence); the child
@@ -377,6 +379,8 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
     if (generation, site_id, run_seed) != (None, None, None):  # Phase 1 episode ids stay as they were
         identity += [generation, site_id, run_seed]
     episode_id = "sha256:" + hashlib.sha256(json.dumps(identity).encode()).hexdigest()
+    checked = qualification.validate(criterion, config_sha256=config.criterion_sha256, runtime=runtime)
+    private = qualification.private_roots(criterion, public_roots=[runtime], workspace_roots=[parent_root, work_root])
     slot = ledger.reserve(evidence_root, kind="episode", key=episode_id, planned=1, cap=call_cap)
     parent_shape = {"parent_skeleton": skeleton(parent_root, config),  # before the episode, which may be paid
                     "parent_provider_allocation": allocation(parent_root, config)}
@@ -386,7 +390,7 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
                                    parent_candidate_id=parent_id)
     records.mkdir(parents=True)
     created_at, started = time.time(), time.monotonic()
-    hidden = hidden_roots(work_root, evidence_root, hide)
+    hidden = hidden_roots(work_root, evidence_root, [*hide, *private])
     shim_env = {"COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": base, "TMPDIR": tree / "tmp",
                 "COMPARE_HIDE": os.pathsep.join(map(str, hidden))}
     if config.models is not None:
@@ -400,7 +404,7 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
     incidents = [f"{PREFIX}{quota}"] * bool(quota)
     hits, scan_error = settle_scan(records, lambda: scan_episode(
         records, tree, runtime=runtime, work_root=work_root, evidence_root=evidence_root,
-        solutions=solutions, holdouts=holdouts, created_at=created_at))
+        solutions=solutions, holdouts=holdouts, created_at=created_at, private=private))
     if scan_error:
         incidents.insert(0, scan_error)
     (copy / EPISODE).unlink(missing_ok=True)
@@ -417,7 +421,7 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
            "scan_hits": len(hits) if scan_error is None else UNAVAILABLE, "scan_pending": bool(hits),
            "scan_error": scan_error,
            "workspace_intact": intact, "incidents": incidents, "hidden_roots": [str(root) for root in hidden],
-           "criterion_sha256": config.criterion_sha256,
+           "criterion_sha256": config.criterion_sha256, "qualification": checked,
            **metering.receipts(records, tree=tree, since=created_at, home=Path.home()),
            "model_revision": UNAVAILABLE,
            "hypothesis": verdict["receipt"]["hypothesis"] if verdict["receipt"] else UNAVAILABLE,
@@ -440,6 +444,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     from experiments.orc_structural_search.mode1 import run_mode1  # mode1 imports this module
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--criterion", type=Path)
     parser.add_argument("--seeds", type=Path, nargs="+", required=True, help="seed .orc files")
     parser.add_argument("--tasks", type=Path, nargs="+", required=True, help="task package directories")
     parser.add_argument("--work-root", type=Path, required=True, help="sandbox-visible work root")
@@ -463,7 +468,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     run_mode1(a.config, seeds=a.seeds, tasks=a.tasks, work_root=a.work_root, evidence_root=a.evidence,
               episodes=a.episodes, agent_cmd=shlex.split(a.agent_cmd), replicates=a.replicates, runtime=a.runtime,
               env=os.environ, timeout_sec=a.eval_timeout_sec, solutions=dict(a.solution), call_cap=a.call_cap,
-              concurrency=a.concurrency, holdouts=a.holdout, continue_run=a.continue_run, hide=a.hide)
+              concurrency=a.concurrency, holdouts=a.holdout, continue_run=a.continue_run, hide=a.hide, criterion=a.criterion)
     print(a.evidence / "readout.json")
 
 

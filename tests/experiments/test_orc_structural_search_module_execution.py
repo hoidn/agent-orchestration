@@ -1,3 +1,5 @@
+from tests.experiments.orc_structural_search_support import launch_config
+from tests.experiments.qualification_support import module_criterion, sha
 """Offline module episodes, metering and criterion separation; no real providers."""
 
 import json
@@ -96,10 +98,10 @@ def test_claude_guard_checks_explicit_default_fallback_and_forced_subagent(tmp_p
     assert done.returncode == status, done.stderr
 
 
-def test_successor_arms_and_subset_refuse_foreign_or_missing_row_hashes():
+def test_successor_arms_and_subset_refuse_foreign_or_missing_row_hashes(tmp_path):
     from tests.experiments.orc_structural_search_support import REPO
     from tests.experiments.test_orc_structural_search_three_arm import episode_row
-    criterion = three_arm.load_criterion(REPO / "experiments/orc_structural_search/criteria/module.json")
+    criterion = three_arm.load_criterion(module_criterion(tmp_path))
     assert tuple(three_arm.arm_specs(criterion)) == ("I1", "I2", "I3", "I1/module")
     rows = [episode_row(arm, n, f"child-{n}", f"skeleton-{n}") |
             {"criterion_sha256": criterion["criterion_sha256"]}
@@ -115,7 +117,7 @@ def test_successor_arms_and_subset_refuse_foreign_or_missing_row_hashes():
 def test_check_run_compares_actual_policy_with_criterion(tmp_path):
     from tests.experiments.orc_structural_search_support import REPO
     import shlex
-    criterion = REPO / "experiments/orc_structural_search/criteria/module.json"
+    criterion = module_criterion(tmp_path)
     frozen = three_arm.load_criterion(criterion)
     config = replace(module_config(), models=frozen["models"], per_call_timeout_sec=frozen["per_call_timeout_sec"],
                      criterion_sha256=frozen["criterion_sha256"],
@@ -158,7 +160,7 @@ def test_episode_rechecks_final_state_after_development_repair(world, ending, ex
     from experiments.compare.repos import runtime_commit
     config = replace(module_config(), criterion_sha256="criterion", episode_wall_clock_sec=20 if ending.startswith("import time") else 120)
     row, evidence = episode(world, MUTATOR_REPAIR + ending, config)
-    assert (row["outcome"], row["criterion_sha256"]) == (expected, "criterion")
+    assert (row["outcome"], row["criterion_sha256"]) == (expected, sha(world.criterion))
     assert [r["kind"] for r in read_records(evidence / "log.jsonl")] == ["episode"]
     if expected == "accepted":
         assert candidate_id(Path(row["candidate_root"]), orchestrator_commit=runtime_commit(world.runtime)) == row["candidate_id"]
@@ -177,14 +179,14 @@ def test_evaluation_hash_cannot_be_spoofed_and_snapshot_still_has_candidate_id(s
     config = replace(module_config(), criterion_sha256="actual-study")
     evidence = world.tmp / "evidence"
     cid, root = archive(world.candidate, evidence, world.runtime)
-    row = evaluate_and_scan(root, config, task=world.task, replicate=1, work_root=world.outside / "work",
+    row = evaluate_and_scan(root, launch_config(world, config), task=world.task, replicate=1, work_root=world.outside / "work",
                             evidence_root=evidence, runtime=world.runtime,
                             env={**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}",
                                  "SCRIPTED_RESULTS_FILE": str(world.results)}, timeout_sec=600,
                             solutions={world.task.name: world.solution}, holdouts=(),
-                            fields={"criterion_sha256": "spoofed"}, call_cap=160)
+                            fields={"criterion_sha256": "spoofed"}, call_cap=160, criterion=world.criterion)
     assert (row["outcome"], row["criterion_sha256"], candidate_id(root, orchestrator_commit=runtime_commit(world.runtime))) == (
-        "completed", "actual-study", cid)
+        "completed", sha(world.criterion), cid)
     assert "native_session_paths" not in row
 
 
@@ -192,7 +194,7 @@ def test_successor_readout_keeps_module_and_legacy_arms_separate_and_checks_hash
     from experiments.orc_structural_search import three_arm_readout
     from experiments.orc_structural_search.records import append_record
     from tests.experiments.orc_structural_search_support import REPO
-    source = REPO / "experiments/orc_structural_search/criteria/module.json"
+    source = module_criterion(tmp_path)
     criterion = tmp_path / "criterion.json"
     criterion.write_text(json.dumps(json.loads(source.read_text()) | {"tasks": ["tasks/t1"]}))
     frozen = three_arm.load_criterion(criterion)
@@ -249,10 +251,10 @@ print("real CLI launched")
     env = fake_claude(world, source)
     evidence = world.tmp / "evidence"
     _, parent = archive(world.candidate, evidence, world.runtime)
-    row = run_episode(parent, replace(module_config(), models=allowed), interface="I1", mode="unguided",
+    row = run_episode(parent, launch_config(world, replace(module_config(), models=allowed)), interface="I1", mode="unguided",
                       agent_cmd=["claude", "-p", *args], work_root=world.outside / "work", evidence_root=evidence,
                       episode_index=0, runtime=world.runtime, env=env, solutions={world.task.name: world.solution},
-                      call_cap=160)
+                      call_cap=160, criterion=world.criterion)
     assert row["outcome"] == expected
     output = (evidence / "episodes" / row["episode_id"] / "calls/1/stdout.txt").read_text()
     assert ("real CLI launched" in output) == (expected == "accepted")
@@ -278,10 +280,10 @@ rows = [{{"type": "user", "message": {{"content": prompt}}}},
     env = fake_claude(world, source)
     evidence = world.tmp / "evidence"
     _, parent = archive(world.candidate, evidence, world.runtime)
-    row = run_episode(parent, replace(module_config(), criterion_sha256="actual"), interface="I1", mode="unguided",
+    row = run_episode(parent, launch_config(world, replace(module_config(), criterion_sha256="actual")), interface="I1", mode="unguided",
                       agent_cmd=["claude", "-p"], work_root=world.outside / "work", evidence_root=evidence,
                       episode_index=0, runtime=world.runtime, env=env, solutions={world.task.name: world.solution},
-                      call_cap=160, fields={"criterion_sha256": "spoof"})
+                      call_cap=160, fields={"criterion_sha256": "spoof"}, criterion=world.criterion)
     assert (row["outcome"], row["criterion_sha256"], len(row["native_session_paths"])) == ("accepted", "actual", 1)
     assert Path(row["native_session_paths"][0]).is_file()
     if complete:
@@ -295,7 +297,7 @@ def test_successor_pool_refuses_missing_or_foreign_source_hash_before_collect(tm
     from experiments.orc_structural_search import scoring
     from experiments.orc_structural_search.records import append_record
     from tests.experiments.orc_structural_search_support import REPO
-    criterion = REPO / "experiments/orc_structural_search/criteria/module.json"
+    criterion = module_criterion(tmp_path)
     evidence, task = tmp_path / "evidence", tmp_path / "task"
     evidence.mkdir()
     append_record(evidence / "log.jsonl", {"kind": "evaluation", "task_id": task.name, "outcome": "completed",
@@ -314,7 +316,7 @@ def test_successor_pool_refuses_missing_or_foreign_source_hash_before_collect(tm
 def test_successor_judge_refuses_invalid_pool_or_source_hash_before_dispatch(tmp_path, monkeypatch, pool_hash, row_hash):
     from experiments.orc_structural_search.records import append_record
     from tests.experiments.orc_structural_search_support import REPO
-    criterion = REPO / "experiments/orc_structural_search/criteria/module.json"
+    criterion = module_criterion(tmp_path)
     digest = three_arm.load_criterion(criterion)["criterion_sha256"]
     evidence, pool = tmp_path / "evidence", tmp_path / "pool"
     evidence.mkdir()
@@ -360,10 +362,10 @@ def test_truncated_native_session_does_not_abort_episode_settlement(sandboxed, w
     evidence = world.tmp / "evidence"
     _, parent = archive(world.candidate, evidence, world.runtime)
     config = replace(module_config(), episode_wall_clock_sec=5 if exhausted else 120)
-    row = run_episode(parent, config, interface="I1", mode="unguided", agent_cmd=[provider, "-p"],
+    row = run_episode(parent, launch_config(world, config), interface="I1", mode="unguided", agent_cmd=[provider, "-p"],
                       work_root=world.outside / "work", evidence_root=evidence, episode_index=0,
                       runtime=world.runtime, env={**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}"},
-                      solutions={world.task.name: world.solution}, call_cap=160)
+                      solutions={world.task.name: world.solution}, call_cap=160, criterion=world.criterion)
     assert (row["outcome"], row["provider_calls"], row["scan_hits"], row["scan_pending"], row["consumption"]) == (
         "exhausted" if exhausted else "incident", 1, "unavailable", True, "unavailable")
     assert row["scan_error"] and row["incidents"] and not row.get("candidate_root")
@@ -386,15 +388,15 @@ def test_truncated_native_session_turns_completed_evaluation_into_unpoolable_inc
     (world.fakebin / "claude").write_text(SCRIPTED.replace("prompt = sys.stdin.read()",
         "prompt = sys.stdin.read()\n" + truncated_native_writer("claude")))
     script(world, [{"match": "Implement this change", "result": {"summary": "done", "account": "done"}}])
-    criterion = REPO / "experiments/orc_structural_search/criteria/module.json"
+    criterion = world.criterion
     config = replace(module_config(), criterion_sha256=three_arm.load_criterion(criterion)["criterion_sha256"])
     evidence = world.tmp / "evidence"
     _, parent = archive(world.candidate, evidence, world.runtime)
-    row = evaluate_and_scan(parent, config, task=world.task, replicate=1, work_root=world.outside / "work",
+    row = evaluate_and_scan(parent, launch_config(world, config), task=world.task, replicate=1, work_root=world.outside / "work",
                             evidence_root=evidence, runtime=world.runtime,
                             env={**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}",
                                  "SCRIPTED_RESULTS_FILE": str(world.results)}, timeout_sec=600,
-                            solutions={world.task.name: world.solution}, holdouts=(), fields={}, call_cap=160)
+                            solutions={world.task.name: world.solution}, holdouts=(), fields={}, call_cap=160, criterion=world.criterion)
     assert (row["outcome"], row["provider_calls"], row["scan_hits"], row["scan_pending"], row["consumption"]) == (
         "incident", 1, "unavailable", True, "unavailable")
     assert row["realized_perform_sites"][0]["status"] == "completed" and row["scan_error"]
@@ -432,11 +434,11 @@ def test_quota_keeps_priority_over_timeout_and_incomplete_scan(sandboxed, world,
                           f"print({quota!r}, flush=True)\ntime.sleep(600)\n")
     evidence = world.tmp / "evidence"
     _, parent = archive(world.candidate, evidence, world.runtime)
-    row = run_episode(parent, replace(module_config(), episode_wall_clock_sec=5), interface="I1", mode="three_arm",
+    row = run_episode(parent, launch_config(world, replace(module_config(), episode_wall_clock_sec=5)), interface="I1", mode="three_arm",
                       agent_cmd=["claude", "-p"], work_root=world.outside / "work", evidence_root=evidence,
                       episode_index=0, runtime=world.runtime,
                       env={**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}"},
-                      solutions={world.task.name: world.solution}, call_cap=160, fields={"arm": "I1"})
+                      solutions={world.task.name: world.solution}, call_cap=160, fields={"arm": "I1"}, criterion=world.criterion)
     assert (row["outcome"], quota_reason(row), outcome(row), three_arm.non_quota([row], evidence)["I1"]) == (
         "incident", quota, "quota_incident", 0)
     assert row["incidents"][-1] == PREFIX + quota

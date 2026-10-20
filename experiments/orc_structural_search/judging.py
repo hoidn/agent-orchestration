@@ -30,7 +30,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from experiments.compare import pool as pooling, summarize
-from experiments.orc_structural_search import ledger
+from experiments.orc_structural_search import ledger, qualification
 from experiments.orc_structural_search.records import append_record, read_records
 from experiments.orc_structural_search.scoring import (
     join_scores, latest_evaluations, outcome_rows, pool_evaluations, unvalued_row)
@@ -70,14 +70,22 @@ def attempt_judge(scorer: Callable[[Path, str, str], None], pool: Path, name: st
 
 
 def score_pool(evidence_root: Path, pool: Path, key: str, *, names: Sequence[str], solution: str, call_cap: int,
-               scorer: Callable[[Path, str, str], None]) -> None:
+               scorer: Callable[[Path, str, str], None], criterion: Path | None = None) -> None:
     """Reserve every judge's ledger entry (one planned call per batch), then per judge: score (attempt_judge),
     verify the clones, scan the judge; every entry is settled at the end, whatever happened."""
-    batches = len(json.loads((pool / "records" / "mapping.json").read_text())["batches"])
+    if criterion is None:
+        qualification.validate(None)
+    context = qualification.pool_context(pool)
+    checked = qualification.validate(criterion, **context, operation='quality')
+    mapping = json.loads((pool / 'records/mapping.json').read_text())
+    if mapping['criterion_sha256'] != checked['criterion_sha256'] or set(names) != set(mapping['judges']):
+        raise ValueError('qualification: actual pool criterion/judge dispatch mismatch')
+    batches = len(mapping['batches'])
     slots = {name: ledger.reserve(evidence_root, kind="judge", key=f"{key} {name}", planned=batches, cap=call_cap)
              for name in names}
     try:
         for name in names:
+            qualification.validate(criterion, **qualification.pool_context(pool), operation='quality')
             attempt_judge(scorer, pool, name)
             pooling.verify_pool(pool)
             pooling.scan_judge(pool, name, solution)
@@ -152,7 +160,7 @@ def judge_generation(evidence_root: Path, generation: int, tasks: Sequence[Path]
         pool = pool_evaluations(evidence_root, task, out=pool_root / label / task.name, judges=judges,
                                 criterion=criterion, include=include)
         score_pool(evidence_root, pool, f"gen {generation} {task.name}", names=names, solution=solutions[task.name],
-                   call_cap=call_cap, scorer=scorer)
+                   call_cap=call_cap, scorer=scorer, criterion=criterion)
         for name in names:
             judge_scan(pool, name)
         summarize.summarize(pool, criterion)

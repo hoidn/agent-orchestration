@@ -94,27 +94,56 @@ def private_roots(criterion: Path | None, *, public_roots=(), workspace_roots=()
         return ()
     receipt_path = reference(frozen['qualification'], criterion)
     receipt = read(receipt_path)
-    roots = {receipt_path.parent, *family_roots(receipt, receipt_path)}
+    roots = {receipt_path.parent, *family_roots(receipt, receipt_path),
+             *control_roots(frozen, criterion)}
+    if receipt['family']['kind'] == 'oracle-controls-v1':
+        rule_path = reference(receipt['family']['rule'], receipt_path)
+        roots.update((rule_path.parent, reference(read(rule_path)['oracle'], rule_path).parent))
     cal_path = reference(receipt['measure']['criterion'], receipt_path)
     roots.add(cal_path.parent)
-    for pool in receipt['measure']['pools']:
-        mapping = reference(pool['mapping'], receipt_path)
-        require(mapping.name == 'mapping.json' and mapping.parent.name == 'records', 'invalid calibration pool path')
-        roots.add(mapping.parent.parent)
-        roots.add(reference(pool['results'], receipt_path).parent)
-        roots.update(reference(ref, receipt_path).parent for ref in pool['patches'].values())
+    roots.update(control_roots(read(cal_path), cal_path))
+    roots.update(pool_roots(receipt, receipt_path))
     protected = [Path(p).resolve() for p in (*public_roots, *workspace_roots)]
+    evaluator = frozen['measurement']['evaluator']
+    protected += [reference(evaluator['score_workflow'], criterion)]
+    protected += [reference(info['providers'], criterion) for info in evaluator['judges'].values()]
+    if receipt['family']['rule']['sha256'] in PUBLIC_RULE_HASHES:
+        protected.append(reference(receipt['family']['rule'], receipt_path))
     for root in roots:
         require(all(not public.is_relative_to(root) for public in protected),
                 f'private evidence layout would mask public execution path: {root}')
     return tuple(sorted(root for root in roots if not any(root != other and root.is_relative_to(other) for other in roots)))
 
 
+def pool_roots(receipt, receipt_path):
+    roots = set()
+    for pool in receipt['measure']['pools']:
+        mapping = reference(pool['mapping'], receipt_path)
+        require(mapping.name == 'mapping.json' and mapping.parent.name == 'records', 'invalid calibration pool path')
+        roots.add(mapping.parent.parent)
+        roots.add(reference(pool['results'], receipt_path).parent)
+        roots.update(reference(ref, receipt_path).parent for ref in pool['patches'].values())
+    return roots
+
+
+PUBLIC_RULE_HASHES = frozenset({
+    '9faa4c01d0e3f231278f85d809a3e0d3bb3f64813cd59afba690089afd355f46',
+    'c6cfb85a9b21268fcffb32209fa45974ca139743c3cc1cdb0444d04e7c37efc9',
+})
+
+
+def control_roots(frozen, containing):
+    return {reference(control['source'], containing).parent
+            for task in frozen['measurement']['tasks'].values() for control in task['controls'].values()}
+
+
 def family_roots(receipt, receipt_path):
     roots = set()
     for evidence in receipt['family']['tasks'].values():
         for source in evidence.get('sources', []):
-            roots.add(reference(source, receipt_path).parent)
+            path = reference(source, receipt_path)
+            if source['sha256'] not in PUBLIC_RULE_HASHES:
+                roots.add(path.parent)
         roots.update(sample_roots(evidence.get('samples', []), receipt_path))
         for control in evidence.get('controls', []):
             roots.update(reference(control[key], receipt_path).parent for key in ('submission', 'result'))
@@ -144,3 +173,16 @@ def hidden_env(env, roots):
     if roots:
         result['COMPARE_HIDE'] = os.pathsep.join(dict.fromkeys([*current, *map(str, roots)]))
     return result
+
+
+def scan_evidence(records, metadata):
+    """Scan direct/resumed evaluation histories for private qualification paths."""
+    from experiments.compare import scan
+    from experiments.compare.repos import dump
+    home = Path.home()
+    patterns = {'qualification': '|'.join(scan.spelled(Path(p), home) + scan.BOUNDARY
+                                         for p in metadata['qualification_private_roots'])}
+    hits = scan.find_hits(Path(records), Path(metadata['tree']), metadata['created_at'], home, patterns)
+    metadata['qualification_scan'] = {'hits': hits, 'calls': len(list((Path(records) / 'calls').glob('*')))}
+    dump(Path(records) / 'record.json', metadata)
+    return hits

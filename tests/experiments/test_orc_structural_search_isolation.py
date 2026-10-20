@@ -1,3 +1,4 @@
+from tests.experiments.orc_structural_search_support import launch_config
 """Mutator isolation: the shims mask the evidence root, sibling episodes and the work root's evaluation
 directories from an episode's sandboxed CLI calls (scripted mutator and CLI; no provider is called)."""
 
@@ -22,9 +23,9 @@ def test_a_mutator_cannot_read_a_siblings_file_or_the_evidence_root(sandboxed, w
     reads = f"{sibling} {evidence / 'log.jsonl'} direct.orc ../py/orchestrator/__init__.py"
     env = fake_claude(world, f"#!/bin/sh\ncat {reads} 2>/dev/null\nexit 0\n")
     (world.outside / "mutator.py").write_text(MUTATOR_ONE_CALL)
-    row = run_episode(parent, config_of(), interface="I1", mode="unguided", episode_index=1, work_root=work,
+    row = run_episode(parent, launch_config(world, config_of()), interface="I1", mode="unguided", episode_index=1, work_root=work,
                       agent_cmd=[sys.executable, "-I", str(world.outside / "mutator.py")], evidence_root=evidence,
-                      runtime=world.runtime, env=env, solutions={world.task.name: world.solution}, call_cap=160)
+                      runtime=world.runtime, env=env, solutions={world.task.name: world.solution}, call_cap=160, criterion=world.criterion)
     out = (evidence / "episodes" / row["episode_id"] / "calls" / "1" / "stdout.txt").read_text()
     names = ("episodes", "records", "runs", "agents", "env-manifests")
     assert ((parent / "direct.orc").read_text() in out, "__version__" in out, "sibling-edit" in out,

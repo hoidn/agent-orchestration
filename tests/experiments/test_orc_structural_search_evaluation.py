@@ -1,3 +1,4 @@
+from tests.experiments.orc_structural_search_support import launch_config
 """Evaluation launch path: a seed runs through the public `run` route in a fresh clone behind the shims,
 with scripted providers (no provider is called)."""
 
@@ -38,8 +39,8 @@ def sandboxed():
 
 def run(world, timeout_sec=NO_KILL_SEC, candidate=None, config=CONFIG):
     env = {**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}", "SCRIPTED_RESULTS_FILE": str(world.results)}
-    record = evaluate(candidate or world.candidate, config, task_package=world.task, work_root=world.evidence,
-                      replicate=1, runtime=world.runtime, env=env, timeout_sec=timeout_sec)
+    record = evaluate(candidate or world.candidate, launch_config(world, config), task_package=world.task, work_root=world.evidence,
+                      replicate=1, runtime=world.runtime, env=env, timeout_sec=timeout_sec, criterion=world.criterion)
     return record, env
 
 
@@ -129,7 +130,7 @@ def test_resume_keeps_evaluation_id_and_completes(sandboxed, world):
     script(world, [HANG])
     first, env = run(world, timeout_sec=KILL_AFTER_SEC)
     script(world, [CHANGE])
-    resumed = resume(first, env=env, timeout_sec=NO_KILL_SEC)
+    resumed = resume(first, env=env, timeout_sec=NO_KILL_SEC, criterion=world.criterion)
     assert (resumed.evaluation_id, resumed.run_id, resumed.outcome, resumed.resume_count, resumed.incidents) == (
         first.evaluation_id, first.run_id, "completed", 1, first.incidents)
     assert [(site["identity"], site["attempts"], site["status"]) for site in resumed.realized_perform_sites] == [

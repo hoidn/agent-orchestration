@@ -50,6 +50,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from statistics import mean
 
+from experiments.orc_structural_search import qualification
 from experiments.orc_structural_search import ledger
 from experiments.orc_structural_search.config import ExperimentConfig, load_config
 from experiments.orc_structural_search.driver import (check_roots, check_solutions, evaluate_all, run_episode)
@@ -324,30 +325,9 @@ def run_mode2(config_path: Path, *, phase1_joined: Path, seeds: Sequence[Path], 
     tasks must be the criterion's; judge pools go under `pools_root` (check_pools_root)."""
     config = load_config(config_path)
     check_splits(adaptive_tasks, validation_task, criterion)
-    pools_root = check_pools_root(pools_root, work_root, evidence_root)
-    work_root, evidence_root = check_roots(work_root, evidence_root)
-    if (evidence_root / "log.jsonl").exists():
-        raise FileExistsError(f"{evidence_root / 'log.jsonl'} exists: give every mode 2 run a fresh evidence root")
-    launch = {"work_root": work_root, "evidence_root": evidence_root, "runtime": runtime, "env": env,
-              "timeout_sec": timeout_sec, "call_cap": call_cap, "concurrency": concurrency, "agent_cmd": agent_cmd,
-              "run_seed": run_seed, "holdouts": (validation_task,), "pools_root": pools_root,
-              "solutions": check_solutions([*adaptive_tasks, validation_task], solutions, runtime)}
-    judge = {"criterion": criterion, "judges": judges, "scorer": scorer}
-    roots = {seed.stem: str(archive_seed(seed, evidence_root, runtime)[1]) for seed in seeds}
-    entries = initial_archive(json.loads(Path(phase1_joined).read_text()), roots,
-                              tasks=[t.name for t in adaptive_tasks])
-    rng = random.Random(run_seed)
-    interfaces = [("I1", "I2")[k % 2] for k in range(episodes_per_generation)]
-    try:
-        archive = initial_generation(entries, config, adaptive_tasks, launch=launch, judge=judge)
-        for n in range(1, generations + 1):
-            archive = generation(n, archive, config, rng=rng, adaptive_tasks=adaptive_tasks, interfaces=interfaces,
-                                 launch=launch, judge=judge)
-    finally:  # a refused generation (CallCapExceeded) keeps the trajectory so far
-        if (evidence_root / "archive").is_dir():
-            result = mode2_readout(read_records(evidence_root / "log.jsonl"), evidence_root / "archive")
-            (evidence_root / "readout.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
-    return result, launch
+    qualification.validate(criterion, tasks=[*adaptive_tasks, validation_task], config_sha256=config.criterion_sha256,
+                           runtime=runtime, judges=judges, operation='launch')
+    raise ValueError('successor adaptive selection is unsupported; frozen Phase 2 is read-only')
 
 
 def validate_finalists(archive_path: Path, *, config: ExperimentConfig, validation_task: Path, launch: Mapping,

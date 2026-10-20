@@ -11,7 +11,7 @@ from dataclasses import replace
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from experiments.orc_structural_search import ledger
+from experiments.orc_structural_search import ledger, qualification
 from experiments.orc_structural_search.candidates import imports
 from experiments.orc_structural_search.config import ExperimentConfig, load_config
 from experiments.orc_structural_search.driver import (
@@ -66,7 +66,7 @@ def run_mode1(config_path: Path, *, seeds: Sequence[Path], tasks: Sequence[Path]
               evidence_root: Path, episodes: int, agent_cmd: Sequence[str], replicates: int, runtime: Path,
               env: Mapping[str, str], timeout_sec: float, solutions: Mapping[str, str], call_cap: int,
               concurrency: int = 4, holdouts: Sequence[Path] = (), continue_run: bool = False,
-              guard: QuotaGuard | None = None, hide: Sequence[Path] = ()) -> dict:
+              guard: QuotaGuard | None = None, hide: Sequence[Path] = (), criterion: Path | None = None) -> dict:
     """Enumerate the catalog, run `episodes` unguided I1 episodes (not counting quota incidents, each relaunched at
     most guard.retries times) against the seed the configuration's entry names, evaluate every accepted child not
     evaluated before (new_children) like a seed (`mode: "unguided"`) and write <evidence>/readout.json. Evaluations
@@ -80,9 +80,11 @@ def run_mode1(config_path: Path, *, seeds: Sequence[Path], tasks: Sequence[Path]
     work_root, evidence_root = check_roots(work_root, evidence_root)
     prior = prior_rows(work_root, evidence_root, continue_run)
     solutions = check_solutions(tasks, solutions, runtime)
+    qualification.validate(criterion, tasks=tasks, config_sha256=config.criterion_sha256, runtime=runtime)
     guard = guard or QuotaGuard()
     launch = {"work_root": work_root, "evidence_root": evidence_root, "runtime": runtime, "env": env,
-              "timeout_sec": timeout_sec, "solutions": solutions, "holdouts": holdouts, "call_cap": call_cap}
+              "timeout_sec": timeout_sec, "solutions": solutions, "holdouts": holdouts, "call_cap": call_cap,
+              "criterion": criterion}
     seeded = catalog_jobs(seeds, config, evidence_root, runtime)
     parent = entry_parent(seeded, config)
     before = [row for row in prior if row["kind"] == "episode"]
@@ -96,7 +98,7 @@ def run_mode1(config_path: Path, *, seeds: Sequence[Path], tasks: Sequence[Path]
         episode = with_retries(lambda _attempt: run_episode(
             parent, config, interface="I1", mode="unguided", agent_cmd=agent_cmd, episode_index=next(index),
             env=env, hide=hide, **{key: launch[key] for key in ("work_root", "evidence_root", "runtime",
-                                                               "solutions", "call_cap", "holdouts")}), guard)
+                                                               "solutions", "call_cap", "holdouts", "criterion")}), guard)
         launch_units(units(new_children([episode], config, evaluated), tasks, replicates), concurrency=concurrency,
                      guard=guard, **launch)
     result = readout(read_records(evidence_root / "log.jsonl"), evidence_root)
@@ -144,7 +146,7 @@ def catalog_jobs(seeds: Sequence[Path], config: ExperimentConfig, evidence_root:
 def enumerate_catalog(seeds: Sequence[Path], config: ExperimentConfig, *, tasks: Sequence[Path], work_root: Path,
                       evidence_root: Path, replicates: int, runtime: Path, env: Mapping[str, str],
                       timeout_sec: float, solutions: Mapping[str, str], call_cap: int, concurrency: int = 1,
-                      holdouts: Sequence[Path] = ()) -> list[dict]:
+                      holdouts: Sequence[Path] = (), criterion: Path | None = None) -> list[dict]:
     """Archive every seed and evaluate it once per task and replicate (`mode: "catalog"`), at most `concurrency`
     evaluations at a time."""
     work_root, evidence_root = check_roots(work_root, evidence_root)
@@ -152,4 +154,4 @@ def enumerate_catalog(seeds: Sequence[Path], config: ExperimentConfig, *, tasks:
     return evaluate_all(catalog_jobs(seeds, config, evidence_root, runtime), tasks=tasks, replicates=replicates,
                         concurrency=concurrency, work_root=work_root,
                         evidence_root=evidence_root, runtime=runtime, env=env, timeout_sec=timeout_sec,
-                        solutions=solutions, holdouts=holdouts, call_cap=call_cap)
+                        solutions=solutions, holdouts=holdouts, call_cap=call_cap, criterion=criterion)

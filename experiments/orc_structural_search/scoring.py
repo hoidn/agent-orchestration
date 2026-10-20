@@ -62,6 +62,7 @@ from statistics import mean, stdev, variance
 
 from experiments.compare import pool as pooling, prepare
 from experiments.compare.repos import dump, guard, load, runtime_commit, sha256_file, visible_in_sandbox
+from experiments.orc_structural_search import qualification
 from experiments.orc_structural_search.config import check_criterion_hashes
 from experiments.orc_structural_search.quota import job_key
 from experiments.orc_structural_search.readout import QUOTA_INCIDENT, diversity, outcome, share
@@ -89,6 +90,8 @@ def pool_evaluations(evidence_root: Path, task_package: Path, *, out: Path, judg
     anchors repeated); return the pool directory. Judges are MODEL[=PROVIDERS_JSON] as for `prepare.py pool` and
     must be the criterion's."""
     task, out = Path(task_package).resolve(), Path(out).resolve()
+    if json.loads(Path(criterion).read_text()).get('purpose') in ('measure-free', 'calibration'):
+        qualification.validate(criterion, operation='quality')
     names = sorted(spec.partition("=")[0] for spec in judges)
     if names != sorted(json.loads(Path(criterion).read_text())["judges"]):
         raise ValueError(f"judges {names} are not the criterion's {criterion}")
@@ -98,6 +101,8 @@ def pool_evaluations(evidence_root: Path, task_package: Path, *, out: Path, judg
     if not completed:
         raise ValueError(f"no completed evaluation of {task.name} in {evidence_root}/log.jsonl")
     check_criterion_hashes(completed, sha256_file(criterion))
+    runtime = Path(load(Path(completed[0]['records_dir']) / 'record.json')['runtime'])
+    qualification.validate(criterion, tasks=[task], runtime=runtime, judges=judges, operation='quality')
     records, policies = {}, {}
     for row in completed:
         path = Path(row["records_dir"]).resolve()
@@ -124,6 +129,8 @@ def build_pool(task: Path, criterion: Path, out: Path, judges: Sequence[str], re
                key: Callable) -> None:
     """`pool.pool` with every usable run's final patch in batches of at most ten clones, anchors repeated."""
     ref = next(iter(records.values()))
+    checked = qualification.validate(criterion, tasks=[task], runtime=Path(ref['runtime']), judges=judges,
+                                     operation='quality')
     if {(r["task"], r["compare_base"]) for r in records.values()} != {(str(task), ref["compare_base"])}:
         raise SystemExit("runs in one pool must share the task and the seeded commit")
     guard(Path(ref["main"]), out)
@@ -137,7 +144,7 @@ def build_pool(task: Path, criterion: Path, out: Path, judges: Sequence[str], re
         directory.mkdir(parents=True)
     clones, members = pooling.build_batches(out, task, ref, split_batches(finals, key))
     default = Path(ref["runtime"]) / "experiments/compare/score.providers.json"
-    mapping = {"task": str(task), "criterion_sha256": sha256_file(criterion), "compare_base": ref["compare_base"],
+    mapping = {"task": str(task), "criterion_sha256": sha256_file(criterion), "qualification": checked, "compare_base": ref["compare_base"],
                "main": ref["main"], "runtime": ref["runtime"], "runtime_commit": commit, "created_at": time.time(),
                "judges": {name: {"dir": secrets.token_hex(8), "providers": str(Path(providers or default).resolve())}
                           for name, _, providers in (spec.partition("=") for spec in judges)},

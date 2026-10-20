@@ -139,3 +139,14 @@ def refresh(q):
     study = json.loads(q.criterion.read_text())
     study["qualification"] = ref(q.receipt)
     write(q.criterion, study)
+
+
+def module_criterion(root):
+    template = REPO / 'experiments/orc_structural_search/criteria/three_arm.json'
+    value = json.loads(template.read_text())
+    value.update(models={'gpt-6.1-sol': ['high'], 'claude-opus-5-5': ['high']}, per_call_timeout_sec=5400,
+                 arms={'I1': {'interface': 'I1', 'condition': 'topology-only', 'parent': 'orc'},
+                       'I2': {'interface': 'I2', 'condition': 'topology-only', 'parent': 'orc'},
+                       'I3': {'interface': 'I3', 'condition': 'topology-only', 'parent': 'python'},
+                       'I1/module': {'interface': 'I1', 'condition': 'module', 'parent': 'orc'}})
+    return write(root / 'module-criterion.json', value)

@@ -52,7 +52,7 @@ from pathlib import Path
 
 from experiments.compare import summarize
 from experiments.compare.repos import sha256_file
-from experiments.orc_structural_search import judging, ledger
+from experiments.orc_structural_search import qualification, judging, ledger
 from experiments.orc_structural_search.acceptance import check_parent, diagnosis, require_candidate
 from experiments.orc_structural_search.candidates import compile_candidate
 from experiments.orc_structural_search.config import (
@@ -77,7 +77,7 @@ OUT_OF_SCOPE = frozenset({"scope_exceeded", "frozen_surface_changed", "digest_mi
                           "declaration_collision"})
 DIFF_FILE = re.compile(r"^\+\+\+ b/(.+)$", re.M)  # driver.episode_diff's header of a file
 SEEDS = ("orc", "python", "run_seed", "subset_seed")  # the parents row fields a continued run must repeat
-EPISODE_KEYS = ("work_root", "evidence_root", "runtime", "env", "solutions", "call_cap", "holdouts")
+EPISODE_KEYS = ("work_root", "evidence_root", "runtime", "env", "solutions", "call_cap", "holdouts", "criterion")
 CONTINUE = "rerun with --continue after the provider's reset"
 
 
@@ -298,6 +298,8 @@ def run_three_arm(config_path: Path, *, parents: Mapping[str, Path], tasks: Sequ
     if smoke and episodes_per_arm:
         raise ValueError("a smoke run evaluates the parents only: pass episodes_per_arm 0")
     frozen = check_run(config_path, criterion, agent_cmd, timeout_sec)
+    qualification.validate(criterion, tasks=tasks, config_sha256=load_config(config_path).criterion_sha256,
+                           runtime=runtime)
     check_hide(hide)
     work_root, evidence_root = check_roots(work_root, evidence_root)
     prior = prior_rows(work_root, evidence_root, continue_run)
@@ -305,7 +307,7 @@ def run_three_arm(config_path: Path, *, parents: Mapping[str, Path], tasks: Sequ
     guard, log = guard or QuotaGuard(), evidence_root / "log.jsonl"
     launch = {"work_root": work_root, "evidence_root": evidence_root, "runtime": runtime, "env": env,
               "timeout_sec": timeout_sec, "solutions": check_solutions(tasks, solutions, runtime),
-              "holdouts": holdouts, "call_cap": call_cap}
+              "holdouts": holdouts, "call_cap": call_cap, "criterion": criterion}
     roots, row = archive_parents(parents, config_path, evidence_root=evidence_root, runtime=runtime, env=env,
                                  run_seed=run_seed, subset_seed=subset_seed)
     row["criterion_sha256"] = frozen["criterion_sha256"]
@@ -442,7 +444,7 @@ def judge(evidence_root: Path, pool: Path, task: Path, *, criterion: Path, judge
         raise ValueError("pool criterion_sha256 differs from the requested criterion")
     check_row_criteria(read_records(evidence_root / "log.jsonl"), frozen)
     judging.score_pool(evidence_root, pool, f"three-arm {task.name}", names=names, solution=solution,
-                       call_cap=call_cap, scorer=scorer or judging.run_judge)
+                       call_cap=call_cap, scorer=scorer or judging.run_judge, criterion=criterion)
     for name in names:
         judging.judge_scan(pool, name)
     summarize.summarize(pool, criterion)

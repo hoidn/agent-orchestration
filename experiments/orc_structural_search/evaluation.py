@@ -49,7 +49,7 @@ from pathlib import Path
 
 from experiments.compare.prepare import ArmSpec, read_memo, run_arm
 from experiments.compare.repos import dump, load, runtime_commit
-from experiments.orc_structural_search import acceptance, ledger, site_evidence  # acceptance imports this module: call time only
+from experiments.orc_structural_search import acceptance, ledger, site_evidence, qualification  # acceptance imports this module: call time only
 from experiments.orc_structural_search.candidates import candidate_id, compile_candidate
 from experiments.orc_structural_search.config import ExperimentConfig
 from experiments.orc_structural_search.metrics import is_python
@@ -85,6 +85,7 @@ class EvaluationRecord:
     unexercised_perform_sites: list[dict] | str = UNAVAILABLE
     allocation_signature: dict | str = UNAVAILABLE
     allocation_signature_reason: str | None = "missing_closed_program"
+    qualification: dict | None = None
 
 
 def evaluation_id(candidate: str, task_id: str, evaluator_version: str, env_manifest_digest: str,
@@ -136,9 +137,14 @@ def records_root(candidate_root: Path, *, task_package: Path, work_root: Path, r
 
 def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Path, work_root: Path,
              replicate: int, runtime: Path, env: Mapping[str, str], timeout_sec: float,
-             attempt: int = 1) -> EvaluationRecord:
+             attempt: int = 1, criterion: Path | None = None) -> EvaluationRecord:
     """Run the accepted candidate once in a fresh clone of the task package; `work_root` is the sandbox-visible
     work root (see the module docstring); `attempt` > 1 is a quota relaunch of the same job."""
+    checked = qualification.validate(criterion, tasks=[task_package], config_sha256=config.criterion_sha256,
+                                     runtime=runtime)
+    private = qualification.private_roots(criterion, public_roots=[runtime, task_package],
+                                          workspace_roots=[candidate_root, work_root])
+    env = qualification.hidden_env(env, private)
     candidate_root, work_root = candidate_root.resolve(), work_root.resolve()
     python = is_python(config)
     compiled = (acceptance.check_python(candidate_root, config, runtime=runtime) if python
@@ -165,6 +171,8 @@ def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Pa
         command=(sys.executable, "-P", str(source)) if python else None)
     records = run_arm(task_package, eid, work_root, runtime, spec=spec)
     arm = load(records / "record.json")
+    arm.update(qualification=checked, qualification_private_roots=list(map(str, private)))
+    dump(records / "record.json", arm)
     if "COMPARE_MAX_CALLS" in env:
         arm["planned_maximum"] = env["COMPARE_MAX_CALLS"]
         dump(records / "record.json", arm)
@@ -177,20 +185,32 @@ def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Pa
         exclude.write(f"/{DEV_CHECK}\n")
     pending = EvaluationRecord(eid, UNAVAILABLE, state_dir, records, env_digest, "incident", None, 0.0, 0, 0, (),
                                attempt, config.criterion_sha256)
+    pending = replace(pending, qualification=checked)
     pending = replace(pending, **site_evidence.candidate_evidence(candidate_root, config, runtime=runtime,
                                                                   compiled=compiled))
     return _launch(pending, ["bash", str(records / "command.sh")], env, timeout_sec)
 
 
-def resume(record: EvaluationRecord, *, env: Mapping[str, str], timeout_sec: float) -> EvaluationRecord:
+def resume(record: EvaluationRecord, *, env: Mapping[str, str], timeout_sec: float,
+           criterion: Path | None = None) -> EvaluationRecord:
     """Resume an incident's run (`orchestrator resume <run_id> --state-dir <state_dir>` through resume.sh)
     under the same evaluation id; resume_count goes up by one."""
+    if criterion is None:
+        qualification.validate(None)
+    metadata = load(record.records_dir / 'record.json')
+    runtime, task = Path(metadata['runtime']), Path(metadata['task'])
+    checked = qualification.validate(criterion, tasks=[task], config_sha256=record.criterion_sha256, runtime=runtime)
+    private = qualification.private_roots(criterion, public_roots=[runtime, task],
+                                          workspace_roots=[Path(metadata['tree'])])
+    env = qualification.hidden_env(env, private)
+    metadata.update(qualification=checked, qualification_private_roots=list(map(str, private)))
+    dump(record.records_dir / 'record.json', metadata)
     if not (record.records_dir / "resume.sh").is_file():
         raise ValueError(f"evaluation {record.evaluation_id} has no resume.sh: a generic-command run is not resumable")
     if record.outcome != "incident" or record.run_id == UNAVAILABLE:
         raise ValueError(f"evaluation {record.evaluation_id} is {record.outcome} with run id {record.run_id}: "
                          "only an incident with a started run can be resumed")
-    resumed = replace(record, resume_count=record.resume_count + 1)
+    resumed = replace(record, resume_count=record.resume_count + 1, qualification=checked)
     return _launch(resumed, ["bash", str(record.records_dir / "resume.sh"), record.run_id], env, timeout_sec)
 
 
@@ -227,6 +247,8 @@ def _launch(record: EvaluationRecord, argv: list[str], env: Mapping[str, str],
     elif outcome == "incident":
         incidents += (f"launch {record.resume_count}: no terminal row in run {run_id} "
                       f"(launcher exit {status}; see {log})",)
+    if metadata.get('qualification_private_roots'):
+        qualification.scan_evidence(records, metadata)
     return replace(record, run_id=run_id, outcome=outcome, value=value, incidents=incidents,
                    wall_clock_sec=record.wall_clock_sec + elapsed,
                    provider_calls=len(list((records / "calls").glob("*"))),
