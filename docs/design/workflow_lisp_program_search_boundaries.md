@@ -57,12 +57,16 @@ mutation probabilities, fragment archives, fitness, winners, elites, or
 selection semantics. Optimizer concepts live entirely in the replaceable
 feature layer, which reaches the substrate only through its public contracts.
 
-## 4. Whole-candidate evidence is fitness authority
+## 4. Whole-program evidence is deployment authority
 
-Selection and promotion judgments bind to evidence about complete, certified,
-executed candidates. Local attribution (per-fragment, per-site, per-visit
-signals) is diagnostic only and never selection or promotion authority on its
-own.
+Deployment-frontier membership, finalist selection and promotion require
+evidence about complete, compiled and executed candidates. Contextual
+fragment observations and explicit search-value estimates may guide
+experiment-side proposal targeting, parent sampling and exploratory
+retention, including retention of dominated candidates. They cannot alone
+establish whole-program quality, validate a replacement, or authorize
+promotion. Their provenance, context, uncertainty and noncausal limitations
+remain explicit.
 
 ## 5. Evidence separation
 
@@ -122,3 +126,10 @@ prompt-provenance questions answerable in the existing system.
 Amended 2026-10-18 under the owner's directive to execute the structural
 search roadmap; rationale in the
 [structural search driver design](orc_structural_search_driver.md).
+
+<a id="proposed-amendment-2026-10-19"></a>
+
+Amended 2026-10-19: invariant 4 replaced under the owner's cumulative
+workflow evolution extension (accepted for design, unselected for spend);
+rationale in the
+[cumulative campaigns design](orc_structural_search_cumulative_campaigns.md).

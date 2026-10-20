@@ -41,8 +41,10 @@
   [Experiment O](orc_reuse_introspection_search_experiment.md#experiment-o--program-space-then-search),
   [Conditional Task 6](../plans/2026-09-08-orc-research-demonstration-plan.md#conditional-task-6--test-search-and-representation-value),
   the [program-search boundary invariants](workflow_lisp_program_search_boundaries.md)
-  (binding, as amended 2026-10-18 for invariants 1 and 6; the amendment's
-  rationale is below), the [design lessons](../orc_workflow_design_lessons.md) and the
+  (binding, as amended 2026-10-18 for invariants 1 and 6, whose rationale is
+  below, and 2026-10-19 for invariant 4, whose rationale is in the
+  [cumulative campaigns design](orc_structural_search_cumulative_campaigns.md)),
+  the [design lessons](../orc_workflow_design_lessons.md) and the
   [normal-session boundary](orc_reuse_introspection_search_experiment.md#normal-agent-sessions-and-evaluation-boundary).
 - **Companion:** [source-site inspection](workflow_lisp_source_site_inspection.md)
   owns the read-only site manifest over a successful compilation. This
@@ -412,9 +414,23 @@ evaluation and judge calls would exceed the call cap is refused before its
 episodes, and again before its evaluations. The validation task is a
 holdout root of every episode and adaptive evaluation scan.
 `validate_finalists` evaluates the top two archive entries, the reference
-and `direct` on the validation task.
+and `direct` on the validation task. For successor studies this calls-based
+archive (incumbent plus six on mean value and mean calls) and its generation
+protocol are superseded by mode 3; no calls-only selection returns through a
+compatibility fallback.
 
-**Skeleton diversity (both modes).** LLM mutation chains over a Lisp-like
+**Mode 3: cumulative campaigns.** Multi-generation campaigns over whole
+programs under `module`: a persistent experiment-owned evidence store shared
+by campaigns, campaign checkpoint and resume, a results archive whose
+frontier is the objective below, a bounded breeding pool (a frontier subset
+plus a reservoir of non-frontier candidates) under two compared parent
+policies, diversity pressure with a revisit and futility rule, and a
+cumulative budget readout. Owned by the
+[cumulative campaigns design](orc_structural_search_cumulative_campaigns.md);
+unselected for spend and gated by the roadmap's Phase 2 Gates. This design
+changes nothing for it beyond the pointers here.
+
+**Skeleton diversity (all modes).** LLM mutation chains over a Lisp-like
 DSL converge to a few recurring forms with mostly terminal variation
 (Gurkan, Stonedahl and Wilensky, "Mutation Without Variation",
 [arXiv 2606.05408](https://arxiv.org/abs/2606.05408); cited, not
@@ -906,9 +922,14 @@ task, evaluator version and the runtime invocation when reached:
 | Targeting signal | Contract failures, cost, downstream escalation at a site | Mode-2 site selection, as a compared condition |
 | Intervention estimate | Change in whole-run outcome when the site was replaced or removed | Interpretation, with sampling uncertainty stated |
 
-Only whole-candidate evidence selects or promotes (invariant 4). A branch not
-taken has no invocation score; a missing measurement is not zero; edited or
-recombined fragments inherit nothing from their parents.
+Deployment-frontier membership, finalist selection and promotion require
+whole-program evidence (invariant 4 as amended 2026-10-19); contextual
+fragment observations and explicit search-value estimates may guide proposal
+targeting, parent sampling and exploratory retention, never quality,
+validation or promotion
+([cumulative campaigns](orc_structural_search_cumulative_campaigns.md#estimates-and-attribution)).
+A branch not taken has no invocation score; a missing measurement is not
+zero; edited or recombined fragments inherit nothing from their parents.
 
 ## Metering And Consumption
 
@@ -1177,6 +1198,16 @@ in-workflow candidate execution stays restricted to generational child
 runs exactly as written. The typed-gates design records this scoping in its
 §Boundary Compliance.
 
+A second amendment, 2026-10-19, replaced invariant 4: whole-program evidence
+is deployment authority, and contextual fragment observations and
+search-value estimates may guide proposal targeting, parent sampling and
+exploratory retention without establishing quality, validating a replacement
+or authorizing promotion. It was applied under the owner's cumulative
+workflow evolution extension; the
+[cumulative campaigns design](orc_structural_search_cumulative_campaigns.md#boundary-compliance)
+carries that rationale, and the boundaries document's change note records
+both amendments.
+
 ## Boundary Compliance
 
 | Invariant | Driver |
@@ -1184,7 +1215,7 @@ runs exactly as written. The typed-gates design records this scoping in its
 | 1 Immutable generations, full compiler, registered runs, no eval | Satisfied under the 2026-10-18 amendment: external launch through public `run`; children are new snapshots compiled by the ordinary pipeline; each evaluation is a new public run; no eval, hot swap or checkpoint import |
 | 2 Provider output is untrusted data | The final diff is data until validation and the compiler accept it |
 | 3 Neutral substrate versus feature | Archive, selection, validation, transactions, skeleton hashing and fitness live in `experiments/`; the companion exposes read-only facts |
-| 4 Whole-candidate evidence | Only whole-run evidence retains or promotes; local observations are diagnostic |
+| 4 Whole-program evidence is deployment authority (amended 2026-10-19) | Frontier membership, finalist selection and promotion bind to whole-run evidence; local observations target proposals here and, under mode 3, may guide parent sampling and exploratory retention without establishing quality or authorizing promotion |
 | 5 Evidence separation | Adaptive, validation and sealed held-out splits are disjoint; the sealed split opens once after generation, choice, evaluator and analysis freeze; near-duplicate defects share a split |
 | 6 Honest security boundary | Satisfied under the 2026-10-18 amendment: ordinary configured sessions behind the comparison-harness shims, sandbox and contamination scan, reported as hygiene, not isolation |
 | 7 Typed-operation parity without kind erasure | Interfaces move expressions, never runtime callables; provider calls, procedures and workflows stay distinct kinds |
