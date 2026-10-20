@@ -77,7 +77,7 @@ Checked against code at `90ae778c`. Each fact constrains the phases below.
 | `trial` SDK symbols are gone; the `trial` subcommand and form refuse; confined `run-ref` children are command-only (`refuse_confined_run_ref_sites`) | No trial revival; candidate provider calls stay on the ordinary route |
 | A closed-program site row is `[owner definition, label path]`; runtime identity adds the activation path and loop ordinals | A candidate-local site locator is a separate derived identity |
 | There is no run registry; a run is a directory under `--state-dir`; the workspace lock admits one active run per working directory; parent/child linkage exists only for `run-ref` children | One fresh clone per evaluation, run id as the join key, lineage in the driver's log; invariant 1 needs an explicit reading for external controllers |
-| The evaluated runtime persists no usage; `experiments/compare` collects none; `run-ref` accounting is `UNKNOWN`; OMP usage cannot be summed from a missing field, since `validate_usage` in `orchestrator/providers/omp_protocol.py` rejects any closed assistant message lacking `totalTokens` or `cost.total`; Claude and Codex session parsing lives in `experiments/orc_structural_search/metering.py` | Budget units are episodes, provider calls and wall clock; dollars only where coverage is complete |
+| The evaluated runtime persists no usage; `experiments/compare` collects none; `run-ref` accounting is `UNKNOWN`; OMP usage cannot be summed from a missing field, since `validate_usage` in `orchestrator/providers/omp_protocol.py` rejects any closed assistant message lacking `totalTokens` or `cost.total`; Claude and Codex session parsing lives in `experiments/orc_structural_search/metering.py` | Budget units are episodes, provider calls and wall clock, and are not the objective's cost axis (metered cost; Decision Criteria); dollars only where coverage is complete |
 | `experiments/compare/` is implemented: PATH shims for `claude` and `codex` under bubblewrap, a model guard refusing Fable, a contamination scan, a blind pool and `score.orc`, a frozen hashed criterion; there is no OMP shim | Reused for hygiene; mutators run through shimmed CLIs; an OMP shim is a prerequisite before OMP sessions |
 | Experiment O's catalog `workflows/experiments/qa_placement_effectiveness/qa_placement_arms.orc` is at a retired target; the linear-classifier hard-oracle seed lacks a verified green baseline | Both are Phase 0 cost items, not assumed assets |
 | Owner rules: no Fable model in any experiment call; tasks calibrated before treatment runs; missing receipts are unavailable, never zero | Adopted for every arm, control, judge and mutator |
@@ -137,18 +137,23 @@ command interfaces, imports, type declarations, tools and the environment.
 Effect summaries bound kinds of operations, not call counts, cost,
 termination or correctness; runtime envelopes stay necessary.
 
-The separately selected [offline module plan](2026-10-19-orc-structural-search-module-rewrite-plan.md)
+The prior delivery under the [offline module plan](2026-10-19-orc-structural-search-module-rewrite-plan.md)
 adds I1 under condition `module`: coordinated changes to private procedures,
 workflows, prompts and record/union/enum declarations. The public entry, public
 types, imports, provider/command bindings and resource envelopes remain frozen
 under the [driver contract](../design/orc_structural_search_driver.md#edit-validation-and-transactions).
-This is preparation for a fourth measured arm under its own successor criterion,
-not a default, phase promotion, live selection or budget allocation.
+The owner revision makes `module` the intended primary mutation surface for
+future search; legacy conditions and I2 remain maintained controls and ablations.
+It is measured first as a fourth arm under a successor criterion. The revised
+closed-program maximum, shim cap and calibrated model-aware Pareto endpoints
+remain work in the [implementation plan](2026-10-19-orc-structural-search-module-condition-implementation-plan.md);
+the prior offline evidence does not complete them. Live selection, phase
+promotion and provider allocation remain separately gated.
 
 | Interface | Agent receives | Agent returns | Validation | Needs |
 | --- | --- | --- | --- | --- |
 | I1 whole-file | workspace, objective, mutable scope, feedback | edited mutable file(s) | frozen-surface checks over parsed forms, then full compilation | no manifest |
-| I1/module (offline) | I1 workspace, objective, module surfaces, allowlisted model/effort pairs and per-call ceiling | edited mutable files | module scope, full compilation and compiled entry/graph/effect/policy admission | successor criterion; live gates and allocation remain unselected |
+| I1/module (offline) | I1 workspace, objective, module surfaces, allowlisted model/effort pairs and per-call ceiling | edited mutable files | module scope, full compilation and compiled entry/graph/effect/policy admission | revised closed-program maximum and shim cap pending; successor criterion and live allocation separately gated |
 | I2 locus-plus-fragment | the same plus one manifest site with its typed context | one replacement expression plus declared helpers | one-site transaction with slot result-type equality, then full compilation | the manifest |
 | I3 Python diff (control) | matched typed Python workflow sharing adapters, prompts, evaluator, tools, budget | textual diff | AST scope validation plus a named type checker | the Python workflow |
 | I4 certified transforms (later) | named transform catalogue | a transform and target | compiler-owned rewriting | compositional work |
@@ -160,7 +165,7 @@ not a default, phase promotion, live selection or budget allocation.
 | 0 Governance and integration spike | Owner selection and allocation after R2's own selection; boundary amendment accepted; task family chosen per the charter and calibrated; catalog ported to 2.39 or re-authored; green baseline where family (b) is chosen; harness extension (arm spec from a candidate root, a generic-command arm, scan patterns for the archive, lineage and score records, holdout roots and other candidates' trees); clone-per-evaluation launch through public `run`; metering coverage measured per provider; one agent episode cost-calibrated; P-1 feasibility fixture | One authored candidate compiles, runs through the admitted route in a fresh clone and receives an independent score; a written list of API gaps, metering coverage and prerequisite costs |
 | 1 Catalog, enumeration and unguided I1 search | Frozen-surface validation and candidate snapshots in the driver; the finite authored catalog enumerated; equal-budget unguided I1 proposal sampling with no feedback; the three-arm compile-only readout (acceptance per episode, edit locality, distinct skeletons) with REPL-derived site facts for the locus arm; skeleton-diversity and collapse readout; JSONL lineage | Structurally distinct candidates with measured whole-run quality and cost differences, or the recorded finding that the neighbourhood is tiny or flat; the compile-only three-arm readout and a collapse verdict per interface |
 | 2 Manifest, I2 and adaptive search | The inspection design's manifest with P-1 resolved; the I2 one-site transaction; the adaptive loop with incumbent, archive and contextual site feedback, enabled only on Phase 1's useful-search-space result | Reproducible adaptive search over one family; at least one genuine control-flow change; complete candidate, cost and failure history; diversity and revisit rates against Phase 1 |
-| 3 Comparative evidence | Three-arm interface test (I3, I1, I2) with its pre-registered primary endpoint; then the controls the claim requires, including the protocol delivered as an agent skill; supplied-assistance ablations; frozen sealed assessment | A report separating structural gains, search-efficiency effects, representation and integration effort, and uncertainty |
+| 3 Comparative evidence | Three-arm interface test (I3, I1, I2) with its pre-registered endpoints; then the controls the claim requires, including the protocol delivered as an agent skill; supplied-assistance ablations; frozen sealed assessment | A report separating structural gains, search-efficiency effects, representation and integration effort, and uncertainty |
 | 4 Compositional search | Fragment contracts with explicit inputs, hygienic insertion, capture-aware extraction for a documented subset, I4 certified transforms, crossover | One extracted composition transfers between workflows and survives complete-program evaluation |
 | 5 Broader utility | Measured bottlenecks only: parallel evaluation across clones, richer adaptive policies, scientific transfer, protocol evolution, caching | Evidence supports each expansion |
 
@@ -273,12 +278,16 @@ first-exhausted, is:
   allocation; screen on four development tasks, then expand. A pilot of
   roughly twelve adaptive, six validation and twelve sealed task groups is
   descriptive, not a powered study.
+- `phase2.json` predates the cost-proxy rule (its `mean_cost` is wall clock
+  over a multi-model catalog) and is not changed; a Phase 2 selection needs
+  a successor criterion with metered cost.
 
 ### Phase 3 Gates
 
 - The three-arm test freezes one benchmark workflow, one model, one family
-  and equal search budgets in completed episodes. Primary endpoint: accepted
-  improvements per completed episode. Secondary: skeleton diversity and
+  and equal search budgets in completed episodes. Endpoints: dominating
+  improvements and frontier entries per completed episode (Decision
+  Criteria below). Secondary: skeleton diversity and
   revisit rate, acceptance rate, repair iterations per accepted proposal,
   wall clock and provider calls, and dollars only where metering coverage is
   complete. The result is a first bounded answer, not a settlement.
@@ -337,7 +346,8 @@ search and selection use the family's frozen criterion (the blind rubric for
 
 Budget placeholders are stated in provider calls, workflow runs, wall clock
 and mutator episodes; tokens appear only where a session-file reader
-provides them, and no dollar figure is claimed.
+provides them, and no dollar figure is claimed. These are budget units, not
+the objective's cost axis (Decision Criteria).
 
 | Phase | Formula | Owner placeholders |
 | --- | --- | --- |
@@ -350,6 +360,7 @@ provides them, and no dollar figure is claimed.
 | Point | Rule |
 | --- | --- |
 | Family choice | Only a family qualified under the frozen rule and with measured headroom on the family criterion; otherwise Phase 0 reports "no affordable qualified family" and stops |
+| Calibration | In every live phase and experiment, no provider call is spent on quality evaluation (candidate evaluation runs and judge calls whose purpose is a quality comparison) unless the quality measure passed a predeclared calibration on known controls (for a judge measure: for each judge and batch the upstream anchor's total minus the stub's is at least `calibration.margin`, and the fraction of (judge, batch) pairs failing that is at most `calibration.error_rate`, default 0, both in the criterion) and the family is qualified under its own frozen rule (family (a): the harness difficulty-calibration rule; family (b): the oracle qualification in the driver design); calibration runs are their own predeclared experiments with their own budget and pass first; an uncalibrated measure reports only measure-free figures (compile-only metrics, execution outcomes, cost) and no quality comparison, frontier or improvement claim. The rule applies to provider spend from 2026-10-19 on: the in-progress three-arm readout runs no judge stage (its controller ruling R19, 2026-10-19) and reports compile-only figures, execution outcomes and cost, with quality `unavailable: evaluator uncalibrated` |
 | Phase 1 separation | Tolerance predeclared in the criterion's units (default two within-arm standard deviations, measured on the family in Phase 1), judged per task and required on at least two tasks; DIRECT sole winner or everything within tolerance is recorded under the charter's decision rule and Phase 2 is not selected for the family |
 | Collapse | If the share of accepted children whose skeleton equals the parent's exceeds the predeclared threshold (default 0.75) for an interface, that interface has collapsed to renames and literals and the adaptive claim is not tested on it; if every interface collapses, Phase 2 is not selected |
 | Screening | Advancement, finalist replication beside the reference seed, and the shrinkage readout (screening mean against validation mean) follow the driver's selection rule; the pilot stays descriptive |
@@ -377,11 +388,24 @@ each referencing existing run records by path rather than copying them.
 
 ## Decision Criteria And Next Commitment
 
+Between candidates, wherever this roadmap says "beats" or "improvement",
+better means Pareto dominance on (quality, metered deployed cost), or an
+extension of the non-dominated frontier, as the
+[driver design's objective](../design/orc_structural_search_driver.md#objective-selection-and-local-observations)
+defines them; a higher score at any cost is not an improvement, and provider
+calls stand in for cost only when every compared candidate's provider calls
+resolve to one and the same (model, effort) pair. A claim about a search
+method (feedback-guided search against enumeration or random sampling)
+compares frontier entries per completed episode at equal budget. The frozen
+criteria `phase1.json`, `phase2.json` (its scalar `improvement.min_gain`
+included) and `three_arm.json` keep their rules; Pareto views of their runs
+are descriptive.
+
 | Claim | Supporting evidence |
 | --- | --- |
 | Structural feasibility | Agents produce previously unlisted working compositions through ordinary editing and full compilation |
 | Useful search space | Structurally distinct candidates show meaningful whole-workflow quality and cost differences beyond the enumerated catalog |
-| Proposal interface | Locus-plus-fragment improves the primary endpoint against whole-program and diff interfaces, with diversity reported |
+| Proposal interface | Locus-plus-fragment improves the endpoints against whole-program and diff interfaces, with diversity reported |
 | Adaptive optimization | Feedback-guided search beats equal-budget enumeration and random controls on independent evaluation |
 | Compiler assistance | Single-factor ablations, not the three-arm test, show pre-supplied typed context or diagnostics improving proposal efficiency, repair effort or outcomes; tool-retrieved exposure is reported |
 | ORC-specific value | The matched Python and agent-skill comparisons show a search, reliable-transformation or integration advantage, and the report says which |
@@ -405,7 +429,11 @@ three-arm readout and the per-interface collapse verdicts for I2 and I3 remain
 unmet. The [Phase 1 report](../reports/2026-10-18-orc-structural-search-phase1.md)
 records an inconclusive pilot: the upstream anchor scored at or below every
 candidate, and one anchor pair was inverted. Phase 2 is not selected, and a
-better-targeted experiment needs a new owner selection.
+better-targeted experiment needs a new owner selection. The next plan to
+write is the measurement plan: an evaluator calibrated on known controls and
+a task family whose agent-visible check fails sometimes. It precedes any
+live `module` arm
+([module condition](2026-10-19-orc-structural-search-module-rewrite-plan.md#gate-for-a-live-module-arm)).
 
 ## Routing And Records
 

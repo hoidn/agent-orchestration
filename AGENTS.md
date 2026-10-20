@@ -26,6 +26,12 @@ Repo expectations:
 - For DSL, frontend, runtime, or reusable workflow changes, include an end-to-end usage or integration check, or state why isolated checks are enough.
 - Do not add or keep tests that assert literal prompt text or prompt phrasing. Prefer behavioral, contract, artifact-lineage, or dataflow assertions that stay valid when prompts are revised.
 
+Experiment rules (owner directives; apply to every experiment that spends provider calls):
+- No uncalibrated experiments. Before any provider spend on a quality comparison (candidate evaluation runs or judge calls), the task family must be qualified under its frozen calibration rule (difficulty calibration: `docs/reports/2026-10-14-task-difficulty-calibration.md`) and the quality measure must pass a predeclared calibration on known controls (the criterion's `calibration` margin and error rate). Without both, report only measure-free figures (compile, execution outcomes, cost) and no quality claim. Calibration runs are separate, budgeted experiments.
+- "Better" means Pareto dominance over quality and model-aware deployed compute cost (metered tokens times a frozen per-model price table; provider calls are a cost proxy only when every compared candidate uses one and the same model and effort). Authority: `docs/design/orc_structural_search_driver.md`, "Objective, Selection And Local Observations" and "Task Family And Evaluator".
+- No Fable model in any experiment call. Report experiment numbers only from the harness joins (`summarize`'s clone-id join), anchors first.
+- Ask the owner before new or raised provider spend; record every other experiment decision in the plan's ledger.
+
 Do not assume success from inspection alone when runnable checks are available.
 Do not weaken verification just to make a failure disappear.
 When a workflow run has already passed an approval/review gate and later fails downstream, prefer `orchestrator resume <run_id>` over launching a fresh run unless you intentionally want to redo the earlier gated stages.
