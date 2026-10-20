@@ -1,7 +1,8 @@
 # ORC Structural Search `module` Condition: Remaining Offline Implementation
 
-- **Status:** offline A–D implementation and code-budget integration delivered,
-  2026-10-19; final full-suite verification and documentation review pending.
+- **Status:** A–E offline implementation, independent review and final
+  verification completed, 2026-10-19. No live study, provider allocation or
+  research-utility claim follows from this delivery.
   Baseline: delivery `efa79ef9`, with owner revisions merged at `3947ceb1`.
   The earlier 774-test result in the [decision's prior evidence](2026-10-19-orc-structural-search-module-rewrite-plan.md#prior-offline-execution-evidence)
   covers the earlier delivery, not these additions.
@@ -254,22 +255,22 @@ control anchors first. These synthetic checks establish mechanics, not utility.
   fixtures and README examples to temporary or explicitly external successor
   criteria. Verify the three historical criterion hashes and provider JSON bytes
   against `efa79ef9`. Retain prior artifact hashes as historical evidence.
-- [ ] Reconcile driver design, decision, roadmap, experiment/compare READMEs,
+- [x] Reconcile driver design, decision, roadmap, experiment/compare READMEs,
   capability matrix and documentation index with the delivered behavior and
   remaining gates. State module's intended future primary role, legacy/I2
   controls and ablations, and the absence of live selection or quality evidence.
   Record exact verification commands/results and any remaining limit here.
-- [ ] Run narrow selectors for each package, and `pytest --collect-only -q` for
+- [x] Run narrow selectors for each package, and `pytest --collect-only -q` for
   every new or renamed test module. Assert behavior, contracts, lineage and
   outcomes, never literal prompt phrasing. Run the relevant public compile/run
   scripted integration and workspace-check repair path; include cap refusal and
   the successor fourth-arm end-to-end path.
-- [ ] Run `pytest -q tests/experiments/test_compare_pool_summarize.py
+- [x] Run `pytest -q tests/experiments/test_compare_pool_summarize.py
   tests/test_demo_trial_smoke.py` for shim/brief/harness changes. Then run the
   experiments suite from the repo root in tmux using the tmux skill:
   `PYTHONPATH=. pytest -q -n 16 --dist=worksteal tests/experiments/`.
   Inspect fresh command output, do not inherit the prior 774 result as new proof.
-- [ ] Verify module line/function complexity budgets, documentation links and
+- [x] Verify module line/function complexity budgets, documentation links and
   `git diff --check`; inspect the final diff and results as coordinator. Commit
   only scoped files. No provider run or live calibration follows automatically.
 
@@ -310,10 +311,13 @@ uses scripted providers only and makes no quality or live-utility claim.
   The unchanged native-probe test passed twice in isolation; its initial failure
   has no confirmed cause. A read-only review identified a possible `/proc`
   process-exit race, without changing the probe or expanding runtime scope.
-  The fresh required `PYTHONPATH=. pytest -q -n 16 --dist=worksteal tests/experiments/`
-  run remains pending (`/tmp/structural-verified-suite.log` and `.exit`). Fresh
-  collection at `2290710d` found 968 tests in 1.85 s
-  (`/tmp/structural-verified-collect.log`). No final full-suite pass is claimed.
+  The final repeat, including the unchanged probe, passed: at code `2290710d`,
+  `PYTHONPATH=. pytest -q -n 16 --dist=worksteal tests/experiments/` returned
+  **968 passed in 139.84 s (2:19), exit 0**
+  (`/tmp/structural-verified-suite.log` and `/tmp/structural-verified-suite.exit`).
+  Fresh collection found 968 tests in 1.85 s
+  (`/tmp/structural-verified-collect.log`). The isolated and full-repeat successes
+  do not establish the initial probe failure's cause.
 - README provider-free sequence extracted to `/tmp/structural-readme-selfcheck.sh`
   and executed unchanged: exit 0, accepted JSON admission. Guide prose measures
   666 words after the frontier wording correction. No provider was called.
@@ -324,11 +328,21 @@ uses scripted providers only and makes no quality or live-utility claim.
   decision's prior evidence body is unchanged; illustrative successor criterion
   absent. The stock link checker reports three false missing anchors because it
   does not read explicit HTML IDs; the scoped check includes them.
-- `git diff --check` passed. Independent documentation review accepted the
-  bounded reconciliation with frontier wording, generic-comparison calibration
-  routing and separate allowlist/price fields corrected. Final coordinator diff
-  inspection and the full-suite result remain pending. The prior 774-pass result remains historical evidence
-  for the earlier delivery only.
+- Independent documentation review approved `558fb425` with no remaining
+  findings, including frontier wording, generic-comparison calibration routing,
+  separate allowlist/price fields, planned/actual bindings and original R55
+  membership. The coordinator independently checked ten changed Markdown files:
+  764 links/anchors passed, including HTML IDs. It verified that the executable
+  README block was unchanged from its successful run, module/function budgets
+  satisfy 500 lines / complexity 12, frozen criterion/provider and runtime paths
+  have no changes, and inspected the final diff. `git diff --check` passed.
+
+All A–E obligations are complete for the offline scripted-provider scope. Fresh
+adaptive launch/finalist validation remain unsupported; live family/measure
+precalibration, owner selection, sealed-split/isolation gates and provider budget
+approval remain separate. No frozen successor criterion or live calibration was
+created, and these checks establish mechanics rather than quality or utility.
+The prior 774-pass result remains historical evidence for the earlier delivery only.
 
 ## Decision Ledger
 
