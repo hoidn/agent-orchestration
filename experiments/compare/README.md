@@ -360,6 +360,46 @@ Generic comparison pools support this route. Structural quality operations retai
 V1 qualification and reject a selected reference rubric; generic calibration does
 not grant structural quality authority.
 
+## Calibration from recorded patches
+
+Prepare a frozen criterion with `purpose: "calibration"` before scoring. It selects the reference
+rubric above, declares the judges and four anchor roles per task under `anchors`
+(`upstream`, `stub`, `partial`, `mutant`, each naming the corresponding diff stem),
+and supplies `calibration.margin`, `calibration.mutant_margin`,
+`calibration.error_rate`, and `anchor_spread_limit`. The measurement plan freezes
+these as 4, 2, 0 and 2 respectively. Controls are constructed independently;
+hidden acceptance is descriptive secondary evidence.
+
+1. Obtain filler patches from the collected runs of the same task and amended
+   seeded base; use their recorded paths and hashes from the frozen criterion.
+2. Run `prepare.py calibrate` with `--task`, `--criterion`, `--out`, `--runtime`,
+   repeated `--judge` and `--filler` arguments, and explicit `--batches`,
+   `--per-batch`, `--min-per-batch`, `--filler-seed`. This only prepares the pool.
+   It reports which patches apply, refuses duplicate patches or insufficient
+   fillers, and deals applicable fillers deterministically without replacement.
+   Every batch contains every package anchor and its own unscored reference;
+   ten repositories is the limit including both. Two batches of four or five
+   fillers need at least eight applicable patches when there are four anchors
+   and a reference.
+3. Obtain the stated provider-spend approval, then follow the scoring, pool
+   verification, scan/adjudication and summarization steps above. A judge running
+   `pytest` or `dev_check` produces a `judge ran tests` scan hit. Inspect and
+   adjudicate it through the existing flow; it has no automatic model exclusion.
+4. Read `results.json`'s `calibration`: P1 requires upstream minus stub at least
+   the margin; P2 requires strict stub < partial < upstream; P3 requires upstream
+   minus mutant at least its margin. All declared judges × batches stay in the
+   denominator. Missing/excluded judges or missing control totals fail their
+   pairs; each anchor's cross-batch spread must meet the limit. Existing run and
+   rating integrity refusals still apply.
+5. For a later pool, run `summarize.py --calibration-over` with the actual accepted
+   A or A2 `results.json` followed by the later pool's `results.json`, and
+   `--criterion` naming their common frozen criterion. Its JSON output names
+   every supplied pool and combines their anchor spreads. All pools must have
+   passed independently and the cross-pool spread must meet the same limit.
+
+Calibration prepares evidence for a separately selected study. It neither opens
+structural V1 qualification to the reference rubric nor authorizes provider spend.
+
 ## Measures
 
 `summarize.py` scores a clone as the judges' mean total of the four criteria (0 to 8). A run's

@@ -449,6 +449,13 @@ def parser():
         pool_cmd.add_argument(name, type=Path, required=True)
     pool_cmd.add_argument("--judge", action="append", required=True, metavar="MODEL[=PROVIDERS_JSON]")
     pool_cmd.add_argument("runs", nargs="+", type=Path, help="records directories")
+    calibrate = sub.add_parser("calibrate")
+    for name in ("--task", "--criterion", "--out", "--runtime"):
+        calibrate.add_argument(name, type=Path, required=True)
+    calibrate.add_argument("--judge", action="append", required=True)
+    calibrate.add_argument("--filler", type=Path, action="append", required=True)
+    for name in ("--batches", "--per-batch", "--min-per-batch", "--filler-seed"):
+        calibrate.add_argument(name, type=int, required=True)
     sub.add_parser("verify-pool").add_argument("--pool", type=Path, required=True)
     return top
 
@@ -461,6 +468,9 @@ def main(argv=None):
         print(json.dumps(collect(a.run), indent=2))
     elif a.command == "scan":
         scan_command(a)
+    elif a.command == "calibrate":
+        pooling.pool_from_diffs(a.task, a.criterion, a.out, a.judge, a.runtime, a.filler,
+                                a.batches, a.per_batch, a.min_per_batch, a.filler_seed)
     elif a.command == "pool":
         pooling.pool(a.task, a.criterion, a.out, a.judge, a.runs)
     else:

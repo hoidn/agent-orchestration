@@ -137,11 +137,11 @@ provider binding, `score.orc`, or orchestrator file changed; no provider call ra
 **Interfaces:**
 - Produces: `pool.applicable(runtime: Path, base: str, seed: Path, diffs: Sequence[Path]) -> list[Path]`: builds one seeded clone and keeps the diffs for which `git apply --check` exits 0.
 - Produces: `pool.pool_from_diffs(task: Path, criterion: Path, out: Path, judges: Sequence[str], runtime: Path, fillers: Sequence[Path], batches: int, per_batch: int, min_per_batch: int, filler_seed: int) -> dict`: `ref` from the runtime and the seeded clone (`main`, `runtime`, `base`, `compare_base`), `rows = {}`, members `{"run": None, "arm": "filler", "labels": [diff stem]}` dealt without replacement by `random.Random(filler_seed)` into `batches` batches of `per_batch`; refuses when any batch would hold fewer than `min_per_batch` fillers or more than `10 − anchors − 1` repositories; calls `write_pool`.
-- Produces: `summarize.calibration(results: dict, mapping: dict, criterion: dict) -> dict | None` when `criterion["calibration"]` exists: `{"pairs": [{"judge","batch","upstream","stub","partial","mutant","p1","p2","p3"}], "p1_failing", "p2_failing", "p3_failing", "anchor_spread": {judge: {anchor: max}}, "passed"}`; roles from `criterion["anchors"][task.name]`; enumerate all declared judges × batches, including absent/excluded judges and missing/incomplete control ratings as failures; `passed` iff every failing fraction ≤ `error_rate` and every spread ≤ `anchor_spread_limit`; written into `results.json`/`results.md`.
+- Produces: `summarize.calibration(results: dict, mapping: dict, criterion: dict) -> dict | None` when the criterion explicitly has `purpose: "calibration"` and `criterion["calibration"]` exists: `{"pairs": [{"judge","batch","upstream","stub","partial","mutant","p1","p2","p3"}], "p1_failing", "p2_failing", "p3_failing", "anchor_spread": {judge: {anchor: max}}, "passed"}`; roles from `criterion["anchors"][task.name]`; enumerate all declared judges × batches, including absent/excluded judges and missing/incomplete control ratings as failures; `passed` iff every failing fraction ≤ `error_rate` and every spread ≤ `anchor_spread_limit`; written into `results.json`/`results.md`.
 - Produces: `summarize.calibration_over(results_paths: Sequence[Path], criterion: Path) -> dict`: `{"pools": {path: passed}, "anchor_spread": {judge: {anchor: max over all batches of all pools}}, "passed"}` (every pool passed and every spread ≤ limit); CLI `summarize.py --calibration-over R1 R2 ... --criterion C`.
 - Produces: `prepare.py calibrate --task --criterion --out --judge ... --runtime --filler DIFF ... --batches N --per-batch N --min-per-batch N --filler-seed N` printing the applicable list and the refusals; `scan_judge` gains the reported pattern `judge ran tests` (`pytest`, `dev_check`) through the existing scan/adjudication flow: the hit remains pending until the operator inspects and records a cleared/contaminated verdict. It adds no automatic exclusion or informational-hit bypass; Fable remains non-clearable.
 
-- [ ] **Step 1: Write the failing tests** in `tests/experiments/test_compare_calibration.py` (fixtures from `compare_harness_support.world`; a package with four anchors; filler diffs including one that does not apply on the seeded base):
+- [x] **Step 1: Write the failing tests** in `tests/experiments/test_compare_calibration.py` (fixtures from `compare_harness_support.world`; a package with four anchors; filler diffs including one that does not apply on the seeded base):
 
 ```python
 def test_applicable_keeps_only_diffs_that_apply_on_the_seeded_base(world): ...
@@ -156,11 +156,36 @@ def test_calibration_over_uses_the_actual_accepted_a_or_a2_baseline(world): ...
 def test_judge_scan_reports_test_runs(world): ...                                             # a judge session running pytest -> a hit with that pattern
 ```
 
-- [ ] **Step 2: Run to verify they fail**: `pytest tests/experiments/test_compare_calibration.py -v` — FAIL.
-- [ ] **Step 3: Implement** as specified, reusing `repos.{build_candidate, main_checkout, runtime_commit, git}`; `pool.py` and `prepare.py` remain within the global ≤500-line / complexity12 bounds; discard stale baseline estimates rather than refactoring unrelated code to meet them.
-- [ ] **Step 4: Run** the tests — PASS; `pytest --collect-only tests/experiments/test_compare_calibration.py`.
+- [x] **Step 2: Run to verify they fail**: `pytest tests/experiments/test_compare_calibration.py -v` — FAIL.
+- [x] **Step 3: Implement** as specified, reusing `repos.{build_candidate, main_checkout, runtime_commit, git}`; `pool.py` and `prepare.py` remain within the global ≤500-line / complexity12 bounds; discard stale baseline estimates rather than refactoring unrelated code to meet them.
+- [x] **Step 4: Run** the tests — PASS; `pytest --collect-only tests/experiments/test_compare_calibration.py`.
 - [ ] **Step 5 (operator, offline, free, after Task 3's packages exist): record the applicable fillers.** `python -c` over `pool.applicable(RT, base, task/seed, diffs)` for each task's 20 and 19 candidates; expected rpi ≥ 10, prr 19; write the applicable paths and sha256s into the criterion's `fillers` (Task 5) and the counts into the ledger. If rpi < 8, promote-file selection is revisited in Task 3 before the freeze (M3's stop rule applies).
-- [ ] **Step 6: Commit** — "feat(compare): calibration pools from applicable recorded diffs; calibration and cross-pool verdicts; judge test-run pattern".
+- [x] **Step 6: Commit** — "feat(compare): calibration pools from applicable recorded diffs; calibration and cross-pool verdicts; judge test-run pattern".
+
+Task 2 verification (2026-10-19, scripted only): the initial 22 tests failed
+for absent interfaces; the joined-report integration case also failed before
+implementation. New calibration selectors then passed, and an existing V1
+summarization regression exposed its historical `calibration` field. A focused
+regression failed before restricting the new report to explicit
+`purpose: "calibration"`, then passed alongside the new joined-report case.
+The coordinator accepted this discriminator: V1 quality rules remain untouched.
+Final narrow verification passed **24 tests in 5.13 s**; collection found
+**24 tests**. Harness, calibration, reference integrity, generic collection,
+structural scoring/qualification and both public scoring workflows passed
+**267 tests in 23.52 s**, under tmux with `python -m pytest -q -n 16
+--dist=worksteal`. Evidence: `/tmp/measurement-task2-{red,green,v1-red,
+final-narrow,collect,final-suite}.log` (brace notation names separate files).
+Changed production modules remain below 500 lines and every AST-counted function
+is at most complexity 12. Historical criterion/provider/`score.orc` bytes match
+plan commit `1710e99b`; no provider call or orchestrator change occurred.
+Task 2 Step 5 remains open until the real amended Task 3 packages exist.
+
+The independent Task 1 reference-metadata finding was corrected separately in
+`b864724f`: missing/empty/truncated reference lists, unknown clone identities,
+wrong clone arms and references in the blind lists now refuse before reading
+judges. Six regressions failed before the correction; the focused reference and
+historical-compatibility selector passed 10 tests afterward; six new tests were
+collected. No informational-hit adjudication bypass was introduced.
 
 ### Task 3: Family packages: partial and mutant controls, promoted visible check, controller-side first-attempt check
 

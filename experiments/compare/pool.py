@@ -14,19 +14,20 @@ import random
 import re
 import secrets
 import time
+import tempfile
 from pathlib import Path
 
 try:
     from . import scan as contamination
     from .repos import (
         HIDDEN_DIR, build_candidate, dump, git, guard,
-        load, patch_of, runtime_commit, sha256_file, shim_commands, visible_in_sandbox,
+        load, main_checkout, patch_of, runtime_commit, sha256_file, shim_commands, visible_in_sandbox,
     )
 except ImportError:
     import scan as contamination
     from repos import (
         HIDDEN_DIR, build_candidate, dump, git, guard,
-        load, patch_of, runtime_commit, sha256_file, shim_commands, visible_in_sandbox,
+        load, main_checkout, patch_of, runtime_commit, sha256_file, shim_commands, visible_in_sandbox,
     )
 
 STRIPPED = ("docs/design/", "artifacts/")  # D8: removed from every pooled patch
@@ -91,7 +92,7 @@ def stage_batches(runs, rng):
 
 
 def patch_bytes(records, record, label):
-    return (Path(records) / record["patches"][label]).read_bytes()
+    return (Path(records or ".") / record["patches"][label]).read_bytes()
 
 
 def add_clone(out, task, ref, patch, entry):
@@ -198,6 +199,52 @@ def write_pool(task, criterion, out, judges, ref, rows, batches, *, qualificatio
     return mapping
 
 
+def applicable(runtime, base, seed, diffs):
+    """Keep patches that apply to the seeded base; each check leaves that base unchanged."""
+    kept = []
+    with tempfile.TemporaryDirectory() as tmp:
+        clone = Path(tmp) / "candidate"
+        build_candidate(runtime, base, seed, clone)
+        for diff in diffs:
+            try:
+                git(clone, "apply", "--check", str(Path(diff).resolve()))
+            except SystemExit:
+                continue
+            kept.append(diff)
+    return kept
+
+
+def pool_from_diffs(task, criterion, out, judges, runtime, fillers, batches, per_batch, min_per_batch, filler_seed):
+    """Deal applicable recorded patches without replacement into deterministic calibration batches."""
+    task, runtime = Path(task).resolve(), Path(runtime).resolve()
+    rule = rubric(criterion)
+    capacity = 10 - len(list((task / "anchors").glob("*.diff"))) - bool(rule["reference"])
+    if not 1 <= batches <= 24 or not 1 <= min_per_batch <= per_batch <= capacity:
+        raise SystemExit("invalid batch count or filler capacity/minimum")
+    fillers = [Path(path).resolve() for path in fillers]
+    if len({sha256_file(path) for path in fillers}) != len(fillers):
+        raise SystemExit("calibration fillers must be distinct patches, without duplicates")
+    runtime_commit(runtime)
+    base = git(runtime, "rev-parse", "--verify", (task / "base_commit").read_text().strip() + "^{commit}")
+    kept = applicable(runtime, base, task / "seed", fillers)
+    for path in fillers:
+        print(f"{'applicable' if path in kept else 'refused (does not apply)'}: {path}")
+    members = diff_batches(kept, batches, per_batch, min_per_batch, filler_seed)
+    with tempfile.TemporaryDirectory() as tmp:
+        compare_base = build_candidate(runtime, base, task / "seed", Path(tmp) / "candidate")
+    ref = {"main": str(main_checkout(runtime)), "runtime": str(runtime), "base": base, "compare_base": compare_base}
+    return write_pool(task, criterion, out, judges, ref, {}, members)
+
+
+def diff_batches(fillers, batches, per_batch, minimum, seed):
+    random.Random(seed).shuffle(fillers)
+    dealt = [fillers[:batches * per_batch][index::batches] for index in range(batches)]
+    if any(len(batch) < minimum for batch in dealt):
+        raise SystemExit("not enough applicable fillers to meet every batch minimum")
+    return [[(None, {"arm": "filler", "patches": {path.stem: str(path)}}, [path.stem]) for path in batch]
+            for batch in dealt]
+
+
 def write_score_inputs(out, mapping, intent, runtime):
     """Per judge: score.orc inputs with that judge's random clone order, a working and state directory of
     its own, and the command and resume script behind the shims (records/score-<judge>.sh, resume-<judge>.sh)."""
@@ -235,6 +282,7 @@ def scan_judge(out, judge, solution, home=None):
         others=contamination.siblings(workdir),
         roots=[("this pool's records", out / "records"), *(("run records", root) for root in run_roots),
                *(("agents' trees", root) for root in agent_roots)])
+    compiled["judge ran tests"] = contamination.JUDGE_TESTS
     hits = contamination.find_hits(calls_root, workdir, mapping["created_at"], home, compiled)
     dump(calls_root / "scan.json", {"solution": solution, "hits": hits, "verdict": None,
                                     "calls": len(list((calls_root / "calls").glob("*")))})

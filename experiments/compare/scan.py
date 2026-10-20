@@ -31,6 +31,7 @@ from pathlib import Path
 
 ARMS = "best_of_n|reviewed_change|design_review_execute|direct_task"
 FABLE = "Fable model"
+JUDGE_TESTS = r"\bpytest\b|\bdev_check(?:\.py)?\b"
 BOUNDARY = r"(?![\w.-])"  # a path ends here: what follows is not part of its last component
 POOL_FILES = r"records/(?:mapping\.json|patches/|score-inputs-|(?:score|resume)-\S*\.sh|results\.(?:json|md)|judges/)"
 

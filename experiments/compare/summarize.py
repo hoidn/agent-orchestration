@@ -215,6 +215,70 @@ def verdict(criterion, m):
                    for entry in criterion.get(kind, [])] for kind in ("primary", "secondary")}
 
 
+def anchor_spreads(anchors, judges, names):
+    grouped = {(judge, name): [] for judge in judges for name in names}
+    for row in anchors:
+        key = row["judge"], row["anchor"]
+        if key in grouped and type(row.get("total")) in (int, float):
+            grouped[key].append(row["total"])
+    return {judge: {name: max(values) - min(values) if (values := grouped[judge, name]) else None
+                    for name in names} for judge in judges}
+
+
+def spread_passes(spread, limit):
+    return bool(spread) and all(value is not None and value <= limit
+                                for names in spread.values() for value in names.values())
+
+
+def calibration(results, mapping, criterion):
+    """Judge every declared judge/batch pair, with absent controls counting as failures."""
+    if criterion.get("purpose") != "calibration" or "calibration" not in criterion:
+        return None
+    rules, roles = criterion["calibration"], criterion["anchors"][Path(mapping["task"]).name]
+    totals = {(row["judge"], row["batch"], row["anchor"]): row.get("total") for row in results["anchors"]}
+    pairs = []
+    eligible = set(results["judges"]) - set(results.get("excluded_judges", {}))
+    for judge in criterion["judges"]:
+        usable = judge in eligible
+        for batch in range(len(mapping["batches"])):
+            pairs.append(calibration_pair(judge, batch, totals, roles, rules, usable))
+    failures = {f"{rule}_failing": mean(not row[rule] for row in pairs) if pairs else 1
+                for rule in ("p1", "p2", "p3")}
+    spread = anchor_spreads(results["anchors"], criterion["judges"], roles.values())
+    return {"pairs": pairs, **failures, "anchor_spread": spread,
+            "passed": bool(pairs) and all(value <= rules["error_rate"] for value in failures.values())
+            and spread_passes(spread, criterion["anchor_spread_limit"])}
+
+
+def calibration_pair(judge, batch, totals, roles, rules, usable):
+    scores = {role: totals.get((judge, batch, roles[role])) if usable else None
+              for role in ("upstream", "stub", "partial", "mutant")}
+    complete = all(type(value) in (int, float) and 0 <= value <= 8 for value in scores.values())
+    up, stub, partial, mutant = (scores[role] for role in ("upstream", "stub", "partial", "mutant"))
+    return {"judge": judge, "batch": batch, **scores,
+            "p1": complete and up - stub >= rules["margin"],
+            "p2": complete and stub < partial < up,
+            "p3": complete and up - mutant >= rules["mutant_margin"]}
+
+
+def calibration_over(results_paths, criterion):
+    """Combine the supplied accepted baseline and later pools, retaining their actual identities."""
+    frozen = json.loads(Path(criterion).read_text())
+    sha = hashlib.sha256(Path(criterion).read_bytes()).hexdigest()
+    pools = {str(Path(path).resolve()): json.loads(Path(path).read_text()) for path in results_paths}
+    if not pools or any(pool["criterion_sha256"] != sha for pool in pools.values()):
+        raise SystemExit("calibration-over requires pools under the supplied criterion")
+    tasks = {Path(pool["task"]).name for pool in pools.values()}
+    if len(tasks) != 1:
+        raise SystemExit("calibration-over pools must describe one task")
+    roles = frozen["anchors"][tasks.pop()]
+    anchors = [row for pool in pools.values() for row in pool["anchors"]]
+    spread = anchor_spreads(anchors, frozen["judges"], roles.values())
+    passed = {path: pool.get("calibration", {}).get("passed") is True for path, pool in pools.items()}
+    return {"pools": passed, "anchor_spread": spread,
+            "passed": all(passed.values()) and spread_passes(spread, frozen["anchor_spread_limit"])}
+
+
 def fmt(value):
     return "" if value is None else (f"{value:.2f}" if isinstance(value, float) else str(value))
 
@@ -241,12 +305,13 @@ def markdown(results):
               for kind, entries in results["verdict"].items() for e in entries] + ["", "Agreement (all judges equal):"]
     lines += [f"- {c}: {a['agree']}/{a['of']}" for c, a in results["agreement"].items()] + ["", "Anchors:"]
     lines += [f"- batch {a['batch']}, {a['anchor']}, {a['judge']}: {a['total']}" for a in results["anchors"]]
+    if results.get("calibration") is not None:
+        lines += ["", "Calibration:", json.dumps(results["calibration"], sort_keys=True)]
     lines += ["", "Scan verdicts:"] + [
         f"- {r['arm']}/{Path(r['run']).name}: {r['scan_hits']} hits, "
         f"{r['verdict']['verdict']}: {r['verdict']['reason']}"
         for r in results["runs"] if r["verdict"]]
     return "\n".join(lines) + "\n"
-
 
 
 def reference_paths(pool, mapping):
@@ -258,13 +323,14 @@ def reference_paths(pool, mapping):
         raise SystemExit("reference metadata must name exactly one reference per batch")
     blind = {cid for batch in mapping["batches"] for cid in batch}
     for cid in refs:
-        if not isinstance(cid, str) or cid not in mapping["clones"]:
+        if not isinstance(cid, str):
             raise SystemExit("reference metadata names an unknown clone")
-        if mapping["clones"][cid].get("arm") != "reference" or cid in blind:
+        if mapping["clones"].get(cid, {}).get("arm") != "reference" or cid in blind:
             raise SystemExit("reference metadata must name disclosed clones outside every blind batch")
     if len(set(refs)) != len(refs):
         raise SystemExit("reference metadata repeats a clone across batches")
     return [str(pool / "clones" / cid) for cid in refs]
+
 
 def judged_ratings(pool, mapping, sha):
     """(left-out judges with reasons, ratings by judge of every other listed judge)."""
@@ -288,6 +354,14 @@ def hidden_acceptance(pool, mapping, python):
     return {cid: (len(nodes) - len(f)) / len(nodes) for cid, f in failed.items()}, failed
 
 
+def score_values(mapping, ratings):
+    criteria = criteria_of(mapping)
+    totals = {judge: {cid: sum(r[c] for c in criteria) for cid, r in rated.items()} for judge, rated in ratings.items()}
+    clone_scores = {cid: mean(totals[judge][cid] for judge in totals) for cid, clone in mapping["clones"].items()
+                    if clone["arm"] != "reference"}
+    return totals, clone_scores
+
+
 def summarize(pool, criterion, python=sys.executable):
     pool = Path(pool).resolve()
     mapping = json.loads((pool / "records" / "mapping.json").read_text())
@@ -300,14 +374,12 @@ def summarize(pool, criterion, python=sys.executable):
         raise SystemExit("the criterion rubric differs from the pool rubric")
     criteria = criteria_of(mapping)
     excluded, ratings = judged_ratings(pool, mapping, sha)
-    totals = {judge: {cid: sum(r[c] for c in criteria) for cid, r in rated.items()} for judge, rated in ratings.items()}
-    clone_scores = {cid: mean(totals[judge][cid] for judge in totals) for cid, clone in mapping["clones"].items()
-                    if clone["arm"] != "reference"}
+    totals, clone_scores = score_values(mapping, ratings)
     clone_hidden, hidden_failed = hidden_acceptance(pool, mapping, python)
     rows = run_rows(mapping, clone_scores, clone_hidden)
     m = measures(rows)
     results = {
-        "criterion_sha256": sha, "judges": sorted(ratings), "excluded_judges": excluded, "runs": rows,
+        "task": mapping["task"], "criterion_sha256": sha, "judges": sorted(ratings), "excluded_judges": excluded, "runs": rows,
         "measures": m,
         "verdict": verdict(frozen, m), "agreement": agreement(ratings, criteria),
         "anchors": anchor_scores(mapping, totals),
@@ -316,6 +388,8 @@ def summarize(pool, criterion, python=sys.executable):
                          "ratings": {j: ratings[j][cid] for j in sorted(ratings) if cid in ratings[j]}}
                    for cid, clone in mapping["clones"].items()},
     }
+    if (observed := calibration(results, mapping, frozen)) is not None:
+        results["calibration"] = observed
     (pool / "records" / "results.json").write_text(json.dumps(results, indent=2) + "\n")
     (pool / "records" / "results.md").write_text(markdown(results))
     print(markdown(results), end="")
@@ -324,11 +398,16 @@ def summarize(pool, criterion, python=sys.executable):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--pool", type=Path, required=True)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--pool", type=Path)
+    mode.add_argument("--calibration-over", type=Path, nargs="+")
     parser.add_argument("--criterion", type=Path, required=True)
     parser.add_argument("--python", default=sys.executable, help="interpreter for hidden acceptance tests")
     args = parser.parse_args(argv)
-    summarize(args.pool, args.criterion, args.python)
+    if args.calibration_over:
+        print(json.dumps(calibration_over(args.calibration_over, args.criterion), indent=2))
+    else:
+        summarize(args.pool, args.criterion, args.python)
 
 
 if __name__ == "__main__":
