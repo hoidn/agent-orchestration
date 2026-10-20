@@ -6,19 +6,24 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
+from pathlib import Path
 from statistics import stdev
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 
 from experiments.compare.repos import SEED_COMMIT, SEED_DATES, git
-from experiments.orc_structural_search import campaign
+from experiments.orc_structural_search import campaign, scoring
 from experiments.orc_structural_search.campaign import (
     SCHEMA, campaign_candidates, campaign_label, check_split_roles, context_key, dispose, evidence, exposure, ingest,
     open_store, read_checkpoint, record_exposure, register_subject, start_campaign, trial_id, warm_start_id,
     write_checkpoint)
 from experiments.orc_structural_search.evaluation import EVALUATOR_VERSION
+from experiments.orc_structural_search.quota import PREFIX
 from experiments.orc_structural_search.records import UNAVAILABLE, append_record
+from tests.experiments.compare_harness_support import OUTSIDE_SANDBOX_MOUNTS, open_up
 from tests.experiments.qualification_support import REPO, package_sha, sha, write
 from tests.experiments.readout_support import report_pool, report_qualification
 
@@ -38,18 +43,22 @@ def receipt(tokens=1000):
 
 
 @pytest.fixture
-def study(tmp_path):
+def study():
     """A qualified two-task criterion (t1, t2), two contexts under it (two runtime commits) and a writer store."""
-    q = report_qualification(tmp_path / "q", {"tasks": ["t1", "t2"], "envelope": ENVELOPE,
+    OUTSIDE_SANDBOX_MOUNTS.mkdir(parents=True, exist_ok=True)
+    root = Path(tempfile.mkdtemp(dir=OUTSIDE_SANDBOX_MOUNTS))
+    q = report_qualification(root / "q", {"tasks": ["t1", "t2"], "envelope": ENVELOPE,
                                               "model_policy": MODEL_POLICY}, ["t1", "t2"])
     frozen = json.loads(q.criterion.read_text()) | {"criterion_sha256": sha(q.criterion)}
     digests = {task.name: package_sha(task) for task in q.tasks}
     contexts = [context_key(frozen, package_digests=digests, runtime_commit=commit,
                             evaluator_version=EVALUATOR_VERSION) for commit in ("c" * 40, "d" * 40)]
-    s = SimpleNamespace(q=q, sha=sha(q.criterion), ctx=contexts[0], other_ctx=contexts[1], root=tmp_path,
-                        store=open_store(tmp_path / "S", writer=True))
+    s = SimpleNamespace(q=q, sha=sha(q.criterion), ctx=contexts[0], other_ctx=contexts[1], root=root,
+                        store=open_store(root / "S", writer=True))
     yield s
     s.store.close()
+    open_up(root)
+    shutil.rmtree(root)
 
 
 def start(s, label, *, context=None, policy="frontier_only", warm=(), roles=None, roots=None):
@@ -125,6 +134,15 @@ def test_store_refuses_a_malformed_line_and_an_unknown_kind(study, monkeypatch):
     assert not (s.root / "S2").exists()
 
 
+@pytest.mark.parametrize("prefix", ["/tmp", "/dev/shm", "/var/tmp"])
+def test_store_refuses_sandbox_replaced_roots_before_creating_files(prefix):
+    root = Path(prefix) / f"campaign-store-{uuid4().hex}"
+    assert not root.exists()
+    with pytest.raises(SystemExit, match="lies under /tmp, /dev/shm or /var/tmp"):
+        open_store(root, writer=True)
+    assert not root.exists() and not (root / "evidence.jsonl").exists() and not (root / ".lock").exists()
+
+
 def test_campaign_ids_carry_the_store_sequence_and_a_label_cannot_be_reused(study):
     s = study
     with pytest.raises(ValueError, match="label"):
@@ -165,6 +183,59 @@ def test_ingest_is_idempotent_across_processes_and_a_rerun_adds_a_trial(study):
         (c1, "e3"), (c2, "e3")]
 
 
+def test_ingest_reuses_warm_start_ids_and_refuses_a_foreign_original_run(study):
+    s = study
+    warm = start(s, "warm", policy="warm_start")
+    evidence_root, pools = logged(s, "E0", [ev("e1", "A", "t1", 4)])
+    ingest(s.store, warm, s.ctx, evidence_root, pools, criterion=s.q.criterion)
+    original, = list(s.store.index().trials)
+    c2 = start(s, "c1-mixture", warm=[original])
+    assert next(row for row in s.store.rows("campaign") if row["campaign_id"] == c2)["warm_start"] == [original]
+
+    before = len(s.store.rows())
+    with pytest.raises(ValueError, match="original trial.*another campaign"):
+        ingest(s.store, c2, s.ctx, evidence_root, pools, criterion=s.q.criterion)
+    copied_evidence = s.root / "E0-copy"
+    shutil.copytree(evidence_root, copied_evidence)
+    copied_pool_dir = s.root / "pool-copy"
+    shutil.copytree(pools[0].parents[1], copied_pool_dir)
+    with pytest.raises(ValueError, match="original trial.*another campaign"):
+        ingest(s.store, c2, s.ctx, copied_evidence, [copied_pool_dir / "records/results.json"],
+               criterion=s.q.criterion)
+    renamed_evidence = s.root / "E0-renamed"
+    shutil.copytree(evidence_root, renamed_evidence)
+    renamed_row = json.loads((renamed_evidence / "log.jsonl").read_text())
+    renamed_row["evaluation_id"], renamed_row["attempt"] = "e-renamed", 2
+    (renamed_evidence / "log.jsonl").write_text(json.dumps(renamed_row) + "\n")
+    with pytest.raises(ValueError, match="original trial.*another campaign"):
+        ingest(s.store, c2, s.ctx, renamed_evidence, [], criterion=s.q.criterion)
+    assert len(s.store.rows()) == before and len(s.store.rows("trial")) == 1
+
+    distinct_evidence, distinct_pools = logged(s, "E1", [ev("e1", "A", "t1", 6, run_id="run-distinct")])
+    assert ingest(s.store, c2, s.ctx, distinct_evidence, distinct_pools, criterion=s.q.criterion)["trials"] == 1
+    originals = [row for row in s.store.rows("trial") if row["evaluation_id"] == "e1"]
+    assert {(row["campaign_id"], row["run_id"], row["origin_trial_id"]) for row in originals} == {
+        (warm, "run-E0-e1", None), (c2, "run-distinct", None)}
+
+
+def test_unpooled_failures_and_timeouts_score_zero_but_incidents_keep_only_consumption(study):
+    s = study
+    c1 = start(s, "c1")
+    evidence_root, pools = logged(s, "failed-only", [
+        ev("failed", "A", "t1", "failed", replicate=1),
+        ev("timeout", "A", "t1", "incident", replicate=2,
+           incidents=["launch 1: " + scoring.KILLED + " test"]),
+        ev("quota", "A", "t1", "incident", replicate=3, incidents=[PREFIX + "usage limit"]),
+        ev("generic", "A", "t1", "incident", replicate=4, incidents=["infrastructure unavailable"]),
+    ])
+    assert pools == []
+    ingest(s.store, c1, s.ctx, evidence_root, pools, criterion=s.q.criterion)
+    result = estimate(s, "A")
+    assert (len(s.store.rows("assessment")), result["trials"], result["tasks"]["t1"]["n"],
+            result["tasks"]["t1"]["mean"], result["quality"]) == (0, 4, 2, 0, 0)
+    assert result["cost"] == pytest.approx(0.018) and result["calls"] == 1
+
+
 def test_warm_start_is_one_campaign_per_context_and_two_contexts_never_share_a_trial_id(study):
     s = study
     warm = start(s, "warm", policy="warm_start")
@@ -175,8 +246,9 @@ def test_warm_start_is_one_campaign_per_context_and_two_contexts_never_share_a_t
     other = start(s, "warm", policy="warm_start", context=s.other_ctx)
     assert other == f"warm-{s.other_ctx[5:17]}-2"
     evidence_root, _ = logged(s, "E0", [ev("e1", "A", "t1", 5)])
-    for campaign_id, context in ((warm, s.ctx), (other, s.other_ctx)):
-        ingest(s.store, campaign_id, context, evidence_root, [], criterion=s.q.criterion)
+    other_root, _ = logged(s, "E0-other", [ev("e1", "A", "t1", 5, run_id="run-E0-other-e1")])
+    for campaign_id, context, source in ((warm, s.ctx, evidence_root), (other, s.other_ctx, other_root)):
+        ingest(s.store, campaign_id, context, source, [], criterion=s.q.criterion)
     by_context = {context: {tid for tid, t in s.store.index().trials.items() if t["context_key"] == context}
                   for context in (s.ctx, s.other_ctx)}
     assert all(by_context.values()) and not by_context[s.ctx] & by_context[s.other_ctx]
@@ -216,6 +288,25 @@ def test_campaign_candidates_hold_initial_evidence_own_children_and_scheduled_ch
     assert (s.store.root / "candidates" / own).is_dir()
     pooled = estimate(s, seed)
     assert (pooled["trials"], pooled["tasks"]["t1"]["mean"]) == (2, 4)
+
+
+def test_readonly_store_refuses_subject_registration_before_archiving(study):
+    s = study
+    campaign_id = start(s, "c1")
+    runtime = s.root / "runtime-readonly"
+    runtime.mkdir()
+    git(runtime, "init", "-q")
+    (runtime / "README").write_text("runtime\n")
+    git(runtime, "add", "README")
+    git(runtime, *SEED_COMMIT, env=SEED_DATES)
+    candidate = s.root / "candidate-readonly"
+    candidate.mkdir()
+    (candidate / "main.orc").write_text("; candidate\n")
+    reader = open_store(s.root / "S", writer=False)
+    with pytest.raises(PermissionError, match="read-only"):
+        register_subject(reader, candidate, runtime=runtime, parent=None, skeleton="s", policies=frozenset(),
+                         idea_key="i", descriptor={}, campaign_id=campaign_id)
+    assert not (s.root / "S" / "candidates").exists()
 
 
 def test_assessments_come_from_read_pool_and_a_refused_pool_is_refused(study):

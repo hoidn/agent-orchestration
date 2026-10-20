@@ -162,6 +162,7 @@ def open_store(root: Path, *, writer: bool) -> Store:
     recorded campaign's roots, a second writer and a malformed file."""
     root = Path(root).resolve()
     repos.guard(main_prefix(), root)
+    repos.visible_in_sandbox(root)
     store = Store(root, [], _writer_lock(root) if writer else None)
     try:
         store._rows = _load(root / LOG)
@@ -235,6 +236,8 @@ def campaign_candidates(store: Store, campaign_id: str, *, scheduled: Sequence[M
 def register_subject(store: Store, candidate_root: Path, *, runtime: Path, parent: str | None, skeleton: str,
                      policies: frozenset, idea_key: str, descriptor: Mapping, campaign_id: str) -> str:
     """Archive `candidate_root` into S/candidates/ and register it for `campaign_id` once."""
+    if not store.writer:
+        raise PermissionError(f"the store {store.root} is open read-only")
     _campaign(store, campaign_id)
     cid, dest = driver.archive(Path(candidate_root), store.root, runtime)
     driver.check_archived(dest, repos.runtime_commit(runtime))
@@ -333,6 +336,17 @@ def _assess(store: Store, pools: Sequence[tuple[str, dict]], trials: Mapping[str
     return added
 
 
+def _reject_foreign_original_runs(store: Store, campaign_id: str, trials: Sequence[Mapping]) -> None:
+    """A public run already stored as an original belongs to its original campaign; reuse its warm-start id."""
+    run_ids = {trial["run_id"] for trial in trials if trial["run_id"] != UNAVAILABLE}
+    foreign = next((trial for trial in store.index().trials.values()
+                    if trial["origin_trial_id"] is None and trial["campaign_id"] != campaign_id
+                    and trial["run_id"] != UNAVAILABLE and trial["run_id"] in run_ids), None)
+    if foreign:
+        raise ValueError(f"public run {foreign['run_id']} evaluation {foreign['evaluation_id']} attempt "
+                         f"{foreign['attempt']} is an original trial in another campaign; reuse its warm-start id")
+
+
 def ingest(store: Store, campaign_id: str, context: str, evidence_root: Path, pools: Sequence[Path], *,
            criterion: Path) -> dict:
     """One trial per evaluation row of E/log.jsonl (every attempt), one assessment per `scoring.read_pool` row of
@@ -350,6 +364,7 @@ def ingest(store: Store, campaign_id: str, context: str, evidence_root: Path, po
     if measure_free := [results for results, pool in read if "rows" not in pool]:
         raise ValueError(f"{measure_free}: a measure-free criterion carries no assessment")
     trials = {row["evaluation_id"]: _trial(row, campaign_id, context) for row in evaluations}  # the latest row
+    _reject_foreign_original_runs(store, campaign_id, list(trials.values()))
     proof = json.loads(Path(criterion).read_text())["qualification"]["sha256"] if read else None
     return {"trials": _add_trials(store, list(trials.values())),
             "assessments": _assess(store, read, trials, proof), "superseded": _supersede(store, evaluations, trials),
@@ -375,7 +390,10 @@ def evidence(store: Store, candidate_id: str, context: str, *, tasks: Sequence[s
     values = {name: [] for name in names}
     for trial in counted:
         assessed = index.assessments.get(trial["trial_id"])
-        if assessed and (value := scoring.primary_value(assessed[-1])) is not None:
+        row = assessed[-1] if assessed else {
+            "outcome": scoring.scored_outcome(trial | {"kind": "evaluation", "task_id": trial["task"]}),
+            "value": None}
+        if (value := scoring.primary_value(row)) is not None:
             values[trial["task"]].append(value)
     per_task = {name: {"n": len(v), "mean": mean(v) if v else UNAVAILABLE,
                        "sd": stdev(v) if len(v) > 1 else "insufficient_support"} for name, v in values.items()}
