@@ -1,11 +1,8 @@
-"""Offline episode admission against its local immutable parent commit."""
+"""Offline episode admission against its controller-staged parent snapshot."""
 
 import argparse
-import io
 import json
 import shutil
-import subprocess
-import tarfile
 import tempfile
 from pathlib import Path
 
@@ -16,17 +13,24 @@ from experiments.orc_structural_search.config import load_config
 WORKSPACE_FILES = frozenset({".git", "EPISODE.md", "HYPOTHESIS.txt", ".orchestrate"})
 
 
+def stage_parent(source: Path, destination: Path) -> None:
+    """Stage an advisory check's parent outside the mutable repository and its Git history."""
+    from experiments.orc_structural_search.candidates import snapshot
+    snapshot(source, {}, destination)
+    for path in destination.rglob("*"):
+        path.chmod(0o555 if path.is_dir() else 0o444)
+    destination.chmod(0o555)
+
+
 def check_workspace(workspace: Path, metadata: Path) -> dict:
     workspace, metadata = workspace.resolve(), metadata.resolve()
     settings = json.loads(metadata.read_text())
     config = load_config(metadata.parent / settings["config"])
     with tempfile.TemporaryDirectory() as temporary:
         parent, child = Path(temporary) / "parent", Path(temporary) / "child"
-        parent.mkdir()
-        archive = subprocess.run(["git", "archive", settings["base"]], cwd=workspace,
-                                 check=True, capture_output=True).stdout
-        with tarfile.open(fileobj=io.BytesIO(archive)) as stream:
-            stream.extractall(parent, filter="data")
+        shutil.copytree(metadata.parent / settings["parent"], parent, copy_function=shutil.copyfile)
+        for directory in [parent, *(path for path in parent.rglob("*") if path.is_dir())]:
+            directory.chmod(0o755)
         shutil.copytree(workspace, child, ignore=lambda directory, names: (
             list(WORKSPACE_FILES.intersection(names)) if Path(directory) == workspace else []))
         hypothesis = workspace / "HYPOTHESIS.txt"

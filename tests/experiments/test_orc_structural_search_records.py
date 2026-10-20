@@ -7,14 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from experiments.orc_structural_search.records import (
-    append_record,
-    final_choice,
-    python_program_digest,
-    python_skeleton_hash,
-    read_records,
-    skeleton_hash,
-)
+from experiments.orc_structural_search.records import (append_record, read_records, skeleton_hash)
+from experiments.orc_structural_search.selection import (final_choice)
+from experiments.orc_structural_search.python_metrics import (python_program_digest, python_skeleton_hash)
 from tests.experiments.orc_structural_search_support import PYTHON_PARENT
 
 SOURCE = """

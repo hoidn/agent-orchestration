@@ -163,6 +163,9 @@ def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Pa
         command=(sys.executable, "-P", str(source)) if python else None)
     records = run_arm(task_package, eid, work_root, runtime, spec=spec)
     arm = load(records / "record.json")
+    if "COMPARE_MAX_CALLS" in env:
+        arm["planned_maximum"] = env["COMPARE_MAX_CALLS"]
+        dump(records / "record.json", arm)
     if config.models is not None:
         arm["allowed_claude_models"] = list(config.models)
         dump(records / "record.json", arm)
@@ -197,6 +200,8 @@ def _launch(record: EvaluationRecord, argv: list[str], env: Mapping[str, str],
     started = time.monotonic()
     metadata = load(records / "record.json")
     env = dict(env)
+    if "planned_maximum" in metadata:
+        env["COMPARE_MAX_CALLS"] = metadata["planned_maximum"]
     if "allowed_claude_models" in metadata:
         env["COMPARE_CLAUDE_MODELS"] = ",".join(metadata["allowed_claude_models"])
     with log.open("w") as out:
@@ -222,7 +227,6 @@ def _launch(record: EvaluationRecord, argv: list[str], env: Mapping[str, str],
                    wall_clock_sec=record.wall_clock_sec + elapsed,
                    provider_calls=len(list((records / "calls").glob("*"))),
                    **realized_effects(record.state_dir, run_id, generic=metadata["arm_kind"] == "generic-command"))
-
 
 
 def realized_effects(state_dir: Path, run_id: str, *, generic: bool) -> dict:

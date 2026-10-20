@@ -9,7 +9,7 @@ evaluates the candidate. `main` compiles in process and prints the manifest JSON
 The receipt is derived from the child's final files, never written by the agent (`derive_receipt`): the
 replacement is the child's subform at the parent site's index path, the supporting declarations are the child's
 top-level definitions the parent lacks, the hypothesis is the first line of an optional HYPOTHESIS.txt in the
-child root. `candidates.validate_one_site` judges it.
+child root. `one_site.validate_one_site` judges it.
 """
 
 import argparse
@@ -24,8 +24,8 @@ import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from experiments.orc_structural_search.candidates import (
-    Receipt, _owner_form, _parse_site, _site_path, _split_forms, _subform, _top_level_forms)
+from experiments.orc_structural_search.candidates import (Receipt, _split_forms, _top_level_forms)
+from experiments.orc_structural_search.one_site import (_owner_form, _parse_site, _site_path, _subform)
 from experiments.orc_structural_search.config import ExperimentConfig
 from experiments.orc_structural_search.records import UNAVAILABLE
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError

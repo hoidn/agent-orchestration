@@ -14,9 +14,8 @@ import pytest
 from experiments.orc_structural_search import ledger
 from experiments.orc_structural_search.briefs import episode_brief
 from experiments.orc_structural_search.config import ExperimentConfig, load_config
-from experiments.orc_structural_search.driver import (
-    archive, check_roots, check_solutions, enumerate_catalog, episode_workspace, evaluate_all, evaluate_and_scan,
-    judge_child, run_episode)
+from experiments.orc_structural_search.driver import (archive, check_roots, check_solutions, episode_workspace, evaluate_all, evaluate_and_scan, judge_child, run_episode)
+from experiments.orc_structural_search.mode1 import (enumerate_catalog)
 from experiments.orc_structural_search.mode1 import readout, run_mode1
 from experiments.orc_structural_search.ledger import CallCapExceeded, max_provider_calls
 from experiments.orc_structural_search.records import read_records

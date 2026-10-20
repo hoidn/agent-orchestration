@@ -1,11 +1,9 @@
-"""Mode 1 of the structural search driver (catalog enumeration and unguided I1 episodes) and the episode
-function I1 and I2 share (run_episode).
+"""Structural-search evaluation and I1/I2 episodes (run_episode).
 
 Design: docs/design/orc_structural_search_driver.md ("Search Modes" mode 1, "Proposal Interfaces" I1 and I2,
 "Edit Validation And Transactions", "Records", "Evaluation Hygiene"). Two roots, neither inside the other:
 
   work root (`run_arm`'s work root; an episode's CLI calls see only their own episode tree of it: hidden_roots)
-    records/, runs/, agents/, env-manifests/   evaluations (see evaluation.py)
     episodes/episode-<n>/cand-1/               the mutator's working copy of the parent: a git repository whose
                                                one commit (the shims' COMPARE_BASE) is the parent snapshot
     episodes/episode-<n>/tmp/                  the mutator's private /tmp under the shims
@@ -24,9 +22,7 @@ guard"); the driver never resumes an incident. A quota launch pauses new launche
 as a new attempt (quota.QuotaGuard, with_retries). An archived candidate is checked before each episode and
 evaluation: its content must still hash to its directory name (archive tamper check).
 
-A seed is one `.orc` file of a catalog directory; its candidate root holds that file, the `.orc` modules it
-imports (transitively) and every other regular file of the directory, and its entry is `<stem>::<entry
-definition of the configuration>`. After every evaluation `prepare.scan` runs over its records with the
+After every evaluation `prepare.scan` runs over its records with the
 evidence root and the episode copies named `archive`, the log `lineage` and the holdout roots `holdout`, and
 after every episode (scan_episode) over the episode's shim records; the solution commits come from the
 operator's `solutions` mapping (task package name -> hash, checked by check_solutions), never from the package,
@@ -52,7 +48,6 @@ import shlex
 import shutil
 import signal
 import subprocess
-import tempfile
 import threading
 import time
 from collections import namedtuple
@@ -69,13 +64,12 @@ from experiments.orc_structural_search import ledger, metering
 from experiments.orc_structural_search.acceptance import judge_child
 from experiments.orc_structural_search.briefs import episode_brief
 from experiments.orc_structural_search.candidates import (
-    _exported_names, _file_names, _parent_forms, _split_forms, candidate_id, imports, snapshot)
+    _exported_names, _file_names, _parent_forms, _split_forms, candidate_id, snapshot)
 from experiments.orc_structural_search.config import ExperimentConfig, solution
 from experiments.orc_structural_search.evaluation import EVALUATOR_VERSION, evaluate, is_python, records_root
 from experiments.orc_structural_search.quota import PREFIX, QuotaGuard, quota_hit, with_retries
-from experiments.orc_structural_search.records import (
-    UNAVAILABLE, append_record, provider_allocation, python_provider_allocation, python_skeleton_hash, read_records,
-    skeleton_hash)
+from experiments.orc_structural_search.records import (UNAVAILABLE, append_record, provider_allocation, read_records, skeleton_hash)
+from experiments.orc_structural_search.python_metrics import (python_provider_allocation, python_skeleton_hash)
 from experiments.orc_structural_search.sites import HYPOTHESIS, drop_hypothesis
 
 EPISODE = "EPISODE.md"
@@ -120,32 +114,6 @@ def check_archived(root: Path, commit: str) -> str:
     return cid
 
 
-def seed_files(seed: Path) -> dict[str, bytes]:
-    """The seed, the `.orc` modules it imports transitively, and every other regular file of its directory."""
-    files = {p.name: p.read_bytes() for p in seed.parent.iterdir() if p.is_file() and p.suffix != ".orc"}
-    pending = [seed]
-    while pending:
-        path = pending.pop()
-        if path.name in files or not path.is_file():
-            continue  # a library import (no file beside the seed) or one already taken
-        files[path.name] = path.read_bytes()
-        pending += [path.parent / f"{module}.orc" for module in imports(path)]
-    return files
-
-
-def archive_seed(seed: Path, evidence_root: Path, runtime: Path) -> tuple[str, Path]:
-    """(candidate id, archived root) of the seed's candidate root (seed_files)."""
-    with tempfile.TemporaryDirectory() as staging:
-        for name, data in seed_files(seed).items():
-            (Path(staging) / name).write_bytes(data)
-        return archive(Path(staging), evidence_root, runtime)
-
-
-def seed_config(seed: Path, config: ExperimentConfig) -> ExperimentConfig:
-    entry = config.entry_workflow.split("::")[1]
-    return replace(config, entry_workflow=f"{seed.stem}::{entry}", mutable_files=(seed.name,))
-
-
 def logged_evaluations(evidence_root: Path) -> set[str]:
     """The evaluation ids the log's evaluation rows name."""
     log = evidence_root / "log.jsonl"
@@ -169,8 +137,9 @@ def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, repli
                                   "than rerun it")
         ledger.settle_killed(evidence_root, "evaluation", key(attempt), killed / "run-1")
         attempt += 1
-    slot = ledger.reserve(evidence_root, kind="evaluation", key=key(attempt),
-                          planned=ledger.planned_calls(root, config), cap=call_cap)
+    planned = ledger.planned_calls(root, config, runtime=runtime)
+    slot = ledger.reserve(evidence_root, kind="evaluation", key=key(attempt), planned=planned, cap=call_cap)
+    env["COMPARE_MAX_CALLS"] = str(planned)
     record = evaluate(root, config, task_package=task, work_root=work_root, replicate=replicate,
                       runtime=runtime, env=env, timeout_sec=timeout_sec, attempt=attempt)
     ledger.settle(evidence_root, slot, record.records_dir, evaluation_id=record.evaluation_id)
@@ -191,7 +160,6 @@ def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, repli
     with _LOG_LOCK:
         append_record(evidence_root / "log.jsonl", row)
     return row
-
 
 
 def settle_scan(records: Path, scan: Callable[[], list[dict]]) -> tuple[list[dict] | str, str | None]:
@@ -265,31 +233,6 @@ def launch_units(pending: Sequence[Unit], *, concurrency: int, guard: QuotaGuard
     return [future.result() for future in futures]
 
 
-def catalog_jobs(seeds: Sequence[Path], config: ExperimentConfig, evidence_root: Path,
-                 runtime: Path) -> list[tuple[Path, ExperimentConfig, dict]]:
-    """Each seed archived, as a (root, config, fields) job of `mode: "catalog"`."""
-    jobs = []
-    for seed in seeds:
-        cid, root = archive_seed(seed, evidence_root, runtime)
-        jobs.append((root, seed_config(seed, config),
-                     {"mode": "catalog", "seed": seed.stem, "candidate_id": cid, "candidate_root": str(root)}))
-    return jobs
-
-
-def enumerate_catalog(seeds: Sequence[Path], config: ExperimentConfig, *, tasks: Sequence[Path], work_root: Path,
-                      evidence_root: Path, replicates: int, runtime: Path, env: Mapping[str, str],
-                      timeout_sec: float, solutions: Mapping[str, str], call_cap: int, concurrency: int = 1,
-                      holdouts: Sequence[Path] = ()) -> list[dict]:
-    """Archive every seed and evaluate it once per task and replicate (`mode: "catalog"`), at most `concurrency`
-    evaluations at a time."""
-    work_root, evidence_root = check_roots(work_root, evidence_root)
-    solutions = check_solutions(tasks, solutions, runtime)
-    return evaluate_all(catalog_jobs(seeds, config, evidence_root, runtime), tasks=tasks, replicates=replicates,
-                        concurrency=concurrency, work_root=work_root,
-                        evidence_root=evidence_root, runtime=runtime, env=env, timeout_sec=timeout_sec,
-                        solutions=solutions, holdouts=holdouts, call_cap=call_cap)
-
-
 def episode_workspace(parent_root: Path, tree: Path, brief: str, runtime: Path, *,
                       config: ExperimentConfig, site: Mapping | None = None,
                       parent_candidate_id: str | None = None) -> tuple[Path, str]:
@@ -308,6 +251,8 @@ def episode_workspace(parent_root: Path, tree: Path, brief: str, runtime: Path, 
             shutil.copyfile(module, destination / module.name)
         (destination / "__init__.py").touch(exist_ok=True)
     (tree / "py" / "experiments" / "__init__.py").touch()
+    from experiments.orc_structural_search.check import stage_parent
+    stage_parent(parent_root, tree / "parent")
     copy = snapshot(parent_root, {}, tree / "cand-1")
     git(copy, "init", "-q")
     git(copy, "add", "-A", "-f", ".")
@@ -319,7 +264,7 @@ def episode_workspace(parent_root: Path, tree: Path, brief: str, runtime: Path, 
     (tree / "tmp").mkdir()
     base = git(copy, "rev-parse", "HEAD")
     dump(tree / "config.json", asdict(config))
-    dump(tree / "admission.json", {"base": base, "config": "config.json", "site": site,
+    dump(tree / "admission.json", {"base": base, "parent": "parent", "config": "config.json", "site": site,
                                    "parent_candidate_id": parent_candidate_id})
     for name in ("config.json", "admission.json"):
         (tree / name).chmod(0o444)
@@ -350,6 +295,7 @@ def run_agent(agent_cmd: Sequence[str], cwd: Path, log: Path, env: Mapping[str, 
     """Run the command from `cwd` behind the shim prefix (`shim_env`: COMPARE_ROOT, COMPARE_TREE, COMPARE_BASE,
     COMPARE_HIDE, TMPDIR) with <cwd>/EPISODE.md on stdin: (None when it exited 0, else "incident"; or "exhausted"
     after the wall clock), exit status."""
+    env = {key: value for key, value in env.items() if key != "COMPARE_MAX_CALLS"}
     log.parent.mkdir(parents=True, exist_ok=True)
     argv = ["bash", "-c", shim_prefix(cwd, runtime, shim_env) + shlex.join(agent_cmd)]
     with log.open("w") as out, (cwd / EPISODE).open() as brief:
@@ -371,7 +317,7 @@ def mutable_source(root: Path, config: ExperimentConfig) -> str:
 
 def skeleton(root: Path, config: ExperimentConfig) -> str:
     """The skeleton hash of the mutable definitions; prompts contribute nothing (records.skeleton_hash, for an I3
-    module records.python_skeleton_hash)."""
+    module python_metrics.python_skeleton_hash)."""
     hash_of = python_skeleton_hash if is_python(config) else skeleton_hash
     options = {"module_entry": config.entry_workflow} if config.condition == "module" and not is_python(config) else {}
     return hash_of(mutable_source(root, config), definitions=metric_definitions(root, config), **options)

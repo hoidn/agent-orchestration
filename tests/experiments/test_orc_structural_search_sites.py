@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from experiments.orc_structural_search.candidates import (
-    _child_forms, _owner_form, _site_path, _subform, canonical_form, validate_one_site)
+from experiments.orc_structural_search.candidates import (_child_forms, canonical_form)
+from experiments.orc_structural_search.one_site import (_owner_form, _site_path, _subform, validate_one_site)
 from experiments.orc_structural_search.config import ExperimentConfig
 from experiments.orc_structural_search.sites import (
     derive_receipt, eligible_sites, replacement_start, select_site, site_brief, site_manifest, slot_type)

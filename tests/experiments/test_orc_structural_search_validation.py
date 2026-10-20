@@ -5,16 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from experiments.orc_structural_search.candidates import (
-    Receipt,
-    compile_candidate,
-    validate_frozen_surfaces,
-    validate_one_site,
-)
+from experiments.orc_structural_search.candidates import (Receipt, compile_candidate, validate_frozen_surfaces)
+from experiments.orc_structural_search.one_site import (validate_one_site)
 from experiments.orc_structural_search.acceptance import (
     check_python, judge_child, suppression_check, validate_python_scope)
 from experiments.orc_structural_search.config import ExperimentConfig
-from experiments.orc_structural_search.records import python_provider_allocation, python_skeleton_hash
+from experiments.orc_structural_search.python_metrics import (python_provider_allocation, python_skeleton_hash)
 from tests.experiments.orc_structural_search_support import I3_CONFIG, python_pair, pyright  # noqa: F401 (fixture)
 
 REPO = Path(__file__).resolve().parents[2]

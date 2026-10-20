@@ -35,7 +35,8 @@ from statistics import mean
 
 from experiments.compare.repos import sha256_file
 from experiments.orc_structural_search.readout import diversity, share
-from experiments.orc_structural_search.records import UNAVAILABLE, control_heads, final_choice, read_records
+from experiments.orc_structural_search.records import (UNAVAILABLE, control_heads, read_records)
+from experiments.orc_structural_search.selection import (final_choice)
 from experiments.orc_structural_search.scoring import (
     DIRECT, FAILED_POINTS, FAILURES, anchor_checks, latest_evaluations, policy_stats, read_pool, scored_outcome,
 )

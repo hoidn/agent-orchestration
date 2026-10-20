@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from dataclasses import asdict, replace
@@ -240,6 +241,7 @@ def test_initial_claude_launch_enforces_allowlist_after_compare_environment_is_s
     from tests.experiments.test_orc_structural_search_driver import fake_claude
     source = f'''#!{sys.executable} -I
 import os
+import shutil
 assert "COMPARE_CLAUDE_MODELS" not in os.environ
 assert os.environ["ORC_ALLOWED_CLAUDE_MODELS"]
 print("real CLI launched")
@@ -440,3 +442,39 @@ def test_quota_keeps_priority_over_timeout_and_incomplete_scan(sandboxed, world,
     assert row["incidents"][-1] == PREFIX + quota
     assert row["provider_calls"] == 1 and not row.get("candidate_root")
     assert row["scan_pending"] == incomplete_scan
+
+
+def test_workspace_check_parent_survives_mutator_replacing_git_history(world):
+    copy, tree, check = check_workspace(world)
+    (copy / "providers.json").write_text('{"changed": true}\n')
+    shutil.rmtree(copy / ".git")
+    subprocess.run(["git", "init", "-q"], cwd=copy, check=True)
+    subprocess.run(["git", "add", "."], cwd=copy, check=True)
+    subprocess.run(["git", "-c", "user.name=test", "-c", "user.email=test@example.invalid",
+                    "commit", "-qm", "mutator replacement"], cwd=copy, check=True)
+    done, verdict = check()
+    assert done.returncode == 1
+    assert verdict["refusal_code"] == "frozen_surface_changed"
+
+
+def test_evaluation_beyond_reserved_maximum_fails_at_shim_and_settles_refused_call(sandboxed, world, monkeypatch):
+    from experiments.orc_structural_search import driver, ledger
+    from tests.experiments.orc_structural_search_support import script
+    source = (world.candidate / "direct.orc").read_text()
+    start = source.index("(provider-result providers.coder")
+    stop = source.index(":timeout-sec 5400)", start) + len(":timeout-sec 5400)")
+    call = source[start:stop]
+    (world.candidate / "direct.orc").write_text(source[:start] + f"(let* ((first {call})) {call})" + source[stop:])
+    cid, root = archive(world.candidate, world.evidence, world.runtime)
+    script(world, [{"match": "Implement this change", "result": {"summary": "set VALUE", "account": "edited"}}])
+    monkeypatch.setattr(ledger, "planned_calls", lambda *args, **kwargs: 1)
+    row = driver.evaluate_and_scan(root, module_config(), task=world.task, replicate=1,
+        work_root=world.outside / "work", evidence_root=world.evidence, runtime=world.runtime,
+        env={**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}", "SCRIPTED_RESULTS_FILE": str(world.results)},
+        timeout_sec=60, solutions={world.task.name: world.solution}, holdouts=(), fields={"candidate_id": cid}, call_cap=10)
+    assert row["outcome"] == "failed", row
+    assert not any("quota" in incident for incident in row["incidents"])
+    records = Path(row["records_dir"])
+    assert len(list((records / "calls").iterdir())) == 2
+    assert "COMPARE_MAX_CALLS=1" in (records / "calls/2/stderr.txt").read_text()
+    assert json.loads((world.evidence / ledger.LEDGER).read_text())[0]["calls"] == 2

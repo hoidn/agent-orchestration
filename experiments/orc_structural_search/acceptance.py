@@ -10,7 +10,6 @@ import builtins
 import hashlib
 import io
 import json
-import math
 import os
 import re
 import subprocess
@@ -22,11 +21,12 @@ from dataclasses import asdict
 from pathlib import Path
 
 from experiments.orc_structural_search import evaluation, ledger
-from experiments.orc_structural_search.candidates import (
-    ACCEPTED, CompileOutcome, Verdict, _file_names, _refuse, _same_file, compile_candidate, validate_frozen_surfaces,
-    validate_one_site)
+from experiments.orc_structural_search.closed_checks import closed_program, compiled_refusal
+from experiments.orc_structural_search.candidates import (ACCEPTED, CompileOutcome, Verdict, _file_names, _refuse, _same_file, compile_candidate, validate_frozen_surfaces)
+from experiments.orc_structural_search.one_site import (validate_one_site)
 from experiments.orc_structural_search.config import ExperimentConfig
-from experiments.orc_structural_search.records import _PROMPT_SUFFIX, UNAVAILABLE, python_program_digest
+from experiments.orc_structural_search.records import (UNAVAILABLE)
+from experiments.orc_structural_search.python_metrics import (_PROMPT_SUFFIX, python_program_digest)
 from experiments.orc_structural_search.sites import (
     derive_receipt, drop_hypothesis, replacement_start, site_manifest, slot_type)
 
@@ -46,60 +46,6 @@ def entry_result(root: Path, build_key: str) -> object:
     return closed_program(root, build_key)["result"]
 
 
-def closed_program(root: Path, build_key: str) -> dict:
-    return json.loads((root / ".orchestrate" / "build" / build_key / "closed_program.json").read_text())
-
-
-def compiled_refusal(parent: Mapping, child: Mapping, config: ExperimentConfig) -> dict | None:
-    """Compare resolved entry contracts, then enforce module-only graph and effect policies."""
-    for field in ("params", "result"):
-        if parent[field] != child[field]:
-            code = "slot_type_changed" if field == "result" and config.condition != "module" else "frozen_surface_changed"
-            return {"refusal_code": code, "detail": f"resolved entry {field} of {config.entry_workflow} changed"}
-    if config.condition != "module":
-        return None
-    own_module = config.entry_workflow.split("::")[0]
-
-    def modules(program):
-        # Callable keys carry a kind prefix; loop-state carriers belong to the compiler, not an import.
-        qualifiers = {name.split("::")[0].rsplit(":", 1)[-1]
-                      for key in ("definitions", "types") for name in program[key] if "::" in name}
-        return qualifiers - {own_module, "workflow_lisp/private"}
-
-    if modules(parent) != modules(child):
-        return {"refusal_code": "frozen_surface_changed", "detail": "the resolved imported module graph changed"}
-    pending = [child]
-    while pending:
-        node = pending.pop()
-        if isinstance(node, Mapping):
-            if node.get("k") == "perform":
-                if node["class"] in {"provider_phased", "agent", "agent_turn"}:
-                    return {"refusal_code": "unsupported_effect_shape", "detail": f"unsupported effect {node['class']}"}
-                if node["class"] == "provider":
-                    refusal = _provider_policy_refusal(node.get("policy", {}), config)
-                    if refusal:
-                        return refusal
-            pending.extend(node.values())
-        elif isinstance(node, list):
-            pending.extend(node)
-    return None
-
-
-def _provider_policy_refusal(policy: Mapping, config: ExperimentConfig) -> dict | None:
-    values = {key: value.get("v") for key, value in policy.items() if value.get("k") == "lit"}
-    model, effort = values.get("model"), values.get("effort")
-    if not (isinstance(model, str) and "fable" not in model.lower() and isinstance(effort, str)
-            and effort in config.models.get(model, ())):
-        return {"refusal_code": "model_not_allowed", "detail": "model and effort must be allowlisted string literals"}
-    timeout = values.get("timeout_sec")
-    if (type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0
-            or timeout > config.per_call_timeout_sec or set(policy) - {"model", "effort", "timeout_sec", "delivery"}):
-        return {"refusal_code": "per_call_ceiling_exceeded",
-                "detail": f"timeout_sec must be a positive literal at most {config.per_call_timeout_sec}; "
-                          "additional per-call ceilings are not admitted"}
-    return None
-
-
 def judge_child(parent: Path, child: Path, config: ExperimentConfig, *, runtime: Path, site: Mapping | None = None,
                 parent_candidate_id: str | None = None) -> dict:
     """Validation, full compilation with the runtime's orchestrator (a compiler crash is an incident), the I2 slot
@@ -111,24 +57,16 @@ def judge_child(parent: Path, child: Path, config: ExperimentConfig, *, runtime:
     (evaluation.is_python) is judged by judge_python_child."""
     if evaluation.is_python(config):
         return judge_python_child(parent, child, config, runtime=runtime)
-    receipt = None
-    if site is None:
-        verdict = validate_frozen_surfaces(parent, child, config)
-    else:
-        receipt = derive_receipt(parent, child, site, config, parent_candidate_id=parent_candidate_id)
-        drop_hypothesis(child)
-        verdict = validate_one_site(parent, child, receipt, config)
-    shown = {"receipt": asdict(receipt) if receipt else None}
+    verdict, receipt = _source_verdict(parent, child, config, site, parent_candidate_id)
+    shown = {"receipt": receipt}
     if not verdict.accepted:
         return {**shown, "outcome": "rejected", "refusal_code": verdict.code, "detail": verdict.detail}
     compiled = compile_candidate(child, config, runtime=runtime)
     if compiled.status != "accepted":
-        outcome = "incident" if any(d.get("code") in COMPILER_INCIDENT_CODES for d in compiled.diagnostics) else "rejected"
-        return {**shown, "outcome": outcome, "diagnostics": list(compiled.diagnostics),
-                "compile_diagnostics": compile_diagnostics(compiled), **diagnosis(compiled)}
+        return {**shown, **_compile_failure(compiled)}
     refusal = slot_refusal(parent, child, site, config, runtime=runtime) if site else None
     if config.condition != "module":
-        refusal = refusal or ledger.unbounded_refusal(child, config)
+        refusal = refusal or ledger.unbounded_refusal(child, config, runtime=runtime)
     if refusal is None:
         parent_compiled = compile_candidate(parent, config, runtime=runtime)
         if parent_compiled.status != "accepted":
@@ -137,11 +75,25 @@ def judge_child(parent: Path, child: Path, config: ExperimentConfig, *, runtime:
         refusal = compiled_refusal(closed_program(parent, parent_compiled.build_key),
                                    closed_program(child, compiled.build_key), config)
     if config.condition == "module":
-        refusal = refusal or ledger.unbounded_refusal(child, config)
+        refusal = refusal or ledger.unbounded_refusal(child, config, runtime=runtime)
     if refusal is not None:
         return {**shown, "outcome": "rejected", **refusal}
     return {**shown, "outcome": "accepted", "program_digest": compiled.program_digest,
             "build_key": compiled.build_key}
+
+
+def _source_verdict(parent, child, config, site, parent_candidate_id):
+    if site is None:
+        return validate_frozen_surfaces(parent, child, config), None
+    receipt = derive_receipt(parent, child, site, config, parent_candidate_id=parent_candidate_id)
+    drop_hypothesis(child)
+    return validate_one_site(parent, child, receipt, config), asdict(receipt)
+
+
+def _compile_failure(compiled):
+    outcome = "incident" if any(d.get("code") in COMPILER_INCIDENT_CODES for d in compiled.diagnostics) else "rejected"
+    return {"outcome": outcome, "diagnostics": list(compiled.diagnostics),
+            "compile_diagnostics": compile_diagnostics(compiled), **diagnosis(compiled)}
 
 
 def slot_refusal(parent: Path, child: Path, site: Mapping, config: ExperimentConfig, *, runtime: Path) -> dict | None:
@@ -157,7 +109,6 @@ def slot_refusal(parent: Path, child: Path, site: Mapping, config: ExperimentCon
     if found != expected:
         return {"refusal_code": "slot_type_changed", "detail": f"the replacement is {found}, the site {expected}"}
     return None
-
 
 
 def compile_diagnostics(checked: CompileOutcome) -> dict:
@@ -188,7 +139,7 @@ def judge_python_child(parent: Path, child: Path, config: ExperimentConfig, *, r
     checked = check_python(child, config, runtime=runtime)
     if checked.status != "accepted":
         return {**shown, "outcome": "rejected", **diagnosis(checked)}
-    refusal = ledger.unbounded_refusal(child, config)
+    refusal = ledger.unbounded_refusal(child, config, runtime=runtime)
     if refusal is not None:
         return {**shown, "outcome": "rejected", **refusal}
     return {**shown, "outcome": "accepted", "program_digest": checked.program_digest, "build_key": checked.build_key}

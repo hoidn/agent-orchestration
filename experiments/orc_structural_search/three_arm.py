@@ -63,8 +63,8 @@ from experiments.orc_structural_search.evaluation import cli_version
 from experiments.orc_structural_search.mode1 import continued
 from experiments.orc_structural_search.quota import QuotaGuard, prior_rows, quota_reason, with_retries
 from experiments.orc_structural_search.readout import diversity, outcome, share
-from experiments.orc_structural_search.records import (
-    UNAVAILABLE, append_record, python_program_digest, read_records)
+from experiments.orc_structural_search.records import (UNAVAILABLE, append_record, read_records)
+from experiments.orc_structural_search.python_metrics import (python_program_digest)
 from experiments.orc_structural_search.scoring import contaminated_children
 from experiments.orc_structural_search.sites import eligible_sites, select_site, site_manifest
 

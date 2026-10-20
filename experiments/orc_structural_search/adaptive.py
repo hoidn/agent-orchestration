@@ -52,8 +52,8 @@ from statistics import mean
 
 from experiments.orc_structural_search import ledger
 from experiments.orc_structural_search.config import ExperimentConfig, load_config
-from experiments.orc_structural_search.driver import (
-    archive_seed, check_roots, check_solutions, evaluate_all, run_episode, seed_config)
+from experiments.orc_structural_search.driver import (check_roots, check_solutions, evaluate_all, run_episode)
+from experiments.orc_structural_search.mode1 import (archive_seed, seed_config)
 from experiments.orc_structural_search.judging import VALIDATION, JudgeIncident, judge_generation
 from experiments.orc_structural_search.readout import readout
 from experiments.orc_structural_search.records import UNAVAILABLE, append_record, read_records
@@ -173,7 +173,7 @@ def evaluate_and_judge(jobs: Sequence[tuple[Path, ExperimentConfig, Mapping]], g
     times per task (at most launch["concurrency"] at a time) and judge them; the joined rows."""
     if not jobs:
         return []
-    planned = planned_judged([ledger.planned_calls(root, config) for root, config, _ in jobs], len(tasks), replicates,
+    planned = planned_judged([ledger.planned_calls(root, config, runtime=launch["runtime"]) for root, config, _ in jobs], len(tasks), replicates,
                              len(judge["judges"]))
     check_budget(launch["evidence_root"], planned, launch["call_cap"], f"generation {generation}'s evaluations")
     evaluate_all(jobs, tasks=tasks, replicates=replicates, concurrency=launch["concurrency"],
@@ -209,7 +209,7 @@ def generation(n: int, archive: list[dict], config: ExperimentConfig, *, rng: ra
                launch: Mapping, judge: Mapping) -> list[dict]:
     """Generation `n` (see the module docstring); the archive after it, also written to gen-<n>.json (unless a
     judge incident ends it)."""
-    largest = max(ledger.planned_calls(Path(e["candidate_root"]), lineage_config(e, config)) for e in archive)
+    largest = max(ledger.planned_calls(Path(e["candidate_root"]), lineage_config(e, config), runtime=launch["runtime"]) for e in archive)
     check_budget(launch["evidence_root"], len(interfaces) + planned_judged(
         [largest] * len(interfaces), len(adaptive_tasks), 1, len(judge["judges"])), launch["call_cap"],
         f"generation {n}'s episodes")

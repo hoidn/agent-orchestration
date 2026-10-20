@@ -6,13 +6,16 @@ command line.
 
 import itertools
 import json
+import tempfile
+from dataclasses import replace
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from experiments.orc_structural_search import ledger
+from experiments.orc_structural_search.candidates import imports
 from experiments.orc_structural_search.config import ExperimentConfig, load_config
 from experiments.orc_structural_search.driver import (
-    Unit, catalog_jobs, check_roots, check_solutions, launch_units, run_episode, units)
+    Unit, archive, check_roots, check_solutions, evaluate_all, launch_units, run_episode, units)
 from experiments.orc_structural_search.quota import (
     QuotaGuard, job_key, next_attempts, prior_rows, quota_reason, with_retries)
 from experiments.orc_structural_search.readout import readout
@@ -99,3 +102,54 @@ def run_mode1(config_path: Path, *, seeds: Sequence[Path], tasks: Sequence[Path]
     result = readout(read_records(evidence_root / "log.jsonl"), evidence_root)
     (evidence_root / "readout.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     return result
+
+
+def seed_files(seed: Path) -> dict[str, bytes]:
+    """The seed, the `.orc` modules it imports transitively, and every other regular file of its directory."""
+    files = {p.name: p.read_bytes() for p in seed.parent.iterdir() if p.is_file() and p.suffix != ".orc"}
+    pending = [seed]
+    while pending:
+        path = pending.pop()
+        if path.name in files or not path.is_file():
+            continue  # a library import (no file beside the seed) or one already taken
+        files[path.name] = path.read_bytes()
+        pending += [path.parent / f"{module}.orc" for module in imports(path)]
+    return files
+
+
+def archive_seed(seed: Path, evidence_root: Path, runtime: Path) -> tuple[str, Path]:
+    """(candidate id, archived root) of the seed's candidate root (seed_files)."""
+    with tempfile.TemporaryDirectory() as staging:
+        for name, data in seed_files(seed).items():
+            (Path(staging) / name).write_bytes(data)
+        return archive(Path(staging), evidence_root, runtime)
+
+
+def seed_config(seed: Path, config: ExperimentConfig) -> ExperimentConfig:
+    entry = config.entry_workflow.split("::")[1]
+    return replace(config, entry_workflow=f"{seed.stem}::{entry}", mutable_files=(seed.name,))
+
+
+def catalog_jobs(seeds: Sequence[Path], config: ExperimentConfig, evidence_root: Path,
+                 runtime: Path) -> list[tuple[Path, ExperimentConfig, dict]]:
+    """Each seed archived, as a (root, config, fields) job of `mode: "catalog"`."""
+    jobs = []
+    for seed in seeds:
+        cid, root = archive_seed(seed, evidence_root, runtime)
+        jobs.append((root, seed_config(seed, config),
+                     {"mode": "catalog", "seed": seed.stem, "candidate_id": cid, "candidate_root": str(root)}))
+    return jobs
+
+
+def enumerate_catalog(seeds: Sequence[Path], config: ExperimentConfig, *, tasks: Sequence[Path], work_root: Path,
+                      evidence_root: Path, replicates: int, runtime: Path, env: Mapping[str, str],
+                      timeout_sec: float, solutions: Mapping[str, str], call_cap: int, concurrency: int = 1,
+                      holdouts: Sequence[Path] = ()) -> list[dict]:
+    """Archive every seed and evaluate it once per task and replicate (`mode: "catalog"`), at most `concurrency`
+    evaluations at a time."""
+    work_root, evidence_root = check_roots(work_root, evidence_root)
+    solutions = check_solutions(tasks, solutions, runtime)
+    return evaluate_all(catalog_jobs(seeds, config, evidence_root, runtime), tasks=tasks, replicates=replicates,
+                        concurrency=concurrency, work_root=work_root,
+                        evidence_root=evidence_root, runtime=runtime, env=env, timeout_sec=timeout_sec,
+                        solutions=solutions, holdouts=holdouts, call_cap=call_cap)

@@ -91,10 +91,17 @@ def entry_of(root: Path, config: ExperimentConfig) -> tuple[Path, str]:
     return (root / config.source_root / module).with_suffix(".py" if python else ".orc"), entry
 
 
-def planned_calls(root: Path, config: ExperimentConfig) -> int:
+def planned_calls(root: Path, config: ExperimentConfig, *, runtime: Path | None = None) -> int:
     """The planned maximum of one evaluation of the candidate at `root`: max_provider_calls of its entry, or for a
     Python entry module its frozen call cap (python_call_cap)."""
     source, entry = entry_of(root, config)
+    if config.condition == "module" and source.suffix != ".py":
+        from experiments.orc_structural_search.candidates import compile_candidate
+        from experiments.orc_structural_search.closed_checks import closed_program, planned_maximum
+        compiled = compile_candidate(root, config, runtime=runtime or Path(__file__).resolve().parents[2])
+        if compiled.status != "accepted":
+            raise CallCapExceeded(f"cannot bound a rejected closed program: {compiled.diagnostics}")
+        return planned_maximum(closed_program(root, compiled.build_key))
     return python_call_cap(source) if source.suffix == ".py" else max_provider_calls(source, entry)
 
 
@@ -111,11 +118,11 @@ def python_call_cap(source: Path) -> int:
     return cap.value
 
 
-def unbounded_refusal(root: Path, config: ExperimentConfig) -> dict | None:
+def unbounded_refusal(root: Path, config: ExperimentConfig, *, runtime: Path | None = None) -> dict | None:
     """The `unbounded_calls` refusal of a candidate whose planned maximum is unbounded, else None: such a child
     is refused at episode acceptance, so it never reaches an evaluation."""
     try:
-        planned_calls(root, config)
+        planned_calls(root, config, runtime=runtime)
     except CallCapExceeded as error:
         return {"refusal_code": "unbounded_calls", "detail": str(error)}
     return None

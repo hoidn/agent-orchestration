@@ -38,6 +38,15 @@ until mkdir "$COMPARE_ROOT/calls/$n" 2>/dev/null; do
   n=$((n + 1))
 done
 call="$COMPARE_ROOT/calls/$n"
+if [ -n "${COMPARE_MAX_CALLS+set}" ]; then
+  cap="$COMPARE_MAX_CALLS"
+  while [[ "$cap" == 0* && ${#cap} -gt 1 ]]; do cap="${cap#0}"; done
+  if [[ ! "$cap" =~ ^[0-9]+$ || ${#n} -gt ${#cap} || ( ${#n} -eq ${#cap} && "$n" > "$cap" ) ]]; then
+    echo "shim: call $n refused by COMPARE_MAX_CALLS=$COMPARE_MAX_CALLS" | tee "$call/stderr.txt" >&2
+    : > "$call/stdout.txt"
+    exit 75
+  fi
+fi
 attempt=(-u ORCHESTRATOR_OUTPUT_BUNDLE_PATH -u ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY)
 [ -n "${ORCHESTRATOR_WORKSPACE_ROOT+set}" ] && attempt=()
 guard="$COMPARE_TREE/.model-guard"; staged=
@@ -60,7 +69,7 @@ model_env=(-u ORC_ALLOWED_CLAUDE_MODELS)
 if [ -n "${COMPARE_CLAUDE_MODELS+set}" ]; then
   model_env=("ORC_ALLOWED_CLAUDE_MODELS=$COMPARE_CLAUDE_MODELS")
 fi
-env -u PYTHONPATH -u OLDPWD -u COMPARE_ROOT -u COMPARE_TREE -u COMPARE_BASE -u COMPARE_HIDE -u COMPARE_CLAUDE_MODELS "${attempt[@]}" "${model_env[@]}" \
+env -u PYTHONPATH -u OLDPWD -u COMPARE_ROOT -u COMPARE_TREE -u COMPARE_BASE -u COMPARE_HIDE -u COMPARE_CLAUDE_MODELS -u COMPARE_MAX_CALLS "${attempt[@]}" "${model_env[@]}" \
   PATH="$guard:$path" CLAUDE_CODE_SUBAGENT_MODEL=claude-opus-5-5 CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 "$sandbox" \
   --dev-bind / / "${hide[@]}" --bind "$COMPARE_TREE/tmp" /tmp --tmpfs /dev/shm --tmpfs /var/tmp --unshare-pid --proc /proc --die-with-parent \
   "$real" "$@" < "$call/prompt.txt" 2>&3 3>&- | tee "$call/stdout.txt" 3>&-
