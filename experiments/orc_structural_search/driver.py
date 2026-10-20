@@ -178,16 +178,33 @@ def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, repli
              *(("holdout", holdout) for holdout in holdouts)]
     # the other evaluations' runs: an ORC run's scan finds them beside its state root; an I3 run's state is in its clone
     runs = [path.name for path in (work_root / "runs").glob("*") if path.name != record.evaluation_id]
-    hits = prepare.scan(record.records_dir, solutions[task.name], roots=roots, others=runs)
+    hits, scan_error = settle_scan(record.records_dir, lambda: prepare.scan(
+        record.records_dir, solutions[task.name], roots=roots, others=runs))
+    if scan_error:
+        record = replace(record, outcome="incident", incidents=(scan_error, *record.incidents))
     row = {"split": UNAVAILABLE, **fields,  # mode 2 names the split
            **{k: str(v) if isinstance(v, Path) else v for k, v in asdict(record).items()},
            "kind": "evaluation", "task_id": task.name, "replicate": replicate, "evaluator_version": EVALUATOR_VERSION,
            "criterion_sha256": config.criterion_sha256,
-           "consumption": evaluation_consumption(record), "scan_hits": len(hits), "scan_pending": bool(hits)}
+           "consumption": evaluation_consumption(record), "scan_error": scan_error,
+           "scan_hits": len(hits) if scan_error is None else UNAVAILABLE, "scan_pending": bool(hits)}
     with _LOG_LOCK:
         append_record(evidence_root / "log.jsonl", row)
     return row
 
+
+
+def settle_scan(records: Path, scan: Callable[[], list[dict]]) -> tuple[list[dict] | str, str | None]:
+    """Incomplete native evidence is an incident, never a clean or clearable contamination receipt."""
+    try:
+        return scan(), None
+    except (SystemExit, json.JSONDecodeError, OSError) as error:
+        diagnostic = f"scan_incomplete: {type(error).__name__}: {error}"
+        metadata = json.loads((records / "record.json").read_text())
+        metadata.pop("scan", None)  # A stale cleared receipt must not survive a failed rescan.
+        metadata["scan_error"] = diagnostic
+        dump(records / "record.json", metadata)
+        return UNAVAILABLE, diagnostic
 
 
 def evaluation_consumption(record) -> dict | str:
@@ -464,11 +481,15 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
     calls = ledger.settle(evidence_root, slot, records)
     quota = quota_hit(records)  # a quota episode is an incident whatever the agent's exit status
     incidents = [f"{PREFIX}{quota}"] * bool(quota)
-    hits = scan_episode(records, tree, runtime=runtime, work_root=work_root, evidence_root=evidence_root,
-                        solutions=solutions, holdouts=holdouts, created_at=created_at)
+    hits, scan_error = settle_scan(records, lambda: scan_episode(
+        records, tree, runtime=runtime, work_root=work_root, evidence_root=evidence_root,
+        solutions=solutions, holdouts=holdouts, created_at=created_at))
+    if scan_error:
+        incidents.append(scan_error)
     (copy / EPISODE).unlink(missing_ok=True)
     intact = drop_git(copy, base)
-    stopped = "incident" if quota else stopped or (None if intact else "incident")  # intact: the shims' base
+    if stopped != "exhausted":
+        stopped = "incident" if quota or scan_error else stopped or (None if intact else "incident")
     verdict = {"outcome": stopped, "receipt": None} if stopped else judge_child(
         parent_root, copy, config, runtime=runtime, site=site, parent_candidate_id=parent_id)
     drop_hypothesis(copy)  # judge_child read it into the receipt; it is never part of the child
@@ -478,7 +499,9 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
            "site_id": site_id, "feedback": feedback, "parent_candidate_id": parent_id,
            "candidate_id": candidate_id(copy, orchestrator_commit=commit), "agent_cmd": list(agent_cmd),
            "agent_exit": status, "envelope": {"wall_clock_sec": config.episode_wall_clock_sec},
-           "wall_clock_sec": elapsed, "provider_calls": calls, "scan_hits": len(hits), "scan_pending": bool(hits),
+           "wall_clock_sec": elapsed, "provider_calls": calls,
+           "scan_hits": len(hits) if scan_error is None else UNAVAILABLE, "scan_pending": bool(hits),
+           "scan_error": scan_error,
            "workspace_intact": intact, "incidents": incidents, "hidden_roots": [str(root) for root in hidden],
            "criterion_sha256": config.criterion_sha256,
            **metering.receipts(records, tree=tree, since=created_at, home=Path.home()),

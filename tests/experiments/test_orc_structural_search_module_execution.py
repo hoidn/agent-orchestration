@@ -326,3 +326,92 @@ def test_successor_judge_refuses_invalid_pool_or_source_hash_before_dispatch(tmp
     with pytest.raises(ValueError, match="criterion_sha256"):
         three_arm.judge(evidence, pool, tmp_path / "task", criterion=criterion,
                         judges=json.loads(criterion.read_text())["judges"], solution="solution", call_cap=100)
+
+
+def truncated_native_writer(provider):
+    """Write a malformed native transcript in the launch's scoped home; no provider is contacted."""
+    return f'''
+from pathlib import Path
+import re
+home = Path(os.environ["HOME"])
+if {provider!r} == "claude":
+    session = home / ".claude/projects" / re.sub(r"[^A-Za-z0-9]", "-", str(Path.cwd())) / "session.jsonl"
+    content = json.dumps({{"type": "user", "message": {{"content": prompt}}}}) + "\\n" + '{{"type":'
+else:
+    session = home / ".codex/sessions/2026/10/19/rollout-partial.jsonl"
+    content = '{{"type":'
+session.parent.mkdir(parents=True, exist_ok=True)
+session.write_text(content)
+'''
+
+
+@pytest.mark.parametrize("provider", ["claude", "codex"])
+@pytest.mark.parametrize("exhausted", [False, True])
+def test_truncated_native_session_does_not_abort_episode_settlement(sandboxed, world, monkeypatch, provider, exhausted):
+    from experiments.compare import prepare
+    from experiments.orc_structural_search.driver import run_episode
+    from experiments.orc_structural_search.records import read_records
+    monkeypatch.setenv("HOME", str(world.outside / "home"))
+    executable = world.fakebin / provider
+    executable.write_text(f"#!{sys.executable} -I\nimport json, os, sys, time\nprompt = sys.stdin.read()\n" +
+                          truncated_native_writer(provider) + ("time.sleep(600)\n" if exhausted else ""))
+    evidence = world.tmp / "evidence"
+    _, parent = archive(world.candidate, evidence, world.runtime)
+    config = replace(module_config(), episode_wall_clock_sec=5 if exhausted else 120)
+    row = run_episode(parent, config, interface="I1", mode="unguided", agent_cmd=[provider, "-p"],
+                      work_root=world.outside / "work", evidence_root=evidence, episode_index=0,
+                      runtime=world.runtime, env={**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}"},
+                      solutions={world.task.name: world.solution}, call_cap=160)
+    assert (row["outcome"], row["provider_calls"], row["scan_hits"], row["scan_pending"], row["consumption"]) == (
+        "exhausted" if exhausted else "incident", 1, "unavailable", True, "unavailable")
+    assert row["scan_error"] and row["incidents"] and not row.get("candidate_root")
+    assert len(read_records(evidence / "log.jsonl")) == 1
+    records = evidence / "episodes" / row["episode_id"]
+    metadata = json.loads((records / "record.json").read_text())
+    assert "scan" not in metadata and metadata["scan_error"]
+    with pytest.raises(SystemExit, match="has not been scanned"):
+        prepare.adjudicate(records, "cleared", "cannot clear incomplete data")
+    ledger = json.loads((evidence / "calls.json").read_text())
+    assert ledger[0]["calls"] == 1
+
+
+def test_truncated_native_session_turns_completed_evaluation_into_unpoolable_incident(sandboxed, world, monkeypatch):
+    from experiments.orc_structural_search import scoring
+    from experiments.orc_structural_search.driver import evaluate_and_scan
+    from experiments.orc_structural_search.records import read_records
+    from tests.experiments.orc_structural_search_support import SCRIPTED, script, REPO
+    monkeypatch.setenv("HOME", str(world.outside / "home"))
+    (world.fakebin / "claude").write_text(SCRIPTED.replace("prompt = sys.stdin.read()",
+        "prompt = sys.stdin.read()\n" + truncated_native_writer("claude")))
+    script(world, [{"match": "Implement this change", "result": {"summary": "done", "account": "done"}}])
+    criterion = REPO / "experiments/orc_structural_search/criteria/module.json"
+    config = replace(module_config(), criterion_sha256=three_arm.load_criterion(criterion)["criterion_sha256"])
+    evidence = world.tmp / "evidence"
+    _, parent = archive(world.candidate, evidence, world.runtime)
+    row = evaluate_and_scan(parent, config, task=world.task, replicate=1, work_root=world.outside / "work",
+                            evidence_root=evidence, runtime=world.runtime,
+                            env={**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}",
+                                 "SCRIPTED_RESULTS_FILE": str(world.results)}, timeout_sec=600,
+                            solutions={world.task.name: world.solution}, holdouts=(), fields={}, call_cap=160)
+    assert (row["outcome"], row["provider_calls"], row["scan_hits"], row["scan_pending"], row["consumption"]) == (
+        "incident", 1, "unavailable", True, "unavailable")
+    assert row["realized_perform_sites"][0]["status"] == "completed" and row["scan_error"]
+    assert len(read_records(evidence / "log.jsonl")) == 1
+    assert "scan" not in json.loads((Path(row["records_dir"]) / "record.json").read_text())
+    with pytest.raises(ValueError, match="no completed evaluation"):
+        scoring.pool_evaluations(evidence, world.task, out=world.outside / "pool", criterion=criterion,
+                                judges=json.loads(criterion.read_text())["judges"])
+    assert json.loads((evidence / "calls.json").read_text())[0]["calls"] == 1
+
+
+@pytest.mark.parametrize("failure", [SystemExit("truncated session"), json.JSONDecodeError("truncated", "{", 1),
+                                      FileNotFoundError("session vanished")])
+def test_failed_scan_removes_stale_cleared_receipt(tmp_path, failure):
+    from experiments.orc_structural_search import driver
+    (tmp_path / "record.json").write_text(json.dumps({"scan": {"hits": [], "verdict": {"verdict": "cleared"}}}))
+    def scan():
+        raise failure
+    hits, diagnostic = driver.settle_scan(tmp_path, scan)
+    metadata = json.loads((tmp_path / "record.json").read_text())
+    assert hits == "unavailable" and diagnostic
+    assert "scan" not in metadata and metadata["scan_error"] == diagnostic
