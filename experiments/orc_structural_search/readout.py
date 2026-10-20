@@ -140,3 +140,89 @@ def convergence(store, campaign_id: str) -> dict:
         counts[idea] += 1
     shares = {idea: count / len(children) for idea, count in sorted(counts.items())} if children else {}
     return {"shares": shares, "max_share": max(shares.values(), default=0.0)}
+
+
+def _campaign_prefix(checkpoint, rows):
+    position = checkpoint['log_position']
+    if type(position) is not int or not 0 <= position <= len(rows):
+        raise ValueError('checkpoint log_position must identify an available log prefix')
+    return rows[:position]
+
+
+def _campaign_events(rows):
+    episodes = {row['episode_id']: row for row in rows if row['kind'] == 'episode'}
+    decisions = {row['episode_id']: row for row in rows if row.get('campaign_decision') is True}
+    draws = {(row['generation'], row['draw']): row for row in rows if row['kind'] == 'parent_decision'}
+    return list(episodes.values()), decisions, draws
+
+
+def _fresh_children(episodes, decisions, draws):
+    fresh = {}
+    for row in episodes:
+        decision = decisions.get(row['episode_id'], {})
+        if decision.get('kind') != 'fresh' or row['outcome'] != 'accepted':
+            continue
+        cid, parent = row['candidate_id'], row['parent_candidate_id']
+        draw = draws[(row['generation'], row['draw'])]
+        if decision['candidate_id'] != cid or draw['parent_candidate_id'] != parent:
+            raise ValueError('campaign decision does not match its episode and parent draw')
+        if cid != parent:
+            fresh[cid] = row | {'parent_source': draw['parent_source']}
+    return fresh
+
+
+def _ancestor_path(candidate_id, parents, initial_ids):
+    ancestors, seen = [], {candidate_id}
+    while candidate_id not in initial_ids and candidate_id in parents:
+        candidate_id = parents[candidate_id]
+        if candidate_id in seen:
+            raise ValueError('campaign lineage contains a cycle')
+        seen.add(candidate_id)
+        ancestors.append(candidate_id)
+    return ancestors, candidate_id in initial_ids
+
+
+def _campaign_lineage(frontier, fresh, initial_ids):
+    parents = {cid: row['parent_candidate_id'] for cid, row in fresh.items()}
+    depths, descendants = {}, defaultdict(list)
+    for cid in frontier:
+        ancestors, complete = _ancestor_path(cid, parents, initial_ids)
+        depths[cid] = len(ancestors) if complete else UNAVAILABLE
+        for ancestor in ancestors:
+            descendants[ancestor].append(cid)
+    return {'lineage_depth': depths,
+            'frontier_by_ancestor': {cid: sorted(values) for cid, values in sorted(descendants.items())}}
+
+
+def _campaign_improvements(fresh, table, criterion):
+    from experiments.orc_structural_search.pareto_readout import dominating_children
+
+    tolerances = criterion['final_choice']['equivalence_tolerance'], criterion['dominance_cost_tolerance']
+    improvements = []
+    for cid, row in fresh.items():
+        parent = row['parent_candidate_id']
+        if cid in table and parent in table:
+            improvements += dominating_children([cid], table, parent, tolerances)
+    return sorted(improvements)
+
+
+def campaign_diagnostics(checkpoint, log_rows, *, criterion, initial_ids):
+    """Describe a checkpoint using its own table and committed adaptive log prefix."""
+    from experiments.orc_structural_search.pareto_readout import completed_episodes
+
+    episodes, decisions, draws = _campaign_events(_campaign_prefix(checkpoint, log_rows))
+    completed = completed_episodes(episodes, None)
+    accepted = [row for row in episodes if row['outcome'] == 'accepted']
+    fresh = _fresh_children(completed, decisions, draws)
+    entries = sorted(set(fresh).intersection(checkpoint['frontier']))
+    improvements = _campaign_improvements(fresh, checkpoint['table'], criterion)
+    revisits = sum(row['kind'] == 'revisit' for row in decisions.values())
+    return {'completed': len(completed), 'dominating_improvements': improvements,
+            'improvements_per_completed_episode': share(len(improvements), len(completed)),
+            'frontier_entries': entries, 'frontier_entries_per_completed_episode': share(len(entries), len(completed)),
+            'diversity': diversity(accepted), 'campaign_revisits': revisits,
+            'campaign_revisit_rate': share(revisits, len(accepted)),
+            'reservoir_draws': sum(row['parent_source'] == 'reservoir' for row in draws.values()),
+            'reservoir_empty_draws': sum(row['parent_source'] == 'reservoir_empty' for row in draws.values()),
+            'reservoir_frontier_entries': [cid for cid in entries if fresh[cid]['parent_source'] == 'reservoir'],
+            **_campaign_lineage(checkpoint['frontier'], fresh, initial_ids)}

@@ -1,4 +1,5 @@
 """Matched candidate/parent observations and per-arm calibrated Pareto endpoints."""
+import math
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from statistics import mean
@@ -250,7 +251,10 @@ def _supported_frontier(checkpoint):
 
 def _campaign_checkpoint(checkpoint, ceilings, targets):
     rows = _supported_frontier(checkpoint)
-    return {'generation': checkpoint['generation'], 'budget': dict(checkpoint['budget']),
+    retained = {key: checkpoint[key] for key in ('completed_generation', 'log_position', 'convergence',
+                                               'calls_proxy_comparable') if key in checkpoint}
+    return {**checkpoint.get('diagnostics', {}), **retained,
+            'generation': checkpoint['generation'], 'budget': dict(checkpoint['budget']),
             'frontier': list(checkpoint['frontier']),
             'best_quality_under': {str(ceiling): max((row['quality'] for row in rows if row['cost'] <= ceiling),
                                                     default=UNAVAILABLE) for ceiling in ceilings},
@@ -258,10 +262,9 @@ def _campaign_checkpoint(checkpoint, ceilings, targets):
                                                  default=UNAVAILABLE) for target in targets}}
 
 
-def _cost_cut(checkpoints, cut):
+def _cut_reading(checkpoints, cut, field):
     eligible = [checkpoint for checkpoint in checkpoints
-                if pricing.number(checkpoint['budget']['metered_cost'])
-                and checkpoint['budget']['metered_cost'] <= cut]
+                if pricing.number(checkpoint['budget'][field]) and checkpoint['budget'][field] <= cut]
     return {'cut': cut, 'checkpoint': eligible[-1] if eligible else None}
 
 
@@ -271,9 +274,70 @@ def campaign_endpoints(trajectory: Sequence[Mapping], *, ceilings, targets, cuts
     Append order preserves settlements within a generation. An earlier pending budget is not
     repriced from later receipts; only the latest accounting snapshot decides cost comparability.
     """
-    _endpoint_thresholds(ceilings=ceilings, targets=targets, cuts=cuts)
+    _endpoint_thresholds(ceilings=ceilings, targets=targets, cuts=cuts, calls_cuts=calls_cuts)
     checkpoints = [_campaign_checkpoint(checkpoint, ceilings, targets) for checkpoint in trajectory]
     result = {'checkpoints': checkpoints}
-    if not checkpoints or not pricing.number(checkpoints[-1]['budget']['metered_cost']):
+    if not checkpoints:
         return result | {'not_comparable_at_cost_cuts': True}
-    return result | {'cost_cuts': [_cost_cut(checkpoints, cut) for cut in cuts]}
+    if pricing.number(checkpoints[-1]['budget']['metered_cost']):
+        result['cost_cuts'] = [_cut_reading(checkpoints, cut, 'metered_cost') for cut in cuts]
+    else:
+        result['not_comparable_at_cost_cuts'] = True
+    if checkpoints[-1].get('calls_proxy_comparable') is True:
+        proved = [checkpoint for checkpoint in checkpoints if checkpoint.get('calls_proxy_comparable') is True]
+        result['calls_cuts'] = {'label': 'secondary_proxy',
+                               'readings': [_cut_reading(proved, cut, 'calls') for cut in calls_cuts]}
+    return result
+
+
+def _comparison_reference(campaigns, ceiling):
+    references = [campaign['reference'] for campaign in campaigns.values()]
+    if not references or any(reference != references[0] for reference in references):
+        raise ValueError('campaigns require the same verified warm-start reference')
+    reference = references[0]
+    if not all(pricing.number(reference[key]) for key in ('quality', 'cost')):
+        raise ValueError('reference quality and cost must be finite nonnegative numbers')
+    if not pricing.number(ceiling) or not math.isclose(ceiling, 4 * reference['cost'], rel_tol=1e-9):
+        raise ValueError('ceiling must equal four times the warm-start reference cost')
+    return reference
+
+
+def _comparison_assessment(campaign):
+    assessment = campaign.get('final_assessment', {})
+    if not assessment.get('validation'):
+        return {}
+    final = {'validation': assessment['validation']}
+    if campaign.get('sealed_opened') and assessment.get('sealed'):
+        final['sealed'] = assessment['sealed']
+    return {'final_assessment': final}
+
+
+def _comparison_rows(campaign_id, policy, endpoints):
+    rows = [{'campaign_id': campaign_id, 'policy': policy, 'axis': 'metered_USD', **reading}
+            for reading in endpoints.get('cost_cuts', ())]
+    rows += [{'campaign_id': campaign_id, 'policy': policy, 'axis': 'secondary_proxy', **reading}
+             for reading in endpoints.get('calls_cuts', {}).get('readings', ())]
+    return rows
+
+
+def compare_campaigns(campaigns: Mapping[str, Mapping], *, criterion, ceiling: float) -> dict:
+    """Format campaign trajectories and final-assessment projections verified by the readout caller."""
+    reference = _comparison_reference(campaigns, ceiling)
+    rules = criterion['endpoints']
+    _endpoint_thresholds(B_plan_usd=[rules['B_plan_usd']])
+    ceilings = [multiple * reference['cost'] for multiple in rules['cost_ceilings']]
+    targets = [reference['quality'] + increment for increment in rules['quality_targets']]
+    cuts = [fraction * rules['B_plan_usd'] for fraction in rules['budget_cuts']]
+    result, table = {}, []
+    for campaign_id, campaign in sorted(campaigns.items()):
+        trajectory = campaign['trajectory']
+        if not trajectory or trajectory[0]['generation'] != 0 or not trajectory[0]['table']:
+            raise ValueError('campaign comparison requires a generation-zero baseline table')
+        endpoints = campaign_endpoints(trajectory, ceilings=ceilings, targets=targets, cuts=cuts,
+                                       calls_cuts=rules['calls_cuts'])
+        assessment = _comparison_assessment(campaign)
+        result[campaign_id] = {'policy': campaign['policy'], 'endpoints': endpoints,
+                               'descriptive_only': not assessment, **assessment}
+        table += _comparison_rows(campaign_id, campaign['policy'], endpoints)
+    return {'campaigns': result, 'endpoint_table': table,
+            'descriptive_only': any(row['descriptive_only'] for row in result.values())}
