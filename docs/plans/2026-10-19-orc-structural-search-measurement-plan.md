@@ -10,11 +10,30 @@
 
 ### Selected offline model-cap task
 
-- [ ] Extend the existing basename-dispatched guard to both `claude` and `codex`, default/pin Sonnet and default Terra, and reject higher/unknown explicit/fallback models even when a criterion allowlist includes them. Keep narrower criterion restrictions.
-- [ ] Install both guarded names atomically, preserve stdin, arguments, live capture and status, and cover nested PATH launches. Disable Codex `multi_agent`, `multi_agent_v2` and `multi_agent_v2_dynamic_tools`; reject model/config/profile/provider and multiagent-enabling overrides while retaining ordinary effort overrides.
-- [ ] Make actual Claude `message.model` and Codex `turn_context.model` violations non-clearable; printed model names remain ordinary text. Absolute CLI paths, reset PATH and direct APIs remain explicit prevention boundaries.
+- [x] Extend the existing basename-dispatched guard to both `claude` and `codex`, default/pin Sonnet and default Terra, and reject higher/unknown explicit/fallback models even when a criterion allowlist includes them. Keep narrower criterion restrictions.
+- [x] Install both guarded names atomically, preserve stdin, arguments, live capture and status, and cover nested PATH launches. Disable Codex `multi_agent`, `multi_agent_v2` and `multi_agent_v2_dynamic_tools`; reject model/config/profile/provider and multiagent-enabling overrides while retaining ordinary effort overrides.
+- [x] Make actual Claude `message.model` and Codex `turn_context.model` violations non-clearable; printed model names remain ordinary text. Absolute CLI paths, reset PATH and direct APIs remain explicit prevention boundaries.
 - [ ] Bind the current `review_once` reviewer to Terra high and compare its shared review contract with model masked. Run guard regression tests, parallel installation checks, the broad relevant suite in tmux and scripted public-CLI end-to-end smoke; freeze no new criterion and launch no paid call.
 - [ ] Before Task 5 freezes prospective inputs, bind judges Sonnet/Terra high; Step B direct/review Terra high; Step C coder Sonnet medium and diagnosis Terra high in a measurement-specific seed copy, preserving the historical seed. Step A′ retains both judge IDs and selects only the predeclared alternative (b), rubric-only without a reference; there is no third admitted judge ID to swap in.
+
+Model-cap offline evidence (2026-10-19): implementation commits `c639f171` and
+`f900bf5d`; dedicated guard/scan suite **75 passed in 5.00 s**, including public
+`orchestrator run` with scripted Terra completion and forbidden Sol refusal.
+Remote-dispatch restrictions had 18 failing regressions before the correction;
+local CLI help identifies their independent cloud/server routes. Actual local
+`codex ... features list` reports all three multiagent features false. Copies of
+launch fixtures use capped models while historical workflow sources stay unchanged.
+I3/ORC copied-parent checks passed **4 in 23.01 s**; repair/mutator checks passed
+**3 in 18.26 s**; dual-CLI parallel installation and allowlist checks passed
+**5 in 25.29 s**. Touched-test collection found **315 tests**. The first full
+experiment suite under tmux reported **42 failed, 1040 passed in 203.65 s**:
+21 existing Phase-2 readout failures concern descriptive historical `rubric`
+strings (one reproduced on unchanged `f8d0ce7b`); the remaining launch-fixture
+failures prompted the capped-copy changes. Full green integration is pending the
+separate historical-rubric correction and final fixture verification. Logs are
+`/tmp/measurement-model-cap-{suite,baseline,final-suite,final-collect}.log`.
+The changed production scanner is 166 lines, maximum counted complexity 6;
+both Bash guards pass syntax checks. No provider spend or criterion freeze ran.
 
 **Goal:** Close gates 2–4 of the [module plan](2026-10-19-orc-structural-search-module-rewrite-plan.md#gate-for-a-live-module-arm) and the roadmap's Calibration decision point: a blind judge measure that passes a predeclared calibration on known controls (upstream, stub, partially reverted upstream, and a near-copy mutant), a task family whose agent-visible `dev-check` fails at the first attempt often enough that check-gated control flow branches, both on family (a) rungs 2 and 4 under the frozen difficulty rule, and metering wired with a frozen per-model price table, so the owner can assess the remaining prerequisites for a later live Phase 2 or `module` arm. A future structural quality study still needs its separately selected V2 qualification integration.
 
