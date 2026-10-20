@@ -17,12 +17,15 @@
 - **Owns:** campaign and trial identities, the persistent evidence store, the
   campaign protocol, the breeding pool and its two parent policies, diversity
   pressure and the revisit rule, the endpoint, budget-accounting and power
-  contract, the C2 fragment contract, the estimate and attribution rules, and
-  the rationale for the 2026-10-19 amendment of boundary invariant 4.
+  contract, the qualification receipt V2's family block (one rule file per
+  package; V1 unchanged), the C2 fragment contract, the estimate and
+  attribution rules, and the rationale for the 2026-10-19 amendment of
+  boundary invariant 4.
 - **Consumes, unchanged, from the [driver design](orc_structural_search_driver.md):**
   mutator sessions and `module`, admission, snapshots and `candidate_id`, the
-  public `run` route, the task family with calibration and
-  [external qualification](orc_structural_search_driver.md#external-qualification-receipt),
+  public `run` route, the task family with calibration and the V1
+  [external qualification receipt](orc_structural_search_driver.md#external-qualification-receipt)
+  (V2's family block is owned here),
   the metered Pareto [objective](orc_structural_search_driver.md#objective-selection-and-local-observations),
   [metering](orc_structural_search_driver.md#metering-and-consumption),
   [hygiene](orc_structural_search_driver.md#evaluation-hygiene),
@@ -165,7 +168,7 @@ while not stopped(state):                       # budget, futility, invalid evid
             trials = evaluate(child, adaptive_tasks)             # public runs, one per task and replicate
             store.ingest(trials)
     store.ingest(judge_generation(...))         # per generation, blind, anchors as today
-    state = rebuild(store, context_key)         # archive, frontier, reservoir from records
+    state = rebuild(store, campaign_id)         # archive, frontier, reservoir from this campaign's records
     store.checkpoint(state)
 ```
 
@@ -221,10 +224,16 @@ invalidation onward; no horizon is extended after outcomes are seen.
 
 ## Breeding Pool And Parent Policies
 
-Two structures, rebuilt from the store after every generation:
+Two structures, rebuilt per campaign from the store after every generation
+(`rebuild(store, campaign_id)`). A rebuild sees the campaign's recorded
+initial-evidence selection (the shared warm start), its own evaluated
+children and its current generation's scheduled children, never a sibling
+campaign's children; estimates still pool by `context_key` across
+campaigns, but selection, briefs and stop rules see only the campaign.
 
-1. **Results archive.** Every admitted, evaluated candidate with its
-   evidence; its frontier is the driver's
+1. **Results archive.** Every admitted, evaluated candidate in this
+   campaign, initial evidence included, with its evidence; its frontier is
+   the driver's
    [objective](orc_structural_search_driver.md#objective-selection-and-local-observations)
    (tolerances, quality floor, cost `unavailable` off the frontier).
 2. **Breeding pool.** A bounded frontier subset (the driver's spread rule
@@ -279,20 +288,23 @@ on the brief; the revisit and futility rules only refuse to pay for exact
 or skeleton-level repeats, and no mechanism guarantees semantic novelty.
 
 - **Brief summaries.** Each proposal brief carries controller-selected
-  structural summaries of the campaign's already-evaluated children:
+  structural summaries of the children already evaluated in this campaign,
+  initial evidence included and never a sibling campaign's children:
   skeleton-level descriptors (form heads and arity outline, control heads,
   provider roles, loop presence, allocation policy set) and a coarse
   `idea_key` (the control-head multiset, the provider-role sequence and
   whether a check gates a repair), with the instruction that the proposal
   must differ structurally from them. The `idea_key` feeds the brief's
   "already tried" list and a predeclared convergence diagnostic, the share
-  of evaluated children per `idea_key`; it never blocks an evaluation. The
+  of this campaign's evaluated children per `idea_key`; it never blocks an
+  evaluation. The
   brief never carries evaluator artifacts, scores of other candidates,
   validation or sealed outcomes, or any path under the evidence or store
   roots; the parent's own evidence stays the only feedback, as under the
   historical mode 2.
 - **Revisit rule.** The match set is every candidate already evaluated or
-  scheduled in the current generation. A child whose `program_digest`
+  scheduled in the current generation in this campaign, initial evidence
+  included, never a sibling campaign's children. A child whose `program_digest`
   equals one of theirs, or whose skeleton hash and allocation policy set
   both equal one's, is a revisit: logged with the matched `candidate_id`,
   not re-evaluated, and counted toward the futility rule. The `subject`
@@ -467,7 +479,10 @@ required.
 **C1 (normative when selected): whole-program evidence.** An estimate is a
 query over the store for one subject under one context: a quality, cost,
 latency and failure vector with uncertainty, from which the criterion
-derives ranking and frontier membership. Every estimate states its
+derives ranking and frontier membership. Estimates pool across campaigns
+under equal `context_key` (whole-program evidence reuse); selection,
+briefs and stop rules see only the campaign (Breeding Pool And Parent
+Policies). Every estimate states its
 subject, `context_key`, metric and estimator versions and contributing
 `trial_id`s; its trial, attempt and task counts; its summaries with units
 and uncertainty; its coverage, unavailable or censored quantities and
@@ -550,9 +565,11 @@ the roadmap's Phase 2 Gates and the pilot plan's preconditions reference it
 and add nothing. Each item is recorded in the ledger with its evidence
 before any provider spend:
 
-1. The calibrated measure: the
+1. The accepted measure: the
    [measurement plan](../plans/2026-10-19-orc-structural-search-measurement-plan.md)'s
-   Step A passed, with B2 keeping it calibrated.
+   Step A passed, or the owner-approved A′ passed under that plan's
+   predeclared revision, with B2 keeping it calibrated; C1's criterion
+   inherits the accepted measure's rubric.
 2. Every package the study uses covered by a qualification rule file: the
    frozen `calibration-amends-5.json` covers rungs 2 and 4 only, so any
    further package (the sealed package, the validation package) needs the
@@ -653,7 +670,10 @@ offline fixture.
   sealed role and a sealed-exposed package for every role, while two
   campaigns under one criterion declaring the same validation and sealed
   packages both start, validation runs once and the sealed package opens
-  once; a child above `envelope.child_planned_maximum` is rejected with
+  once; two interleaved campaigns under one criterion never see each
+  other's children in a brief, the revisit set, the frontier or the
+  reservoir, while their estimates pool by `context_key`; a child above
+  `envelope.child_planned_maximum` is rejected with
   `planned_maximum_exceeded` and counts toward futility; warm-start cost is
   reported apart; a generation pool failing
   its calibration verdict stops the campaign with an `invalidated`
