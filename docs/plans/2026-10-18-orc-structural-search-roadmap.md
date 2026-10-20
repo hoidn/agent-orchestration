@@ -283,45 +283,65 @@ its historical model list does not grant new calls under the current Sonnet/Terr
 Cumulative whole-program campaigns (C1), owned by the
 [cumulative campaigns design](../design/orc_structural_search_cumulative_campaigns.md#staging-and-gates).
 
-- Prerequisites of any live campaign, each recorded in the ledger before
-  spend: the [measurement plan](2026-10-19-orc-structural-search-measurement-plan.md)'s
-  Step A passed (the calibrated measure; B2 keeps it calibrated) and a family
-  qualified under `amends_5`; metering wired with the price table frozen in
-  the successor criterion; a sealed split; the module condition's offline
-  tasks (the pilot mutates under `module`); mutator isolation covering the
-  evidence store; this amendment accepted with the roadmap, boundaries
-  document, driver design, capability matrix and design README updated
-  together. No uncalibrated experiment.
+- Prerequisites of any live campaign: the design's "Staging And Gates"
+  list is the single authoritative gate list (the calibrated measure and
+  the qualified family, metering with the frozen price table and `B_plan`,
+  the sealed package and a qualified validation package proved unexposed by
+  the store's exposure classes, the module condition's offline tasks,
+  mutator isolation covering the store, this amendment accepted with the
+  roadmap, boundaries document, driver design, capability matrix and both
+  READMEs updated together, the model cap, and the pilot plan's predeclared
+  power, horizon, stop rules, wall-clock ceiling and caps); each item is
+  recorded in the ledger with its evidence before spend, and the
+  [pilot plan](2026-10-19-orc-structural-search-cumulative-pilot-plan.md)'s
+  preconditions mirror it. No uncalibrated experiment.
 - Endpoints, predeclared in the successor criterion: best supported quality
   at a few fixed deployed-cost ceilings and cheapest deployed cost meeting
-  fixed quality targets, read at fixed cumulative search budgets from
-  checkpoints, plus the final independently validated frontier (validation
-  split with the reference seed on matched tasks; the sealed holdout opened
-  once after selection and analysis freeze). Secondary: improvements per
-  episode, frontier entries, diversity, lineage. The cumulative budget
-  counts proposals, repairs, compile and evaluation overhead, judges,
-  retries, failures and substantive human intervention, with priced
-  compute, wall clock and unpriced work kept explicit and warm-start
-  evidence's acquisition cost recorded separately.
+  fixed quality targets, read from checkpoints at fixed cumulative search
+  budgets of 50%, 75% and 100% of the per-campaign planned metered budget
+  `B_plan` (metered cost primary; calls and wall clock beside; a campaign
+  with an unavailable receipt compared only at calls cuts labelled a
+  secondary proxy, never silently), plus the final independently validated
+  frontier (validation split with the reference seed on matched tasks; the
+  sealed holdout opened once after selection and analysis freeze). The
+  validation split is mandatory for any final choice and sealed opening;
+  without it the campaigns are reported descriptively and nothing is
+  promoted. Secondary: improvements per episode, frontier entries,
+  diversity, lineage. The cumulative budget counts proposals, repairs,
+  compile and evaluation overhead, judges, retries, failures and
+  substantive human intervention, with priced compute, wall clock and
+  unpriced work kept explicit and warm-start evidence's acquisition cost
+  recorded separately.
 - Policies: frontier-only against one mixture policy (uniform reservoir
   sampling for a fixed minority of parent draws), at equal total budget
   from identical initial evidence, with reservoir capacity, admission and
   eviction and the exploration fraction frozen in the criterion; reservoir
   membership is no deployment endorsement.
-- Diversity: every brief carries structural summaries of already-evaluated
-  children and the instruction to differ from them; a child equal by program
-  digest, or by skeleton with an unchanged policy set, is a revisit (logged,
-  not re-evaluated, counted toward the futility rule); the behaviour
-  descriptor is recorded; no quality-diversity grid.
-- Power before spend: the pilot plan predeclares the formula and inputs in
-  the design (Phase 1's within-arm SD 0.93 and 1.20 rubric points;
-  one-call evaluations of 908 to 1,072 s, multi-call seeds 1,754 to
-  4,718 s; 1 call per evaluation at the parent's structure, up to the
-  child's planned maximum otherwise), the minimal detectable campaign-level
-  effect, replicate campaigns per policy, generations and episodes, and
-  the call budget with a hard cap; if the affordable design cannot detect a
-  plausible effect, it sizes a descriptive pilot and says so. Every live
-  campaign is a separate owner approval.
+- Diversity: every brief carries structural summaries and the coarse
+  `idea_key` of already-evaluated children and the instruction to differ
+  from them; a child equal by program digest, or by skeleton with an
+  unchanged policy set, is a revisit (logged, not re-evaluated, counted
+  toward the one futility rule: `consecutive` revisits, rejections and
+  exhaustions stop the campaign, an incident neither counts nor resets, a
+  fresh evaluated child resets); the `idea_key` convergence share is a
+  predeclared diagnostic that blocks nothing; the behaviour descriptor is
+  recorded; no quality-diversity grid. Disclosed limit: the three-arm
+  children had 17 distinct skeletons among 18, so the revisit key would
+  have flagged at most one; convergence was semantic, and diversity
+  pressure rests on the brief.
+- Power before spend: the [pilot plan](2026-10-19-orc-structural-search-cumulative-pilot-plan.md)
+  predeclares the formula and inputs in the design (Phase 1's within-arm
+  SD 0.93 and 1.20 rubric points; Phase 1's one-call catalog runs at 29 to
+  49 min, 1,754 to 2,947 s mean per policy, multi-call seeds up to 4,718 s
+  mean, the three-arm Codex-coder subset at 908 to 1,072 s, 35 min as the
+  one-call planning value; 1 call per evaluation at the parent's structure,
+  up to the child's planned maximum otherwise), the minimal detectable
+  campaign-level effect, replicate campaigns per policy, generations and
+  episodes, a per-campaign wall-clock ceiling and the call budget with hard
+  caps sized to the whole-batch planned-maximum pre-check; if the
+  affordable design cannot detect a plausible effect, it sizes a
+  descriptive pilot and says so. Every live campaign is a separate owner
+  approval.
 - Model cap: the owner's 2026-10-19 amendment (Decision Points, "Model
   policy") applies to every route; seeds and parents are capped copies,
   historical seeds unchanged.
@@ -407,8 +427,8 @@ the objective's cost axis (Decision Criteria).
 | Phase | Formula | Owner placeholders |
 | --- | --- | --- |
 | 1 catalog, unguided sampling, compile-only three-arm | runs = `P` policies × `R` replicates × `T₀` tasks; attempts = runs × `L` (measured 1.0 to 1.8; budget 1.5); calls = attempts × `c`; mutator episodes = unguided `E₁` + 3 × `E₀`; paid three-arm runs on a stratified subset `S` | `P`, `R`, `T₀` (at least 2), `E₁`, `E₀`, `S`, concurrency, hard call ceiling, quota policy |
-| 2 cumulative pilot | per campaign: calls = `G` generations × `E` episodes × (1 mutator call + `a` × `T` tasks × `r` replicates × `c_eval`) + judge batches per generation × judges × `T` + (`F` finalists + the reference seed) × `V` × `r` × `c_eval` with its judges and one smoke; campaigns = 2 policies × `K` replicates; formula and measured inputs in the design ([Endpoints, Budget Accounting And Power](../design/orc_structural_search_cumulative_campaigns.md#endpoints-budget-accounting-and-power)) | `K`, `G`, `E`, `T`, `r`, `a`, `c_eval`, `F`, `V`, the fixed budgets, cost ceilings and quality targets, `R`, reservoir capacity and exploration fraction, hard call ceiling, quota policy |
-| 3 comparison | each search arm repeats a Phase 2-scale search; each fixed arm costs `T₂` × `r` runs; sealed judging adds two judges per batch | Stated at Phase 3 selection from Phase 2's measured numbers; its own preregistration |
+| 2 cumulative pilot | per campaign: calls = `G` generations × `E` episodes × (1 mutator call + `a` × `T` tasks × `r` replicates × `c_eval`) + judge batches per generation × judges × `T` + (`F` finalists + the reference seed) × `V` × `r` × `c_eval` with its judges and one smoke; campaigns = 2 policies × `R` replicates; formula and measured inputs in the design ([Endpoints, Budget Accounting And Power](../design/orc_structural_search_cumulative_campaigns.md#endpoints-budget-accounting-and-power)) | `R`, `G`, `E`, `T`, `r`, `a`, `c_eval`, `F`, `V`, the budget cuts (50%, 75% and 100% of `B_plan`), cost ceilings and quality targets, `consecutive`, the wall-clock ceiling, reservoir capacity and exploration fraction, hard call ceilings, quota policy |
+| 3 comparison | each search arm repeats a Phase 2-scale search; each fixed arm costs `T` × `r` runs; sealed judging adds two judges per batch | Stated at Phase 3 selection from Phase 2's measured numbers; its own preregistration |
 
 ## Decision Points And Stop Rules
 
@@ -418,8 +438,8 @@ the objective's cost axis (Decision Criteria).
 | Calibration | In every live phase and experiment, no provider call is spent on quality evaluation (candidate evaluation runs and judge calls whose purpose is a quality comparison) unless the quality measure passed a predeclared calibration on known controls (for a judge measure: for each judge and batch the upstream anchor's total minus the stub's is at least `calibration.margin`, and the fraction of (judge, batch) pairs failing that is at most `calibration.error_rate`, default 0, both in the criterion) and the family is qualified under its own frozen rule (family (a): the harness difficulty-calibration rule; family (b): the oracle qualification in the driver design); calibration runs are their own predeclared experiments with their own budget and pass first; an uncalibrated measure reports only measure-free figures (compile-only metrics, execution outcomes, cost) and no quality comparison, frontier or improvement claim. The rule applies to provider spend launched after its adoption (commit `f4bec466`, 2026-10-19 17:04 PDT); the three-arm readout's paid subset was launched before it (about 15:33–16:12) and is reported with execution figures only, and its judge stage, still to run at adoption, does not run (its controller ruling R19, 2026-10-19) and reports compile-only figures, execution outcomes and cost, with quality `unavailable: evaluator uncalibrated` |
 | Phase 1 separation | Tolerance predeclared in the criterion's units (default two within-arm standard deviations, measured on the family in Phase 1), judged per task and required on at least two tasks; DIRECT sole winner or everything within tolerance is recorded under the charter's decision rule and Phase 2 is not selected for the family. Historical record of the Phase 1 decision; successor studies follow the next row |
 | Cumulative pilot eligibility | For successor studies, a flat or tiny one-step neighbourhood is a finding about that sample, not a verdict against cumulative search; a prebudgeted multi-generation pilot is eligible once the calibrated measure, admission, metering and task qualification hold (Phase 2 Gates), with its total spend and wall-clock ceilings, minimum horizon, checkpoints, replicate campaigns and stop rules predeclared and each live campaign separately approved; an interrupted pilot is reported incomplete, and long-horizon framing grants no unlimited spend |
-| Futility and stop | A child equal to an already-evaluated candidate by program digest, or by skeleton with an unchanged policy set, is a revisit: logged, not re-evaluated, counted toward the predeclared rule that `R` consecutive revisits or rejections stop the campaign; budget exhaustion, invalid evidence and persistent infrastructure failure also stop it; the sealed holdout opens once after selection and analysis freeze, and no horizon is extended after outcomes are seen |
-| Collapse | If the share of accepted children whose skeleton equals the parent's exceeds the predeclared threshold (default 0.75) for an interface, that interface has collapsed to renames and literals and the adaptive claim is not tested on it; if every interface collapses, Phase 2 is not selected |
+| Futility and stop | A child equal to an already-evaluated candidate by program digest, or by skeleton with an unchanged policy set, is a revisit: logged, not re-evaluated, counted toward the one futility rule (`consecutive` revisits, rejections and exhaustions in any mix stop the campaign; an incident neither counts nor resets; a fresh evaluated child resets). The other stop rules: the planned horizon, the hard call cap, quota exhaustion, the per-campaign wall-clock ceiling, invalid evidence (a generation pool failing its calibration verdict stops the campaign and invalidates that generation's assessments; an unadjudicated contamination or a malformed ingest likewise), a second judge incident and persistent infrastructure failure at a predeclared count. Checkpoints follow every ledger settlement and every generation; a mid-generation resume repeats no logged episode or evaluation. The sealed holdout opens once after selection and analysis freeze and only with a qualified validation package, and no horizon is extended after outcomes are seen |
+| Collapse | If the share of accepted children whose skeleton equals the parent's exceeds the predeclared threshold (default 0.75) for an interface, that interface has collapsed to renames and literals and the adaptive claim is not tested on it; if every interface collapses, Phase 2 is not selected. Historical for the Phase 1 selection; in a cumulative campaign (one interface, `module`) a collapsed child is a revisit under the futility rule, the terminal-only share and the `idea_key` convergence share are reported, and the eligibility row governs selection |
 | Screening | Advancement, finalist replication beside the reference seed, and the shrinkage readout (screening mean against validation mean) follow the driver's selection rule; the pilot stays descriptive |
 | Quota | No new run once the owner-stated window floor is reached unless the stated credit policy covers it; the readout says what completed |
 | Lost runs | Provider-infrastructure stops are resumed, never relaunched; a timeout or contamination is an outcome under the frozen rule, its attempted cost counts, and the attempt rate is reported |
@@ -506,9 +526,8 @@ Amended 2026-10-19: the cumulative workflow evolution extension redefines
 Phase 2 as cumulative whole-program campaigns (C1), with Phase 2b (C2)
 conditional on its result; it is accepted for design and unselected for
 spend, the measurement plan remains the prerequisite of any live campaign,
-and the pilot plan
-`docs/plans/2026-10-19-orc-structural-search-cumulative-pilot-plan.md`,
-written when C1 is selected, computes the power and budget numbers; every
+and the [pilot plan](2026-10-19-orc-structural-search-cumulative-pilot-plan.md)
+computes the power and budget numbers without selecting anything; every
 live campaign is its own owner approval.
 
 ## Routing And Records

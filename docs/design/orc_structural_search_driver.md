@@ -432,8 +432,8 @@ plus a reservoir of non-frontier candidates) under two compared parent
 policies, diversity pressure with a revisit and futility rule, and a
 cumulative budget readout. Owned by the
 [cumulative campaigns design](orc_structural_search_cumulative_campaigns.md);
-unselected for spend and gated by the roadmap's Phase 2 Gates. This design
-changes nothing for it beyond the pointers here.
+its selection and spend are gated by the roadmap's Phase 2 Gates. This
+design changes nothing for it beyond the pointers here.
 
 **Skeleton diversity (all modes).** LLM mutation chains over a Lisp-like
 DSL converge to a few recurring forms with mostly terminal variation
@@ -952,8 +952,9 @@ task, evaluator version and the runtime invocation when reached:
 Deployment-frontier membership, finalist selection and promotion require
 whole-program evidence (invariant 4 as amended 2026-10-19); contextual
 fragment observations and explicit search-value estimates may guide proposal
-targeting, parent sampling and exploratory retention, never quality,
-validation or promotion
+targeting, parent sampling and exploratory retention, but cannot alone
+establish whole-program quality, validate a replacement or authorize
+promotion
 ([cumulative campaigns](orc_structural_search_cumulative_campaigns.md#estimates-and-attribution)).
 A branch not taken has no invocation score; a missing measurement is not
 zero; edited or recombined fragments inherit nothing from their parents.
@@ -1229,9 +1230,9 @@ runs exactly as written. The typed-gates design records this scoping in its
 A second amendment, 2026-10-19, replaced invariant 4: whole-program evidence
 is deployment authority, and contextual fragment observations and
 search-value estimates may guide proposal targeting, parent sampling and
-exploratory retention without establishing quality, validating a replacement
-or authorizing promotion. It was applied under the owner's cumulative
-workflow evolution extension; the
+exploratory retention but cannot alone establish whole-program quality,
+validate a replacement or authorize promotion. It was applied under the
+owner's cumulative workflow evolution extension; the
 [cumulative campaigns design](orc_structural_search_cumulative_campaigns.md#boundary-compliance)
 carries that rationale, and the boundaries document's change note records
 both amendments.
@@ -1243,7 +1244,7 @@ both amendments.
 | 1 Immutable generations, full compiler, registered runs, no eval | Satisfied under the 2026-10-18 amendment: external launch through public `run`; children are new snapshots compiled by the ordinary pipeline; each evaluation is a new public run; no eval, hot swap or checkpoint import |
 | 2 Provider output is untrusted data | The final diff is data until validation and the compiler accept it |
 | 3 Neutral substrate versus feature | Archive, selection, validation, transactions, skeleton hashing and fitness live in `experiments/`; the companion exposes read-only facts |
-| 4 Whole-program evidence is deployment authority (amended 2026-10-19) | Frontier membership, finalist selection and promotion bind to whole-run evidence; local observations target proposals here and, under mode 3, may guide parent sampling and exploratory retention without establishing quality or authorizing promotion |
+| 4 Whole-program evidence is deployment authority (amended 2026-10-19) | Frontier membership, finalist selection and promotion bind to whole-run evidence; local observations target proposals here and, under mode 3, may guide parent sampling and exploratory retention but cannot alone establish whole-program quality, validate a replacement or authorize promotion |
 | 5 Evidence separation | Adaptive, validation and sealed held-out splits are disjoint; the sealed split opens once after generation, choice, evaluator and analysis freeze; near-duplicate defects share a split |
 | 6 Honest security boundary | Satisfied under the 2026-10-18 amendment: ordinary configured sessions behind the comparison-harness shims, sandbox and contamination scan, reported as hygiene, not isolation |
 | 7 Typed-operation parity without kind erasure | Interfaces move expressions, never runtime callables; provider calls, procedures and workflows stay distinct kinds |
