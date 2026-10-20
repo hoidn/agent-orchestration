@@ -268,7 +268,7 @@ def acquire_study(s, store_path):
 
 
 def sealed_jobs(s, with_store, authorization, ids, store_path, sealed, validation, headers):
-    from experiments.orc_structural_search import adaptive
+    from experiments.orc_structural_search import adaptive, driver
     from experiments.orc_structural_search.config import load_config
     subjects = {row['candidate_id']: row for row in with_store.rows('subject')}
     config = load_config(s.config)
@@ -277,6 +277,8 @@ def sealed_jobs(s, with_store, authorization, ids, store_path, sealed, validatio
          'candidate_id': cid, 'candidate_root': subjects[cid]['source']}) for cid in authorization['candidate_ids']]
     launch = {key: value for key, value in s.launch.items() if key not in ('work_root', 'evidence_root', 'pools_root')}
     launch.update({key: Path(value) for key, value in authorization['sealed_roots'].items()})
+    launch['work_root'], launch['evidence_root'] = driver.check_roots(launch['work_root'], launch['evidence_root'])
+    launch['pools_root'].mkdir(parents=True, exist_ok=True)
     launch.update(resume=True, solutions={s.q.sealed.name: s.world.solution},
         holdouts=[s.q.validation, *s.common['adaptive_tasks']],
         scan_roots=[store_path, sealed / 'P', validation, *(Path(value) for header in headers for value in header['roots'].values())])
