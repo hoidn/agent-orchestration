@@ -9,6 +9,7 @@ import json
 import os
 import random
 import shutil
+import shlex
 import sys
 from collections import Counter
 from datetime import datetime, timedelta, timezone
@@ -93,6 +94,17 @@ def install(world, quota_once=False, print_once=None, quota_always=False):
     configure(world, CRITERION)
 
 
+def capped_criterion(path):
+    """Amend only temporary launch criteria to match the capped fixture mutator/parents."""
+    assert path.resolve() != CRITERION.resolve()
+    value = json.loads(path.read_text())
+    value["envelope"]["mutator"] = shlex.join(CODEX_MUTATOR)
+    if "models" in value:
+        aliases = {"gpt-6.1-sol": "gpt-5.6-terra", "claude-opus-5-5": "claude-sonnet-5-5"}
+        value["models"] = {aliases.get(model, model): efforts for model, efforts in value["models"].items()}
+    return write(path, value)
+
+
 def configure(world, criterion):
     """The run configuration naming `criterion`'s sha256."""
     (world.tmp / "config.json").write_text(json.dumps(CONFIG | {"criterion_sha256": sha256_file(criterion)}))
@@ -108,7 +120,7 @@ def criterion_for(world, tasks):
     data = json.loads(CRITERION.read_text()) | json.loads(q.criterion.read_text())
     data['anchors'] = {t.name: {'upstream': f'{t.name}-upstream', 'stub': f'{t.name}-stub'} for t in tasks}
     write(q.criterion, data)
-    return q.criterion
+    return capped_criterion(q.criterion)
 
 
 def run(world, *, episodes=1, tasks=None, call_cap=200, continue_run=False, run_seed=7, criterion=CRITERION,
@@ -117,6 +129,7 @@ def run(world, *, episodes=1, tasks=None, call_cap=200, continue_run=False, run_
     evidence = world.tmp / "evidence"
     if criterion == CRITERION:
         criterion = measure_free(world.tmp / 'three-arm-mechanics', template=criterion, tasks=tasks or [world.task])
+    criterion = capped_criterion(criterion)
     configure(world, criterion)
     result = three_arm.run_three_arm(
         world.tmp / "config.json", parents={name: world.tmp / "parents" / name for name in ("orc", "python")},
@@ -245,7 +258,7 @@ def test_a_launch_beyond_the_cap_waits_for_an_evaluation_in_flight_to_settle(san
     """Three I3 evaluations (eight planned calls each) under a cap that fits two in flight but not three: without
     the gate the third is refused, with it the third waits for one to settle (one recorded call) and runs."""
     script(world, [{"match": "Implement this change", "sleep": 6, "result": CHANGE}])
-    shutil.copytree(PARENTS / "python", world.tmp / "python", ignore=shutil.ignore_patterns("__pycache__"))
+    capped_copy(PARENTS / "python", world.tmp / "python")
     tasks = [world.task] + [shutil.copytree(world.task, world.tmp / f"task-{n}") for n in (2, 3)]
 
     def launch(tag, gate):
@@ -356,7 +369,7 @@ def test_a_run_refuses_a_hide_path_that_does_not_exist_before_anything_exists(tm
     (tmp_path / "config.json").write_text(json.dumps(CONFIG | {"criterion_sha256": sha256_file(CRITERION)}))
     with pytest.raises(ValueError, match="not an existing directory"):
         three_arm.run_three_arm(tmp_path / "config.json", parents={}, tasks=[], work_root=tmp_path / "w",
-                                evidence_root=tmp_path / "e", episodes_per_arm=6, agent_cmd=CODEX_MUTATOR,
+                                evidence_root=tmp_path / "e", episodes_per_arm=6, agent_cmd=shlex.split(json.loads(CRITERION.read_text())["envelope"]["mutator"]),
                                 runtime=tmp_path, env={}, timeout_sec=14400, solutions={}, call_cap=1, concurrency=1,
                                 run_seed=1, subset_seed=1, criterion=CRITERION, hide=[tmp_path / "ss-evidnce2"])
     assert [path.name for path in tmp_path.iterdir()] == ["config.json"]
@@ -412,11 +425,12 @@ def test_an_accepted_episode_with_unadjudicated_scan_hits_stops_the_run_before_t
 
 
 def test_a_run_refuses_another_mutator_criterion_hash_or_envelope_before_anything_exists(tmp_path):
+    historical_mutator = shlex.split(json.loads(CRITERION.read_text())["envelope"]["mutator"])
     hashed = CONFIG | {"criterion_sha256": sha256_file(CRITERION)}
     cases = [(hashed, ["claude", "-p"], 14400, "--agent-cmd"), (CONFIG | {"criterion_sha256": "0" * 64},
-                                                                 CODEX_MUTATOR, 14400, "criterion_sha256"),
-             (hashed | {"episode_wall_clock_sec": 600}, CODEX_MUTATOR, 14400, "episode_wall_clock_sec"),
-             (hashed, CODEX_MUTATOR, 600, "--eval-timeout-sec")]
+                                                                 historical_mutator, 14400, "criterion_sha256"),
+             (hashed | {"episode_wall_clock_sec": 600}, historical_mutator, 14400, "episode_wall_clock_sec"),
+             (hashed, historical_mutator, 600, "--eval-timeout-sec")]
     named = []
     for config, agent_cmd, timeout, field in cases:
         (tmp_path / "config.json").write_text(json.dumps(config))
@@ -435,7 +449,7 @@ def test_a_smoke_evaluates_the_two_parents_once_per_task_through_the_command_lin
     for name, value in env_of(world).items():
         monkeypatch.setenv(name, value)
     evidence, parents = world.tmp / "evidence", world.tmp / "parents"
-    criterion = measure_free(world.tmp / "cli-mechanics", template=CRITERION, tasks=[world.task])
+    criterion = capped_criterion(measure_free(world.tmp / "cli-mechanics", template=CRITERION, tasks=[world.task]))
     configure(world, criterion)
     three_arm.main(["run", "--smoke", "--episodes-per-arm", "0", "--config", str(world.tmp / "config.json"),
                     "--parents", f"orc={parents / 'orc'}", f"python={parents / 'python'}",

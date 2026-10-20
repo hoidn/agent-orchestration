@@ -35,6 +35,20 @@ separate historical-rubric correction and final fixture verification. Logs are
 The changed production scanner is 166 lines, maximum counted complexity 6;
 both Bash guards pass syntax checks. No provider spend or criterion freeze ran.
 
+Independent guard-review corrections: reject Codex `app-server` (its protocol
+can choose a per-turn model), and validate the primary model as one exact ID;
+only fallback arguments split comma-separated lists. Five new regressions
+failed before these fixes. Capped temporary three/four-arm criteria now match
+the Terra mutator envelope and capped copied parents, while historical criteria
+remain unchanged. The focused guard/three/four-arm suite collected **99 tests**
+and passed **98 in 94.99 s**; its one remaining uncapped Python-copy fixture was
+corrected with the existing helper and that selector then passed **1 in 31.75 s**.
+The dedicated guard/public-CLI and preflight selectors passed **82 in 5.72 s**;
+refused-module and public parent-smoke selectors passed **2 in 30.79 s**.
+Evidence: `/tmp/measurement-model-cap-review-{suite,collect}.log`; final full
+integration is retained for the coordinator after the remaining Task 3 changes.
+No provider call ran.
+
 **Goal:** Close gates 2–4 of the [module plan](2026-10-19-orc-structural-search-module-rewrite-plan.md#gate-for-a-live-module-arm) and the roadmap's Calibration decision point: a blind judge measure that passes a predeclared calibration on known controls (upstream, stub, partially reverted upstream, and a near-copy mutant), a task family whose agent-visible `dev-check` fails at the first attempt often enough that check-gated control flow branches, both on family (a) rungs 2 and 4 under the frozen difficulty rule, and metering wired with a frozen per-model price table, so the owner can assess the remaining prerequisites for a later live Phase 2 or `module` arm. A future structural quality study still needs its separately selected V2 qualification integration.
 
 **Architecture:** Extend `experiments/compare/` in place: a second scoring workflow `score_ref.orc` (intent-anchored absolute rubric with one disclosed reference clone per batch), rubric selection through the criterion in `pool.py`/`summarize.py`, a shared `pool.write_pool` used by `pool.pool`, `scoring.build_pool` and the new `pool.pool_from_diffs` (calibration pools from recorded diffs), and `calibration`/`calibration_over` verdicts in `summarize.py`. Task packages gain `-partial.diff` and `-mutant.diff` anchors and a promoted visible test file; the authoritative check of a first-attempt patch is controller-side in `evaluation.py`. The driver already records native receipts; reuse `metering.receipts` and `pricing.cost` with the criterion's separate `price_table`, extending only missing calibration reporting joins. Preserve structural quality admission before the shared writer and its `mapping.qualification` receipt. Calibration uses the generic comparison harness; Step C uses the explicit measure-free structural route. Qualification V2 for a future rubric/task-family study is deferred. No duplicate metering/discovery API or change under `orchestrator/`.

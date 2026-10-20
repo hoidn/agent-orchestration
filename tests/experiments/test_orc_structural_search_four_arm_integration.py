@@ -10,7 +10,7 @@ from experiments.orc_structural_search.records import read_records
 from experiments.orc_structural_search.scoring import pool_evaluations
 from tests.experiments.qualification_support import module_criterion, qualified, sha, write
 from tests.experiments.test_orc_structural_search_three_arm import (
-    CONFIG, JUDGES, CODEX_MUTATOR, add_anchors, env_of, install, kind, pyright, sandboxed, scripted_judge, world)
+    CONFIG, JUDGES, CODEX_MUTATOR, add_anchors, capped_criterion, env_of, install, kind, pyright, sandboxed, scripted_judge, world)
 
 MODULE_EDIT = '''from pathlib import Path
 p = Path('direct.orc')
@@ -28,7 +28,7 @@ p.write_text(s)
 
 
 def execute(world, criterion, *, continue_run=False):
-    frozen = json.loads(criterion.read_text())
+    frozen = json.loads(capped_criterion(criterion).read_text())
     config = write(world.tmp / 'four-config.json', CONFIG | {'criterion_sha256': sha(criterion),
         'models': frozen['models'], 'per_call_timeout_sec': frozen['per_call_timeout_sec']})
     return three_arm.run_three_arm(config, parents={name: world.tmp / 'parents' / name for name in ('orc', 'python')},

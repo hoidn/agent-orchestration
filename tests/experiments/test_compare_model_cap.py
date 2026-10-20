@@ -203,3 +203,19 @@ def test_guard_preserves_literal_model_words_after_option_delimiter(guarded, nam
 def test_guard_refuses_remote_and_independent_session_routes_before_cli(guarded, name, args):
     done = guarded(name, args)
     assert (done.returncode, done.stdout) == (2, ""), done.stderr
+
+
+def test_guard_refuses_app_server_protocol_model_override_before_cli(guarded):
+    done = guarded("codex", ["app-server"])
+    assert (done.returncode, done.stdout) == (2, ""), done.stderr
+
+
+@pytest.mark.parametrize("name,args", [
+    ("claude", ["--model", f"{SONNET},{SONNET}"]),
+    ("claude", [f"--model={SONNET},{SONNET}"]),
+    ("codex", ["--model", f"{TERRA},{TERRA}"]),
+    ("codex", [f"-m{TERRA},{TERRA}"]),
+])
+def test_primary_model_is_one_exact_id_never_a_model_list(guarded, name, args):
+    done = guarded(name, args)
+    assert (done.returncode, done.stdout) == (2, ""), done.stderr

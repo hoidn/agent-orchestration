@@ -117,7 +117,7 @@ Agents share `$HOME`, so the harness guards instrumented CLI routes and checks r
   and `codex`, first on the sandboxed agent's `PATH`, for top-level and nested CLI calls. Parallel
   installation leaves identical copies alone, creates missing copies by atomic hard link and
   restores edited copies by rename. Arguments, stdin, streams and status reach the real CLI.
-  Claude defaults to Sonnet; explicit and fallback model arguments (separate or `=` forms,
+  Claude defaults to Sonnet; the primary model is one exact ID. Explicit and fallback model arguments (separate or `=` forms,
   including every comma-separated fallback) must use the exact Sonnet ID. Optional
   `COMPARE_CLAUDE_MODELS`, forwarded as `ORC_ALLOWED_CLAUDE_MODELS`, can narrow this owner cap but
   cannot raise it. The forced Claude subagent model must also be Sonnet.
@@ -126,7 +126,8 @@ Agents share `$HOME`, so the harness guards instrumented CLI routes and checks r
   local-model and feature-enabling overrides, and admits only scalar
   `model_reasoning_effort` configuration overrides used by the provider binding. It always adds
   `--disable multi_agent --disable multi_agent_v2 --disable multi_agent_v2_dynamic_tools` to
-  disable native agents whose model selection does not pass through `PATH`. Cloud/remote/dispatch,
+  disable native agents whose model selection does not pass through `PATH`. The `app-server`
+  protocol (whose turn messages can choose another model), cloud/remote/dispatch,
   queue/resume/fork session dispatch and `--approve-for-me` routes also refuse; these are unused
   by the provider bindings and may select independent server or reviewer models. Orchestrator
   resume remains supported because it invokes a fresh guarded `codex exec` call.

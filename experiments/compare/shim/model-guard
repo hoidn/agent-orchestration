@@ -40,7 +40,7 @@ for ((i = 0; i < ${#args[@]}; i++)); do
           -c|--config) check_config "${args[i + 1]-}"; continue ;;
           -c*) check_config "${arg#-c}"; continue ;;
           --config=*) check_config "${arg#--config=}"; continue ;;
-          cloud|remote-control|dispatch|queue|resume|fork|review|--remote|--remote=*|--approve-for-me|-p*|--profile|--profile=*|--model-provider|--model-provider=*|--local-provider|--local-provider=*|--oss|--enable|--enable=*)
+          app-server|cloud|remote-control|dispatch|queue|resume|fork|review|--remote|--remote=*|--approve-for-me|-p*|--profile|--profile=*|--model-provider|--model-provider=*|--local-provider|--local-provider=*|--oss|--enable|--enable=*)
             refuse "'$arg' can override the model route or native-agent policy" ;;
           *) continue ;;
         esac
@@ -52,9 +52,13 @@ for ((i = 0; i < ${#args[@]}; i++)); do
         esac
       fi ;;
   esac
-  [[ -n $model && $model != ,* && $model != *, && $model != *,,* ]] || check_model ""
-  IFS=, read -ra models <<< "$model"
-  for selected in "${models[@]}"; do check_model "$selected"; done
+  case $arg in
+    --fallback-model|--fallback-model=*)
+      [[ -n $model && $model != ,* && $model != *, && $model != *,,* ]] || check_model ""
+      IFS=, read -ra models <<< "$model"
+      for selected in "${models[@]}"; do check_model "$selected"; done ;;
+    *) check_model "$model" ;;
+  esac
 done
 [ "${CLAUDE_CODE_SUBAGENT_MODEL:-claude-sonnet-5-5}" = claude-sonnet-5-5 ] ||
   refuse "forbidden forced Claude subagent model '${CLAUDE_CODE_SUBAGENT_MODEL}'"
