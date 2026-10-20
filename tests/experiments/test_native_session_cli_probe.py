@@ -856,6 +856,10 @@ def test_synthetic_internal_gate_exercises_interruption_loss_restore_and_alt_hom
         original_finish = module._finish_row
         def failed_finish(tracker, invocation, row, timeout):
             if invocation.ordinal == 7 and behavior == "failed-loss":
+                deadline = time.monotonic() + timeout
+                while not native.exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                assert native.exists(), "lost-session provider did not recreate its native session"
                 raise RuntimeError("synthetic failed finish before quiescence")
             original_finish(tracker, invocation, row, timeout)
             if invocation.ordinal == (6 if behavior == "unquiescent-recovery" else 7):
@@ -902,6 +906,7 @@ def test_synthetic_internal_gate_exercises_interruption_loss_restore_and_alt_hom
     if behavior in {"unquiescent-loss", "failed-loss"}:
         assert report["session_restore_pending"]["backup_file"]
         assert native.read_bytes() != (output / "evidence/session-before-delete.jsonl").read_bytes()
+        assert not (output / "provider-home/alternate-codex").exists()
         return
     assert [row["ordinal"] for row in rows] == [5, 6, 7, 8]
     assert rows[0]["interruption_marker_observed"] is (behavior != "marker-exit")
