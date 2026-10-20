@@ -204,12 +204,13 @@ def resume(record: EvaluationRecord, *, env: Mapping[str, str], timeout_sec: flo
                                           workspace_roots=[Path(metadata['tree'])])
     env = qualification.hidden_env(env, private)
     metadata.update(qualification=checked, qualification_private_roots=list(map(str, private)))
-    dump(record.records_dir / 'record.json', metadata)
     if not (record.records_dir / "resume.sh").is_file():
         raise ValueError(f"evaluation {record.evaluation_id} has no resume.sh: a generic-command run is not resumable")
     if record.outcome != "incident" or record.run_id == UNAVAILABLE:
         raise ValueError(f"evaluation {record.evaluation_id} is {record.outcome} with run id {record.run_id}: "
                          "only an incident with a started run can be resumed")
+    metadata.pop('scan', None)  # A resume can change evidence without creating another provider call.
+    dump(record.records_dir / 'record.json', metadata)
     resumed = replace(record, resume_count=record.resume_count + 1, qualification=checked)
     return _launch(resumed, ["bash", str(record.records_dir / "resume.sh"), record.run_id], env, timeout_sec)
 

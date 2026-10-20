@@ -381,3 +381,25 @@ def test_original_calibration_tree_and_state_are_private(tmp_path):
     write(path, value)
     refresh(q)
     assert outside in private_roots(q.criterion, public_roots=[q.runtime, *q.tasks])
+
+
+def test_fresh_private_scan_hits_invalidate_old_pool_clearance_at_same_call_count(tmp_path):
+    import time
+    from experiments.compare import pool
+    from experiments.orc_structural_search.qualification import scan_evidence
+    q = qualified(tmp_path / 'qualification')
+    records, tree = tmp_path / 'records', tmp_path / 'tree'
+    tree.mkdir()
+    call = records / 'calls/1'
+    call.mkdir(parents=True)
+    (call / 'stdout.txt').write_text(f'cat {q.receipt}\n')
+    old = {'outcome': 'completed', 'arm': 'direct_task', 'failure': None, 'selected': None,
+           'wall_clock_sec': 1, 'variant': None, 'tree': str(tree), 'created_at': time.time() - 1,
+           'calls': 1, 'qualification_private_roots': [str(q.receipt.parent)],
+           'scan': {'calls': 1, 'hits': [], 'verdict': {'verdict': 'cleared', 'reason': 'old'}}}
+    write(records / 'record.json', old)
+    assert scan_evidence(records, old)
+    new = json.loads((records / 'record.json').read_text())
+    assert new['qualification_scan']['calls'] == 1
+    with pytest.raises(SystemExit, match='scanned'):
+        pool.pool_runs({str(records): new})

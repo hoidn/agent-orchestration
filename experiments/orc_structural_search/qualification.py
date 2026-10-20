@@ -198,5 +198,7 @@ def scan_evidence(records, metadata):
                                          for p in metadata['qualification_private_roots'])}
     hits = scan.find_hits(Path(records), Path(metadata['tree']), metadata['created_at'], home, patterns)
     metadata['qualification_scan'] = {'hits': hits, 'calls': len(list((Path(records) / 'calls').glob('*')))}
+    if hits:
+        metadata.pop('scan', None)
     dump(Path(records) / 'record.json', metadata)
     return hits

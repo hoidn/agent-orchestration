@@ -59,7 +59,7 @@ def test_qualified_episode_masks_external_truth_and_scans_read_attempts(sandboxe
     q = qualified(world.outside / 'qualification', runtime=world.runtime, tasks=[world.task])
     world.criterion = q.criterion
     rule = Path(__file__).resolve().parents[2] / 'experiments/compare/criteria/calibration.json'
-    score = world.runtime / 'experiments/compare/score.orc'
+    score = rule.parent.parent / 'score.orc'
     env = fake_claude(world, f'#!/bin/sh\ncat {q.receipt} {q.calibration} {rule} {score} 2>/dev/null\n'
                              f'echo "cat {q.receipt}"\nexit 0\n')
     check_brief = f'assert {str(q.receipt)!r} not in Path("EPISODE.md").read_text()\n'
@@ -95,11 +95,14 @@ def test_qualified_evaluation_and_resume_keep_truth_masked_and_rescan_history(sa
     assert str(q.receipt.parent) in metadata['qualification_private_roots']
     inputs = (first.records_dir / 'inputs.json').read_text()
     assert str(q.receipt) not in inputs and 'orc-structural-qualification-v1' not in inputs
+    metadata['scan'] = {'calls': 1, 'hits': [], 'verdict': {'verdict': 'cleared', 'reason': 'old'}}
+    (first.records_dir / 'record.json').write_text(json.dumps(metadata))
     script(world, [CHANGE])
     final = resume(first, env=env, timeout_sec=600, criterion=q.criterion)
     metadata = json.loads((final.records_dir / 'record.json').read_text())
     assert final.outcome == 'completed' and final.resume_count == 1
     assert final.qualification['qualification_sha256'] == first.qualification['qualification_sha256']
     assert metadata['qualification_scan']['calls'] == 2 and metadata['qualification_scan']['hits']
+    assert 'scan' not in metadata
     outputs = ''.join(path.read_text() for path in (final.records_dir / 'calls').glob('*/stdout.txt'))
     assert 'orc-structural-qualification-v1' not in outputs
