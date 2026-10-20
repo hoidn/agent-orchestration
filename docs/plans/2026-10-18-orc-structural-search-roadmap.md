@@ -513,22 +513,24 @@ implement-check-repair idea; quality unavailable because the evaluator is
 uncalibrated). The [Phase 1 report](../reports/2026-10-18-orc-structural-search-phase1.md)
 records an inconclusive pilot: the upstream anchor scored at or below every
 candidate, and one anchor pair was inverted. Phase 2 is not selected, and a
-better-targeted experiment needs a new owner selection. The next plan to
-execute offline is the [measurement calibration plan](2026-10-19-orc-structural-search-measurement-plan.md):
-an evaluator calibrated on known controls and
-a task family whose agent-visible check fails sometimes. Generic reference
+better-targeted experiment needs a new owner selection. The
+[measurement calibration plan](2026-10-19-orc-structural-search-measurement-plan.md)
+owns evaluator calibration on known controls and measurement of a task family
+whose agent-visible check fails sometimes. Generic reference
 calibration and the current Sonnet/Terra guard are implemented, and the real
 controller matrix has passed. Offline preparation and final verification are complete;
 implementation I and criterion freeze F passed independent review. Step A's approved
 8 calls completed within cap 10; A failed calibration (RPI spread; PRR passed).
-The compatible Terra-only A′ (`AT`) is stopped incomplete: RPI passed both
-frozen batches; PRR committed none after two native-agent control incidents.
-Four CLI plus six native child sessions exhausted cap10, all Terra high. The
-combined calibration gate remains OPEN; enforcement must be fixed and verified
-before a later new owner budget. B/B2/C remain unrun and separately gated;
-I_A2/F2 and the AT freeze remain unchanged. The [AT interrupted readout](../reports/2026-10-20-orc-structural-search-measurement-at.md)
-records the evidence and incomplete metering. No combined calibration
-result or live `module` arm follows from implementation. It precedes any
+The compatible Terra-only A′ (`AT`) completed all four frozen pairs and failed
+calibration: RPI passes; PRR fails strict P2 ordering in one batch. Gate 2 is
+FAIL_NOT_QUALIFIED; gate 3 is unmeasured. Qualified, independently reviewed
+pending-only recovery completed two new sessions without native children;
+12 of cap 20 were used overall, all Terra high. Eight unused recovery sessions
+have no pending effects and do not transfer. B/B2/C remain unrun and separately
+gated; no A3 is selected. I_A2/F2 and the AT freeze remain unchanged. The
+[completion report](../reports/2026-10-20-orc-structural-search-measurement-at-completion.md)
+records the final result and incomplete total cost. No ORC benefit or live
+`module` selection follows. The measurement gate precedes any
 live `module` arm
 ([module condition](2026-10-19-orc-structural-search-module-rewrite-plan.md#gate-for-a-live-module-arm)).
 Amended 2026-10-19: the cumulative workflow evolution extension redefines

@@ -276,14 +276,15 @@ owns the measurement preparation and live gates under the
 Its generic calibration and package/helper preparation is implemented; the real
 controller matrix, final integration and independently reviewed I/F freeze have
 passed. Calibration Step A completed 8 calls within cap 10 and failed
-(RPI spread; PRR passed). The compatible Terra-only A′ (`AT`) is now stopped
-incomplete: RPI passed both frozen batches, PRR committed none after two
-native-agent control incidents, and four CLI plus six native child sessions
-exhausted cap10. All dispatches used Terra high; the combined calibration gate
-remains OPEN. Enforcement must be fixed and verified before a later new owner
-budget; B/B2/C remain unrun and separately gated. I_A2/F2 and the AT freeze are
-unchanged. The [AT interrupted readout](../reports/2026-10-20-orc-structural-search-measurement-at.md)
-records the evidence and incomplete metering. The owner has selected no live `module` arm;
+(RPI spread; PRR passed). The compatible Terra-only A′ (`AT`) completed all
+four frozen pairs and failed calibration: RPI passes; PRR fails strict P2
+ordering in one batch. Gate 2 is FAIL_NOT_QUALIFIED; gate 3 remains unmeasured.
+After the original cap 10 stop, qualified and independently reviewed pending-only
+recovery used two new sessions without native children: 12 of cap 20 overall,
+all Terra high. The eight unused sessions are recovery margin with no pending
+effects and do not transfer. B/B2/C remain unrun and separately gated; no A3
+is selected. I_A2/F2 and the AT freeze are unchanged. The [completion report](../reports/2026-10-20-orc-structural-search-measurement-at-completion.md)
+records the final evidence and incomplete total cost. The owner has selected no live `module` arm;
 no such arm precedes the required gate results or its own selection. Both gates instantiate the rule that no uncalibrated
 experiment runs (driver design,
 Task Family And Evaluator; roadmap, Decision Points), and they bind every

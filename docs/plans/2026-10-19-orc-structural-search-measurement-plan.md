@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Status:** offline Tasks 1–5 and historical Step A are complete. The owner approved up to ten additional Terra-only AT sessions on 2026-10-20: overall cap **20**, with ten already consumed and only the two pending PRR batches planned. RPI's two completed batches passed and remain unchanged; the combined calibration is **OPEN** until PRR finishes. The [AT interrupted report](../reports/2026-10-20-orc-structural-search-measurement-at.md) preserves the two native-agent incidents, incomplete cost coverage and subsequent configuration-scope diagnosis. Corrected native dispatch and accounting require independent verification before same-run recovery. Runtime `I_A2=49cd27e6`, historical F2, criterion freeze `997374d8` and the original operator artifacts stay unchanged; a separate continuation packet records the mechanical correction and new budget. No Claude/Fable, hidden tests, B/B2/C or A3 are selected.
+> **Status:** offline Tasks 1–5, historical Step A and compatible Terra-only A′ (`AT`) are complete. AT's four declared pairs are complete and the frozen verdict is **FAIL_NOT_QUALIFIED**: RPI passes; PRR fails P2 in one of two batches (`stub = partial = 0`). Gate 2 fails and gate 3 is unmeasured. After the original cap 10 stop, the owner approved cap 20; the independently reviewed v2 continuation completed only the two pending PRR batches with no new native children. Total usage is 12 sessions (six CLI plus six historical children), all Terra high. The eight unused sessions are mechanical-recovery margin with no pending effects and do not transfer to another stage. The [completion report](../reports/2026-10-20-orc-structural-search-measurement-at-completion.md) owns the final result; the [interrupted report](../reports/2026-10-20-orc-structural-search-measurement-at.md) preserves the earlier incidents. Runtime I_A2, F2, criterion freeze `997374d8` and original operators remain unchanged. Complete AT cost is unavailable; observed list-price equivalent is at least USD 4.3461492. No rescoring, A3, B/B2/C, live campaign or ORC benefit claim is selected.
 
 > **Revision 2026-10-19** (after the independent review, coordinator rulings C1 and I1–I10 applied): a fourth blind control per task, the `mutant` (upstream with one behaviour-breaking edit), and rule P3 `total(upstream) − total(mutant) ≥ 2`, so a judge that scores similarity to the disclosed reference fails calibration; fillers are only patches that pass `git apply --check` on the amended seeded base, drawn from the retained Phase 1 pools and the three-arm final patches, with exact counts and a minimum; the authoritative gate-3 check is controller-side and restores the package's `dev-check.json` and promoted test before running (`evaluation.check_first_attempt`); Step C (the check-gated seed's own coder) is required and is the gate-3 measurement, Step B's figure beside it; a new `calibration-amends-5.json` references the unchanged historical criterion and records `amends_5` (frozen implementation commit, reviewer `gpt-6.1-sol`, amended package hashes) before Step B; B2 has its own per-pool verdict plus `summarize.calibration_over`; the failure-policy rerun is its own owner-gated step (A′) and the worst-case total is stated (50 calls); the driver design and harness D6 are amended offline before any spend; `summarize` skips `reference` clones and reads a mapping without `rubric` as the historical rubric; `score_ref.orc` runs end to end with scripted providers before the criterion freezes; no `calibrate.py` (shared `pool.write_pool`, `pool.pool_from_diffs`); citation, count, metering-mapping, measurement-order, batch-size, judge-scan and ledger minors applied.
 
@@ -394,7 +394,7 @@ RPI failed Terra mutant spread (0 versus 4, limit 2); PRR passed with maximum
 spread 1. Complete receipts price at USD 7.8836138 list equivalent. Proceed only
 to preparation of the predeclared A′ option; its launch requires separate approval.
 
-### Task 6b: Live Step A′ — one rerun after the predeclared revision (4 planned calls, cap 10; existing authority)
+### Task 6b: Live Step A′ — one rerun after the predeclared revision (4 planned calls; original cap 10, recovery cap 20)
 
 **Historical cap-10 stop (2026-10-20; budget superseded below):** the owner's conditional A′ authority and renewed
 execution instruction covered the compatible Terra-only packet, retaining the
@@ -407,7 +407,13 @@ there is no remaining recovery allowance. Diagnose and verify enforcement before
 a later owner budget decision. This checkpoint does not request that budget or
 select B/B2/C or A3. I_A2/F2 and AT's criterion bytes remain frozen.
 
-**Accepted scientific amendment design; execution remains incomplete pending recovery.** A′ uses one
+**Current closure (2026-10-20):** AT completed all four pairs under the later
+owner-approved cap 20 and failed the frozen P2 rule on one PRR batch. Two new
+Terra-high sessions completed the pending effects without native children;
+12 sessions were used overall. No effects remain pending, and the eight unused
+recovery sessions do not authorize another stage. See the [completion report](../reports/2026-10-20-orc-structural-search-measurement-at-completion.md).
+
+**Accepted scientific amendment design; original allocation preserved.** A′ uses one
 `gpt-5.6-terra` judge at high effort, two batches per task: four planned calls,
 cap 10, with four declared judge×batch pairs and reduced cross-provider
 coverage. Controls, fillers, the reference-free rubric, P1/P2/P3, error 0 and
@@ -471,8 +477,8 @@ call records and zero provider calls. The packet is ready offline and authorizes
 no calls; the dated no-Claude restriction still applies.
 
 - [x] **Step 1: Complete a compatible launch packet.** The Terra-only criterion and reviewed operator were frozen under the existing four-planned-call/cap-10 authority; historical F2 remains unchanged. That cap is now exhausted, including native child dispatches; no unused A reserve transfers.
-- [ ] **Step 2: Execute AT — partial, stopped.** I_A2 and `E/freeze-at/judge-calibration-at.json` remain unchanged. RPI completed two batches and passes; PRR committed zero batches. Four CLI sessions plus six native child sessions exhaust cap10. Preserve all pools, scans, interrupted attempts and complete observations; no further resume or dispatch is authorized. Exact A filler membership remains excluded from B2. See the [interrupted readout](../reports/2026-10-20-orc-structural-search-measurement-at.md).
-- [ ] **Step 3: Decide — OPEN.** The incomplete PRR denominator prevents a combined calibration verdict; this is not a scientific rubric failure. Both complete pools must pass the frozen rules before the measure is calibrated. Enforcement remains unqualified and the recovery budget is exhausted, so no later live step runs; a prerequisite fix and new owner budget are needed before further recovery.
+- [x] **Step 2: Execute AT — complete.** Preserved both RPI observations and resumed only the two pending PRR batches in the same run under independently reviewed continuation packet v2 and the owner's cap 20. Both new Terra-high sessions completed without native children; total 12 (six CLI plus six historical children). All four pairs, 36 clones and 243 protected hashes are accounted for; runtime, rubric, inputs and criterion are unchanged. Exact A filler membership remains excluded from B2. See the [completion report](../reports/2026-10-20-orc-structural-search-measurement-at-completion.md).
+- [x] **Step 3: Decide — FAIL_NOT_QUALIFIED.** RPI passes; PRR fails P2 in batch 0 (`stub = partial = 0`), with P2 failing fraction 1/2 above frozen `error_rate = 0`. P1/P3/spread pass for both tasks, but both pools must pass. Gate 2 fails; gate 3 is unmeasured. A′ is complete and failed; no rescoring, A3 or further live step is selected. The eight remaining sessions are unused mechanical-recovery margin with no pending effects and do not transfer to B/B2/C.
 
 ### Task 7: Live Step B — family re-qualification under `amends_5` (owner gate: 8 calls, cap 14) and B2 (2 calls, cap 4)
 
@@ -632,3 +638,14 @@ not transferred. Remaining planned calls are 32, or 40 including A and A′.
 | Preserve the scientific comparison | Resume PRR run `20261020T175209Z-66dgq7`; retain both completed RPI batches. Same rubric, clone IDs, controls, fillers, four-pair denominator, P1/P2/P3 and spread rule. No A3, hidden tests or B/B2/C selection |
 | Correct execution before spending | Maintained guard fix `96cdc622` places native-agent settings inside exec scope. Freeze a separate corrected dispatch/continuation packet, test native tool handling without a remote model, review independently, preserve original masks and record final backend argv. The frozen runtime, original wrapper and seven original operator scripts remain unchanged |
 | Count every session and preserve incomplete costs | Enforce cap20 over CLI roots plus parent-linked native children. Stop on unexpected delegation. Retain prior interrupted-session lower bounds; a completed scientific calibration must not imply complete historical cost coverage |
+
+
+### AT Completed Calibration And Coordination — 2026-10-20
+
+| Decision | Consequence |
+| --- | --- |
+| Qualified pending-only recovery completed | Native catalog qualification v7 and independent review accepted exact wrapper/continuation packet v2 SHA `b625327686b4c123ae1ad7bd30422c4f27a38df183ae306abab44caa4c89212c`. Resume used only two new Terra-high sessions, no new children, preserving the original incidents, runtime, criterion and RPI observations |
+| Close the frozen scientific decision | `E/AT/combined-readout.json` SHA `d7209bbb1a74cb6f14e9bb4db7e8fdfdd2a388467395297a10d58be8972c66d0` records all 4/4 pairs. RPI passes; PRR batch 0 has upstream 6/stub 0/partial 0/mutant 4 and batch 1 5/0/2/3, so P2 fails 1/2 PRR pairs; P1/P3/spread pass. Gate 2 is FAIL_NOT_QUALIFIED, gate 3 unmeasured. No ORC benefit claim follows |
+| Close cap 20 without transferring its margin | Total 12 sessions = six CLI plus six historical children, all Terra high. Eight sessions remain unused recovery allowance, with no pending effects. No rescoring, A3, B/B2/C or live campaign is selected; later stages retain separate gates |
+| Preserve cost limits and hygiene | New complete PRR receipts price at USD 1.7394904; observed AT lower bound is USD 4.3461492, complete total unavailable. Both pools' 36 clones and 243 protected hashes remain intact; root cleared 46 continuation actions and read 18 PRR reasons without independently validating diagnoses. No candidate edits or judge unit/hidden-test execution observed |
+| Limited final-status routing correction | Update only this plan's current status/Task6b and this closure ledger, the module plan's current measurement paragraph, the roadmap's current measurement paragraph and the new [completion report](../reports/2026-10-20-orc-structural-search-measurement-at-completion.md). Coordinator separately updates the three hub status rows and adds the completion-report row; earlier reports, Phase2/cumulative text, designs, C1 plan, boundaries and frozen criteria remain unchanged |
