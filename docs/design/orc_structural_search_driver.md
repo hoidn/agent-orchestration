@@ -395,7 +395,15 @@ python -m orchestrator run <candidate entry .orc> [frontend flags] \
 
 R2 task qualification remains its own selection and a prerequisite; this
 design absorbs none of it. One family is chosen before candidate work and
-not swapped to escape an unfavorable result.
+not swapped to escape an unfavorable result. No uncalibrated experiment: no
+live experiment spends provider calls on quality evaluation unless its
+quality measure passed a predeclared calibration on known controls (for a
+judge measure, the upstream anchor strictly above the stub for every judge
+and batch by a predeclared margin, with the tolerated error rate stated in
+the criterion) and its family is qualified under the frozen
+difficulty-calibration rule; an experiment whose measure is uncalibrated
+reports only measure-free figures (compile-only metrics, execution outcomes,
+cost) and makes no quality comparison, frontier or improvement claim.
 
 | Family | Truth | State |
 | --- | --- | --- |

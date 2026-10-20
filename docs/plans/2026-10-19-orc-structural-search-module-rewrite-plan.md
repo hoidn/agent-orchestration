@@ -61,7 +61,7 @@ yet:
 | Run | Episodes judged | Refused by scope or frozen surface | Compile rejections | Skeletons |
 | --- | --- | --- | --- | --- |
 | Phase 1, I1 `topology-only`, Claude Opus mutator ([report](../reports/2026-10-18-orc-structural-search-phase1.md), Unguided I1) | 6 accepted (4 later excluded as contaminated) | 0 | 0 | the two clean children both rewrote `direct` into implement, `dev-check`, repair-on-failure (`loop/recur :max 3`), distinct from the parent and from each other |
-| Three-arm main run, 2026-10-19 (`/home/ollie/ss3-evidence`: `log.jsonl`, `readout.json`, `episodes/*/record.json`; I1, I2, I3 `topology-only`, Codex `gpt-6.1-sol` mutator, one call and 1–4 min per episode) | 18 of 18 accepted (6 per arm); every episode with scan hits (13; 5 had none) adjudicated cleared under ruling R18: mutators read main-checkout ORC docs, examples and tests because `~/.codex/AGENTS.md` directs it, reported as tool-retrieved exposure, with catalog-seed exposure recorded in 5 verdicts; the paid subset of 12 evaluations was in progress with 8 logged, each completed with one provider call (the repair branch never fired) | 0 | 0 | 17 distinct skeletons over 18 children, one shared between an I1 and an I2 child; every arm acceptance 1.0, locality 0, revisit 0, none collapsed; semantically every child is one pattern (implement, `dev-check`, repair on failure), and none adds review, planning or judging |
+| Three-arm main run, 2026-10-19 (`/home/ollie/ss3-evidence`: `log.jsonl`, `readout.json`, `episodes/*/record.json`; I1, I2, I3 `topology-only`, Codex `gpt-6.1-sol` mutator, one call and 1–4 min per episode) | 18 of 18 accepted (6 per arm); every episode with scan hits (13; 5 had none) adjudicated cleared under the three-arm readout's controller ruling R18 (2026-10-19): mutators read main-checkout ORC docs, examples and tests because `~/.codex/AGENTS.md` directs it, reported as tool-retrieved exposure, with catalog-seed exposure recorded in 5 verdicts; the paid subset of 12 evaluations was in progress with 8 logged, each completed with one provider call (the repair branch never fired) | 0 | 0 | 17 distinct skeletons over 18 children, one shared between an I1 and an I2 child; every arm acceptance 1.0, locality 0, revisit 0, none collapsed; semantically every child is one pattern (implement, `dev-check`, repair on failure), and none adds review, planning or judging |
 
 So in the 24 episodes judged so far (2026-10-19) under `topology-only`, no proposal was refused and
 none collapsed onto its parent. The brief tells the agent the rules, so agents
@@ -226,8 +226,8 @@ All of the following, each recorded in the ledger before any provider spend:
    trigger; selection rests on gates 2–6 and the owner's allocation.
 2. **An evaluator calibrated on known controls.** The upstream anchor scores
    strictly above the stub in every batch, for every judge (`anchor_trust` in
-   the three-arm criterion), and the criterion predeclares the tolerated error
-   rate on those controls. Nothing is required of the candidates' ranks: a
+   the three-arm criterion), by a predeclared margin, and the criterion
+   predeclares the tolerated error rate on those controls. Nothing is required of the candidates' ranks: a
    candidate may equal or beat the upstream fix.
    Making hidden acceptance the primary measure would reverse the owner's
    evaluation policy of 2026-10-15; that is an owner decision, not an
@@ -254,7 +254,13 @@ Gates 2 and 3 are the blocking work. They need a measurement plan (an
 evaluator calibrated on known controls; a family whose agent-visible check
 fails sometimes), the next plan to write, owned by the
 [roadmap](2026-10-18-orc-structural-search-roadmap.md#decision-criteria-and-next-commitment);
-this plan does not write it, and no live `module` arm precedes it.
+this plan does not write it, and no live `module` arm precedes it. Both are
+instances of the rule that no uncalibrated experiment runs (driver design,
+Task Family And Evaluator; roadmap, Decision Points): a live `module` arm
+whose measure has not passed that calibration, or whose family is not
+qualified under the frozen difficulty-calibration rule, may report only
+measure-free figures (compile-only metrics, execution outcomes, cost) and
+no quality comparison, frontier or improvement claim.
 
 When selected, the `module` arm joins the interface test as a fourth arm under
 the same envelope (same parent, mutator, episode wall clock, tasks, compile-only
