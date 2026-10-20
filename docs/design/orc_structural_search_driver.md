@@ -254,18 +254,25 @@ while experiment_envelope_remains():
     log(parent, site, interface, episode, child, evidence)
 ```
 
-The archive keeps an incumbent plus a small set (four to eight after cost
-calibration) spanning the quality/cost frontier; a child enters when it
-dominates or fills a gap. Parent and site selection start uniform;
-local-feedback targeting is a compared condition. I2 proposals need the
-manifest; I1 proposals use frozen-surface validation alone.
+The archive is the non-dominated set on quality and metered deployed cost
+(the objective below), an incumbent plus a small set (four to eight after
+cost calibration): a child enters when no member dominates it and evicts
+the members it dominates. Provider calls stand in for the cost axis only
+under a condition that freezes model and effort. Parent and site selection
+start uniform; local-feedback targeting is a compared condition. I2
+proposals need the manifest; I1 proposals use frozen-surface validation
+alone.
 
 As implemented (`experiments/orc_structural_search/adaptive.py`,
 `run_mode2`): an archive entry carries per-task primary values and
 provider calls of its counted evaluations; the archive is the incumbent
 plus at most `ARCHIVE_SIZE` (6) members non-dominated on (mean value
 higher, mean calls lower), ranked by mean value, then fewer calls, then the
-earlier id. Generation 0 seeds it from Phase 1's joined rows
+earlier id. Mean calls is the cost axis there, admissible only while model
+and effort are frozen (topology-only, prompt-only); under any other
+condition the axis is metered cost at the frozen price table (Metering And
+Consumption), and a child without it is not placed on the frontier.
+Generation 0 seeds it from Phase 1's joined rows
 (`scoring readout --joined-out`) as prior evidence, logs a `reference` row
 naming the incumbent and re-measures the incumbent on every adaptive task.
 Each later generation alternates I1 and I2 episodes, draws parents
@@ -423,26 +430,40 @@ candidates and to the mutator.
 
 ## Objective, Selection And Local Observations
 
-The primary objective is mean task success under a fixed per-task execution
-envelope (wall clock, provider calls, metered cost where available). Success
-is what the family's frozen criterion names. A timeout, invalid submission or
+The objective is Pareto over two values per candidate: quality, the mean
+task success the family's frozen criterion names, and deployed compute
+cost, the metered cost of executing the candidate on a task (Metering And
+Consumption), both under a fixed per-task execution envelope (wall clock,
+provider calls, metered cost). Better means dominance: A dominates B when
+A's quality is not lower and its cost not higher and one is strictly
+better, each beyond a predeclared equivalence tolerance on means (quality
+in the criterion's units, cost relative). A timeout, invalid submission or
 task failure is an outcome whose consumption still counts. Failure rule
 (criteria amended 2026-10-18; `primary_value` and `scored_outcome` in
 `experiments/orc_structural_search/scoring.py`): a failed evaluation and an
 envelope timeout (an incident killed at its wall-clock envelope) score 0
-rubric points; every other incident is excluded, not scored zero. The quality/cost
-frontier is retained for analysis, never collapsed into a reward.
+rubric points; every other incident is excluded, not scored zero. The
+frontier, the non-dominated set, is the object of search: it is retained
+and reported and never collapsed into a scalar reward. Frontier membership
+requires a predeclared quality floor (above the stub anchor's mean, or a
+failure rate at or below a stated bound), so trivially cheap failures never
+populate it. Pareto selection does not repair a weak quality measure: where
+the measure does not resolve candidates, cost decides alone and search
+drifts toward doing less, so the calibrated-evaluator gate stays a
+precondition of any adaptive claim.
 
 The authored reference seed is always evaluated on the validation split
 beside the finalists, and its runs are budgeted with them, so every finalist
-is compared with the incumbent on the same tasks. Final choice follows a
-rule written into the criterion before adaptive work:
-among candidates under a stated mean-cost ceiling, those whose validation
-success is within a stated equivalence tolerance of the highest, then lower
-mean cost, then fewer provider calls, then the earlier candidate id; without metered cost the ceiling is in provider calls
-and wall clock, and the criterion says so. Search cost (episodes, compiler
-and repair work, evaluations, retries, rejected proposals, preparation,
-substantive human assistance) is reported apart from deployed cost:
+is compared with the incumbent on the same tasks. Deployment takes one
+frontier point by a rule written into the criterion before adaptive work:
+among frontier candidates under a stated mean-cost ceiling, those whose
+validation success is within a stated equivalence tolerance of the highest,
+then lower mean cost, then fewer provider calls, then the earlier candidate
+id; only under a condition that freezes model and effort may the ceiling be
+in provider calls and wall clock, and the criterion says so. Deployed cost
+defines the frontier. Search cost (episodes, compiler and repair work,
+evaluations, retries, rejected proposals, preparation, substantive human
+assistance) is reported apart from it:
 `break_even_uses = additional_search_cost / saving_per_deployed_use`, valid
 only when quality is comparable and savings positive.
 
@@ -478,8 +499,19 @@ as unmatched; a figure without a receipt is `unavailable`. Codex
 weekly-window and credit readings are account-wide and reported as bounds.
 Per-provider wall clock has no receipt (the shim records no per-call
 timing); run-level wall clock is recorded on evaluation records. Provider-call
-counts are always recorded; dollar figures appear only where
-metering coverage is complete for the compared conditions.
+counts and wall clock are always recorded and reported beside cost; dollar
+figures appear only where metering coverage is complete for the compared
+conditions.
+
+The cost unit reflects the model: metered tokens priced by a per-model
+table frozen in the criterion, with input, output, cache-read and
+cache-write prices per model and the table's source and date stated, so a
+child that moves to a dearer model pays for it on the cost axis. Calls and
+wall clock are an acceptable cost proxy only where model and effort are
+frozen (topology-only, prompt-only). Under any condition that may change
+them (module, provider-only, joint) metering is mandatory: a candidate
+without metered cost has cost `unavailable`, is not placed on the frontier
+and is reported as such.
 
 ## Evaluation Hygiene
 
@@ -540,12 +572,17 @@ table above requires. They must be added before any live phase.
 The first comparative experiment is the three-arm interface test: I3 Python
 diff, I1 Lisp whole-program and I2 Lisp locus-plus-fragment on one benchmark
 workflow, one model and one family, with completed episodes as the budget
-unit. One pre-registered primary endpoint: accepted improvements per
-completed episode, an improvement being a child that beats its parent on
-matched adaptive tasks under the frozen rule. Secondary: skeleton diversity
-and revisit rate, acceptance rate, repair iterations per accepted proposal.
-Wall clock and provider calls are always reported; dollars only where
-metering coverage is complete. Compile-only metrics (acceptance per episode,
+unit. Two pre-registered endpoints, each per completed episode: dominating
+improvements, a child that dominates its parent on matched adaptive tasks
+under the frozen rule (Objective, Selection And Local Observations), and
+frontier entries, a child non-dominated against the archive; the frontier
+entries are reported by candidate, and both endpoints are split by whether
+the child changed its provider allocation (`allocation_distinct`) or its
+structure only. Secondary: skeleton diversity and revisit rate, acceptance
+rate, repair iterations per accepted proposal. Wall clock and provider
+calls are always reported; dollars only where metering coverage is
+complete, and metered cost is the cost axis of any arm whose model or
+effort may change. Compile-only metrics (acceptance per episode,
 edit locality, distinct skeletons, exact repeats by `program_digest`) cover
 every proposal; paid whole-run evaluation covers a stratified subset of
 accepted proposals per arm. Admissibility differs by language and is
@@ -618,7 +655,8 @@ runs exactly as written. The typed-gates design records this scoping in its
 ## What This Makes Harder
 
 Sequential evaluation in separate clones is slow and disk-heavy. Cost
-conclusions are proxies until provider usage is persisted. Lineage views are
+conclusions are proxies until provider usage is metered, and where the
+model may change there are none without it. Lineage views are
 rendered from the log, since external runs are joined by id. Frozen-surface
 validation refuses legitimate declaration refactors; widening the mutable
 scope is an explicit condition change. Family (b) needs a green baseline and

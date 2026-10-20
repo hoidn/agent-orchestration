@@ -2,8 +2,10 @@
 
 - **Status:** proposed, unselected (2026-10-19). Revised from the owner's ADR
   "ORC search by rewrite, compile, and repair" of the same date against the
-  evidence of the live Phase 1 and the three-arm readout. No provider budget is
-  requested here; a live arm needs an owner allocation.
+  evidence of the live Phase 1 and the three-arm readout, and again under the
+  owner's directive that better is Pareto over quality and metered deployed
+  cost ([driver design](../design/orc_structural_search_driver.md#objective-selection-and-local-observations)).
+  No provider budget is requested here; a live arm needs an owner allocation.
 - **Kind:** decision record and implementation plan for one experiment-side
   change: a fifth edit condition for the structural search driver that lets a
   whole-module rewrite add, remove and rewrite private definitions. The contract
@@ -43,9 +45,12 @@ and `candidates._condition_verdict`, so a new value changes no historical
 identity and needs no second switch. Legacy conditions keep their meaning;
 Phase 1 and three-arm results stay comparable.
 
-The `module` condition is an **arm, not the default.** It is selected for live
-work only on the gate below. The one-site interface I2 and the frozen
-conditions remain the measured controls.
+The `module` condition is the intended primary mutation surface for future
+search, replacing the frozen conditions rather than joining them; it is
+measured as an **arm first**, selected for live work only on the gate below.
+`topology-only`, `prompt-only`, `provider-only`, `joint` and the I2 one-site
+machinery are kept as measured controls and ablations: maintained, not
+extended with new features.
 
 ## What The Live Runs Show
 
@@ -56,13 +61,13 @@ yet:
 | Run | Episodes judged | Refused by scope or frozen surface | Compile rejections | Skeletons |
 | --- | --- | --- | --- | --- |
 | Phase 1, I1 `topology-only`, Claude Opus mutator ([report](../reports/2026-10-18-orc-structural-search-phase1.md), Unguided I1) | 6 accepted (4 later excluded as contaminated) | 0 | 0 | the two clean children both rewrote `direct` into implement, `dev-check`, repair-on-failure (`loop/recur :max 3`), distinct from the parent and from each other |
-| Three-arm readout, in progress 2026-10-19 (`/home/ollie/ss3-evidence`, I1, I2, I3 `topology-only`, Codex `gpt-6.1-sol` mutator) | 6 I1, 6 I2 and 6 I3 accepted (recount of 2026-10-19, before the paid subset); every I1 and I2 scan verdict pending | 0 | 0 | 6 distinct per arm, none equal to the parent; one skeleton shared between an I1 and an I2 child |
+| Three-arm main run, 2026-10-19 (`/home/ollie/ss3-evidence`: `log.jsonl`, `readout.json`, `episodes/*/record.json`; I1, I2, I3 `topology-only`, Codex `gpt-6.1-sol` mutator, one call and 1–4 min per episode) | 18 of 18 accepted (6 per arm); every episode with scan hits (13; 5 had none) adjudicated cleared under ruling R18: mutators read main-checkout ORC docs, examples and tests because `~/.codex/AGENTS.md` directs it, reported as tool-retrieved exposure, with catalog-seed exposure recorded in 5 verdicts; the paid subset of 12 evaluations was in progress with 8 logged, each completed with one provider call (the repair branch never fired) | 0 | 0 | 17 distinct skeletons over 18 children, one shared between an I1 and an I2 child; every arm acceptance 1.0, locality 0, revisit 0, none collapsed; semantically every child is one pattern (implement, `dev-check`, repair on failure), and none adds review, planning or judging |
 
 So in the 24 episodes judged so far (2026-10-19) under `topology-only`, no proposal was refused and
 none collapsed onto its parent. The brief tells the agent the rules, so agents
 comply rather than get refused; the frozen surfaces shape proposals without
-blocking them. That is a reason to measure the wider surface as an arm, not a
-reason to make it the default.
+blocking them. That is a reason to measure the wider surface as an arm before
+it carries search, not a reason to skip the arm.
 
 The transcripts carry the strongest evidence for the arm, which the ADR does
 not cite: the frozen surfaces refused nothing and shaped everything. Both clean
@@ -95,6 +100,15 @@ fixed would produce children the evaluator cannot rank.
 Everything not listed is a frozen surface, refused as today by
 `candidates.validate_frozen_surfaces`.
 
+Required for the arm (the v1 guard tier): the frozen public contract (entry
+name, parameters and result, public types), the `models` allowlist, a sound
+planned maximum from the closed program plus the shim's call cap, and the
+refusal of `agent`, `agent_turn` and `provider_phased` effect shapes until
+the runtime defect is fixed. Everything else in the table (the per-call
+ceiling, the module-graph qualifier check, the shim-side allowlist for
+Claude) is optional hardening, not a gate condition; hardening already
+implemented stays.
+
 | Surface | `module` policy | Check |
 | --- | --- | --- |
 | Entry module name, `export` set, entry parameters and result type | Frozen | `_module_verdict` (module, export forms) and `_definition_verdict` (exported signature); `acceptance.judge_child` compares the closed program's resolved result type with the parent's (`entry_result`), extended to the closed program's `params`, which today are not compared. A local `(defunion Outcome …)` beside the frozen import is refused as `declaration_collision` before compilation; the `params`/`result` comparison is the backstop for an entry without a result annotation |
@@ -102,7 +116,7 @@ Everything not listed is a frozen surface, refused as today by
 | Entry body and private `defproc`/`defworkflow` | Add, remove, rename, rewrite | `_definition_verdict` admits added and removed non-exported definitions under `module` (today: `scope_exceeded`) |
 | Private `defprompt` (signature and body) | Add, remove, rewrite | as above; `PROMPT_CONDITIONS` and `PROMPT_SIGNATURE_CONDITIONS` gain `module` |
 | Private `defrecord`/`defunion`/`defenum` | Add, remove, rewrite | `_split_forms` stops treating a type declaration as frozen when its name is not imported or exported; a declaration shadowing an imported name is refused (`declaration_collision`) |
-| `:model`/`:effort` values | Any literal from the successor criterion's `models` allowlist (a new field; no criterion carries one today) | Checked on the compiled child's `perform` nodes (`policy.model` and `policy.effort` in `closed_program.json`): a `lit` outside the allowlist, or a `name` reference in place of a literal, is refused, which closes the driver design's open decision on non-literal tuning values; the shim model guard (`shim/model-guard`, installed as `claude` only; it refuses Fable and defaults to `claude-opus-5-5`) gains the allowlist for Claude launches, and a Codex `:model` outside it is stopped at acceptance only |
+| `:model`/`:effort` values | Any literal from the successor criterion's `models` allowlist (a new field; no criterion carries one today). Model and effort selection is a legitimate search dimension, not a confound: the allowlist is policy (never Fable; owner 2026-10-15) and the set of models with a known price in the criterion's table, the metered cost axis charges a dearer model, and the readout splits gains by `allocation_distinct` | Checked on the compiled child's `perform` nodes (`policy.model` and `policy.effort` in `closed_program.json`): a `lit` outside the allowlist, or a `name` reference in place of a literal, is refused, which closes the driver design's open decision on non-literal tuning values; the shim model guard (`shim/model-guard`, installed as `claude` only; it refuses Fable and defaults to `claude-opus-5-5`) gains the allowlist for Claude launches, and a Codex `:model` outside it is stopped at acceptance only |
 | Provider bindings (`providers.json`) and command boundaries (`commands.json`) | Frozen | `_plain_file_verdict`; candidates compose the bound capabilities only |
 | Imports | **v1: frozen**: the `import` forms (in `candidates.FROZEN_HEADS`) and the resolved graph | `_module_verdict` keeps the `import` forms; on the compiled child, the module qualifiers named by the closed program's `definitions` and `types` keys (`common::Outcome`) must equal the parent's. A frozen `:only` list does not stop a qualified reference such as `common/CheckReport` (all six Phase 1 children used one), but such a reference reaches only a module already in the graph. Bundle imports are v2 (below) |
 | `:timeout-sec` and every other per-call ceiling | Literals at most the successor criterion's per-call ceiling (a new field) | acceptance check; the evaluation's wall clock and the ledger cap remain the outer bound |
@@ -192,9 +206,14 @@ Two additions:
   under `E/episodes/<id>/` at settle; today the log keeps what the CLI prints
   (`claude -p`: the final message; `codex exec`: the full event stream) and the
   shim keeps its per-call records.
-- Cost is provider calls and wall clock until `metering.py` is wired into the
-  evaluation and episode rows; dollars are reported only with complete
-  metering coverage, per the roadmap. A CLI invocation is not a model request.
+- Cost under `module` is metered tokens priced by the successor criterion's
+  frozen per-model table (input, output, cache-read and cache-write prices;
+  source and date stated), read from the native session files by
+  `metering.py`; provider calls and wall clock are always reported beside it
+  and stand in for cost only under a condition that freezes model and effort.
+  A row without metered cost carries `unavailable`, and its candidate is not
+  placed on the frontier and is reported. A CLI invocation is not a model
+  request.
 
 ## Gate For A Live `module` Arm
 
@@ -220,20 +239,36 @@ All of the following, each recorded in the ledger before any provider spend:
    task-package authoring with its own cost: a `seed/dev-check.json` argv that
    fails at the base and passes at the solution, or a promoted subset of the
    hidden tests.
-4. **Metering wired**, or the comparison stated in calls and wall clock only.
+4. **Metering wired**, with the per-model price table frozen in the successor
+   criterion. The arm may change the model, so calls and wall clock are
+   reported beside cost and never stand in for it; a candidate without
+   metered cost has cost `unavailable`, is not placed on the frontier and is
+   reported.
 5. **Mutator isolation present** (`COMPARE_HIDE` masking of the evidence root,
    sibling episodes and earlier roots); the `agent_turn_unresolved` defect is
    covered by step 3's refusal of agent classes until it is fixed.
 6. **A sealed split** for the arm's final assessment. None exists today
    (Phase 2 plan, Decision 9); authoring one is a cost of the live arm.
 
+Gates 2 and 3 are the blocking work. They need a measurement plan (an
+evaluator calibrated on known controls; a family whose agent-visible check
+fails sometimes), the next plan to write, owned by the
+[roadmap](2026-10-18-orc-structural-search-roadmap.md#decision-criteria-and-next-commitment);
+this plan does not write it, and no live `module` arm precedes it.
+
 When selected, the `module` arm joins the interface test as a fourth arm under
 the same envelope (same parent, mutator, episode wall clock, tasks, compile-only
 metrics and stratified paid subset) under a successor criterion with its own
-SHA-256 that carries the `models` allowlist, the per-call ceiling and the
+SHA-256 that carries the `models` allowlist with its per-model price table,
+the quality floor, the equivalence tolerances, the per-call ceiling and the
 fourth arm (the frozen `three_arm.json` cannot gain an arm, and no three-arm
-row is reused), never as a replacement for the frozen arms. Its primary endpoint is the test's: accepted improvements per completed
-episode. Attribution of a gain to a single change needs single-factor
+row is reused), beside the frozen arms, which stay as controls. Its endpoints
+are the test's: dominating improvements (the child dominates its parent on
+quality and metered deployed cost beyond the tolerances) and frontier entries
+(non-dominated against the archive) per completed episode, each split by
+`allocation_distinct` and structure-only children; a child enters the
+frontier only above the predeclared quality floor, so trivially cheap
+failures never populate it. Attribution of a gain to a single change needs single-factor
 ablations, which the measured spread (pooled within-arm SD 0.93 and 1.20
 rubric points with two replicates) makes unaffordable at Phase 1 scale. A
 whole-module gain is retained when it reproduces on the validation split, at
@@ -262,8 +297,8 @@ with its own budget.
 | 3. Effect shapes | `acceptance.judge_child` refuses a compiled child whose closed program has a `perform` site of class `provider_phased` (phased qualification unselected) or `agent`/`agent_turn` (until the unresolved-turn defect and the kill escape are fixed), as `unsupported_effect_shape` | A child using `agent` is refused; `ledger.max_provider_calls` still refuses a non-literal `:max` |
 | 3b. Bound and cap | `ledger.planned_calls` for a `module` child walks the closed program (perform classes × loop budgets × par-map maxima); the evaluation launch passes the reserved maximum to the shim, which refuses the call whose `calls/<n>` index would exceed it | A child calling a provider through a local `proc-ref` binding plans the right count; a scripted run whose agent makes one call too many fails at the shim with the cap in its stderr, and the ledger settles the recorded count |
 | 4. Check command and brief | `briefs.episode_brief` renders the `module` surfaces, may carry typed-site context from the manifest without a one-site receipt, and gives a check line that runs validation plus compile from the workspace: `episode_workspace` copies `experiments/orc_structural_search` beside `py/` (today it copies only `orchestrator/`), and the check takes the parent snapshot (`COMPARE_BASE`) and the configuration as inputs; the shim model guard reads the allowlist for Claude launches | A scripted mutator reads a scope refusal from the check, repairs, and yields one accepted child; the guard refuses a Claude model outside the allowlist, and a Codex model outside it is refused at acceptance |
-| 5. Records | `criterion_sha256` on evaluation and episode rows; the native session file path on episode rows; `metering.py` wired for Claude session usage and Codex rollouts where present, `unavailable` otherwise | Rows carry the hash; a run with a readable session file reports tokens |
-| 6. Readout | A successor criterion (own SHA-256; `models`, the per-call ceiling, the fourth arm) and `three_arm.py` keyed by interface and condition (`arm_config` per arm); realized `perform` sites per evaluation (from the memo) and exercised branches are reported beside calls | A readout row per arm with realized sites |
+| 5. Records | `criterion_sha256` on evaluation and episode rows; the native session file path on episode rows; `metering.py` wired for Claude session usage and Codex rollouts where present and priced by the criterion's per-model table, `unavailable` otherwise | Rows carry the hash; a run with a readable session file reports tokens and cost |
+| 6. Readout | A successor criterion (own SHA-256; `models` with the price table, the quality floor, the tolerances, the per-call ceiling, the fourth arm) and `three_arm.py` keyed by interface and condition (`arm_config` per arm); the frontier on quality and metered cost, dominating improvements and frontier entries per completed episode split by `allocation_distinct`; realized `perform` sites per evaluation (from the memo) and exercised branches are reported beside calls | A readout row per arm with realized sites, the frontier and both endpoints |
 | 7. Documentation | The driver design's condition table gains the `module` row; the roadmap's interface table lists it as an arm; the experiment README and the capability matrix row record the condition | Links resolve; `pytest -q tests/experiments/` green |
 
 Steps 1–7 are offline and need no allocation. A live arm (step 8) is its own

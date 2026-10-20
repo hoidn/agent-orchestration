@@ -150,7 +150,7 @@ termination or correctness; runtime envelopes stay necessary.
 | 0 Governance and integration spike | Owner selection and allocation after R2's own selection; boundary amendment accepted; task family chosen per the charter and calibrated; catalog ported to 2.39 or re-authored; green baseline where family (b) is chosen; harness extension (arm spec from a candidate root, a generic-command arm, scan patterns for the archive, lineage and score records, holdout roots and other candidates' trees); clone-per-evaluation launch through public `run`; metering coverage measured per provider; one agent episode cost-calibrated; P-1 feasibility fixture | One authored candidate compiles, runs through the admitted route in a fresh clone and receives an independent score; a written list of API gaps, metering coverage and prerequisite costs |
 | 1 Catalog, enumeration and unguided I1 search | Frozen-surface validation and candidate snapshots in the driver; the finite authored catalog enumerated; equal-budget unguided I1 proposal sampling with no feedback; the three-arm compile-only readout (acceptance per episode, edit locality, distinct skeletons) with REPL-derived site facts for the locus arm; skeleton-diversity and collapse readout; JSONL lineage | Structurally distinct candidates with measured whole-run quality and cost differences, or the recorded finding that the neighbourhood is tiny or flat; the compile-only three-arm readout and a collapse verdict per interface |
 | 2 Manifest, I2 and adaptive search | The inspection design's manifest with P-1 resolved; the I2 one-site transaction; the adaptive loop with incumbent, archive and contextual site feedback, enabled only on Phase 1's useful-search-space result | Reproducible adaptive search over one family; at least one genuine control-flow change; complete candidate, cost and failure history; diversity and revisit rates against Phase 1 |
-| 3 Comparative evidence | Three-arm interface test (I3, I1, I2) with its pre-registered primary endpoint; then the controls the claim requires, including the protocol delivered as an agent skill; supplied-assistance ablations; frozen sealed assessment | A report separating structural gains, search-efficiency effects, representation and integration effort, and uncertainty |
+| 3 Comparative evidence | Three-arm interface test (I3, I1, I2) with its pre-registered endpoints; then the controls the claim requires, including the protocol delivered as an agent skill; supplied-assistance ablations; frozen sealed assessment | A report separating structural gains, search-efficiency effects, representation and integration effort, and uncertainty |
 | 4 Compositional search | Fragment contracts with explicit inputs, hygienic insertion, capture-aware extraction for a documented subset, I4 certified transforms, crossover | One extracted composition transfers between workflows and survives complete-program evaluation |
 | 5 Broader utility | Measured bottlenecks only: parallel evaluation across clones, richer adaptive policies, scientific transfer, protocol evolution, caching | Evidence supports each expansion |
 
@@ -267,8 +267,9 @@ first-exhausted, is:
 ### Phase 3 Gates
 
 - The three-arm test freezes one benchmark workflow, one model, one family
-  and equal search budgets in completed episodes. Primary endpoint: accepted
-  improvements per completed episode. Secondary: skeleton diversity and
+  and equal search budgets in completed episodes. Endpoints: dominating
+  improvements and frontier entries per completed episode (Decision
+  Criteria below). Secondary: skeleton diversity and
   revisit rate, acceptance rate, repair iterations per accepted proposal,
   wall clock and provider calls, and dollars only where metering coverage is
   complete. The result is a first bounded answer, not a settlement.
@@ -367,11 +368,18 @@ each referencing existing run records by path rather than copying them.
 
 ## Decision Criteria And Next Commitment
 
+In every claim below, and wherever this roadmap says "beats" or
+"improvement", better means Pareto dominance on (quality, metered deployed
+cost), or an extension of the non-dominated frontier, as the
+[driver design's objective](../design/orc_structural_search_driver.md#objective-selection-and-local-observations)
+defines them; a higher score at any cost is not an improvement, and provider
+calls stand in for cost only where model and effort are frozen.
+
 | Claim | Supporting evidence |
 | --- | --- |
 | Structural feasibility | Agents produce previously unlisted working compositions through ordinary editing and full compilation |
 | Useful search space | Structurally distinct candidates show meaningful whole-workflow quality and cost differences beyond the enumerated catalog |
-| Proposal interface | Locus-plus-fragment improves the primary endpoint against whole-program and diff interfaces, with diversity reported |
+| Proposal interface | Locus-plus-fragment improves the endpoints against whole-program and diff interfaces, with diversity reported |
 | Adaptive optimization | Feedback-guided search beats equal-budget enumeration and random controls on independent evaluation |
 | Compiler assistance | Single-factor ablations, not the three-arm test, show pre-supplied typed context or diagnostics improving proposal efficiency, repair effort or outcomes; tool-retrieved exposure is reported |
 | ORC-specific value | The matched Python and agent-skill comparisons show a search, reliable-transformation or integration advantage, and the report says which |
@@ -395,7 +403,11 @@ three-arm readout and the per-interface collapse verdicts for I2 and I3 remain
 unmet. The [Phase 1 report](../reports/2026-10-18-orc-structural-search-phase1.md)
 records an inconclusive pilot: the upstream anchor scored at or below every
 candidate, and one anchor pair was inverted. Phase 2 is not selected, and a
-better-targeted experiment needs a new owner selection.
+better-targeted experiment needs a new owner selection. The next plan to
+write is the measurement plan: an evaluator calibrated on known controls and
+a task family whose agent-visible check fails sometimes. It precedes any
+live `module` arm
+([module condition](2026-10-19-orc-structural-search-module-rewrite-plan.md#gate-for-a-live-module-arm)).
 
 ## Routing And Records
 
