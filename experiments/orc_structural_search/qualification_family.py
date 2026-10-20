@@ -1,13 +1,14 @@
 """Recompute the frozen R55 or narrow oracle family qualification from raw evidence."""
 
 import re
+import shlex
 from pathlib import Path
 from statistics import mean
 
 from experiments.compare import pool, prepare
 from experiments.orc_structural_search.qualification_lineage import validate_membership
 from experiments.orc_structural_search.qualification_io import (
-    hash_value, names, read, reference, require)
+    digest, hash_value, names, read, reference, require)
 
 R55 = '9faa4c01d0e3f231278f85d809a3e0d3bb3f64813cd59afba690089afd355f46'
 
@@ -156,3 +157,181 @@ def validate_family(family, containing, tasks, packages):
     require(family['kind'] == 'oracle-controls-v1', 'unsupported family kind')
     return {name: oracle_task(family['tasks'][name], rule, containing, rule_path, task, packages[name])
             for name, task in tasks.items()}
+
+
+def validate_family_v2(family, containing, tasks, packages, study, study_path):
+    """Each package keeps the exact amendment and original runtime of its samples."""
+    require(family['kind'] == 'review-blockers-r55', 'unsupported V2 family kind')
+    require(set(family['tasks']) == set(tasks) and set(family['rules']) == set(packages.values()),
+            'V2 family omits or duplicates study packages/rules')
+    result = {}
+    adaptive = {Path(path).name for path in study['tasks']}
+    for name, task in tasks.items():
+        rule_ref = family['rules'][packages[name]]
+        amendment = 'amends_5' if name in adaptive else 'amends_6'
+        require(rule_ref == study['family_amendments'][amendment], 'family rule differs from study amendment')
+        rule_path = reference(rule_ref, containing)
+        rule = read(rule_path)
+        validate_amendment(rule, amendment, name, packages[name])
+        result[name] = amended_task(family['tasks'][name], containing, task, packages[name], rule)
+    return result
+
+
+def validate_amendment(rule, amendment, task, package):
+    require(rule['purpose'] == 'family-calibration' and rule['written_before_scoring'] is True,
+            'family rule must be frozen before scoring')
+    require(rule['k'] == 2 and rule[amendment]['reviewer'] == 'gpt-5.6-terra', 'unsupported family rule')
+    require(rule[amendment]['packages'][task] == package and
+            rule['packages'][task]['package_sha256'] == package, 'amendment package mismatch')
+    require(rule['runtime']['commit'] == rule[amendment]['implementation_commit'], 'amendment runtime differs')
+    require(rule['runtime']['validity'] == 'exact implementation commit and package hashes',
+            'unsupported amendment runtime validity')
+    require(rule['single_call']['model'] == 'gpt-5.6-terra' and rule['single_call']['effort'] == 'high',
+            'unsupported amended single call')
+    from experiments.compare.repos import runtime_commit
+    require(runtime_commit(Path(rule['runtime']['path'])) == rule['runtime']['commit'], 'family origin runtime changed')
+    require(digest(Path(rule['runtime']['path']) / 'experiments/compare/control/review_once.orc') ==
+            rule['review']['workflow_sha256'], 'frozen reviewer workflow differs')
+    require(rule['review']['reviewer'].startswith('gpt-5.6-terra, high,'), 'unsupported amended reviewer')
+
+
+def amended_sample(sample, containing, task, rule, identities):
+    direct, original = completed(sample['direct_record'], containing, 'direct_task')
+    require(str(original) not in identities, 'duplicate original sample')
+    identities.add(str(original))
+    origin_task = Path(rule['runtime']['path']) / rule['packages'][task.name]['path']
+    from experiments.orc_structural_search.qualification_io import package_digest
+    require(Path(direct['task']).resolve() == origin_task.resolve() and
+            package_digest(origin_task) == rule['packages'][task.name]['package_sha256'], 'family origin task differs')
+    require(direct['runtime_commit'] == rule['runtime']['commit'], 'family origin runtime differs')
+    original_dispatch(direct, original, sample['direct_inputs'], containing, rule)
+    inputs = read(reference(sample['direct_inputs'], containing))
+    require((inputs['model'], inputs['effort']) == (rule['single_call']['model'], rule['single_call']['effort']),
+            'amended direct model/effort differs')
+    require(inputs['task'] == (task / 'task.txt').read_text(), 'family direct task input differs')
+    final = Path(direct['patches']['final'])
+    require(not final.is_absolute() and '..' not in final.parts, 'invalid original patch path')
+    patch = reference(sample['patch'], containing)
+    require((original / final).is_file() and hash_value(sample['patch']['sha256']) ==
+            digest(original / final), 'original final patch differs')
+    if not patch.stat().st_size:
+        require(sample.get('review_record') is None and sample.get('review_inputs') is None,
+                'empty patch cannot have review')
+        return 1, (direct['base'], direct['compare_base']), original, None
+    review, review_original = completed(sample['review_record'], containing, 'review_once')
+    require(str(review_original) not in identities, 'duplicate original review')
+    identities.add(str(review_original))
+    require(review['runtime_commit'] == rule['runtime']['commit'], 'review origin runtime differs')
+    require((review['task'], review['base'], review['compare_base']) ==
+            (direct['task'], direct['base'], direct['compare_base']), 'review context differs')
+    require(Path(review['applied']['path']) == original / final and
+            review['applied']['sha256'] == sample['patch']['sha256'], 'review is not paired with original patch')
+    original_dispatch(review, review_original, sample['review_inputs'], containing, rule)
+    reviewer = read(reference(sample['review_inputs'], containing))
+    require(reviewer['account'] == prepare.REVIEW_ONCE_ACCOUNT and reviewer['replies'] == prepare.REVIEW_ONCE_REPLIES,
+            'review inputs differ from frozen account/replies')
+    require(reviewer['repo'] == review['cwd'], 'review is aimed at another candidate repository')
+    require(reviewer['intent'] == (task / 'intent.txt').read_text(), 'review intent differs')
+    return review_blockers(review), (direct['base'], direct['compare_base']), original, review_original
+
+
+def amended_task(evidence, containing, task, package, rule):
+    require(evidence['package_sha256'] == package, 'family package differs')
+    samples = evidence['samples']
+    require(isinstance(samples, list) and len(samples) in (2, 3), 'amended family needs two or three samples')
+    identities = set()
+    values = [amended_sample(sample, containing, task, rule, identities) for sample in samples]
+    originals = [row[2] for row in values]
+    attempts = replacement_attempts(evidence, containing, task, rule, identities)
+    amended_membership(evidence, containing, task, package, originals, attempts)
+    require(len({row[1] for row in values}) == 1, 'family bases differ')
+    require(values[0][1][0] == (task / 'base_commit').read_text().strip(), 'family base differs from task')
+    require(len({sample['patch']['sha256'] for sample in samples}) == len(samples), 'duplicate family patches')
+    original_membership(originals, [row[3] for row in values if row[3] is not None], attempts, task)
+    blockers = [row[0] for row in values]
+    initial = mean(blockers[:2])
+    require(initial >= 1, 'family difficulty below threshold')
+    require(len(samples) == (3 if initial < 1.5 else 2), 'borderline needs exactly third pair')
+    require(mean(blockers) >= 1, 'family difficulty below threshold')
+    return {'blockers': blockers, 'mean_blockers': mean(blockers), 'runtime_commit': rule['runtime']['commit']}
+
+
+def original_membership(directs, reviews, attempts, task):
+    """All launches of this package must appear, including excluded replacements."""
+    for arm, selected in (('direct_task', directs), ('review_once', reviews)):
+        paths = [*selected, *(path for path, record in attempts if record['arm'] == arm)]
+        if not paths:
+            continue
+        require(len({path.parent for path in paths}) == 1, 'ambiguous original run roots')
+        launched = set()
+        for path in paths[0].parent.glob('run-*'):
+            record = read(path / 'record.json')
+            if Path(record['task']).name == task.name:
+                launched.add(path)
+        require(launched == set(paths), 'original launched runs omitted or ambiguous replacement history')
+
+
+def amended_membership(evidence, containing, task, package, originals, attempts):
+    documents = [read(reference(source, containing)) for source in evidence['sources']]
+    matching = [doc for doc in documents if doc.get('slug') == task.name]
+    require(len(matching) == 1 and matching[0]['package_sha256'] == package, 'ambiguous family membership source')
+    rows = matching[0]['single_calls']
+    require(isinstance(rows, list) and rows, 'missing launched source runs')
+    declared = [row['run'] for row in rows]
+    paths = [*originals, *(path for path, record in attempts if record['arm'] == 'direct_task')]
+    paths.sort(key=lambda p: int(p.name.removeprefix('run-')))
+    require(len(set(declared)) == len(declared) and declared == ['direct_task/' + path.name for path in paths],
+            'samples/attempts differ from complete source membership')
+    require(originals == sorted(originals, key=lambda p: int(p.name.removeprefix('run-'))),
+            'family samples out of launch order')
+
+
+def replacement_attempts(evidence, containing, task, rule, identities):
+    attempts, contaminated, failed_reviews = [], 0, 0
+    selected = {sample[key]['sha256'] for sample in evidence['samples'] for key in ('direct_record', 'review_record')
+                if sample.get(key) is not None}
+    for attempt in evidence.get('attempts', []):
+        path = reference(attempt['record'], containing)
+        record = read(path)
+        original = Path(record['records'])
+        target = read(reference(attempt['replaced_by'], containing))
+        require(attempt['replaced_by']['sha256'] in selected, 'replacement does not name selected original')
+        require(str(original) not in identities, 'duplicate replacement original')
+        identities.add(str(original))
+        require(record['arm'] in ('direct_task', 'review_once') and record['arm'] == target['arm'], 'replacement arm differs')
+        require((record['task'], record['base'], record['compare_base'], record['runtime_commit']) ==
+                (target['task'], target['base'], target['compare_base'], rule['runtime']['commit']), 'replacement context differs')
+        require(original.parent == Path(target['records']).parent and
+                int(original.name.removeprefix('run-')) + 1 == int(Path(target['records']).name.removeprefix('run-')),
+                'replacement is not next original run')
+        require(read(original / 'record.json') == record, 'replacement original record differs')
+        scan = record['scan']
+        validate_scan(scan)
+        require(type(record['calls']) is int and record['calls'] > 0, 'replacement needs metered calls')
+        excluded = pool.exclusion(scan, record['calls'], str(path))
+        if excluded is not None:
+            contaminated += 1
+        else:
+            require(record['arm'] == 'review_once' and record['outcome'] == 'failed', 'failed direct sample cannot qualify')
+            require(record['applied'] == target['applied'], 'review rerun must use same original patch')
+            failed_reviews += 1
+        attempts.append((original, record))
+    require(contaminated <= 1 and failed_reviews <= 1, 'family replacement allowance exceeded')
+    return attempts
+
+
+def original_dispatch(record, original, inputs, containing, rule):
+    runtime = Path(rule['runtime']['path'])
+    require(Path(record['runtime']).resolve() == runtime.resolve(), 'family runtime path differs')
+    source = runtime / 'experiments/compare/control' / f"{record['arm']}.orc"
+    providers = source.with_suffix('.providers.json')
+    expected = {'providers.reviewer': 'codex_unrestricted_workspace'} if record['arm'] == 'review_once' else {'providers.direct': 'codex'}
+    require(read(providers) == expected, 'family provider binding differs')
+    argv = shlex.split(record['command'])
+    require(str(source) in argv and '--provider-externs-file' in argv and '--input-file' in argv,
+            'original family dispatch missing workflow/provider/input provenance')
+    require(argv[argv.index('--provider-externs-file') + 1] == str(providers) and
+            argv[argv.index('--input-file') + 1] == str(original / 'inputs.json'), 'family dispatch differs')
+    require(read(original / 'record.json') == record, 'original family record differs')
+    reference(inputs, containing)
+    require(digest(original / 'inputs.json') == inputs['sha256'], 'original family inputs differ')
