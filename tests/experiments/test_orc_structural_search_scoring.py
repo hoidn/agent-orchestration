@@ -379,11 +379,16 @@ def test_phase1_readout_refuses_pools_that_are_not_one_per_criterion_task():
 def test_phase1_criterion_is_frozen_for_both_packages_with_their_anchors_and_judges():
     criterion = json.loads(CRITERION.read_text())
     packages = [REPO / task for task in criterion["tasks"]]
+    expected_roles = [{"upstream": f"{p.name}-upstream", "stub": f"{p.name}-stub"} for p in packages]
+    expected_package_anchors = [sorted([*roles.values(), f"{p.name}-partial", f"{p.name}-mutant"])
+                                for p, roles in zip(packages, expected_roles)]
+    assert sha256_file(CRITERION) == "84ee6307ab39e74710154654133585e53aaa9b329e5c7f9918dc9ee2f055cc80"
     assert ([(p / "base_commit").read_text().strip() for p in packages],
-            [sorted(a.stem for a in (p / "anchors").glob("*.diff")) for p in packages],
+            [criterion["anchors"][p.name] for p in packages],
             criterion["judges"], criterion["primary"], criterion["written_before_scoring"]) == (
         [criterion["base_commits"][p.name] for p in packages],
-        [sorted(criterion["anchors"][p.name].values()) for p in packages], ["claude-opus-5-5", "gpt-6-sol"], [], True)
+        expected_roles, ["claude-opus-5-5", "gpt-6-sol"], [], True)
+    assert [sorted(a.stem for a in (p / "anchors").glob("*.diff")) for p in packages] == expected_package_anchors
 
 
 # CLI: the live Phase 1 readout passes one --log.

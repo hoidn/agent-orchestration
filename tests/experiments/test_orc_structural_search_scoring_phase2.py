@@ -16,7 +16,8 @@ from tests.experiments.qualification_support import write
 from tests.experiments.test_orc_structural_search_scoring import FAILED, INCIDENT, log_row, run_row
 
 
-CRITERION2 = REPO / "experiments" / "orc_structural_search" / "criteria" / "phase2.json"
+FROZEN_CRITERION2 = REPO / "experiments" / "orc_structural_search" / "criteria" / "phase2.json"
+CRITERION2 = FROZEN_CRITERION2
 CRIT2 = json.loads(CRITERION2.read_text())
 ADAPTIVE = [Path(t).name for t in CRIT2["adaptive_tasks"]]
 VALIDATION = Path(CRIT2["validation_task"]).name
@@ -340,13 +341,20 @@ def test_phase2_readout_reports_the_incumbent_mean_per_generation_and_no_validat
 
 def test_phase2_criterion_is_frozen_with_three_packages_and_their_anchors():
     packages = [REPO / t for t in [*CRIT2["adaptive_tasks"], CRIT2["validation_task"]]]
+    expected_roles = [{"upstream": f"{p.name}-upstream", "stub": f"{p.name}-stub"} for p in packages]
+    current_roles = {"resume-projection-integrity": ("upstream", "stub", "partial", "mutant"),
+                     "pure-result-replay": ("upstream", "stub", "partial", "mutant"),
+                     "cf1-generic-unions": ("upstream", "stub")}
+    expected_package_anchors = [sorted(f"{p.name}-{role}" for role in current_roles[p.name]) for p in packages]
+    assert sha256_file(FROZEN_CRITERION2) == "f3fd229cc5bafa51cfdd3442f47af6a5edec0bb4fcd31c58f35c3546a6688e97"
     assert ([(p / "base_commit").read_text().strip() for p in packages],
-            [sorted(a.stem for a in (p / "anchors").glob("*.diff")) for p in packages],
+            [CRIT2["anchors"][p.name] for p in packages],
             CRIT2["judges"], CRIT2["improvement"]["min_gain"], CRIT2["collapse_threshold"],
             CRIT2["final_choice"]["mean_cost_ceiling"], CRIT2["written_before_scoring"]) == (
         [CRIT2["base_commits"][p.name] for p in packages],
-        [sorted(CRIT2["anchors"][p.name].values()) for p in packages], ["claude-opus-5-5", "gpt-6-sol"],
+        expected_roles, ["claude-opus-5-5", "gpt-6-sol"],
         0.5, 0.75, 14400, True)
+    assert [sorted(a.stem for a in (p / "anchors").glob("*.diff")) for p in packages] == expected_package_anchors
 
 
 # CLI: Phase 2 passes a run and the validation pool.
