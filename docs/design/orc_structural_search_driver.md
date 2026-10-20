@@ -294,7 +294,7 @@ quality floor; nothing reads the condition or the cost axis, so mean calls
 is the cost axis whatever the candidates' models. The frozen `phase2.json`
 (`mean_cost` is wall clock, over a multi-model catalog) predates the
 cost-proxy rule and is not changed; a Phase 2 selection needs a successor
-criterion with metered cost. Generation 0 seeds it from Phase 1's joined rows
+criterion with metered cost. Generation 0 seeds the archive from Phase 1's joined rows
 (`scoring readout --joined-out`) as prior evidence, logs a `reference` row
 naming the incumbent and re-measures the incumbent on every adaptive task.
 Each later generation alternates I1 and I2 episodes, draws parents
@@ -572,7 +572,9 @@ charges `input_tokens` at input, `output_tokens` at output,
 `cache_read_input_tokens` at cache-read and `cache_creation_input_tokens`
 at cache-write; a Codex `total_token_usage` charges
 `input_tokens - cached_input_tokens` at input, `cached_input_tokens` at
-cache-read, `cache_write_input_tokens` at cache-write and `output_tokens`
+cache-read, `cache_write_input_tokens` at cache-write (0 in every recorded
+rollout; if a rollout shows it inside `input_tokens`, charge
+`input_tokens - cached_input_tokens - cache_write_input_tokens` at input) and `output_tokens`
 at output, never adding `reasoning_output_tokens`, which `output_tokens`
 already contains (in the recorded three-arm rollouts input plus output
 equals `total_tokens`). Calls and wall clock are an acceptable cost proxy
@@ -644,12 +646,15 @@ workflow, one model and one family, with completed episodes as the budget
 unit. Two pre-registered endpoints, each per completed episode: dominating
 improvements, a child that dominates its parent on matched adaptive tasks
 under the frozen rule (Objective, Selection And Local Observations), and
-frontier entries, a child non-dominated against the archive; the frontier
+frontier entries, a child non-dominated against the archive in mode 2, or,
+where no archive is kept (the interface test), against the arm's parent and
+its other evaluated children; the frontier
 entries are reported by candidate, and both endpoints are split by whether
-the child changed its allocation (`allocation_changed`: its per-call-site
-(provider, model, effort) differs from the parent's; reported beside the
-collapse figure's `allocation_distinct`, which sees extern names only) or
-its structure only. Secondary: skeleton diversity and revisit rate, acceptance
+the child changed its policies (`allocation_changed`: the set of distinct
+(provider, model, effort) triples its calls resolve to differs from the
+parent's, so an added call site that reuses a parent policy is not a change;
+reported as policy-only, structure-only or both, beside the collapse figure's
+`allocation_distinct`, which sees extern names only). Secondary: skeleton diversity and revisit rate, acceptance
 rate, repair iterations per accepted proposal. Wall clock and provider
 calls are always reported; dollars only where metering coverage is
 complete, and metered cost is the cost axis of any arm whose model or

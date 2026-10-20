@@ -219,11 +219,14 @@ criterion
 - Size: 6 episodes per arm.
 
 **The smoke.** Both parents completed on `resume-projection-integrity`, with 1 call each. Their prompts were
-identical except for the output contract's `- path:` line.
+identical except for the output contract's `- path:` line, once each clone's path is normalised (23,545 against
+23,669 bytes).
 
 ### Compile-only figures
 
-These come from the driver readout, `readout.json`. Every arm ran 6 episodes, each with 1 provider call.
+These come from the driver readout, `readout.json`, except two rows taken from the log rows: the provider-allocation
+changes (`provider_allocation` against `parent_provider_allocation`) and the mean episode wall clock. Every arm ran 6
+episodes, each with 1 provider call.
 
 | figure | I1 | I2 | I3 |
 | --- | --- | --- | --- |
@@ -235,6 +238,7 @@ These come from the driver readout, `readout.json`. Every arm ran 6 episodes, ea
 | exact repeats (`program_digest`) | 0 | 0 | 0 |
 | terminal-only share (collapse at 0.75) | 0.0 | 0.0 | 0.0 |
 | collapsed | no | no | no |
+| files touched per episode | 1 | 1 | 1 |
 | children whose provider allocation changed | 3 | 4 | 0 |
 | mean episode wall clock s | 143 | 153 | 80 |
 
@@ -251,7 +255,10 @@ effort.
 **What the children did (from the episode diffs).** All 18 children add the same pattern: implement, run the
 agent-visible check, and on failure repair with the check output (a loop or a single retry). None adds review,
 planning or judging. So the skeleton count measures syntactic variety. It does not measure distinct ideas: across
-all three interfaces the proposals converge on one idea.
+all three interfaces the proposals converge on one idea. The convergence may reflect exposure as much as the
+interfaces: the episode-1 mutator read the catalog seed `implement_check_diagnose_repair.orc`, which is this very
+pattern, and every cleared episode verdict cites reads of ORC documentation and examples. The I3 children converged
+too, though, and four of them had no scan hits.
 
 ### Paid subset: execution only
 
@@ -268,14 +275,17 @@ Each arm's subset was 2 children evaluated on both tasks, 12 evaluations in all.
 
 **Quality is unavailable.** The evaluator is uncalibrated. Phase 1's judges placed the upstream fix at or below the
 candidates, and one anchor pair was inverted. Under the owner's directive of 2026-10-19, "there should be no
-uncalibrated experiments" (rule P8 in the [driver design](../design/orc_structural_search_driver.md)), the judge
-stage did not run. That is the three-arm readout's controller ruling R19. So this readout makes no quality,
+uncalibrated experiments" (the [calibration rule](../design/orc_structural_search_driver.md#task-family-and-evaluator)), the judge stage did not run. That is the three-arm
+readout's controller ruling R19 (2026-10-19; its text is in the roadmap's Calibration row). The paid subset itself
+was launched before the rule was adopted (commit `f4bec466`, 17:04 PDT), so it is reported with execution figures
+only. So this readout makes no quality,
 frontier or improvement claim. Hidden acceptance is not reported either.
 
 **How the measure-free figures were produced.** The `three_arm readout` command has no measure-free mode: it
 requires judged results for tasks with completed evaluations. The figures above therefore come from their two
-sources: `readout.json` for the compile-only figures and the log rows for execution. Both are combined in
-`measure-free-readout.json`.
+sources: `readout.json` for the compile-only figures and the log rows for execution and allocation. The operator
+script `/home/ollie/ss3-meta/measure_free_readout.py` combines them in `measure-free-readout.json`. The attempt left
+no readout file behind; the empty `three-arm-readout.json` it wrote was removed.
 
 ### Scans and exposure
 
@@ -300,7 +310,9 @@ The owner approved about 60 calls with a cap of 65. Actual spend:
 | judges | 0 |
 | **total** | **32** |
 
-There were no quota or capacity refusals.
+There were no quota or capacity refusals. Cost here is provider calls and wall clock. That is an admissible proxy
+because every call (smoke, mutators, coders) resolves to `gpt-6.1-sol` at effort `high`. Metering is not wired
+(`consumption` is `unavailable` on every row), although the Codex rollouts carry complete token usage.
 
 ## Scans
 
@@ -383,7 +395,7 @@ the main checkout stay readable, and reads there are scan-detected and reported.
 compile-only figures and a collapse verdict for every interface. Its other limits:
 - 6 episodes per arm, one mutator model, one trivial parent;
 - convergence on one idea, which the skeleton hash cannot see;
-- paid evaluations with execution figures only, because the evaluator is uncalibrated (P8).
+- paid evaluations with execution figures only, because the evaluator is uncalibrated (the [calibration rule](../design/orc_structural_search_driver.md#task-family-and-evaluator)).
 
 **Other limitations.**
 - **Runtime defect.** Agent turns inside `loop/recur` hit `agent_turn_unresolved` on the second turn ("native store
@@ -450,11 +462,13 @@ transcript, record, run state and episode was kept, along with the agents' other
 | `ss3-evidence/log.jsonl` (three-arm, 31 rows) | `bdec081db2607988c578b5f8af788f135600e29823fdafe8de3650a1dbf8515e` |
 | `ss3-evidence/calls.json` (three-arm ledger) | `a169d66ab75439903853289a0de22d01337d74bb98b93ae8549b5e81226e9930` |
 | `ss3-evidence/readout.json` (three-arm compile-only) | `ae460b745b212c15aba977119f05440464f01bba0777ce26bbb261ee403d88e6` |
-| `ss3-evidence/measure-free-readout.json` | `e21272161a9dbb18ce2f25bf400813066c3957109bdcd0b905fc3017e334918d` |
+| `ss3-evidence/measure-free-readout.json` | `312c608a6cc4732e9b1713841da11b26da8cf1f9c94e0b276b89068841d9d121` |
 | `ss3-evidence-smoke/log.jsonl` | `d116ff4006ec86650d828022487e75bba39dd137317e1d58595658443eef0147` |
 
-Every number above comes from `summarize`'s `results.json`/`results.md` (clone-id join) and from
-`python -m experiments.orc_structural_search.scoring readout` over them, the log and the driver readout. Exceptions:
+Every Phase 1 number above comes from `summarize`'s `results.json`/`results.md` (clone-id join) and from
+`python -m experiments.orc_structural_search.scoring readout` over them, the log and the driver readout. The
+Three-Arm Readout's numbers are measure-free: they come from its driver readout, log rows and ledger through
+`measure_free_readout.py`, with no join. Exceptions:
 - the call totals come from the call ledger, the shim call records and the judge state directories;
 - the timeline comes from the controller ledger and record timestamps (the smoke start, the second pause and the capacity relaunch);
 - the children's control flow comes from the episode diffs.
