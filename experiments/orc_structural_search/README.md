@@ -6,7 +6,7 @@ calibration experiment or provider allocation is selected.
 
 The [driver design](../../docs/design/orc_structural_search_driver.md) owns admission,
 qualification, metering and selection. The [delivery plan](../../docs/plans/2026-10-19-orc-structural-search-module-condition-implementation-plan.md)
-records offline verification; the [roadmap](../../docs/plans/2026-10-18-orc-structural-search-roadmap.md)
+records offline verification and pending main-integration policy-set/cache-write corrections; the [roadmap](../../docs/plans/2026-10-18-orc-structural-search-roadmap.md)
 owns live selection. Scripted checks establish mechanics, not research utility.
 
 | Surface | Current use |
@@ -115,9 +115,12 @@ PYMODULE
   including arguments, imported helpers, loop exhaustion and finite map bounds.
   Both shims enforce the reservation before the real provider; refused attempts
   remain recorded and count in ledger settlement.
-- Source metrics normalize coherent private renames. Compiled allocation compares
-  provider/model/effort on normalized static invocation paths; unavailable proof
-  stays unavailable. Memo effects preserve identity, class, attempts and status;
+- Source metrics normalize coherent private renames. The current allocation contract
+  compares sets of distinct provider/model/effort policies;
+  static invocation paths remain diagnostic and unavailable proof stays unavailable.
+  The delivered path-keyed comparison and policy/structure endpoint splits need
+  the implementation plan's pending integration correction. Memo effects preserve
+  identity, class, attempts and status;
   unexercised sites need a validated join and never establish branch coverage.
 
 ## Interpret evidence
@@ -149,7 +152,9 @@ and [Phase 2 plan](../../docs/plans/2026-10-18-orc-structural-search-phase2-plan
 For existing evidence, set the three historical constants in the sequence and rerun it.
 The explicit measure-free readout projects compile, execution, calls and available cost
 without altering frozen criteria or emitting quality means, anchors, improvements,
-frontiers or deployment decisions.
+frontiers or deployment decisions. The separate
+[measurement plan](../../docs/plans/2026-10-19-orc-structural-search-measurement-plan.md)
+owns unimplemented offline calibration preparation and its later live budget gates.
 
 ## Limits
 

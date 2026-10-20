@@ -41,16 +41,34 @@ def test_codex_receipt_charges_last_cumulative_usage_and_never_adds_reasoning(tm
     rollout = codex_receipt(tmp_path / "rollout.jsonl")
     report = metering.coverage(records, claude_sessions=[], codex_rollouts=[rollout])
     row = report["receipt_usage"][0]["usage"][0]
-    assert row["charge_tokens"] == dict(input=70, output=20, cache_read=30, cache_write=4)
+    assert row["charge_tokens"] == dict(input=66, output=20, cache_read=30, cache_write=4)
     assert report["codex"]["tokens"] == 120
     assert row["model"] == "gpt-6.1-sol"
     assert row["reasoning_output_tokens"] == 10
     assert row["provenance"]["model_source"] == "turn_context.model"
 
 
+def test_codex_charge_leaves_cache_write_out_of_input_when_total_counts_it_separately(tmp_path):
+    records = tmp_path / "records"
+    _call(records, 1, "task")
+    rollout = codex_receipt(tmp_path / "rollout.jsonl", total_tokens=124)
+    row = metering.coverage(records, claude_sessions=[], codex_rollouts=[rollout])["receipt_usage"][0]["usage"][0]
+    assert row["charge_tokens"] == dict(input=70, output=20, cache_read=30, cache_write=4)
+
+
 @pytest.mark.parametrize("changes", [dict(cache_write_input_tokens=None), dict(input_tokens=-1),
                                     dict(cached_input_tokens=101), dict(output_tokens=True), dict(total_tokens=-1)])
 def test_incomplete_or_invalid_codex_counters_preserve_raw_but_cannot_charge(tmp_path, changes):
+    records = tmp_path / "records"
+    _call(records, 1, "task")
+    rollout = codex_receipt(tmp_path / "rollout.jsonl", **changes)
+    call = metering.coverage(records, claude_sessions=[], codex_rollouts=[rollout])["receipt_usage"][0]
+    assert call["status"] == "unavailable" and call["usage"][0]["charge_tokens"] == "unavailable"
+
+
+@pytest.mark.parametrize("changes", [dict(cached_input_tokens=100, cache_write_input_tokens=1),
+                                    dict(total_tokens=123)])
+def test_codex_charge_rejects_underflow_or_inconsistent_total(tmp_path, changes):
     records = tmp_path / "records"
     _call(records, 1, "task")
     rollout = codex_receipt(tmp_path / "rollout.jsonl", **changes)
@@ -96,7 +114,7 @@ def test_allocation_tracks_model_changes_even_with_identical_skeleton(tmp_path, 
     assert before["planned_perform_sites"]
 
 
-def test_private_rename_and_prompt_edit_preserve_allocation_but_new_site_changes_it(tmp_path):
+def test_private_rename_prompt_edit_preserve_policy_but_removing_distinct_policy_changes_it(tmp_path):
     source = SOURCE.replace("  (defworkflow run", PRIVATE + "\n  (defworkflow run")
     source = source.replace('(variant Outcome DONE :summary change.summary)',
                             '(let* ((ignored (review change.summary))) (variant Outcome DONE :summary change.summary))')
@@ -165,7 +183,7 @@ def test_codex_model_argv_requires_one_unambiguous_option(tmp_path, args):
     assert row["model"] == "unavailable"
 
 
-def test_second_static_helper_invocation_changes_allocation(tmp_path):
+def test_second_same_policy_static_helper_invocation_does_not_change_allocation(tmp_path):
     source = SOURCE.replace("  (defworkflow run", PRIVATE + "\n  (defworkflow run")
     use = '(let* ((ignored (review change.summary))) (variant Outcome DONE :summary change.summary))'
     source = source.replace('(variant Outcome DONE :summary change.summary)', use)
@@ -175,7 +193,8 @@ def test_second_static_helper_invocation_changes_allocation(tmp_path):
     before = site_evidence.candidate_evidence(parent, cfg(), runtime=REPO)
     after = site_evidence.candidate_evidence(child, cfg(), runtime=REPO)
     assert len(after["allocation_signature"]) == len(before["allocation_signature"]) + 1
-    assert site_evidence.allocation_comparison(before, after)["allocation_changed"] is True
+    assert after["allocation_signature"] != before["allocation_signature"]
+    assert site_evidence.allocation_comparison(before, after)["allocation_changed"] is False
 
 
 def test_loop_budget_changes_structure_but_not_static_allocation(tmp_path):

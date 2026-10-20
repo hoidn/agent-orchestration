@@ -150,10 +150,23 @@ def _charge_tokens(provider: str, usage: dict, model: str) -> dict | str:
     if provider == "claude":
         return dict(input=usage[fields[0]], output=usage[fields[1]],
                     cache_write=usage[fields[2]], cache_read=usage[fields[3]])
-    if usage["cached_input_tokens"] > usage["input_tokens"]:
+    return _codex_charge_tokens(usage)
+
+
+def _codex_charge_tokens(usage: dict) -> dict | str:
+    input_tokens, cache_read, cache_write = (usage["input_tokens"], usage["cached_input_tokens"],
+                                              usage["cache_write_input_tokens"])
+    total = usage["total_tokens"]
+    if total == input_tokens + usage["output_tokens"]:
+        charged_input = input_tokens - cache_read - cache_write
+    elif total == input_tokens + cache_write + usage["output_tokens"]:
+        charged_input = input_tokens - cache_read
+    else:
         return UNAVAILABLE
-    return dict(input=usage["input_tokens"] - usage["cached_input_tokens"], output=usage["output_tokens"],
-                cache_write=usage["cache_write_input_tokens"], cache_read=usage["cached_input_tokens"])
+    if charged_input < 0:
+        return UNAVAILABLE
+    return dict(input=charged_input, output=usage["output_tokens"],
+                cache_write=cache_write, cache_read=cache_read)
 
 
 def _claude_rows(session: Path) -> list[dict]:

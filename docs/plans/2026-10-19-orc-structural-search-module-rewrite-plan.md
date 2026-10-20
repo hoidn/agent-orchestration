@@ -6,6 +6,9 @@
   Closed-program reservations, shim caps, external qualification and matched
   per-arm model-aware Pareto endpoints extend the earlier delivery. Evidence
   under "Prior Offline Execution Evidence" remains scoped to that earlier code.
+  The implementation plan records pending main-integration corrections to
+  policy-set comparison/splits and Codex cache-write deduction; prior checks
+  do not verify those later requirements.
   No live successor study or provider budget is selected.
 - **Kind:** maintained decision and live-selection gates for the fifth edit condition
   `module` and the separate `I1/module` measured arm. The
@@ -122,7 +125,7 @@ implemented stays.
 | Entry body and private `defproc`/`defworkflow` | Add, remove, rename, rewrite | `_definition_verdict` admits added and removed non-exported definitions under `module` (implemented offline) |
 | Private `defprompt` (signature and body) | Add, remove, rewrite | as above; `PROMPT_CONDITIONS` and `PROMPT_SIGNATURE_CONDITIONS` gain `module` |
 | Private `defrecord`/`defunion`/`defenum` | Add, remove, rewrite | `_split_forms` stops treating a type declaration as frozen when its name is not imported or exported; a declaration shadowing an imported name is refused (`declaration_collision`) |
-| `:model`/`:effort` values | Any literal from the successor criterion's `models` allowlist (the delivered configuration maps each model to its allowed efforts). Model and effort selection is a legitimate search dimension, not a confound: the allowlist is policy (never Fable; owner 2026-10-15) and the set of models with a known price in the criterion's table, the metered cost axis charges a dearer model, and the readout splits gains by `allocation_changed` (per-call-site provider, model and effort against the parent's) | Checked on the compiled child's `perform` nodes (`policy.model` and `policy.effort` in `closed_program.json`): a `lit` outside the allowlist, or a `name` reference in place of a literal, is refused, which closes the driver design's open decision on non-literal tuning values; the shim model guard (`shim/model-guard`, installed as `claude` only; it refuses Fable and defaults to `claude-opus-5-5`) gains the allowlist for Claude launches, and a Codex `:model` outside it is stopped at acceptance only |
+| `:model`/`:effort` values | Any literal from the successor criterion's `models` allowlist (the delivered configuration maps each model to its allowed efforts). Model and effort selection is a legitimate search dimension, not a confound: the allowlist is policy (never Fable; owner 2026-10-15) and the set of models with a known price in the criterion's table, the metered cost axis charges a dearer model, and the readout splits gains by `allocation_changed` (the set of distinct provider/model/effort policies against the parent's; policy-only, structure-only or both) | Checked on the compiled child's `perform` nodes (`policy.model` and `policy.effort` in `closed_program.json`): a `lit` outside the allowlist, or a `name` reference in place of a literal, is refused, which closes the driver design's open decision on non-literal tuning values; the shim model guard (`shim/model-guard`, installed as `claude` only; it refuses Fable and defaults to `claude-opus-5-5`) gains the allowlist for Claude launches, and a Codex `:model` outside it is stopped at acceptance only |
 | Provider bindings (`providers.json`) and command boundaries (`commands.json`) | Frozen | `_plain_file_verdict`; candidates compose the bound capabilities only |
 | Imports | **v1: frozen**: the `import` forms (in `candidates.FROZEN_HEADS`) and the resolved graph | `_module_verdict` keeps the `import` forms; on the compiled child, the module qualifiers named by the closed program's `definitions` and `types` keys (`common::Outcome`) must equal the parent's. A frozen `:only` list does not stop a qualified reference such as `common/CheckReport` (all six Phase 1 children used one), but such a reference reaches only a module already in the graph. Bundle imports are v2 (below) |
 | `:timeout-sec` and every other per-call ceiling | Literals at most the successor criterion's per-call ceiling (a new field) | acceptance check; the evaluation's wall clock and the ledger cap remain the outer bound |
@@ -265,12 +268,14 @@ All of the following, each recorded in the ledger before any provider spend:
 6. **A sealed split** for the arm's final assessment. None exists today
    (Phase 2 plan, Decision 9); authoring one is a cost of the live arm.
 
-Gates 2 and 3 are the blocking work. They need a measurement plan (an
-evaluator calibrated on known controls; a family whose agent-visible check
-fails sometimes), the next plan to write, owned by the
-[roadmap](2026-10-18-orc-structural-search-roadmap.md#decision-criteria-and-next-commitment);
-this plan does not write it, and no live `module` arm precedes it. Both are
-instances of the rule that no uncalibrated experiment runs (driver design,
+Gates 2 and 3 are the blocking work: an evaluator calibrated on known controls
+and a family whose agent-visible check fails sometimes. The
+[measurement calibration implementation plan](2026-10-19-orc-structural-search-measurement-plan.md)
+owns that next offline preparation under the
+[roadmap](2026-10-18-orc-structural-search-roadmap.md#decision-criteria-and-next-commitment).
+Its preparation remains unimplemented; no live `module` arm precedes its
+required gate results. Both gates instantiate the rule that no uncalibrated
+experiment runs (driver design,
 Task Family And Evaluator; roadmap, Decision Points), and they bind every
 live `module` arm: the rule's measure-free fallback does not apply to it.
 
@@ -288,7 +293,7 @@ computed per arm over the parent and the arm's evaluated children:
 dominating improvements (the child dominates its parent on quality and
 metered deployed cost beyond the tolerances) and frontier entries
 (non-dominated against that set) per completed episode, each split by
-`allocation_changed` and structure-only children; an unvalued child is
+`allocation_changed` (policy-only, structure-only or both); an unvalued child is
 reported as not valued, excluded from the numerator and kept in the
 denominator; a child enters the frontier only above the predeclared quality
 floor, so trivially cheap failures never populate it. Attribution of a gain to a single change needs single-factor

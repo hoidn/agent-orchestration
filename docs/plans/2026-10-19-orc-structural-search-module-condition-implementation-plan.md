@@ -2,7 +2,9 @@
 
 - **Status:** A–E offline implementation, independent review and final
   verification completed, 2026-10-19. No live study, provider allocation or
-  research-utility claim follows from this delivery.
+  research-utility claim follows from this delivery. Main integration at
+  `f1209672` adds the pending semantic corrections below; the earlier verification
+  does not cover them.
   Baseline: delivery `efa79ef9`, with owner revisions merged at `3947ceb1`.
   The earlier 774-test result in the [decision's prior evidence](2026-10-19-orc-structural-search-module-rewrite-plan.md#prior-offline-execution-evidence)
   covers the earlier delivery, not these additions.
@@ -114,8 +116,9 @@ under its frozen criterion; do not price against process-global configuration.
   zero. Evaluation rows retain consumption without exposing native paths.
 - [x] Record `allocation_changed` on episode and evaluation rows by comparing
   compiled `(provider, model, effort)` on normalized static invocation paths
-  with the parent's. Expand resolved helper calls per invocation; these paths
-  are static, not runtime branch evidence. Retain
+  with the parent's. This records the delivered implementation; the policy-set
+  comparison correction selected in the main-integration deltas below supersedes
+  it. Static invocation paths remain diagnostic, not runtime branch evidence. Retain
   `allocation_distinct` for collapse reporting: extern-only allocation and a
   skeleton hash cannot detect every model/effort change. Identify unavailable
   comparison evidence explicitly.
@@ -124,13 +127,15 @@ under its frozen criterion; do not price against process-global configuration.
   that statement. Preserve identities, effect classes, attempts and outcomes;
   an I3 generic command has no ORC memo. Do not claim source-branch coverage.
 
-**Frozen receipt-to-price mapping for readout:** a Claude usage row charges
+**Delivered receipt-to-price mapping before main integration:** a Claude usage row charges
 `input_tokens` at input, `output_tokens` at output,
 `cache_read_input_tokens` at cache-read and `cache_creation_input_tokens` at
 cache-write, at that row's model. A Codex rollout uses the last cumulative
 `total_token_usage`: charge `input_tokens - cached_input_tokens` at input,
 `cached_input_tokens` at cache-read, `cache_write_input_tokens` at cache-write
-and `output_tokens` at output, at the call's model. Never add
+and `output_tokens` at output, at the call's model. The later main correction
+also deducts cache-write tokens included in input before charging ordinary input;
+that correction is pending in the integration deltas below. Never add
 `reasoning_output_tokens`, already contained in `output_tokens`. Sum per
 evaluation/episode as list-price equivalent, not billed spend. The successor
 criterion supplies each model's input/output/cache-read/cache-write prices,
@@ -274,6 +279,34 @@ control anchors first. These synthetic checks establish mechanics, not utility.
   `git diff --check`; inspect the final diff and results as coordinator. Commit
   only scoped files. No provider run or live calibration follows automatically.
 
+## Pending Main-Integration Deltas
+
+Main `f1209672` adds accepted owner corrections after the completed A–E delivery.
+Implement these before claiming the merged apparatus satisfies the current
+contract. They are not covered by the 968-pass evidence below.
+
+- [ ] Compare `allocation_changed` using the set of distinct compiled
+  `(provider, model, effort)` policies against the parent's set, independent of
+  call-site multiplicity or invocation-path changes. Preserve the static
+  invocation evidence and unavailable handling. Report the required policy-only,
+  structure-only and both endpoint splits. Verify an added call site reusing a
+  parent policy is not a policy change, a pure policy change, a pure structure
+  change and a change to both; rerun the relevant scripted four-arm/readout check.
+- [ ] Deduct Codex `cache_write_input_tokens` included in `input_tokens` before
+  charging ordinary input, beside the existing cached-input deduction. Preserve
+  the last-cumulative receipt rule, incomplete-evidence handling and no extra
+  reasoning-output charge. Add a synthetic nonzero cache-write case and rerun
+  the metering/pricing integration checks.
+- [ ] Record fresh verification and independent review for these integration
+  deltas, then reconcile their delivery status in the owner design and README.
+
+The separate [measurement calibration plan](2026-10-19-orc-structural-search-measurement-plan.md)
+remains unimplemented and owns the next offline preparation (Tasks 1–5), including
+the reference rubric, control/filler pools, task-package changes and calibration
+freeze. It is not completed by this apparatus delivery. Its paid calibration and
+measurement steps retain their declared owner gates; no new criterion, provider
+allocation or calibration result is inferred from merging the documents.
+
 ## Current Offline Verification Evidence
 
 Code delivery through `2290710d` includes A's bound/cap and immutable check parent,
@@ -337,7 +370,8 @@ uses scripted providers only and makes no quality or live-utility claim.
   satisfy 500 lines / complexity 12, frozen criterion/provider and runtime paths
   have no changes, and inspected the final diff. `git diff --check` passed.
 
-All A–E obligations are complete for the offline scripted-provider scope. Fresh
+All A–E obligations were completed for the offline scripted-provider scope at
+`2290710d`; the later main-integration deltas above remain pending. Fresh
 adaptive launch/finalist validation remain unsupported; live family/measure
 precalibration, owner selection, sealed-split/isolation gates and provider budget
 approval remain separate. No frozen successor criterion or live calibration was
@@ -359,6 +393,8 @@ The prior 774-pass result remains historical evidence for the earlier delivery o
 | Shared parent evidence is projected by identity | Avoid duplicate launches and preserve arm attribution without inventing additional observations |
 | Historical criteria stay byte-identical without a fresh-launch exemption | Preserve captured reproducibility while enforcing today's calibration gates |
 | Calls proxy needs actual identity proof | Static homogeneous signatures alone are insufficient: existing call records, complete unambiguous native session identities and explicit recorded CLI effort must cover every compared call; no default/static effort inference, unknown or uncovered nested call; incomplete token counters can still allow identity proof |
+| Main owner corrections remain pending integration | Distinct-policy allocation comparison and policy/structure splits, plus Codex cache-write-inside-input deduction, supersede the delivered mechanics and need fresh code/tests; prior evidence stays scoped to its original commit |
+| Measurement calibration is separate follow-on work | Preserve the new measurement plan and its offline Tasks 1–5; paid steps retain their own declared gates, without inferring any spend from this merge |
 | Readout schema stays bounded | `quality_floor` supports only `{kind: above_stub}` with strict matched quality greater than stub; readout-only `price_table` owns USD/unit/source/date and model rate categories; missing coverage/category/model stays unavailable |
 | Endpoints remain per arm | Recompute each arm over its parent and all its evaluated children, including continuation subsets; cross-arm dominance cannot affect its endpoints; all candidates need full declared task/replicate support |
 | Fresh adaptive use remains unsupported | `run_mode2` and finalist validation refuse new work; frozen historical helpers do not become a calls-only successor policy |

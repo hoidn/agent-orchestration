@@ -129,10 +129,23 @@ def candidate_figure(cid, joined, raw, expected, table, floor):
 
 
 def allocation_class(episodes, cid):
-    values = {r.get('allocation_changed', UNAVAILABLE) for r in episodes if r.get('candidate_id') == cid}
-    if values == {True}:
-        return 'allocation_changed'
-    return 'structure_only' if values == {False} else 'allocation_unknown'
+    values = {episode_change_class(row) for row in episodes if row.get('candidate_id') == cid}
+    return next(iter(values)) if len(values) == 1 else 'unknown'
+
+
+def episode_change_class(row):
+    policy_changed = row.get('allocation_changed')
+    skeleton, parent = row.get('skeleton'), row.get('parent_skeleton')
+    if type(policy_changed) is not bool or any(not isinstance(value, str) or not value or
+                                               value.lower() in (UNAVAILABLE, 'unknown')
+                                               for value in (skeleton, parent)):
+        return 'unknown'
+    structure_changed = skeleton != parent
+    if policy_changed and structure_changed:
+        return 'both'
+    if policy_changed:
+        return 'policy_only'
+    return 'structure_only' if structure_changed else 'unchanged'
 
 
 def comparable(a, b):
@@ -150,7 +163,7 @@ def arm_endpoints(episodes, table, parent, frontier, tolerances, evidence_root):
               'improvements_per_completed_episode': share(len(improvements), len(completed)),
               'frontier_entries': entries, 'frontier_entries_per_completed_episode': share(len(entries), len(completed)),
               'unvalued': [cid for cid in children if cid not in valued]}
-    for kind in ('allocation_changed', 'structure_only', 'allocation_unknown'):
+    for kind in ('policy_only', 'structure_only', 'both', 'unchanged', 'unknown'):
         result[kind] = split_endpoints(children, completed, improvements, entries, kind)
     return result
 

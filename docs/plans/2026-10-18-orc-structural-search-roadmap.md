@@ -4,8 +4,8 @@ Status: proposed implementation roadmap for research unit R3 (search and
 representation), drafted 2026-10-18 against `main` at `90ae778c` (target 2.39
 merged) and revised after an independent design review. Phases 0 and 1 were
 selected on 2026-10-18 under the owner's directive to execute the roadmap,
-with the allocation below. Phase 1 ran on 2026-10-18 and 2026-10-19 without its
-compile-only three-arm readout, which remains an unmet gate. Its decision rule fired
+with the allocation below. Phase 1 ran on 2026-10-18 and 2026-10-19, its compile-only
+three-arm readout included (measure-free under the calibration rule; [Phase 1 report](../reports/2026-10-18-orc-structural-search-phase1.md#three-arm-readout)). Its decision rule fired
 `anchors_inverted`, and neither task separated within tolerance, so Phases 2–5
 are not selected for family (a) ([Phase 1 report](../reports/2026-10-18-orc-structural-search-phase1.md)). It replaces an earlier
 external draft ("ORC as a Searchable Workflow Language", 2026-10-16, not in
@@ -150,7 +150,9 @@ per-arm model-aware Pareto readout are implemented offline; fresh verification
 belongs to the [implementation plan](2026-10-19-orc-structural-search-module-condition-implementation-plan.md).
 The prior offline evidence alone does not verify these additions. No successor
 criterion is committed, and fresh adaptive launches/finalist validation refuse. Live selection, phase
-promotion and provider allocation remain separately gated.
+promotion and provider allocation remain separately gated. Main's policy-set comparison/splits and Codex
+cache-write deduction still need the implementation plan's integration deltas;
+completed offline evidence does not verify those later corrections.
 
 | Interface | Agent receives | Agent returns | Validation | Needs |
 | --- | --- | --- | --- | --- |
@@ -362,7 +364,7 @@ the objective's cost axis (Decision Criteria).
 | Point | Rule |
 | --- | --- |
 | Family choice | Only a family qualified under the frozen rule and with measured headroom on the family criterion; otherwise Phase 0 reports "no affordable qualified family" and stops |
-| Calibration | In every live phase and experiment, no provider call is spent on quality evaluation (candidate evaluation runs and judge calls whose purpose is a quality comparison) unless the quality measure passed a predeclared calibration on known controls (for a judge measure: for each judge and batch the upstream anchor's total minus the stub's is at least `calibration.margin`, and the fraction of (judge, batch) pairs failing that is at most `calibration.error_rate`, default 0, both in the criterion) and the family is qualified under its own frozen rule (family (a): the harness difficulty-calibration rule; family (b): the oracle qualification in the driver design); calibration runs are their own predeclared experiments with their own budget and pass first; an uncalibrated measure reports only measure-free figures (compile-only metrics, execution outcomes, cost) and no quality comparison, frontier or improvement claim. The rule applies to provider spend from 2026-10-19 on: the in-progress three-arm readout runs no judge stage (its controller ruling R19, 2026-10-19) and reports compile-only figures, execution outcomes and cost, with quality `unavailable: evaluator uncalibrated` |
+| Calibration | In every live phase and experiment, no provider call is spent on quality evaluation (candidate evaluation runs and judge calls whose purpose is a quality comparison) unless the quality measure passed a predeclared calibration on known controls (for a judge measure: for each judge and batch the upstream anchor's total minus the stub's is at least `calibration.margin`, and the fraction of (judge, batch) pairs failing that is at most `calibration.error_rate`, default 0, both in the criterion) and the family is qualified under its own frozen rule (family (a): the harness difficulty-calibration rule; family (b): the oracle qualification in the driver design); calibration runs are their own predeclared experiments with their own budget and pass first; an uncalibrated measure reports only measure-free figures (compile-only metrics, execution outcomes, cost) and no quality comparison, frontier or improvement claim. The rule applies to provider spend launched after its adoption (commit `f4bec466`, 2026-10-19 17:04 PDT); the three-arm readout's paid subset was launched before it (about 15:33–16:12) and is reported with execution figures only, and its judge stage, still to run at adoption, does not run (its controller ruling R19, 2026-10-19) and reports compile-only figures, execution outcomes and cost, with quality `unavailable: evaluator uncalibrated` |
 | Phase 1 separation | Tolerance predeclared in the criterion's units (default two within-arm standard deviations, measured on the family in Phase 1), judged per task and required on at least two tasks; DIRECT sole winner or everything within tolerance is recorded under the charter's decision rule and Phase 2 is not selected for the family |
 | Collapse | If the share of accepted children whose skeleton equals the parent's exceeds the predeclared threshold (default 0.75) for an interface, that interface has collapsed to renames and literals and the adaptive claim is not tested on it; if every interface collapses, Phase 2 is not selected |
 | Screening | Advancement, finalist replication beside the reference seed, and the shrinkage readout (screening mean against validation mean) follow the driver's selection rule; the pilot stays descriptive |
@@ -426,13 +428,16 @@ valid.
 The immediate commitment, selected 2026-10-18, is **Phases 0 and 1**: the
 governance and integration spike, then the catalog, enumeration and unguided
 search that establish whether the space is worth adaptive work. Phase 2 and
-the three-arm test follow only on that evidence. Phase 1 ran; its compile-only
-three-arm readout and the per-interface collapse verdicts for I2 and I3 remain
-unmet. The [Phase 1 report](../reports/2026-10-18-orc-structural-search-phase1.md)
+the three-arm test follow only on that evidence. Phase 1 ran, and its compile-only
+three-arm readout recorded acceptance, locality, skeleton figures and a collapse
+verdict for I1, I2 and I3 (no arm collapsed; all 18 children converged on one
+implement-check-repair idea; quality unavailable because the evaluator is
+uncalibrated). The [Phase 1 report](../reports/2026-10-18-orc-structural-search-phase1.md)
 records an inconclusive pilot: the upstream anchor scored at or below every
 candidate, and one anchor pair was inverted. Phase 2 is not selected, and a
 better-targeted experiment needs a new owner selection. The next plan to
-write is the measurement plan: an evaluator calibrated on known controls and
+execute offline is the [measurement calibration plan](2026-10-19-orc-structural-search-measurement-plan.md):
+an evaluator calibrated on known controls and
 a task family whose agent-visible check fails sometimes. It precedes any
 live `module` arm
 ([module condition](2026-10-19-orc-structural-search-module-rewrite-plan.md#gate-for-a-live-module-arm)).

@@ -1,6 +1,7 @@
 """Closed provider allocation and candidate-local perform evidence, without branch claims."""
 
 import re
+from collections.abc import Mapping
 from pathlib import Path
 
 from orchestrator.contracts.closed_program.program import ClosedProgram
@@ -102,10 +103,26 @@ def candidate_evidence(root, config, *, runtime, compiled=None):
 
 def allocation_comparison(parent, child):
     before, after = parent.get("allocation_signature", UNAVAILABLE), child.get("allocation_signature", UNAVAILABLE)
-    if UNAVAILABLE in (before, after):
+    policies = tuple(_policy_set(signature) for signature in (before, after))
+    if any(policy_set is None for policy_set in policies):
         return {"allocation_changed": UNAVAILABLE, "allocation_comparison_reason":
-                child.get("allocation_signature_reason") or parent.get("allocation_signature_reason") or "missing_signature"}
-    return {"allocation_changed": before != after, "allocation_comparison_reason": None}
+                child.get("allocation_signature_reason") or parent.get("allocation_signature_reason") or "invalid_signature"}
+    return {"allocation_changed": policies[0] != policies[1], "allocation_comparison_reason": None}
+
+
+def _policy_set(signature):
+    if not isinstance(signature, Mapping):
+        return None
+    policies = set()
+    for policy in signature.values():
+        if not isinstance(policy, Mapping):
+            return None
+        values = tuple(policy.get(key) for key in ("provider", "model", "effort"))
+        if not all(isinstance(value, str) and value.strip() and value.lower() not in
+                   (UNAVAILABLE, "unknown", "auto", "default") for value in values):
+            return None
+        policies.add(values)
+    return policies
 
 
 def unexercised_sites(planned, realized, *, completed):

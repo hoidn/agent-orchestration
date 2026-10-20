@@ -16,7 +16,8 @@ def fixture():
     log = [{'kind': 'parents', 'orc': 'P', 'python': 'PY'}]
     for arm, cid, changed in [('I1', 'C', False), ('module', 'M', True), ('module', 'U', 'unavailable')]:
         log.append({'kind': 'episode', 'episode_id': cid, 'mode': 'three_arm', 'arm': arm, 'outcome': 'accepted',
-                    'candidate_id': cid, 'parent_candidate_id': 'P', 'allocation_changed': changed})
+                    'candidate_id': cid, 'parent_candidate_id': 'P', 'allocation_changed': changed,
+                    'skeleton': 'child' if cid == 'C' else 'parent', 'parent_skeleton': 'parent'})
     log += [{'kind': 'episode', 'episode_id': 'rejected', 'mode': 'three_arm', 'arm': 'module', 'outcome': 'rejected'}]
     pools = []
     for task in ['a', 'b']:
@@ -44,8 +45,25 @@ def test_full_frontier_and_parent_improvements_split_by_allocation_with_unvalued
     assert result['arms']['module']['completed'] == 3
     assert result['arms']['module']['unvalued'] == ['U']
     assert result['arms']['module']['dominating_improvements'] == ['M']
-    assert result['arms']['module']['allocation_changed']['improvements_per_completed_episode'] == pytest.approx(1/3)
+    assert result['arms']['module']['policy_only']['children'] == ['M']
+    assert result['arms']['module']['policy_only']['improvements_per_completed_episode'] == pytest.approx(1/3)
+    assert result['arms']['module']['unknown']['children'] == ['U']
+    assert result['arms']['I1']['structure_only']['children'] == ['C']
     assert result['arms']['module']['frontier_entries_per_completed_episode'] == pytest.approx(1/3)
+
+
+@pytest.mark.parametrize('changed,skeleton,parent,expected', [
+    (True, 'child', 'parent', 'both'),
+    (True, 'parent', 'parent', 'policy_only'),
+    (False, 'child', 'parent', 'structure_only'),
+    (False, 'parent', 'parent', 'unchanged'),
+    ('unavailable', 'child', 'parent', 'unknown'),
+    (False, None, 'parent', 'unknown'),
+])
+def test_endpoint_change_class_requires_policy_and_skeleton_evidence(changed, skeleton, parent, expected):
+    episodes = [{'candidate_id': 'C', 'allocation_changed': changed,
+                 'skeleton': skeleton, 'parent_skeleton': parent}]
+    assert pareto_readout.allocation_class(episodes, 'C') == expected
 
 
 def test_mismatched_replicates_do_not_silently_compare_means(tmp_path):

@@ -12,16 +12,22 @@
   for family (a) ([Phase 1 report](../reports/2026-10-18-orc-structural-search-phase1.md));
   a live Phase 2 needs a new owner selection and budget approval. I3 is implemented
   offline for the three-arm compile-only readout (`three_arm.py`, scripted providers
-  only; not in mode 2); its live evidence and remaining gates belong to the
-  [three-arm plan](../plans/2026-10-19-orc-structural-search-three-arm-readout-plan.md)
-  and Phase 1 report. The `module` condition, closed-program reservations,
+  only; not in mode 2) and ran live once in the measure-free three-arm readout
+  ([Phase 1 report](../reports/2026-10-18-orc-structural-search-phase1.md#three-arm-readout);
+  [three-arm plan](../plans/2026-10-19-orc-structural-search-three-arm-readout-plan.md)).
+  The `module` condition, closed-program reservations,
   shim cap, external qualification gates and per-arm model-aware Pareto readout
   are implemented offline with scripted providers. The
   [implementation plan](../plans/2026-10-19-orc-structural-search-module-condition-implementation-plan.md)
   owns current verification, distinct from the
   [decision's prior evidence](../plans/2026-10-19-orc-structural-search-module-rewrite-plan.md#prior-offline-execution-evidence).
   Fresh adaptive launches and finalist validation are unsupported; retained
-  mode-2 helpers interpret historical mechanics only.
+  mode-2 helpers interpret historical mechanics only. Main's distinct-policy
+  allocation comparison and Codex cache-write deduction require the pending
+  integration deltas recorded in that implementation plan. The separate
+  [measurement plan](../plans/2026-10-19-orc-structural-search-measurement-plan.md)
+  owns the next offline calibration preparation; its live steps keep their own
+  owner budget gates.
   No live successor study or provider budget is selected. Fixed-workflow comparisons use
   [`experiments/compare/`](../../experiments/compare/README.md) today.
 - **Kind:** experiment-side apparatus contract: controller modes, proposal
@@ -384,7 +390,7 @@ quality floor; nothing reads the condition or the cost axis, so mean calls
 is the cost axis whatever the candidates' models. The frozen `phase2.json`
 (`mean_cost` is wall clock, over a multi-model catalog) predates the
 cost-proxy rule and is not changed; a Phase 2 selection needs a successor
-criterion with metered cost. Generation 0 seeds it from Phase 1's joined rows
+criterion with metered cost. Generation 0 seeds the archive from Phase 1's joined rows
 (`scoring readout --joined-out`) as prior evidence, logs a `reference` row
 naming the incumbent and re-measures the incumbent on every adaptive task.
 Each later generation alternates I1 and I2 episodes, draws parents
@@ -943,7 +949,9 @@ charges `input_tokens` at input, `output_tokens` at output,
 `cache_read_input_tokens` at cache-read and `cache_creation_input_tokens`
 at cache-write; a Codex `total_token_usage` charges
 `input_tokens - cached_input_tokens` at input, `cached_input_tokens` at
-cache-read, `cache_write_input_tokens` at cache-write and `output_tokens`
+cache-read, `cache_write_input_tokens` at cache-write (0 in every recorded
+rollout; if a rollout shows it inside `input_tokens`, charge
+`input_tokens - cached_input_tokens - cache_write_input_tokens` at input) and `output_tokens`
 at output, never adding `reasoning_output_tokens`, which `output_tokens`
 already contains (in the recorded three-arm rollouts input plus output
 equals `total_tokens`). Calls and wall clock are an acceptable cost proxy
@@ -1030,8 +1038,14 @@ Episode/evaluation `allocation_signature` values map normalized static invocatio
 paths to `(provider, model, effort)`. Paths expand each resolved helper invocation
 separately, retaining call position while normalizing coherent private renames;
 they are not dynamic executions or branch counters. `allocation_changed` compares
-these signatures with the parent's. Missing/unresolved/recursive or ambiguous
-owner evidence yields `unavailable` with a reason. Keep the source metric
+the set of distinct `(provider, model, effort)` policies with the parent's set;
+adding a call site that reuses an existing policy does not change that set.
+The required endpoint splits are policy-only, structure-only and both; static
+invocation paths remain diagnostic evidence rather than the comparison key.
+Missing/unresolved/recursive or ambiguous owner evidence yields `unavailable`
+with a reason. The delivered path-keyed comparison needs the pending integration
+correction recorded in the implementation plan; its prior tests do not establish
+this revised policy-set contract. Keep the source metric
 `allocation_distinct` separately for collapse reporting.
 
 Every ORC evaluation records `realized_perform_sites` from
@@ -1079,10 +1093,14 @@ once per unique identity on the declared tasks and replicates, and projected to
 sharing arms without new observations. All candidates need the complete matched
 task-by-replicate support; harness clone IDs, run labels and criterion hashes
 bind the joins. The frontier entries are reported by candidate, and both endpoints are split by whether
-the child changed its allocation (`allocation_changed`: its per-call-site
-(provider, model, effort) differs from the parent's; reported beside the
-collapse figure's `allocation_distinct`, which sees extern names only) or
-its structure only; unavailable allocation has its own split. Every terminal
+the child changed its policies (`allocation_changed`: its set of distinct
+(provider, model, effort) triples differs from the parent's), its structure
+only or both. An added call site using a parent policy is not a policy change.
+Keep these policy-only, structure-only and both splits beside the collapse
+figure's `allocation_distinct`, which sees extern names only; unavailable
+allocation remains explicit. These split semantics require the pending
+integration correction, rather than being covered by the prior offline run.
+Every terminal
 non-quota episode (accepted, rejected, exhausted or incident) remains in the
 completed denominator. Unvalued, contaminated or pending children cannot enter
 quality numerators or a frontier; they remain visible and in that denominator.
