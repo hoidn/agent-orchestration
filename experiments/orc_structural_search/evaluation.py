@@ -33,22 +33,24 @@ Dependencies: git and bwrap on PATH; `env` (the launch environment) must put the
 `claude`/`codex` on PATH; the runtime checkout must be clean (run_arm refuses it otherwise).
 """
 
+import argparse
 import hashlib
 import importlib.metadata
 import json
 import os
 import platform
-import signal
 import shutil
+import signal
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 from experiments.compare.prepare import ArmSpec, read_memo, run_arm
-from experiments.compare.repos import dump, load, runtime_commit
+from experiments.compare.repos import build_candidate, dump, git, load, runtime_commit
 from experiments.orc_structural_search import acceptance, ledger, site_evidence, qualification  # acceptance imports this module: call time only
 from experiments.orc_structural_search.candidates import candidate_id, compile_candidate
 from experiments.orc_structural_search.config import ExperimentConfig
@@ -58,6 +60,7 @@ from experiments.orc_structural_search.records import UNAVAILABLE
 
 EVALUATOR_VERSION = "public-run-1"
 DEV_CHECK = "dev_check.py"  # in the candidate root
+FROZEN_PATHS = ("dev-check.json", "tests/")  # relative to a task package's seed
 INPUTS = ("task", "intent", "repo")
 CLIS = ("claude", "codex", "bwrap", "git")
 CLI_VERSION_TIMEOUT_SEC = 60
@@ -296,3 +299,100 @@ def _classify(state_dir: Path, *, generic: bool) -> tuple[str, str, object | Non
     if terminal["outcome"] == "completed":
         return runs[0].parent.name, "completed", terminal["value"]
     return runs[0].parent.name, "failed", None
+
+
+def _patch_paths(patch: Path) -> set[str]:
+    from experiments.compare.pool import sections
+    return {path.decode(errors="replace") for paths, _ in sections(patch.read_bytes()) for path in paths}
+
+
+def _is_frozen_path(path: str) -> bool:
+    return any(path == root.rstrip("/") or (root.endswith("/") and path.startswith(root))
+               for root in FROZEN_PATHS)
+
+
+def _seeded_frozen_files(seed: Path) -> list[str]:
+    frozen = []
+    for path in seed.rglob("*"):
+        if path.is_file():
+            relative = path.relative_to(seed).as_posix()
+            if _is_frozen_path(relative):
+                frozen.append(relative)
+    return sorted(frozen)
+
+
+def _restore_seeded_files(seed: Path, clone: Path, frozen_files: list[str]) -> None:
+    for relative in frozen_files:
+        source, target = seed / relative, clone / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.is_symlink() or target.is_file():
+            target.unlink()
+        elif target.is_dir():
+            shutil.rmtree(target)
+        shutil.copyfile(source, target)
+
+
+def _copy_trusted_helper(clone: Path, runtime: Path) -> Path:
+    helper = clone / DEV_CHECK
+    if helper.is_symlink() or helper.is_file():
+        helper.unlink()
+    elif helper.is_dir():
+        shutil.rmtree(helper)
+    shutil.copyfile(runtime / "experiments/orc_structural_search/seeds" / DEV_CHECK, helper)
+    return helper
+
+
+def _run_trusted_check(clone: Path, helper: Path, bundle: Path, python: str, touched: list[str]) -> dict:
+    env = {**os.environ, "PYTHONPATH": str(clone), "ORCHESTRATOR_OUTPUT_BUNDLE_PATH": str(bundle)}
+    done = subprocess.run([python, str(helper)], cwd=clone, env=env, capture_output=True, text=True)
+    output = (done.stdout + done.stderr)[-4000:]
+    try:
+        report = load(bundle)
+    except (OSError, json.JSONDecodeError):
+        return {"passed": False, "failing": [f"trusted dev check exited {done.returncode} without a report"],
+                "excerpt": output, "touched_frozen": touched}
+    valid = (isinstance(report, dict) and isinstance(report.get("passed"), bool)
+             and isinstance(report.get("failing"), list) and isinstance(report.get("excerpt"), str))
+    if done.returncode or not valid:
+        return {"passed": False, "failing": ["trusted dev check returned an invalid report"],
+                "excerpt": output, "touched_frozen": touched}
+    return {"passed": report["passed"], "failing": report["failing"], "excerpt": report["excerpt"],
+            "touched_frozen": touched}
+
+
+def check_first_attempt(task: Path, patch: Path, runtime: Path, python: str = sys.executable) -> dict:
+    """Apply a candidate to a fresh seeded clone, then run the trusted agent-visible check."""
+    task, patch, runtime = task.resolve(), patch.resolve(), runtime.resolve()
+    seed = task / "seed"
+    frozen_files = _seeded_frozen_files(seed)
+    touched = sorted(path for path in _patch_paths(patch) if _is_frozen_path(path))
+    base = git(runtime, "rev-parse", "--verify", (task / "base_commit").read_text().strip() + "^{commit}")
+    with tempfile.TemporaryDirectory(prefix="orc-first-attempt-") as directory:
+        clone = Path(directory) / "candidate"
+        build_candidate(runtime, base, seed, clone)
+        if patch.stat().st_size:
+            exclude = set(frozen_files)
+            done = subprocess.run(["git", "-C", str(clone), "apply", "--binary",
+                                   *(f"--exclude={path}" for path in sorted(exclude)), str(patch)],
+                                  capture_output=True, text=True)
+            if done.returncode:
+                return {"passed": False, "failing": [f"candidate patch does not apply: {done.stderr.strip()}"],
+                        "excerpt": "", "touched_frozen": touched}
+        _restore_seeded_files(seed, clone, frozen_files)
+        helper = _copy_trusted_helper(clone, runtime)
+        return _run_trusted_check(clone, helper, Path(directory) / "check-report.json", python, touched)
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Controller-side structural-search evaluation checks.")
+    sub = parser.add_subparsers(dest="command", required=True)
+    check = sub.add_parser("check", help="run a task's trusted agent-visible check on a candidate patch")
+    check.add_argument("--task", type=Path, required=True)
+    check.add_argument("--patch", type=Path, required=True)
+    check.add_argument("--runtime", type=Path, required=True)
+    args = parser.parse_args(argv)
+    print(json.dumps(check_first_attempt(args.task, args.patch, args.runtime), indent=2, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()

@@ -5,13 +5,17 @@ with scripted providers (no provider is called)."""
 import json
 import os
 import shutil
+import subprocess
 from difflib import ndiff
 from pathlib import Path
 from string import Template
+import sys
 
 import pytest
 
 from experiments.compare import prepare
+from experiments.compare.repos import build_candidate, git
+from experiments.orc_structural_search import evaluation
 from experiments.orc_structural_search.config import ExperimentConfig
 from experiments.orc_structural_search.evaluation import (
     EvaluationRecord, evaluate, evaluation_id, is_python, record_env_manifest, resume)
@@ -46,6 +50,101 @@ def run(world, timeout_sec=NO_KILL_SEC, candidate=None, config=CONFIG):
 
 def memo_rows(record):
     return [json.loads(line) for line in (record.state_dir / record.run_id / "memo.jsonl").read_text().splitlines()]
+
+
+def prepare_first_attempt_seed(world):
+    seed = world.task / "seed"
+    (seed / "tests" / "test_runtime_step_lifecycle.py").parent.mkdir(parents=True, exist_ok=True)
+    (seed / "tests" / "test_runtime_step_lifecycle.py").write_text(
+        "from pkg import VALUE\n\ndef test_runtime_step_lifecycle():\n    assert VALUE == 2\n")
+    (seed / "dev-check.json").write_text(json.dumps({
+        "argv": [sys.executable, "-m", "pytest", "-q", "-x", "tests/test_runtime_step_lifecycle.py",
+                 "tests/test_base_visible.py"],
+        "timeout_sec": 30}))
+
+
+def controller_patch(world, tmp_path, edit):
+    base = (world.task / "base_commit").read_text().strip()
+    clone = tmp_path / "patch-source"
+    seeded = build_candidate(world.runtime, base, world.task / "seed", clone)
+    edit(clone)
+    git(clone, "add", "-A", "-N", ".")
+    patch = tmp_path / "candidate.diff"
+    patch.write_bytes(git(clone, "diff", "--find-renames", "--binary", seeded, raw=True))
+    return patch
+
+
+def upstream_patch(world, tmp_path):
+    base = (world.task / "base_commit").read_text().strip()
+    patch = tmp_path / "upstream.diff"
+    patch.write_bytes(git(world.runtime, "diff", "--binary", base, world.solution, raw=True))
+    return patch
+
+
+def test_check_first_attempt_restores_frozen_files_before_running(world, tmp_path):
+    prepare_first_attempt_seed(world)
+
+    def fake_check(clone):
+        (clone / "dev-check.json").write_text(json.dumps({"argv": [sys.executable, "-c", "pass"],
+                                                           "timeout_sec": 30}))
+        (clone / "tests" / "test_runtime_step_lifecycle.py").write_text("def test_runtime_step_lifecycle(): pass\n")
+
+    patch = controller_patch(world, tmp_path, fake_check)
+    result = evaluation.check_first_attempt(world.task, patch, world.runtime)
+    assert (result["passed"], result["touched_frozen"]) == (
+        False, ["dev-check.json", "tests/test_runtime_step_lifecycle.py"])
+
+
+def test_check_first_attempt_fails_on_empty_base_patch(world, tmp_path):
+    prepare_first_attempt_seed(world)
+    patch = tmp_path / "empty.diff"
+    patch.write_text("")
+    result = evaluation.check_first_attempt(world.task, patch, world.runtime)
+    assert result["passed"] is False
+
+
+def test_check_first_attempt_passes_on_upstream_anchor(world, tmp_path):
+    prepare_first_attempt_seed(world)
+    patch = upstream_patch(world, tmp_path)
+    result = evaluation.check_first_attempt(world.task, patch, world.runtime)
+    assert result["passed"] is True
+
+
+def test_check_first_attempt_reports_frozen_test_deletion(world, tmp_path):
+    prepare_first_attempt_seed(world)
+    patch = controller_patch(world, tmp_path,
+                             lambda clone: (clone / "tests" / "test_runtime_step_lifecycle.py").unlink())
+    result = evaluation.check_first_attempt(world.task, patch, world.runtime)
+    assert (result["passed"], result["touched_frozen"]) == (
+        False, ["tests/test_runtime_step_lifecycle.py"])
+
+
+def test_check_first_attempt_reports_frozen_source_of_rename(world, tmp_path):
+    prepare_first_attempt_seed(world)
+    patch = controller_patch(
+        world, tmp_path,
+        lambda clone: (clone / "tests" / "test_runtime_step_lifecycle.py").rename(clone / "moved.py"))
+    result = evaluation.check_first_attempt(world.task, patch, world.runtime)
+    assert (result["passed"], result["touched_frozen"]) == (
+        False, ["tests/test_runtime_step_lifecycle.py"])
+
+
+def test_check_first_attempt_ignores_similarly_named_unfrozen_file(world, tmp_path):
+    prepare_first_attempt_seed(world)
+    patch = controller_patch(world, tmp_path,
+                             lambda clone: (clone / "dev-check.json.bak").write_text("candidate data\n"))
+    result = evaluation.check_first_attempt(world.task, patch, world.runtime)
+    assert result["touched_frozen"] == []
+
+
+def test_evaluation_check_cli_returns_json(world, tmp_path):
+    prepare_first_attempt_seed(world)
+    patch = tmp_path / "empty.diff"
+    patch.write_text("")
+    done = subprocess.run([sys.executable, "-m", "experiments.orc_structural_search.evaluation", "check",
+                           "--task", str(world.task), "--patch", str(patch), "--runtime", str(world.runtime)],
+                          check=True, capture_output=True, text=True)
+    assert json.loads(done.stdout)["passed"] is False
 
 
 def test_direct_seed_runs_in_fresh_clone_and_records_run_id(sandboxed, world):

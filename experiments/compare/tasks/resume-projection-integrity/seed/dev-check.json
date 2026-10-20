@@ -7,6 +7,7 @@
     "-x",
     "-p",
     "no:cacheprovider",
+    "tests/test_runtime_step_lifecycle.py",
     "tests/test_workflow_state_compatibility.py",
     "tests/test_at68_resume_force_restart.py",
     "tests/test_runtime_failure_persistence.py",

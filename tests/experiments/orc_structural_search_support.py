@@ -147,7 +147,8 @@ def world(tmp_path):
     task_repo = tmp_path / "task-repo"
     task_repo.mkdir()
     git(task_repo, "init", "-q")
-    base = commit(task_repo, {".gitignore": ".orchestrate/\n", "pkg/__init__.py": "VALUE = 1\n"}, "base")
+    base = commit(task_repo, {".gitignore": ".orchestrate/\n", "pkg/__init__.py": "VALUE = 1\n",
+                              "tests/test_base_visible.py": "def test_base_visible(): pass\n"}, "base")
     solution = commit(task_repo, {"pkg/__init__.py": "VALUE = 2\n"}, "solution")
     main, runtime = tmp_path / "main", tmp_path / "runtime"
     git(REPO, "clone", "-q", "--shared", "--no-checkout", str(REPO), str(main))
