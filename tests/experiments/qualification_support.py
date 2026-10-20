@@ -272,7 +272,8 @@ def qualified_v2(root, *, runtime=None, tasks=None, validation=None, sealed=None
         controls = {}
         for role in ('upstream', 'stub', 'partial', 'mutant'):
             patch = path / 'anchors' / f'{path.name}-{role}.diff'
-            patch.write_text(f'{path.name} {role} patch')
+            if not patch.exists():
+                patch.write_text(f'{path.name} {role} patch')
             controls[role] = {'label': patch.stem, 'source': ref(patch), 'pooled_patch_sha256': sha(patch)}
         anchors[path.name] = {role: info['label'] for role, info in controls.items()}
         measurements[path.name] = {'package_sha256': package_sha(path), 'controls': controls}
@@ -302,7 +303,7 @@ def qualified_v2(root, *, runtime=None, tasks=None, validation=None, sealed=None
             patch = direct / 'collected/final.diff'
             patch.parent.mkdir(parents=True)
             patch.write_text(f'{path.name} candidate {n}')
-            common = {'task': str(path), 'base': 'a' * 40, 'compare_base': 'b' * 40,
+            common = {'task': str(path), 'base': (path / 'base_commit').read_text().strip(), 'compare_base': 'b' * 40,
                 'runtime': str(runtime), 'runtime_commit': commit, 'outcome': 'completed', 'calls': 1,
                 'scan': {'calls': 1, 'hits': [], 'verdict': None}}
             direct_record = write(direct / 'record.json', common | {'arm': 'direct_task', 'records': str(direct),

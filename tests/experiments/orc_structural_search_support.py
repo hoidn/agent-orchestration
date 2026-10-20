@@ -29,6 +29,69 @@ from tests.experiments.compare_harness_support import OUTSIDE_SANDBOX_MOUNTS, co
 
 REPO = Path(__file__).resolve().parents[2]
 SEEDS = REPO / "experiments" / "orc_structural_search" / "seeds"
+_CAPPED_DIRECT = (SEEDS / 'direct.orc').read_text().replace('claude-sonnet-5-5', 'gpt-5.6-terra')
+MUTATOR_STEPPING_STONE = f'''#!{sys.executable} -I
+from pathlib import Path
+entry = next(path for path in Path('.').glob('*.orc') if path.stem != 'common')
+source = entry.read_text()
+base = {_CAPPED_DIRECT!r}
+if entry.stem != 'direct':
+    base = base.replace('(defmodule direct)', '(defmodule ' + entry.stem + ')').replace('(Change Outcome)', '(Change CheckReport Outcome)')
+start = base.index('(provider-result providers.coder')
+end = base.index(':timeout-sec 5400)', start) + len(':timeout-sec 5400)')
+call = base[start:end]
+if 'helper-b' in source:
+    record = '(defrecord CheckC (passed Bool) (failing List[String]) (excerpt String))\\n'
+    source = base.replace('(defworkflow run', record + '  (defworkflow run')
+    source = source.replace('((change ', '((check-c (command-result dev-check :argv ("python" "dev_check.py") :returns CheckC)) (change ')
+    source = source.replace(call, '(if check-c.passed ' + call + ' ' + call + ')')
+else:
+    bindings = ' '.join('(b' + str(i) + ' ' + call + ')' for i in range(2))
+    helper = '(defproc helper-b ((task String) (repo String)) -> Change :effects ((uses-provider providers.coder)) (let* (' + bindings + ') b' + str(len(bindings.split('(provider-result')) - 2) + '))\\n'
+    source = base.replace(call, '(helper-b task repo)').replace('(defworkflow run', helper + '  (defworkflow run')
+entry.write_text(source)
+'''
+MUTATOR_SAME_IDEA = f'''#!{sys.executable} -I
+import sys
+from pathlib import Path
+base = {_CAPPED_DIRECT!r}
+brief = Path('EPISODE.md').read_text()
+entry = next(path for path in Path('.').glob('*.orc') if path.stem != 'common')
+if entry.stem != 'direct':
+    base = base.replace('(defmodule direct)', '(defmodule ' + entry.stem + ')').replace('(Change Outcome)', '(Change CheckReport Outcome)')
+tried = any('control [if=1,' in line and 'check-gated no' in line for line in brief.splitlines())
+condition = 'true' if '--deaf' in sys.argv or not tried else '(not false)'
+if '--same-idea-new-skeleton' in sys.argv:
+    condition = '(and true true)'
+start = base.index('(provider-result providers.coder')
+end = base.index(':timeout-sec 5400)', start) + len(':timeout-sec 5400)')
+call = base[start:end]
+entry.write_text(base.replace(call, '(if ' + condition + ' ' + call + ' (record Change :summary "skipped" :account "skipped"))'))
+'''
+
+
+@pytest.fixture
+def synthetic_receipts(monkeypatch):
+    """Complete Terra native metadata per scripted shim call; no provider activity."""
+    import hashlib
+    from experiments.orc_structural_search import metering
+    def capture(records, **_context):
+        usage = []
+        paths = []
+        for call in sorted((Path(records) / 'calls').glob('*')):
+            native = call / 'synthetic-native.jsonl'
+            native.write_text(json.dumps({'type': 'turn_context', 'payload': {'model': 'gpt-5.6-terra'}}) + '\n')
+            paths.append(str(native))
+            metadata = Path(records) / 'record.json'
+            tokens = 200 if metadata.exists() and 'implement_check_diagnose_repair.orc' in metadata.read_text() else 100
+            usage.append({'call_id': call.name, 'provider': 'codex', 'status': 'complete', 'reason': None,
+                'usage': [{'model': 'gpt-5.6-terra', 'total_tokens': 120,
+                    'charge_tokens': {'input': tokens, 'output': tokens // 5, 'cache_read': 0, 'cache_write': 0},
+                    'provenance': {'complete_native_transcript': True, 'model_source': 'turn_context.model',
+                        'session_sha256': 'sha256:' + hashlib.sha256(native.read_bytes()).hexdigest()}}]})
+        return {'receipt_usage': usage, 'consumption': 'synthetic', 'native_session_paths': paths}
+    monkeypatch.setattr(metering, 'receipts', capture)
+    return capture
 PYTHON_PARENT = REPO / "experiments" / "orc_structural_search" / "three_arm" / "python"  # the I3 parent
 I3_CONFIG = ExperimentConfig(
     mutable_files=("direct.py",), mutable_definitions=("run",), condition="topology-only", interface="I3",

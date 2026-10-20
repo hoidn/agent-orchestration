@@ -147,6 +147,11 @@ def read_checkpoint(store: Store, campaign_id: str) -> dict | None:
     return state
 
 
+def tuples(value):
+    """Restore the tuple tree required by random.Random.setstate after JSON serialization."""
+    return tuple(tuples(v) for v in value) if isinstance(value, list) else value
+
+
 def campaign_candidates(store: Store, campaign_id: str, *, scheduled: Sequence[Mapping] = ()) -> dict[str, dict]:
     campaign, trials = find_campaign(store, campaign_id), store.index().trials
     held = [trials[t]["candidate_id"] for t in campaign["warm_start"]]
@@ -246,3 +251,12 @@ def append_record(log: Path, record: Mapping[str, object]) -> None:
 def read_records(log: Path) -> list[dict]:
     """Return every record in `log`, in append order."""
     return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines() if line]
+
+
+def prepare_log(evidence, continued):
+    path = evidence / 'log.jsonl'
+    if continued and not path.exists():
+        raise ValueError('resume requires its missing append-only log to be restored')
+    if path.exists() and not continued:
+        raise ValueError('fresh campaign evidence already contains a log; use resume')
+    path.touch(exist_ok=True)

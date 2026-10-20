@@ -285,3 +285,48 @@ def test_an_attempt_whose_records_exist_and_whose_id_is_logged_is_refused(world)
         evaluate_and_scan(root, launch_config(world, EVAL_CONFIG), task=world.task, replicate=1, work_root=work, evidence_root=evidence,
                           runtime=world.runtime, env=env, timeout_sec=600, solutions={world.task.name: world.solution},
                           holdouts=(), fields={}, call_cap=160, criterion=world.criterion)
+
+
+def test_campaign_elapsed_subtracts_the_union_of_overlapping_waits():
+    import threading
+    from experiments.orc_structural_search.quota import campaign_guard, campaign_elapsed
+    clock = FakeClock()
+    start = clock.now.timestamp()
+    state = {'started_at': start}
+    nested = False
+    def sleep(seconds):
+        nonlocal nested
+        if not nested:
+            nested = True
+            clock.now += timedelta(seconds=100)
+            guard.sleep(200)
+            clock.now = datetime.fromtimestamp(start + seconds, LA)
+        else:
+            clock.now += timedelta(seconds=seconds)
+    guard = campaign_guard(state, lambda: None, threading.RLock(), clock=lambda: clock.now, sleep=sleep)
+    guard.pause('rate limit reached')
+    guard.wait()
+    assert state['quota_intervals'] == [[start, start + 1800], [start + 100, start + 300]]
+    assert campaign_elapsed(state, start + 1900) == 100
+
+
+def test_campaign_resume_closes_an_interrupted_wait_and_retains_its_remaining_pause():
+    import copy
+    import threading
+    from experiments.orc_structural_search.quota import campaign_guard, campaign_elapsed
+    clock = FakeClock()
+    start = clock.now.timestamp()
+    state = {'started_at': start}
+    saved = []
+    guard = campaign_guard(state, lambda: saved.append(copy.deepcopy(state)), threading.RLock(),
+                           clock=lambda: clock.now, sleep=clock.sleep)
+    guard.pause('rate limit reached')
+    guard.wait()
+    interrupted = saved[0]
+    assert interrupted['quota_intervals'] == [[start, None]]
+    clock.now = datetime.fromtimestamp(start + 900, LA)
+    resumed = campaign_guard(interrupted, lambda: None, threading.RLock(),
+                             clock=lambda: clock.now, sleep=clock.sleep)
+    resumed.wait()
+    assert interrupted['quota_intervals'] == [[start, start + 900], [start + 900, start + 1800]]
+    assert campaign_elapsed(interrupted, start + 1900) == 100

@@ -437,3 +437,59 @@ def futility(outcomes: Sequence[str], *, consecutive: int) -> bool:
         else:
             raise ValueError(f"unknown episode outcome {outcome!r}")
     return streak >= consecutive
+
+
+def main(argv=None):
+    """Public C1 acquisition and adaptive execution; final-assessment commands have separate owners."""
+    import argparse
+    import shlex
+    from experiments.orc_structural_search import adaptive
+    from experiments.orc_structural_search.config import solution
+    parser = argparse.ArgumentParser(description='Cumulative structural search campaigns')
+    sub = parser.add_subparsers(dest='command', required=True)
+    for name in ('warm-start', 'run'):
+        command = sub.add_parser(name)
+        for option in ('config', 'criterion', 'store', 'work-root', 'evidence', 'pools-root', 'runtime',
+                       'validation-task', 'sealed-task'):
+            command.add_argument('--' + option, type=Path, required=True)
+        command.add_argument('--seeds', type=Path, nargs='+', required=True)
+        command.add_argument('--tasks', type=Path, nargs='+', required=True)
+        command.add_argument('--agent-cmd', required=True)
+        command.add_argument('--eval-timeout-sec', type=float, required=True)
+        command.add_argument('--call-cap', type=int, required=True)
+        command.add_argument('--concurrency', type=int, default=4)
+        command.add_argument('--solution', type=solution, action='append', required=True)
+        command.add_argument('--judge', action='append', required=True)
+        command.add_argument('--hide', type=Path, action='append', default=[])
+        command.add_argument('--continue', dest='continue_run', action='store_true')
+        if name == 'run':
+            command.add_argument('--label', required=True)
+            command.add_argument('--policy', choices=('frontier_only', 'mixture'), required=True)
+            command.add_argument('--generations', type=int, required=True)
+            command.add_argument('--episodes-per-generation', type=int, required=True)
+            command.add_argument('--run-seed', type=int, required=True)
+    args = parser.parse_args(argv)
+    launch = dict(work_root=args.work_root, evidence_root=args.evidence, pools_root=args.pools_root,
+        runtime=args.runtime, env=os.environ, timeout_sec=args.eval_timeout_sec, solutions=dict(args.solution),
+        call_cap=args.call_cap, concurrency=args.concurrency, agent_cmd=shlex.split(args.agent_cmd))
+    store = open_store(args.store, writer=True)
+    try:
+        if args.command == 'warm-start':
+            launch['holdouts'] = [args.validation_task, args.sealed_task]
+            launch['hide'] = args.hide
+            launch['resume'] = args.continue_run
+            result = adaptive.warm_start(store, args.criterion, args.config, seeds=args.seeds,
+                adaptive_tasks=args.tasks, launch=launch, judge={'criterion': args.criterion, 'judges': args.judge})
+        else:
+            result = adaptive.run_campaign(args.config, criterion=args.criterion, store=store,
+                seeds=args.seeds, adaptive_tasks=args.tasks, validation_task=args.validation_task,
+                sealed_task=args.sealed_task, label=args.label, policy=args.policy, generations=args.generations,
+                episodes_per_generation=args.episodes_per_generation, run_seed=args.run_seed,
+                judges=args.judge, hide=args.hide, continue_run=args.continue_run, **launch)
+    finally:
+        store.close()
+    print(json.dumps(result, indent=2))
+
+
+if __name__ == '__main__':
+    main()

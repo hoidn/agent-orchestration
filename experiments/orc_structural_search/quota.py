@@ -174,3 +174,39 @@ def prior_rows(work_root: Path, evidence_root: Path, continue_run: bool) -> list
     if foreign:
         raise ValueError(f"--continue needs the run's own work root: {foreign[0]} is not under {work_root}")
     return rows
+
+
+def campaign_guard(state, save, lock, *, clock=lambda: datetime.now(timezone.utc), sleep=time.sleep):
+    """Use the existing quota guard while checkpointing actual pause intervals, including interrupted waits."""
+    intervals = state.setdefault('quota_intervals', [])
+    now, until = clock().timestamp(), state.get('quota_until')
+    for interval in intervals:
+        if interval[1] is None:
+            interval[1] = min(now, until) if until is not None else now
+    def paused_sleep(seconds):
+        with lock:
+            position = len(intervals)
+            intervals.append([clock().timestamp(), None])
+            state['quota_until'] = guard.until.timestamp()
+            save()
+        try:
+            sleep(seconds)
+        finally:
+            with lock:
+                intervals[position][1] = clock().timestamp()
+                save()
+    guard = QuotaGuard(clock=clock, sleep=paused_sleep)
+    if until is not None:
+        guard.until = datetime.fromtimestamp(until, timezone.utc)
+    return guard
+
+
+def campaign_elapsed(state, now):
+    """Controller wall time minus the union of actual quota waits; unit duration accounting stays separate."""
+    intervals = sorted((start, min(now, end if end is not None else state.get('quota_until', now)))
+                       for start, end in state.get('quota_intervals', ()))
+    paused, last = 0, float('-inf')
+    for start, end in intervals:
+        paused += max(0, end - max(start, last))
+        last = max(last, end)
+    return max(0, now - state['started_at'] - paused)

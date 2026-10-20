@@ -14,6 +14,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 SEED_COMMIT = ("-c", "user.name=compare", "-c", "user.email=compare@example.invalid",
@@ -97,6 +98,17 @@ def patch_of(repo, base):
     git(repo, "reset", "-q")
     git(repo, "add", "-A", "-N", ".")
     return patch
+
+
+def isolated_patch(repo, base):
+    """Capture current tracked/new files through a temporary copy of the real index."""
+    index = Path(git(repo, 'rev-parse', '--path-format=absolute', '--git-path', 'index'))
+    with tempfile.TemporaryDirectory() as directory:
+        copied = Path(directory) / 'index'
+        shutil.copy2(index, copied)
+        env = {'GIT_INDEX_FILE': str(copied)}
+        git(repo, 'add', '-A', '-N', '.', env=env)
+        return git(repo, 'diff', *DIFF_FLAGS, base, env=env, raw=True)
 
 
 def random_child(parent):

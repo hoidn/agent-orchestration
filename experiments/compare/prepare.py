@@ -39,14 +39,14 @@ from pathlib import Path
 try:
     from . import pool as pooling, scan as contamination  # imported as experiments.compare.prepare
     from .repos import (
-        build_candidate, dump, git, guard, load,
+        build_candidate, dump, git, guard, load, isolated_patch,
         main_checkout, random_child, runtime_commit, sha256_file, shim_commands, shim_prefix, visible_in_sandbox,
     )
 except ImportError:  # run as a script
     import pool as pooling
     import scan as contamination
     from repos import (
-        build_candidate, dump, git, guard, load,
+        build_candidate, dump, git, guard, load, isolated_patch,
         main_checkout, random_child, runtime_commit, sha256_file, shim_commands, shim_prefix, visible_in_sandbox,
     )
 
@@ -363,12 +363,26 @@ def collect(records):
     record.update(outcome_of(record, rows[-1], names), patches={}, calls=len(calls),
                   wall_clock_sec=memo.stat().st_mtime - first_start)  # until the memo's last write
     if record["outcome"] == "completed":
-        record["patches"] = copy_patches(records, comparator_patches(record["arm"], committed, names))
+        record["patches"] = collected_patches(records, record, calls, committed, names)
     if record["arm"] == "review_once" and record["patches"]:  # the reviewer may change only ignored files
         # ponytail: byte comparison; a hand-written --apply patch (no `index` lines) reads as changed
         record["candidate_changed"] = sha256_file(records / record["patches"]["final"]) != record["applied"]["sha256"]
     dump(records / "record.json", record)
     return record
+
+
+def collected_patches(records, record, calls, committed, names):
+    if calls or record.get('arm_kind') != 'orc' or record['arm'] in ARMS:
+        return copy_patches(records, comparator_patches(record['arm'], committed, names))
+    if len(names) != 1 or committed or not (records / 'calls').is_dir():
+        raise SystemExit(f'{records}: zero-call ORC final lacks physical empty call coverage')
+    patch = isolated_patch(Path(record['candidates'][0]), record['compare_base'])
+    target = records / 'collected/final.diff'
+    if target.exists() and target.read_bytes() != patch:
+        raise SystemExit(f'{records}: collected zero-call final changed')
+    target.parent.mkdir(exist_ok=True)
+    target.write_bytes(patch)
+    return {'final': 'collected/final.diff'}
 
 
 def scan(records, solution, home=None, roots=(), others=()):

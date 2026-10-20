@@ -6,6 +6,7 @@ command line.
 
 import itertools
 import json
+import hashlib
 import tempfile
 from dataclasses import replace
 from collections.abc import Mapping, Sequence
@@ -125,6 +126,12 @@ def archive_seed(seed: Path, evidence_root: Path, runtime: Path) -> tuple[str, P
         for name, data in seed_files(seed).items():
             (Path(staging) / name).write_bytes(data)
         return archive(Path(staging), evidence_root, runtime)
+
+
+def seed_digest(seed: Path) -> str:
+    """Freeze the complete archived seed input, including imports and provider files."""
+    value = {name: hashlib.sha256(data).hexdigest() for name, data in seed_files(seed).items()}
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
 def seed_config(seed: Path, config: ExperimentConfig) -> ExperimentConfig:

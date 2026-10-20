@@ -224,3 +224,16 @@ def _calls(form: SExpr, definitions: dict[str, ListExpr], stack: tuple[str, ...]
     if callee in definitions and head not in DEFINITIONS:
         inner += _call(callee, definitions, stack)
     return (head == "provider-result") + (_bound(form.items) * inner if inner else 0)
+
+
+def check_budget(evidence_root, planned, cap, what):
+    used = total(_read(evidence_root / LEDGER))
+    if used + planned > cap:
+        raise CallCapExceeded(f'{what}: {used} recorded/reserved + {planned} planned exceeds call cap {cap}')
+
+
+
+def planned_judged(calls, tasks, replicates, judges, *, capacities=None):
+    from experiments.orc_structural_search import scoring
+    capacities = capacities if capacities is not None else [scoring.BATCH_CLONES - scoring.ANCHORS_PER_BATCH] * tasks
+    return tasks * replicates * sum(calls) + sum(math.ceil(len(calls) * replicates / cap) for cap in capacities) * judges

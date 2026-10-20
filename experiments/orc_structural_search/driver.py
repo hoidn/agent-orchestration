@@ -114,7 +114,7 @@ def logged_evaluations(evidence_root: Path) -> set[str]:
 def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, replicate: int, work_root: Path,
                       evidence_root: Path, runtime: Path, env: Mapping[str, str], timeout_sec: float,
                       solutions: Mapping[str, str], holdouts: Sequence[Path], fields: Mapping[str, object],
-                      call_cap: int, attempt: int = 1, criterion: Path | None = None) -> dict:
+                      call_cap: int, attempt: int = 1, criterion: Path | None = None, scan_roots=()) -> dict:
     """Evaluate the archived `root` once as `attempt` (refused beyond the call cap), scan the run and append the
     evaluation record (with `fields`) to the log."""
     cid, env = check_archived(root, runtime_commit(runtime)), {**env, **LAUNCH_ENV}
@@ -128,10 +128,12 @@ def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, repli
     slot = ledger.reserve(evidence_root, kind="evaluation", key=key(attempt), planned=planned, cap=call_cap)
     env["COMPARE_MAX_CALLS"] = str(planned)
     record = evaluate(root, config, task_package=task, work_root=work_root, replicate=replicate,
-                      runtime=runtime, env=env, timeout_sec=timeout_sec, attempt=attempt, criterion=criterion)
+                      runtime=runtime, env=qualification.hidden_env(env, scan_roots), timeout_sec=timeout_sec, attempt=attempt, criterion=criterion)
+    (record.records_dir / 'calls').mkdir(exist_ok=True)
     ledger.settle(evidence_root, slot, record.records_dir, evaluation_id=record.evaluation_id)
     roots = [("archive", evidence_root), ("archive", work_root / "episodes"), ("lineage", evidence_root / "log.jsonl"),
-             *(("holdout", holdout) for holdout in holdouts), *(("qualification", path) for path in private)]
+             *(("holdout", holdout) for holdout in holdouts), *(("qualification", path) for path in private),
+             *(("archive", path) for path in scan_roots)]
     # the other evaluations' runs: an ORC run's scan finds them beside its state root; an I3 run's state is in its clone
     runs = [path.name for path in (work_root / "runs").glob("*") if path.name != record.evaluation_id]
     hits, scan_error = settle_scan(record.records_dir, lambda: prepare.scan(
@@ -321,7 +323,7 @@ def episode_diff(parent: Path, child: Path) -> str:
 
 
 def scan_episode(records: Path, tree: Path, *, runtime: Path, work_root: Path, evidence_root: Path,
-                 solutions: Mapping[str, str], holdouts: Sequence[Path], created_at: float, private=()) -> list[dict]:
+                 solutions: Mapping[str, str], holdouts: Sequence[Path], created_at: float, private=(), hide=()) -> list[dict]:
     """`prepare.scan` over the episode's shim records, once per distinct solution hash until one scan hits; its
     record.json then holds the scan that hit (or the last one). The work root's evaluation directories are archive
     roots; the work root itself is none (the episode's own tree lies under it)."""
@@ -329,7 +331,8 @@ def scan_episode(records: Path, tree: Path, *, runtime: Path, work_root: Path, e
                                    "created_at": created_at})
     roots = [("archive", evidence_root), ("lineage", evidence_root / "log.jsonl"),
              *(("archive", work_root / name) for name in ("records", "runs", "agents", "env-manifests")),
-             *(("holdout", holdout) for holdout in holdouts), *(("qualification", path) for path in private)]
+             *(("holdout", holdout) for holdout in holdouts), *(("qualification", path) for path in private),
+             *(("archive", path) for path in hide)]
     # ponytail: stops at the first hit; after clearing that scan, rescan with the remaining hashes (prepare.py scan)
     for solution in sorted(set(solutions.values())):
         hits = prepare.scan(records, solution, roots=roots)
@@ -395,6 +398,7 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
     copy, base = episode_workspace(parent_root, tree, brief, runtime, config=config, site=site,
                                    parent_candidate_id=parent_id)
     records.mkdir(parents=True)
+    (records / 'calls').mkdir()
     created_at, started = time.time(), time.monotonic()
     hidden = hidden_roots(work_root, evidence_root, [*hide, *private])
     shim_env = {"COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": base, "TMPDIR": tree / "tmp",
@@ -410,7 +414,7 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
     incidents = [f"{PREFIX}{quota}"] * bool(quota)
     hits, scan_error = settle_scan(records, lambda: scan_episode(
         records, tree, runtime=runtime, work_root=work_root, evidence_root=evidence_root,
-        solutions=solutions, holdouts=holdouts, created_at=created_at, private=private))
+        solutions=solutions, holdouts=holdouts, created_at=created_at, private=private, hide=hide))
     if scan_error:
         incidents.insert(0, scan_error)
     (copy / EPISODE).unlink(missing_ok=True)
@@ -423,7 +427,7 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
            "site_id": site_id, "feedback": feedback, "parent_candidate_id": parent_id,
            "candidate_id": candidate_id(copy, orchestrator_commit=commit), "agent_cmd": list(agent_cmd),
            "agent_exit": status, "envelope": {"wall_clock_sec": config.episode_wall_clock_sec},
-           "wall_clock_sec": elapsed, "provider_calls": calls,
+           "wall_clock_sec": elapsed, "provider_calls": calls, "records_dir": str(records),
            "scan_hits": len(hits) if scan_error is None else UNAVAILABLE, "scan_pending": bool(hits),
            "scan_error": scan_error,
            "workspace_intact": intact, "incidents": incidents, "hidden_roots": [str(root) for root in hidden],

@@ -429,3 +429,16 @@ def campaign_power(power):
         positive(value, 'campaign SD bracket')
     require(bracket[0] < bracket[1], 'C1 power bracket must increase')
     require(power['statement'] == 'descriptive pilot; no policy claim', 'C1 power statement must remain descriptive')
+
+
+def check_warm_inputs(frozen, seeds, tasks, launch):
+    if launch['concurrency'] != frozen['envelope']['concurrency']:
+        raise ValueError('warm concurrency differs from frozen acquisition')
+    if launch['call_cap'] != frozen['budget']['steps']['P0']['cap'] or sorted(p.stem for p in seeds) != sorted(frozen['horizon']['warm_start']['seeds']):
+        raise ValueError('warm start cap or seeds differ from frozen acquisition')
+    runtime = launch['runtime']
+    actual = {Path(t).resolve() for t in tasks}
+    if actual != {(runtime / t).resolve() for t in frozen['tasks']}:
+        raise ValueError('warm adaptive tasks differ from frozen packages')
+    if {Path(t).resolve() for t in launch.get('holdouts', ())} != {(runtime / frozen[k]).resolve() for k in ('validation_task', 'sealed_task')}:
+        raise ValueError('warm holdouts differ from frozen validation and sealed packages')

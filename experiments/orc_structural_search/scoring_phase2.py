@@ -292,3 +292,191 @@ def phase2_readout(logs: Sequence[Path], archives: Sequence[Path], validation_po
         return result | dict.fromkeys(("validation", "unvalued", "final_choice", "rule", "anchors_ok",
                                        "anchor_spread", "spread_ok"), UNAVAILABLE)
     return result | validation_readout(validation_pool, runs, ref, rules, sha)
+
+
+# Historical Phase 2 archive interpreters remain public through adaptive reexports.
+import random
+from experiments.orc_structural_search.config import ExperimentConfig
+from experiments.orc_structural_search.driver import check_solutions
+from experiments.orc_structural_search.mode1 import seed_config
+from experiments.orc_structural_search.readout import readout
+from experiments.orc_structural_search.scoring import primary_value
+ADAPTIVE, PRIOR, ARCHIVE_SIZE, VALIDATION = "adaptive", "phase1-prior", 6, "validation"
+
+
+def rank(entry: Mapping) -> tuple:
+    return -entry["mean_value"], entry["mean_calls"], entry["candidate_id"]
+
+
+
+def make_entry(rows: Sequence[Mapping], tasks: Sequence[str], **fields: object) -> dict | None:
+    """The entry (`fields` plus values and means) of one candidate's scored rows (any outcome); None unless it has a
+    primary value (scoring.primary_value: a completed run's value, 0 for a failed run; incidents and unvalued runs
+    left out) on every task of `tasks`."""
+    counted = [row for row in rows if primary_value(row) is not None]
+    values: dict[str, list] = {}
+    for row in counted:
+        values.setdefault(row["task"], []).append(primary_value(row))
+    if not tasks or set(values) != set(tasks):
+        return None
+    calls = [row["calls"] for row in counted]
+    return {**fields, "values": values, "calls": calls, "mean_value": mean(mean(v) for v in values.values()),
+            "mean_calls": mean(calls)}
+
+
+
+def initial_archive(phase1_rows: Sequence[Mapping], catalog_roots: Mapping[str, str], *,
+                    tasks: Sequence[str]) -> list[dict]:
+    """One prior entry per seed of `catalog_roots` (stem -> this run's archived root) from its `catalog` rows of
+    Phase 1's joined rows, valued on every adaptive task of `tasks` (names); ranked. Refuses a row of another task
+    and an archive without `direct`."""
+    stray = sorted({row["task"] for row in phase1_rows} - set(tasks))
+    if stray:
+        raise ValueError(f"Phase 1 rows of tasks {stray}, which are not the adaptive tasks {sorted(tasks)}")
+    entries = []
+    for stem, root in sorted(catalog_roots.items()):
+        rows = [row for row in phase1_rows if row["mode"] == "catalog" and row["policy"] == stem]
+        found = make_entry(rows, tasks, candidate_id=Path(root).name, candidate_root=str(root), seed=stem,
+                           module=stem, evidence=PRIOR, generation=0)
+        entries += [found] if found else []
+    if not any(entry["seed"] == DIRECT for entry in entries):
+        raise ValueError(f"no Phase 1 values of the {DIRECT} seed on every task {tasks}: the Phase 2 readout needs "
+                         "its archive entry")
+    return sorted(entries, key=rank)
+
+
+
+def incumbent(entries: Sequence[Mapping]) -> dict:
+    return min(entries, key=rank)
+
+
+
+def dominates(a: Mapping, b: Mapping) -> bool:
+    return (a["mean_value"] >= b["mean_value"] and a["mean_calls"] <= b["mean_calls"]
+            and (a["mean_value"], a["mean_calls"]) != (b["mean_value"], b["mean_calls"]))
+
+
+
+def frontier(entries: Sequence[Mapping]) -> list[dict]:
+    """The non-dominated entries, ranked (the incumbent first)."""
+    return sorted((e for e in entries if not any(dominates(other, e) for other in entries)), key=rank)
+
+
+
+def prune(entries: Sequence[Mapping], size: int = ARCHIVE_SIZE) -> list[dict]:
+    # ponytail: a frontier wider than size + 1 keeps its best-valued members; crowding distance if spread matters
+    return frontier(entries)[:size + 1]
+
+
+
+def retain(entries: Sequence[Mapping], child: Mapping, *, size: int = ARCHIVE_SIZE) -> list[dict]:
+    """The archive after offering `child` (an entry of the same id is replaced): it enters when non-dominated."""
+    return prune([e for e in entries if e["candidate_id"] != child["candidate_id"]] + [dict(child)], size)
+
+
+
+def select_parent(entries: Sequence[Mapping], rng: random.Random) -> dict:
+    return rng.choice(list(entries))
+
+
+
+def terminal(value: object) -> str:
+    return value.get("variant", UNAVAILABLE) if isinstance(value, dict) else UNAVAILABLE
+
+
+
+def feedback(entry: Mapping, evaluations: Sequence[Mapping]) -> dict:
+    """Decision 7: the entry's judged mean and n per task, and the outcome, terminal variant, provider calls and
+    wall clock of its own adaptive evaluations among `evaluations` (log rows); nothing else."""
+    mine = [r for r in evaluations if r["kind"] == "evaluation" and r["candidate_id"] == entry["candidate_id"]
+            and r.get("split") == ADAPTIVE]
+    return {"mean_value": {task: {"mean": mean(v), "n": len(v)} for task, v in sorted(entry["values"].items())},
+            "runs": [{"task": r["task_id"], "outcome": r["outcome"], "terminal": terminal(r["value"]),
+                      "provider_calls": r["provider_calls"], "wall_clock_sec": r["wall_clock_sec"]} for r in mine]}
+
+
+
+def lineage_config(entry: Mapping, config: ExperimentConfig) -> ExperimentConfig:
+    return seed_config(Path(f"{entry['module']}.orc"), config)
+
+
+
+def write_archive(evidence_root: Path, generation: int, entries: Sequence[Mapping]) -> None:
+    (evidence_root / "archive").mkdir(exist_ok=True)
+    text = json.dumps(list(entries), indent=2, sort_keys=True) + "\n"
+    (evidence_root / "archive" / f"gen-{generation}.json").write_text(text)
+
+
+
+def mode2_readout(rows: Sequence[Mapping], archive_dir: Path) -> dict:
+    """Per interface, the mode 1 readout of its episodes; the archive trajectory (incumbent per generation)."""
+    episodes = [row for row in rows if row["kind"] == "episode"]
+    interfaces = {name: readout([row for row in episodes if row["interface"] == name])
+                  for name in sorted({row["interface"] for row in episodes})}
+    trajectory = [{"generation": n, "size": len(entries), "incumbent": incumbent(entries)["candidate_id"],
+                   "mean_value": incumbent(entries)["mean_value"], "mean_calls": incumbent(entries)["mean_calls"]}
+                  for n, entries in archive_files(archive_dir)]
+    return {"interfaces": interfaces, "trajectory": trajectory}
+
+
+
+def validate_finalists(archive_path: Path, *, config: ExperimentConfig, validation_task: Path, launch: Mapping,
+                       judge: Mapping, replicates: int = 2, finalists: int = 2) -> list[dict]:
+    """Evaluate the top `finalists` of the archive file by rank, and the gen-0 entries of the reference (the log's
+    `reference` row) and `direct` (each candidate once), `replicates` times on the validation task (`split:
+    "validation"`, no holdout root: the task is no longer held out) and judge them in one pool; the joined rows.
+    `launch` is run_mode2's; its pools root and the validation task's solution are checked again."""
+    from experiments.orc_structural_search.adaptive import evaluate_and_judge, check_pools_root
+    evidence_root = Path(launch["evidence_root"])
+    check_pools_root(launch["pools_root"], launch["work_root"], evidence_root)
+    solutions = check_solutions([validation_task], launch["solutions"], launch["runtime"])
+    log = evidence_root / "log.jsonl"
+    ref = reference([log], [read_records(log)])
+    initial = json.loads((Path(archive_path).parent / "gen-0.json").read_text())
+    named = [e for e in initial if e["candidate_id"] == ref or e["seed"] == DIRECT]
+    if not ({ref} <= {e["candidate_id"] for e in named} and any(e["seed"] == DIRECT for e in named)):
+        raise ValueError(f"gen-0.json beside {archive_path} lacks the reference {ref} or the {DIRECT} seed entry")
+    candidates: dict[str, Mapping] = {}
+    for entry in sorted(json.loads(Path(archive_path).read_text()), key=rank)[:finalists] + named:
+        candidates.setdefault(entry["candidate_id"], entry)
+    jobs = [(Path(e["candidate_root"]), lineage_config(e, config),
+             {"mode": ADAPTIVE, "split": VALIDATION, "generation": -1, "seed": e["seed"], "candidate_id": cid,
+              "candidate_root": e["candidate_root"]}) for cid, e in candidates.items()]
+    return evaluate_and_judge(jobs, -1, [validation_task], replicates=replicates,
+                              launch={**launch, "holdouts": (), "solutions": solutions}, judge=judge,
+                              include=lambda row: row.get("split") == VALIDATION)
+
+
+
+from experiments.orc_structural_search import qualification
+from experiments.orc_structural_search.config import load_config
+
+
+def check_splits(adaptive_tasks, validation_task, criterion):
+    names, validation = sorted(Path(t).name for t in adaptive_tasks), Path(validation_task).name
+    frozen = json.loads(Path(criterion).read_text())
+    if validation in names:
+        raise ValueError(f'the validation task {validation} is among the adaptive tasks {names}')
+    expected = sorted(Path(t).name for t in frozen['adaptive_tasks']), Path(frozen['validation_task']).name
+    if (names, validation) != expected:
+        raise ValueError(f'adaptive tasks {names} and validation task {validation} are not the criterion\'s {expected}')
+
+
+
+def check_pools_root(pools_root, work_root, evidence_root):
+    pool = Path(pools_root).resolve()
+    if any(pool.is_relative_to(root) or root.is_relative_to(pool) for root in (Path(work_root).resolve(), Path(evidence_root).resolve())):
+        raise ValueError('the pools root must lie outside and hold neither work nor evidence root')
+    return pool
+
+
+
+def run_mode2(config_path, *, phase1_joined, seeds, adaptive_tasks, validation_task, generations,
+              episodes_per_generation, run_seed, work_root, evidence_root, agent_cmd, runtime, env,
+              timeout_sec, solutions, call_cap, concurrency, criterion, judges, pools_root, scorer=None):
+    config = load_config(config_path)
+    check_splits(adaptive_tasks, validation_task, criterion)
+    check_pools_root(pools_root, work_root, evidence_root)
+    qualification.validate(criterion, tasks=[*adaptive_tasks, validation_task], config_sha256=config.criterion_sha256,
+                           runtime=runtime, judges=judges, operation='launch')
+    raise ValueError('successor adaptive selection is unsupported; frozen Phase 2 is read-only')
