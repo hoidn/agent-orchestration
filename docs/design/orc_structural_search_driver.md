@@ -233,6 +233,28 @@ the checked-program planned maximum and hard per-evaluation shim cap are already
 required for module v1, independently of bundle imports
 ([decision and rationale](../plans/2026-10-19-orc-structural-search-module-rewrite-plan.md#deferred-bundle-imports)).
 
+**Closed-program reservation.** The module bound starts at the checked entry
+body and follows only closed-program AST edges, never arbitrary mappings inside
+literal data. A provider `perform` contributes one plus the bounds of its
+evaluated inputs; the counter includes provider classes that admission separately
+refuses. A resolved call contributes its evaluated arguments plus its callee's
+body **per invocation**, including imported definitions and resolved procedure
+references. Memoizing a callee's bound does not deduplicate its invocations.
+Sequencing sums; summing alternative paths is an admitted conservative bound.
+Unknown calls, recursive cycles and unsupported accounting shapes refuse as
+`unbounded_calls`.
+
+For a loop, use the artifact's actual literal integer `budget`: the bound is
+`B(budget) + B(init) + max(0, budget) * B(body) + B(exhausted)`; exhaustion
+therefore remains counted at budget zero. Nested loops apply the same recurrence.
+A `par-map` uses its checked nonnegative integer maximum and counts the source
+once plus that maximum times workspace and body. An effectful `list_map` needs
+a source whose literal list cardinality is provable; otherwise it fails closed.
+Reserve the resulting maximum before launch and enforce that same cap in both
+provider shims, including concurrent attempts, retries, resumes and zero cap.
+The existing admission policies, structured diagnostics and refusal codes remain
+unchanged; this bound does not admit an otherwise unsupported effect shape.
+
 **One-site transaction (I2).** The receipt is derived from the final diff:
 
 ```json
@@ -536,6 +558,207 @@ and a family every seed solves or every seed fails is uninformative. Family
 ([Task 8](../plans/2026-10-14-effectiveness-harness-and-experiments-plan.md#task-8-task-difficulty-calibration));
 family (b) qualification shows the oracle accepting two structurally
 different correct submissions and rejecting a broken one.
+
+### External Qualification Receipt
+
+The structural-search apparatus validates precalibration already performed; it
+does not launch calibration or infer owner approval from a receipt. New
+calibration remains a separate, owner-approved experiment with its own declared
+positive provider-call cap and only declared control or difficulty jobs. The
+generic comparison harness's launchers are outside this structural-search
+contract; adding this gate does not claim to govern their independent callers.
+
+A criterion's `purpose` is `quality`, `measure-free` or `calibration`; omission
+means `quality`. Structural-search launchers reject `calibration`, so relabeling
+a candidate cannot obtain the calibration exemption. Quality requires an
+explicit criterion file, a matching configuration `criterion_sha256`, and a
+valid `qualification: {file, sha256}` reference. A missing criterion is not a
+measure-free request. Launching without qualification requires an explicit
+criterion with `purpose: "measure-free"`; it permits compile, execution and cost
+figures, but no judging or adaptive selection based on quality.
+
+Readout alone also accepts an explicit `--measure-free` option (and corresponding
+function keyword) to project historical evidence without changing frozen
+criterion bytes. This projection declares its mode and emits no quality means,
+comparisons, frontier, improvements or quality-based decisions. Without that
+option or a measure-free criterion, invalid qualification raises an error; there
+is no implicit downgrade. Historical criteria and missing-row-hash exceptions
+provide no fresh quality-launch or quality-claim exemption.
+
+Both study and measure-calibration criteria use the same `measurement` identity
+block below. The study retains its existing top-level `tasks` list of paths;
+`measurement.tasks` is a separate map keyed by task ID. A calibration criterion
+has `purpose: "calibration"`, `calibration_kind: "measure"`, its own positive
+`budget.call_cap`, and this measurement block; it declares no search candidates.
+The placeholders illustrate a schema, not a frozen study or provider allocation.
+
+```json
+{
+  "purpose": "quality",
+  "tasks": ["experiments/compare/tasks/resume-projection-integrity"],
+  "judges": ["gpt-6.1-sol"],
+  "calibration": {"margin": 2.0, "error_rate": 0.0},
+  "qualification": {"file": "/external/qualification.json", "sha256": "..."},
+  "measurement": {
+    "evaluator": {
+      "score_workflow": {"file": "/frozen/score.orc", "sha256": "..."},
+      "judges": {
+        "gpt-6.1-sol": {
+          "effort": "high",
+          "providers": {"file": "/frozen/score_codex.json", "sha256": "..."}
+        }
+      }
+    },
+    "tasks": {
+      "resume-projection-integrity": {
+        "package_sha256": "...",
+        "controls": {
+          "upstream": {
+            "label": "resume-projection-integrity-upstream",
+            "source": {"file": "/frozen/upstream.diff", "sha256": "..."},
+            "pooled_patch_sha256": "..."
+          },
+          "stub": {
+            "label": "resume-projection-integrity-stub",
+            "source": {"file": "/frozen/stub.diff", "sha256": "..."},
+            "pooled_patch_sha256": "..."
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Every reference is `{file, sha256}`, identifying the file's bytes with a bare
+hexadecimal SHA-256. Resolve relative paths against the containing JSON file.
+Verify referenced bytes before comparing identities. Compare normalized
+measurement blocks with references represented by their SHA, ignoring only the
+reference's file location. Do not compare whole study/calibration criterion
+hashes: their purposes and budgets differ. The declared judge set must equal the
+criterion's judges and actual dispatch judges. V1 uses the existing `score.orc`
+rubric and its fixed `high` effort. Verify the workflow and provider-binding
+bytes actually selected by the study runtime and judge arguments, not merely
+files named in the receipt. Control sources must match the study task's anchors.
+The pooled patch SHA identifies the recorded, normalized clone diff, which need
+not equal the source diff's bytes after stripping and application.
+
+The external receipt has the following shape. Samples are in their original
+order; this abbreviated example shows only one sample, whereas qualification
+requires the count specified below.
+
+```json
+{
+  "schema": "orc-structural-qualification-v1",
+  "family": {
+    "kind": "review-blockers-r55",
+    "rule": {"file": "/frozen/calibration.json", "sha256": "..."},
+    "tasks": {
+      "resume-projection-integrity": {
+        "package_sha256": "...",
+        "sources": [{"file": "/evidence/rung-2-calibration.json", "sha256": "..."}],
+        "samples": [{
+          "direct_record": {"file": "/evidence/direct-1/record.json", "sha256": "..."},
+          "direct_inputs": {"file": "/evidence/direct-1/inputs.json", "sha256": "..."},
+          "patch": {"file": "/evidence/direct-1/collected/final.diff", "sha256": "..."},
+          "review_record": {"file": "/evidence/review-1/record.json", "sha256": "..."}
+        }]
+      }
+    }
+  },
+  "measure": {
+    "criterion": {"file": "/calibration/criterion.json", "sha256": "..."},
+    "pools": [{
+      "task_id": "resume-projection-integrity",
+      "mapping": {"file": "/calibration/records/mapping.json", "sha256": "..."},
+      "results": {"file": "/calibration/records/results.json", "sha256": "..."},
+      "patches": {
+        "clone-upstream": {"file": "/calibration/records/patches/clone-upstream.diff", "sha256": "..."},
+        "clone-stub": {"file": "/calibration/records/patches/clone-stub.diff", "sha256": "..."}
+      }
+    }]
+  }
+}
+```
+
+Validation rejects unknown schemas, malformed fields, duplicate identities,
+missing evidence or mismatched hashes. Verify all referenced sources; neither
+`qualified` booleans nor summary means are authority. The receipt must cover
+every task used. Recompute each package hash using the existing difficulty
+criterion's method: sort regular files by their `./` relative paths, hash each,
+then hash the concatenated `sha256sum` lines. V1 rejects symlinks and filenames
+requiring escaped `sha256sum` output rather than silently changing that method.
+Compare the package with both family and measurement evidence.
+
+**Family (a).** V1 admits the frozen R55 rule in
+[`calibration.json`](../../experiments/compare/criteria/calibration.json), SHA
+`9faa4c01d0e3f231278f85d809a3e0d3bb3f64813cd59afba690089afd355f46`.
+The [continuation](../../experiments/compare/criteria/calibration-continuation.json),
+SHA `c6cfb85a9b21268fcffb32209fa45974ca139743c3cc1cdb0444d04e7c37efc9`,
+and difficulty summaries can be hashed sources of provenance; their stored
+qualification decisions do not replace the calculation.
+
+Each sample requires a completed `direct_task`, its frozen control model/effort
+inputs and its final diff. Validate common task/base, unique original run
+identities and sample order. A nonempty diff requires a completed `review_once`:
+its `applied.sha256` must equal the diff's hash and its `applied.path` must name
+the direct record's original `records` plus `patches.final`, even when archived
+copies live elsewhere. Apply the harness's `pool.exclusion` scan/call rules to
+both records. Recompute with `prepare.blockers` from the recorded review value:
+`REQUEST_CHANGES` counts every finding, `WRONG_APPROACH` counts one, and `APPROVE`
+or `NEEDS_HUMAN` counts zero. Validate variants and findings types first. A
+completed empty diff counts one and has `review_record: null`.
+
+For exactly two initial samples, mean blockers below 1 fails and a mean at
+least 1.5 qualifies. A mean in `[1, 1.5)` requires exactly a third sample and a
+three-sample mean at least 1. An absent third sample is unresolved, not zero;
+additional selectively chosen samples do not qualify. Hidden-test fractions
+remain descriptive. V1 rejects ambiguous replacement/failure histories instead
+of adapting every historical report dialect or accepting its summary boolean.
+
+**Measure.** Verify that the calibration criterion's hash equals both the pool
+mapping and results `criterion_sha256`. Its calibration margin and error rate
+must match the study's: margin is finite and nonnegative; error rate is finite
+in `[0, 1]`, default zero; booleans are not numbers. Reuse the harness's mapping
+and clone-ID-joined results shapes. Each nonempty batch contains exactly one
+declared upstream and stub control. Every pooled clone is a declared anchor
+(`arm: "anchor"`, `run: null`), with matching label and recorded patch hash;
+candidate evaluations cannot appear in calibration pools.
+
+For each task, the denominator is all declared judges times all declared
+batches, including excluded judges. Recompute each control total from the four
+integer `[0, 2]` rating components `root_cause`, `scope`, `generality` and
+`layering` in `results.clones[cid].ratings[judge]`. A pair passes iff upstream
+minus stub is at least the frozen margin. Excluded judges or missing ratings
+fail that pair; contradictory clone identities or batch membership invalidate
+the receipt. Every declared judge must have at least one observed pair, so a
+wholly absent judge cannot qualify through tolerance. The task passes iff its
+failing-pair fraction is at most the frozen error rate; one task cannot compensate
+for another. Candidate ranks and `results.verdict` impose no condition. In-run
+anchors remain monitoring evidence, never a substitute for this precalibration.
+
+**Family (b).** The narrow alternative is `family.kind: "oracle-controls-v1"`
+with a hashed frozen rule declaring the oracle, its check names and exactly
+three controls. Two controls have `expected: "accept"`, distinct submission
+hashes and distinct predeclared `structure_class` values; the third has
+`expected: "reject"`. Each control references its submission and result; the
+result identifies the submission hash and results for exactly the frozen checks.
+All checks must pass for each correct control, and at least one must fail for
+the broken control. Structural classes are reviewed, frozen evidence; differing
+file hashes alone do not establish structural difference. Unsupported formats
+fail closed. This family gate does not add an oracle scoring implementation:
+the measure in this apparatus remains the calibrated blind rubric, whose result
+must not be presented as a final oracle measurement.
+
+**Enforcement boundaries.** Thread an optional `criterion: Path | None` keyword
+from structural entry points through driver/mode1 evaluation, direct `evaluate`,
+resume and shared structural `score_pool`. Missing means a failed quality gate,
+not an exemption. Validate before budget reservation and again at direct
+evaluation, resume, judge dispatch and quality readout boundaries; reread hashed
+evidence per operation rather than caching a `qualified: true` permission.
+Record the receipt hash and recomputed statistics with the operation. Judging,
+quality pooling and adaptive quality selection reject measure-free mode. No
+runtime/compiler behavior or generic provenance framework is introduced.
 
 **Public check operation.** Candidates branch on real development failures
 through one command boundary, `dev-check`, declared under the

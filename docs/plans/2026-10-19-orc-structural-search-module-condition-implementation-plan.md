@@ -92,10 +92,13 @@ and module conditions. A scripted launch at its cap succeeds, the next call is
 recorded and refused before the executable runs, and concurrent attempts cannot
 overspend. A mutator history rewrite cannot replace the check's parent.
 
-**Integration decision pending:** the design reviewer is checking the precise
-closed-expression recurrence and loop/exhaustion rules. Resolve that algorithm
-against actual artifacts and interpreter semantics before accepting the bound;
-other package work may continue. No runtime change is implied.
+**Integration decision resolved:** the driver's
+[closed-program reservation contract](../design/orc_structural_search_driver.md#edit-validation-and-transactions)
+uses real AST edges, actual `loop.budget`, per-invocation calls and argument
+evaluation, exhaustion even at zero budget, and fail-closed effectful list-map
+cardinality. Literal mappings are data, not traversable AST. A's implementation
+is recorded at `fbae5d4b`; acceptance remains subject to this plan's verification
+and integration checks. No runtime change or admission-policy rename is implied.
 
 ## B. Receipts, Allocation And Site Evidence
 
@@ -141,7 +144,8 @@ planned/realized joins preserve attempts without asserting branch coverage.
 
 **Reach:** experiment configuration/criterion loading, launch boundaries,
 `judging.py`, scoring/readout entry points and qualification tests. The durable
-contract belongs to the driver design; this plan records the remaining choice.
+contract belongs to the driver's
+[external qualification receipt](../design/orc_structural_search_driver.md#external-qualification-receipt).
 
 - [ ] Require explicit qualification from hashed external precalibration evidence
   for both the task family under its frozen rule and the quality measure under
@@ -159,16 +163,34 @@ contract belongs to the driver design; this plan records the remaining choice.
   calibration runs need their own declared budget and owner approval; do not
   trigger them automatically or spend providers in this implementation.
 
-**Integration decision pending:** the exact external qualification receipt
-schema, artifact hashing, input identities and readout/launch plumbing need a
-recorded design decision before C's implementation is integrated. The required
-semantics above are fixed; this is not a request to the user or a blocker for A/B.
+**Integration decision resolved:** implement `orc-structural-qualification-v1`
+and the common `measurement: {evaluator, tasks}` identity block in study and
+calibration criteria; retain the study's existing top-level task-path list.
+Compare verified component hashes, not whole study/calibration criterion hashes
+or reference file locations. Recompute R55 difficulty from raw records/diffs and
+measure calibration from every expected judge/batch pair, including missing or
+excluded ratings as failures. Verify the actual runtime workflow and selected
+judge bindings. Family B's narrow oracle-control receipt qualifies the family
+only; final scoring remains the blind rubric.
+
+Thread `criterion: Path | None` through structural launch/resume/judge boundaries
+and validate before reservation. Default purpose is quality and a missing
+criterion fails closed. An explicit measure-free criterion permits execution
+without quality claims; a readout-only `--measure-free`/keyword also projects
+historical evidence without modifying frozen criteria. Invalid quality never
+silently downgrades. Calibration is external, independently budgeted and limited
+to declared controls/difficulty jobs; structural launchers reject that purpose.
+Do not add a calibration launcher or extend generic compare launchers here.
 
 **Acceptance evidence:** scripted boundary tests reject absent, stale/mismatched
 and failed qualification before provider invocation; valid frozen evidence passes.
 Tests exercise margin and tolerated error rate independently, and demonstrate
 that historical criteria get no implicit fresh-launch bypass. Measure-free
-readouts remain possible without emitting quality endpoints.
+readouts remain possible without emitting quality endpoints. Include borderline
+difficulty and raw patch/review pairing, stale runtime/bindings, missing-judge
+denominators, disguised candidates in calibration pools and calibration-purpose
+launch refusal. This decision resolves the schema; implementation remains pending
+the listed checks.
 
 ## D. Parents And Calibrated Pareto Endpoints
 
@@ -251,7 +273,9 @@ control anchors first. These synthetic checks establish mechanics, not utility.
 | Keep private ordinal metrics and all delivered hardening | New semantics do not justify weakening existing source, graph, policy or diagnostic checks |
 | Closed bound and shim cap are module v1 requirements | Bundle imports are still deferred; source counting alone cannot reserve rewritten helper calls soundly |
 | Remove illustrative committed successor criterion; generate test criteria | Prior artifact remains historical evidence; no new study criterion or prices are selected here |
-| Qualification receipt shape and bound recurrence require design integration decisions | Fail closed at affected joins; independent offline work continues while decisions are reviewed |
+| Adopt external qualification receipt v1 and the closed-AST bound recurrence | Decisions resolved in the driver design; implementation and integration still require fresh verification |
+| Normalize the shared measurement identity by component hashes | Study and calibration criteria may have different purposes, budgets and file locations without changing the calibrated evaluator |
+| Keep calibration external and measure-free selection explicit | No candidate can obtain a calibration bypass; historical readout projection does not mutate frozen criteria or restore quality claims |
 | Shared parent evidence is projected by identity | Avoid duplicate launches and preserve arm attribution without inventing additional observations |
 | Historical criteria stay byte-identical without a fresh-launch exemption | Preserve captured reproducibility while enforcing today's calibration gates |
 | No provider allocation requested | All listed implementation and verification uses scripted providers; any later calibration/live experiment is separately budgeted and owner approved |
