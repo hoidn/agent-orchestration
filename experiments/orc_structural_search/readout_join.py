@@ -95,6 +95,18 @@ def logged_pools(evidence, pools_root, criterion):
     return list(found.values())
 
 
+
+def _calibrated_frontier(state):
+    from experiments.orc_structural_search.pareto_readout import _supported_frontier
+    trajectory = state.get('trajectory', [])
+    ids, table = state.get('frontier', []), state.get('table', {})
+    if not trajectory or not ids or any(cid not in table for cid in ids):
+        raise ValueError('final assessment requires a persisted calibrated frontier')
+    if (trajectory[-1].get('table'), trajectory[-1].get('frontier')) != (table, ids):
+        raise ValueError('final assessment requires the persisted calibrated table')
+    if len(_supported_frontier(state)) != len(ids):
+        raise ValueError('final assessment requires a persisted calibrated supported frontier')
+
 def terminal_checkpoint(store, campaign_id, criterion):
     from experiments.compare.repos import sha256_file
     from experiments.orc_structural_search.records import find_campaign, read_checkpoint, _checkpoint, read_records
@@ -106,9 +118,7 @@ def terminal_checkpoint(store, campaign_id, criterion):
     entries = json.loads(ledger.read_text())
     if any(row['calls'] is None for row in entries) or len(entries) != state['ledger_index']:
         raise ValueError('final assessment refuses pending or unsettled ledger work')
-    trajectory = state.get('trajectory', [])
-    if not trajectory or not state.get('table') or (trajectory[-1].get('table'), trajectory[-1].get('frontier')) != (state['table'], state['frontier']):
-        raise ValueError('final assessment requires the persisted calibrated table')
+    _calibrated_frontier(state)
     log = evidence / 'log.jsonl'
     if len(read_records(log)) != state['ingestion_position']:
         raise ValueError('final checkpoint has unaccounted log work')

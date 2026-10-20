@@ -397,8 +397,8 @@ def _final_views(store, campaign_ids, views):
                  and set(r.get('campaign_ids', ())).intersection(campaign_ids)]
     final, opened, logs, pools = {}, None, [], []
     if exposures:
-        if len(exposures) != 1:
-            raise ValueError('readout requires one authorized study manifest')
+        if len(exposures) != 1 or sorted(campaign_ids) != exposures[0]['campaign_ids']:
+            raise ValueError('final readout requires the complete authorized study manifest')
         manifest = exposures[0]
         final, opened, logs, pools = _study_assessments(store, manifest)
         for cid, view in views.items():

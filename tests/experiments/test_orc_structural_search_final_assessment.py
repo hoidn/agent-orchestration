@@ -344,6 +344,9 @@ def test_sealed_ingestion_requires_committed_open_and_readout_reports_budget_onc
     report = readout.campaign_report(s.store, s.ids, criterion=s.q.criterion, ceiling=.0056,
                                    validation_results=results, sealed_results=sealed)
 
+    for ids in (s.ids[:1], [*s.ids, s.ids[0]]):
+        with pytest.raises(ValueError, match='complete.*manifest'):
+            readout.campaign_report(s.store, ids, criterion=s.q.criterion, ceiling=.0056)
     assert report['descriptive_only'] is False
     for row in report['campaigns'].values():
         assert row['final_assessment']['validation']['choice'] == 'ref'
@@ -364,12 +367,19 @@ def test_P0_reference_must_still_match_original_ingested_clone_assessments(study
     with pytest.raises(ValueError, match='stored assessment'):
         manifest(s)
 
-def test_terminal_frontier_must_be_the_persisted_calibrated_snapshot_frontier(study):
+@pytest.mark.parametrize('mode', ['mismatched', 'empty', 'unsupported'])
+def test_terminal_frontier_must_be_the_persisted_calibrated_snapshot_frontier(study, mode):
     s = study
     state = records.read_checkpoint(s.store, s.ids[0])
-    records.write_checkpoint(s.store, s.ids[0], state | {'frontier': ['ref']})
+    state['frontier'] = [] if mode == 'empty' else ['ref']
+    if mode != 'mismatched':
+        state['trajectory'][-1].update(frontier=state['frontier'], table=state['table'])
+    if mode == 'unsupported':
+        state['table']['ref']['support'] = 'insufficient'
+    records.write_checkpoint(s.store, s.ids[0], state)
     with pytest.raises(ValueError, match='persisted calibrated'):
         manifest(s)
+    assert not s.store.rows('exposure')
 
 def test_stored_assessment_qualification_provenance_is_verified(study):
     s = study
@@ -389,67 +399,6 @@ def test_readout_refuses_changed_validation_log_after_freeze(study):
     with pytest.raises(ValueError, match='frozen disposition'):
         readout.campaign_report(s.store, s.ids, criterion=s.q.criterion, ceiling=.0056)
 
-
-def acquire_study(s, store_path):
-    campaign.main(['warm-start', *cli_args(s, 'lifecycle-warm', store_path)])
-    for declaration in s.frozen['campaigns']:
-        args = ['run', *cli_args(s, 'lifecycle-' + declaration['policy'], store_path),
-            '--label', declaration['label'], '--policy', declaration['policy'], '--generations', '2',
-            '--episodes-per-generation', '4', '--run-seed', str(declaration['run_seed'])]
-        campaign.main(args)
-        campaign.main([*args, '--continue'])
-    with_store = campaign.open_store(store_path, writer=False)
-    try:
-        headers = [row for row in with_store.rows('campaign') if row['policy'] != 'warm_start']
-        ids = sorted(row['campaign_id'] for row in headers)
-        reference = readout_join.warm_reference(with_store, headers[0], s.q.criterion)
-        ceiling = 4 * reference['cost']
-        checkpoint_bytes = {cid: records._checkpoint(with_store, cid)[0].read_bytes() for cid in ids}
-    finally:
-        with_store.close()
-    return headers, ids, ceiling, checkpoint_bytes
-
-
-def sealed_jobs(s, with_store, authorization, ids, store_path, sealed, validation, headers):
-    from experiments.orc_structural_search.config import load_config
-    subjects = {row['candidate_id']: row for row in with_store.rows('subject')}
-    config = load_config(s.config)
-    jobs = [(Path(subjects[cid]['source']), adaptive.subject_config(subjects[cid], config),
-        {'mode': 'campaign', 'split': 'sealed', 'generation': -1, 'campaign_id': min(ids),
-         'candidate_id': cid, 'candidate_root': subjects[cid]['source']}) for cid in authorization['candidate_ids']]
-    launch = {key: value for key, value in s.launch.items() if key not in ('work_root', 'evidence_root', 'pools_root')}
-    launch.update({key: Path(value) for key, value in authorization['sealed_roots'].items()})
-    launch.update(resume=True, solutions={s.q.sealed.name: s.world.solution},
-        holdouts=[s.q.validation, *s.common['adaptive_tasks']],
-        scan_roots=[store_path, sealed / 'P', validation, *(Path(value) for header in headers for value in header['roots'].values())])
-    return jobs, launch
-
-
-def assess_sealed(s, store_path, ids, sealed, validation, headers, checkpoint_bytes):
-    from experiments.orc_structural_search import judging
-    with_store = campaign.open_store(store_path, writer=True)
-    try:
-        authorization = next(row for row in with_store.rows('exposure') if row['role'] == 'sealed')
-        jobs, launch = sealed_jobs(s, with_store, authorization, ids, store_path, sealed, validation, headers)
-        judge = {'criterion': s.q.criterion, 'judges': s.common['judges']}
-        for _ in range(2):
-            judging.evaluate_and_judge(jobs, -1, [s.q.sealed], replicates=authorization['replicates'],
-                                      launch=launch, judge=judge, include=lambda row: row.get('split') == 'sealed')
-            verified = readout_join.final_pool(with_store, authorization, role='sealed')
-            campaign.ingest(with_store, min(ids), authorization['context_key'], sealed / 'E',
-                            [Path(verified['results'])], criterion=s.q.criterion)
-        assert all(records._checkpoint(with_store, cid)[0].read_bytes() == checkpoint_bytes[cid] for cid in ids)
-        assert {row['campaign_id'] for row in with_store.rows('trial') if row['split'] in ('validation', 'sealed')} == {min(ids)}
-        assert all(row['clone_ids'] for row in with_store.rows('assessment'))
-        with pytest.raises(ValueError, match='already'):
-            campaign.open_sealed(with_store, ids, s.q.sealed)
-        validation_manifest = records.study_manifest(with_store, ids)
-        validation_results = readout_join.final_pool(with_store, validation_manifest, role='validation')['results']
-        sealed_results = verified['results']
-    finally:
-        with_store.close()
-    return validation_results, sealed_results
-
 def test_public_cli_complete_study_lifecycle_uses_verified_v2_pools(sandboxed, setup, monkeypatch, capsys):
     """Scripted CLI lifecycle; synthetic controls and scores establish no live qualification."""
     import shlex
@@ -463,6 +412,7 @@ def test_public_cli_complete_study_lifecycle_uses_verified_v2_pools(sandboxed, s
         return scorer(directory.parents[2] / 'E/log.jsonl')(directory, name, script)
     monkeypatch.setattr(judging, 'run_judge', dispatch)
     store_path = s.world.outside / 'lifecycle-S'
+    from tests.experiments.orc_structural_search_support import acquire_study, assess_sealed
     headers, ids, ceiling, checkpoint_bytes = acquire_study(s, store_path)
     validation, sealed = s.world.outside / 'lifecycle-validation', s.world.outside / 'lifecycle-sealed'
     validate = ['validate', '--store', str(store_path), '--config', str(s.config), '--criterion', str(s.q.criterion),

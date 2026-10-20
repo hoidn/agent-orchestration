@@ -243,3 +243,68 @@ def launch_config(world, config):
     """Mechanics fixtures declare measure-free execution explicitly and bind its actual criterion bytes."""
     from dataclasses import replace
     return replace(config, criterion_sha256=sha(world.criterion))
+
+
+def acquire_study(s, store_path):
+    from experiments.orc_structural_search import campaign, records, readout_join
+    from tests.experiments.test_orc_structural_search_campaign_loop import cli_args
+    campaign.main(['warm-start', *cli_args(s, 'lifecycle-warm', store_path)])
+    for declaration in s.frozen['campaigns']:
+        args = ['run', *cli_args(s, 'lifecycle-' + declaration['policy'], store_path),
+            '--label', declaration['label'], '--policy', declaration['policy'], '--generations', '2',
+            '--episodes-per-generation', '4', '--run-seed', str(declaration['run_seed'])]
+        campaign.main(args)
+        campaign.main([*args, '--continue'])
+    with_store = campaign.open_store(store_path, writer=False)
+    try:
+        headers = [row for row in with_store.rows('campaign') if row['policy'] != 'warm_start']
+        ids = sorted(row['campaign_id'] for row in headers)
+        reference = readout_join.warm_reference(with_store, headers[0], s.q.criterion)
+        ceiling = 4 * reference['cost']
+        checkpoint_bytes = {cid: records._checkpoint(with_store, cid)[0].read_bytes() for cid in ids}
+    finally:
+        with_store.close()
+    return headers, ids, ceiling, checkpoint_bytes
+
+
+def sealed_jobs(s, with_store, authorization, ids, store_path, sealed, validation, headers):
+    from experiments.orc_structural_search import adaptive
+    from experiments.orc_structural_search.config import load_config
+    subjects = {row['candidate_id']: row for row in with_store.rows('subject')}
+    config = load_config(s.config)
+    jobs = [(Path(subjects[cid]['source']), adaptive.subject_config(subjects[cid], config),
+        {'mode': 'campaign', 'split': 'sealed', 'generation': -1, 'campaign_id': min(ids),
+         'candidate_id': cid, 'candidate_root': subjects[cid]['source']}) for cid in authorization['candidate_ids']]
+    launch = {key: value for key, value in s.launch.items() if key not in ('work_root', 'evidence_root', 'pools_root')}
+    launch.update({key: Path(value) for key, value in authorization['sealed_roots'].items()})
+    launch.update(resume=True, solutions={s.q.sealed.name: s.world.solution},
+        holdouts=[s.q.validation, *s.common['adaptive_tasks']],
+        scan_roots=[store_path, sealed / 'P', validation, *(Path(value) for header in headers for value in header['roots'].values())])
+    return jobs, launch
+
+
+def assess_sealed(s, store_path, ids, sealed, validation, headers, checkpoint_bytes):
+    from experiments.orc_structural_search import campaign, records, readout_join
+    from experiments.orc_structural_search import judging
+    with_store = campaign.open_store(store_path, writer=True)
+    try:
+        authorization = next(row for row in with_store.rows('exposure') if row['role'] == 'sealed')
+        jobs, launch = sealed_jobs(s, with_store, authorization, ids, store_path, sealed, validation, headers)
+        judge = {'criterion': s.q.criterion, 'judges': s.common['judges']}
+        for _ in range(2):
+            judging.evaluate_and_judge(jobs, -1, [s.q.sealed], replicates=authorization['replicates'],
+                                      launch=launch, judge=judge, include=lambda row: row.get('split') == 'sealed')
+            verified = readout_join.final_pool(with_store, authorization, role='sealed')
+            campaign.ingest(with_store, min(ids), authorization['context_key'], sealed / 'E',
+                            [Path(verified['results'])], criterion=s.q.criterion)
+        assert all(records._checkpoint(with_store, cid)[0].read_bytes() == checkpoint_bytes[cid] for cid in ids)
+        assert {row['campaign_id'] for row in with_store.rows('trial') if row['split'] in ('validation', 'sealed')} == {min(ids)}
+        assert all(row['clone_ids'] for row in with_store.rows('assessment'))
+        with pytest.raises(ValueError, match='already'):
+            campaign.open_sealed(with_store, ids, s.q.sealed)
+        validation_manifest = records.study_manifest(with_store, ids)
+        validation_results = readout_join.final_pool(with_store, validation_manifest, role='validation')['results']
+        sealed_results = verified['results']
+    finally:
+        with_store.close()
+    return validation_results, sealed_results
