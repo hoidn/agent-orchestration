@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Status (2026-10-20):** the owner selected offline C1 Tasks 1–7 under the request to execute the remainder of the genetic-programming roadmap and confirmed reuse of this branch, with no other workers on it. Task 1 corrections at `a30aecdc` passed 19 targeted tests, but independent review and required complexity work are still pending; Task 1 is not complete or qualified. The owner requires all offline Tasks 1–7, reviews, tests and main integration to finish before any new live experiment. No new experiment calls have run. No paid C1 campaign is selected by that request; every live step keeps its own owner budget gate and the prerequisites below. The continuing no-Claude restriction has no assumed expiry. The [measurement plan](2026-10-19-orc-structural-search-measurement-plan.md#task-6b-live-step-a--one-rerun-after-the-predeclared-revision-owner-gate-8-calls-cap-10) records conditional A′ budget authorization and the independently accepted Terra-only amendment design; the old Sonnet/Terra F2 packet remains frozen, unexecuted and incompatible. Experimental preparation is paused, with no new amendment artifacts, pool or freeze created. If an amended A′ measure is accepted, C1 inherits that accepted measure only after its required gates pass.
+> **Status (2026-10-20):** the owner selected offline C1 Tasks 1–7 under the request to execute the remainder of the genetic-programming roadmap and confirmed reuse of this branch, with no other workers on it. Task 1 is implemented and independently reviewed at `d6019534`: 19 targeted tests pass, and maximum function complexity is 12. Tasks 2, 3 and 6 are in progress; Tasks 4, 5 and 7 remain. Offline implementation does not qualify a live campaign. The owner requires all offline Tasks 1–7, reviews, tests and main integration to finish before any new live experiment. No new experiment calls have run. No paid C1 campaign is selected by that request; every live step keeps its own owner budget gate and the prerequisites below. The continuing no-Claude restriction has no assumed expiry. The [measurement plan](2026-10-19-orc-structural-search-measurement-plan.md#task-6b-live-step-a--one-rerun-after-the-predeclared-revision-owner-gate-8-calls-cap-10) records conditional A′ budget authorization and the independently accepted Terra-only amendment design; the old Sonnet/Terra F2 packet remains frozen, unexecuted and incompatible. Experimental preparation is paused, with no new amendment artifacts, pool or freeze created. If an amended A′ measure is accepted, C1 inherits that accepted measure only after its required gates pass.
 
 > **Revision 4 (2026-10-19)**, after re-review 3 and the coordinator's round-4 rulings. Changed: the revisit match set, the brief's "already tried" summaries, the convergence diagnostic and the archive, frontier and reservoir rebuild are scoped to the campaign (its recorded initial-evidence selection, its own evaluated children and its current generation's scheduled children, never a sibling campaign's children): `evaluated_structures`, `convergence`, `campaign_candidates`/`candidate_table` callers and the `known` set take `campaign_id`, while `evidence` still pools by `context_key`; Task 4 gains the two-interleaved-campaigns isolation test (RR3-I1); gate 1 is the accepted measure (Step A passed, or the owner-approved A′ passed under the measurement plan's predeclared revision), Task 6's V2 admits the accepted measure's rubric mapping with or without the disclosed reference and recomputes the calibration predicates from the accepted pools, and the status line gains the A′ sentence (RR3-m1); gate 5 reads "no prior `adaptive` or `sealed` exposure" (RR3-m2). Everything else is unchanged from Revision 3.
 
@@ -145,7 +145,7 @@ Tolerance of the campaign caps: generation 4's pre-check (40) passes while gener
 - `evidence(store, candidate_id: str, context: str, *, tasks: Sequence[str], price_table: Mapping, min_trials: int) -> dict` per Decision 4 (pools every trial of equal `context_key`, across campaigns).
 - `write_checkpoint(store, campaign_id, state: Mapping) -> Path` (`campaign-checkpoint-v1`: generation, frontier, reservoir, RNG state, ingestion position, the ledger index committed, futility streak, budget so far, `stopped`; temp file plus `os.replace`); `read_checkpoint(store, campaign_id) -> dict | None` (refuses a checkpoint whose `campaign_id`, `context_key` or `criterion_sha256` disagree with the `campaign` record).
 
-- [ ] **Step 1: Write the failing tests**:
+- [x] **Step 1: Write the failing tests**:
 
 ```python
 def test_store_refuses_a_malformed_line_and_an_unknown_kind(tmp_path)
@@ -172,10 +172,10 @@ def test_checkpoint_is_atomic_and_rejects_another_campaigns_state(tmp_path)
 def test_second_writer_is_refused_while_the_lock_is_held(tmp_path)
 ```
 
-- [ ] **Step 2: Run** `pytest -q tests/experiments/test_orc_structural_search_campaign.py` — expected: ImportError.
-- [ ] **Step 3: Implement** the interfaces above in `campaign.py` (store, identities, exposure, campaign candidate set, ingest, evidence, checkpoint only; the rest of the module comes in Tasks 2–3 and 5).
-- [ ] **Step 4: Run** the module's tests and `pytest --collect-only` on it — expected: PASS.
-- [ ] **Step 5: Commit** `feat(search): campaign evidence store, identities, exposure on actual use, campaign-scoped candidate set, idempotent ingestion, dispositions and atomic checkpoint`.
+- [x] **Step 2: Original red check** belonged to the inherited implementation at `6c0082e1`; it was not repeated by deleting working code. Review-driven corrections and the final implementation are verified by the 19-test run recorded in the execution ledger.
+- [x] **Step 3: Implement** the interfaces above in `campaign.py` (store, identities, exposure, campaign candidate set, ingest, evidence, checkpoint only; the rest of the module comes in Tasks 2–3 and 5).
+- [x] **Step 4: Run** the module's tests and `pytest --collect-only` on it — expected: PASS.
+- [x] **Step 5: Commit** `feat(search): campaign evidence store, identities, exposure on actual use, campaign-scoped candidate set, idempotent ingestion, dispositions and atomic checkpoint`.
 
 ### Task 2: Results archive, metered frontier, reservoir and the two parent policies
 
@@ -274,7 +274,7 @@ def test_the_store_root_is_masked_from_every_episode_and_scan_detected(sandboxed
     # the mutator cats S/evidence.jsonl and a store candidate: nothing is read; the store root is among hidden_roots,
     # a scan root and absent from EPISODE.md and the workspace
 def test_stepping_stone_reaches_c_only_through_the_mixture_and_b_stays_off_the_frontier(sandboxed, world)
-    # G=2, E=2, same run_seed: frontier_only's final frontier == {A}, C never evaluated; mixture's frontier ⊇ {C},
+    # G=2, E=4, same run_seed: frontier_only's final frontier == {A}, C never evaluated; mixture's frontier ⊇ {C},
     # C's parent is B, B's parent_source is "reservoir", B is in no frontier and no endpoint; equal planned budgets
 def test_two_interleaved_campaigns_under_one_criterion_never_see_each_others_children(sandboxed, world)
     # c1-frontier and c1-mixture alternate generation by generation under one criterion and context: no brief of
@@ -443,7 +443,7 @@ The gate is the design's [Staging And Gates](../design/orc_structural_search_cum
 | Decision | Consequence |
 | --- | --- |
 | Owner selects offline C1 Tasks 1–7 | “Execute the plan / remainder of the genetic programming roadmap” selects offline implementation now; reuse `feat/structural-search-campaign` in this worktree as explicitly confirmed, without a new branch. The prior proposed/unselected status describes the 2026-10-19 checkpoint |
-| Task 1 review is still open | `6c0082e1` contains the existing Task 1 implementation; independent review is pending, so no completion or qualification claim follows yet |
+| Task 1 implementation reviewed | Reused `6c0082e1`, corrected four defects in `a30aecdc`, and bounded complexity in `d6019534`; independent review passed with 19 tests. This completes offline Task 1, not live qualification |
 | Continuing no-Claude restriction and separate spend gates | The owner reiterated “still no claude, everythign else is fine” when asked about A′ (8 planned calls, cap 10). That conditional budget authority does not permit the frozen Sonnet/Terra packet, a new model assignment or a C1 paid campaign. No expiry is assumed; prospective measurement amendment review is separate, and all other measurement/live campaign gates remain |
 
 
@@ -452,6 +452,16 @@ The gate is the design's [Staging And Gates](../design/orc_structural_search_cum
 | Decision | Consequence |
 | --- | --- |
 | Finish offline code before experiments | Complete Tasks 1 → 2 → 3 → 6 → 4 → 5 → 7 with independent review, required checks and main integration before any new live experiment. Task 6 provides Task 4's V2 fixtures. Zero new calls; experimental preparation stopped without creating new amendment artifacts, pools or freeze |
-| Task 1 remains open | `a30aecdc` corrections passed 19 tests, but independent review/complexity work remains. `start_campaign` complexity 17 and `evidence` 27 require refactoring under the existing ≤12 limit; no completion checkbox is claimed |
+| Task 1 closed at `d6019534` | Trial identity, failure scoring, durable store roots and read-only guarding corrected in `a30aecdc`; behavior-preserving extraction in `d6019534` reduces `start_campaign` to 7 and `evidence` to 4, maximum 12. Independent reviewer: 19 tests passed in 3.76 s |
 | Preserve bounded responsibilities | Necessary existing-module splits enforce ≤500 lines/≤12 complexity with stable public interfaces; only `campaign.py` is new. No general framework or runtime change |
 | Terra-only prospective inputs, historical bytes frozen | C1 criteria/capped copies inherit the no-Claude restriction and canonical `model_policy.allowed`. Original dual-model proposals and historical seeds stay unchanged; accepted measurement amendment design supplies no calibration or live-campaign permission |
+
+
+### Offline Integration Notes — 2026-10-20
+
+| Decision | Consequence |
+| --- | --- |
+| Independent implementation may overlap in isolated checkouts | Tasks 2 and 3 depend on the stable Task 1 interfaces; Task 6 is independent of both. They may proceed concurrently on separate branches, with review and integration into the owner-authorized campaign branch before Task 4. No experimental execution follows from this scheduling change |
+| Stepping-stone fixture uses four episodes | Task 4's original E=2 contradicted the fixed minority draw rule: `int(2 × 0.25)` is zero. The synthetic case uses E=4, preserving the frozen 25% policy and matched budgets; no live criterion or design gate changes |
+| Reservoir admission follows newly valued evidence | A full-table rebuild must not re-admit an evicted old candidate as new every generation. Retain current eligible members and consider candidates becoming fully valued since the previous table; regression coverage includes a rebuild with no new evaluation |
+| Historical origin paths are identities of evidence, not current checkout paths | V2 checks old pool/family task paths against their own frozen origin and package bytes; current C1 may use an identical package in another runtime checkout. Judge set, rubric and binding identity remain inherited exactly from the accepted measure |
