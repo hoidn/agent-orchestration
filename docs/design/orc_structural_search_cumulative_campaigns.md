@@ -78,8 +78,8 @@ C1 adds two identities beside the driver's and keeps the local ones.
 | Identity | Definition | Stage |
 | --- | --- | --- |
 | `candidate_id` | Unchanged ([driver](orc_structural_search_driver.md#candidate-snapshots-and-identities)): content address over source, dependency digests, externs, command boundaries and runtime commit | C1 |
-| `context_key` | Versioned hash (`context_key_version`, tuple) of criterion-frozen context only: the adaptive task package SHA-256s, the criterion SHA-256, the runtime commit, the evaluator version, the criterion's envelope (episode and evaluation wall clocks, per-call timeout) and the model policy (admitted IDs and efforts as the criterion freezes them). Replicates, concurrency, horizon and budget are campaign parameters, not context, so a two-replicate warm start and one-replicate campaigns pool | C1 |
-| `campaign_id` | The operator's label plus the store-assigned campaign sequence number; unique per store, and a label is never reused. A warm start is its own campaign per context, `warm-` plus the first twelve characters of `context_key` plus the sequence, never a fixed label | C1 |
+| `context_key` | Versioned hash (`context_key_version`, tuple) of criterion-frozen context only: the adaptive task package SHA-256s, the criterion SHA-256, the runtime commit, the evaluator version, the criterion's envelope (episode and evaluation wall clocks, per-call timeout) and the model policy (admitted IDs and efforts as the criterion freezes them). Replicates, concurrency, horizon and `B_plan` are campaign parameters outside the key's inputs but inside the criterion hash, so a two-replicate warm start and one-replicate campaigns under one criterion pool | C1 |
+| `campaign_id` | The operator's label plus the store-assigned campaign sequence number; unique per store, and a label is never reused. A warm start is its own campaign per context, `warm-` plus the twelve digest characters `context_key[5:17]` (after the version prefix) plus the sequence, never a fixed label | C1 |
 | `evaluation_id` | Unchanged; local to a campaign's launches; a relaunched attempt is a new `evaluation_id` under the same job | C1 |
 | `trial_id` | SHA-256 over `campaign_id`, the public `run` id, `evaluation_id` and the attempt number: one actual launch. Copied or derived records carry `origin_trial_id`; only original trials count as samples; ingest is idempotent on `trial_id` | C1 |
 | `episode_id` | Unchanged; the campaign and generation are fields on the row | C1 |
@@ -88,7 +88,10 @@ C1 adds two identities beside the driver's and keeps the local ones.
 A campaign's context is fixed and frozen. Whole-program evidence pools
 across campaigns only under equal `context_key`; a changed price table,
 model allowlist, criterion, package, envelope or runtime commit partitions
-evidence. The campaign record, not the id, carries the policy and its
+evidence. Because the criterion hash is an input, pooling holds within one
+criterion: a follow-up study under another criterion runs its own warm
+start unless a cross-criterion pooling rule is predeclared. The campaign
+record, not the id, carries the policy and its
 parameters, the budget declaration, the seed set, the run seed and the
 initial-evidence selection. Resume, memo replay, projected arm membership
 and reimport of the same evidence never create a new `trial_id`; a
@@ -116,7 +119,7 @@ from the records and are never authoritative.
 | `subject` | A registered candidate: `candidate_id`, parent, source manifest references, skeleton hash, allocation policy set, behaviour descriptor, registering campaign |
 | `trial` | One launch: `trial_id`, `campaign_id`, `evaluation_id`, run id and state directory, task, split, replicate, `context_key`, outcome, consumption or `unavailable`, incident and retry fields, receipt references |
 | `assessment` | A quality value for a trial, ingested only through `scoring.read_pool` (criterion hash check, qualification proof, the harness clone-id join; a pool `read_pool` refuses is refused, and superseded attempts receive no row): evaluator and criterion SHA-256, pool and clone ids, the proof hash, the split's access class |
-| `exposure` | Written at campaign start: every task package SHA-256 the campaign touches with its role (`adaptive`, `validation`, `sealed`) |
+| `exposure` | Written on actual use only: `adaptive` for the adaptive packages at campaign start, `validation` when the validation stage launches, `sealed` when `open_sealed` runs; a declared but unused role is not an exposure |
 | `disposition` | A superseding record: contamination, invalidation, correction or a sealed-split opening, with the reason and the records it supersedes; evidence is never deleted |
 | `campaign` | Registration, context tuple, policy parameters, budget declaration, warm-start evidence selection with its original acquisition cost |
 | `checkpoint` | Written atomically (temporary file, rename): archive membership, reservoir state, RNG state, the ingestion position per log and the ledger index already committed |
@@ -128,12 +131,17 @@ compatible evidence by `candidate_id` and `context_key`; derive an estimate
 transaction and no second memo are introduced: a checkpoint references
 committed ledger and evidence records, and derived views are rebuilt from
 them. Split access rules persist across campaigns through two operations:
-`exposure(store)` returns, per task package SHA-256, the roles it has held
-and the campaigns that held them; `check_split_roles(store, adaptive,
-validation, sealed)` runs at campaign start, at validation setup and before
-a sealed opening, and refuses a package ever exposed as `adaptive` for the
-validation or sealed role and a package exposed in any role for the sealed
-role. A sealed opening is a disposition record.
+`exposure(store)` returns, per task package SHA-256, the roles it has
+actually held and the campaigns that held them; `check_split_roles(store,
+adaptive, validation, sealed)` runs at campaign start, at validation setup
+and before a sealed opening, and compares the criterion's declared roles
+against prior actual exposures: an `adaptive` exposure anywhere refuses the
+validation and sealed roles; a `validation` exposure refuses the sealed
+role; a `sealed` exposure refuses every role except a second sealed
+assessment of the same frozen study, which `open_sealed` itself refuses.
+Two campaigns under one criterion may therefore declare the same
+validation and sealed packages and both start; validation runs once and the
+sealed package opens once. A sealed opening is a disposition record.
 
 Footprint: at most one new module for the campaign and evidence store; the
 driver, `mode1`, `adaptive` (parent selection, feedback, judged
@@ -160,6 +168,14 @@ while not stopped(state):                       # budget, futility, invalid evid
     state = rebuild(store, context_key)         # archive, frontier, reservoir from records
     store.checkpoint(state)
 ```
+
+Per-child ceiling: the criterion's `envelope.child_planned_maximum` bounds
+the planned provider-call maximum of any child (`ledger.planned_calls`); a
+child above it is rejected with `planned_maximum_exceeded`, which counts
+toward the futility rule like any rejection. The ceiling restricts the
+search space and is recorded as such; its purpose is budget predictability,
+since the whole-batch pre-check reserves every job's planned maximum before
+a launch and an unbounded child would make the cap unsizable.
 
 Trial identity follows Identities: every launch is one `trial_id`; an
 incident resume keeps its `evaluation_id` and `trial_id`; a quota relaunch
@@ -275,8 +291,9 @@ or skeleton-level repeats, and no mechanism guarantees semantic novelty.
   validation or sealed outcomes, or any path under the evidence or store
   roots; the parent's own evidence stays the only feedback, as under the
   historical mode 2.
-- **Revisit rule.** A child whose `program_digest` equals an already
-  evaluated candidate's, or whose skeleton hash and allocation policy set
+- **Revisit rule.** The match set is every candidate already evaluated or
+  scheduled in the current generation. A child whose `program_digest`
+  equals one of theirs, or whose skeleton hash and allocation policy set
   both equal one's, is a revisit: logged with the matched `candidate_id`,
   not re-evaluated, and counted toward the futility rule. The `subject`
   record carries the policy set and a skeleton maps to every policy set
@@ -366,7 +383,7 @@ the derived call budget with a hard cap:
   the child's planned maximum (`ledger.planned_calls`) otherwise; acceptance
   rate `a` from Phase 1 and the three-arm run;
 - calls per campaign:
-  `G * E * (1 + a * T * r * c_eval) + judge batches per generation * judges * T + (F + 1) * V * r * c_eval` plus validation judging and one smoke, for `G` generations, `E` episodes per generation, `T` adaptive tasks, `r` replicates, `F` finalists, `V` validation tasks; total = 2 policies × `R` campaigns.
+  `G * E * (1 + a * T * r * c_eval) + judge batches per generation * judges * T + (F + 1) * V * r * c_eval` plus validation judging (no separate smoke: the warm start's first evaluation serves as the live smoke), for `G` generations, `E` episodes per generation, `T` adaptive tasks, `r` replicates, `F` finalists, `V` validation tasks; total = 2 policies × `R` campaigns.
 
 If the affordable design cannot detect a plausible effect (at Phase 1's
 spread the largest observed gaps were 1.13 and 2.00 points), the plan says
@@ -536,18 +553,25 @@ before any provider spend:
 1. The calibrated measure: the
    [measurement plan](../plans/2026-10-19-orc-structural-search-measurement-plan.md)'s
    Step A passed, with B2 keeping it calibrated.
-2. A family qualified under `amends_5` for every adaptive package.
+2. Every package the study uses covered by a qualification rule file: the
+   frozen `calibration-amends-5.json` covers rungs 2 and 4 only, so any
+   further package (the sealed package, the validation package) needs the
+   successor amendment `amends_6` (same k, thresholds, borderline and stop
+   rules; scope the named additional packages; runtime validity this
+   study's frozen commit; owner-accepted before its spend), and the V2
+   receipt takes one rule file per package
+   (`family.rules: {package_sha256: {file, sha256}}`).
 3. Metering wired with the price table frozen in the successor criterion,
    and `B_plan` recorded there.
-4. A sealed package, with `check_split_roles` showing it never held any
-   role in the store.
+4. A sealed package that, by the exposure record, never held any role in
+   the store beyond being a holdout, as `check_split_roles` shows.
 5. A qualified validation package, disjoint from the adaptive tasks and the
-   sealed package (rung 3 after its third calibration sample, or another
-   package qualified under `amends_5` and amended like rungs 2 and 4), its
-   estimated cost in the owner's worst-case total, and `check_split_roles`
-   showing it never held the `adaptive` role. Without it, campaigns may run
-   and be reported descriptively, but no final choice, promotion or sealed
-   opening follows.
+   sealed package (rung 3 after a fresh qualification under `amends_6`, its
+   two historical samples not carrying over, or another package qualified
+   under `amends_6`), its estimated cost in the owner's worst-case total,
+   and `check_split_roles` showing no prior `adaptive` or `sealed`
+   exposure. Without it, campaigns may run and be reported descriptively,
+   but no final choice, promotion or sealed opening follows.
 6. The `module` condition's offline tasks delivered; the pilot mutates under
    `module` ([module gate](../plans/2026-10-19-orc-structural-search-module-rewrite-plan.md#gate-for-a-live-module-arm)).
 7. Mutator isolation (`COMPARE_HIDE` masking) covering the store root and
@@ -561,9 +585,10 @@ before any provider spend:
    guard refusing any other; Fable forbidden; every seed or parent a capped
    copy, historical seeds unchanged.
 10. The pilot plan's predeclared power statement, horizon, checkpoints,
-    replicate campaigns, stop rules, per-campaign wall-clock ceiling and
-    hard call caps sized to the whole-batch planned-maximum pre-check; an
-    owner approval per live campaign. No uncalibrated experiment.
+    replicate campaigns, stop rules, per-campaign wall-clock ceiling,
+    `envelope.child_planned_maximum` and hard call caps sized to the
+    whole-batch planned-maximum pre-check; an owner approval per live
+    campaign. No uncalibrated experiment.
 
 **C2 selection condition.** C2 is written as an implementation plan only
 when C1 shows a frontier gain from the mixture at equal budget, or a
@@ -623,9 +648,14 @@ offline fixture.
   mid-generation, resume from the checkpoint and the log with identical
   archive, reservoir and parent draws, no repeated episode or evaluation
   and no duplicated trial; an interrupted attempt retains its consumption;
-  `check_split_roles` refuses a package once exposed as adaptive for the
-  validation or sealed role and a package exposed in any role for the
-  sealed role; warm-start cost is reported apart; a generation pool failing
+  `check_split_roles` refuses a package once actually exposed as adaptive
+  for the validation or sealed role, a validation-exposed package for the
+  sealed role and a sealed-exposed package for every role, while two
+  campaigns under one criterion declaring the same validation and sealed
+  packages both start, validation runs once and the sealed package opens
+  once; a child above `envelope.child_planned_maximum` is rejected with
+  `planned_maximum_exceeded` and counts toward futility; warm-start cost is
+  reported apart; a generation pool failing
   its calibration verdict stops the campaign with an `invalidated`
   disposition on its assessments; launchers refuse a successor criterion
   without metered cost, a quality floor, `B_plan`, the wall-clock ceiling
