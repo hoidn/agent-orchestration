@@ -49,9 +49,10 @@ from pathlib import Path
 
 from experiments.compare.prepare import ArmSpec, read_memo, run_arm
 from experiments.compare.repos import dump, load, runtime_commit
-from experiments.orc_structural_search import acceptance, ledger  # acceptance imports this module: call time only
+from experiments.orc_structural_search import acceptance, ledger, site_evidence  # acceptance imports this module: call time only
 from experiments.orc_structural_search.candidates import candidate_id, compile_candidate
 from experiments.orc_structural_search.config import ExperimentConfig
+from experiments.orc_structural_search.metrics import is_python
 from experiments.orc_structural_search.quota import PREFIX, quota_hit
 from experiments.orc_structural_search.records import UNAVAILABLE
 
@@ -80,11 +81,10 @@ class EvaluationRecord:
     realized_perform_sites: list[dict] | str = UNAVAILABLE
     exercised_branches: str = UNAVAILABLE
     branch_coverage_reason: str = "run_not_started"
-
-
-def is_python(config: ExperimentConfig) -> bool:
-    """An I3 configuration: the entry module file (ledger.entry_of) is a Python module."""
-    return ledger.entry_of(Path(), config)[0].suffix == ".py"
+    planned_perform_sites: list[dict] | str = UNAVAILABLE
+    unexercised_perform_sites: list[dict] | str = UNAVAILABLE
+    allocation_signature: dict | str = UNAVAILABLE
+    allocation_signature_reason: str | None = "missing_closed_program"
 
 
 def evaluation_id(candidate: str, task_id: str, evaluator_version: str, env_manifest_digest: str,
@@ -177,6 +177,8 @@ def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Pa
         exclude.write(f"/{DEV_CHECK}\n")
     pending = EvaluationRecord(eid, UNAVAILABLE, state_dir, records, env_digest, "incident", None, 0.0, 0, 0, (),
                                attempt, config.criterion_sha256)
+    pending = replace(pending, **site_evidence.candidate_evidence(candidate_root, config, runtime=runtime,
+                                                                  compiled=compiled))
     return _launch(pending, ["bash", str(records / "command.sh")], env, timeout_sec)
 
 
@@ -233,7 +235,8 @@ def _launch(record: EvaluationRecord, argv: list[str], env: Mapping[str, str],
 
 def realized_effects(state_dir: Path, run_id: str, *, generic: bool) -> dict:
     """Validated memo effects are execution evidence; they do not identify exercised source branches."""
-    result = {"realized_perform_sites": UNAVAILABLE, "exercised_branches": UNAVAILABLE,
+    result = {"realized_perform_sites": UNAVAILABLE, "unexercised_perform_sites": UNAVAILABLE,
+              "exercised_branches": UNAVAILABLE,
               "branch_coverage_reason": "generic_command_has_no_orc_memo" if generic else "run_not_started"}
     if generic or run_id == UNAVAILABLE:
         return result
@@ -243,6 +246,11 @@ def realized_effects(state_dir: Path, run_id: str, *, generic: bool) -> dict:
         {"identity": step["identity"], "effect_class": step["effect_class"],
          "attempts": step["attempt"], "status": step["status"]}
         for step in view["steps"].values()], branch_coverage_reason="memo_records_effects_only")
+    from orchestrator.contracts.closed_program.program import ClosedProgram
+    program = ClosedProgram.from_artifact((state_dir / run_id / "closed_program.json").read_text())
+    planned = site_evidence.planned_sites(program)
+    result.update(planned_perform_sites=planned, unexercised_perform_sites=site_evidence.unexercised_sites(
+        planned, result["realized_perform_sites"], completed=view["status"] == "completed"))
     return result
 
 

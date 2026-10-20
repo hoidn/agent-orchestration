@@ -8,7 +8,9 @@ shim's `calls/<n>/prompt.txt` records. A figure without a receipt is the string 
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
@@ -26,7 +28,7 @@ def _lines(path: Path) -> Iterator[dict]:
 
 
 def _is_int(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool)
+    return type(value) is int and value >= 0
 
 
 def claude_usage(session_jsonl: Path) -> list[dict]:
@@ -48,7 +50,7 @@ def claude_usage(session_jsonl: Path) -> list[dict]:
 
 
 def codex_usage(rollout_dir: Path) -> list[dict] | str:
-    """One row per rollout (`rollout` plus the integer token fields of its last cumulative token event).
+    """One row per rollout (`rollout` plus the raw token fields of its last cumulative token event).
 
     The recognized event is the shape observed in local rollouts (2026-10-18):
     `{"type": "event_msg", "payload": {"type": "token_count", "info": {"total_token_usage": {...}}}}`.
@@ -61,18 +63,23 @@ def codex_usage(rollout_dir: Path) -> list[dict] | str:
 
 
 def _last_total(rollout: Path) -> dict | None:
-    """The integer fields of the rollout's last cumulative token event, or None."""
+    """The final cumulative event wins even when malformed; never recover an older total."""
+    return _last_native_total(list(_lines(rollout)))
+
+
+def _last_native_total(entries):
     total = None
-    for entry in _lines(rollout):
-        usage = _total_token_usage(entry)
-        if usage is not None:
-            total = {k: v for k, v in usage.items() if _is_int(v)} or total
+    for entry in entries:
+        payload = entry.get("payload") if isinstance(entry.get("payload"), dict) else {}
+        if entry.get("type") == "event_msg" and payload.get("type") == "token_count":
+            total = _total_token_usage(entry)
     return total
 
 
 def _total_token_usage(entry: dict) -> dict | None:
-    payload = entry.get("payload") or {}
-    usage = (payload.get("info") or {}).get("total_token_usage") if isinstance(payload, dict) else None
+    payload = entry.get("payload") if isinstance(entry.get("payload"), dict) else {}
+    info = payload.get("info") if isinstance(payload.get("info"), dict) else {}
+    usage = info.get("total_token_usage")
     if entry.get("type") == "event_msg" and payload.get("type") == "token_count" and isinstance(usage, dict):
         return usage
     return None
@@ -87,7 +94,8 @@ def _text(content: Any) -> list[str]:
 
 
 def _claude_user_text(entry: dict) -> list[str]:
-    return _text((entry.get("message") or {}).get("content")) if entry.get("type") == "user" else []
+    message = entry.get("message")
+    return _text(message.get("content")) if entry.get("type") == "user" and isinstance(message, dict) else []
 
 
 def _codex_user_text(entry: dict) -> list[str]:
@@ -105,63 +113,191 @@ _USER_TEXT = {"claude": _claude_user_text, "codex": _codex_user_text}
 def _user_texts(provider: str, session: Path) -> set[str]:
     """Stripped user-turn text: Claude `type == "user"` entries; Codex user `response_item`s and `user_message`s."""
     read = _USER_TEXT.get(provider, lambda entry: [])
-    return {t.strip() for entry in _lines(session) for t in read(entry)}
+    return {t.strip() for entry in _native_entries(session)[0] for t in read(entry)}
 
 
-def _claude_tokens(session: Path, sessions: Sequence[Path]) -> int | str:
-    """The session's tokens plus those of its subagent files (`<session id>/subagents/*.jsonl`)."""
+def _native_entries(path):
+    entries = []
+    try:
+        for entry in _lines(path):
+            if not isinstance(entry, dict):
+                return entries, False
+            entries.append(entry)
+            if entry.get("type") in {"user", "assistant"} and not isinstance(entry.get("message"), dict):
+                return entries, False
+    except (OSError, ValueError, TypeError):
+        return entries, False
+    return entries, True
+
+
+def _hash(path: Path) -> str:
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _known_model(model: Any) -> bool:
+    return isinstance(model, str) and bool(model.strip()) and model.lower() not in {
+        UNAVAILABLE, "unknown", "default", "auto"}
+
+
+def _charge_tokens(provider: str, usage: dict, model: str) -> dict | str:
+    fields = (CLAUDE_FIELDS if provider == "claude" else
+              ("input_tokens", "output_tokens", "cache_write_input_tokens", "cached_input_tokens"))
+    required = (*fields, "total_tokens") if provider == "codex" else fields
+    if not _known_model(model) or not all(_is_int(usage.get(key)) for key in required):
+        return UNAVAILABLE
+    if any(key.endswith("_tokens") and not _is_int(value) for key, value in usage.items()):
+        return UNAVAILABLE
+    if provider == "claude":
+        return dict(input=usage[fields[0]], output=usage[fields[1]],
+                    cache_write=usage[fields[2]], cache_read=usage[fields[3]])
+    if usage["cached_input_tokens"] > usage["input_tokens"]:
+        return UNAVAILABLE
+    return dict(input=usage["input_tokens"] - usage["cached_input_tokens"], output=usage["output_tokens"],
+                cache_write=usage["cache_write_input_tokens"], cache_read=usage["cached_input_tokens"])
+
+
+def _claude_rows(session: Path) -> list[dict]:
+    messages = {}
+    entries, complete = _native_entries(session)
+    digest = _hash(session)
+    for n, entry in enumerate(entries):
+        if entry.get("type") == "assistant":
+            message = entry.get("message")
+            message = message if isinstance(message, dict) else {"usage": {"raw_message": message}}
+            messages[message.get("id", n)] = message
+    rows = []
+    for message in messages.values():
+        usage, model = message.get("usage") or {}, message.get("model", UNAVAILABLE)
+        usage = usage if isinstance(usage, dict) else {"raw_usage": usage}
+        charge = _charge_tokens("claude", usage, model) if message.get("id") and complete else UNAVAILABLE
+        rows.append({**usage, "model": model, "charge_tokens": charge,
+                     "provenance": {"session_sha256": digest, "message_id": message.get("id", UNAVAILABLE),
+                                    "model_source": "message.model", "counter_source": "message.usage",
+                                    "complete_native_transcript": complete}})
+    return rows or [{"model": UNAVAILABLE, "charge_tokens": UNAVAILABLE,
+                     "provenance": {"session_sha256": digest, "counter_source": "missing_message_usage"}}]
+
+
+def _argv_model(call: Path) -> str:
+    path = call / "argv.nul"
+    if not path.is_file():
+        return UNAVAILABLE
+    args = _model_args(path.read_bytes().decode().split("\0"))
+    if args is None:
+        return UNAVAILABLE
+    models = [arg.split("=", 1)[1] for arg in args if arg.startswith("--model=")]
+    models.extend(args[n + 1] for n, arg in enumerate(args[:-1]) if arg in {"--model", "-m"})
+    return models[0] if len(models) == 1 and _known_model(models[0]) else UNAVAILABLE
+
+
+def _model_args(args):
+    args = args[:args.index("--")] if "--" in args else args
+    if any(re.search(r"(?:^|=)\s*model(?:_provider)?\s*=", arg) for arg in args):
+        return None
+    return args
+
+
+def _context_model(entry):
+    payload = entry.get("payload")
+    model = payload.get("model") if isinstance(payload, dict) else None
+    return model if _known_model(model) else UNAVAILABLE
+
+
+def _codex_rows(session: Path, call: Path) -> list[dict]:
+    entries, complete = _native_entries(session)
+    usage = _last_native_total(entries)
+    if usage is None:
+        return []
+    contexts = [_context_model(entry) for entry in entries if entry.get("type") == "turn_context"]
+    models = set(contexts)
+    model = next(iter(models)) if len(models) == 1 else UNAVAILABLE
+    source = "turn_context.model"
+    if not contexts:
+        model, source = _argv_model(call), "shim.argv"
+    if not _known_model(model):
+        model = UNAVAILABLE
+    return [{**usage, "model": model, "charge_tokens": _charge_tokens("codex", usage, model) if complete else UNAVAILABLE,
+             "provenance": {"session_sha256": _hash(session), "model_source": source,
+                            "counter_source": "last_total_token_usage", "complete_native_transcript": complete}}]
+
+
+def _call_usage(call: Path, provider: str, session: Path, sessions: Sequence[Path]) -> dict:
     files = [session, *(p for p in sessions if session.with_suffix("") in p.parents)]
-    rows = [row for path in files for row in claude_usage(path)]
-    values = [row[k] for row in rows for k in CLAUDE_FIELDS]
-    return sum(values) if rows and all(_is_int(v) for v in values) else UNAVAILABLE
+    usage = ([row for path in files for row in _claude_rows(path)] if provider == "claude"
+             else _codex_rows(session, call))
+    complete = bool(usage) and all(row["charge_tokens"] != UNAVAILABLE for row in usage)
+    return {"call_id": call.name, "provider": provider, "usage": usage,
+            "status": "complete" if complete else UNAVAILABLE,
+            "reason": None if complete else "missing_or_invalid_model_counters"}
 
 
-def _codex_tokens(rollout: Path) -> int | str:
-    rows = codex_usage(rollout)
-    return rows[0].get("total_tokens", UNAVAILABLE) if rows != UNAVAILABLE else UNAVAILABLE
+def _check_model_join(receipt, group):
+    if len(group) < 2 or len({_argv_model(call) for call in group}) == 1:
+        return receipt
+    for row in receipt["usage"]:
+        if row["provenance"].get("model_source") == "shim.argv":
+            row.update(model=UNAVAILABLE, charge_tokens=UNAVAILABLE)
+            receipt.update(status=UNAVAILABLE, reason="ambiguous_argv_model_join")
+    return receipt
+
+
+def _prompt(call: Path) -> str:
+    path = call / "prompt.txt"
+    return path.read_text().strip() if path.is_file() else ""
+
+
+def _provider_hint(call: Path) -> str | None:
+    path = call / "provider.txt"
+    return path.read_text().strip() if path.is_file() else None
 
 
 def coverage(records_dir: Path, *, claude_sessions: Sequence[Path], codex_rollouts: Sequence[Path],
              session_paths: list[str] | None = None) -> dict:
-    """Join each shim call to a native session whose user-turn text equals its stripped `prompt.txt`.
-
-    Calls sharing a prompt pair one to one, in order, with the sessions holding it, but only when the two counts
-    are equal and none of those sessions is already claimed; otherwise those calls are unmatched. Tokens are an
-    int only when no call is unmatched and every matched call of that provider has a complete receipt.
-    """
+    """Join complete shim prompts one to one with native user turns; preserve per-model raw evidence."""
     calls = sorted((records_dir / "calls").glob("*"), key=lambda p: int(p.name))
     candidates = [("claude", s) for s in claude_sessions if s.parent.name != "subagents"]
     candidates += [("codex", r) for r in codex_rollouts]
-    matched, unmatched = _match_calls(calls, candidates, claude_sessions, session_paths)
-    report: dict[str, Any] = {"calls": len(calls), "unmatched_calls": unmatched}
-    for provider, tokens in matched.items():
-        report[provider] = _provider_report(tokens, unmatched)
-    return report
+    matched, unmatched, usage = _match_calls(calls, candidates, claude_sessions, session_paths)
+    return {"calls": len(calls), "unmatched_calls": unmatched, "receipt_usage": usage,
+            **{provider: _provider_report(tokens, unmatched) for provider, tokens in matched.items()}}
 
 
-def _match_calls(calls: Sequence[Path], candidates: Sequence[tuple[str, Path]],
-                 claude_sessions: Sequence[Path], session_paths: list[str] | None = None
-                 ) -> tuple[dict[str, list[int | str]], int]:
-    """(tokens of each matched call per provider, number of unmatched calls); see `coverage`."""
+def _holders(candidates, texts, hint, prompt):
+    holders = [c for c in candidates if prompt and prompt in texts[c] and (hint is None or c[0] == hint)]
+    return [] if hint is None and len({provider for provider, _ in holders}) > 1 else holders
+
+
+def _match_calls(calls, candidates, claude_sessions, session_paths=None):
     texts = {c: _user_texts(*c) for c in candidates}
-    by_prompt: dict[str, list[Path]] = {}
+    by_prompt = {}
     for call in calls:
-        by_prompt.setdefault((call / "prompt.txt").read_text().strip(), []).append(call)
-    matched: dict[str, list[int | str]] = {"claude": [], "codex": []}
-    claimed: set = set()
-    unmatched = 0
-    for prompt, group in by_prompt.items():
-        holders = [c for c in candidates if prompt and prompt in texts[c]]
+        by_prompt.setdefault((_provider_hint(call), _prompt(call)), []).append(call)
+    matched, claimed, usage, unmatched = {"claude": [], "codex": []}, set(), [], 0
+    for (hint, prompt), group in by_prompt.items():
+        holders = _holders(candidates, texts, hint, prompt)
         if len(holders) != len(group) or claimed.intersection(holders):
             unmatched += len(group)
+            usage.extend({"call_id": call.name, "provider": hint or UNAVAILABLE, "status": UNAVAILABLE,
+                          "usage": UNAVAILABLE, "reason": "unmatched_or_ambiguous_session"} for call in group)
             continue
         claimed.update(holders)
         if session_paths is not None:
             session_paths.extend(str(path) for _, path in holders)
-        for provider, path in holders:
-            tokens = _claude_tokens(path, claude_sessions) if provider == "claude" else _codex_tokens(path)
+        for call, (provider, path) in zip(group, holders):
+            receipt = _check_model_join(_call_usage(call, provider, path, claude_sessions), group)
+            usage.append(receipt)
+            tokens = _receipt_tokens(receipt)
             matched[provider].append(tokens)
-    return matched, unmatched
+    return matched, unmatched, sorted(usage, key=lambda row: int(row["call_id"]))
+
+
+def _receipt_tokens(receipt: dict) -> int | str:
+    if receipt["status"] != "complete":
+        return UNAVAILABLE
+    if receipt["provider"] == "codex":
+        totals = [row.get("total_tokens") for row in receipt["usage"]]
+        return sum(totals) if all(_is_int(total) for total in totals) else UNAVAILABLE
+    return sum(sum(row["charge_tokens"].values()) for row in receipt["usage"])
 
 
 def _provider_report(tokens: list[int | str], unmatched: int) -> dict:
@@ -174,18 +310,23 @@ def _provider_report(tokens: list[int | str], unmatched: int) -> dict:
             "wall_clock_sec": UNAVAILABLE}
 
 
+def _scoped_sessions(tree, since, home):
+    claude = [path for path in scan.claude_sessions(tree, home) if path.stat().st_mtime >= since]
+    codex = []
+    for path in sorted((home / ".codex" / "sessions").glob("*/*/*/rollout-*.jsonl")):
+        if path.stat().st_mtime >= since:
+            cwd = scan.codex_cwd(path)
+            if cwd and Path(cwd).is_relative_to(tree):
+                codex.append(path)
+    return claude, codex
+
+
 def receipts(records_dir: Path, *, tree: Path, since: float, home: Path) -> dict:
     """Scoped native receipts; absent, ambiguous or incomplete coverage remains unavailable."""
-    unavailable = {"consumption": UNAVAILABLE, "native_session_paths": UNAVAILABLE}
+    unavailable = {"consumption": UNAVAILABLE, "receipt_usage": UNAVAILABLE, "native_session_paths": UNAVAILABLE}
     paths: list[str] = []
     try:
-        claude = [path for path in scan.claude_sessions(tree, home) if path.stat().st_mtime >= since]
-        codex = []
-        for path in sorted((home / ".codex" / "sessions").glob("*/*/*/rollout-*.jsonl")):
-            if path.stat().st_mtime >= since:
-                cwd = scan.codex_cwd(path)
-                if cwd and Path(cwd).is_relative_to(tree):
-                    codex.append(path)
+        claude, codex = _scoped_sessions(tree, since, home)
         report = coverage(records_dir, claude_sessions=claude, codex_rollouts=codex, session_paths=paths)
     except (OSError, ValueError, TypeError, KeyError):
         # A timeout can leave a partial native JSONL; consumption never prevents settling the attempt.
@@ -194,5 +335,5 @@ def receipts(records_dir: Path, *, tree: Path, since: float, home: Path) -> dict
     if not report["calls"] or report["unmatched_calls"] or any(
             report[provider]["calls"] and report[provider]["tokens"] == UNAVAILABLE
             for provider in ("claude", "codex")):
-        return {"consumption": UNAVAILABLE, "native_session_paths": known}
-    return {"consumption": report, "native_session_paths": known}
+        return {"consumption": UNAVAILABLE, "receipt_usage": report["receipt_usage"], "native_session_paths": known}
+    return {"consumption": report, "receipt_usage": report["receipt_usage"], "native_session_paths": known}

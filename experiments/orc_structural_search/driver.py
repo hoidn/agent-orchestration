@@ -49,16 +49,16 @@ from types import MappingProxyType
 from experiments.compare import prepare
 from experiments.compare.repos import (
     SEED_COMMIT, SEED_DATES, dump, git, guard, main_checkout, runtime_commit, shim_prefix, visible_in_sandbox)
-from experiments.orc_structural_search import ledger, metering
+from experiments.orc_structural_search import ledger, metering, site_evidence
 from experiments.orc_structural_search.acceptance import judge_child, require_candidate
 from experiments.orc_structural_search.briefs import episode_brief
 from experiments.orc_structural_search.candidates import (
-    _exported_names, _file_names, _parent_forms, _split_forms, candidate_id, snapshot)
+    _file_names, candidate_id, snapshot)
 from experiments.orc_structural_search.config import ExperimentConfig, solution
 from experiments.orc_structural_search.evaluation import EVALUATOR_VERSION, evaluate, is_python, records_root
 from experiments.orc_structural_search.quota import PREFIX, QuotaGuard, quota_hit, with_retries
-from experiments.orc_structural_search.records import (UNAVAILABLE, append_record, provider_allocation, read_records, skeleton_hash)
-from experiments.orc_structural_search.python_metrics import (python_provider_allocation, python_skeleton_hash)
+from experiments.orc_structural_search.records import UNAVAILABLE, append_record, read_records
+from experiments.orc_structural_search.metrics import mutable_source, skeleton, allocation, metric_definitions
 from experiments.orc_structural_search.sites import HYPOTHESIS, drop_hypothesis
 
 EPISODE = "EPISODE.md"
@@ -146,7 +146,9 @@ def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, repli
            **{k: str(v) if isinstance(v, Path) else v for k, v in asdict(record).items()},
            "kind": "evaluation", "task_id": task.name, "replicate": replicate, "evaluator_version": EVALUATOR_VERSION,
            "criterion_sha256": config.criterion_sha256,
-           "consumption": evaluation_consumption(record), "scan_error": scan_error,
+           **evaluation_receipts(record), "scan_error": scan_error,
+           **site_evidence.evaluation_comparison(root, config, runtime=runtime, evidence_root=evidence_root,
+                                                parent_id=fields.get("parent_candidate_id"), child=asdict(record)),
            "scan_hits": len(hits) if scan_error is None else UNAVAILABLE, "scan_pending": bool(hits)}
     with _LOG_LOCK:
         append_record(evidence_root / "log.jsonl", row)
@@ -166,10 +168,11 @@ def settle_scan(records: Path, scan: Callable[[], list[dict]]) -> tuple[list[dic
         return UNAVAILABLE, diagnostic
 
 
-def evaluation_consumption(record) -> dict | str:
+def evaluation_receipts(record) -> dict:
     metadata = json.loads((record.records_dir / "record.json").read_text())
-    return metering.receipts(record.records_dir, tree=Path(metadata["tree"]),
-                            since=metadata["created_at"], home=Path.home())["consumption"]
+    receipt = metering.receipts(record.records_dir, tree=Path(metadata["tree"]),
+                               since=metadata["created_at"], home=Path.home())
+    return {key: receipt[key] for key in ("consumption", "receipt_usage")}
 
 
 def object_type(repo: Path, name: str) -> str:
@@ -301,42 +304,6 @@ def run_agent(agent_cmd: Sequence[str], cwd: Path, log: Path, env: Mapping[str, 
     return (None if status == 0 else "incident"), status
 
 
-def mutable_source(root: Path, config: ExperimentConfig) -> str:
-    suffix = ".py" if is_python(config) else ".orc"
-    return "\n".join((root / name).read_text() for name in config.mutable_files if name.endswith(suffix))
-
-
-def skeleton(root: Path, config: ExperimentConfig) -> str:
-    """The skeleton hash of the mutable definitions; prompts contribute nothing (records.skeleton_hash, for an I3
-    module python_metrics.python_skeleton_hash)."""
-    hash_of = python_skeleton_hash if is_python(config) else skeleton_hash
-    options = {"module_entry": config.entry_workflow} if config.condition == "module" and not is_python(config) else {}
-    return hash_of(mutable_source(root, config), definitions=metric_definitions(root, config), **options)
-
-
-def allocation(root: Path, config: ExperimentConfig) -> dict[str, list[str]]:
-    """The provider externs (an I3 module: provider keys) each non-prompt mutable definition names, in source
-    order."""
-    allocate = python_provider_allocation if is_python(config) else provider_allocation
-    options = {"module_entry": config.entry_workflow} if config.condition == "module" and not is_python(config) else {}
-    return allocate(mutable_source(root, config), definitions=metric_definitions(root, config), **options)
-
-
-def metric_definitions(root: Path, config: ExperimentConfig) -> tuple[str, ...]:
-    """Module metrics include the entry first, then every private declaration in source order."""
-    if config.condition != "module" or is_python(config):
-        return config.mutable_definitions
-    entry = config.entry_workflow.split("::")[1]
-    names = [entry]
-    for name in config.mutable_files:
-        if name.endswith(".orc"):
-            forms = _parent_forms(root / name)
-            exported = _exported_names(forms)
-            names.extend(name for _, name in _split_forms(forms, whole_module=True)[1]
-                         if name != entry and name not in exported)
-    return tuple(names)
-
-
 def episode_diff(parent: Path, child: Path) -> str:
     """Unified diff of the content files, parent to child; a file missing on one side diffs against nothing."""
     def lines(path: Path) -> list[str]:
@@ -403,8 +370,8 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
     work_root, evidence_root = check_roots(work_root, evidence_root)
     commit = runtime_commit(runtime)
     parent_id = check_archived(parent_root, commit)
-    if not is_python(config):
-        require_candidate(parent_root, config, runtime=runtime)
+    parent_compiled = require_candidate(parent_root, config, runtime=runtime) if not is_python(config) else None
+    parent_evidence = site_evidence.candidate_evidence(parent_root, config, runtime=runtime, compiled=parent_compiled)
     site_id = site["site_id"] if site else None
     identity = [parent_id, interface, config.condition, config.episode_wall_clock_sec, episode_index]
     if (generation, site_id, run_seed) != (None, None, None):  # Phase 1 episode ids stay as they were
@@ -455,11 +422,15 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
            "model_revision": UNAVAILABLE,
            "hypothesis": verdict["receipt"]["hypothesis"] if verdict["receipt"] else UNAVAILABLE,
            "refusal_code": None, "diagnostics_class": None, "skeleton": None,
-           "provider_allocation": None, **parent_shape, **verdict}
+           "provider_allocation": None, "allocation_signature": UNAVAILABLE,
+           "allocation_signature_reason": "child_not_accepted", **parent_shape, **verdict}
     if row["outcome"] == "accepted":
         _, root = archive(copy, evidence_root, runtime)
         row.update(candidate_root=str(root), skeleton=skeleton(root, config),
-                   provider_allocation=allocation(root, config))
+                   provider_allocation=allocation(root, config),
+                   **site_evidence.candidate_evidence(root, config, runtime=runtime))
+    row.update(parent_allocation_signature=parent_evidence["allocation_signature"],
+               **site_evidence.allocation_comparison(parent_evidence, row))
     with _LOG_LOCK:
         append_record(evidence_root / "log.jsonl", row)
     return row

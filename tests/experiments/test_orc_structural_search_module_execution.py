@@ -231,7 +231,7 @@ def test_original_criterion_accepts_historical_rows_without_hash():
 
 
 @pytest.mark.parametrize("args,allowed,expected", [
-    (["--model", "outside"], {"claude-opus-5-5": ["high"]}, "incident"),
+    (["--model", "outside"], {"claude-opus-5-5": ["high"], "claude-sonnet-5-5": ["medium"]}, "incident"),
     ([], {"claude-sonnet-5-5": ["medium"]}, "incident"),
     (["--model", "claude-opus-5-5"], {"claude-opus-5-5": ["high"], "claude-sonnet-5-5": ["medium"]}, "accepted"),
 ])

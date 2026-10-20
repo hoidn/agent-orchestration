@@ -55,6 +55,9 @@ def test_direct_seed_runs_in_fresh_clone_and_records_run_id(sandboxed, world):
         "completed", {"variant": "DONE", "summary": "set VALUE"},
         world.evidence.resolve() / "runs" / record.evaluation_id,
         world.evidence.resolve() / "records" / record.evaluation_id / "run-1", "terminal", 1)
+    assert record.planned_perform_sites == [{"identity": site["identity"], "effect_class": site["effect_class"]}
+                                          for site in record.realized_perform_sites]
+    assert record.unexercised_perform_sites == []
 
 
 def test_record_carries_the_env_manifest_digest_in_its_identity(sandboxed, world):

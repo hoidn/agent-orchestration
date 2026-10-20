@@ -28,7 +28,7 @@ FULL = {"input_tokens": 10, "output_tokens": 5, "cache_creation_input_tokens": 2
 
 
 def _token_count(total: int) -> dict:
-    usage = {"input_tokens": total - 1, "cached_input_tokens": 0, "output_tokens": 1, "total_tokens": total}
+    usage = {"input_tokens": total - 1, "cached_input_tokens": 0, "cache_write_input_tokens": 0, "output_tokens": 1, "total_tokens": total}
     return {"type": "event_msg", "payload": {"type": "token_count",
                                              "info": {"total_token_usage": usage, "last_token_usage": usage}}}
 
@@ -70,7 +70,7 @@ def test_codex_usage_reads_the_last_cumulative_token_event_per_rollout(tmp_path)
     rollout = _jsonl(tmp_path / "rollout-a.jsonl", [_token_count(50), _token_count(120)])
 
     assert metering.codex_usage(tmp_path) == [{"rollout": str(rollout), "input_tokens": 119,
-                                               "cached_input_tokens": 0, "output_tokens": 1, "total_tokens": 120}]
+                                               "cached_input_tokens": 0, "cache_write_input_tokens": 0, "output_tokens": 1, "total_tokens": 120}]
 
 
 def _mixed_run(tmp_path: Path) -> tuple[Path, list[Path], list[Path]]:
@@ -83,7 +83,8 @@ def _mixed_run(tmp_path: Path) -> tuple[Path, list[Path], list[Path]]:
     sub = _jsonl(project / "a" / "subagents" / "agent-x.jsonl", [_user("scout"), _assistant("m9", FULL)])
     bare = _jsonl(project / "b.jsonl", [_user("implement it"), _assistant("m2", {"input_tokens": 1})])
     rollout = _jsonl(tmp_path / "codex" / "rollout-r.jsonl",
-                     [{"type": "response_item", "payload": {"type": "message", "role": "user",
+                     [{"type": "turn_context", "payload": {"model": "gpt-6.1-sol"}},
+                      {"type": "response_item", "payload": {"type": "message", "role": "user",
                                                             "content": [{"type": "input_text", "text": "review it"}]}},
                       _token_count(40)])
     return records, [main, sub, bare], [rollout]
@@ -94,7 +95,7 @@ def test_coverage_counts_calls_and_receipts_per_provider(tmp_path):
 
     report = metering.coverage(records, claude_sessions=sessions, codex_rollouts=rollouts)
 
-    assert report == {
+    assert {key: value for key, value in report.items() if key != "receipt_usage"} == {
         "calls": 3,
         "unmatched_calls": 0,
         "claude": {"calls": 2, "calls_with_receipts": 1, "tokens": U, "wall_clock_sec": U},
@@ -153,6 +154,7 @@ def test_scoped_receipts_find_claude_and_codex_and_record_only_identified_paths(
     claude = _jsonl(home / ".claude/projects" / slug / "one.jsonl", [_user("claude task"), _assistant("m", FULL)])
     codex = _jsonl(home / ".codex/sessions/2026/10/19/rollout-one.jsonl", [
         {"type": "session_meta", "payload": {"cwd": str(tree / "cand-1")}},
+        {"type": "turn_context", "payload": {"model": "gpt-6.1-sol"}},
         {"type": "event_msg", "payload": {"type": "user_message", "message": "codex task"}}, _token_count(33)])
     _jsonl(home / ".codex/sessions/2026/10/19/rollout-unrelated.jsonl", [
         {"type": "session_meta", "payload": {"cwd": str(tmp_path / "other")}},
@@ -174,5 +176,7 @@ def test_missing_ambiguous_or_incomplete_native_receipts_are_unavailable(tmp_pat
             _jsonl(root / "two.jsonl", [_user("task"), _assistant("n", FULL)])
         if state == "truncated":
             session.write_text(session.read_text() + '{"type":')
-    assert metering.receipts(records, tree=tree, since=0, home=home) == {
-        "consumption": U, "native_session_paths": [str(session)] if state == "incomplete" else U}
+    report = metering.receipts(records, tree=tree, since=0, home=home)
+    assert report["consumption"] == U
+    assert report["native_session_paths"] == ([str(session)] if state in {"incomplete", "truncated"} else U)
+    assert report["receipt_usage"][0]["status"] == U

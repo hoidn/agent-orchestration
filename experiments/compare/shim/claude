@@ -38,6 +38,8 @@ until mkdir "$COMPARE_ROOT/calls/$n" 2>/dev/null; do
   n=$((n + 1))
 done
 call="$COMPARE_ROOT/calls/$n"
+printf '%s\n' "$name" > "$call/provider.txt"
+printf '%s\0' "$@" > "$call/argv.nul"
 if [ -n "${COMPARE_MAX_CALLS+set}" ]; then
   cap="$COMPARE_MAX_CALLS"
   while [[ "$cap" == 0* && ${#cap} -gt 1 ]]; do cap="${cap#0}"; done
