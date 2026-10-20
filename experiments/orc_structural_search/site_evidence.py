@@ -8,7 +8,8 @@ from orchestrator.contracts.closed_program.node_walk import _ast_nodes
 from orchestrator.workflow.evaluated.machine import site_nodes
 from experiments.orc_structural_search.candidates import compile_candidate
 from experiments.orc_structural_search.metrics import is_python, metric_definitions, mutable_source
-from experiments.orc_structural_search.records import UNAVAILABLE, _module_names, _named_definitions
+from experiments.orc_structural_search.records import UNAVAILABLE
+from experiments.orc_structural_search.record_normalization import _module_names, _named_definitions
 
 
 def checked_program(root: Path, build_key: str) -> ClosedProgram:

@@ -88,22 +88,34 @@ def compile_candidate(root: Path, config: ExperimentConfig, *, runtime: Path) ->
     command.append("--diagnostics-json")
     env = {**os.environ, "PYTHONPATH": str(runtime)}
     result = subprocess.run(command, cwd=root, env=env, capture_output=True, text=True)
+    return _compile_result(result)
+
+
+def _compile_result(result: subprocess.CompletedProcess) -> CompileOutcome:
     lines = result.stdout.strip().splitlines()
     try:
         document = json.loads(lines[-1])
-        if (isinstance(document, dict) and document.get("status") == "accepted" and result.returncode == 0
-                and all(isinstance(document.get(key), str) and document[key]
-                        for key in ("build_key", "program_digest"))):
+        if _accepted_compile_document(document, result.returncode):
             return CompileOutcome("accepted", document["build_key"], document["program_digest"], ())
-        if (isinstance(document, dict) and document.get("status") == "rejected" and result.returncode != 0
-                and isinstance(document.get("diagnostics"), list) and document["diagnostics"]
-                and all(isinstance(d, dict) for d in document["diagnostics"])):
+        if _rejected_compile_document(document, result.returncode):
             return CompileOutcome("rejected", None, None, tuple(document["diagnostics"]))
     except (IndexError, ValueError):
         pass
     return CompileOutcome("rejected", None, None, (
         {"code": "compiler_crash", "exit": result.returncode, "stderr": result.stderr[-CRASH_TAIL_CHARS:],
          "message": f"invalid compiler response: {result.stdout[-CRASH_TAIL_CHARS:]}"},))
+
+
+def _accepted_compile_document(document, returncode: int) -> bool:
+    return (isinstance(document, dict) and document.get("status") == "accepted" and returncode == 0
+            and all(isinstance(document.get(key), str) and document[key]
+                    for key in ("build_key", "program_digest")))
+
+
+def _rejected_compile_document(document, returncode: int) -> bool:
+    return (isinstance(document, dict) and document.get("status") == "rejected" and returncode != 0
+            and isinstance(document.get("diagnostics"), list) and document["diagnostics"]
+            and all(isinstance(diagnostic, dict) for diagnostic in document["diagnostics"]))
 
 
 # --- Edit validation -------------------------------------------------------------------------------------------
@@ -187,6 +199,25 @@ def _top_level_forms(tree: ListExpr) -> tuple[SExpr, ...]:
     return tree.items
 
 
+def _named_definition(form: SExpr, head: str | None) -> bool:
+    return bool(head and head.startswith("def") and len(form.items) > 1 and isinstance(form.items[1], SymbolAtom))
+
+
+def _form_is_mutable(form: SExpr, head: str | None, public: set[str], whole_module: bool) -> bool:
+    if not _named_definition(form, head):
+        return False
+    private_type = head in PRIVATE_TYPE_HEADS and form.items[1].value not in public
+    if whole_module:
+        return bool(head in MODULE_DEFINITION_HEADS and (head not in PRIVATE_TYPE_HEADS or private_type))
+    return head not in FROZEN_HEADS
+
+
+def _bound_names(forms) -> set[str]:
+    return _exported_names(forms) | {name for form in forms if _head(form) == "import" and len(form.items) > 1
+                                      and isinstance(form.items[1], SymbolAtom)
+                                      for name in _import_names(form)}
+
+
 def _split_forms(forms, *, whole_module: bool = False) -> tuple[list[object], dict[tuple[str, str], SExpr]]:
     """(frozen forms in order, named mutable-kind definitions keyed by (head, name)).
 
@@ -195,16 +226,10 @@ def _split_forms(forms, *, whole_module: bool = False) -> tuple[list[object], di
     """
     frozen: list[object] = []
     definitions: dict[tuple[str, str], SExpr] = {}
-    public = _exported_names(forms) | {name for form in forms if _head(form) == "import" and len(form.items) > 1
-                                      and isinstance(form.items[1], SymbolAtom)
-                                      for name in _import_names(form)}
+    public = _bound_names(forms)
     for form in forms:
         head = _head(form)
-        named = head and head.startswith("def") and len(form.items) > 1 and isinstance(form.items[1], SymbolAtom)
-        private_type = named and head in PRIVATE_TYPE_HEADS and form.items[1].value not in public
-        mutable = (head in MODULE_DEFINITION_HEADS and (head not in PRIVATE_TYPE_HEADS or private_type)
-                   if whole_module else head not in FROZEN_HEADS)
-        if named and mutable:
+        if _form_is_mutable(form, head, public, whole_module):
             definitions[(head, form.items[1].value)] = form
         else:
             frozen.append(canonical_form(form))
@@ -270,17 +295,7 @@ def _module_verdict(parent_forms, child_forms, *, mutable: tuple[str, ...], cond
                     allowed_new: frozenset[str], whole_module: bool = False) -> Verdict:
     """Compare one module's forms; exported signatures (all items but the body) are frozen under every condition."""
     if whole_module:
-        imported = {name for form in parent_forms if _head(form) == "import" for name in _import_names(form)}
-        declarations = [(_head(form), form.items[1].value) for form in child_forms
-                        if _head(form) in MODULE_DEFINITION_HEADS and len(form.items) > 1
-                        and isinstance(form.items[1], SymbolAtom)]
-        counts = Counter(name for _, name in declarations)
-        parent_public = {(_head(form), form.items[1].value) for form in parent_forms
-                         if _head(form) in MODULE_DEFINITION_HEADS and len(form.items) > 1
-                         and isinstance(form.items[1], SymbolAtom)
-                         and form.items[1].value in _exported_names(parent_forms)}
-        collisions = {name for head, name in declarations if name in imported or counts[name] > 1
-                      or (name in _exported_names(parent_forms) and (head, name) not in parent_public)}
+        collisions = _module_collisions(parent_forms, child_forms)
         if collisions:
             return _refuse("declaration_collision", f"private declarations collide with bound names: {sorted(collisions)}")
     parent_frozen, parent_defs = _split_forms(parent_forms, whole_module=whole_module)
@@ -300,16 +315,59 @@ def _module_verdict(parent_forms, child_forms, *, mutable: tuple[str, ...], cond
     return ACCEPTED
 
 
+def _parent_module_bindings(parent_forms) -> tuple[set[str], set[tuple[str, str]], set[str]]:
+    exported = _exported_names(parent_forms)
+    imported: set[str] = set()
+    parent_public: set[tuple[str, str]] = set()
+    for form in parent_forms:
+        head = _head(form)
+        if head == "import":
+            imported.update(_import_names(form))
+        if (head in MODULE_DEFINITION_HEADS and len(form.items) > 1 and isinstance(form.items[1], SymbolAtom)
+                and form.items[1].value in exported):
+            parent_public.add((head, form.items[1].value))
+    return imported, parent_public, exported
+
+
+def _module_declarations(forms) -> list[tuple[str, str]]:
+    return [(_head(form), form.items[1].value) for form in forms
+            if _head(form) in MODULE_DEFINITION_HEADS and len(form.items) > 1
+            and isinstance(form.items[1], SymbolAtom)]
+
+
+def _module_collisions(parent_forms, child_forms) -> set[str]:
+    imported, parent_public, exported = _parent_module_bindings(parent_forms)
+    declarations = _module_declarations(child_forms)
+    counts = Counter(name for _, name in declarations)
+    collisions = set()
+    for head, name in declarations:
+        if name in imported or counts[name] > 1 or (name in exported and (head, name) not in parent_public):
+            collisions.add(name)
+    return collisions
+
+
+def _definition_presence_verdict(key: tuple[str, str], before: SExpr | None, after: SExpr | None,
+                                 exported: set, mutable: tuple, condition: str, parent_tuning: set,
+                                 allowed_new: frozenset) -> Verdict | None:
+    head, name = key
+    if condition == "module" and name in mutable and name not in exported and (before is None or after is None):
+        return ACCEPTED
+    if before is None and name in allowed_new:
+        # A fresh helper is checked against an empty form of its own kind.
+        return _condition_verdict(head, name, ListExpr(after.items[:1], after.span), after, condition, parent_tuning)
+    if before is None or after is None:
+        return _refuse("scope_exceeded", f"{head} {name} was {'added' if before is None else 'removed'}")
+    return None
+
+
 def _definition_verdict(key: tuple[str, str], before: SExpr | None, after: SExpr | None, exported: set,
                         mutable: tuple, condition: str, parent_tuning: set, allowed_new: frozenset) -> Verdict:
     """One definition of a module, parent `before` and child `after` (None where it does not exist)."""
     head, name = key
-    if condition == "module" and name in mutable and name not in exported and (before is None or after is None):
-        return ACCEPTED
-    if before is None and name in allowed_new:  # a fresh I2 helper: a change from an empty form of its kind
-        return _condition_verdict(head, name, ListExpr(after.items[:1], after.span), after, condition, parent_tuning)
-    if before is None or after is None:
-        return _refuse("scope_exceeded", f"{head} {name} was {'added' if before is None else 'removed'}")
+    presence = _definition_presence_verdict(key, before, after, exported, mutable, condition,
+                                            parent_tuning, allowed_new)
+    if presence is not None:
+        return presence
     if canonical_form(before) == canonical_form(after):
         return ACCEPTED
     if name in exported and [canonical_form(i) for i in before.items[:-1]] != [
