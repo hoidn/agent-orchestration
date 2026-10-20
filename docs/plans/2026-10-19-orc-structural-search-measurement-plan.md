@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Status:** selected for offline Tasks 1–5 and live Step A. The owner explicitly approved Step A at 8 calls, cap 10 on 2026-10-19 (`ac58e0ba`); do not ask for the same approval again. Offline Tasks 1–5 are complete and verified; implementation `I=25ca21e1` and criterion freeze `F=cc5464ac` passed independent review. Task4 reuses audited receipt/pricing APIs. Step A completed exactly 8 calls under its approved cap 10 and failed: RPI exceeded the spread limit, while PRR passed. [The A report](../reports/2026-10-19-orc-structural-search-measurement-calibration.md) records the joined results, scans and complete receipt costs. The reference-free A′ implementation passed offline review and verification; its offline packet is ready and frozen at `I_A2=49cd27e6` / `F2=f58d70db`, but the owner reiterated the no-Claude restriction on 2026-10-20 without an expiry while authorizing A′'s 8 planned calls, cap 10, subject to that restriction. The frozen Sonnet/Terra packet is incompatible and remains blocked; a prospective Terra-only amendment is under design review, with no model/rule change or new criterion accepted yet. B, B2 and C retain separate approval gates. Preparation and freeze establish no calibration or quality result.
+> **Status:** selected for offline Tasks 1–5 and live Step A. The owner explicitly approved Step A at 8 calls, cap 10 on 2026-10-19 (`ac58e0ba`); do not ask for the same approval again. Offline Tasks 1–5 are complete and verified; implementation `I=25ca21e1` and criterion freeze `F=cc5464ac` passed independent review. Task4 reuses audited receipt/pricing APIs. Step A completed exactly 8 calls under its approved cap 10 and failed: RPI exceeded the spread limit, while PRR passed. [The A report](../reports/2026-10-19-orc-structural-search-measurement-calibration.md) records the joined results, scans and complete receipt costs. The reference-free A′ implementation passed offline review and verification; its offline packet is ready and frozen at `I_A2=49cd27e6` / `F2=f58d70db`, but the owner reiterated the no-Claude restriction on 2026-10-20 without an expiry while authorizing A′'s 8 planned calls, cap 10, subject to that restriction. The frozen Sonnet/Terra packet is incompatible and remains blocked; the Terra-only amendment design has independent Astra acceptance, but is not implemented/frozen or calibrated. The owner requires all C1 offline Tasks 1–7, reviews, tests and main integration before any new live experiment; experimental preparation is paused without creating new amendment artifacts, pools or freeze, and zero new calls have run. B, B2 and C retain separate approval gates. Preparation and freeze establish no calibration or quality result.
 
 > **Revision 2026-10-19** (after the independent review, coordinator rulings C1 and I1–I10 applied): a fourth blind control per task, the `mutant` (upstream with one behaviour-breaking edit), and rule P3 `total(upstream) − total(mutant) ≥ 2`, so a judge that scores similarity to the disclosed reference fails calibration; fillers are only patches that pass `git apply --check` on the amended seeded base, drawn from the retained Phase 1 pools and the three-arm final patches, with exact counts and a minimum; the authoritative gate-3 check is controller-side and restores the package's `dev-check.json` and promoted test before running (`evaluation.check_first_attempt`); Step C (the check-gated seed's own coder) is required and is the gate-3 measurement, Step B's figure beside it; a new `calibration-amends-5.json` references the unchanged historical criterion and records `amends_5` (frozen implementation commit, reviewer `gpt-6.1-sol`, amended package hashes) before Step B; B2 has its own per-pool verdict plus `summarize.calibration_over`; the failure-policy rerun is its own owner-gated step (A′) and the worst-case total is stated (50 calls); the driver design and harness D6 are amended offline before any spend; `summarize` skips `reference` clones and reads a mapping without `rubric` as the historical rubric; `score_ref.orc` runs end to end with scripted providers before the criterion freezes; no `calibrate.py` (shared `pool.write_pool`, `pool.pool_from_diffs`); citation, count, metering-mapping, measurement-order, batch-size, judge-scan and ledger minors applied.
 
@@ -400,14 +400,36 @@ to preparation of the predeclared A′ option; its launch requires separate appr
 request for 8 planned calls, cap 10, the owner said “still no claude, everythign
 else is fine”. This authorizes that call budget subject to the continuing
 no-Claude restriction; no expiry is assumed. It does not authorize the frozen
-Sonnet/Terra F2 packet, which remains incompatible and must not launch. A
-prospective Terra-only amendment is under design review; no model assignment,
-scientific rule, new criterion or launch packet has been accepted or changed
-here. I_A2/F2 and their runtime/criterion bytes remain frozen. The earlier
+Sonnet/Terra F2 packet, which remains incompatible and must not launch. The Terra-only amendment design is independently accepted, as recorded below;
+this is neither a frozen packet nor a calibration result. No new amendment
+artifacts, pools, freeze or calls have been created. Code-first ordering blocks
+all new live experiments until C1 offline Tasks 1–7, reviews/tests and main
+integration are complete. I_A2/F2 and their runtime/criterion bytes remain frozen. The earlier
 2026-10-19 restriction remains historical provenance, not an expiry. Other
 measurement stages keep their separate owner gates.
 
-Offline preparation at `eb2b0636` adds `score_absolute.orc` for the predeclared reference-free revision; independent review approved it. The first broad run had 1127 passed and one unchanged native-session timing-test failure (229.39 s); both timeout cases passed narrow repeat, then the unchanged full suite passed 1128 in 227.79 s, exit 0. The offline packet is now frozen as recorded below. No A2 launch is selected: a prospective packet keeps both models, controls, fillers and thresholds, with nine blind clones per batch and eight calls, cap 10, under separate owner approval.
+
+**Accepted amendment design, preparation paused.** A′ uses one
+`gpt-5.6-terra` judge at high effort, two batches per task: four planned calls,
+cap 10, with four declared judge×batch pairs and reduced cross-provider
+coverage. Controls, fillers, the reference-free rubric, P1/P2/P3, error 0 and
+spread 2 are unchanged. This consumes the same predeclared A′ alternative:
+no additional rubric revision or A3 is selected. I_A2 may remain the runtime
+only with a frozen operator audit: an empty Claude allowlist checked at launch
+and resume, persisted actual-Claude metadata reported as non-clearable
+`FORBIDDEN` hits, and positive Terra per-call receipt proof. These are accepted
+design obligations, not claims that an audit or new freeze already exists.
+Original F2 remains unchanged and unexecuted.
+
+Prospective B stays Terra; B2 becomes two planned calls, cap 4. C needs a new
+input seed/provider copy with Terra medium for coding and Terra high for
+diagnosis, preserving the historical seed. B, B2 and C have no paid approval.
+Before any launch, finish all C1 offline implementation/reviews/checks/main
+integration, then prepare the compatible packet against the existing conditional
+budget authority; do not ask again for approval already granted within scope.
+The continuing no-Claude restriction has no assumed expiry.
+
+Offline preparation at `eb2b0636` adds `score_absolute.orc` for the predeclared reference-free revision; independent review approved it. The first broad run had 1127 passed and one unchanged native-session timing-test failure (229.39 s); both timeout cases passed narrow repeat, then the unchanged full suite passed 1128 in 227.79 s, exit 0. The offline packet is now frozen as recorded below. That original F2 packet retains both models, controls, fillers and thresholds, with nine blind clones per batch and eight calls, cap 10; it cannot launch under the continuing restriction. The accepted Terra-only design above supersedes this prospective allocation without rewriting F2.
 
 **Original offline packet frozen; incompatible with the continuing no-Claude restriction.** Runtime
 `RT=/home/ollie/sc-runtime-a2` is detached at
@@ -527,7 +549,8 @@ The command derives its repeated `--holdout` arguments from exactly the inherite
 | B failure history does not impose the old four-run count | Retain `historical_failed_runs`; count all B launches/extensions/replacements/reruns against cap14 and stop before any excess |
 | B2 membership is frozen by provenance | Include all usable B qualification patches, deterministic unused fillers, maximum5/minimum2; no selective omission or reuse of fillers from any earlier A/A2 pool, including failed A; A′ itself may reuse A fillers |
 
-Current budget after A: 8 realized calls; remaining separately gated caps are
+Prior dual-judge planning after A (superseded prospectively by the accepted
+Terra-only design above): 8 realized calls; remaining separately gated caps are
 10 + 14 + 4 + 12 = 40, so realized plus remaining worst case is 48. The original
 planning maximum 50 is not an allocation, and A's unused two-call reserve is
 not transferred. Remaining planned calls are 32, or 40 including A and A′.
@@ -539,3 +562,14 @@ not transferred. Remaining planned calls are 32, or 40 including A and A′.
 | Conditional A′ budget authorization with continuing no-Claude restriction | The owner answered the concrete 8-planned-call/cap-10 request with “still no claude, everythign else is fine”. Record the budget authority subject to no Claude, without assuming an expiry. This does not approve launching the frozen Sonnet/Terra F2 packet or silently replacing its judges |
 | Prospective Terra-only amendment remains under design review | No new model assignment, scientific rule or criterion is selected by this status edit. Preserve I_A2/F2, historical A, all frozen criteria and runtime bytes. A compatible accepted amendment and matching packet must precede any launch; no call is launched here |
 | Offline C1 Tasks 1–7 selected on the reused branch | The owner selected offline implementation in the [C1 plan](2026-10-19-orc-structural-search-cumulative-pilot-plan.md), with Task 1 `6c0082e1` still under independent review. This does not select a paid campaign or waive B/B2/C and extra-package qualification gates |
+
+
+### Accepted No-Claude Design And Code-First Gate — 2026-10-20
+
+| Decision | Consequence |
+| --- | --- |
+| Code first; preparation stopped | Finish all C1 offline Tasks 1–7, independent reviews, required tests and main integration before any new live A′ or other experiment. Zero new calls; external preparation stopped without creating new amendment artifacts, AT pool or freeze |
+| Independent Astra acceptance is design only | One Terra-high judge, two batches/task, four planned A′ calls/cap 10, denominator four pairs; unchanged controls/fillers/rubric/P1/P2/P3/error 0/spread 2, with reduced cross-provider coverage. No extra rubric revision, A3, freeze or calibration result follows |
+| Runtime reuse requires positive operator proof | I_A2 may stay only with frozen launch/resume audit, empty Claude allowlist, non-clearable persisted actual-Claude `FORBIDDEN` hits and positive Terra per-call receipt proof; these obligations are not yet implemented/frozen |
+| Later measurement stages remain gated | B stays Terra; B2 becomes two planned calls/cap 4; C needs new Terra medium/high input copies. No paid B/B2/C approval, no historical seed/criterion rewrite, and old F2 remains unexecuted |
+| Honor existing conditional authority without repeat request | The four-call design stays below the owner's authorized eight-planned-call/cap-10 envelope subject to no Claude. Finish code first and later prepare a compatible accepted packet; do not re-ask that budget approval within scope |
