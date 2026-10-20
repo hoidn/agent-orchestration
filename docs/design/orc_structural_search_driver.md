@@ -11,8 +11,8 @@
   live Phase 1 ran on 2026-10-18 and 2026-10-19 and did not select Phase 2
   for family (a) ([Phase 1 report](../reports/2026-10-18-orc-structural-search-phase1.md));
   a live Phase 2 needs a new owner selection and budget approval. I3 is implemented
-  offline for the three-arm compile-only readout (`three_arm.py`, scripted providers
-  only; not in mode 2) and ran live once in the measure-free three-arm readout
+  offline for the three-arm compile-only readout (`three_arm.py`; not in mode 2)
+  and ran live once in the measure-free three-arm readout
   ([Phase 1 report](../reports/2026-10-18-orc-structural-search-phase1.md#three-arm-readout);
   [three-arm plan](../plans/2026-10-19-orc-structural-search-three-arm-readout-plan.md)).
   The `module` condition, closed-program reservations,
@@ -23,8 +23,9 @@
   [decision's prior evidence](../plans/2026-10-19-orc-structural-search-module-rewrite-plan.md#prior-offline-execution-evidence).
   Fresh adaptive launches and finalist validation are unsupported; retained
   mode-2 helpers interpret historical mechanics only. Main's distinct-policy
-  allocation comparison and Codex cache-write deduction require the pending
-  integration deltas recorded in that implementation plan. The separate
+  allocation comparison, policy/structure endpoint classes and Codex cache-write
+  accounting are implemented and reviewed at `9adcf56c`; that plan records
+  their focused and full-suite verification evidence. The separate
   [measurement plan](../plans/2026-10-19-orc-structural-search-measurement-plan.md)
   owns the next offline calibration preparation; its live steps keep their own
   owner budget gates.
@@ -948,11 +949,14 @@ from receipt fields to prices is frozen with the table: a Claude usage row
 charges `input_tokens` at input, `output_tokens` at output,
 `cache_read_input_tokens` at cache-read and `cache_creation_input_tokens`
 at cache-write; a Codex `total_token_usage` charges
-`input_tokens - cached_input_tokens` at input, `cached_input_tokens` at
-cache-read, `cache_write_input_tokens` at cache-write (0 in every recorded
-rollout; if a rollout shows it inside `input_tokens`, charge
-`input_tokens - cached_input_tokens - cache_write_input_tokens` at input) and `output_tokens`
-at output, never adding `reasoning_output_tokens`, which `output_tokens`
+`cached_input_tokens` at cache-read, `cache_write_input_tokens` at cache-write
+and `output_tokens` at output. Use the last cumulative `total_tokens` to resolve
+whether cache-write is already included in input: if total equals input plus
+output, charge `input_tokens - cached_input_tokens - cache_write_input_tokens`
+at ordinary input; if total equals input plus cache-write plus output, charge
+`input_tokens - cached_input_tokens`. Zero cache-write makes the two formulas
+equivalent. Inconsistent totals, invalid counters or a negative ordinary-input
+remainder make usage unavailable. Never add `reasoning_output_tokens`, which `output_tokens`
 already contains (in the recorded three-arm rollouts input plus output
 equals `total_tokens`). Calls and wall clock are an acceptable cost proxy
 only when every compared candidate's provider calls resolve to one and the
@@ -1040,12 +1044,12 @@ separately, retaining call position while normalizing coherent private renames;
 they are not dynamic executions or branch counters. `allocation_changed` compares
 the set of distinct `(provider, model, effort)` policies with the parent's set;
 adding a call site that reuses an existing policy does not change that set.
-The required endpoint splits are policy-only, structure-only and both; static
-invocation paths remain diagnostic evidence rather than the comparison key.
-Missing/unresolved/recursive or ambiguous owner evidence yields `unavailable`
-with a reason. The delivered path-keyed comparison needs the pending integration
-correction recorded in the implementation plan; its prior tests do not establish
-this revised policy-set contract. Keep the source metric
+Endpoint classes are `policy_only`, `structure_only`, `both`, `unchanged` and
+`unknown`. Compare the recorded child/parent skeleton hashes to classify
+structure independently from the policy-set comparison; missing policy or
+skeleton evidence yields `unknown`. Static invocation paths remain diagnostic
+rather than the comparison key. Missing/unresolved/recursive or ambiguous owner
+evidence yields `unavailable` with a reason. Keep the source metric
 `allocation_distinct` separately for collapse reporting.
 
 Every ORC evaluation records `realized_perform_sites` from
@@ -1096,10 +1100,10 @@ bind the joins. The frontier entries are reported by candidate, and both endpoin
 the child changed its policies (`allocation_changed`: its set of distinct
 (provider, model, effort) triples differs from the parent's), its structure
 only or both. An added call site using a parent policy is not a policy change.
-Keep these policy-only, structure-only and both splits beside the collapse
-figure's `allocation_distinct`, which sees extern names only; unavailable
-allocation remains explicit. These split semantics require the pending
-integration correction, rather than being covered by the prior offline run.
+The readout exposes `policy_only`, `structure_only`, `both`, `unchanged` and
+`unknown` classes using independent skeleton and policy-set evidence. Keep them
+beside the collapse figure's `allocation_distinct`, which sees extern names
+only; missing or contradictory classification evidence remains `unknown`.
 Every terminal
 non-quota episode (accepted, rejected, exhausted or incident) remains in the
 completed denominator. Unvalued, contaminated or pending children cannot enter

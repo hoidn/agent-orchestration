@@ -6,9 +6,9 @@
   Closed-program reservations, shim caps, external qualification and matched
   per-arm model-aware Pareto endpoints extend the earlier delivery. Evidence
   under "Prior Offline Execution Evidence" remains scoped to that earlier code.
-  The implementation plan records pending main-integration corrections to
-  policy-set comparison/splits and Codex cache-write deduction; prior checks
-  do not verify those later requirements.
+  The implementation plan separately records reviewed main-integration delivery
+  of policy-set comparison/classes and Codex cache-write accounting; the earlier
+  verification does not cover those later corrections.
   No live successor study or provider budget is selected.
 - **Kind:** maintained decision and live-selection gates for the fifth edit condition
   `module` and the separate `I1/module` measured arm. The

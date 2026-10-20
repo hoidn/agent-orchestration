@@ -6,7 +6,7 @@ calibration experiment or provider allocation is selected.
 
 The [driver design](../../docs/design/orc_structural_search_driver.md) owns admission,
 qualification, metering and selection. The [delivery plan](../../docs/plans/2026-10-19-orc-structural-search-module-condition-implementation-plan.md)
-records offline verification and pending main-integration policy-set/cache-write corrections; the [roadmap](../../docs/plans/2026-10-18-orc-structural-search-roadmap.md)
+records offline verification, policy-set/cache-write delivery and remaining checks; the [roadmap](../../docs/plans/2026-10-18-orc-structural-search-roadmap.md)
 owns live selection. Scripted checks establish mechanics, not research utility.
 
 | Surface | Current use |
@@ -118,8 +118,8 @@ PYMODULE
 - Source metrics normalize coherent private renames. The current allocation contract
   compares sets of distinct provider/model/effort policies;
   static invocation paths remain diagnostic and unavailable proof stays unavailable.
-  The delivered path-keyed comparison and policy/structure endpoint splits need
-  the implementation plan's pending integration correction. Memo effects preserve
+  Policy and skeleton evidence classify `policy_only`, `structure_only`, `both`,
+  `unchanged` or `unknown`; new sites reusing a policy do not change its set. Memo effects preserve
   identity, class, attempts and status;
   unexercised sites need a validated join and never establish branch coverage.
 
@@ -137,7 +137,9 @@ matched tasks/replicates. Each arm's frontier is recomputed over its parent and 
 evaluated children, including earlier continuation subsets; it retains only
 non-dominated candidates above the quality floor. Parents share one evaluation per
 identity, projected to their arms. Readout-only prices come from the criterion;
-missing usage/rates remain unavailable. Calls substitute for cost only with complete,
+missing usage/rates remain unavailable. Codex cumulative totals distinguish
+cache-write already inside input from separate cache-write; inconsistent counters
+stay unavailable. Calls substitute for cost only with complete,
 unambiguous actual model/effort identity proof for every compared call.
 
 The [module decision](../../docs/plans/2026-10-19-orc-structural-search-module-rewrite-plan.md#gate-for-a-live-module-arm)

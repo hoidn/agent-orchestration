@@ -150,9 +150,10 @@ per-arm model-aware Pareto readout are implemented offline; fresh verification
 belongs to the [implementation plan](2026-10-19-orc-structural-search-module-condition-implementation-plan.md).
 The prior offline evidence alone does not verify these additions. No successor
 criterion is committed, and fresh adaptive launches/finalist validation refuse. Live selection, phase
-promotion and provider allocation remain separately gated. Main's policy-set comparison/splits and Codex
-cache-write deduction still need the implementation plan's integration deltas;
-completed offline evidence does not verify those later corrections.
+promotion and provider allocation remain separately gated. Main's policy-set comparison/classes and Codex
+cache-write accounting are implemented and independently reviewed; the
+implementation plan tracks fresh focused and full-suite evidence separately
+from the earlier delivery.
 
 | Interface | Agent receives | Agent returns | Validation | Needs |
 | --- | --- | --- | --- | --- |
