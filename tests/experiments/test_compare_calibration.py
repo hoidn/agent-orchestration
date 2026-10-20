@@ -1,6 +1,7 @@
 """Generic calibration pools and complete-denominator verdicts; no provider calls."""
 
 import json
+from itertools import product
 from pathlib import Path
 
 import pytest
@@ -250,3 +251,48 @@ def test_summarize_writes_calibration_without_rerunning_hidden_acceptance(world,
 def test_calibration_does_not_reinterpret_structural_v1_quality_rules():
     criterion = {"purpose": "quality", "calibration": {"margin": 4, "error_rate": 0}}
     assert summarize.calibration({}, {"task": "/tasks/task"}, criterion) is None
+
+
+def test_absolute_calibration_pools_only_blind_clones_and_preserves_the_full_denominator(world, package):
+    rule, diffs, _ = package
+    rule["rubric"] = {**REFERENCE_RUBRIC, "workflow": "score_absolute.orc", "entry": "score_absolute::score",
+                      "reference": None}
+    repos.dump(world.criterion, rule)
+    mapping = make_pool(world, diffs, out="absolute-calibration")
+    out = world.outside / "absolute-calibration"
+    assert not mapping.get("references")
+    assert all(clone["arm"] != "reference" for clone in mapping["clones"].values())
+    for batch in mapping["batches"]:
+        assert len(batch) == 9
+        assert sum(mapping["clones"][cid]["arm"] == "anchor" for cid in batch) == 4
+    expected = {"task-upstream": 8, "task-stub": 1, "task-partial": 5, "task-mutant": 5}
+    for judge, info in mapping["judges"].items():
+        inputs = repos.load(out / "records" / f"score-inputs-{judge}.json")
+        assert all(set(batch) == {"clones"} for batch in inputs["batches"])
+        command = (out / "records" / f"score-{judge}.sh").read_text()
+        assert "score_absolute.orc" in command and "--entry-workflow score_absolute::score" in command
+        value = []
+        for batch in inputs["batches"]:
+            ratings = []
+            for path in batch["clones"]:
+                clone = mapping["clones"][Path(path).name]
+                total = expected.get(clone["labels"][0], 3)
+                scores = [f"S{min(2, max(0, total - index * 2))}" for index in range(4)]
+                ratings.append(dict(zip(rule["rubric"]["criteria"], scores), clone=path, reason="control"))
+            value.append(ratings)
+        state = out / "judges" / info["dir"] / "state/r1"
+        state.mkdir(parents=True)
+        repos.dump(state / "run.json", {"bound_inputs": inputs})
+        write_memo({"state_root": state.parent}, [], value)
+        pooling.scan_judge(out, judge, world.solution, home=world.tmp / "home")
+    result = summarize.summarize(out, world.criterion)
+    assert result["calibration"]["passed"] is True
+    assert {(pair["judge"], pair["batch"]) for pair in result["calibration"]["pairs"]} == set(
+        product(rule["judges"], range(len(mapping["batches"]))))
+    for cid, clone in result["clones"].items():
+        assert clone["score"] == expected.get(clone["labels"][0], 3)
+        assert set(clone["ratings"]) == set(rule["judges"])
+    result["judges"] = [rule["judges"][0]]
+    incomplete = summarize.calibration(result, mapping, rule)
+    assert len(incomplete["pairs"]) == len(rule["judges"]) * len(mapping["batches"])
+    assert incomplete["passed"] is False
