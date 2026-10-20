@@ -7,6 +7,8 @@ from pathlib import Path
 from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.contracts.closed_program.node_walk import _ast_nodes
 from orchestrator.workflow.evaluated.machine import site_nodes
+from orchestrator.workflow_lisp.reader import read_sexpr_text
+from orchestrator.workflow_lisp.sexpr import ListExpr, SymbolAtom
 from experiments.orc_structural_search.candidates import compile_candidate
 from experiments.orc_structural_search.metrics import is_python, metric_definitions, mutable_source
 from experiments.orc_structural_search.records import UNAVAILABLE
@@ -19,8 +21,48 @@ def checked_program(root: Path, build_key: str) -> ClosedProgram:
 
 
 def planned_sites(program: ClosedProgram) -> list[dict]:
-    return [{"identity": identity, "effect_class": node["class"]}
-            for identity, node in site_nodes(program).items()]
+    rows = []
+    for identity, node in site_nodes(program).items():
+        row = {"identity": identity, "effect_class": node["class"]}
+        if node["class"] == "provider":
+            row["provider_role"] = _authored_provider_role(node)
+        rows.append(row)
+    return rows
+
+
+def _authored_provider_role(node) -> str:
+    span = node.get("@", {}).get("span", "")
+    try:
+        path, line, column = span.rsplit(":", 2)
+        source = read_sexpr_text(Path(path).read_text(), source_path=path)
+    except (AttributeError, OSError, ValueError):
+        return UNAVAILABLE
+    pending = [source]
+    while pending:
+        expression = pending.pop()
+        if not isinstance(expression, ListExpr):
+            continue
+        head = expression.items[0] if expression.items else None
+        role = expression.items[1] if len(expression.items) > 1 else None
+        start = expression.span.start
+        if (str(start.line) == line and str(start.column) == column and isinstance(head, SymbolAtom)
+                and head.value == "provider-result" and isinstance(role, SymbolAtom)
+                and role.value.startswith("providers.")):
+            return role.value
+        pending.extend(reversed(expression.items))
+    return UNAVAILABLE
+
+
+def _identity_pattern(identity):
+    return re.escape(identity).replace(r"\[\*\]", r"\[\d+\]")
+
+
+def provider_role(identity: str, planned: list[dict]) -> str:
+    """Join a realized provider identity to exactly one checked site, including indexed loop instances."""
+    matches = [row for row in planned if re.fullmatch(_identity_pattern(row["identity"]), identity)]
+    if len(matches) != 1 or matches[0].get("effect_class") != "provider":
+        return UNAVAILABLE
+    return matches[0].get("provider_role", UNAVAILABLE)
 
 
 def _owner(definition, names, own_module):
@@ -129,7 +171,7 @@ def unexercised_sites(planned, realized, *, completed):
     """A completed validated memo can exclude planned effect sites, never source branches."""
     if not completed:
         return UNAVAILABLE
-    expressions = {row["identity"]: re.escape(row["identity"]).replace(r"\[\*\]", r"\[\d+\]") for row in planned}
+    expressions = {row["identity"]: _identity_pattern(row["identity"]) for row in planned}
     if not all(any(re.fullmatch(pattern, row["identity"]) for pattern in expressions.values()) for row in realized):
         return UNAVAILABLE
     return [row for row in planned if not any(re.fullmatch(expressions[row["identity"]], effect["identity"])

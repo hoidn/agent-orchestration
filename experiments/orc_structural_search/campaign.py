@@ -373,32 +373,46 @@ def rebuild(store: Store, campaign_id: str, *, criterion: Mapping, pools: Sequen
 def behaviour_descriptor(evaluation_rows: Sequence[Mapping], episode_row: Mapping | None) -> dict:
     """A reporting-only descriptor from recorded provider effects and the accepted episode's source evidence."""
     calls = _realized_provider_calls(evaluation_rows)
-    roles, loop = _descriptor_roles(calls, episode_row), _loop_present(episode_row)
-    return {"realized_provider_calls": calls, "distinct_provider_roles": len(roles), "loop_present": loop,
-            "allocation_changed": episode_row.get("allocation_changed", UNAVAILABLE)
-            if episode_row is not None else UNAVAILABLE}
+    role_count = UNAVAILABLE if calls == UNAVAILABLE else len(_descriptor_roles(calls))
+    loop = _loop_present(episode_row)
+    changed = episode_row.get("allocation_changed", UNAVAILABLE) if episode_row is not None else UNAVAILABLE
+    return {"realized_provider_calls": calls, "distinct_provider_roles": role_count, "loop_present": loop,
+            "allocation_changed": changed if type(changed) is bool else UNAVAILABLE}
 
 
-def _realized_provider_calls(evaluation_rows: Sequence[Mapping]) -> list[dict]:
+def _realized_provider_calls(evaluation_rows: Sequence[Mapping]) -> list[dict] | str:
+    if not evaluation_rows:
+        return UNAVAILABLE
     calls = []
     for row in evaluation_rows:
         sites = row.get("realized_perform_sites")
         if not isinstance(sites, list):
-            continue
-        calls.extend({"task_id": row.get("task_id"), "identity": site["identity"],
-                      "attempts": site.get("attempts", 1)}
-                     for site in sites if isinstance(site, Mapping) and site.get("effect_class") == "provider"
-                     and isinstance(site.get("identity"), str))
+            return UNAVAILABLE
+        for site in sites:
+            call = _provider_call(site)
+            if call == UNAVAILABLE:
+                return UNAVAILABLE
+            if call is not None:
+                if isinstance(row.get("task_id"), str):
+                    call["task_id"] = row["task_id"]
+                calls.append(call)
     return calls
 
 
-def _descriptor_roles(calls: Sequence[Mapping], episode_row: Mapping | None) -> set[str]:
-    signature = episode_row.get("allocation_signature", {}) if episode_row is not None else {}
-    if not isinstance(signature, Mapping):
-        return set()
-    return {signature[call["identity"]]["provider"] for call in calls
-            if isinstance(signature.get(call["identity"]), Mapping)
-            and isinstance(signature[call["identity"]].get("provider"), str)}
+def _provider_call(site: Mapping) -> dict | None | str:
+    if not isinstance(site, Mapping):
+        return UNAVAILABLE
+    if site.get("effect_class") != "provider":
+        return None
+    identity, attempts, role = site.get("identity"), site.get("attempts"), site.get("provider_role")
+    if (not isinstance(identity, str) or type(attempts) is not int or attempts < 1
+            or not isinstance(role, str) or not role or role == UNAVAILABLE):
+        return UNAVAILABLE
+    return {"identity": identity, "attempts": attempts, "provider_role": role}
+
+
+def _descriptor_roles(calls: Sequence[Mapping]) -> set[str]:
+    return {call["provider_role"] for call in calls}
 
 
 def _loop_present(episode_row: Mapping | None) -> bool:
@@ -484,7 +498,11 @@ def futility(outcomes: Sequence[str], *, consecutive: int) -> bool:
 def convergence(store: Store, campaign_id: str) -> dict:
     """Share of this campaign's distinct evaluated children per coarse idea key; warm starts and siblings do not count."""
     candidates = campaign_candidates(store, campaign_id)
-    children = {trial["candidate_id"] for trial in store.rows("trial") if trial["campaign_id"] == campaign_id}
+    campaign = _campaign(store, campaign_id)
+    trials = store.index().trials
+    initial = {trials[trial_id]["candidate_id"] for trial_id in campaign["warm_start"]}
+    children = {trial["candidate_id"] for trial in store.rows("trial")
+                if trial["campaign_id"] == campaign_id and trial["candidate_id"] not in initial}
     counts = defaultdict(int)
     for candidate_id in children:
         subject = candidates[candidate_id]

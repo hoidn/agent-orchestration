@@ -268,13 +268,17 @@ def realized_effects(state_dir: Path, run_id: str, *, generic: bool) -> dict:
         return result
     from orchestrator.workflow.evaluated.views import load_evaluated_view
     view = load_evaluated_view(state_dir / run_id)
-    result.update(realized_perform_sites=[
-        {"identity": step["identity"], "effect_class": step["effect_class"],
-         "attempts": step["attempt"], "status": step["status"]}
-        for step in view["steps"].values()], branch_coverage_reason="memo_records_effects_only")
     from orchestrator.contracts.closed_program.program import ClosedProgram
     program = ClosedProgram.from_artifact((state_dir / run_id / "closed_program.json").read_text())
     planned = site_evidence.planned_sites(program)
+    realized = []
+    for step in view["steps"].values():
+        row = {"identity": step["identity"], "effect_class": step["effect_class"],
+               "attempts": step.get("attempt", UNAVAILABLE), "status": step.get("status", UNAVAILABLE)}
+        if row["effect_class"] == "provider":
+            row["provider_role"] = site_evidence.provider_role(row["identity"], planned)
+        realized.append(row)
+    result.update(realized_perform_sites=realized, branch_coverage_reason="memo_records_effects_only")
     result.update(planned_perform_sites=planned, unexercised_perform_sites=site_evidence.unexercised_sites(
         planned, result["realized_perform_sites"], completed=view["status"] == "completed"))
     return result

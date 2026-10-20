@@ -4,9 +4,11 @@ import hashlib
 import json
 from pathlib import Path
 
-from experiments.orc_structural_search import campaign
+from experiments.orc_structural_search import campaign, evaluation, site_evidence
+from experiments.orc_structural_search.candidates import compile_candidate
 from experiments.orc_structural_search.briefs import feedback_text
 from experiments.orc_structural_search.config import ExperimentConfig
+from experiments.orc_structural_search.records import UNAVAILABLE
 from tests.experiments.orc_structural_search_support import world
 
 
@@ -149,19 +151,81 @@ def test_convergence_excludes_initial_evidence_and_sibling_campaign_children():
         "shares": {"idea-other": 1 / 3, "idea-shared": 2 / 3}, "max_share": 2 / 3}
 
 
-def test_behaviour_descriptor_uses_recorded_sites_and_episode_policy_metadata():
-    evaluations = [
-        {"task_id": "task-1", "evaluation_id": "e1", "realized_perform_sites": [
-            {"identity": "run / provider0", "effect_class": "provider", "attempts": 1, "status": "completed"},
-            {"identity": "run / check0", "effect_class": "command", "attempts": 1, "status": "completed"}]},
-        {"task_id": "task-2", "evaluation_id": "e2", "realized_perform_sites": [
-            {"identity": "run / provider1", "effect_class": "provider", "attempts": 2, "status": "completed"}]},
-    ]
-    episode = {"allocation_signature": {"run / provider0": {"provider": "providers.coder"},
-                                         "run / provider1": {"provider": "providers.reviewer"}},
-               "structure": {"loop": True}, "allocation_changed": True}
-    assert campaign.behaviour_descriptor(evaluations, episode) == {
-        "realized_provider_calls": [
-            {"task_id": "task-1", "identity": "run / provider0", "attempts": 1},
-            {"task_id": "task-2", "identity": "run / provider1", "attempts": 2}],
-        "distinct_provider_roles": 2, "loop_present": True, "allocation_changed": True}
+def test_convergence_excludes_a_warm_start_seed_if_this_campaign_evaluates_it_again():
+    store = _store()
+    before = campaign.convergence(store, "c1-1")
+    store._rows.append({"kind": "trial", "trial_id": "own-seed", "campaign_id": "c1-1", "candidate_id": "seed"})
+    store._rows.append({"kind": "subject", **_summary("seed", idea="seed-idea", campaign_id="c1-1")})
+    assert campaign.convergence(store, "c1-1") == before
+
+
+def test_behaviour_descriptor_joins_actual_compiled_and_realized_site_identities(monkeypatch, world):
+    compiled = compile_candidate(world.candidate, _config(), runtime=world.runtime)
+    program = site_evidence.checked_program(world.candidate, compiled.build_key)
+    planned = site_evidence.planned_sites(program)
+    providers = [site for site in planned if site["effect_class"] == "provider"]
+    assert [site.get("provider_role") for site in providers] == [
+        "providers.coder", "providers.reviewer", "providers.coder"]
+    steps = {site["identity"]: {"identity": site["identity"], "effect_class": "provider",
+                                "attempt": index + 1, "status": "completed"}
+             for index, site in enumerate(providers)}
+    monkeypatch.setattr("orchestrator.workflow.evaluated.views.load_evaluated_view",
+                        lambda _root: {"status": "completed", "steps": steps})
+    state_dir = world.tmp / "state"
+    run_dir = state_dir / "fixture-run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "closed_program.json").write_text(
+        (world.candidate / ".orchestrate/build" / compiled.build_key / "closed_program.json").read_text())
+    effects = evaluation.realized_effects(state_dir, "fixture-run", generic=False)
+    descriptor = campaign.behaviour_descriptor(
+        [{"task_id": "task-1", **effects}],
+        {"structure": {"loop": False}, "allocation_changed": False})
+    assert [call["identity"] for call in descriptor["realized_provider_calls"]] == [
+        site["identity"] for site in providers]
+    assert [call["provider_role"] for call in descriptor["realized_provider_calls"]] == [
+        "providers.coder", "providers.reviewer", "providers.coder"]
+    assert [call["attempts"] for call in descriptor["realized_provider_calls"]] == [1, 2, 3]
+    assert (descriptor["distinct_provider_roles"], descriptor["loop_present"],
+            descriptor["allocation_changed"]) == (2, False, False)
+
+
+def test_behaviour_descriptor_reports_known_empty_effects_as_zero():
+    result = campaign.behaviour_descriptor(
+        [{"realized_perform_sites": []}], {"structure": {"loop": True}, "allocation_changed": False})
+    assert result == {"realized_provider_calls": [], "distinct_provider_roles": 0,
+                      "loop_present": True, "allocation_changed": False}
+
+
+def test_behaviour_descriptor_preserves_unavailable_and_incomplete_call_evidence():
+    incomplete_rows = [[], [{"realized_perform_sites": UNAVAILABLE}],
+                       [{"realized_perform_sites": [{"identity": "run / call", "effect_class": "provider",
+                                                       "provider_role": "providers.coder"}]}],
+                       [{"realized_perform_sites": [{"identity": "run / call", "effect_class": "provider",
+                                                       "attempts": 1}]}]]
+    for rows in incomplete_rows:
+        result = campaign.behaviour_descriptor(rows, {"structure": {"loop": True}, "allocation_changed": False})
+        assert (result["realized_provider_calls"], result["distinct_provider_roles"],
+                result["loop_present"], result["allocation_changed"]) == (
+                    UNAVAILABLE, UNAVAILABLE, True, False)
+
+
+def test_realized_effects_adds_provider_roles_without_dropping_recorded_fields(monkeypatch, world):
+    compiled = compile_candidate(world.candidate, _config(), runtime=world.runtime)
+    planned = site_evidence.planned_sites(site_evidence.checked_program(world.candidate, compiled.build_key))
+    providers = [site for site in planned if site["effect_class"] == "provider"]
+    steps = {site["identity"]: {"identity": site["identity"], "effect_class": "provider",
+                                "attempt": index + 1, "status": "completed"}
+             for index, site in enumerate(providers)}
+    monkeypatch.setattr("orchestrator.workflow.evaluated.views.load_evaluated_view",
+                        lambda _root: {"status": "completed", "steps": steps})
+    state_dir = world.tmp / "state"
+    run_dir = state_dir / "fixture-run"
+    run_dir.mkdir(parents=True)
+    (run_dir / "closed_program.json").write_text(
+        (world.candidate / ".orchestrate/build" / compiled.build_key / "closed_program.json").read_text())
+    result = evaluation.realized_effects(state_dir, "fixture-run", generic=False)
+    assert result["realized_perform_sites"] == [
+        {"identity": site["identity"], "effect_class": "provider", "attempts": index + 1,
+         "status": "completed", "provider_role": role}
+        for index, (site, role) in enumerate(zip(providers,
+                                                 ("providers.coder", "providers.reviewer", "providers.coder")))]
