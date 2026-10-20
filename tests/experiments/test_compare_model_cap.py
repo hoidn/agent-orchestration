@@ -187,3 +187,19 @@ def test_guard_preserves_literal_model_words_after_option_delimiter(guarded, nam
     done = guarded(name, args)
     assert done.returncode == 3, done.stderr
     assert json.loads(done.stdout)["args"] == [*prefix, "--model", model, *args]
+
+
+@pytest.mark.parametrize("name,args", [
+    ("codex", ["cloud", "exec", "--env", "e", "query"]),
+    ("codex", ["--remote", "http://server"]), ("codex", ["--remote=http://server"]),
+    ("codex", ["--approve-for-me"]), ("codex", ["exec", "--approve-for-me"]),
+    ("codex", ["remote-control"]), ("codex", ["dispatch"]), ("codex", ["queue", "s", "query"]),
+    ("codex", ["exec", "resume", "s"]), ("codex", ["fork", "s"]),
+    ("claude", ["--cloud", "query"]), ("claude", ["--cloud=query"]),
+    ("claude", ["--environment", "e"]), ("claude", ["--environment=e"]),
+    ("claude", ["--desktop"]), ("claude", ["ultrareview"]),
+    ("claude", ["--remote-control"]), ("claude", ["--settings", "settings.json"]),
+])
+def test_guard_refuses_remote_and_independent_session_routes_before_cli(guarded, name, args):
+    done = guarded(name, args)
+    assert (done.returncode, done.stdout) == (2, ""), done.stderr

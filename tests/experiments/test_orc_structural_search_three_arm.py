@@ -25,7 +25,7 @@ from experiments.orc_structural_search.records import append_record, read_record
 from experiments.orc_structural_search.scoring import contaminated_children, pool_evaluations
 from experiments.orc_structural_search.sites import eligible_sites, select_site, site_manifest
 from tests.experiments.orc_structural_search_support import (  # noqa: F401 (pyright, world: fixtures)
-    I3_CONFIG, MUTATOR, MUTATOR_I2, REPO, SCRIPTED, pyright, script, world)
+    I3_CONFIG, MUTATOR, MUTATOR_I2, REPO, SCRIPTED, capped_copy, pyright, script, world)
 from tests.experiments.test_orc_structural_search_adaptive import JUDGES, add_anchors, scripted_judge
 from tests.experiments.test_orc_structural_search_driver import sandboxed  # noqa: F401 (fixture)
 from tests.experiments.test_orc_structural_search_i3 import CODEX_EDIT, CODEX_MUTATOR
@@ -89,7 +89,7 @@ def install(world, quota_once=False, print_once=None, quota_always=False):
     script(world, [{"match": "Implement this change", "result": CHANGE}])
     for name in ("orc", "python"):
         if not (world.tmp / "parents" / name).exists():
-            shutil.copytree(PARENTS / name, world.tmp / "parents" / name, ignore=shutil.ignore_patterns("__pycache__"))
+            capped_copy(PARENTS / name, world.tmp / "parents" / name)
     configure(world, CRITERION)
 
 

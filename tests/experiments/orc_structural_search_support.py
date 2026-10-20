@@ -130,6 +130,15 @@ def script(world, entries):
     world.results.write_text(json.dumps(entries))
 
 
+def capped_copy(source, destination):
+    """Copy launch fixtures under today's cap; captured source workflows stay unchanged."""
+    shutil.copytree(source, destination, ignore=shutil.ignore_patterns("__pycache__"))
+    for path in destination.rglob("*"):
+        if path.suffix in (".orc", ".py"):
+            text = path.read_text().replace("claude-opus-5-5", "claude-sonnet-5-5")
+            path.write_text(text.replace("gpt-6.1-sol", "gpt-5.6-terra").replace("gpt-6-sol", "gpt-5.6-terra"))
+
+
 @pytest.fixture
 def world(tmp_path):
     """A clean runtime clone holding a tiny task repository's base commit, its task package, the seed catalog
@@ -150,7 +159,7 @@ def world(tmp_path):
         (task / name).parent.mkdir(parents=True, exist_ok=True)
         (task / name).write_text(text)
     candidate = tmp_path / "candidate"
-    shutil.copytree(SEEDS, candidate, ignore=shutil.ignore_patterns("__pycache__"))
+    capped_copy(SEEDS, candidate)
     OUTSIDE_SANDBOX_MOUNTS.mkdir(parents=True, exist_ok=True)
     outside = Path(tempfile.mkdtemp(dir=OUTSIDE_SANDBOX_MOUNTS))
     fakebin = outside / "fakebin"

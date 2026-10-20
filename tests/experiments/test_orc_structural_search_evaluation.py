@@ -18,7 +18,7 @@ from experiments.orc_structural_search.evaluation import (
 from tests.experiments.compare_harness_support import skip_without_sandbox
 from orchestrator.providers.registry import ProviderRegistry
 from tests.experiments.orc_structural_search_support import (  # noqa: F401 (pyright and world are fixtures)
-    I3_CONFIG, PYTHON_PARENT, SCRIPTED, pyright, script, world)
+    I3_CONFIG, PYTHON_PARENT, SCRIPTED, capped_copy, pyright, script, world)
 
 CONFIG = ExperimentConfig(
     mutable_files=("direct.orc",), mutable_definitions=("run",), condition="topology-only", interface="I1",
@@ -168,7 +168,7 @@ def test_only_a_python_entry_module_is_python():
 def three_arm_parent(world, arm):
     """A copy of the three-arm parent `arm` ("orc", the rebound direct seed, or "python", its I3 counterpart)."""
     root = world.tmp / arm
-    shutil.copytree(PYTHON_PARENT.parent / arm, root, ignore=shutil.ignore_patterns("__pycache__"))
+    capped_copy(PYTHON_PARENT.parent / arm, root)
     return root
 
 
@@ -204,9 +204,10 @@ def test_i3_parent_sends_the_orc_parents_prompt_except_the_result_path(sandboxed
     changed = [line[2:] for line in ndiff(coder_prompt(orc), coder_prompt(python)) if line[:2] in ("- ", "+ ")]
     argv = json.loads((python.records_dir / "calls" / "1" / "stdout.txt").read_text().splitlines()[0])
     template = ProviderRegistry().get("codex_unrestricted_workspace")
-    expected = [Template(arg).substitute(model="gpt-6.1-sol", reasoning_effort="high") for arg in template.command[1:]]
+    expected = [Template(arg).substitute(model="gpt-5.6-terra", reasoning_effort="high") for arg in template.command[1:]]
     assert ([line.startswith("- path:") for line in changed], python.value, argv) == (
-        [True, True], orc.value, expected)
+        [True, True], orc.value, ["--disable", "multi_agent", "--disable", "multi_agent_v2",
+                                    "--disable", "multi_agent_v2_dynamic_tools", *expected])
 
 
 def test_i3_evaluation_runs_the_generic_command_arm_and_records_a_completed_terminal(sandboxed, world, pyright):

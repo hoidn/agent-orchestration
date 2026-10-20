@@ -269,7 +269,7 @@ prompt = sys.stdin.read()
 root = Path(os.environ["HOME"]) / ".claude/projects" / re.sub(r"[^A-Za-z0-9]", "-", str(Path.cwd()))
 root.mkdir(parents=True)
 rows = [{{"type": "user", "message": {{"content": prompt}}}},
-        {{"type": "assistant", "message": {{"id": "m", "model": "claude-opus-5-5", "usage": {FULL if complete else {}!r}}}}}]
+        {{"type": "assistant", "message": {{"id": "m", "model": "claude-sonnet-5-5", "usage": {FULL if complete else {}!r}}}}}]
 (root / "session.jsonl").write_text("".join(json.dumps(row) + "\\n" for row in rows))
 '''
     env = fake_claude(world, source)

@@ -126,10 +126,15 @@ Agents share `$HOME`, so the harness guards instrumented CLI routes and checks r
   local-model and feature-enabling overrides, and admits only scalar
   `model_reasoning_effort` configuration overrides used by the provider binding. It always adds
   `--disable multi_agent --disable multi_agent_v2 --disable multi_agent_v2_dynamic_tools` to
-  disable native agents whose model selection does not pass through `PATH`.
+  disable native agents whose model selection does not pass through `PATH`. Cloud/remote/dispatch,
+  queue/resume/fork session dispatch and `--approve-for-me` routes also refuse; these are unused
+  by the provider bindings and may select independent server or reviewer models. Orchestrator
+  resume remains supported because it invokes a fresh guarded `codex exec` call.
 - **Claude native agents.** The shims and guard set
   `CLAUDE_CODE_SUBAGENT_MODEL=claude-sonnet-5-5` and `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`.
-  These cover Agent-tool subagents, teammates and workflow agents under the CLI contract
+  Explicit settings injection and cloud/environment/desktop/ultrareview/remote-control dispatch
+  are refused because they can start independently configured agents. The environment pins cover
+  Agent-tool subagents, teammates and workflow agents under the CLI contract
   ([run every subagent on one model](https://code.claude.com/docs/en/sub-agents#run-every-subagent-on-one-model),
   Claude Code 2.1.257 or later). Offline tests verify the variables reach the CLI, rather than
   claiming a live verification of its internals.

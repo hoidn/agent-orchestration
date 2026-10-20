@@ -40,12 +40,16 @@ for ((i = 0; i < ${#args[@]}; i++)); do
           -c|--config) check_config "${args[i + 1]-}"; continue ;;
           -c*) check_config "${arg#-c}"; continue ;;
           --config=*) check_config "${arg#--config=}"; continue ;;
-          review|-p*|--profile|--profile=*|--model-provider|--model-provider=*|--local-provider|--local-provider=*|--oss|--enable|--enable=*)
+          cloud|remote-control|dispatch|queue|resume|fork|review|--remote|--remote=*|--approve-for-me|-p*|--profile|--profile=*|--model-provider|--model-provider=*|--local-provider|--local-provider=*|--oss|--enable|--enable=*)
             refuse "'$arg' can override the model route or native-agent policy" ;;
           *) continue ;;
         esac
       else
-        continue
+        case $arg in
+          --cloud|--cloud=*|--environment|--environment=*|--desktop|ultrareview|--remote-control|--remote-control=*|--settings|--settings=*)
+            refuse "'$arg' can dispatch an independently configured agent" ;;
+          *) continue ;;
+        esac
       fi ;;
   esac
   [[ -n $model && $model != ,* && $model != *, && $model != *,,* ]] || check_model ""

@@ -464,11 +464,12 @@ def test_claude_started_by_a_codex_agent_runs_sonnet(world, monkeypatch):
     assert log.read_text().splitlines() == ["--model claude-sonnet-5-5 -p nested"]
 
 
-def test_parallel_calls_in_one_tree_all_run_through_the_guard(world, monkeypatch):
+@pytest.mark.parametrize("binary", ["claude", "codex"])
+def test_parallel_calls_in_one_tree_all_run_through_the_guard(world, monkeypatch, binary):
     log = log_claude_argv(world, monkeypatch)
     _, record = start(world, "direct_task")
     with ThreadPoolExecutor(8) as pool:
-        done = list(pool.map(lambda k: call(world, record, f"claude -p nested-{k} </dev/null"), range(16)))
+        done = list(pool.map(lambda k: call(world, record, f"claude -p nested-{k} </dev/null", binary=binary), range(16)))
     nested = sorted(line for line in log.read_text().splitlines() if "nested" in line)
     assert ([d.returncode for d in done], nested, sorted(p.name for p in (Path(record["tree"]) / ".model-guard").iterdir())) == (
         [0] * 16, sorted(f"--model claude-sonnet-5-5 -p nested-{k}" for k in range(16)), ["claude", "codex"])

@@ -67,7 +67,7 @@ def mode1(world, seeds, **launch):
     mutator.write_text(MUTATOR)
     env = {**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}", "SCRIPTED_RESULTS_FILE": str(world.results)}
     evidence = world.tmp / "evidence"
-    readout = run_mode1(world.tmp / "config.json", seeds=[SEEDS / f"{name}.orc" for name in seeds], tasks=[world.task],
+    readout = run_mode1(world.tmp / "config.json", seeds=[world.candidate / f"{name}.orc" for name in seeds], tasks=[world.task],
                         work_root=world.outside / "work", evidence_root=evidence, episodes=3,
                         agent_cmd=[sys.executable, "-I", str(mutator)], replicates=1, runtime=world.runtime, env=env,
                         timeout_sec=600, solutions={world.task.name: world.solution}, call_cap=160, concurrency=1, **launch, criterion=world.criterion)
@@ -274,7 +274,7 @@ def test_mutator_runs_behind_shims_and_guard(sandboxed, world):
     calls = evidence / "episodes" / row["episode_id"] / "calls"
     assert (row["outcome"], row["provider_calls"], (calls / "1" / "prompt.txt").read_text().startswith("# Episode 0"),
             "providers.planner" in (calls / "1" / "patch-cand-1.diff").read_text(),
-            "names a Fable model" in (calls / "2" / "stderr.txt").read_text()) == ("incident", 2, True, True, True)
+            "model guard:" in (calls / "2" / "stderr.txt").read_text()) == ("incident", 2, True, True, True)
 
 
 def test_an_episode_session_naming_the_evidence_root_is_scan_pending(sandboxed, world):
@@ -293,7 +293,7 @@ def test_concurrent_catalog_logs_each_evaluation_once(sandboxed, world):
     script(world, [{"match": "Plan this task", "sleep": 15, "result": {"steps": ["edit pkg"]}}, *ANSWERS])
     env = {**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}", "SCRIPTED_RESULTS_FILE": str(world.results)}
     evidence = world.tmp / "evidence"
-    rows = enumerate_catalog([SEEDS / "plan_then_implement.orc", SEEDS / "direct.orc"], launch_config(world, config_of()), tasks=[world.task],
+    rows = enumerate_catalog([world.candidate / "plan_then_implement.orc", world.candidate / "direct.orc"], launch_config(world, config_of()), tasks=[world.task],
                              work_root=world.outside / "work", evidence_root=evidence, replicates=1,
                              runtime=world.runtime, env=env, timeout_sec=600,
                              solutions={world.task.name: world.solution}, call_cap=160, concurrency=2, criterion=world.criterion)

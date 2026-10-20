@@ -199,7 +199,7 @@ def mode1_run(world, *, agent: str, continue_run: bool):
     (world.tmp / "config.json").write_text(json.dumps(CONFIG | {"criterion_sha256": sha256_file(world.criterion)}))
     mutator = world.outside / "mutator.py"
     mutator.write_text(agent)
-    return run_mode1(world.tmp / "config.json", seeds=[SEEDS / f"{name}.orc" for name in
+    return run_mode1(world.tmp / "config.json", seeds=[world.candidate / f"{name}.orc" for name in
                                                        ("direct", "plan_then_implement", "implement_review_revise")],
                      tasks=[world.task], work_root=world.outside / "work", evidence_root=world.tmp / "evidence",
                      episodes=1, agent_cmd=[sys.executable, "-I", str(mutator)], replicates=1, runtime=world.runtime,

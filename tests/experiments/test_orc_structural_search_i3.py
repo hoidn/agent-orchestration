@@ -10,11 +10,11 @@ from pathlib import Path
 
 from experiments.orc_structural_search.driver import archive, evaluate_and_scan, run_episode
 from tests.experiments.orc_structural_search_support import (  # noqa: F401 (pyright, world: fixtures)
-    I3_CONFIG, PYTHON_PARENT, pyright, script, world)
+    I3_CONFIG, PYTHON_PARENT, capped_copy, pyright, script, world)
 from tests.experiments.test_orc_structural_search_driver import sandboxed  # noqa: F401 (fixture)
 
 CODEX_MUTATOR = ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--model",
-                 "gpt-6.1-sol", "--config", "model_reasoning_effort=high"]
+                 "gpt-5.6-terra", "--config", "model_reasoning_effort=high"]
 # the scripted `codex`: reads the brief on stdin and gates the parent's DONE on the task's check
 CODEX_EDIT = f"""#!{sys.executable} -I
 import sys
@@ -35,7 +35,7 @@ subprocess.run([{sys.executable!r}, "-c", "import dev_check"], check=True)
 
 def i3_episode(world, codex_source):
     (world.fakebin / "codex").write_text(codex_source)
-    shutil.copytree(PYTHON_PARENT, world.tmp / "python", ignore=shutil.ignore_patterns("__pycache__"))
+    capped_copy(PYTHON_PARENT, world.tmp / "python")
     evidence = world.tmp / "evidence"
     _, parent = archive(world.tmp / "python", evidence, world.runtime)
     row = run_episode(parent, launch_config(world, I3_CONFIG), interface="I3", mode="unguided", agent_cmd=CODEX_MUTATOR,
@@ -63,7 +63,7 @@ def test_an_i3_evaluations_scan_names_other_evaluations_runs(sandboxed, world, p
     (work / "runs" / other).mkdir(parents=True)
     script(world, [{"match": "Implement this change", "print": f"cat ../../../runs/{other}/memo.jsonl",
                     "result": {"summary": "s", "account": "a"}}])
-    shutil.copytree(PYTHON_PARENT, world.tmp / "python", ignore=shutil.ignore_patterns("__pycache__"))
+    capped_copy(PYTHON_PARENT, world.tmp / "python")
     evidence = world.tmp / "evidence"
     _, root = archive(world.tmp / "python", evidence, world.runtime)
     row = evaluate_and_scan(root, launch_config(world, I3_CONFIG), task=world.task, replicate=1, work_root=work, evidence_root=evidence,
