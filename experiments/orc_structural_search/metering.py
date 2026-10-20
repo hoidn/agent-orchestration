@@ -11,11 +11,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 from experiments.compare import scan
+from experiments.orc_structural_search import pricing
 
 UNAVAILABLE = "unavailable"
 CLAUDE_FIELDS = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
@@ -350,3 +351,146 @@ def receipts(records_dir: Path, *, tree: Path, since: float, home: Path) -> dict
             for provider in ("claude", "codex")):
         return {"consumption": UNAVAILABLE, "receipt_usage": report["receipt_usage"], "native_session_paths": known}
     return {"consumption": report, "receipt_usage": report["receipt_usage"], "native_session_paths": known}
+
+
+_BUDGET_KINDS = ("episode", "evaluation", "judge")
+
+
+def _budget_path(value: Any) -> str | None:
+    if isinstance(value, (str, Path)) and str(value).strip():
+        return str(Path(value).resolve())
+    return None
+
+
+def _budget_key(row: Mapping, position: int) -> tuple:
+    if path := _budget_path(row.get("records_dir")):
+        return "records", path
+    if key := row.get("_budget_identity"):
+        return "source", str(key)
+    identity = next((row[key] for key in ("evaluation_id", "episode_id", "run_id") if row.get(key)), position)
+    return "row", row.get("kind"), str(identity)
+
+
+def _judge_work(judge_pools: Sequence[Path]) -> list[dict]:
+    work, seen = [], set()
+    for value in judge_pools:
+        pool = Path(value).resolve()
+        if pool in seen:
+            continue
+        seen.add(pool)
+        mapping_path = pool / "records" / "mapping.json"
+        try:
+            mapping = json.loads(mapping_path.read_text())
+            judges = mapping.get("judges") if isinstance(mapping, dict) else None
+            if not isinstance(judges, dict) or not judges:
+                raise ValueError("missing_judge_mapping")
+        except (OSError, ValueError, TypeError) as error:
+            work.append({"kind": "judge", "_budget_identity": mapping_path,
+                         "_unknown_reason": f"missing_or_invalid_judge_mapping: {type(error).__name__}"})
+            continue
+        for name in judges:
+            record_path = pool / "records" / "judges" / str(name) / "record.json"
+            try:
+                work.append(_read_judge_record(pool, name))
+            except (OSError, ValueError, TypeError) as error:
+                work.append({"kind": "judge", "_budget_identity": record_path,
+                             "_unknown_reason": f"missing_or_invalid_judge_record: {type(error).__name__}"})
+    return work
+
+
+def _read_judge_record(pool: Path, name: str) -> dict:
+    if not name or Path(name).name != name or name in {".", ".."}:
+        raise ValueError("invalid_judge_name")
+    record = json.loads((pool / "records" / "judges" / name / "record.json").read_text())
+    if not isinstance(record, dict) or record.get("kind") != "judge" or not _budget_path(record.get("records_dir")):
+        raise ValueError("invalid_judge_record")
+    return record
+
+
+def _latest_budget_work(rows: Sequence[Mapping], judge_pools: Sequence[Path]) -> list[dict]:
+    latest = {}
+    for position, row in enumerate([*rows, *_judge_work(judge_pools)]):
+        if isinstance(row, Mapping) and row.get("kind") in _BUDGET_KINDS:
+            latest[_budget_key(row, position)] = dict(row)
+    return list(latest.values())
+
+
+def _unpriced(row: Mapping, reason: str) -> dict:
+    return {"kind": row.get("kind"), "records_dir": row.get("records_dir", UNAVAILABLE), "reason": reason}
+
+
+def _sum_or_unavailable(total: int | float, known: bool) -> int | float | str:
+    return total if known and pricing.number(total) else UNAVAILABLE
+
+
+def _budget_receipts(row: Mapping, records_dir: str | None, known: dict, kinds: dict) -> None:
+    raw = row.get("receipt_usage")
+    if not isinstance(raw, list) or records_dir is None:
+        return
+    for receipt in raw:
+        if not isinstance(receipt, Mapping) or not isinstance(receipt.get("call_id"), str) or not receipt["call_id"]:
+            continue
+        identity = (records_dir, receipt["call_id"])
+        if identity in known and known[identity] != receipt:
+            raise ValueError(f"conflicting duplicate receipt for {identity}")
+        known.setdefault(identity, receipt)
+        kinds.setdefault(identity, row["kind"])
+
+
+def _budget_row(row: Mapping, details: dict, price_table: Mapping, receipts: dict, receipt_kinds: dict) -> None:
+    kind, result = row["kind"], details[row["kind"]]
+    if reason := row.get("_unknown_reason"):
+        result["calls_known"] = result["time_known"] = result["cost_known"] = False
+        result["unpriced_work"].append(_unpriced(row, reason))
+        return
+    calls, seconds = row.get("provider_calls"), row.get("wall_clock_sec")
+    if type(calls) is int and calls >= 0:
+        result["calls"] += calls
+    else:
+        result["calls_known"] = False
+    if pricing.number(seconds):
+        result["wall_clock_sec"] += seconds
+    else:
+        result["time_known"] = False
+    records_dir = _budget_path(row.get("records_dir"))
+    _budget_receipts(row, records_dir, receipts, receipt_kinds)
+    reason = ("incomplete_receipt_coverage" if not pricing.complete_coverage(calls, row.get("receipt_usage"))
+              else "missing_records_dir" if records_dir is None else None)
+    if reason is None:
+        cost = pricing.cost({"provider_calls": calls, "receipt_usage": row["receipt_usage"]}, price_table)
+        reason = "unpriced_receipt" if cost == UNAVAILABLE else None
+        if reason is None:
+            result["metered_cost"] += cost
+    if reason:
+        result["cost_known"] = False
+        result["unpriced_work"].append(_unpriced(row, reason))
+
+
+def _budget_summary(details: dict, receipts: Mapping, receipt_kinds: Mapping) -> dict:
+    for identity, kind in receipt_kinds.items():
+        details[kind]["receipts"] += 1
+    result = {kind: {"calls": _sum_or_unavailable(values["calls"], values["calls_known"]),
+                     "wall_clock_sec": _sum_or_unavailable(values["wall_clock_sec"], values["time_known"]),
+                     "metered_cost": _sum_or_unavailable(values["metered_cost"], values["cost_known"]),
+                     "receipts": values["receipts"], "unpriced_work": values["unpriced_work"]}
+              for kind, values in details.items()}
+    unknown = any(not values["calls_known"] or not values["time_known"] for values in details.values())
+    unpriced = [entry for values in details.values() for entry in values["unpriced_work"]]
+    totals = {key: sum(values[key] for values in details.values()) for key in ("calls", "wall_clock_sec", "metered_cost")}
+    return {"calls": _sum_or_unavailable(totals["calls"], not unknown),
+            "wall_clock_sec": _sum_or_unavailable(totals["wall_clock_sec"], not unknown),
+            "metered_cost": _sum_or_unavailable(totals["metered_cost"], not unpriced),
+            "receipts": len(receipts), "unpriced_work": unpriced, "by_kind": result}
+
+
+def budget_union(rows: Sequence[Mapping], judge_pools: Sequence[Path], price_table: Mapping) -> dict:
+    """Union saved campaign and judge evidence by records directory; never re-read native sessions."""
+    pricing.validate(price_table)
+    work = _latest_budget_work(rows, judge_pools)
+    details = {kind: {"calls": 0, "calls_known": True, "wall_clock_sec": 0, "time_known": True,
+                      "metered_cost": 0, "cost_known": True, "receipts": 0, "unpriced_work": []}
+               for kind in _BUDGET_KINDS}
+    receipts, receipt_kinds = {}, {}
+    for row in work:
+        _budget_row(row, details, price_table, receipts, receipt_kinds)
+    return _budget_summary(details, receipts, receipt_kinds)

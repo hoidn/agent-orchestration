@@ -15,7 +15,7 @@ from pathlib import Path
 from statistics import mean, stdev
 
 from experiments.compare import repos
-from experiments.orc_structural_search import driver, pareto_readout, pricing, scoring
+from experiments.orc_structural_search import driver, metering, pareto_readout, pricing, scoring
 from experiments.orc_structural_search.briefs import structural_summary
 from experiments.orc_structural_search.config import check_criterion_hashes
 from experiments.orc_structural_search.quota import job_key
@@ -35,6 +35,7 @@ ROLES = ("adaptive", "validation", "sealed")
 FORBIDDEN = {"adaptive": {"sealed"}, "validation": {"adaptive", "sealed"},  # prior exposures that refuse a role
              "sealed": {"adaptive", "validation", "sealed"}}
 DISPOSITIONS = ("contaminated", "invalidated", "superseded", "frozen", "sealed_opened")
+budget_union = metering.budget_union
 
 
 def _sha(value) -> str:
