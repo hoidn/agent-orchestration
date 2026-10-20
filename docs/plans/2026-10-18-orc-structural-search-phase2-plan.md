@@ -6,6 +6,7 @@
 > (Decision 6: incumbent plus six on mean value and mean calls) and its
 > generation protocol are superseded for successor studies by the
 > [cumulative campaigns design](../design/orc_structural_search_cumulative_campaigns.md)
+> and its [C1 implementation plan](2026-10-19-orc-structural-search-cumulative-pilot-plan.md)
 > (roadmap Phase 2, C1); no calls-only selection returns through a
 > compatibility fallback. The I2 helpers, `adaptive.py`, judging and the
 > validation-split mechanics it delivered are reused as that design states.

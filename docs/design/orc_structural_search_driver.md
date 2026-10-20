@@ -21,17 +21,23 @@
   [implementation plan](../plans/2026-10-19-orc-structural-search-module-condition-implementation-plan.md)
   owns current verification, distinct from the
   [decision's prior evidence](../plans/2026-10-19-orc-structural-search-module-rewrite-plan.md#prior-offline-execution-evidence).
-  Fresh adaptive launches and finalist validation are unsupported; retained
-  mode-2 helpers interpret historical mechanics only. Main's distinct-policy
+  Fresh mode-2 launches and mode-2 finalist validation are unsupported; retained
+  mode-2 helpers interpret historical mechanics only. Mode-3 cumulative campaigns
+  are implemented offline with scripted providers under the
+  [cumulative campaigns design](orc_structural_search_cumulative_campaigns.md) and
+  [C1 plan](../plans/2026-10-19-orc-structural-search-cumulative-pilot-plan.md);
+  no live C1 criterion or campaign budget is selected. Main's distinct-policy
   allocation comparison, policy/structure endpoint classes and Codex cache-write
   accounting are implemented and reviewed at `9adcf56c`; that plan records
   their focused and full-suite verification evidence. The separate
   [measurement plan](../plans/2026-10-19-orc-structural-search-measurement-plan.md)
   records completed and verified offline calibration preparation with independent
   I/F freeze review; Step A completed 8 calls within cap 10 and failed calibration
-  (RPI spread; PRR passed). A′ offline packet is ready and frozen at I_A2/F2; spend approval is pending. The no-Claude experiment directive blocks it on
-  2026-10-19 (America/Los_Angeles). Later live steps keep their own owner budget gates.
-  No live successor study or provider budget is selected. Fixed-workflow comparisons use
+  (RPI spread; PRR passed). That plan owns A′'s conditional budget authorization
+  and the continuing no-Claude restriction, with no assumed expiry; the
+  incompatible frozen packet remains blocked. Later live steps keep their own
+  owner budget gates. No live structural-search successor study or campaign
+  budget is selected. Fixed-workflow comparisons use
   [`experiments/compare/`](../../experiments/compare/README.md) today.
 - **Kind:** experiment-side apparatus contract: controller modes, proposal
   interfaces, edit validation and transactions, candidate identities,
@@ -511,7 +517,7 @@ python -m orchestrator run <candidate entry .orc> [frontend flags] \
   number, and `--continue` reruns a run's quota incidents into its existing
   roots (`experiments/orc_structural_search/quota.py`). The retained historical
   mode-2 helpers had no quota guard for episodes and started each `evaluate_all`
-  with an unpaused guard; fresh adaptive launch is now unsupported.
+  with an unpaused guard; fresh mode-2 adaptive launch is unsupported.
 - An I3 candidate (a Python entry module) runs through the comparison
   harness's generic-command arm instead: `python -P <candidate>/direct.py
   inputs.json` behind the same shims in the fresh clone, its run state in the
@@ -577,7 +583,7 @@ Decision Points.
 
 | Family | Truth | State |
 | --- | --- | --- |
-| (a) Review/planning improvement on the harness task packages | Structural V1 uses pinned `score.orc` and its frozen qualification identity; generic comparison also supports reference-rubric calibration with four blind controls; hidden acceptance remains secondary | Generic calibration mechanics are implemented; amended packages/current capped model pair have no calibration result from implementation alone; structural V2 remains deferred |
+| (a) Review/planning improvement on the harness task packages | Structural V1 uses pinned `score.orc` and its frozen qualification identity; generic comparison also supports reference-rubric calibration with four blind controls; hidden acceptance remains secondary | Generic calibration and C1 V2 qualification mechanics are implemented offline; neither implementation establishes live calibration or family qualification; the [C1 plan](../plans/2026-10-19-orc-structural-search-cumulative-pilot-plan.md) owns successor verification and live gates |
 | (b) Hard-oracle repair seeded by `examples/demo_task_linear_classifier_port/` with `orchestrator/demo/evaluators/linear_classifier.py` | Deterministic behavioral checks plus a soft quality report | Needs a verified green baseline before defect variants are authored; evaluation cost unknown until then |
 
 Experiment O's catalog
@@ -603,9 +609,13 @@ owns those batch/control rules; the
 owns current preparation and paid stages. Explicit calibration skips new
 per-node hidden acceptance, retaining existing construction diagnostics only.
 This generic path does not widen structural V1's rubric or receipt admission.
-V1 still validates its pinned historical rubric/family/evaluator inputs; a new
-V2 qualification contract requires separate selection before a successor quality
-study. Fresh adaptive launches remain unsupported.
+V1 still validates its pinned historical rubric/family/evaluator inputs unchanged.
+C1's V2 qualification mechanics are selected and implemented offline under the
+[cumulative campaigns design](orc_structural_search_cumulative_campaigns.md) and
+[C1 plan](../plans/2026-10-19-orc-structural-search-cumulative-pilot-plan.md).
+A live successor quality study still requires the accepted measure, real family
+and measure qualification evidence and separate owner-approved step budgets.
+Fresh mode-2 adaptive launches remain unsupported.
 
 Every new experiment role uses the exact Sonnet/Terra cap: `claude-sonnet-5-5`
 or `gpt-5.6-terra`, including judges, controls, diagnosis and nested guarded

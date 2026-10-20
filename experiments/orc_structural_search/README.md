@@ -4,9 +4,7 @@ Check a whole-module proposal locally and inspect structural-search evidence wit
 provider calls. This apparatus remains experimental; no live successor study or
 structural-search provider allocation is selected. The separate
 [measurement plan](../../docs/plans/2026-10-19-orc-structural-search-measurement-plan.md)
-records verified offline preparation and I/F freeze. Approved calibration
-Step A completed 8 calls within cap 10 and failed (RPI spread;
-PRR passed). A′ offline packet is ready and frozen at I_A2/F2; spend approval is pending; the no-Claude experiment directive blocks it on 2026-10-19 (America/Los_Angeles).
+owns calibration, accepted-measure evidence and its owner budget gates.
 
 The [driver design](../../docs/design/orc_structural_search_driver.md) owns admission,
 qualification, metering and selection. The [delivery plan](../../docs/plans/2026-10-19-orc-structural-search-module-condition-implementation-plan.md)
@@ -19,7 +17,79 @@ owns live selection. Scripted checks establish mechanics, not research utility.
 | Legacy conditions and one-site I2 | Maintained controls and ablations |
 | Matched Python I3 | Separate control with Python scope/type checks |
 | Mode 1 and criterion-configured arms | Offline launch/check/readout mechanics; live work requires separate approval and qualification |
-| Adaptive mode 2 | Historical helpers retained; fresh adaptive launches and finalist validation refuse as unsupported |
+| Adaptive mode 2 | Historical helpers retained; fresh mode-2 launches and finalist validation refuse as unsupported |
+| Cumulative campaigns (mode 3) | Implemented offline with scripted providers; live use remains separately gated under the [C1 plan](../../docs/plans/2026-10-19-orc-structural-search-cumulative-pilot-plan.md) |
+
+## Cumulative campaigns without provider calls
+
+Exercise the complete campaign lifecycle without provider calls. The example
+uses synthetic qualification and scores; it establishes no live qualification.
+
+The [cumulative campaigns design](../../docs/design/orc_structural_search_cumulative_campaigns.md)
+owns the evidence store, campaign policies, checkpoint/resume and final
+assessments; the [C1 plan](../../docs/plans/2026-10-19-orc-structural-search-cumulative-pilot-plan.md)
+owns verification and live gates. The caller chooses the store root:
+
+```text
+S/
+  evidence.jsonl
+  candidates/
+  campaigns/<id>/checkpoint.json
+```
+
+The log retains original trials, assessments, exposures and lineage. Candidate
+snapshots are immutable; checkpoints retain campaign progress and recovery
+state. Campaigns share warm-start evidence only under the same frozen context.
+
+1. Obtain a clean [repository checkout](../../README.md#try-it), then work from
+   its root. Use Python 3.11 or newer, Git, Bash and Linux with bubblewrap and
+   usable unprivileged namespaces. The cache directory must be writable and
+   outside the sandbox's private temporary directories. No provider credentials
+   or external task packages are needed.
+2. Run this complete sequence. It installs the development dependencies and
+   invokes the lifecycle fixture shipped with the checkout. That fixture
+   creates the tiny Git task repository, clean runtime checkout, capped seeds,
+   temporary criterion and synthetic V2 receipt; it uses the real compiler,
+   runtime and qualification validator with scripted provider outputs, judges
+   and usage evidence.
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install -e ".[dev]"
+python -m pytest -q tests/experiments/test_orc_structural_search_final_assessment.py::test_public_cli_complete_study_lifecycle_uses_verified_v2_pools
+```
+
+3. Read the test result. A pass checks the lifecycle assertions; a
+   sandbox-related skip leaves it unverified. The fixture cleans up its
+   temporary evidence and ships no frozen study criterion.
+
+The sequence exercises these commands through the public parser in
+[campaign.py](campaign.py):
+
+| Campaign command | What the fixture checks |
+| --- | --- |
+| warm-start | Acquire shared initial trials and joined assessments |
+| run | Execute both frozen label, policy and run seed declarations; repeat with the continue option against existing checkpoints |
+| validate | Evaluate the complete two-campaign study on validation; retry without duplicate judging; preserve sealed work/evidence/pool roots and the numeric cost ceiling |
+| freeze | Freeze the validated choices and analysis before sealed access |
+| open-sealed | Authorize the sealed split once for those choices and reference |
+| readout | Join verified validation and sealed pools; report final assessments and cumulative budget |
+
+Sealed authorization launches no evaluation. The fixture then uses the existing
+programmatic evaluation route and verifies the pool before ingestion; repeated
+assessment preserves original trials and adaptive checkpoints. Command inputs
+come from its frozen synthetic criterion and generated paths, rather than
+copied live study parameters.
+
+Synthetic calibration checks mechanics only. Quality and cost figures in this
+fixture are test controls, not research results. A live campaign requires an
+accepted measure, a real V2 receipt for every adaptive, validation and sealed
+package, a frozen successor criterion and separate approved step budgets.
+No live C1 criterion is shipped. The
+[measurement plan](../../docs/plans/2026-10-19-orc-structural-search-measurement-plan.md)
+and C1 plan own those prerequisites; historical criteria and passing fixtures
+grant no qualification or spend permission.
 
 ## Check a module proposal
 
@@ -160,7 +230,7 @@ The explicit measure-free readout projects compile, execution, calls and availab
 without altering frozen criteria or emitting quality means, anchors, improvements,
 frontiers or deployment decisions. The separate
 [measurement plan](../../docs/plans/2026-10-19-orc-structural-search-measurement-plan.md)
-owns unimplemented offline calibration preparation and its later live budget gates.
+owns calibration preparation and its later live budget gates.
 
 ## Limits
 

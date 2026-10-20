@@ -1,13 +1,13 @@
 # ORC Structural Search Cumulative Campaigns
 
-- **Status:** design accepted 2026-10-19 for the owner's cumulative workflow
-  evolution extension; unselected for implementation and for provider spend.
-  Nothing here is implemented: no evidence store, campaign protocol, breeding
-  pool or parent policy exists in `experiments/orc_structural_search/`, and
-  fresh adaptive launches still refuse. Not copy-safe. Use today: mode 1 of
-  the [driver design](orc_structural_search_driver.md#search-modes) and
-  [`experiments/compare/`](../../experiments/compare/README.md) for
-  fixed-workflow comparisons.
+- **Status:** partial: C1 whole-program cumulative campaigns are implemented
+  offline in `experiments/orc_structural_search/` with scripted providers,
+  including the evidence store, campaign protocol, breeding pool, parent
+  policies and final assessments. The
+  [offline guide](../../experiments/orc_structural_search/README.md#cumulative-campaigns-without-provider-calls)
+  exercises the lifecycle with synthetic qualification; it establishes no live
+  qualification or research utility. No live campaign or provider spend is
+  selected. C2 remains contract level only.
 - **Kind:** experiment-side contract for multi-generation search campaigns
   over whole `.orc` programs (stage C1, normative once selected) and for the
   conditional persistent contextual fragment evidence that may follow (stage
@@ -39,11 +39,13 @@
   (Phase 2 and conditional Phase 2b), the experiment rules of the owner's
   2026-10-19 model-cap amendment (`AGENTS.md`, "Experiment rules") and the
   [harness model policy](orc_effectiveness_comparison_harness.md#experiment-model-policy).
-- **Selection:** the roadmap's Phase 2 Gates, which point at Staging And
-  Gates below as the single live gate list; numbers (power, budget, caps,
-  wall-clock ceilings) belong to the
-  [pilot plan](../plans/2026-10-19-orc-structural-search-cumulative-pilot-plan.md),
-  which selects nothing; every live campaign is a separate owner approval.
+- **Selection:** the
+  [pilot plan](../plans/2026-10-19-orc-structural-search-cumulative-pilot-plan.md)
+  records the selected offline C1 implementation and verification. Live
+  selection remains under the roadmap's Phase 2 Gates, which point at Staging
+  And Gates below as the single live gate list; numbers (power, budget, caps,
+  wall-clock ceilings) belong to the pilot plan, and every live campaign is a
+  separate owner approval.
 - **Compatibility:** no runtime, spec, target or memo change. `orchestrator/`
   receives no populations, scores, selection policy or fitness.
 
@@ -65,7 +67,7 @@ Two stages, in this order:
 
 | Stage | Content | Status |
 | --- | --- | --- |
-| C1 Whole-program cumulative pilot | Persistent evidence store, campaign checkpoint/resume, results archive with the metered frontier, breeding pool, the two parent policies, diversity pressure and the revisit rule, cumulative budget readout | Designed here; roadmap Phase 2; unselected for spend |
+| C1 Whole-program cumulative pilot | Persistent evidence store, campaign checkpoint/resume, results archive with the metered frontier, breeding pool, the two parent policies, diversity pressure and the revisit rule, cumulative budget readout | Implemented offline with scripted providers; roadmap Phase 2; live qualification and separate spend gates remain |
 | C2 Persistent contextual fragment evidence | Fragment identity with capture contracts, invocation accounting, context schema, estimates, composite adapter | Contract level only; roadmap Phase 2b, conditional on C1 (Staging And Gates) |
 
 Out of scope: RL training, a new IR, automatic extraction of every subtree,
