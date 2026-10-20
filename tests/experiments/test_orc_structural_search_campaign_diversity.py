@@ -298,7 +298,8 @@ def test_candidate_evidence_reports_malformed_postcompile_source_as_unavailable(
     assert result["allocation_signature"] == UNAVAILABLE and result["allocation_signature_reason"]
 
 
-def test_realized_effects_preserves_known_empty_and_incomplete_fields(monkeypatch, tmp_path, world):
+@pytest.fixture
+def realized_context(tmp_path, world):
     run_dir = tmp_path / "state" / "run"
     run_dir.mkdir(parents=True)
     compiled = compile_candidate(world.candidate, _config(), runtime=world.runtime)
@@ -309,6 +310,11 @@ def test_realized_effects_preserves_known_empty_and_incomplete_fields(monkeypatc
         candidate_identity=identity, orchestrator_commit=commit)["planned_perform_sites"]
     (run_dir / "closed_program.json").write_text(
         (world.candidate / ".orchestrate/build" / compiled.build_key / "closed_program.json").read_text())
+    return tmp_path, compiled, identity, planned
+
+
+def test_realized_effects_preserves_known_empty_fields(monkeypatch, realized_context):
+    tmp_path, compiled, identity, planned = realized_context
     monkeypatch.setattr("orchestrator.workflow.evaluated.views.load_evaluated_view",
                         lambda _root: {"status": "completed", "steps": {}})
     empty = evaluation.realized_effects(
@@ -319,6 +325,9 @@ def test_realized_effects_preserves_known_empty_and_incomplete_fields(monkeypatc
     zero = campaign.behaviour_descriptor([empty], {"structure": {"loop": False}, "allocation_changed": False})
     assert (zero["realized_provider_calls"], zero["distinct_provider_roles"]) == ([], 0)
 
+
+def test_realized_effects_preserves_incomplete_fields(monkeypatch, realized_context):
+    tmp_path, compiled, identity, planned = realized_context
     provider = next(site for site in planned if site["effect_class"] == "provider")
     step_id = provider["identity"]
     steps = {step_id: {"identity": step_id, "effect_class": "provider", "status": "completed"}}

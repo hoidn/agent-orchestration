@@ -45,34 +45,57 @@ def test_v2_recomputes_four_roles_across_all_stages(tmp_path, reference):
     assert proof['measure']['validation']['pairs'] == 2
 
 
-@pytest.mark.parametrize('change', ['p1', 'p2', 'p3', 'absent_judge', 'excluded_judge', 'boolean',
-    'missing_control', 'duplicate_control', 'missing_batch', 'rubric', 'binding', 'rated_reference'])
-def test_v2_rejects_rehashed_adversarial_pool(tmp_path, change):
+def _adversarial_pool(tmp_path):
     from tests.experiments.qualification_support import ABSOLUTE_RUBRIC
     q = qualified_v2(tmp_path, rubric=ABSOLUTE_RUBRIC | {'reference': 'upstream'})
     pool = q.pools[0]
-    mapping_path, results_path = Path(pool['mapping']['file']), Path(pool['results']['file'])
-    mapping, results = load(mapping_path), load(results_path)
+    mapping, results = load(pool['mapping']['file']), load(pool['results']['file'])
     judge = q.judges[0]
     ratings = results['clones']['0-upstream']['ratings'][judge]
+    return q, pool, mapping, results, judge, ratings
+
+
+def _reject_rehashed_pool(q, pool, mapping, results):
+    write(Path(pool['mapping']['file']), mapping)
+    write(Path(pool['results']['file']), results)
+    rehash(q)
+    with pytest.raises(ValueError):
+        validate(q)
+
+
+@pytest.mark.parametrize('change', ['p1', 'p2', 'p3', 'boolean'])
+def test_v2_rejects_rehashed_rating_changes(tmp_path, change):
+    q, pool, mapping, results, judge, ratings = _adversarial_pool(tmp_path)
     if change == 'p1':
         results['clones']['0-stub']['ratings'][judge] = {k: 2 for k in ratings}
     elif change in ('p2', 'p3'):
         role = 'partial' if change == 'p2' else 'mutant'
         results['clones'][f'0-{role}']['ratings'][judge] = dict(ratings)
-    elif change == 'absent_judge':
-        results['judges'] = []
-    elif change == 'excluded_judge':
-        results['excluded_judges'] = {judge: 'excluded'}
-    elif change == 'boolean':
+    else:
         ratings[next(iter(ratings))] = True
-    elif change == 'missing_control':
+    _reject_rehashed_pool(q, pool, mapping, results)
+
+
+@pytest.mark.parametrize('change', ['missing_control', 'duplicate_control', 'missing_batch'])
+def test_v2_rejects_rehashed_control_changes(tmp_path, change):
+    q, pool, mapping, results, _judge, _ratings = _adversarial_pool(tmp_path)
+    if change == 'missing_control':
         mapping['batches'][0].remove('0-mutant')
     elif change == 'duplicate_control':
         mapping['clones']['0-mutant']['labels'] = mapping['clones']['0-partial']['labels']
         results['clones']['0-mutant']['labels'] = mapping['clones']['0-partial']['labels']
-    elif change == 'missing_batch':
+    else:
         mapping['batches'].pop()
+    _reject_rehashed_pool(q, pool, mapping, results)
+
+
+@pytest.mark.parametrize('change', ['absent_judge', 'excluded_judge', 'rubric', 'binding', 'rated_reference'])
+def test_v2_rejects_rehashed_evaluator_changes(tmp_path, change):
+    q, pool, mapping, results, judge, ratings = _adversarial_pool(tmp_path)
+    if change == 'absent_judge':
+        results['judges'] = []
+    elif change == 'excluded_judge':
+        results['excluded_judges'] = {judge: 'excluded'}
     elif change == 'rubric':
         mapping['rubric'] = dict(mapping['rubric'], criteria=['wrong'])
     elif change == 'binding':
@@ -80,11 +103,7 @@ def test_v2_rejects_rehashed_adversarial_pool(tmp_path, change):
         mapping['judges'][judge]['providers'] = str(other)
     else:
         results['clones']['0-reference']['ratings'] = {judge: dict(ratings)}
-    write(mapping_path, mapping)
-    write(results_path, results)
-    rehash(q)
-    with pytest.raises(ValueError):
-        validate(q)
+    _reject_rehashed_pool(q, pool, mapping, results)
 
 
 @pytest.mark.parametrize('missing', ['baseline', 'B2', 'Q1', 'Q2', 'rule', 'family_task'])

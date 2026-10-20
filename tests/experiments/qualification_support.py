@@ -232,12 +232,10 @@ def campaign_criterion(root, *, tasks, validation, sealed, judges=('gpt-5.6-terr
     return write(root / 'criterion.json', value)
 
 
-def qualified_v2(root, *, runtime=None, tasks=None, validation=None, sealed=None,
-                 judges=('gpt-5.6-terra',), rubric=ABSOLUTE_RUBRIC, accepted_step='A_prime', **overrides):
-    """Four-role synthetic raw evidence, origin rules and stage-complete pools; zero providers."""
+
+
+def _v2_runtime(runtime, rubric, judges):
     import subprocess
-    root.mkdir(parents=True, exist_ok=True)
-    runtime = runtime or root / 'runtime'
     compare = runtime / 'experiments/compare'
     compare.mkdir(parents=True, exist_ok=True)
     workflow = compare / rubric['workflow']
@@ -249,13 +247,17 @@ def qualified_v2(root, *, runtime=None, tasks=None, validation=None, sealed=None
     control = compare / 'control'
     control.mkdir(exist_ok=True)
     for arm in ('direct_task', 'review_once'):
-        shutil.copyfile(REPO / 'experiments/compare/control' / f'{arm}.orc', control / f'{arm}.orc')
-        shutil.copyfile(REPO / 'experiments/compare/control' / f'{arm}.providers.json', control / f'{arm}.providers.json')
+        for name in (f'{arm}.orc', f'{arm}.providers.json'):
+            shutil.copyfile(REPO / 'experiments/compare/control' / name, control / name)
     subprocess.run(['git', 'init', '-q', str(runtime)], check=True)
     subprocess.run(['git', '-C', str(runtime), 'add', '.'], check=True)
     subprocess.run(['git', '-C', str(runtime), '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
                     'commit', '-qm', 'synthetic runtime'], check=True)
     commit = subprocess.check_output(['git', '-C', str(runtime), 'rev-parse', 'HEAD'], text=True).strip()
+    return workflow, binding, binding_paths, control, commit
+
+
+def _v2_tasks(root, tasks, validation, sealed):
     def task(name):
         path = root / 'tasks' / name
         (path / 'anchors').mkdir(parents=True)
@@ -263,6 +265,7 @@ def qualified_v2(root, *, runtime=None, tasks=None, validation=None, sealed=None
         (path / 'intent.txt').write_text('Synthetic intent ' + name)
         (path / 'base_commit').write_text('a' * 40)
         return path
+
     tasks = tasks or [task('adaptive')]
     validation, sealed = validation or task('validation'), sealed or task('sealed')
     all_tasks = [*tasks, validation, sealed]
@@ -277,10 +280,10 @@ def qualified_v2(root, *, runtime=None, tasks=None, validation=None, sealed=None
             controls[role] = {'label': patch.stem, 'source': ref(patch), 'pooled_patch_sha256': sha(patch)}
         anchors[path.name] = {role: info['label'] for role, info in controls.items()}
         measurements[path.name] = {'package_sha256': package_sha(path), 'controls': controls}
-    bindings = {j: {'providers': str(binding_paths[j]), 'providers_sha256': sha(binding_paths[j]),
-                    'effort': 'high', 'timeout_sec': 3600} for j in judges}
-    measurement = {'evaluator': {'score_workflow': ref(workflow),
-        'judges': {j: {'effort': 'high', 'providers': ref(binding_paths[j])} for j in judges}}, 'tasks': measurements}
+    return tasks, validation, sealed, all_tasks, measurements, anchors
+
+
+def _v2_family(root, runtime, control, tasks, validation, sealed, all_tasks, commit):
     rules = {}
     for amendment, paths in [('amends_5', tasks), ('amends_6', [validation, sealed])]:
         rules[amendment] = write(root / f'private/rules/{amendment}.json', {
@@ -323,6 +326,15 @@ def qualified_v2(root, *, runtime=None, tasks=None, validation=None, sealed=None
         source = write(root / 'private/family' / path.name / 'source.json', {'slug': path.name,
             'package_sha256': package_sha(path), 'single_calls': [{'run': f'direct_task/run-{n}'} for n in (1, 2)]})
         family[path.name] = {'package_sha256': package_sha(path), 'sources': [ref(source)], 'samples': samples}
+    return rules, family
+
+
+def _v2_measurement(rubric, judges, binding_paths, measurements, all_tasks, runtime, commit,
+                    anchors, overrides, workflow):
+    bindings = {j: {'providers': str(binding_paths[j]), 'providers_sha256': sha(binding_paths[j]),
+                    'effort': 'high', 'timeout_sec': 3600} for j in judges}
+    measurement = {'evaluator': {'score_workflow': ref(workflow),
+        'judges': {j: {'effort': 'high', 'providers': ref(binding_paths[j])} for j in judges}}, 'tasks': measurements}
     price_table = overrides.get('price_table') or {'currency': 'USD', 'tokens_per_unit': 1000000,
         'date': '2026-10-19', 'source': 'synthetic offline table',
         'models': {j: {'input': 2, 'output': 12, 'cache_read': .2, 'cache_write': 2.5} for j in judges}}
@@ -332,47 +344,79 @@ def qualified_v2(root, *, runtime=None, tasks=None, validation=None, sealed=None
         'calibration': {'margin': 4, 'mutant_margin': 2, 'error_rate': 0}, 'anchor_spread_limit': 2,
         'batches': {'A2': {'count': 2}, 'A': {'count': 2}, 'B2': {'count': 1},
                     'Q1': {'count': 2}, 'Q2': {'count': 2}}}
-    calibration = write(root / 'private/calibration/criterion.json', origin_common)
+    return bindings, measurement, origin_common
+
+
+def _v2_pool_batch(pool, path, batch, anchors, rubric):
+    clones, ids, patches = {}, [], {}
+    for role, label in anchors[path.name].items():
+        cid = f'{batch}-{role}'
+        clones[cid] = {'arm': 'anchor', 'run': None, 'labels': [label]}
+        ids.append(cid)
+        copied = pool / 'records/patches' / f'{cid}.diff'
+        copied.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path / 'anchors' / f'{label}.diff', copied)
+        patches[cid] = ref(copied)
+    if rubric['reference']:
+        cid = f'{batch}-reference'
+        clones[cid] = {'arm': 'reference', 'run': None, 'labels': ['reference']}
+        copied = pool / 'records/patches' / f'{cid}.diff'
+        shutil.copyfile(path / 'anchors' / f'{anchors[path.name]["upstream"]}.diff', copied)
+        patches[cid] = ref(copied)
+    return clones, ids, patches
+
+
+def _v2_pool(root, path, stage, anchors, rubric, judges, binding_paths, calibration, runtime, commit):
+    pool = root / 'private/calibration' / path.name / stage
+    clones, batches, patches = {}, [], {}
+    for batch in range(1 if stage == 'B2' else 2):
+        batch_clones, ids, batch_patches = _v2_pool_batch(pool, path, batch, anchors, rubric)
+        clones.update(batch_clones)
+        batches.append(ids)
+        patches.update(batch_patches)
+    mapping = {'task': str(path), 'runtime': str(runtime), 'runtime_commit': commit,
+        'criterion_sha256': sha(calibration), 'rubric': rubric, 'runs': {},
+        'judges': {j: {'providers': str(binding_paths[j])} for j in judges}, 'clones': clones, 'batches': batches,
+        'references': [cid for cid in clones if cid.endswith('reference')]}
+    mapping_path = write(pool / 'records/mapping.json', mapping)
+    for judge in judges:
+        write(pool / 'records' / f'score-inputs-{judge}.json', {'judge_model': judge,
+            'criterion_sha256': sha(calibration)})
+    totals = {'upstream': 8, 'stub': 0, 'partial': 4, 'mutant': 4}
+    results = write(pool / 'records/results.json', {'task': str(path), 'criterion_sha256': sha(calibration),
+        'judges': list(judges), 'excluded_judges': {}, 'calibration': {'passed': True},
+        'clones': {cid: info | {'ratings': {} if info['arm'] == 'reference' else {j: {
+            key: min(2, max(0, totals[cid.split('-', 1)[1]] - i * 2))
+            for i, key in enumerate(rubric['criteria'])} for j in judges}}
+            for cid, info in clones.items()}})
+    return {'task_id': path.name, 'stage': stage, 'criterion': ref(calibration),
+        'mapping': ref(mapping_path), 'results': ref(results), 'patches': patches}
+
+
+def _v2_pools(root, all_tasks, tasks, sealed, accepted_step, anchors, rubric, judges, binding_paths,
+              calibration, runtime, commit):
     pools = []
     for path in all_tasks:
         stages = [accepted_step, 'B2'] if path in tasks else ['Q1' if path == sealed else 'Q2']
         for stage in stages:
-            pool = root / 'private/calibration' / path.name / stage
-            clones, batches, patches = {}, [], {}
-            for batch in range(1 if stage == 'B2' else 2):
-                ids = []
-                for role, label in anchors[path.name].items():
-                    cid = f'{batch}-{role}'
-                    clones[cid] = {'arm': 'anchor', 'run': None, 'labels': [label]}
-                    ids.append(cid)
-                    copied = pool / 'records/patches' / f'{cid}.diff'
-                    copied.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copyfile(path / 'anchors' / f'{label}.diff', copied)
-                    patches[cid] = ref(copied)
-                batches.append(ids)
-                if rubric['reference']:
-                    cid = f'{batch}-reference'
-                    clones[cid] = {'arm': 'reference', 'run': None, 'labels': ['reference']}
-                    copied = pool / 'records/patches' / f'{cid}.diff'
-                    shutil.copyfile(path / 'anchors' / f'{anchors[path.name]["upstream"]}.diff', copied)
-                    patches[cid] = ref(copied)
-            mapping = {'task': str(path), 'runtime': str(runtime), 'runtime_commit': commit,
-                'criterion_sha256': sha(calibration), 'rubric': rubric, 'runs': {},
-                'judges': {j: {'providers': str(binding_paths[j])} for j in judges}, 'clones': clones, 'batches': batches,
-                'references': [cid for cid in clones if cid.endswith('reference')]}
-            mapping_path = write(pool / 'records/mapping.json', mapping)
-            for judge in judges:
-                write(pool / 'records' / f'score-inputs-{judge}.json', {'judge_model': judge,
-                    'criterion_sha256': sha(calibration)})
-            totals = {'upstream': 8, 'stub': 0, 'partial': 4, 'mutant': 4}
-            results = write(pool / 'records/results.json', {'task': str(path), 'criterion_sha256': sha(calibration),
-                'judges': list(judges), 'excluded_judges': {}, 'calibration': {'passed': True},
-                'clones': {cid: info | {'ratings': {} if info['arm'] == 'reference' else {j: {
-                    key: min(2, max(0, totals[cid.split('-', 1)[1]] - i * 2))
-                    for i, key in enumerate(rubric['criteria'])} for j in judges}}
-                    for cid, info in clones.items()}})
-            pools.append({'task_id': path.name, 'stage': stage, 'criterion': ref(calibration),
-                'mapping': ref(mapping_path), 'results': ref(results), 'patches': patches})
+            pools.append(_v2_pool(root, path, stage, anchors, rubric, judges, binding_paths,
+                                  calibration, runtime, commit))
+    return pools
+
+
+def qualified_v2(root, *, runtime=None, tasks=None, validation=None, sealed=None,
+                 judges=('gpt-5.6-terra',), rubric=ABSOLUTE_RUBRIC, accepted_step='A_prime', **overrides):
+    """Four-role synthetic raw evidence, origin rules and stage-complete pools; zero providers."""
+    root.mkdir(parents=True, exist_ok=True)
+    runtime = runtime or root / 'runtime'
+    workflow, binding, binding_paths, control, commit = _v2_runtime(runtime, rubric, judges)
+    tasks, validation, sealed, all_tasks, measurements, anchors = _v2_tasks(root, tasks, validation, sealed)
+    rules, family = _v2_family(root, runtime, control, tasks, validation, sealed, all_tasks, commit)
+    bindings, measurement, origin_common = _v2_measurement(
+        rubric, judges, binding_paths, measurements, all_tasks, runtime, commit, anchors, overrides, workflow)
+    calibration = write(root / 'private/calibration/criterion.json', origin_common)
+    pools = _v2_pools(root, all_tasks, tasks, sealed, accepted_step, anchors, rubric,
+                       judges, binding_paths, calibration, runtime, commit)
     receipt = write(root / 'private/qualification.json', {'schema': 'orc-structural-qualification-v2',
         'family': {'kind': 'review-blockers-r55', 'rules': {package_sha(p): ref(rules[
             'amends_5' if p in tasks else 'amends_6']) for p in all_tasks}, 'tasks': family},

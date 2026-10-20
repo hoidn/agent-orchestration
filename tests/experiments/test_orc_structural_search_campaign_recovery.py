@@ -42,7 +42,7 @@ def test_untracked_runtime_files_cannot_redefine_the_canonical_catalog(catalog):
 
 from experiments.orc_structural_search import adaptive, campaign, ledger
 from experiments.orc_structural_search.records import read_records
-from tests.experiments.test_orc_structural_search_campaign_loop import setup, episodes  # noqa: F401
+from tests.experiments.test_orc_structural_search_campaign_loop import setup, episodes, scorer  # noqa: F401
 from tests.experiments.test_orc_structural_search_driver import sandboxed  # noqa: F401
 from tests.experiments.orc_structural_search_support import synthetic_receipts  # noqa: F401
 
@@ -172,3 +172,93 @@ def test_historical_driver_module_cli_runs_a_scripted_episode(sandboxed, setup):
     mutations = [r for r in rows if r['kind'] == 'episode']
     assert len(mutations) == 1 and mutations[0]['outcome'] == 'accepted'
     assert (base / 'E/readout.json').is_file()
+
+
+def test_resume_continues_the_same_draws_and_adds_no_trial(sandboxed, setup):
+    s = setup
+    s.run('resume', generations=1)
+    original_trials = {r['trial_id'] for r in s.store.rows('trial')}
+    before = len(original_trials)
+    result = s.run('resume', continue_run=True)
+    count = len(s.store.rows('trial'))
+    again = s.run('resume', continue_run=True)
+    assert count > before and len(s.store.rows('trial')) == count
+    assert result['frontier'] == again['frontier']
+    assert result['ingestion_position'] > 0
+    assert original_trials <= {r['trial_id'] for r in s.store.rows('trial')}
+    other = campaign.open_store(s.world.outside / 'uninterrupted-S', writer=True)
+    launch = s.launch | {'work_root': s.world.outside / 'uninterrupted-warm/W',
+        'evidence_root': s.world.outside / 'uninterrupted-warm/E', 'pools_root': s.world.outside / 'uninterrupted-warm/P'}
+    try:
+        adaptive.warm_start(other, s.q.criterion, s.config, seeds=s.common['seeds'], adaptive_tasks=s.common['adaptive_tasks'],
+            launch=launch, judge={'criterion': s.q.criterion, 'judges': s.common['judges'],
+                'scorer': scorer(launch['evidence_root'] / 'log.jsonl')})
+        s.run('uninterrupted', store=other)
+    finally:
+        other.close()
+    logs = [read_records(s.world.outside / name / 'E/log.jsonl') for name in ('resume', 'uninterrupted')]
+    decisions = [[(r['parent_candidate_id'], r['parent_source']) for r in rows if r['kind'] == 'parent_decision'] for rows in logs]
+    assert decisions[0] == decisions[1]
+    assert {r['evaluation_id'] for r in logs[0] if r['kind'] == 'evaluation'} == {
+        r['evaluation_id'] for r in logs[1] if r['kind'] == 'evaluation'}
+    with pytest.raises(ValueError):
+        s.run('resume', continue_run=True, run_seed=99)
+
+
+@pytest.mark.parametrize('before_checkpoint', [False, True])
+def test_mid_generation_kill_resumes_without_repeating_settled_work(sandboxed, setup, monkeypatch, before_checkpoint):
+    s = setup
+    original = campaign.write_checkpoint
+    def kill(store, cid, state):
+        rows = read_records(s.world.outside / 'kill/E/log.jsonl')
+        should_kill = state.get('generation') == 1 and sum(r['kind'] == 'episode' for r in rows) == (1 if before_checkpoint else 2) and any(
+                r['kind'] == 'evaluation' for r in rows)
+        if should_kill and before_checkpoint:
+            raise KeyboardInterrupt
+        path = original(store, cid, state)
+        if should_kill:
+            raise KeyboardInterrupt
+        return path
+    monkeypatch.setattr(campaign, 'write_checkpoint', kill)
+    with pytest.raises(KeyboardInterrupt):
+        s.run('kill')
+    rows = read_records(s.world.outside / 'kill/E/log.jsonl')
+    settled = {r['evaluation_id'] for r in rows if r['kind'] == 'evaluation'}
+    decisions = [r for r in rows if r['kind'] == 'parent_decision']
+    assert len([r for r in rows if r['kind'] == 'episode']) == (1 if before_checkpoint else 2) and len(settled) == 1
+    monkeypatch.setattr(campaign, 'write_checkpoint', original)
+    result = s.run('kill', continue_run=True)
+    rows = read_records(s.world.outside / 'kill/E/log.jsonl')
+    assert all(sum(r.get('evaluation_id') == eid for r in rows) == 1 for eid in settled)
+    assert [r for r in rows if r['kind'] == 'parent_decision'][:len(decisions)] == decisions
+    assert [r['episode_index'] for r in rows if r['kind'] == 'episode'] == list(range(len(episodes(s, 'kill'))))
+    assert result['stopped'] in ('horizon', 'futility')
+
+
+def test_an_unlogged_paid_episode_is_recovered_without_repeating_its_draw(sandboxed, setup, monkeypatch):
+    s = setup
+    original = adaptive.driver.append_record
+    paid = []
+    def kill(path, row):
+        if row['kind'] == 'episode':
+            paid.append(row)
+            raise KeyboardInterrupt
+        return original(path, row)
+    monkeypatch.setattr(adaptive.driver, 'append_record', kill)
+    with pytest.raises(KeyboardInterrupt):
+        s.run('unlogged')
+    assert len(paid) == 1
+    monkeypatch.setattr(adaptive.driver, 'append_record', original)
+    result = s.run('unlogged', continue_run=True)
+    rows = episodes(s, 'unlogged')
+    assert rows[0]['episode_id'] == paid[0]['episode_id']
+    assert rows[0]['outcome'] == 'incident' and rows[0]['provider_calls'] == paid[0]['provider_calls']
+    assert len({r['episode_id'] for r in rows}) == len(rows)
+    assert result['stopped'] != 'invalid_evidence', result.get('stop_detail')
+
+
+def test_resume_refuses_a_missing_append_only_log(tmp_path):
+    from experiments.orc_structural_search.records import prepare_log
+    with pytest.raises(ValueError, match='missing'):
+        prepare_log(tmp_path, True)
+    assert not (tmp_path / 'log.jsonl').exists()
