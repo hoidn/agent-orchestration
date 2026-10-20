@@ -14,30 +14,34 @@ judges each generation's evaluations blind, and evaluates the finalists on a hel
 three-arm run (`three_arm.py`, plan
 [`2026-10-19-orc-structural-search-three-arm-readout-plan.md`](../../docs/plans/2026-10-19-orc-structural-search-three-arm-readout-plan.md))
 runs I1, I2 and I3 episodes against the rebound `direct` parents and evaluates a stratified subset of their children
-(recipe below). All three are implemented and tested with scripted providers only.
+(recipe below). Offline implementation is exercised with scripted providers; live evidence and
+qualification remain with the linked plans and reports. The selected
+[module plan](../../docs/plans/2026-10-19-orc-structural-search-module-rewrite-plan.md) adds offline `I1/module`
+as a fourth arm under the separate `criteria/module.json`; no successor live study or provider budget is selected.
 
 | Module | Role |
 | --- | --- |
-| `config.py` | Experiment configuration: mutable files and definitions, condition, interface, entry, envelopes |
+| `config.py` | Experiment configuration: mutable files and definitions, condition, interface, entry, envelopes; shared `check_criterion_hashes` validation |
 | `candidates.py` | `candidate_id`, snapshots, compilation with the runtime's orchestrator, frozen-surface validation, the I2 one-site transaction |
-| `records.py` | Append-only JSONL log, skeleton hash, provider allocation, final-choice rule |
+| `records.py` | Append-only JSONL log, source skeleton and provider allocation (module metrics include all private declarations), final-choice rule |
 | `evaluation.py` | One evaluation through the public `run` route in a fresh clone behind the comparison-harness shims |
-| `metering.py` | Consumption receipts (not yet wired into the driver: consumption is recorded `unavailable`) |
+| `metering.py` | Scoped native-session receipts wired into episode/evaluation rows; incomplete or ambiguous coverage remains `unavailable` |
 | `ledger.py` | The provider-call ledger `E/calls.json` and each launch's planned maximum of provider calls |
 | `driver.py` | Catalog enumeration (bounded concurrency), the episode function behind the shims, scans, call cap; the mode 1 command line |
 | `mode1.py` | Mode 1: `run_mode1` (catalog, unguided I1 episodes, child evaluations, `--continue`) |
-| `acceptance.py` | Child judging of an episode (`judge_child`): validation, compilation, the I2 slot check, bounded planned calls, the entry's result type |
+| `acceptance.py` | Child judging: scope, compilation, I2 slot check, bounded calls, resolved entry parameters/result; module-only graph/effect/model/ceiling admission |
+| `check.py` | The episode-local admission check against its parent Git commit and configuration; finalization independently repeats admission |
 | `quota.py` | Provider quota incidents: detection in shim call records, the reset-time pause, attempt relaunches, `--continue` row selection |
 | `readout.py` | The mode 1 readout (`E/readout.json`): outcomes, refusals, skeleton diversity, collapse, scan-pending records |
 | `sites.py` | I2: the candidate's source-site manifest, eligible sites, seeded site selection, the site brief, receipt derivation |
 | `briefs.py` | The mutator's `EPISODE.md` (I1, I2, and mode 2 feedback) |
 | `adaptive.py` | Mode 2: `run_mode2` (archive, generations, parent and site selection) and `validate_finalists` |
-| `three_arm.py` | The three-arm compile-only readout: I1, I2 and I3 episodes, the subset, reservation-aware evaluations, judging through the ledger, the per-arm compile-only readout; its command line (`run`, `judge`, `readout`) |
+| `three_arm.py` | Criterion-configured arms (including separate `I1/module`) and compile-only readout: I1, I2 and I3 episodes, the subset, reservation-aware evaluations, judging through the ledger, the per-arm compile-only readout; its command line (`run`, `judge`, `readout`) |
 | `three_arm_readout.py` | The three-arm judged readout (`three_arm readout`): per task, arm and subset child, descriptively |
 | `judging.py` | Mode 2 per-generation blind judging: pools, judge ledger entries, waiting for scan verdicts, judge retry |
 | `scoring.py` | Blind judging pools, the join of judge scores to evaluation records, the Phase 1 readout and `--joined-out` |
 | `scoring_phase2.py` | The Phase 2 readout (`scoring readout --phase 2`) |
-| `criteria/` | The frozen Phase 1, Phase 2 and three-arm criteria (`phase1.json`, `phase2.json`, `three_arm.json`) |
+| `criteria/` | Frozen historical Phase 1, Phase 2 and three-arm criteria; separate offline successor `module.json` with its own hash, allowlist, ceiling and four arms |
 | `three_arm/` | The three-arm parents: `orc/` (the `direct` seed with its coder rebound to Codex `gpt-6.1-sol`) and `python/` (its matched typed Python workflow) |
 | `seeds/` | The 2.39 seed catalog sharing one entry contract (`run ((task String) (intent String) (repo String)) -> Outcome`) |
 
@@ -61,10 +65,15 @@ each `claude` or `codex` call it makes is recorded under `E/episodes/<episode_id
 against the parent snapshot, runs under bubblewrap and passes the model guard (a Fable model is refused; the
 command then exits nonzero and the episode is an `incident`). The bubblewrap sandbox (private `/tmp`, process
 list) and the episode workspace contain the unrestricted permissions: only `cand-1`'s final content files become
-the child, and the scan reports reads outside it. The brief's compile line is
-`PYTHONPATH=../py python -P -m orchestrator compile ...`: the shims strip `PYTHONPATH`, so the driver copies the
-runtime's `orchestrator/` to `W/episodes/episode-<n>/py/` (outside `cand-1`), and the relative path keeps the
-runtime's path out of the session. A mutator that removes or replaces `cand-1/.git` makes the episode an
+the child, and the scan reports reads outside it. The ORC brief's admission check is
+`PYTHONPATH=../py python -P -m experiments.orc_structural_search.check --metadata ../admission.json`.
+The driver stages the runtime's `orchestrator/` and only top-level Python modules from
+`experiments/{compare,orc_structural_search}` under `W/episodes/episode-<n>/py/`, outside `cand-1`;
+no task packages, criteria, evidence or experiment data directories are copied. The local `admission.json`
+and `config.json` sit beside `py/` and name the parent Git commit, configuration and optional I2 site.
+The command works without `COMPARE_BASE`, which the shim strips from tool processes. It validates the
+workspace against that local commit and compiles a temporary snapshot; finalization repeats admission against
+the controller's parent/configuration. An earlier successful check does not admit a later invalid edit. A mutator that removes or replaces `cand-1/.git` makes the episode an
 `incident` (`workspace_intact: false`). The driver adds `DISABLE_AUTOUPDATER=1` to the environment of every
 evaluation and episode, so no CLI updates itself mid-run.
 
@@ -207,6 +216,109 @@ a `failed` row from before the quota guard whose records hold a quota line. Log 
 (candidate, task, replicate, and mode 2's split and generation; the last row wins, so a quota relaunch supersedes
 its quota incident). A task with no completed, uncontaminated evaluation has no pool; its rows come from the log alone (`scoring.log_only_pool`).
 
+## Module condition: offline configuration and check
+
+`module` is a condition of I1, not a replacement for the frozen controls. The
+[driver contract](../../docs/design/orc_structural_search_driver.md#edit-validation-and-transactions)
+owns its editable and frozen surfaces. The successor `criteria/module.json` records
+`I1`, `I2`, `I3` and `I1/module` separately, with no live allocation. Keep its rows,
+pools and readouts under its own SHA-256; successor consumers refuse mixed or missing
+criterion hashes before collection or judging. The shared validator permits missing
+row hashes only for the three exact frozen Phase 1, Phase 2 and three-arm hashes
+in `config.HISTORICAL_CRITERIA`, never for this successor. The three-arm readout
+separately permits a missing compile-readout hash only for its exact historical
+three-arm criterion. The offline successor reports a failure-inclusive blind rubric
+mean per task and arm descriptively; it implements no accepted-improvement or
+separation decision. A future live endpoint needs its own criterion selection.
+
+From the repository root, create a configuration outside candidate/evidence roots:
+
+```bash
+python - <<'PYCONFIG'
+import hashlib
+import json
+from pathlib import Path
+
+criterion = Path("experiments/orc_structural_search/criteria/module.json")
+study = json.loads(criterion.read_text())
+config = {
+    "mutable_files": ["direct.orc"], "mutable_definitions": ["run"],
+    "condition": "module", "interface": "I1", "entry_workflow": "direct::run",
+    "source_root": ".", "providers_file": "providers.json",
+    "command_boundaries_file": "commands.json",
+    "episode_wall_clock_sec": study["envelope"]["episode_wall_clock_sec"],
+    "criterion_sha256": hashlib.sha256(criterion.read_bytes()).hexdigest(),
+    "models": study["models"], "per_call_timeout_sec": study["per_call_timeout_sec"],
+}
+Path("/tmp/structural-search-module-config.json").write_text(json.dumps(config, indent=2))
+PYCONFIG
+python - <<'PYCONFIG'
+from pathlib import Path
+from experiments.orc_structural_search.config import load_config
+from experiments.orc_structural_search.three_arm import arm_config, load_criterion
+
+path = Path("/tmp/structural-search-module-config.json")
+criterion = load_criterion(Path("experiments/orc_structural_search/criteria/module.json"))
+assert load_config(path).condition == "module"
+assert arm_config(path, "I1/module", criterion).interface == "I1"
+assert arm_config(path, "I1", criterion).condition == "topology-only"
+PYCONFIG
+```
+
+`models` maps model IDs to nonempty effort lists; the per-call ceiling must be a
+finite positive number. These fields are optional for legacy conditions. Module
+admission requires compiled model/effort and timeout literals within those values;
+nonliteral/missing values fail closed. Claude's optional model guard allowlist
+covers explicit/default/fallback models and forced subagents for all configured
+arms; Codex enforcement is at module admission.
+
+Inside an episode, run the brief's check from `cand-1`:
+
+```bash
+PYTHONPATH=../py python -P -m experiments.orc_structural_search.check --metadata ../admission.json
+```
+
+It prints a JSON admission verdict: exit 0 means accepted, 1 means rejected and
+2 means incident. Ordinary compile errors retain full structured diagnostics for
+repair; compiler internal errors are incidents. Finalization submits one final
+child after trusted rechecking. The offline contract is exercised without a real
+provider by:
+
+```bash
+PYTHONPATH=. pytest -q -n 16 --dist=worksteal tests/experiments/test_orc_structural_search_module.py \
+  tests/experiments/test_orc_structural_search_module_execution.py \
+  tests/experiments/test_orc_structural_search_evaluation.py
+```
+
+The successor runner uses the criterion's explicit arms; `I1/module` never pools
+with `I1`. Source metrics select the entry followed by all private non-prompt
+declarations, including helpers and types. Ordinal private names/references and
+provider-allocation keys recognize coherent order-preserving renames, retaining
+lexical shadowing and authored labels; they do not prove semantic equivalence or
+ignore declaration reordering. Legacy ORC and Python metrics keep their rules.
+
+Episode/evaluation rows carry `criterion_sha256` and consumption only with
+complete unambiguous receipts. Episode rows also expose scoped
+`native_session_paths`; evaluation rows do not expose native paths. Missing/truncated usage
+is `unavailable`, never zero; a known native path remains recorded even when its
+usage is incomplete. Realized ORC effects come from the validated memo view, per
+evaluation: identity, effect class, attempts and status. Readouts retain them beside
+physical provider calls. Source-branch coverage remains `unavailable`, with reason
+`memo_records_effects_only`; generic commands have `generic_command_has_no_orc_memo`.
+Public-run fixtures demonstrate both failed-check/repair and no-repair paths without
+claiming a source-branch counter.
+
+A malformed or truncated transcript that prevents scanning records `scan_error`,
+`scan_pending: true` and unavailable `scan_hits`, removes stale scan receipts and
+prevents clearance/pooling without usable scan evidence. Evaluations retain calls
+and effects but become incidents. Exhausted episodes retain exhaustion unless a
+quota incident takes precedence, and yield no child.
+
+A live fourth-arm comparison still needs the plan's evaluator, task-family,
+isolation, sealed-split, owner-selection and budget gates. The `:text` fill ruling
+remains a prerequisite before future cross-condition comparisons; offline preparation
+does not change hidden acceptance into the primary measure or authorize provider spend.
+
 ## Three-arm recipe
 
 The three-arm compile-only readout (criterion `criteria/three_arm.json`; prerequisites as in the offline recipe,
@@ -339,7 +451,9 @@ W/env-manifests/<digest>.json      Python, platform, distributions and claude/co
 W/episodes/episode-<n>/cand-1/     the mutator's copy of the parent, a git repository whose one commit is the parent
                                    snapshot (the shims' COMPARE_BASE); the child is its final files (.git removed)
 W/episodes/episode-<n>/tmp/        the mutator's private /tmp under the shims
-W/episodes/episode-<n>/py/         a copy of the runtime's orchestrator/ for the brief's compile line
+W/episodes/episode-<n>/py/         runtime orchestrator/ and top-level experiment Python modules for admission
+W/episodes/episode-<n>/config.json episode configuration, outside the candidate snapshot
+W/episodes/episode-<n>/admission.json local parent commit/configuration/site metadata for the check
 E/log.jsonl                        episode and evaluation records, append-only
 E/calls.json                       the provider-call ledger, one entry per evaluation and episode
 E/candidates/<candidate_id>/       the archive: catalog seeds and accepted children
@@ -404,7 +518,8 @@ candidate's provider bindings and `:model` values, already in its candidate id.
 - Live mode 2: the live Phase 1 decision did not select Phase 2 for family (a)
   ([Phase 1 report](../../docs/reports/2026-10-18-orc-structural-search-phase1.md)); a live run needs a new owner
   selection and budget approval. The server-side model revision is recorded `unavailable`.
-- Consumption metering in the log (`metering.py` exists; the driver records `unavailable`).
+- Guaranteed complete metering: log consumption remains `unavailable` whenever native receipts are absent,
+  ambiguous, malformed or incomplete; no provider-dollar inference from partial coverage.
 - A quota guard for mode 2: mode 2 has no quota guard for episodes, and each `evaluate_all` starts an unpaused guard
   (`adaptive.py`), so a quota episode is an incident that uses its slot and a generation's first evaluations can hit
   the limit again before they pause.

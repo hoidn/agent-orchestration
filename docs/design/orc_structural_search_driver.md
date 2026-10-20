@@ -12,8 +12,11 @@
   for family (a) ([Phase 1 report](../reports/2026-10-18-orc-structural-search-phase1.md));
   a live Phase 2 needs a new owner selection and budget approval. I3 is implemented
   offline for the three-arm compile-only readout (`three_arm.py`, scripted providers
-  only; not in mode 2) and has not run live
-  ([three-arm plan](../plans/2026-10-19-orc-structural-search-three-arm-readout-plan.md)). Fixed-workflow comparisons use
+  only; not in mode 2); its live evidence and remaining gates belong to the
+  [three-arm plan](../plans/2026-10-19-orc-structural-search-three-arm-readout-plan.md)
+  and Phase 1 report. The `module` condition is implemented offline under the
+  [selected offline plan](../plans/2026-10-19-orc-structural-search-module-rewrite-plan.md);
+  no live successor study or provider budget is selected. Fixed-workflow comparisons use
   [`experiments/compare/`](../../experiments/compare/README.md) today.
 - **Kind:** experiment-side apparatus contract: controller modes, proposal
   interfaces, edit validation and transactions, candidate identities,
@@ -73,8 +76,9 @@ swap (invariant 1); a population database before a query needs one.
 | Sites | `.../sites.py` | The candidate's source-site manifest, eligible sites, seeded site selection, the site brief and receipt derivation from the child's final files |
 | Adaptive loop | `.../adaptive.py`, `.../judging.py` | Mode 2: archive, generations, parent and site selection, finalist validation (`validate_finalists`); per-generation blind judging, scan-verdict waits and the judge retry (`judging.judge_generation`) |
 | Scoring | `.../scoring.py`, `.../scoring_phase2.py` | Blind pools, the join of judge scores to evaluation records, primary values, the Phase 1 and Phase 2 readouts |
-| Evaluation | `.../evaluation.py` | Fresh clones, public `run`/`resume`, public check operation, final evaluator |
-| Metering | `.../metering.py` | Consumption receipts (not yet wired into the driver's log) |
+| Evaluation | `.../evaluation.py` | Fresh clones, public `run`/`resume`, public check operation, final evaluator and realized effects from the validated memo view |
+| Admission check | `.../check.py` | Workspace validation and compilation against the local parent commit; finalization independently repeats admission |
+| Metering | `.../metering.py` | Scoped native-session receipts for episode and evaluation log rows; incomplete coverage is `unavailable` |
 | Records | `.../records.py` | One append-only JSONL log, skeleton hashing, provider allocation, final-choice rule |
 | Experiment configuration | `.../config.json` per study | Mutable scope (files and definitions an agent may change), frozen surfaces, condition, interface, envelopes, task splits, criterion hash |
 | Manifest | `orchestrator/workflow_lisp/...` (companion) | Read-only site facts; it indexes what the configuration names mutable |
@@ -120,6 +124,7 @@ sandbox: a wrapper command itself runs unsandboxed.
 | Id | Interface | Agent receives | Agent returns | Validation |
 | --- | --- | --- | --- | --- |
 | I1 | Whole-file rewrite | Candidate workspace, objective, mutable scope, frozen surfaces, development feedback | Edited mutable files | Frozen-surface validation over parsed forms, then full ordinary compilation; no manifest needed |
+| I1/module | I1 whole-module rewrite under condition `module` | As I1, with the model/effort allowlist, per-call ceiling and module surfaces below | Edited mutable files | Module admission below; a separate measured arm, not a new interface or default |
 | I2 | Locus plus fragment | As I1 plus one manifest site record: span, enclosing definition, result type, bindings in scope with types, dependencies, inferred effects and restrictions | One replacement expression at that site plus declared fresh helpers | The one-site transaction below, then full ordinary compilation |
 | I3 | Matched Python diff | The idiomatic typed Python workflow sharing provider adapters, frozen prompts, evaluator, splits, tools and budgets | A textual diff | AST-level scope validation over the allowed functions plus a real type checker named in the criterion; same check operation and evaluator. Precedent: the [paired specimen](../plans/2026-09-29-mlevolve-orc-python-comparison.md) |
 | I4 | Named certified transforms | A menu of rewrites (wrap in bounded retry, insert review stage, delete stage, move escalation) | A choice and parameters | Deferred to compositional work; listed so I1–I3 results are read against it |
@@ -137,7 +142,10 @@ diagnostics class recorded; no task evaluation), `exhausted`, `incident`.
 
 **Mutable scope.** The experiment configuration names the files and
 definitions an agent may change and the condition (topology-only,
-prompt-only, provider-only, joint). Everything else is a frozen surface.
+prompt-only, provider-only, joint or module). Everything else is a frozen surface.
+`module` requires a nonempty `models` mapping from model IDs to nonempty effort
+lists and a finite positive numeric `per_call_timeout_sec`; both fields are
+optional for legacy conditions.
 
 **Condition surfaces (as implemented in
 `experiments/orc_structural_search/candidates.py`, `_condition_verdict` and
@@ -150,19 +158,22 @@ condition.
 | prompt-only | `defprompt` template bodies only |
 | provider-only | `:model`/`:effort` values in mutable definitions, and the providers file (permitted without listing it in `mutable_files`) |
 | joint | The union of the above plus `defprompt` signatures |
+| module | Entry body and private procedures, workflows, prompts and record/union/enum declarations in mutable `.orc` files, including coordinated additions, removals, renames and rewrites; subject to the module contract below |
 
-**Open decisions before Phase 1 comparisons.** Two gaps in these surfaces are
+**Open decisions before future cross-condition comparisons.** Two gaps in these surfaces are
 recorded, not resolved: under topology-only a call may pass new literal text
 to a `:text` prompt fill, which changes what the provider reads while prompt
 bodies are frozen; and under provider-only the whole expression after
 `:model` or `:effort` is masked as a tuning value, so a non-literal
 expression there (a conditional, a call) passes as tuning although it is
 topology. Each needs a ruling, and the validation to match, before condition
-comparisons are read.
+comparisons are read. These rulings are prerequisites for future comparisons,
+not for offline module implementation. The module-only literal policy below
+does not settle the legacy provider-only question.
 
 **Frozen-surface validation (I1 and I2).** Parse parent and child with the
-ordinary reader and compare forms, not text: imports; `deftype`,
-`defrecord`, `defunion` and `defenum` declarations; exported entry
+ordinary reader and compare forms, not text: imports; `deftype`; private
+`defrecord`, `defunion` and `defenum` declarations outside `module`; exported entry
 signatures; the command boundary file; prompt bodies and provider extern
 files unless the condition permits them. Any difference outside the mutable
 scope refuses the proposal; comments and formatting are not compared.
@@ -171,6 +182,41 @@ reader; the controller never splices bytes by span offset, since CRLF and
 multi-byte UTF-8 misalign character offsets against raw bytes. The
 child then compiles through the ordinary full pipeline, which establishes
 static admissibility only.
+
+**Whole-module contract (I1/module).** The condition widens the private
+source surface while retaining the public entry and bound capabilities.
+
+| Surface | Module policy and admission |
+| --- | --- |
+| Module name and exports | Frozen parsed forms |
+| Entry signature and resolved types | Exported parameter/result annotations are frozen; `acceptance.compiled_refusal` also compares the closed programs' resolved `params` and `result` (`frozen_surface_changed`). This is a compiled-artifact backstop; the grammar still requires result annotations |
+| Entry body; private `defproc`, `defworkflow`, `defprompt` | Add, remove, rename or rewrite, including prompt signatures/bodies; imported-name collisions refuse as `declaration_collision` |
+| Private `defrecord`, `defunion`, `defenum` | Add, remove, rename or rewrite; imported-name collisions refuse before compilation. `deftype` remains frozen |
+| Public types and other candidate files | Frozen, including `common.orc`, `providers.json` and `commands.json`; listing a plain file in `mutable_files` does not unfreeze it |
+| Imports and resolved module graph | Import forms are frozen. The qualifiers in compiled `definitions` and `types` must match the parent's, excluding the candidate's own module and compiler-owned `workflow_lisp/private`; a changed graph refuses as `frozen_surface_changed` |
+| Provider model/effort | Every compiled provider `perform` must carry allowlisted string literals from `models`; missing, nonliteral or unlisted values refuse as `model_not_allowed`. Fable remains refused even if listed |
+| Per-call ceilings | A positive finite literal `timeout_sec` no greater than `per_call_timeout_sec` is required; missing/nonliteral values or additional unadmitted ceiling policies refuse as `per_call_ceiling_exceeded` |
+| Effect shapes | Compiled `provider_phased`, `agent` and `agent_turn` effects refuse as `unsupported_effect_shape`; the ordinary bounded-call check still refuses `unbounded_calls` |
+| Runtime, compiler, evaluator, task repositories, hidden checks and scoring | Outside the mutation surface |
+
+Compilation checks the entire child, including new helpers. Ordinary source
+errors reject with full structured compile diagnostics; compiler crashes and
+internal compiler errors are infrastructure incidents, with diagnostics retained
+for repair. A rejected or exhausted episode produces no evaluated child.
+
+The brief exposes `experiments.orc_structural_search.check` with local metadata
+outside `cand-1`: the parent Git commit, configuration and optional site facts.
+It does not depend on `COMPARE_BASE`, which the shim strips from tool processes.
+The check validates a temporary final snapshot against that parent and performs
+ordinary compilation. Finalization repeats admission from controller-owned
+inputs; a successful intermediate check never admits a later invalid edit.
+
+The optional Claude model allowlist is enforced by the shim guard across all
+configured arms, including explicit/default/fallback models and forced subagents.
+Codex model enforcement here is at module admission. The guard retains the
+harness's disclosed bypass limits. Imports from a study bundle remain deferred:
+they require a checked-program planned maximum and a hard per-evaluation shim cap
+([decision and rationale](../plans/2026-10-19-orc-structural-search-module-rewrite-plan.md#deferred-bundle-imports)).
 
 **One-site transaction (I2).** The receipt is derived from the final diff:
 
@@ -202,8 +248,8 @@ of provider calls is unbounded (a provider call under a non-literal
 refused as `unbounded_calls`, so it never reaches an evaluation. Declared helpers obey the condition as a
 change from an empty form of their kind (`_definition_verdict` and
 `_condition_verdict` in `candidates.py`): a new helper `defprompt` adds a
-prompt signature, so it is accepted only under joint; a non-prompt helper
-is a topology change, accepted under topology-only and joint; under
+prompt signature, so it is accepted under joint and module; a non-prompt helper
+is a topology change, accepted under topology-only, joint and module; under
 topology-only its `:model`/`:effort` values must already occur in the
 parent module. Lifted
 helpers take explicit parameters; adding one never changes an existing
@@ -222,11 +268,12 @@ and the command boundary file. The parent is never modified.
 | `site_id` | Owner canonical name plus the form's `path:line:col` start, no ordinal; valid for one candidate only |
 | Runtime site / invocation | The existing execution identity (owner, label path, activation and loop ordinals); never a fragment identity |
 | `episode_id` | One agent session: parent, interface, site, condition, envelope |
-| `evaluation_id` | Candidate, task, evaluator version, environment manifest digest, provider settings and model revisions, replicate |
+| `evaluation_id` | SHA-256 over candidate, task, evaluator version, environment manifest digest and replicate, plus attempt number for a relaunch after the first attempt; provider settings are covered by candidate content, CLI versions by the environment manifest |
 | Lineage record | Parent, child, edited sites, interface, receipt |
 
-Model revisions belong to the evaluation identity, since a hosted alias can
-change under an unchanged candidate. Equal `candidate_id` means the same
+Hosted model revisions are recorded as `unavailable` and are not hashed into
+`evaluation_id`; an unchanged hosted alias can change server revision. Equal
+`candidate_id` means the same
 candidate however it was produced. An archived candidate lives under its
 `candidate_id`; before each episode and evaluation the driver recomputes the
 id and refuses a candidate whose content no longer matches its directory name
@@ -323,7 +370,19 @@ skeleton: each episode record holds the provider externs each non-prompt
 mutable definition names, in source order, for the parent and the accepted
 child, and the readout counts `allocation_distinct` children (the parent's
 skeleton with another allocation). The terminal-only share counts a child
-only when both its skeleton and its allocation equal the parent's. Reported: distinct skeletons
+only when both its skeleton and its allocation equal the parent's.
+
+Under `module`, source metrics select the entry first and every private
+non-prompt declaration in authored order, including private types and helpers.
+Prompts are excluded before ordinal assignment. Private declaration names and
+references share ordinal keys in the skeleton and provider allocation; lexical
+shadowing and field, variant, member and authored site labels retain their
+meaning. The invariant covers coherent renames that preserve declaration order,
+including qualified workflow/procedure references and typed `let-proc` forms.
+It does not establish invariance under reordering, arbitrary refactoring or
+semantic equivalence. Legacy ORC and Python normalization remain unchanged.
+
+Reported: distinct skeletons
 per accepted candidate, revisit rate, terminal-only share. Stop rule,
 predeclared: if the share of accepted children whose skeleton equals the
 parent's exceeds the threshold (default 0.75) for an interface, that
@@ -499,6 +558,12 @@ rollouts under `~/.codex/sessions` are read from the last cumulative
 shim calls to sessions on user-turn text only and counts an ambiguous join
 as unmatched; a figure without a receipt is `unavailable`. Codex
 weekly-window and credit readings are account-wide and reported as bounds.
+Episode and evaluation finalization use `metering.receipts`, scoped by workspace
+and attempt start time. Episode rows retain identified `native_session_paths` even when
+a matched session has incomplete usage; evaluation rows carry consumption but
+do not expose those native paths. Consumption is reported only when every
+shim call has an unambiguous complete receipt; missing, malformed or truncated
+usage remains `unavailable`, never zero. No runtime usage persistence is added.
 Per-provider wall clock has no receipt (the shim records no per-call
 timing); run-level wall clock is recorded on evaluation records. Provider-call
 counts are always recorded; dollar figures appear only where
@@ -538,15 +603,39 @@ only when a real query needs one.
 | Field group | Fields |
 | --- | --- |
 | Lineage | `candidate_id`, `parent_candidate_id`, `site_id` (I2), `interface`, `condition`, `mode`, `episode_id`, `hypothesis`, the I2 receipt or the I1/I3 diff verdict |
-| Episode | envelope, consumption or `unavailable`, shimmed CLI and model revision, interventions, outcome, refusal code |
+| Episode | `criterion_sha256`, envelope, consumption or `unavailable`, `native_session_paths` or `unavailable`, shimmed CLI and model revision, interventions, outcome, refusal code, `scan_error` |
 | Compile | `program_digest`, `build_key`, outcome, diagnostics class on rejection |
-| Evaluation | `evaluation_id`, `task_id`, split, `evaluator_version`, `env_manifest_digest`, `run_id`, `state_dir`, resume count, outcome, consumption or `unavailable`, incidents, local observations by site |
+| Evaluation | `criterion_sha256`, `evaluation_id`, `task_id`, split, `evaluator_version`, `env_manifest_digest`, `run_id`, `state_dir`, resume count, outcome, consumption or `unavailable`, incidents, `scan_error`, local observations by site |
 
-Recorded divergence: `evaluation_id` in
-`experiments/orc_structural_search/evaluation.py` currently hashes
-candidate, task, evaluator version, environment manifest digest and
-replicate; it omits model revisions and CLI versions, which the identity
-table above requires. They must be added before any live phase.
+Hosted server model revisions remain `unavailable`; CLI versions are covered by
+the environment manifest used in `evaluation_id`. An identity with an unchanged
+hosted alias cannot establish that the server revision stayed fixed.
+
+Successor criteria own their SHA-256 and explicit arm map. `I1/module` stays
+separate from topology-only `I1`; no frozen Phase 1, Phase 2 or three-arm row is
+reused under the successor. Continuation, subset selection, pools, judging and
+readouts validate criterion hashes before collecting or spending. The shared
+`config.check_criterion_hashes` permits missing row hashes only for the three exact
+frozen Phase 1, Phase 2 and three-arm criterion hashes in `HISTORICAL_CRITERIA`;
+explicit mismatches still refuse. The three-arm readout separately accepts a
+missing compile-readout hash only under its exact historical three-arm criterion.
+Successor records and compile readouts require matching hashes.
+
+Every ORC evaluation records `realized_perform_sites` from
+`load_evaluated_view` over the validated memo: effect identity, class, attempt
+count and status. The judged readout keeps these records beside physical
+provider-call counts per evaluation. Memo effects do not identify exercised
+source branches: `exercised_branches` is `unavailable`, with
+`branch_coverage_reason: memo_records_effects_only`. A generic Python command
+has `generic_command_has_no_orc_memo`; a run that never starts has
+`run_not_started`. No branch instrumentation or missing-effect zero is inferred.
+
+Malformed or truncated native transcripts that prevent contamination scanning
+retain a `scan_error` diagnostic, `scan_pending: true` and unavailable
+`scan_hits`; stale scan receipts are removed. These attempts cannot be cleared
+or pooled without usable scan evidence. Evaluation outcomes become incidents,
+with calls and realized effects retained. An already exhausted episode remains
+exhausted unless a quota incident takes precedence; it yields no child.
 
 ## Controls, Interface Test And Ablations
 
@@ -558,14 +647,19 @@ table above requires. They must be added before any live phase.
 | Equal-budget unguided I1 sampling | Does feedback improve selection efficiency? |
 | The same protocol delivered as an agent skill | Does a reusable program beat an instructed agent? |
 | ORC structural search (I1, I2) | Can useful orchestration structure be discovered? |
+| I1/module, under a successor criterion | What does coordinated private-module rewriting change relative to frozen controls? Offline preparation does not select a live comparison |
 | Matched Python structural search (I3) | Does ORC improve the search process over a credible alternative? |
 
 The first comparative experiment is the three-arm interface test: I3 Python
 diff, I1 Lisp whole-program and I2 Lisp locus-plus-fragment on one benchmark
 workflow, one model and one family, with completed episodes as the budget
-unit. One pre-registered primary endpoint: accepted improvements per
-completed episode, an improvement being a child that beats its parent on
-matched adaptive tasks under the frozen rule. Secondary: skeleton diversity
+unit. The proposed future live endpoint is accepted improvements per completed
+episode, an improvement being a child that beats its parent on matched adaptive
+tasks under a rule selected and frozen for that live study. This is not the
+endpoint implemented by the offline successor: `criteria/module.json` and
+`three_arm_readout.py` report the failure-inclusive blind rubric mean per task
+and arm descriptively, without an improvement/separation decision. A live endpoint
+requires separate criterion selection and allocation. Secondary: skeleton diversity
 and revisit rate, acceptance rate, repair iterations per accepted proposal.
 Wall clock and provider calls are always reported; dollars only where
 metering coverage is complete. Compile-only metrics (acceptance per episode,
@@ -643,8 +737,8 @@ runs exactly as written. The typed-gates design records this scoping in its
 Sequential evaluation in separate clones is slow and disk-heavy. Cost
 conclusions are proxies until provider usage is persisted. Lineage views are
 rendered from the log, since external runs are joined by id. Frozen-surface
-validation refuses legitimate declaration refactors; widening the mutable
-scope is an explicit condition change. Family (b) needs a green baseline and
+validation refuses legitimate declaration refactors in legacy conditions; the module condition permits private
+refactors at the cost of weaker attribution and larger proposals. Family (b) needs a green baseline and
 defect authoring; family (a) needs judge spend per evaluation. The interface
 factor multiplies conditions, so the three-arm test precedes the ladder.
 
@@ -656,10 +750,9 @@ structurally different valid replacements both compile and execute; frozen
 surfaces survive a transaction and an unrelated edit in the same file is
 refused with `scope_exceeded`; a helper colliding with an import is refused;
 `candidate_id` ignores commentary, timestamps and parent and changes with
-any source byte; a rejected proposal never enters task evaluation; a
-provider call in an unexecuted branch is recorded as unobserved; the
-skeleton hash is invariant under renaming and literal changes and differs
-for a control-flow change; the final-choice rule refuses without a criterion
+any source byte; a rejected proposal never enters task evaluation; realized effects are read from validated memo evidence while source-branch
+coverage remains unavailable; the skeleton hash preserves its documented
+rename/literal invariants and differs for a control-flow change; the final-choice rule refuses without a criterion
 hash; a missing receipt serializes as `unavailable`; an incident resume
 keeps its evaluation id. One public compile/run integration check runs a
 seed candidate through the launch form above with a scripted leaf and

@@ -109,7 +109,12 @@ It does not claim perfect isolation.
   - It refuses a `--model` or `--fallback-model` that names Fable, with exit 2, and the real CLI never runs. Both
     the two-argument and the `=` forms are checked, and every model in a comma-separated fallback list.
   - It adds `--model claude-opus-5-5` when no `--model` is given, even if a fallback model is.
-  - Otherwise it runs the real CLI unchanged.
+  - With optional `COMPARE_CLAUDE_MODELS` (comma-separated IDs, forwarded as `ORC_ALLOWED_CLAUDE_MODELS`), it also refuses models outside that list,
+    including the implicit Opus default, every fallback and the forced subagent model. Structural-search
+    configurations with `models` supply it for every configured arm; a list omitting forced Opus therefore
+    refuses the launch. Without the variable, the existing Fable guard/default behavior applies.
+  - Otherwise it runs the real CLI unchanged. Codex model allowlisting is enforced by structural-search
+    module admission, not this Claude guard.
 - **In-process subagents.** A Claude CLI's Agent-tool subagents, teammates and workflow agents run inside its
   process, not through `PATH`. The shims therefore set `CLAUDE_CODE_SUBAGENT_MODEL=claude-opus-5-5` and
   `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` in the sandbox environment, which nested processes inherit.

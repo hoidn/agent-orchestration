@@ -129,16 +129,26 @@ the optimizer may choose DIRECT, and added stages earn no intrinsic reward.
 Mutable in the first study, as declared in the driver's experiment
 configuration: definitions in the named mutable files, their sequencing,
 conditionals, compatible calls and supported bounded repetition; provider
-selection within the configured set; prompt wording only in prompt-only and
-joint conditions; fresh local helpers declared in the same change. Frozen:
+selection within the configured set; prompt wording in prompt-only and
+joint conditions; fresh local helpers declared in the same change. These are the
+legacy-condition surfaces. Frozen there:
 the exported entry signature, the task and result protocol, the evaluator,
 command interfaces, imports, type declarations, tools and the environment.
 Effect summaries bound kinds of operations, not call counts, cost,
 termination or correctness; runtime envelopes stay necessary.
 
+The separately selected [offline module plan](2026-10-19-orc-structural-search-module-rewrite-plan.md)
+adds I1 under condition `module`: coordinated changes to private procedures,
+workflows, prompts and record/union/enum declarations. The public entry, public
+types, imports, provider/command bindings and resource envelopes remain frozen
+under the [driver contract](../design/orc_structural_search_driver.md#edit-validation-and-transactions).
+This is preparation for a fourth measured arm under its own successor criterion,
+not a default, phase promotion, live selection or budget allocation.
+
 | Interface | Agent receives | Agent returns | Validation | Needs |
 | --- | --- | --- | --- | --- |
 | I1 whole-file | workspace, objective, mutable scope, feedback | edited mutable file(s) | frozen-surface checks over parsed forms, then full compilation | no manifest |
+| I1/module (offline) | I1 workspace, objective, module surfaces, allowlisted model/effort pairs and per-call ceiling | edited mutable files | module scope, full compilation and compiled entry/graph/effect/policy admission | successor criterion; live gates and allocation remain unselected |
 | I2 locus-plus-fragment | the same plus one manifest site with its typed context | one replacement expression plus declared helpers | one-site transaction with slot result-type equality, then full compilation | the manifest |
 | I3 Python diff (control) | matched typed Python workflow sharing adapters, prompts, evaluator, tools, budget | textual diff | AST scope validation plus a named type checker | the Python workflow |
 | I4 certified transforms (later) | named transform catalogue | a transform and target | compiler-owned rewriting | compositional work |
