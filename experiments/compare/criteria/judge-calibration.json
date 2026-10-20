@@ -1,0 +1,607 @@
+{
+  "runtime": {
+    "path": "/home/ollie/sc-runtime",
+    "commit": "25ca21e1476f5c060feb04a838e1a6cbf844c63b",
+    "validity": "exact implementation commit and package hashes"
+  },
+  "packages": {
+    "resume-projection-integrity": {
+      "path": "experiments/compare/tasks/resume-projection-integrity",
+      "base": "1cd607673c89170dc96c74a0b5eb4aef204da82d",
+      "package_sha256": "b2c9cfcae5b8e8b91ac115af518f90c092b7fbd245d253d70dea0bb001879136",
+      "seed_sha256": "fbdd3911afe08162f2c769fa1e1865de66fc77343a4ea4c3bb48fa3a94ddb590",
+      "hidden_node_ids": [
+        "tests/test_adjudicated_provider_resume.py::test_resume_source_mutation_reports_root_checksum_mismatch_before_adjudication",
+        "tests/test_adjudicated_provider_runtime.py::test_resume_source_mutation_reports_root_checksum_mismatch_before_adjudication",
+        "tests/test_loader_validation.py::TestLoaderValidation::test_duplicate_import_alias_keys_are_rejected_before_bundle_construction",
+        "tests/test_loader_validation.py::TestLoaderValidation::test_merge_induced_duplicate_import_alias_is_rejected_before_bundle_construction",
+        "tests/test_loader_validation.py::TestLoaderValidation::test_repeated_import_sections_with_distinct_aliases_are_rejected_before_bundle_construction",
+        "tests/test_loader_validation.py::TestLoaderValidation::test_repeated_import_sections_with_duplicate_alias_are_rejected_before_bundle_construction",
+        "tests/test_loader_validation.py::TestLoaderValidation::test_top_level_merge_sources_with_duplicate_alias_are_rejected_before_bundle_construction",
+        "tests/test_loader_validation.py::TestLoaderValidation::test_top_level_merged_and_explicit_import_sections_are_rejected_before_bundle_construction",
+        "tests/test_observability_report.py::test_failed_projection_envelope_treats_unchanged_current_step_as_forensic[resume_projection_integrity_error]",
+        "tests/test_observability_report.py::test_failed_projection_envelope_treats_unchanged_current_step_as_forensic[workflow_checksum_mismatch]",
+        "tests/test_resume_command.py::test_projection_error_survives_epilogue_and_executor_session_close",
+        "tests/test_resume_command.py::test_projection_resume_post_cli_identity_race_uses_three_field_delta_and_closes_session",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs0-None]",
+        "tests/test_resume_command.py::test_projection_resume_root_cli_audit_precedes_override_session_process_and_executor[resume_kwargs1-expected_observability1]",
+        "tests/test_resume_command.py::test_projection_resume_root_direct_executor_rechecks_checksum_and_audit_before_prologue",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_recorded_checksum--current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[missing_workflow_path-sha256:0000000000000000000000000000000000000000000000000000000000000000-missing]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_modified-sha256:0000000000000000000000000000000000000000000000000000000000000000-current]",
+        "tests/test_resume_command.py::test_projection_resume_root_executor_checksum_mismatch_envelope[workflow_unavailable-sha256:0000000000000000000000000000000000000000000000000000000000000000-unavailable]",
+        "tests/test_resume_command.py::test_resume_fails_closed_on_projection_current_step_integrity_mismatch",
+        "tests/test_state_manager.py::TestStateManager::test_checksum_mismatch_recorder_persists_exact_structured_error[missing_recorded_checksum-workflows/root.yaml-None-sha256:current]",
+        "tests/test_state_manager.py::TestStateManager::test_checksum_mismatch_recorder_persists_exact_structured_error[missing_workflow_path-None-sha256:persisted-None]",
+        "tests/test_state_manager.py::TestStateManager::test_checksum_mismatch_recorder_persists_exact_structured_error[workflow_modified-workflows/root.yaml-sha256:persisted-sha256:current]",
+        "tests/test_state_manager.py::TestStateManager::test_checksum_mismatch_recorder_persists_exact_structured_error[workflow_unavailable-workflows/missing.yaml-sha256:persisted-None]",
+        "tests/test_state_manager.py::TestStateManager::test_projection_failure_recorder_changes_exactly_three_root_fields",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_allows_one_running_member_with_failed_history",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_indexes_failed_history_and_next_id",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[alias-mismatch]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[caller-mismatch]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[duplicate-ordinal]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[malformed-ordinal]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[missing-ordinal]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[mixed-bases]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[multiple-running]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[nested-retry-marker]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[non-workflow-lisp-multiple-noncompleted]",
+        "tests/test_subworkflow_calls.py::test_call_frame_retry_lineage_rejects_ambiguity_and_malformed_ordinals[unknown-status]",
+        "tests/test_subworkflow_calls.py::test_failed_workflow_lisp_child_retry_still_allocates_fresh_frame",
+        "tests/test_subworkflow_calls.py::test_nested_projection_error_is_not_wrapped_in_call_failed",
+        "tests/test_subworkflow_calls.py::test_occupied_completed_call_frame_collision_rejects_before_lineage_grouping[matching-caller]",
+        "tests/test_subworkflow_calls.py::test_occupied_completed_call_frame_collision_rejects_before_lineage_grouping[missing-caller]",
+        "tests/test_subworkflow_calls.py::test_occupied_completed_call_frame_collision_rejects_before_lineage_grouping[stale-caller]",
+        "tests/test_subworkflow_calls.py::test_projection_integrity_loop_contained_call_uses_exact_boundary_candidate",
+        "tests/test_subworkflow_calls.py::test_projection_integrity_two_level_failure_preserves_exact_root_diagnostic",
+        "tests/test_subworkflow_calls.py::test_projection_resume_call_frame_ambiguity_fails_without_mapping_order_selection",
+        "tests/test_subworkflow_calls.py::test_projection_resume_call_frame_mutation_order_callee_local_corruption_preserves_selected_child",
+        "tests/test_subworkflow_calls.py::test_projection_resume_call_frame_mutation_order_stale_caller_id_fails_at_root_audit",
+        "tests/test_subworkflow_calls.py::test_reached_call_checksum_precedes_local_projection_failure",
+        "tests/test_subworkflow_calls.py::test_reached_call_projection_failure_does_not_mutate_selected_callee",
+        "tests/test_subworkflow_calls.py::test_reached_call_revalidates_boundary_alias_and_lineage_before_child_manager",
+        "tests/test_subworkflow_calls.py::test_reached_call_running_workflow_lisp_guards_precede_failed_history_audit",
+        "tests/test_subworkflow_calls.py::test_resume_projection_auditor_rejects_stale_caller_and_alias_without_mutation",
+        "tests/test_subworkflow_calls.py::test_resumed_parent_rejects_malformed_child_call_frame_state_without_overwrite[corrupt_call_frames1-call_frame_not_mapping]",
+        "tests/test_subworkflow_calls.py::test_resumed_parent_rejects_malformed_child_call_frame_state_without_overwrite[malformed-container-call_frames_not_mapping]",
+        "tests/test_subworkflow_calls.py::test_workflow_lisp_retry_classification_uses_typed_frontend_kind_not_suffix",
+        "tests/test_workflow_lisp_build_artifacts.py::test_build_frontend_bundle_preserves_compiler_owned_frontend_kind",
+        "tests/test_workflow_lisp_key_migrations.py::test_review_loop_parity_fixture_compiles_to_resume_safe_repeat_until_via_imported_stdlib_route",
+        "tests/test_workflow_lisp_lexical_checkpoint_restore.py::test_runtime_resume_rejects_loop_frame_when_persisted_repeat_until_bookkeeping_drifts",
+        "tests/test_workflow_lisp_modules.py::test_compile_stage3_entrypoint_does_not_relabel_explicit_classic_yaml_bundle",
+        "tests/test_workflow_lisp_modules.py::test_compile_stage3_entrypoint_registers_canonical_callable_keys",
+        "tests/test_workflow_state_projection.py::test_call_boundary_projection_exposes_current_import_alias",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_accepts_all_repeat_until_progress_forms[repeat_progress0-repeat_frame0]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_accepts_all_repeat_until_progress_forms[repeat_progress1-repeat_frame1]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_accepts_all_repeat_until_progress_forms[repeat_progress2-repeat_frame2]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_accepts_all_repeat_until_progress_forms[repeat_progress3-repeat_frame3]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[for_each_boolean_index]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[for_each_container]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[for_each_current_completed_conflict]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[for_each_duplicate_index]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[for_each_items]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[for_each_out_of_range]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[for_each_progress]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_boolean_index]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_condition_result_conflict]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_container]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_current_completed_conflict]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_duplicate_index]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_exhausted_type]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_failed_exhaustion_wrong_error]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_out_of_range]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_progress]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_successful_exhaustion_wrong_status]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_invalid_loop_progress[repeat_terminal_success_without_history]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_rejects_stale_loop_local_and_call_ids",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_resolves_body_finalization_and_optional_omission",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_retains_unhashable_explicit_identity_for_shape_audit[mapping]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_list]",
+        "tests/test_workflow_state_projection.py::test_projection_resume_slot_index_snapshots_malformed_identity_values[nested_mapping]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[ambiguous_call_boundary]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[ambiguous_resumable_call_frame]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[invalid_loop_progress]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[missing_call_boundary]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[missing_imported_bundle]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[missing_required_identity]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[out_of_scope_step_id]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[persisted_import_alias_mismatch]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[presentation_slot_mismatch]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[unclaimed_explicit_step_row]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[unknown_explicit_step_id]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_emits_exact_diagnostic_schema[unsupported_shape]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[call-frame]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[call-frames]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[current-step]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_scalar_malformed_container_values[root-state]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_redacts_secret_list_identity_contents",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-list-member]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-mapping-nested-row]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[non-string-presentation-key]",
+        "tests/test_workflow_state_projection.py::test_resume_projection_auditor_rejects_malformed_step_result_shapes[scalar-row]",
+        "tests/test_workflow_state_projection.py::test_resume_scope_path_snapshots_mutable_call_frame_input"
+      ],
+      "hidden_count": 111,
+      "controls": {
+        "resume-projection-integrity-mutant": "79570b62aba0f82708c3fc9e29d878cd5040d84e1f154a60ea3b40c91cd28cd8",
+        "resume-projection-integrity-partial": "759242bdc3dade91afaa7fc642e207b0b868065e3cb4b458b44120e9ea3d249b",
+        "resume-projection-integrity-stub": "0be06b49bf366a5d98ee28deac6faa3e0495cdcbf821060b8c2329beb0e06954",
+        "resume-projection-integrity-upstream": "0f88f9980947ef12563f050298936277ad387603ef53c16efc1b2ab10ccc06e9"
+      },
+      "dev_check_sha256": "a52074d9d1733d24f353dfdf35c3581386cb442a5d5f83387ab9be871e98c96e"
+    },
+    "pure-result-replay": {
+      "path": "experiments/compare/tasks/pure-result-replay",
+      "base": "f80e551a6cdeca6a2913ce640326495be1ae1cc5",
+      "package_sha256": "08696557c2de2d8d2e521b7e9fed8c05f365c058df43bf5813910ad6a4645278",
+      "seed_sha256": "a3fe9867b92e4df760e18f19006bdc1593e181d3f215acc2ceafaa41636d4706",
+      "hidden_node_ids": [
+        "tests/test_provider_observation_workflow.py::test_root_provider_observation_is_enabled_by_default",
+        "tests/test_provider_observation_workflow.py::test_root_provider_observation_manager_is_run_scoped_and_best_effort_closed[True]",
+        "tests/test_resume_command.py::test_executor_selects_resume_restart_boundary_once",
+        "tests/test_resume_command.py::test_replay_profile_force_restart_activates_deterministic_new_root_without_mutating_source",
+        "tests/test_state_manager.py::TestStateManager::test_atomic_pure_failure_persists_full_result_and_clears_cursor",
+        "tests/test_state_manager.py::TestStateManager::test_atomic_pure_interrupted_visit_reuse_is_same_visit_and_read_only",
+        "tests/test_state_manager.py::TestStateManager::test_atomic_pure_success_returns_and_persists_exact_shell",
+        "tests/test_state_manager.py::TestStateManager::test_persistence_profile_absent_load_never_backfills",
+        "tests/test_state_manager.py::TestStateManager::test_persistence_profile_absent_round_trip_remains_omitted",
+        "tests/test_state_manager.py::TestStateManager::test_persistence_profile_exact_value_initializes_and_reloads",
+        "tests/test_state_manager.py::TestStateManager::test_persistence_profile_unknown_direct_construction_fails_closed",
+        "tests/test_state_manager.py::TestStateManager::test_persistence_profile_unknown_initialize_value_fails_closed",
+        "tests/test_state_manager.py::TestStateManager::test_persistence_profile_unknown_on_disk_fails_without_rewrite[explicit-null]",
+        "tests/test_state_manager.py::TestStateManager::test_persistence_profile_unknown_on_disk_fails_without_rewrite[unknown-value]",
+        "tests/test_subworkflow_calls.py::test_existing_call_frame_read_only_loader_returns_detached_state_without_io",
+        "tests/test_subworkflow_calls.py::test_fresh_noniterative_replay_profile_clean_child_elides_pure_surfaces",
+        "tests/test_subworkflow_calls.py::test_fresh_noniterative_replay_profile_uses_typed_callee_not_parent",
+        "tests/test_subworkflow_calls.py::test_nested_pure_replay_resume_preserves_exact_effects_and_surfaces",
+        "tests/test_subworkflow_calls.py::test_pure_replay_runtime_keeps_true_imported_callee_refs_workflow_local",
+        "tests/test_workflow_lisp_lexical_checkpoint_default_resume.py::test_replay_profile_checkpoint_filter_retains_nearest_noneligible_point[missing]",
+        "tests/test_workflow_lisp_lexical_checkpoint_default_resume.py::test_replay_profile_checkpoint_filter_retains_nearest_noneligible_point[restored]",
+        "tests/test_workflow_lisp_lexical_checkpoint_default_resume.py::test_replay_profile_default_resume_admits_validated_frame_entry_replay",
+        "tests/test_workflow_lisp_lexical_checkpoint_default_resume.py::test_replay_profile_frame_entry_replay_rejects_missing_durable_owner",
+        "tests/test_workflow_lisp_lexical_checkpoint_default_resume.py::test_replay_profile_unstarted_pure_point_keeps_node_local_checkpoint_authority",
+        "tests/test_workflow_lisp_list_traversal.py::test_frontend_effect_map_runtime_commits_exact_calls_in_source_order[one-1-expected_inputs1-expected_outputs1]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_public_run_activates_replay_profile_with_value_free_pure_results",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_has_exact_shape_without_step_result_serialization",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_forbidden_extra_field[artifacts]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_forbidden_extra_field[bundle-reference]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_forbidden_extra_field[debug]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_forbidden_extra_field[duration]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_forbidden_extra_field[json]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_forbidden_extra_field[output]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_forbidden_extra_field[text]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_forbidden_extra_field[value]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_missing_required_field[exit_code]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_missing_required_field[name]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_missing_required_field[outcome]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_missing_required_field[result_storage]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_missing_required_field[status]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_missing_required_field[step_id]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_missing_required_field[visit_count]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_non_exact_outcome[extra-field]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_non_exact_outcome[missing-field]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_non_exact_outcome[wrong-class]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_non_exact_outcome[wrong-phase]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_non_exact_outcome[wrong-retryable]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_non_exact_outcome[wrong-status]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_wrong_required_field[exit-code-bool]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_wrong_required_field[exit-code]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_wrong_required_field[name]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_wrong_required_field[result-storage]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_wrong_required_field[status]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_wrong_required_field[step-id]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_wrong_required_field[visit-count-bool]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_completion_shell_rejects_wrong_required_field[visit-count]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_boundary_indexes_list_root_value_documents",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_dependency_index_accepts_typed_literal_bindings",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_dependency_index_keeps_serialized_plan_unchanged",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_dependency_index_rejects_cycle_and_multiple_visit_region",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_dependency_index_rejects_duplicate_projection_authority",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_dependency_index_rejects_projection_identity_mismatch",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_dependency_index_rejects_unbound_text_and_cross_frame_refs[replacement0-dependency_index_invalid]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_dependency_index_rejects_unbound_text_and_cross_frame_refs[replacement1-dependency_index_invalid]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_dependency_index_rejects_unbound_text_and_cross_frame_refs[replacement2-dependency_index_invalid]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_dependency_index_rejects_unbound_text_and_cross_frame_refs[replacement3-dependency_index_invalid]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_dependency_index_rejects_wrong_typed_literal_bindings[3]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_dependency_index_rejects_wrong_typed_literal_bindings[invalid_seed1]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_invalid_durable_input_rejects_before_e2_dispatch[invalid-e1]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_invalid_durable_input_rejects_before_e2_dispatch[missing-e1]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_invalid_source_rejects_before_e2_dispatch[evaluation-failure]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_invalid_source_rejects_before_e2_dispatch[invalid-bound-input]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_invalid_source_rejects_before_e2_dispatch[missing-bound-input]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_invalid_source_rejects_before_e2_dispatch[output-contract-failure]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_invalid_source_rejects_before_e2_dispatch[unresolved-binding]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_overlay_requires_exact_typed_address_over_persisted_shell",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[cursor-and-failure]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[cursor-and-row]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[cursor-identity-mismatch]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[cursor-index-mismatch]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[cursor-kind-mismatch]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[cursor-presentation-key-mismatch]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[cursor-status-mismatch]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[cursor-visit-mismatch]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[cursor-without-visit]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[derived-complete-while-unrelated-step-is-current]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[derived-complete]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[durable-failure]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[durable-skip]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[failure-visit-mismatch]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[failure-without-visit]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[interrupted]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[nonterminal-row]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[row-identity-mismatch]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[row-presentation-key-mismatch]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[row-visit-mismatch]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[shell-without-visit]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[skip-identity-mismatch]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[unstarted-while-unrelated-step-is-current]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[unstarted]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[value-bearing-completion]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_progress_witness_classifies_closed_matrix[visit-without-witness]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_resume_after_e2_interruption_preserves_effects_and_outputs",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_resume_rejects_wrong_typed_durable_intrinsic_before_effect[exit-code]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_resume_rejects_wrong_typed_durable_intrinsic_before_effect[outcome-class]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_resume_rejects_wrong_typed_durable_intrinsic_before_effect[outcome-phase]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_resume_rejects_wrong_typed_durable_intrinsic_before_effect[outcome-retryable]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_resume_rejects_wrong_typed_durable_intrinsic_before_effect[outcome-status]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_sparse_union_cache_hit_accepts_exact_active_result",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_sparse_union_cache_hit_rejects_relevant_running_cursor",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_sparse_union_cache_hit_revalidates_durable_witness[malformed-shell]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_sparse_union_cache_hit_revalidates_durable_witness[missing-shell]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_sparse_union_cache_hit_revalidates_durable_witness[missing-visits]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_sparse_union_cache_hit_revalidates_durable_witness[non-one-visit]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_sparse_union_result_rejects_wrong_active_member_set[extra-inactive-variant-member]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_sparse_union_result_rejects_wrong_active_member_set[missing-active-variant-member]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_pure_replay_sparse_union_result_uses_overlay_row_presence",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_replay_profile_checkpoint_audit_allows_noneligible_recurrent_pure_record",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_replay_profile_checkpoint_audit_ignores_eligible_record_in_other_frame",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_replay_profile_checkpoint_audit_rejects_eligible_same_scope_record[checkpoint]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_replay_profile_checkpoint_audit_rejects_eligible_same_scope_record[restore_binding]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_replay_profile_clean_run_keeps_pure_results_value_free_outside_active_overlay",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_replay_profile_conflict_rejects_before_prologue_or_state_write[private-lineage]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_replay_profile_conflict_rejects_before_prologue_or_state_write[pure-bundle]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_replay_profile_conflict_rejects_before_prologue_or_state_write[value-row]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_replay_profile_recurrent_pure_node_keeps_ordinary_durable_surfaces",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_replay_profile_rejects_visit_two_progress_before_prologue[visit-two-cursor]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_replay_profile_rejects_visit_two_progress_before_prologue[visit-two-shell]",
+        "tests/test_workflow_lisp_pure_result_replay.py::test_replay_profile_uses_distinct_durable_step_identity"
+      ],
+      "hidden_count": 129,
+      "controls": {
+        "pure-result-replay-mutant": "62583c797165847aa06ce3001e63ff200537e0032e011d25e0923427ee4f8739",
+        "pure-result-replay-partial": "5fc14a94fccea40a55e5601a9593070f21f23489332ddee0bd1017a5cbf0c755",
+        "pure-result-replay-stub": "540b01e55c823fa7d7ed57b8190f363aac16c44d3a7014f9dfbc8639715213dc",
+        "pure-result-replay-upstream": "269f3bef1928a6124934994bc2b8818f3ae427916ff1a0b72b45e60637bba70d"
+      },
+      "dev_check_sha256": "db2cd149712cb964df6611eccfb801feb4ca09c3992cf4b7d9fdbe2895407145"
+    }
+  },
+  "written_before_scoring": true,
+  "model_policy": {
+    "allowed": [
+      "claude-sonnet-5-5",
+      "gpt-5.6-terra"
+    ],
+    "all_roles": true,
+    "fable": "forbidden",
+    "nested_claude": "claude-sonnet-5-5",
+    "codex_native_agents": "disabled"
+  },
+  "experiment": "Reference-rubric calibration on known controls",
+  "purpose": "calibration",
+  "tasks": [
+    "experiments/compare/tasks/resume-projection-integrity",
+    "experiments/compare/tasks/pure-result-replay"
+  ],
+  "judges": [
+    "claude-sonnet-5-5",
+    "gpt-5.6-terra"
+  ],
+  "anchors": {
+    "resume-projection-integrity": {
+      "upstream": "resume-projection-integrity-upstream",
+      "stub": "resume-projection-integrity-stub",
+      "partial": "resume-projection-integrity-partial",
+      "mutant": "resume-projection-integrity-mutant"
+    },
+    "pure-result-replay": {
+      "upstream": "pure-result-replay-upstream",
+      "stub": "pure-result-replay-stub",
+      "partial": "pure-result-replay-partial",
+      "mutant": "pure-result-replay-mutant"
+    }
+  },
+  "judge_bindings": {
+    "claude-sonnet-5-5": {
+      "providers": "experiments/compare/score.providers.json",
+      "providers_sha256": "ca84c21983a831afdee1148dd7b4d929104010cfc85ad05ad9cb43919174c250",
+      "effort": "high",
+      "timeout_sec": 3600
+    },
+    "gpt-5.6-terra": {
+      "providers": "experiments/compare/providers/score_codex.json",
+      "providers_sha256": "6c5410c42dfe8c66fc5449ebf98110bd18a11c999a06e8d20c9312ec11609333",
+      "effort": "high",
+      "timeout_sec": 3600
+    }
+  },
+  "rubric": {
+    "workflow": "score_ref.orc",
+    "entry": "score_ref::score",
+    "criteria": [
+      "completeness",
+      "correctness",
+      "scope",
+      "layering"
+    ],
+    "reference": "upstream"
+  },
+  "workflow_sha256": "7f126afd416c6bdcb81deedb852c2d693fde743d8d4b00c926eb20bd1402fe7b",
+  "calibration": {
+    "margin": 4,
+    "mutant_margin": 2,
+    "error_rate": 0,
+    "ordering": "stub < partial < upstream, strict, per declared judge and batch"
+  },
+  "anchor_spread_limit": 2,
+  "fillers": {
+    "resume-projection-integrity": [
+      {
+        "path": "/home/ollie/ss-pools/phase1/resume-projection-integrity/records/patches/045657ab.diff",
+        "sha256": "95a60edc9a42f5bdac96d35551710b19f43cc6c40ea03135d78923ace0a32d27"
+      },
+      {
+        "path": "/home/ollie/ss-pools/phase1/resume-projection-integrity/records/patches/585cd19c.diff",
+        "sha256": "6b1dbc9176f988efd42d3bb82d455f3a023de68f4f337d51bf0057cabb976c91"
+      },
+      {
+        "path": "/home/ollie/ss-pools/phase1/resume-projection-integrity/records/patches/5b19c24d.diff",
+        "sha256": "57651a007c532442e3005eaf0015c54813b7eee8b16d84188ad3b698455bcc89"
+      },
+      {
+        "path": "/home/ollie/ss-pools/phase1/resume-projection-integrity/records/patches/95a923cf.diff",
+        "sha256": "ba67dafd7f5700f38aea23ec61b8b062b12e46d596558e29d45e03a1eae8043f"
+      },
+      {
+        "path": "/home/ollie/ss-pools/phase1/resume-projection-integrity/records/patches/a325a057.diff",
+        "sha256": "c14f2e826b2d2f27f5e65e74133a5cadd7d5da5fadee71046d8d8ad320dcaa87"
+      },
+      {
+        "path": "/home/ollie/ss-pools/phase1/resume-projection-integrity/records/patches/da40a5b4.diff",
+        "sha256": "9e850c844b9e271618a636f141e89efdf5b272d6a02978abde00425528d66ad6"
+      },
+      {
+        "path": "/home/ollie/ss-pools/phase1/resume-projection-integrity/records/patches/feb1c7a0.diff",
+        "sha256": "ae46967f65baaa1a4e5174cb486861631c81d1b8d6b0d489ee527645fb25ba08"
+      },
+      {
+        "path": "/home/ollie/ss-pools/phase1/resume-projection-integrity/records/patches/ff95e084.diff",
+        "sha256": "16c65718aed33d17839c449a81be1bfedf6620383137dbc2f30f02dcf478840a"
+      },
+      {
+        "path": "/home/ollie/ss3-work/records/3b9c6efb3b12cac8bb5e000295c334934ffac4c1e5777be0130ba229bc68a40c/run-1/collected/final.diff",
+        "sha256": "607439006e8476614569d5db0eeed2d05f818376026e2ab6a12e6bee992b08f2"
+      },
+      {
+        "path": "/home/ollie/ss3-work/records/6a04476136702d5d85fc39cc4ccbce9e8d745225a3953ac2cea21c4b34c09e9b/run-1/collected/final.diff",
+        "sha256": "55289bddeab3e60a848659adf41a635af5b051044876136b30f7fbadc7964ba4"
+      },
+      {
+        "path": "/home/ollie/ss3-work/records/99ef13ff000fb200b994f80b08c763f36d4f88aa7a5f6ede2adde823b15790e6/run-1/collected/final.diff",
+        "sha256": "bde98f97828b034719419ebff2fb92ce747b60fd46b340797e5eafe903c55fed"
+      }
+    ],
+    "pure-result-replay": [
+      {
+        "path": "/home/ollie/ss-pools/phase1/pure-result-replay/records/patches/10b17a6c.diff",
+        "sha256": "903a572e1a6f737b612cb5b9a5496f63815e386dbc63fc794ed07d5ab977d04b"
+      },
+      {
+        "path": "/home/ollie/ss-pools/phase1/pure-result-replay/records/patches/285d195f.diff",
+        "sha256": "32ef5e6ba1982426f00fb064d1858829e3b6e0f08a318b0e701398769480c3e4"
+      },
+      {
+        "path": "/home/ollie/ss-pools/phase1/pure-result-replay/records/patches/5257a1e0.diff",
+        "sha256": "e8d78974e41d7c6236aeffa59f7ebf6577597306cf4be808bc19152465032cf7"
+      },
+      {
+        "path": "/home/ollie/ss-pools/phase1/pure-result-replay/records/patches/55cc9648.diff",
+        "sha256": "100a5f1e5175fbea07d67b3aa672b3dc39dc87d66567cdeeec549a08d9c9849e"
+      },
+      {
+        "path": "/home/ollie/ss-pools/phase1/pure-result-replay/records/patches/61806671.diff",
+        "sha256": "0d4960cb38336a31ebc2598dccc72cb10e4b3680c710e2ec34d33637cacec7b6"
+      },
+      {
+        "path": "/home/ollie/ss-pools/phase1/pure-result-replay/records/patches/689bc0cc.diff",
+        "sha256": "98dd76d927508157545724076a8749177f6e6f56b22bcb580f887b562f6e3ded"
+      },
+      {
+        "path": "/home/ollie/ss-pools/phase1/pure-result-replay/records/patches/82f185b5.diff",
+        "sha256": "8e523ec731ab6be36f4d8bf229d2793714e3b554836061e66f426cd3cb6bc65b"
+      },
+      {
+        "path": "/home/ollie/ss-pools/phase1/pure-result-replay/records/patches/c2e92c79.diff",
+        "sha256": "65df9b817f8adaf9fd31ac7902430eac7ae5563370f945c98c8f83b6433d55ef"
+      },
+      {
+        "path": "/home/ollie/ss-pools/phase1/pure-result-replay/records/patches/cb327a5f.diff",
+        "sha256": "4eec16ada9764f6004a569b12a050543e4d952a042fffe5c545f10349eb9d055"
+      },
+      {
+        "path": "/home/ollie/ss-pools/phase1/pure-result-replay/records/patches/e9555106.diff",
+        "sha256": "74818a39a41f66435a7fd46e4e37b639720b3144d82e6e76fec6535523ec56a7"
+      },
+      {
+        "path": "/home/ollie/ss-pools/phase1/pure-result-replay/records/patches/e9ca1200.diff",
+        "sha256": "2f3c9b9d260a959505acc1eefccf6dd5e0c185dd4a98b041d61afb064c21c603"
+      },
+      {
+        "path": "/home/ollie/ss-pools/phase1/pure-result-replay/records/patches/ed2a8bfe.diff",
+        "sha256": "b09b4ab65d2df3d9bd1aca9e360fe5eda5fcf9500bfbf5aa0e95b9777819b57c"
+      },
+      {
+        "path": "/home/ollie/ss-pools/phase1/pure-result-replay/records/patches/f22258be.diff",
+        "sha256": "27e5efc7d70280bceb32e2a518017a29d7613b3858d9d292390ffcccddf8b920"
+      },
+      {
+        "path": "/home/ollie/ss3-work/records/1f5765a52d05616d4a47416043a44ac8657161b605ec8e877571f4d8a2a3dc58/run-1/collected/final.diff",
+        "sha256": "28e477aabe21008edf3211c809316421b8b2d09f4c863d0bfbbf3774e679c828"
+      },
+      {
+        "path": "/home/ollie/ss3-work/records/272d9cc6157e444328b5ce672911905fe3ba8f4c7dfa7a9587ca4a680a592abf/run-1/collected/final.diff",
+        "sha256": "751057256d817092614c30f168d15eef17172a704307041c4c93111faffb2eee"
+      },
+      {
+        "path": "/home/ollie/ss3-work/records/3fa26b02b27a44da44984143cb7bc9be1407b42b3be9dd7b27dcb9de40d107f8/run-1/collected/final.diff",
+        "sha256": "8ff10c48f53fcf58e8e4f11f009ba366e24a51f7ea0fc21addabfcdc2da7bb2c"
+      },
+      {
+        "path": "/home/ollie/ss3-work/records/6234bfb372b5d591eb84c5b0bb137b325892f5f5412c1b935ce952d3ac10d6c0/run-1/collected/final.diff",
+        "sha256": "c25433a58f51db1dbc8177848daea652d0203f6fe43a7157d3b36f568232d273"
+      },
+      {
+        "path": "/home/ollie/ss3-work/records/75aa676bab94647ec386252babcb04c92c5bd1bf12122b0081b9f92ba7093a92/run-1/collected/final.diff",
+        "sha256": "5d27a66950552c0a54c542d1aa6facb021719d6a8a2feabdd99f5ba2def71a9b"
+      },
+      {
+        "path": "/home/ollie/ss3-work/records/a8594f564ab229df6ebf2fb94b556cf07151e3a68e6173d28b37cd112dd1dcb3/run-1/collected/final.diff",
+        "sha256": "025503010ea9bdac59e5d629315d0aa0129b7e56ddc3c2c6e0944e938a60aef8"
+      }
+    ]
+  },
+  "batches": {
+    "A": {
+      "count": 2,
+      "per_batch": 5,
+      "minimum_per_batch": 4
+    },
+    "B2": {
+      "count": 1,
+      "per_batch": 5,
+      "minimum_per_batch": 2,
+      "membership": "All usable Step-B direct_task patches used for family qualification, plus unused applicable retained fillers up to five total; exclude the union of fillers selected in any earlier A/A2 pool, including failed A. Select the retained additions deterministically with filler_seed before pooling; do not drop any usable B patch to improve scores."
+    },
+    "filler_seed": 20261019,
+    "maximum_repositories_including_reference": 10
+  },
+  "family_amendment": {
+    "path": "/home/ollie/sc-evidence/freeze/calibration-amends-5.json",
+    "sha256": "8cef38ccaf7600b9add5bb51a231e242a00796a424fa92cc5eefb1739b26498e"
+  },
+  "gate_3": {
+    "stage": "C",
+    "replicates_per_task": 2,
+    "minimum_first_check_failures_per_task": 1,
+    "authority": "evaluation.check_first_attempt with frozen package config/tests restored",
+    "B_first_attempt": "descriptive only"
+  },
+  "price_table": {
+    "currency": "USD",
+    "tokens_per_unit": 1000000,
+    "date": "2026-10-19",
+    "source": "https://platform.claude.com/docs/en/about-claude/pricing ; https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+    "models": {
+      "claude-sonnet-5-5": {
+        "input": 2,
+        "output": 10,
+        "cache_read": 0.1,
+        "cache_write": 2.5
+      },
+      "gpt-5.6-terra": {
+        "input": 2,
+        "output": 12,
+        "cache_read": 0.2,
+        "cache_write": 2.5
+      }
+    }
+  },
+  "budget": {
+    "A": {
+      "planned": 8,
+      "cap": 10
+    },
+    "A_prime": {
+      "planned": 8,
+      "cap": 10
+    },
+    "B": {
+      "planned": 8,
+      "cap": 14
+    },
+    "B2": {
+      "planned": 4,
+      "cap": 4
+    },
+    "C": {
+      "planned_maximum": 12,
+      "cap": 12
+    },
+    "planned_without_A_prime": 32,
+    "maximum": 50
+  },
+  "pricing_basis": "Frozen standard short-context list-price equivalent, not billed spend; cache-write basis is the declared provider table.",
+  "control_construction": {
+    "rule": {
+      "partial": "Select the first existing candidate in construction order that preserves at least one named required behavior and lacks another named required behavior, proved by an upstream-pass/candidate-fail executable test and a separate upstream-pass/candidate-pass retained-behavior test. Failures must be functional; collection/import/infrastructure errors do not prove semantic inadequacy.",
+      "mutant": "Select the first existing candidate in construction order with one behavior-breaking edit, at least 95% of upstream added lines retained, and one concrete functional test passing upstream and failing under the mutant. Collection/import/infrastructure errors do not prove semantic inadequacy.",
+      "hidden_fractions": "Retain all measured fractions and failed-node IDs as descriptive construction diagnostics only; they no longer select or reject controls.",
+      "unchanged_rules": "P1/P2/P3, spread limits, task-family qualification rules, gates, and all live-study criteria remain unchanged."
+    },
+    "timing": "Revised after original hidden fractions, before any judge data; original bands failed.",
+    "manifest": {
+      "path": "/home/ollie/sc-evidence/preparation/task3/manifest.json",
+      "sha256": "98582abd8340a6740c90e92abe8e233ca6f9a256123a6ed31ef783695e74f2e9"
+    },
+    "proof": {
+      "path": "/home/ollie/sc-evidence/preparation/task3/semantic-proof.json",
+      "sha256": "eae7669a73755809e3e096b44ab8ed82008e364d98645a1716a26aa5714345d5"
+    },
+    "independent_review": {
+      "path": "/home/ollie/sc-evidence/preparation/task3/semantic-review.json",
+      "sha256": "75c26c53cf216092abe1bd409b27853390064408d3ba209f7804ff90344dcbeb"
+    },
+    "diagnostics": [
+      {
+        "slug": "resume-projection-integrity",
+        "role": "partial",
+        "construction": "partial-01-no-calls",
+        "fraction": 0.8648648648648649
+      },
+      {
+        "slug": "resume-projection-integrity",
+        "role": "mutant",
+        "construction": "mutant-01-skip-audit",
+        "fraction": 0.6576576576576577
+      },
+      {
+        "slug": "pure-result-replay",
+        "role": "partial",
+        "construction": "partial-01-no-executor",
+        "fraction": 0.7829457364341085
+      },
+      {
+        "slug": "pure-result-replay",
+        "role": "mutant",
+        "construction": "mutant-01-empty-boundary",
+        "fraction": 0.8992248062015504
+      }
+    ],
+    "hidden_fractions": "secondary descriptive only"
+  },
+  "hidden_acceptance": {
+    "new_runs_in_A_or_B2": false,
+    "evidence": "Reuse frozen control-construction diagnostics; calibration reports do not compute filler hidden fractions.",
+    "reason": "Owner permits omission or secondary use; judge calibration does not depend on hidden acceptance."
+  },
+  "failure_policy": {
+    "maximum_revisions": 1,
+    "revision": "rubric-only without reference; same judges",
+    "approval": "separate criterion hash and owner approval for A_prime",
+    "second_failure": "measure uncalibrated; stop later live steps"
+  },
+  "primary": [],
+  "secondary": []
+}
