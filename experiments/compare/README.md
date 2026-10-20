@@ -127,7 +127,10 @@ Agents share `$HOME`, so the harness guards instrumented CLI routes and checks r
   `model_reasoning_effort` configuration overrides used by the provider binding. It always adds
   `--disable multi_agent --disable multi_agent_v2 --disable multi_agent_v2_dynamic_tools`
   and `-c agents.enabled=false` to request that native agents be disabled; their dispatch does
-  not pass through `PATH`. Effective live prevention remains unqualified
+  not pass through `PATH`. For `exec` (including alias `e`), it inserts these settings after
+  the subcommand: Codex 0.163.0's subcommand `--config` overrides top-level config rather than
+  merging it. Offline parser and inert public-dispatch checks verify this placement;
+  they do not establish native tool suppression. Effective live prevention remains unqualified
   ([AT incident](../../docs/reports/2026-10-20-orc-structural-search-measurement-at.md)).
   False feature flags, transmitted configuration and an offline prompt without collaboration
   instructions do not prove that the actual executed provider cannot launch native tools.

@@ -314,8 +314,8 @@ def test_i3_parent_sends_the_orc_parents_prompt_except_the_result_path(sandboxed
     template = ProviderRegistry().get("codex_unrestricted_workspace")
     expected = [Template(arg).substitute(model="gpt-5.6-terra", reasoning_effort="high") for arg in template.command[1:]]
     assert ([line.startswith("- path:") for line in changed], python.value, argv) == (
-        [True, True], orc.value, ["--disable", "multi_agent", "--disable", "multi_agent_v2",
-                                    "--disable", "multi_agent_v2_dynamic_tools", "-c", "agents.enabled=false", *expected])
+        [True, True], orc.value, [expected[0], "--disable", "multi_agent", "--disable", "multi_agent_v2",
+                                    "--disable", "multi_agent_v2_dynamic_tools", "-c", "agents.enabled=false", *expected[1:]])
 
 
 def test_i3_evaluation_runs_the_generic_command_arm_and_records_a_completed_terminal(sandboxed, world, pyright):

@@ -151,3 +151,22 @@ include no structurally different known-correct implementation. Reference
 removal and judge-panel reduction also changed together. Neither RPI's pass
 nor this interrupted calibration establishes ORC improvement, a quality
 frontier, cost-effectiveness or causation by removing the reference.
+
+## Subsequent Offline Diagnosis
+
+After the stop, a [public run/resume trace](/home/ollie/sc-evidence/AT/offline-public-dispatch-trace.json)
+reproduced the frozen runtime's dispatch with an inert backend. Both routes
+reached the external wrapper, placing `agents.enabled=false` before `exec`
+and the provider's effort override after it. A separate
+[native exec parser probe](/home/ollie/sc-evidence/AT/offline-exec-config-scope.json),
+with network egress disabled and credential files masked, demonstrated that
+Codex 0.163.0 discards the top-level configuration when `exec` supplies its
+own `--config`. The same invalid boolean was ignored in the former position
+and rejected in the latter. This reproduces a concrete failure mechanism;
+it does not recover the missing historical process argv.
+
+The maintained guard now places its settings inside the `exec` configuration
+scope. Frozen runtime, wrapper, operators, pools and completed judgments remain
+unchanged. These offline checks made no remote model requests and do not
+qualify live native-agent prevention. The ten-session accounting, incomplete
+calibration and remaining gates are unchanged.

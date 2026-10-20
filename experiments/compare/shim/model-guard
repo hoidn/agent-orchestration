@@ -68,7 +68,18 @@ if [ -z "$given" ]; then
   set -- --model "$default" "$@"
 fi
 if [ "$name" = codex ]; then
-  set -- --disable multi_agent --disable multi_agent_v2 --disable multi_agent_v2_dynamic_tools -c agents.enabled=false "$@"
+  # Codex's exec --config shadows top-level config, so enforce policy in exec's own scope.
+  dispatch=("$@"); insert=0
+  for ((i = 0; i < ${#dispatch[@]}; i++)); do
+    case ${dispatch[i]} in
+      --) break ;;
+      -m|--model|-c|--config|-C|--cd|--add-dir|-i|--image|-s|--sandbox|-a|--ask-for-approval|--disable|--remote-auth-token-env) i=$((i + 1)) ;;
+      -*) continue ;;
+      exec|e) insert=$((i + 1)); break ;;
+      *) break ;;
+    esac
+  done
+  set -- "${dispatch[@]:0:insert}" --disable multi_agent --disable multi_agent_v2 --disable multi_agent_v2_dynamic_tools -c agents.enabled=false "${dispatch[@]:insert}"
 fi
 IFS=: read -ra dirs <<< "$PATH"
 for d in "${dirs[@]}"; do

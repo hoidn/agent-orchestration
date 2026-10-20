@@ -43,7 +43,7 @@ def test_guard_defaults_preserve_stdin_status_and_force_nested_policy(guarded, n
     done = guarded(name, ["exec", "--json"])
     assert done.returncode == 3, done.stderr
     seen = json.loads(done.stdout)
-    assert seen == {"args": [*prefix, "--model", model, "exec", "--json"], "stdin": "prompt\n",
+    assert seen == {"args": ["--model", model, "exec", *prefix, "--json"], "stdin": "prompt\n",
                     "forced": SONNET, "force": "1"}
 
 
@@ -88,7 +88,8 @@ def test_guard_refuses_model_and_configuration_escape_before_cli(guarded, name, 
 def test_codex_guard_keeps_explicit_model_and_effort_binding(guarded, args):
     done = guarded("codex", args)
     assert done.returncode == 3, done.stderr
-    assert json.loads(done.stdout)["args"] == [*DISABLED, *args]
+    expected = ["exec", *DISABLED, *args[1:]] if args[0] == "exec" else [*DISABLED, *args]
+    assert json.loads(done.stdout)["args"] == expected
 
 
 @pytest.mark.parametrize("forced", ["claude-opus-5-5", "fable", "unknown"])
@@ -222,3 +223,19 @@ def test_guard_refuses_app_server_protocol_model_override_before_cli(guarded):
 def test_primary_model_is_one_exact_id_never_a_model_list(guarded, name, args):
     done = guarded(name, args)
     assert (done.returncode, done.stdout) == (2, ""), done.stderr
+
+
+@pytest.mark.parametrize("args,expected", [
+    (["--model", TERRA, "exec", "--config", "model_reasoning_effort=high"],
+     ["--model", TERRA, "exec", *DISABLED, "--config", "model_reasoning_effort=high"]),
+    (["--cd", "exec", "--model", TERRA, "e", "--config", "model_reasoning_effort=high"],
+     ["--cd", "exec", "--model", TERRA, "e", *DISABLED, "--config", "model_reasoning_effort=high"]),
+    (["--cd", "exec", "ordinary prompt"],
+     [*DISABLED, "--model", TERRA, "--cd", "exec", "ordinary prompt"]),
+    (["ordinary prompt", "exec"], [*DISABLED, "--model", TERRA, "ordinary prompt", "exec"]),
+    (["--", "exec"], [*DISABLED, "--model", TERRA, "--", "exec"]),
+])
+def test_codex_policy_uses_exec_scope_without_treating_values_or_prompts_as_commands(guarded, args, expected):
+    done = guarded("codex", args)
+    assert done.returncode == 3, done.stderr
+    assert json.loads(done.stdout)["args"] == expected
