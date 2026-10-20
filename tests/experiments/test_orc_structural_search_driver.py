@@ -59,7 +59,7 @@ def sandboxed():
     skip_without_sandbox()
 
 
-def mode1(world, seeds):
+def mode1(world, seeds, **launch):
     script(world, ANSWERS)
     (world.tmp / "config.json").write_text(json.dumps(CONFIG))
     mutator = world.outside / "mutator.py"
@@ -69,7 +69,7 @@ def mode1(world, seeds):
     readout = run_mode1(world.tmp / "config.json", seeds=[SEEDS / f"{name}.orc" for name in seeds], tasks=[world.task],
                         work_root=world.outside / "work", evidence_root=evidence, episodes=3,
                         agent_cmd=[sys.executable, "-I", str(mutator)], replicates=1, runtime=world.runtime, env=env,
-                        timeout_sec=600, solutions={world.task.name: world.solution}, call_cap=160, concurrency=1)
+                        timeout_sec=600, solutions={world.task.name: world.solution}, call_cap=160, concurrency=1, **launch)
     return readout, read_records(evidence / "log.jsonl"), evidence
 
 

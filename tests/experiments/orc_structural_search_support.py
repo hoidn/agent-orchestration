@@ -23,10 +23,16 @@ from types import SimpleNamespace
 
 import pytest
 
+from experiments.orc_structural_search.config import ExperimentConfig
 from tests.experiments.compare_harness_support import OUTSIDE_SANDBOX_MOUNTS, commit, git, open_up
 
 REPO = Path(__file__).resolve().parents[2]
 SEEDS = REPO / "experiments" / "orc_structural_search" / "seeds"
+PYTHON_PARENT = REPO / "experiments" / "orc_structural_search" / "three_arm" / "python"  # the I3 parent
+I3_CONFIG = ExperimentConfig(
+    mutable_files=("direct.py",), mutable_definitions=("run",), condition="topology-only", interface="I3",
+    entry_workflow="direct::run", source_root=".", providers_file="providers.json", command_boundaries_file=None,
+    episode_wall_clock_sec=600, criterion_sha256=None)
 SCRIPTED = f"""#!{sys.executable} -I
 import json, os, re, sys, time
 prompt = sys.stdin.read()
@@ -97,6 +103,25 @@ for old, new in extra:
 Path(name).write_text(source)
 Path("HYPOTHESIS.txt").write_text(f"episode {{index}} should do better\\nsecond line\\n")
 """
+
+
+def python_pair(tmp_path: Path, *edits: tuple[str, str]) -> tuple[Path, Path]:
+    """(parent, child): copies of the I3 parent; the child's direct.py with each (old, new) edit applied once."""
+    parent, child = tmp_path / "parent", tmp_path / "child"
+    for root in (parent, child):
+        shutil.copytree(PYTHON_PARENT, root, ignore=shutil.ignore_patterns("__pycache__"))
+    source = (child / "direct.py").read_text()
+    for old, new in edits:
+        assert source.count(old) == 1, old
+        source = source.replace(old, new)
+    (child / "direct.py").write_text(source)
+    return parent, child
+
+
+@pytest.fixture
+def pyright():
+    if shutil.which("pyright") is None:
+        pytest.skip("pyright is not on PATH")
 
 
 def script(world, entries):

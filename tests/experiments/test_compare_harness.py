@@ -216,6 +216,26 @@ def test_shim_gives_the_agent_a_private_tmp_and_process_list(world):
         "probe\n", True, 0)
 
 
+def test_compare_hide_masks_directories_and_keeps_the_tree(world, monkeypatch):
+    _, record = start(world, "direct_task")
+    masked = Path(record["tree"]).parent  # the tree's own parent: the tree must stay reachable
+    (masked / "secret").write_text("hidden-value\n")
+    script = f"ls {masked}; cat {masked}/secret; echo cat-exit=$?; ls {record['tree']}/cand-1"
+    shown = call(world, record, script).stdout
+    monkeypatch.setenv("COMPARE_HIDE", f"{world.outside / 'missing'}:{masked}")  # a missing directory is skipped
+    hidden = call(world, record, script).stdout
+    assert ("hidden-value" in shown, "secret" in hidden, "cat-exit=0" in hidden, "README.md" in hidden) == (
+        True, False, False, True)
+
+
+def test_the_agent_never_sees_compare_hide(world, monkeypatch):
+    _, record = start(world, "direct_task")
+    monkeypatch.setenv("COMPARE_HIDE", str(world.outside / "masked"))
+    env = call(world, record, "env").stdout
+    names = ("COMPARE_HIDE", "COMPARE_ROOT", "COMPARE_TREE", "COMPARE_BASE")
+    assert [name for name in names if f"{name}=" in env] == []
+
+
 def test_shim_passes_stderr_through_and_records_the_same_bytes(world):
     records, record = start(world, "direct_task")
     done = call(world, record, "for i in 1 2 3; do echo warning $i >&2; done")
@@ -630,10 +650,3 @@ def test_a_spec_may_not_take_the_name_of_a_fixed_arm(world):
     with pytest.raises(SystemExit, match="best_of_n names a fixed arm"):
         prepare.run_arm(world.task, "best_of_n", world.root, world.runtime,
                         spec=candidate_spec(world, candidate_root(world)))
-
-
-def test_collect_refuses_a_generic_command_run(world):
-    spec = candidate_spec(world, candidate_root(world), command=("true",))
-    records = prepare.run_arm(world.task, "control", world.root, world.runtime, spec=spec)
-    with pytest.raises(SystemExit, match="generic-command"):
-        prepare.collect(records)

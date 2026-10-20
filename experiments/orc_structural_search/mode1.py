@@ -63,13 +63,14 @@ def run_mode1(config_path: Path, *, seeds: Sequence[Path], tasks: Sequence[Path]
               evidence_root: Path, episodes: int, agent_cmd: Sequence[str], replicates: int, runtime: Path,
               env: Mapping[str, str], timeout_sec: float, solutions: Mapping[str, str], call_cap: int,
               concurrency: int = 4, holdouts: Sequence[Path] = (), continue_run: bool = False,
-              guard: QuotaGuard | None = None) -> dict:
+              guard: QuotaGuard | None = None, hide: Sequence[Path] = ()) -> dict:
     """Enumerate the catalog, run `episodes` unguided I1 episodes (not counting quota incidents, each relaunched at
     most guard.retries times) against the seed the configuration's entry names, evaluate every accepted child not
     evaluated before (new_children) like a seed (`mode: "unguided"`) and write <evidence>/readout.json. Evaluations
     run at most `concurrency` at a time; every launch is refused beyond `call_cap` provider calls. `continue_run`
     continues the run already in the evidence root (see driver.py's module docstring); `guard` (tests) is the
-    invocation's quota pause state."""
+    invocation's quota pause state; `hide` adds directories every episode's CLI calls cannot see
+    (driver.hidden_roots)."""
     config = load_config(config_path)
     if config.interface != "I1":
         raise ValueError(f"mode 1 runs I1 episodes only; {config_path} names interface {config.interface}")
@@ -91,8 +92,8 @@ def run_mode1(config_path: Path, *, seeds: Sequence[Path], tasks: Sequence[Path]
     for _ in range(episodes - sum(quota_reason(row, evidence_root) is None for row in before)):
         episode = with_retries(lambda _attempt: run_episode(
             parent, config, interface="I1", mode="unguided", agent_cmd=agent_cmd, episode_index=next(index),
-            env=env, **{key: launch[key] for key in ("work_root", "evidence_root", "runtime", "solutions",
-                                                    "call_cap", "holdouts")}), guard)
+            env=env, hide=hide, **{key: launch[key] for key in ("work_root", "evidence_root", "runtime",
+                                                               "solutions", "call_cap", "holdouts")}), guard)
         launch_units(units(new_children([episode], config, evaluated), tasks, replicates), concurrency=concurrency,
                      guard=guard, **launch)
     result = readout(read_records(evidence_root / "log.jsonl"), evidence_root)

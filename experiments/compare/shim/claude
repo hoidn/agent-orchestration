@@ -11,7 +11,9 @@
 # overwrite risk remains there (disclosed in experiments/compare/README.md). It
 # runs under bubblewrap with a private /tmp ($COMPARE_TREE/tmp), an empty /var/tmp (other sessions keep
 # worktrees there), a private /dev/shm and process list;
-# the rest of the filesystem, home and network stay shared: reads there are only detected (R35).
+# the rest of the filesystem, home and network stay shared: reads there are only detected (R35). Each existing
+# directory of the optional colon-separated $COMPARE_HIDE is masked by an empty tmpfs, and the tree is then bound
+# back over itself, so a masked parent of the tree leaves the tree reachable.
 # The model guard (./model-guard, installed as $COMPARE_TREE/.model-guard/claude) comes first on the agent's
 # PATH: the top-level claude call and every claude process started through PATH inside the sandbox run
 # through it. Parallel calls in one tree (a judge's batches) never write or replace a script another call is
@@ -46,11 +48,17 @@ cmp -s "$here/model-guard" "$guard/claude" || {
     rm -f "$staged"
 } || { [ -n "$staged" ] && rm -f "$staged"; echo "shim: cannot install the model guard in $guard" >&2; exit 70; }
 [ "$name" = claude ] && real="$guard/claude"
+hide=()
+if [ -n "${COMPARE_HIDE-}" ]; then
+  IFS=: read -ra masked <<< "$COMPARE_HIDE"
+  for d in "${masked[@]}"; do [ -d "$d" ] && hide+=(--tmpfs "$d"); done
+  hide+=(--bind "$COMPARE_TREE" "$COMPARE_TREE")
+fi
 cat > "$call/prompt.txt"
 exec 3> >(tee "$call/stderr.txt" >&2); errors=$!
-env -u PYTHONPATH -u OLDPWD -u COMPARE_ROOT -u COMPARE_TREE -u COMPARE_BASE "${attempt[@]}" PATH="$guard:$path" \
-  CLAUDE_CODE_SUBAGENT_MODEL=claude-opus-5-5 CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 "$sandbox" \
-  --dev-bind / / --bind "$COMPARE_TREE/tmp" /tmp --tmpfs /dev/shm --tmpfs /var/tmp --unshare-pid --proc /proc --die-with-parent \
+env -u PYTHONPATH -u OLDPWD -u COMPARE_ROOT -u COMPARE_TREE -u COMPARE_BASE -u COMPARE_HIDE "${attempt[@]}" \
+  PATH="$guard:$path" CLAUDE_CODE_SUBAGENT_MODEL=claude-opus-5-5 CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 "$sandbox" \
+  --dev-bind / / "${hide[@]}" --bind "$COMPARE_TREE/tmp" /tmp --tmpfs /dev/shm --tmpfs /var/tmp --unshare-pid --proc /proc --die-with-parent \
   "$real" "$@" < "$call/prompt.txt" 2>&3 3>&- | tee "$call/stdout.txt" 3>&-
 status=${PIPESTATUS[0]}
 exec 3>&-; wait "$errors"
