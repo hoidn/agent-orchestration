@@ -5,6 +5,14 @@ The harness runs a maintained workflow unchanged, records every agent call throu
 shim, pools the resulting patches blind, scores them with `score.orc`, and summarizes against a
 criterion frozen before scoring.
 
+Structural-search callers additionally enforce their
+[external qualification contract](../../docs/design/orc_structural_search_driver.md#external-qualification-receipt)
+before quality launch/resume, pooling, judging and readout. Generic comparison
+launchers retain their own API and do not acquire this structural gate. This does
+not waive the owner rule: a new quality experiment needs separately budgeted
+family/measure precalibration and owner-approved provider spend. Historical
+criteria and captured recipes confer no fresh permission.
+
 | File | Role |
 | --- | --- |
 | `prepare.py` | command line: `run`, `collect`, `scan` (hits, then a verdict), `pool`, `verify-pool` |
@@ -52,6 +60,13 @@ What the sandbox isolates:
   `--bind <tree> <tree>` binds the tree back, so masking a parent of the tree leaves the tree reachable. Without
   the variable the `bwrap` command line is unchanged. The agent never sees it, like the other `COMPARE_*`
   variables.
+- when the controller supplies `COMPARE_MAX_CALLS`, the shim atomically allocates
+  its recorded call directory, then refuses an index beyond that nonnegative cap
+  before invoking the real provider (exit 75). Zero and concurrent/resumed attempts
+  use the same rule. The refusal retains provider/argv/stdout/stderr evidence and
+  counts in ledger settlement; it is not successful usage. The cap is stripped
+  from agent/tool environments. Without it, generic shim callers retain their
+  existing behavior.
 - `/tmp` is private per run, not per agent: `best_of_n`'s implementers share the tree's `tmp/`;
 - the PID namespace ends with the call, so any server or tmux session an agent starts dies when
   its call ends.

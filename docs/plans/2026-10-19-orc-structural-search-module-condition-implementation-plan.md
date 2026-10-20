@@ -1,6 +1,7 @@
 # ORC Structural Search `module` Condition: Remaining Offline Implementation
 
-- **Status:** active delta plan, 2026-10-19; requirements pending verification.
+- **Status:** offline A–D implementation and code-budget integration delivered,
+  2026-10-19; final full-suite verification and documentation review pending.
   Baseline: delivery `efa79ef9`, with owner revisions merged at `3947ceb1`.
   The earlier 774-test result in the [decision's prior evidence](2026-10-19-orc-structural-search-module-rewrite-plan.md#prior-offline-execution-evidence)
   covers the earlier delivery, not these additions.
@@ -58,11 +59,11 @@ admission, bounds, workspace and shim tests. Reuse `acceptance.compiled_refusal`
 and the compiler-produced closed program; extract a helper only to keep the
 responsibility or size bounded.
 
-- [ ] Refuse `provider_phased`, `agent` and `agent_turn` perform shapes under
+- [x] Refuse `provider_phased`, `agent` and `agent_turn` perform shapes under
   every condition as `unsupported_effect_shape`, including parent/evaluation
   admission where needed. Preserve module-only policy validation and complete
   compile diagnostics; compiler crashes remain infrastructure incidents.
-- [ ] Compute a module evaluation's planned maximum from the checked closed
+- [x] Compute a module evaluation's planned maximum from the checked closed
   program rather than the authored-source counter. Traverse the executed entry,
   expand resolved procedure calls **per invocation**, and include their argument
   evaluation and imported definitions. Counting each definition once is unsound.
@@ -73,16 +74,16 @@ responsibility or size bounded.
   or unknown/unbounded effect shapes unless a sound finite bound is established.
   Sum sequencing and conservatively cover alternative paths. A checked artifact
   is input to the proof, not proof that a generic recursive JSON sum is sound.
-- [ ] Reserve this maximum before launch and pass that same reservation to both
+- [x] Reserve this maximum before launch and pass that same reservation to both
   shims. Enforce it before invoking the real provider, including concurrent call
   allocation, zero cap, retries and resumed launches. A recorded refused attempt
   identifies the cap and fails as a provider failure; the ledger settles recorded
   attempts without disguising refusal as successful usage. Keep the launch cap
   out of agent/tool environment alongside other controller-only `COMPARE_*` data.
-- [ ] Keep the workspace check tied to the controller's staged parent even when
+- [x] Keep the workspace check tied to the controller's staged parent even when
   the mutator commits or rewrites workspace Git history. Finalization rechecks
   against controller-owned inputs; a successful intermediate check is insufficient.
-- [ ] Split oversized touched modules at natural boundaries, preserving source
+- [x] Split oversized touched modules at natural boundaries, preserving source
   and metric behavior. Add no speculative compatibility wrappers.
 
 **Acceptance evidence:** a helper invoked twice counts twice; a locally bound
@@ -106,16 +107,18 @@ and integration checks. No runtime change or admission-policy rename is implied.
 scripted receipt/row tests. Retain per-call/model usage so readout can price it
 under its frozen criterion; do not price against process-global configuration.
 
-- [ ] Keep unambiguous workspace/start-time receipt joins and native episode
+- [x] Keep unambiguous workspace/start-time receipt joins and native episode
   session paths. Preserve per-model counters and their evidence provenance;
   incomplete, ambiguous, malformed or truncated coverage is `unavailable`, never
   zero. Evaluation rows retain consumption without exposing native paths.
-- [ ] Record `allocation_changed` on episode and evaluation rows by comparing
-  compiled per-call-site `(provider, model, effort)` with the parent's. Retain
+- [x] Record `allocation_changed` on episode and evaluation rows by comparing
+  compiled `(provider, model, effort)` on normalized static invocation paths
+  with the parent's. Expand resolved helper calls per invocation; these paths
+  are static, not runtime branch evidence. Retain
   `allocation_distinct` for collapse reporting: extern-only allocation and a
   skeleton hash cannot detect every model/effort change. Identify unavailable
   comparison evidence explicitly.
-- [ ] Record planned perform sites and realized effects from validated memo
+- [x] Record planned perform sites and realized effects from validated memo
   evidence, with unexercised planned sites reported only when the join supports
   that statement. Preserve identities, effect classes, attempts and outcomes;
   an I3 generic command has no ORC memo. Do not claim source-branch coverage.
@@ -147,16 +150,16 @@ planned/realized joins preserve attempts without asserting branch coverage.
 contract belongs to the driver's
 [external qualification receipt](../design/orc_structural_search_driver.md#external-qualification-receipt).
 
-- [ ] Require explicit qualification from hashed external precalibration evidence
+- [x] Require explicit qualification from hashed external precalibration evidence
   for both the task family under its frozen rule and the quality measure under
   its predeclared control rule. Bind evidence to the criterion and relevant
   family/evaluator inputs; reject missing, mismatched or unqualified evidence.
-- [ ] For each judge and batch, upstream anchor total minus stub total must be
+- [x] For each judge and batch, upstream anchor total minus stub total must be
   at least `calibration.margin`. The fraction of failing `(judge, batch)` pairs
   must be at most `calibration.error_rate` (default 0). Both are predeclared;
   candidate ranks impose no qualification condition. In-run anchors monitor the
   experiment and cannot substitute for the pre-experiment qualification.
-- [ ] Guard quality candidate evaluation launches, judging and quality/frontier
+- [x] Guard quality candidate evaluation launches, judging and quality/frontier
   readouts. Unqualified operation can report only measure-free compile,
   execution and cost figures. Existing frozen criteria or legacy row exceptions
   do not automatically authorize a new quality launch or claim. Separate
@@ -189,8 +192,8 @@ that historical criteria get no implicit fresh-launch bypass. Measure-free
 readouts remain possible without emitting quality endpoints. Include borderline
 difficulty and raw patch/review pairing, stale runtime/bindings, missing-judge
 denominators, disguised candidates in calibration pools and calibration-purpose
-launch refusal. This decision resolves the schema; implementation remains pending
-the listed checks.
+launch refusal. This schema is implemented and independently reviewed. Fresh package evidence is
+recorded below; final integrated verification remains separate.
 
 ## D. Parents And Calibrated Pareto Endpoints
 
@@ -198,40 +201,46 @@ the listed checks.
 `records.final_choice` consumers and successor-only adaptive selection if used.
 Depends on A/B data and C's qualification decision.
 
-- [ ] Evaluate each distinct parent on the same tasks/replicates as the relevant
+- [x] Evaluate each distinct parent on the same tasks/replicates as the relevant
   child subset. Shared ORC parents are evaluated once per unique evaluation
   identity and projected to their arms; do not launch duplicate evaluations or
   count a projection as fresh evidence. Resume retains evaluation identity.
-- [ ] Join all evaluated children and parents through harness clone IDs and
+- [x] Join all evaluated children and parents through harness clone IDs and
   criterion hashes, with matched task/replicate support. Do not silently pool
   studies, duplicate projected rows or compare unmatched means.
-- [ ] Read prices at readout from the successor criterion. Quality tolerance is
+- [x] Read prices at readout from the successor criterion. Quality tolerance is
   `final_choice.equivalence_tolerance`; relative cost tolerance is
   `dominance_cost_tolerance`; also require the quality floor and `calibration`
   object. Keep run configuration free of price tables and retain existing arm
   and model configuration names.
-- [ ] Implement dominance literally for means over the same tasks/replicates:
+- [x] Implement dominance literally for means over the same tasks/replicates:
   `q_A >= q_B - tau_q` and `c_A <= c_B * (1 + tau_c)`, and
   (`q_A > q_B + tau_q` or `c_A < c_B * (1 - tau_c)`). A candidate within both
   tolerances neither dominates nor is dominated. Apply the quality floor before
   frontier placement; recompute the frontier from all valued evaluated
   candidates independently of insertion order.
-- [ ] Report dominating improvements over the matched parent and frontier entries
+- [x] Report dominating improvements over the matched parent and frontier entries
   per completed episode, split by `allocation_changed` and structure-only.
   Report each unvalued child, exclude it from numerators, retain it in the
   completed-episode denominator. A candidate with unavailable cost stays off the
-  frontier and is reported beside it. Calls are a cost proxy only if **every**
-  compared candidate's calls resolve to one and the same `(model, effort)` pair;
-  the condition name or declared allowlist does not prove that.
-- [ ] Keep deployment choice over every validated candidate including the
+  frontier and is reported beside it unless the complete calls-proxy proof
+  applies. Calls are a cost proxy only if **every** compared candidate's calls
+  resolve to the same single `(model, effort)` pair in both static signatures
+  and complete actual call-identity evidence. Native session provenance and
+  explicit recorded CLI effort must cover all calls; missing effort, unknown
+  or uncovered nested sessions and contradictions block the proxy globally.
+  Incomplete tokens need not invalidate otherwise complete identity proof.
+  Neither condition names, allowlists nor inferred defaults prove identity.
+- [x] Keep deployment choice over every validated candidate including the
   reference seed under `records.final_choice`; do not replace it with whichever
   child arrived last. Report the adjudicated per-arm frozen-surface-workaround
   figure; unresolved or malformed scan evidence stays pending, never clean.
-- [ ] Do not rewrite frozen Phase 2 interpretation. If successor adaptive use is
+- [x] Do not rewrite frozen Phase 2 interpretation. If successor adaptive use is
   implemented, select its criterion explicitly and apply calibrated metered-cost
   dominance, tolerances, quality floor and the design's bounded frontier/spread
-  rule there. Otherwise refuse unsupported successor adaptive selection and
-  document the limit; never silently use the old calls-only retention policy.
+  rule there. The delivered implementation explicitly refuses fresh adaptive
+  launches and finalist validation; historical pure helpers remain. It never
+  silently selects the old calls-only retention policy for a successor.
 
 **Acceptance evidence:** parent launch deduplication and projections, matched
 replicate rejection, tolerance edges, quality floor, order-independent frontier,
@@ -241,7 +250,7 @@ control anchors first. These synthetic checks establish mechanics, not utility.
 
 ## E. Documentation And Final Verification
 
-- [ ] Remove illustrative `criteria/module.json` and change its consumers,
+- [x] Remove illustrative `criteria/module.json` and change its consumers,
   fixtures and README examples to temporary or explicitly external successor
   criteria. Verify the three historical criterion hashes and provider JSON bytes
   against `efa79ef9`. Retain prior artifact hashes as historical evidence.
@@ -264,6 +273,45 @@ control anchors first. These synthetic checks establish mechanics, not utility.
   `git diff --check`; inspect the final diff and results as coordinator. Commit
   only scoped files. No provider run or live calibration follows automatically.
 
+## Current Offline Verification Evidence
+
+Code delivery through `63798076` includes A's bound/cap and immutable check parent,
+B's receipts/static allocation/site joins, C's qualification, D's matched parent
+and per-arm Pareto endpoints, and E's module/function budget cleanup. This evidence
+uses scripted providers only and makes no quality or live-utility claim.
+
+- C: 52 qualification tests and 17 adaptive-boundary tests passed; additional
+  qualified episode/resume privacy and actual-pool stale-scan refusal checks
+  passed. C was independently reviewed at `11213141`.
+- D: 169 relevant tests passed in 85.91 s (`/tmp/d-relevant.log`); final focused
+  checks passed (42 in 1.26 s, including 17 Pareto tests in 1.18 s). Its new
+  modules collected 55 tests after the final case. Independent review completed
+  at `9e37c145`. The scripted four-arm integration covers unique parents × two
+  replicates, no new continuation launch, admission under every arm before
+  mutation, harness clone joins, earlier/current subset children, memo sites,
+  independent arm frontiers and unavailable I3 calls proxy.
+- E code budgets: 197 targeted tests passed in 105.24 s; an independent 18-case
+  old/new normalization comparison matched; touched modules/functions satisfy
+  at most 500 lines / cyclomatic complexity 12. Canonical metric normalization
+  moved to `record_normalization.py`; public record/metric imports are retained.
+- `pytest -q tests/experiments/test_compare_pool_summarize.py tests/test_demo_trial_smoke.py`:
+  36 passed in 37.52 s (`/tmp/structural-final-harness.log`).
+- Full experiments collection: 945 tests collected in 1.38 s. The required
+  `PYTHONPATH=. pytest -q -n 16 --dist=worksteal tests/experiments/` run is pending
+  final results; earlier failures are being investigated. No pass is claimed.
+- README provider-free sequence extracted to `/tmp/structural-readme-selfcheck.sh`
+  and executed unchanged: exit 0, accepted JSON admission. Guide prose measures
+  656 words. No provider was called.
+- `python /tmp/check-structural-delivery-docs.py`: nine changed Markdown files,
+  763 local links/anchors passed including explicit HTML IDs; three historical
+  criteria and two provider JSON files are byte-identical to `efa79ef9`; the
+  decision's prior evidence body is unchanged; illustrative successor criterion
+  absent. The stock link checker reports three false missing anchors because it
+  does not read explicit HTML IDs; the scoped check includes them.
+- `git diff --check` passed. Independent documentation review and final
+  coordinator diff inspection remain pending. The prior 774-pass result remains historical evidence
+  for the earlier delivery only.
+
 ## Decision Ledger
 
 | Decision | Reason / consequence |
@@ -278,4 +326,8 @@ control anchors first. These synthetic checks establish mechanics, not utility.
 | Keep calibration external and measure-free selection explicit | No candidate can obtain a calibration bypass; historical readout projection does not mutate frozen criteria or restore quality claims |
 | Shared parent evidence is projected by identity | Avoid duplicate launches and preserve arm attribution without inventing additional observations |
 | Historical criteria stay byte-identical without a fresh-launch exemption | Preserve captured reproducibility while enforcing today's calibration gates |
+| Calls proxy needs actual identity proof | Static homogeneous signatures alone are insufficient: existing call records, complete unambiguous native session identities and explicit recorded CLI effort must cover every compared call; no default/static effort inference, unknown or uncovered nested call; incomplete token counters can still allow identity proof |
+| Readout schema stays bounded | `quality_floor` supports only `{kind: above_stub}` with strict matched quality greater than stub; readout-only `price_table` owns USD/unit/source/date and model rate categories; missing coverage/category/model stays unavailable |
+| Endpoints remain per arm | Recompute each arm over its parent and all its evaluated children, including continuation subsets; cross-arm dominance cannot affect its endpoints; all candidates need full declared task/replicate support |
+| Fresh adaptive use remains unsupported | `run_mode2` and finalist validation refuse new work; frozen historical helpers do not become a calls-only successor policy |
 | No provider allocation requested | All listed implementation and verification uses scripted providers; any later calibration/live experiment is separately budgeted and owner approved |

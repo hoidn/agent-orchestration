@@ -145,15 +145,17 @@ under the [driver contract](../design/orc_structural_search_driver.md#edit-valid
 The owner revision makes `module` the intended primary mutation surface for
 future search; legacy conditions and I2 remain maintained controls and ablations.
 It is measured first as a fourth arm under a successor criterion. The revised
-closed-program maximum, shim cap and calibrated model-aware Pareto endpoints
-remain work in the [implementation plan](2026-10-19-orc-structural-search-module-condition-implementation-plan.md);
-the prior offline evidence does not complete them. Live selection, phase
+closed-program maximum, shim cap, external qualification gates and calibrated
+per-arm model-aware Pareto readout are implemented offline; fresh verification
+belongs to the [implementation plan](2026-10-19-orc-structural-search-module-condition-implementation-plan.md).
+The prior offline evidence alone does not verify these additions. No successor
+criterion is committed, and fresh adaptive launches/finalist validation refuse. Live selection, phase
 promotion and provider allocation remain separately gated.
 
 | Interface | Agent receives | Agent returns | Validation | Needs |
 | --- | --- | --- | --- | --- |
 | I1 whole-file | workspace, objective, mutable scope, feedback | edited mutable file(s) | frozen-surface checks over parsed forms, then full compilation | no manifest |
-| I1/module (offline) | I1 workspace, objective, module surfaces, allowlisted model/effort pairs and per-call ceiling | edited mutable files | module scope, full compilation and compiled entry/graph/effect/policy admission | revised closed-program maximum and shim cap pending; successor criterion and live allocation separately gated |
+| I1/module (offline) | I1 workspace, objective, module surfaces, allowlisted model/effort pairs and per-call ceiling | edited mutable files | module scope, full compilation and compiled entry/graph/effect/policy admission | closed-program reservation and shim cap delivered offline; external qualification required; successor criterion and live allocation separately gated |
 | I2 locus-plus-fragment | the same plus one manifest site with its typed context | one replacement expression plus declared helpers | one-site transaction with slot result-type equality, then full compilation | the manifest |
 | I3 Python diff (control) | matched typed Python workflow sharing adapters, prompts, evaluator, tools, budget | textual diff | AST scope validation plus a named type checker | the Python workflow |
 | I4 certified transforms (later) | named transform catalogue | a transform and target | compiler-owned rewriting | compositional work |

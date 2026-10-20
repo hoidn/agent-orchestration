@@ -14,11 +14,14 @@
   offline for the three-arm compile-only readout (`three_arm.py`, scripted providers
   only; not in mode 2); its live evidence and remaining gates belong to the
   [three-arm plan](../plans/2026-10-19-orc-structural-search-three-arm-readout-plan.md)
-  and Phase 1 report. The `module` condition has a prior offline implementation
-  ([decision and scoped evidence](../plans/2026-10-19-orc-structural-search-module-rewrite-plan.md));
-  the owner revision adds closed-program reservations, a shim cap and
-  calibrated model-aware Pareto endpoints that are not covered by that evidence
-  ([implementation plan](../plans/2026-10-19-orc-structural-search-module-condition-implementation-plan.md)).
+  and Phase 1 report. The `module` condition, closed-program reservations,
+  shim cap, external qualification gates and per-arm model-aware Pareto readout
+  are implemented offline with scripted providers. The
+  [implementation plan](../plans/2026-10-19-orc-structural-search-module-condition-implementation-plan.md)
+  owns current verification, distinct from the
+  [decision's prior evidence](../plans/2026-10-19-orc-structural-search-module-rewrite-plan.md#prior-offline-execution-evidence).
+  Fresh adaptive launches and finalist validation are unsupported; retained
+  mode-2 helpers interpret historical mechanics only.
   No live successor study or provider budget is selected. Fixed-workflow comparisons use
   [`experiments/compare/`](../../experiments/compare/README.md) today.
 - **Kind:** experiment-side apparatus contract: controller modes, proposal
@@ -189,9 +192,9 @@ static admissibility only.
 **Whole-module contract (I1/module).** The condition widens the private
 source surface while retaining the public entry and bound capabilities. The
 admission table below describes the delivered offline implementation. The
-revised v1 target also requires a sound planned maximum walked from the checked
-closed program and a per-evaluation shim call cap; the source counter in the
-prior delivery does not satisfy that requirement. The frozen public contract,
+delivered v1 guard also computes a sound planned maximum from the checked
+closed program and enforces a per-evaluation shim call cap. The legacy authored
+source counter is not the module reservation authority. The frozen public contract,
 model allowlist and refusal of `provider_phased`, `agent` and `agent_turn` are
 required guards. The per-call ceiling, module-graph qualifier check and Claude
 shim allowlist are optional hardening; delivered hardening remains in place.
@@ -366,8 +369,11 @@ pair; otherwise metered cost is required. Parent and site selection start
 uniform; local-feedback targeting is a compared condition. I2 proposals
 need the manifest; I1 proposals use frozen-surface validation alone.
 
-As implemented (`experiments/orc_structural_search/adaptive.py`,
-`run_mode2`): an archive entry carries per-task primary values and
+**Historical mode-2 mechanics.** `run_mode2` and `validate_finalists` refuse
+fresh adaptive work explicitly, including successor criteria. The helpers in
+`experiments/orc_structural_search/adaptive.py` retain the following captured
+behavior for historical interpretation, not as a selectable search policy.
+An archive entry carries per-task primary values and
 provider calls of its counted evaluations; the archive is the incumbent
 plus at most `ARCHIVE_SIZE` (6) members non-dominated on (mean value
 higher, mean calls lower), ranked by mean value, then fewer calls, then the
@@ -476,9 +482,9 @@ python -m orchestrator run <candidate entry .orc> [frontend flags] \
   failure; the driver pauses new launches until the named reset and
   relaunches the job as a new attempt whose evaluation id covers the attempt
   number, and `--continue` reruns a run's quota incidents into its existing
-  roots (`experiments/orc_structural_search/quota.py`, README "Quota guard");
-  mode 2 has no quota guard for episodes, and each `evaluate_all` starts an
-  unpaused guard (README "Not implemented").
+  roots (`experiments/orc_structural_search/quota.py`). The retained historical
+  mode-2 helpers had no quota guard for episodes and started each `evaluate_all`
+  with an unpaused guard; fresh adaptive launch is now unsupported.
 - An I3 candidate (a Python entry module) runs through the comparison
   harness's generic-command arm instead: `python -P <candidate>/direct.py
   inputs.json` behind the same shims in the fresh clone, its run state in the
@@ -737,9 +743,33 @@ failing-pair fraction is at most the frozen error rate; one task cannot compensa
 for another. Candidate ranks and `results.verdict` impose no condition. In-run
 anchors remain monitoring evidence, never a substitute for this precalibration.
 
-**Family (b).** The narrow alternative is `family.kind: "oracle-controls-v1"`
-with a hashed frozen rule declaring the oracle, its check names and exactly
-three controls. Two controls have `expected: "accept"`, distinct submission
+**Family (b).** The narrow alternative is `family.kind: "oracle-controls-v1"`.
+The hashed frozen rule has this shape (references use the same `{file, sha256}`
+contract; placeholders are schema notation, not selected evidence):
+
+```json
+{
+  "oracle": {"file": "oracle.py", "sha256": "..."},
+  "checks": ["behavior", "result"],
+  "tasks": {
+    "task-id": {
+      "package_sha256": "...",
+      "controls": [
+        {"id": "correct-a", "expected": "accept", "structure_class": "class-a", "submission_sha256": "..."},
+        {"id": "correct-b", "expected": "accept", "structure_class": "class-b", "submission_sha256": "..."},
+        {"id": "broken", "expected": "reject", "structure_class": "broken", "submission_sha256": "..."}
+      ]
+    }
+  }
+}
+```
+
+The receipt's `family` contains `kind`, `rule: {file, sha256}` and
+`tasks: {task-id: {package_sha256, controls: [{id, submission: Ref, result: Ref}]}}`.
+Each referenced result is
+`{task_id, package_sha256, oracle_sha256, submission_sha256, checks: {name: Bool}}`.
+Check names are nonempty and unique; result keys match the frozen checks exactly.
+Each task declares exactly three controls with distinct IDs and submission hashes. Two controls have `expected: "accept"`, distinct submission
 hashes and distinct predeclared `structure_class` values; the third has
 `expected: "reject"`. Each control references its submission and result; the
 result identifies the submission hash and results for exactly the frozen checks.
@@ -759,6 +789,16 @@ evidence per operation rather than caching a `qualified: true` permission.
 Record the receipt hash and recomputed statistics with the operation. Judging,
 quality pooling and adaptive quality selection reject measure-free mode. No
 runtime/compiler behavior or generic provenance framework is introduced.
+
+Keep qualification receipts, calibration pools, raw family records, control
+sources, oracle rule and oracle engine in dedicated evidence directories. Their
+private roots are masked from candidates and added to contamination scans for
+launch and resume. A layout that would mask a runtime, task/workspace root or
+its whole ancestor refuses; a dedicated task `anchors/` directory is allowed.
+Only the known frozen R55/continuation rule hashes are public-rule exceptions.
+References may relocate without changing the verified bytes. V1 binds the
+shipped scoring workflow SHA and fixed high effort, and validates the actual
+runtime workflow, judge model inputs and provider bindings at pool/readout.
 
 **Public check operation.** Candidates branch on real development failures
 through one command boundary, `dev-check`, declared under the
@@ -797,9 +837,12 @@ envelope timeout (an incident killed at its wall-clock envelope) score 0
 rubric points; every other incident is excluded, not scored zero. The
 frontier, the non-dominated set, is the object of search: it is retained
 and reported and never collapsed into a scalar reward. Frontier membership
-requires a predeclared quality floor (above the stub anchor's mean, or a
-failure rate at or below a stated bound), so trivially cheap failures never
-populate it. Pareto selection does not repair a weak quality measure: where
+requires a predeclared quality floor, so trivially cheap failures never
+populate it. The delivered successor supports exactly
+`quality_floor: {"kind": "above_stub"}`: quality must be strictly above the
+stub mean on the matched task set, without applying the quality tolerance to
+this floor. Missing stub evidence makes the floor unavailable. A different
+floor requires its own selected implementation. Pareto selection does not repair a weak quality measure: where
 the measure does not resolve candidates, cost decides alone and search
 drifts toward doing less, so the calibrated-evaluator gate stays a
 precondition of any adaptive claim.
@@ -883,7 +926,26 @@ only when every compared candidate's provider calls resolve to one and the
 same (model, effort) pair; a condition name is not that test, since
 topology-only lets a child reuse any model or effort already in the parent.
 Otherwise metering is mandatory: a candidate without metered cost has cost
-`unavailable`, is not placed on the frontier and is reported as such.
+`unavailable`, is not placed on the frontier and is reported as such, unless
+this complete calls-proxy proof is available.
+
+The readout's `price_table` is an object with `currency: "USD"`, positive finite
+`tokens_per_unit`, nonempty `source`, ISO `date: "YYYY-MM-DD"`, and
+`models: {model-id: {input, output, cache_read, cache_write}}`. Rates present in
+the table must be finite nonnegative numbers; booleans are invalid. An absent
+model or any missing rate category, even an empty model-rate object, makes that
+model's cost unavailable. The table belongs to the criterion at readout, not
+run configuration. No price or study table is selected by this design.
+
+Calls may substitute only when complete static signatures and actual call
+identity evidence agree on one model/effort pair for **every** compared
+candidate. Actual proof joins existing call directories, complete unambiguous
+native session identities and explicit effort in recorded `calls/<id>/argv.nul`.
+Incomplete token counters may still permit that identity proof, but unknown
+calls, uncovered nested sessions, contradictions or missing explicit effort
+block the proxy globally. Never infer actual effort from a compiled policy or
+CLI default. Current I3 evidence has no closed allocation signature and cannot
+establish this proxy.
 
 ## Evaluation Hygiene
 
@@ -935,7 +997,17 @@ readouts validate criterion hashes before collecting or spending. The shared
 frozen Phase 1, Phase 2 and three-arm criterion hashes in `HISTORICAL_CRITERIA`;
 explicit mismatches still refuse. The three-arm readout separately accepts a
 missing compile-readout hash only under its exact historical three-arm criterion.
-Successor records and compile readouts require matching hashes.
+Successor records and compile readouts require matching hashes. The illustrative
+`criteria/module.json` was removed; no committed successor criterion supplies
+selection or launch permission. Its historical hash remains in the decision.
+
+Episode/evaluation `allocation_signature` values map normalized static invocation
+paths to `(provider, model, effort)`. Paths expand each resolved helper invocation
+separately, retaining call position while normalizing coherent private renames;
+they are not dynamic executions or branch counters. `allocation_changed` compares
+these signatures with the parent's. Missing/unresolved/recursive or ambiguous
+owner evidence yields `unavailable` with a reason. Keep the source metric
+`allocation_distinct` separately for collapse reporting.
 
 Every ORC evaluation records `realized_perform_sites` from
 `load_evaluated_view` over the validated memo: effect identity, class, attempt
@@ -969,18 +1041,35 @@ exhausted unless a quota incident takes precedence; it yields no child.
 The first comparative experiment is the three-arm interface test: I3 Python
 diff, I1 Lisp whole-program and I2 Lisp locus-plus-fragment on one benchmark
 workflow, one model and one family, with completed episodes as the budget
-unit. The revised target below supersedes the prior offline successor's
-failure-inclusive blind rubric means, which are descriptive and do not implement
-improvement or separation decisions. Neither that successor nor its prior tests
-qualify a live study. Two pre-registered endpoints, each per completed episode: dominating
+unit. The delivered endpoints below supersede the prior offline successor's
+failure-inclusive blind rubric means. The offline successor now implements
+calibrated metered-cost endpoints; its scripted tests do not qualify a live study. Two pre-registered endpoints, each per completed episode: dominating
 improvements, a child that dominates its parent on matched adaptive tasks
 under the frozen rule (Objective, Selection And Local Observations), and
-frontier entries, a child non-dominated against the archive; the frontier
-entries are reported by candidate, and both endpoints are split by whether
+frontier entries, a child non-dominated against its own arm's parent and all
+that arm's evaluated children, including earlier subsets in a continuation.
+Recompute each arm independently; cross-arm candidates do not alter its frontier.
+Distinct parents are admitted under every sharing arm before episodes, evaluated
+once per unique identity on the declared tasks and replicates, and projected to
+sharing arms without new observations. All candidates need the complete matched
+task-by-replicate support; harness clone IDs, run labels and criterion hashes
+bind the joins. The frontier entries are reported by candidate, and both endpoints are split by whether
 the child changed its allocation (`allocation_changed`: its per-call-site
 (provider, model, effort) differs from the parent's; reported beside the
 collapse figure's `allocation_distinct`, which sees extern names only) or
-its structure only. Secondary: skeleton diversity and revisit rate, acceptance
+its structure only; unavailable allocation has its own split. Every terminal
+non-quota episode (accepted, rejected, exhausted or incident) remains in the
+completed denominator. Unvalued, contaminated or pending children cannot enter
+quality numerators or a frontier; they remain visible and in that denominator.
+Readout `pareto` contains `quality_floor`, `cost_axis`, `candidates` and `arms`.
+Candidate rows report quality, metered cost, calls, selected cost, floor status,
+reason and support. Each arm reports its parent, frontier, completed count,
+improvement/frontier candidate lists and rates, unvalued children and allocation
+splits. There is no pooled global frontier. The per-arm frozen-surface-workaround
+figure reads operator `{verdict: "worked_around" | "asked" | "none", note: string}`
+adjudications from episode records; absent or malformed rulings stay unadjudicated,
+never clean, and this descriptive figure is not a selection gate.
+Secondary: skeleton diversity and revisit rate, acceptance
 rate, repair iterations per accepted proposal. Wall clock and provider
 calls are always reported; dollars only where metering coverage is
 complete, and metered cost is the cost axis of any arm whose model or

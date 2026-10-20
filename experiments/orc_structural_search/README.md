@@ -1,541 +1,160 @@
-# ORC structural search (offline)
+# Structural search over orchestration programs
 
-Mode 1 of the [structural search driver](../../docs/design/orc_structural_search_driver.md): enumerate the authored
-seed catalog on matched tasks, then sample unguided I1 (whole-file rewrite) episodes against one seed and evaluate
-every accepted child like a seed (a revisit, whose candidate id was already evaluated, is logged but not evaluated
-again). The readout says whether structurally distinct candidates exist and differ, and how diverse the accepted
-children are (distinct skeletons, revisit rate, terminal-only share, collapse above 0.75, and `allocation_distinct`:
-children with the parent's skeleton but another provider allocation, which do not count as terminal-only).
+Check a whole-module proposal locally and inspect structural-search evidence without
+provider calls. This apparatus remains experimental; no live successor study,
+calibration experiment or provider allocation is selected.
 
-Mode 2 (`adaptive.py`, Phase 2 plan
-[`2026-10-18-orc-structural-search-phase2-plan.md`](../../docs/plans/2026-10-18-orc-structural-search-phase2-plan.md))
-runs generations of interleaved I1 and I2 episodes against an archive (the incumbent plus a quality/call frontier),
-judges each generation's evaluations blind, and evaluates the finalists on a held-out validation task. The
-three-arm run (`three_arm.py`, plan
-[`2026-10-19-orc-structural-search-three-arm-readout-plan.md`](../../docs/plans/2026-10-19-orc-structural-search-three-arm-readout-plan.md))
-runs I1, I2 and I3 episodes against the rebound `direct` parents and evaluates a stratified subset of their children
-(recipe below). Offline implementation is exercised with scripted providers; live evidence and
-qualification remain with the linked plans and reports. The selected
-[module plan](../../docs/plans/2026-10-19-orc-structural-search-module-rewrite-plan.md) adds offline `I1/module`
-as a fourth arm under the separate `criteria/module.json`; no successor live study or provider budget is selected.
+The [driver design](../../docs/design/orc_structural_search_driver.md) owns admission,
+qualification, metering and selection. The [delivery plan](../../docs/plans/2026-10-19-orc-structural-search-module-condition-implementation-plan.md)
+records offline verification; the [roadmap](../../docs/plans/2026-10-18-orc-structural-search-roadmap.md)
+owns live selection. Scripted checks establish mechanics, not research utility.
 
-| Module | Role |
+| Surface | Current use |
 | --- | --- |
-| `config.py` | Experiment configuration: mutable files and definitions, condition, interface, entry, envelopes; shared `check_criterion_hashes` validation |
-| `candidates.py` | `candidate_id`, snapshots, compilation with the runtime's orchestrator, frozen-surface validation, the I2 one-site transaction |
-| `records.py` | Append-only JSONL log, source skeleton and provider allocation (module metrics include all private declarations), final-choice rule |
-| `evaluation.py` | One evaluation through the public `run` route in a fresh clone behind the comparison-harness shims |
-| `metering.py` | Scoped native-session receipts wired into episode/evaluation rows; incomplete or ambiguous coverage remains `unavailable` |
-| `ledger.py` | The provider-call ledger `E/calls.json` and each launch's planned maximum of provider calls |
-| `driver.py` | Catalog enumeration (bounded concurrency), the episode function behind the shims, scans, call cap; the mode 1 command line |
-| `mode1.py` | Mode 1: `run_mode1` (catalog, unguided I1 episodes, child evaluations, `--continue`) |
-| `acceptance.py` | Child judging: scope, compilation, I2 slot check, bounded calls, resolved entry parameters/result; module-only graph/effect/model/ceiling admission |
-| `check.py` | The episode-local admission check against its parent Git commit and configuration; finalization independently repeats admission |
-| `quota.py` | Provider quota incidents: detection in shim call records, the reset-time pause, attempt relaunches, `--continue` row selection |
-| `readout.py` | The mode 1 readout (`E/readout.json`): outcomes, refusals, skeleton diversity, collapse, scan-pending records |
-| `sites.py` | I2: the candidate's source-site manifest, eligible sites, seeded site selection, the site brief, receipt derivation |
-| `briefs.py` | The mutator's `EPISODE.md` (I1, I2, and mode 2 feedback) |
-| `adaptive.py` | Mode 2: `run_mode2` (archive, generations, parent and site selection) and `validate_finalists` |
-| `three_arm.py` | Criterion-configured arms (including separate `I1/module`) and compile-only readout: I1, I2 and I3 episodes, the subset, reservation-aware evaluations, judging through the ledger, the per-arm compile-only readout; its command line (`run`, `judge`, `readout`) |
-| `three_arm_readout.py` | The three-arm judged readout (`three_arm readout`): per task, arm and subset child, descriptively |
-| `judging.py` | Mode 2 per-generation blind judging: pools, judge ledger entries, waiting for scan verdicts, judge retry |
-| `scoring.py` | Blind judging pools, the join of judge scores to evaluation records, the Phase 1 readout and `--joined-out` |
-| `scoring_phase2.py` | The Phase 2 readout (`scoring readout --phase 2`) |
-| `criteria/` | Frozen historical Phase 1, Phase 2 and three-arm criteria; separate offline successor `module.json` with its own hash, allowlist, ceiling and four arms |
-| `three_arm/` | The three-arm parents: `orc/` (the `direct` seed with its coder rebound to Codex `gpt-6.1-sol`) and `python/` (its matched typed Python workflow) |
-| `seeds/` | The 2.39 seed catalog sharing one entry contract (`run ((task String) (intent String) (repo String)) -> Outcome`) |
+| Whole-file I1 under `module` | Intended future primary search surface; private procedures, prompts and types may change together |
+| Legacy conditions and one-site I2 | Maintained controls and ablations |
+| Matched Python I3 | Separate control with Python scope/type checks |
+| Mode 1 and criterion-configured arms | Offline launch/check/readout mechanics; live work requires separate approval and qualification |
+| Adaptive mode 2 | Historical helpers retained; fresh adaptive launches and finalist validation refuse as unsupported |
 
-## Offline recipe
+## Check a module proposal
 
-Prerequisites: the comparison harness's (`experiments/compare/README.md`): git and bwrap on `PATH` and a frozen
-runtime checkout `RT` outside the main checkout's prefix. The driver puts `$RT`'s shims first on `PATH` for every
-evaluation and episode itself; the launch environment's `PATH` must reach the real `claude` and `codex`. Each
-task package holds `task.txt`, `intent.txt`, `base_commit` and `seed/`, and `seed/` must hold `dev-check.json`
-(`{"argv": [...], "timeout_sec": N}`, the agent-visible checks): without it the `dev-check` boundary fails
-closed, so `implement_check_diagnose_repair` always repairs. The operator passes each task's solution commit
-(the scan's solution hash) with `--solution TASK=HASH`, keyed by the package directory's name; a task without
-one, or whose hash has fewer than 7 hex characters or is not a commit of `$RT` (`git cat-file -t`), is refused
-before anything runs; hashes are lowercased before use. The hash never goes into the package, which sits in the
-runtime agents can read.
-
-The mutator command (`--agent-cmd`, e.g. `claude -p --model claude-opus-5-5 --permission-mode bypassPermissions`,
-the flags of the runtime's `claude_unrestricted_workspace` provider template, so the agent can edit and run the
-compile check) runs from the episode's `cand-1` with the brief (`EPISODE.md`) on stdin, behind the shim prefix:
-each `claude` or `codex` call it makes is recorded under `E/episodes/<episode_id>/calls/<n>/` with its patch
-against the parent snapshot, runs under bubblewrap and passes the model guard (a Fable model is refused; the
-command then exits nonzero and the episode is an `incident`). The bubblewrap sandbox (private `/tmp`, process
-list) and the episode workspace contain the unrestricted permissions: only `cand-1`'s final content files become
-the child, and the scan reports reads outside it. The ORC brief's admission check is
-`PYTHONPATH=../py python -P -m experiments.orc_structural_search.check --metadata ../admission.json`.
-The driver stages the runtime's `orchestrator/` and only top-level Python modules from
-`experiments/{compare,orc_structural_search}` under `W/episodes/episode-<n>/py/`, outside `cand-1`;
-no task packages, criteria, evidence or experiment data directories are copied. The local `admission.json`
-and `config.json` sit beside `py/` and name the parent Git commit, configuration and optional I2 site.
-The command works without `COMPARE_BASE`, which the shim strips from tool processes. It validates the
-workspace against that local commit and compiles a temporary snapshot; finalization repeats admission against
-the controller's parent/configuration. An earlier successful check does not admit a later invalid edit. A mutator that removes or replaces `cand-1/.git` makes the episode an
-`incident` (`workspace_intact: false`). The driver adds `DISABLE_AUTOUPDATER=1` to the environment of every
-evaluation and episode, so no CLI updates itself mid-run.
-
-For an ordinary attempt (`ORCHESTRATOR_WORKSPACE_ROOT` unset) the shims (`experiments/compare/shim/claude`, see
-`experiments/compare/README.md`) also strip its `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` and
-`ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY` from the agent and every process it starts. The task repositories are the
-orchestrator itself, whose code and tests read these variables, so an agent running the task's tests overwrote its
-own result file (the 2026-10-18 incident); the prompt's `- path:` line names the result file relative to the
-agent's working directory. A launch-workspace attempt keeps all three variables, because its prompt tells the agent
-to use them; the overwrite risk remains there and is disclosed, not prevented.
+1. Obtain a repository checkout and install its Python dependencies using the
+   [testing prerequisites](../../tests/README.md). The shipped parent under
+   `experiments/orc_structural_search/three_arm/orc/` supplies the public types,
+   provider bindings and command boundary; nothing outside the checkout is needed.
+2. Run this complete sequence from the repository root. It creates a temporary
+   measure-free criterion and configuration, copies the parent and checks the copy.
+   It compiles locally, prints an accepted verdict and removes temporary files.
+   It launches no provider and creates no frozen study criterion.
 
 ```bash
-python -m experiments.orc_structural_search.driver --config config.json \
-  --seeds experiments/orc_structural_search/seeds/{direct,plan_then_implement,implement_review_revise,best_of_n,implement_check_diagnose_repair}.orc \
-  --tasks $RT/experiments/compare/tasks/<task> --runtime $RT \
-  --work-root $W --evidence $E --episodes N --agent-cmd '<mutator command>' \
-  --eval-timeout-sec 7200 --solution <task>=$SOL --call-cap 160 [--concurrency 4] [--replicates K] [--holdout PATH ...] \
-  [--hide PATH ...] [--continue]
-```
-
-`--concurrency` (default 4) bounds the evaluations in flight (a thread pool; each has its own clone, records and
-state directories; log and ledger writes are serialized; episodes run one at a time). `--call-cap` bounds the
-provider calls of evaluations and episodes in `E/calls.json`: before each launch the driver reserves its planned
-maximum (an evaluation: `ledger.max_provider_calls`, the provider calls of the module's own definitions the entry
-calls, in expression positions, times every enclosing literal `:max`; an episode: 1) and refuses it
-(`CallCapExceeded`) when the ledger total (counted calls of finished launches, planned maxima of unfinished ones)
-plus that maximum would exceed the cap; after the launch it records the calls the shims recorded. A refused
-evaluation does not stop the others in the pool; the refusal is raised once all have ended. Judge calls are not in
-the ledger.
-
-**Quota guard** (`quota.py`). In the live Phase 1 run of 2026-10-18, 16 of 20 evaluations and all 6 unguided
-episodes ended at the Claude subscription session limit: the CLI printed `You've hit your session limit · resets
-5:30pm (America/Los_Angeles)` on stdout and exited 1, the runtime recorded `provider_exit_nonzero`, and the driver
-logged `failed` (evaluations) or `incident` (episodes). Those are infrastructure incidents, not agent failures. A
-launch whose shim calls (`calls/<n>/stdout.txt`, `stderr.txt`) hold a quota line (a line starting with `you've hit
-your <word> limit`, `usage limit reached`, `rate limit reached` or Codex's transient `selected model is at
-capacity`, case-insensitive; see `quota.py`) and that did
-not complete is now an `incident` whose latest incidents entry is `quota: <line>` (episodes: an `incidents` list).
-The driver then starts no new launch until the reset the message names (`resets H[:MM]am|pm (Zone)` today in
-that zone, plus 5 minutes; a time at most 3 hours past resumes in 5 minutes, an earlier one tomorrow; 30 minutes
-when none parses), printing one line with the resume
-time; launches in flight that hit the limit join that pause. The job is then relaunched as a new attempt: an
-evaluation's id covers its attempt number after the first (first attempts keep their ids), and a quota episode
-is rerun under the next episode index. A job is relaunched at most 3 times per invocation; then it stays a quota
-incident. The guard is the only throttle: concurrency stays as given.
-
-**`--continue`** continues the run in an existing `E` with its own `W` (the evaluations' records must lie under
-it) instead of refusing `E/log.jsonl`. The log, the ledger and the archive are appended to, never rewritten. Each
-catalog or accepted-child job whose latest row (per candidate, task and replicate) is completed, a genuine
-failure or another incident is kept; one whose latest row is a quota incident is relaunched as its next attempt,
-and so is a `failed` row written before the guard existed whose records hold a quota line. Unguided episodes
-continue after the highest existing index until `--episodes` non-quota episodes exist (quota episodes, including
-pre-guard `incident` rows whose shim records hold a quota line, do not count). A launch killed in flight (the
-driver died) left no row: its attempt number (`W/records/<evaluation id>` exists and no log row names that id) or
-episode index (`W/episodes/episode-<n>` exists) is skipped, and its unsettled ledger entry is settled from its shim
-records; an attempt whose records exist and whose id a log row names is refused (`FileExistsError`).
-`E/readout.json` is rewritten;
-quota rows read as `quota_incident` there.
-
-`config.json` is an `ExperimentConfig` (see `config.py`); its `entry_workflow` (e.g. `direct::run`) names the
-seed the episodes start from, and every seed is evaluated under `<seed stem>::<entry definition>`. The tests
-(`tests/experiments/test_orc_structural_search_driver.py`) run this with scripted providers and a scripted
-mutator; no provider is called.
-
-## Mode 2 recipe
-
-Mode 2 starts from Phase 1's scored rows. Write them with the Phase 1 readout's `--joined-out` (every task's joined
-rows plus its failed, timed-out and incident evaluations):
-
-```bash
-python -m experiments.orc_structural_search.scoring readout --log $E1/log.jsonl --driver-readout $E1/readout.json \
-  --criterion experiments/orc_structural_search/criteria/phase1.json --joined-out $J/joined.json \
-  $P1/<task>/records/results.json ...
-```
-
-`adaptive.py` has no command line; the entry point is `run_mode2` (prerequisites as in the offline recipe; every
-task package's `seed/dev-check.json` included):
-
-```python
-import os, shlex
-from pathlib import Path
-from experiments.orc_structural_search.adaptive import run_mode2
-
-tasks = Path(RT) / "experiments/compare/tasks"
-readout, launch = run_mode2(Path("config.json"), phase1_joined=Path(J) / "joined.json",
-          seeds=sorted(Path("experiments/orc_structural_search/seeds").glob("*.orc")),
-          adaptive_tasks=[tasks / "resume-projection-integrity", tasks / "pure-result-replay"],
-          validation_task=tasks / "cf1-generic-unions",
-          generations=G, episodes_per_generation=4, run_seed=S,
-          work_root=Path(W), evidence_root=Path(E), pools_root=Path(P),
-          agent_cmd=shlex.split("<mutator command>"), runtime=Path(RT), env=os.environ, timeout_sec=7200,
-          solutions={"<task>": "<solution commit>", ...}, call_cap=N, concurrency=4,
-          criterion=Path("experiments/orc_structural_search/criteria/phase2.json"),
-          judges=["claude-opus-5-5", f"gpt-6-sol={RT}/experiments/compare/providers/score_codex.json"])
-```
-
-`E` and `W` must both be fresh for each run: the driver refuses an existing `E/log.jsonl`, and episode trees are
-named by index (`W/episodes/episode-<n>`), so a second run in the same `W` collides with the first.
-
-`run_mode2` refuses tasks other than the criterion's `adaptive_tasks` and `validation_task` (`check_splits`), a pools
-root inside `E` or `W` or holding either (`check_pools_root`), and an existing `E/log.jsonl`. Generation 0 archives the
-seeds, builds the initial archive from the Phase 1 rows (refused without `direct` valued on every adaptive task),
-logs the reference row and re-evaluates and judges the incumbent once per adaptive task. Each generation `n` runs
-`episodes_per_generation` episodes alternating I1 and I2, each against a parent drawn uniformly from the archive (I2:
-at a seeded uniform eligible site) with the parent's own evidence as feedback; fresh accepted children are evaluated
-once per adaptive task, judged, and offered to the archive. Before a generation's episodes, one planned call per
-episode plus the evaluations and judges of as many children (each at the largest planned maximum in the archive),
-and again before its evaluations, the children's own planned calls plus one planned call per judge per batch, must
-fit under `call_cap`, or the generation is refused (`CallCapExceeded`); `E/readout.json` is still written. A
-planned maximum (`ledger.max_provider_calls`) counts the provider calls of the module's own definitions the entry
-calls (in expression positions; binder names are no calls), times every enclosing literal `:max`. A non-literal
-`:max` around a provider call, or a recursion reaching one, makes it unbounded: such a child is refused at episode
-acceptance (`unbounded_calls`, in both modes) and never evaluated. The validation
-task is a holdout root of every episode scan and adaptive evaluation scan (judge scans take no holdout root).
-
-Mode 2 does not stop on routine scan hits: before pooling a task's evaluations and before summarizing a pool, it
-waits for a verdict on every run or judge scan with hits, printing once the hit summary and the exact
-`prepare.py scan --run R` (or `--pool P --judge MODEL`) `--verdict contaminated|cleared --reason TEXT` command, and
-rereads the scan every 60 s. Contaminated runs stay out of the pool. A judge whose scoring command exits nonzero is
-retried once through its resume script; a second failure is a judge incident (a `judge_incident` log row, no
-`gen-<n>.json` for that generation) and the run continues with the next generation.
-
-Afterwards `validate_finalists(E/archive/gen-<n>.json, config=..., validation_task=..., launch=launch, judge=...)`
-(`launch` as `run_mode2` returned it; the reference comes from the log's `reference` row) evaluates the top two
-archive entries, the reference and `direct` twice each on the validation task (`split: "validation"`) and judges
-them in one pool at `P/validation/<task>`; the Phase 2 readout is
-
-```bash
-python -m experiments.orc_structural_search.scoring readout --phase 2 \
-  --criterion experiments/orc_structural_search/criteria/phase2.json \
-  --log $E/log.jsonl --archive $E/archive [--log ... --archive ...] \
-  --validation-log $E/log.jsonl $P/validation/cf1-generic-unions/records/results.json
-```
-
-**Failure rule.** The primary value of an evaluation (`scoring.primary_value`) is its judged value when completed and
-0 rubric points when failed or timed out; a timeout is an incident killed at its wall-clock envelope (`launcher exit
--9` in its latest incidents entry, `scoring.scored_outcome`). Every other incident, and a completed run without a
-value, is excluded, not zero; so is a quota incident (`quota_incident`, counted as `quota_incidents`), including
-a `failed` row from before the quota guard whose records hold a quota line. Log rows count once per job
-(candidate, task, replicate, and mode 2's split and generation; the last row wins, so a quota relaunch supersedes
-its quota incident). A task with no completed, uncontaminated evaluation has no pool; its rows come from the log alone (`scoring.log_only_pool`).
-
-## Module condition: offline configuration and check
-
-`module` is a condition of I1, not a replacement for the frozen controls. The
-[driver contract](../../docs/design/orc_structural_search_driver.md#edit-validation-and-transactions)
-owns its editable and frozen surfaces. The successor `criteria/module.json` records
-`I1`, `I2`, `I3` and `I1/module` separately, with no live allocation. Keep its rows,
-pools and readouts under its own SHA-256; successor consumers refuse mixed or missing
-criterion hashes before collection or judging. The shared validator permits missing
-row hashes only for the three exact frozen Phase 1, Phase 2 and three-arm hashes
-in `config.HISTORICAL_CRITERIA`, never for this successor. The three-arm readout
-separately permits a missing compile-readout hash only for its exact historical
-three-arm criterion. The offline successor reports a failure-inclusive blind rubric
-mean per task and arm descriptively; it implements no accepted-improvement or
-separation decision. A future live endpoint needs its own criterion selection.
-
-From the repository root, create a configuration outside candidate/evidence roots:
-
-```bash
-python - <<'PYCONFIG'
+python - <<'PYMODULE'
 import hashlib
 import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
 
-criterion = Path("experiments/orc_structural_search/criteria/module.json")
-study = json.loads(criterion.read_text())
-config = {
-    "mutable_files": ["direct.orc"], "mutable_definitions": ["run"],
-    "condition": "module", "interface": "I1", "entry_workflow": "direct::run",
-    "source_root": ".", "providers_file": "providers.json",
-    "command_boundaries_file": "commands.json",
-    "episode_wall_clock_sec": study["envelope"]["episode_wall_clock_sec"],
-    "criterion_sha256": hashlib.sha256(criterion.read_bytes()).hexdigest(),
-    "models": study["models"], "per_call_timeout_sec": study["per_call_timeout_sec"],
-}
-Path("/tmp/structural-search-module-config.json").write_text(json.dumps(config, indent=2))
-PYCONFIG
-python - <<'PYCONFIG'
-from pathlib import Path
+ROOT = Path.cwd()
+# Optional existing evidence, chosen by the reader; leave unset for the local check.
+HISTORICAL_LOG = None
+HISTORICAL_COMPILE_READOUT = None
+HISTORICAL_CRITERION = ROOT / "experiments/orc_structural_search/criteria/three_arm.json"
+
+from experiments.orc_structural_search.check import stage_parent
 from experiments.orc_structural_search.config import load_config
+from experiments.orc_structural_search.qualification import validate
 from experiments.orc_structural_search.three_arm import arm_config, load_criterion
 
-path = Path("/tmp/structural-search-module-config.json")
-criterion = load_criterion(Path("experiments/orc_structural_search/criteria/module.json"))
-assert load_config(path).condition == "module"
-assert arm_config(path, "I1/module", criterion).interface == "I1"
-assert arm_config(path, "I1", criterion).condition == "topology-only"
-PYCONFIG
+with tempfile.TemporaryDirectory(prefix="structural-module-") as directory:
+    work = Path(directory)
+    study = {
+        "purpose": "measure-free",
+        "arms": {
+            "I1": {"interface": "I1", "condition": "topology-only", "parent": "orc"},
+            "I2": {"interface": "I2", "condition": "topology-only", "parent": "orc"},
+            "I3": {"interface": "I3", "condition": "topology-only", "parent": "python"},
+            "I1/module": {"interface": "I1", "condition": "module", "parent": "orc"},
+        },
+    }
+    criterion = work / "criterion.json"
+    criterion.write_text(json.dumps(study))
+    config = {
+        "mutable_files": ["direct.orc"], "mutable_definitions": ["run"],
+        "condition": "module", "interface": "I1", "entry_workflow": "direct::run",
+        "source_root": ".", "providers_file": "providers.json",
+        "command_boundaries_file": "commands.json", "episode_wall_clock_sec": 60,
+        "criterion_sha256": hashlib.sha256(criterion.read_bytes()).hexdigest(),
+        "models": {"gpt-6.1-sol": ["high"]}, "per_call_timeout_sec": 5400,
+    }
+    config_path = work / "config.json"
+    config_path.write_text(json.dumps(config))
+    assert load_config(config_path).condition == "module"
+    frozen = load_criterion(criterion)
+    assert arm_config(config_path, "I1/module", frozen).interface == "I1"
+    assert arm_config(config_path, "I1", frozen).condition == "topology-only"
+    assert validate(criterion, config_sha256=config["criterion_sha256"])["mode"] == "measure-free"
+    seed = ROOT / "experiments/orc_structural_search/three_arm/orc"
+    stage_parent(seed, work / "parent")
+    shutil.copytree(seed, work / "cand-1")
+    (work / "py").symlink_to(ROOT, target_is_directory=True)
+    metadata = work / "admission.json"
+    metadata.write_text(json.dumps({"parent": "parent", "config": "config.json"}))
+    command = [sys.executable, "-P", "-m", "experiments.orc_structural_search.check",
+               "--metadata", str(metadata)]
+    result = subprocess.run(command, cwd=work / "cand-1",
+                            env={**os.environ, "PYTHONPATH": str(ROOT)},
+                            check=True, capture_output=True, text=True)
+    assert json.loads(result.stdout)["outcome"] == "accepted"
+    print(result.stdout.strip())
+
+if HISTORICAL_LOG is not None:
+    assert HISTORICAL_COMPILE_READOUT is not None
+    subprocess.run([sys.executable, "-m", "experiments.orc_structural_search.three_arm",
+                    "readout", "--measure-free", "--log", str(HISTORICAL_LOG),
+                    "--driver-readout", str(HISTORICAL_COMPILE_READOUT),
+                    "--criterion", str(HISTORICAL_CRITERION)], check=True)
+PYMODULE
 ```
 
-`models` maps model IDs to nonempty effort lists; the per-call ceiling must be a
-finite positive number. These fields are optional for legacy conditions. Module
-admission requires compiled model/effort and timeout literals within those values;
-nonliteral/missing values fail closed. Claude's optional model guard allowlist
-covers explicit/default/fallback models and forced subagents for all configured
-arms; Codex enforcement is at module admission.
+3. To test a proposal, edit the temporary candidate before the command in the
+   sequence. The check returns JSON: exit 0 accepts, 1 rejects, 2 records an
+   incident. Ordinary compiler diagnostics support repair; final episode
+   submission independently rechecks against the controller's staged parent.
 
-Inside an episode, run the brief's check from `cand-1`:
+## What happens
 
-```bash
-PYTHONPATH=../py python -P -m experiments.orc_structural_search.check --metadata ../admission.json
-```
+- Admission freezes the public entry/types, imports and bound capabilities;
+  module model/effort and timeout values must be allowed literals. Unsupported
+  agent/turn/phased effects refuse under every condition.
+- A module reservation traverses the checked closed program per invocation,
+  including arguments, imported helpers, loop exhaustion and finite map bounds.
+  Both shims enforce the reservation before the real provider; refused attempts
+  remain recorded and count in ledger settlement.
+- Source metrics normalize coherent private renames. Compiled allocation compares
+  provider/model/effort on normalized static invocation paths; unavailable proof
+  stays unavailable. Memo effects preserve identity, class, attempts and status;
+  unexercised sites need a validated join and never establish branch coverage.
 
-It prints a JSON admission verdict: exit 0 means accepted, 1 means rejected and
-2 means incident. Ordinary compile errors retain full structured diagnostics for
-repair; compiler internal errors are incidents. Finalization submits one final
-child after trusted rechecking. The offline contract is exercised without a real
-provider by:
+## Interpret evidence
 
-```bash
-PYTHONPATH=. pytest -q -n 16 --dist=worksteal tests/experiments/test_orc_structural_search_module.py \
-  tests/experiments/test_orc_structural_search_module_execution.py \
-  tests/experiments/test_orc_structural_search_evaluation.py
-```
+Quality launches, resume, pooling, judging and readouts require an explicit criterion,
+matching hashes and external family/measure precalibration evidence. The
+[receipt contract](../../docs/design/orc_structural_search_driver.md#external-qualification-receipt)
+explains inputs, private evidence layout and exact schemas. Invalid quality evidence
+fails closed. A measure-free criterion permits execution/cost reporting; it permits
+no judging or adaptive quality selection.
 
-The successor runner uses the criterion's explicit arms; `I1/module` never pools
-with `I1`. Source metrics select the entry followed by all private non-prompt
-declarations, including helpers and types. Ordinal private names/references and
-provider-allocation keys recognize coherent order-preserving renames, retaining
-lexical shadowing and authored labels; they do not prove semantic equivalence or
-ignore declaration reordering. Legacy ORC and Python metrics keep their rules.
+Qualified successor readouts join harness clone IDs, report anchors first and compare
+matched tasks/replicates. Each arm's frontier contains its own parent and all evaluated
+children, including earlier continuation subsets. Parents share one evaluation per
+identity, projected to their arms. Readout-only prices come from the criterion;
+missing usage/rates remain unavailable. Calls substitute for cost only with complete,
+unambiguous actual model/effort identity proof for every compared call.
 
-Episode/evaluation rows carry `criterion_sha256` and consumption only with
-complete unambiguous receipts. Episode rows also expose scoped
-`native_session_paths`; evaluation rows do not expose native paths. Missing/truncated usage
-is `unavailable`, never zero; a known native path remains recorded even when its
-usage is incomplete. Realized ORC effects come from the validated memo view, per
-evaluation: identity, effect class, attempts and status. Readouts retain them beside
-physical provider calls. Source-branch coverage remains `unavailable`, with reason
-`memo_records_effects_only`; generic commands have `generic_command_has_no_orc_memo`.
-Public-run fixtures demonstrate both failed-check/repair and no-repair paths without
-claiming a source-branch counter.
+The [module decision](../../docs/plans/2026-10-19-orc-structural-search-module-rewrite-plan.md#gate-for-a-live-module-arm)
+keeps evaluator, family, isolation, sealed-split and owner-budget gates open. Historical
+Phase 1/2/three-arm criteria and the removed illustrative module criterion preserve
+provenance; they grant no fresh launch permission. Captured campaign commands and
+allocations remain in their [three-arm plan](../../docs/plans/2026-10-19-orc-structural-search-three-arm-readout-plan.md)
+and [Phase 2 plan](../../docs/plans/2026-10-18-orc-structural-search-phase2-plan.md).
 
-A malformed or truncated transcript that prevents scanning records `scan_error`,
-`scan_pending: true` and unavailable `scan_hits`, removes stale scan receipts and
-prevents clearance/pooling without usable scan evidence. Evaluations retain calls
-and effects but become incidents. Exhausted episodes retain exhaustion unless a
-quota incident takes precedence, and yield no child.
+## Optional historical projection
 
-A live fourth-arm comparison still needs the plan's evaluator, task-family,
-isolation, sealed-split, owner-selection and budget gates. The `:text` fill ruling
-remains a prerequisite before future cross-condition comparisons; offline preparation
-does not change hidden acceptance into the primary measure or authorize provider spend.
+For existing evidence, set the three historical constants in the sequence and rerun it.
+The explicit measure-free readout projects compile, execution, calls and available cost
+without altering frozen criteria or emitting quality means, anchors, improvements,
+frontiers or deployment decisions.
 
-## Three-arm recipe
+## Limits
 
-The three-arm compile-only readout (criterion `criteria/three_arm.json`; prerequisites as in the offline recipe,
-plus `pyright` on `PATH`, which admits I3 children) runs from the frozen runtime `$RT`, with `PYTHONPATH=$RT`.
-`config.json` is a full `ExperimentConfig` whose `episode_wall_clock_sec` and `criterion_sha256` (the criterion
-file's `sha256sum`, hex) the arms share; `three_arm.arm_config` sets each arm's mutable file (`direct.orc` for I1 and
-I2, `direct.py` for I3), entry `direct::run` and condition `topology-only`. Before any provider call a run refuses
-(`ValueError`) an `--agent-cmd` other than the criterion's `envelope.mutator`, a `criterion_sha256` other than
-`--criterion`'s, an `episode_wall_clock_sec` other than `envelope.episode_wall_clock_sec` (3600) and an
-`--eval-timeout-sec` other than `envelope.evaluation_wall_clock_sec` (14400), and (`RuntimeError`) an ORC parent that
-does not compile against `$RT` or a Python parent that does not type-check against it (`acceptance.check_parent`).
-Every `--hide` path must be an existing directory (refused before any root exists). Every run (smoke and main) needs its own fresh `E` and `W`.
-
-Call caps (controller ruling R15): the ledger `E/calls.json` is one total for the run and its judges, so the run
-leaves the four judge calls (2 tasks x 2 judges x 1 batch) free: the main run's `--call-cap` is 65 minus the smoke's
-recorded calls minus 4, and each `three_arm judge` takes `--call-cap` 65 minus the smoke's recorded calls. The ledger
-charges every recorded call, a quota refusal's included (conservative); the report lists immediate zero-work
-refusals separately.
-
-Smoke: each parent evaluated once on one task (`mode: "smoke"`, no episode); reserving the ORC parent's planned
-maximum (1) and the Python parent's (8) at once needs `--call-cap 9`:
-
-```bash
-PYTHONPATH=$RT python -m experiments.orc_structural_search.three_arm run --smoke --episodes-per-arm 0 \
-  --config config.json --criterion $RT/experiments/orc_structural_search/criteria/three_arm.json \
-  --parents orc=$RT/experiments/orc_structural_search/three_arm/orc python=$RT/experiments/orc_structural_search/three_arm/python \
-  --tasks $RT/experiments/compare/tasks/resume-projection-integrity --runtime $RT \
-  --work-root $W_SMOKE --evidence $E_SMOKE --eval-timeout-sec 14400 \
-  --agent-cmd 'codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --model gpt-6.1-sol --config model_reasoning_effort=high' \
-  --solution resume-projection-integrity=$SOL1 --call-cap 9 --run-seed 1 --subset-seed 1
-```
-
-Main run (pass every earlier run's roots with `--hide`: Phase 1's and this campaign's smoke roots):
-
-```bash
-PYTHONPATH=$RT python -m experiments.orc_structural_search.three_arm run \
-  --config config.json --criterion $RT/experiments/orc_structural_search/criteria/three_arm.json \
-  --parents orc=$RT/experiments/orc_structural_search/three_arm/orc python=$RT/experiments/orc_structural_search/three_arm/python \
-  --tasks $RT/experiments/compare/tasks/{resume-projection-integrity,pure-result-replay} --runtime $RT \
-  --work-root $W --evidence $E --episodes-per-arm 6 --eval-timeout-sec 14400 \
-  --agent-cmd 'codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --model gpt-6.1-sol --config model_reasoning_effort=high' \
-  --solution resume-projection-integrity=$SOL1 --solution pure-result-replay=$SOL2 --call-cap $((61 - SMOKE_CALLS)) --concurrency 4 \
-  --run-seed 1 --subset-seed 1 --hide /home/ollie/ss-evidence2 --hide /home/ollie/ss-work2 --hide /home/ollie/ss-pools \
-  --hide /home/ollie/ss-evidence-smoke --hide /home/ollie/ss-work-smoke --hide /home/ollie/ss-evidence-meta \
-  --hide /home/ollie/ss3-evidence-smoke --hide /home/ollie/ss3-work-smoke [--continue]
-```
-
-The run archives both parents and logs one `{"kind": "parents", "orc", "python", "run_seed", "subset_seed",
-"pyright", "program_digests"}` row. Episodes run one at a time, arm by arm (I1, I2, I3), until each arm has
-`--episodes-per-arm` non-quota episodes (accepted, rejected, exhausted or incident); a quota episode is relaunched
-under the next index (the quota guard, at most 3 times), and episode indexes are global over the run. A slot whose
-relaunches are used up stops the run at once, before the next slot (`three_arm.QuotaExhausted`): rerun with
-`--continue` after the provider's reset (also the rule when a Codex limit line names no reset time the guard can
-parse: it then pauses 30 minutes per relaunch, so a slot stops after about 1.5 hours). Every episode row carries
-`arm` and `mode: "three_arm"`; an I2 episode's site is drawn uniformly from the parent's eligible sites with
-`random.Random(f"{run_seed} {index}")`, and its row carries `site_id` and `run_seed`. Then, per arm, the subset (two
-children): accepted children of uncontaminated episodes whose candidate id differs from the parent's and from every
-child chosen before (in any arm, arms in the order I1, I2, I3), and whose program digest differs from the parents'
-and every chosen child's (a comment-only or reformatted child is not paid for), by episode index: the first, then the
-first later child with another skeleton than the first's, else the one with the smallest
-`sha256(f"{subset_seed}:{candidate_id}")`. An accepted episode with scan
-hits and no verdict stops the run here (`ValueError`): adjudicate it (`prepare.py scan --run
-E/episodes/<episode_id> --verdict ...`) and rerun with `--continue`. `E/readout.json` (per arm, never pooled: episode
-outcomes, completed and judged episodes, acceptance rate, refusals, locality, files touched per episode, distinct
-skeletons, revisit rate, terminal-only share, `allocation_distinct`, exact repeats by `program_digest`, collapse
-against the criterion's threshold, the subset's candidate ids) is written before the evaluations. Each subset child
-is then evaluated once per task (`mode: "three_arm"`, `arm`), at most `--concurrency` at a time. Launches are
-reservation-aware (`three_arm.CapGate`): an evaluation whose planned maximum (an I3 child's `MAX_PROVIDER_CALLS`, 8)
-does not fit under `--call-cap` beside the evaluations in flight waits for one to end and is retried; it is refused
-(`CallCapExceeded`, before any workspace) only when nothing is in flight. Every launch that starts after a quota
-pause waits it out, a relaunch from the cap's wait included: an evaluation that ends in a quota incident pauses the
-guard before the waiters wake. Once more than 3 evaluation launches in a row (of any units) have ended in a quota
-incident, no further evaluation starts (those in flight finish) and the run raises `QuotaExhausted`: rerun with
-`--continue` after the reset. Under a lasting limit that is at most max(`--concurrency`, 4) launches; a capacity blip
-that hits four launches in flight at once also stops the run. `--continue` (same
-`W`, same parents and
-seeds) keeps every arm that already has its episodes and every evaluation already logged.
-
-Judging: per task, build the pool with `scoring pool` and judge it with `three_arm judge`, which reserves each
-judge's ledger entry (one planned call per batch, `kind: "judge"`, key `three-arm <task> <judge>`) before any judge
-runs, waits for a verdict on any judge scan with hits, runs `summarize` and logs one `{"kind": "judging",
-"generation": -2, "task", "pool", "results"}` row; then the readout:
-
-```bash
-PYTHONPATH=$RT python -m experiments.orc_structural_search.scoring pool --evidence $E --task $RT/experiments/compare/tasks/<task> \
-  --out $P/<task> --criterion $RT/experiments/orc_structural_search/criteria/three_arm.json \
-  --judge claude-opus-5-5=$RT/experiments/compare/score.providers.json \
-  --judge gpt-6.1-sol=$RT/experiments/compare/providers/score_codex.json
-PYTHONPATH=$RT python -m experiments.orc_structural_search.three_arm judge --evidence $E --pool $P/<task> \
-  --task $RT/experiments/compare/tasks/<task> --criterion $RT/experiments/orc_structural_search/criteria/three_arm.json \
-  --judge claude-opus-5-5 --judge gpt-6.1-sol --solution $SOL --call-cap $((65 - SMOKE_CALLS))
-PYTHONPATH=$RT python -m experiments.orc_structural_search.three_arm readout --log $E/log.jsonl \
-  --driver-readout $E/readout.json --criterion $RT/experiments/orc_structural_search/criteria/three_arm.json \
-  $P/*/records/results.json > $E/three-arm-readout.json
-```
-
-`P` lies outside `E` and `W`. The readout reads each task's `results.json` through `scoring.read_pool` (criterion
-hash checked; a task without one reads its log rows alone, so with no pool at all the command takes no results file)
-and reports per task, per arm and per subset child
-`scoring.policy_stats` (the failure-inclusive mean, valued mean, failed, timeouts, incidents, excluded, hidden,
-calls and wall clock means) and each child's primary values, the anchors and `scoring.anchor_checks` (reported, not
-a gate), the compile-only figures of `E/readout.json`, and no decision: `"descriptive; no separation rule applied
-(Phase 1 decision stands)"`.
-
-## Layout
-
-`W` (the work root) and `E` (the evidence root) must not nest: agents work under `W` and must
-never see the archive or the log. `E` must be fresh unless the run is continued (`--continue`, above): the
-driver refuses an `E/log.jsonl` that already exists and never resumes an incident (an evaluation without a
-terminal row stays an incident in the log; `evaluation.resume` is the operator's tool). Before each episode and evaluation the driver checks that an archived candidate still
-hashes to its directory name.
-
-What the mutator cannot see: every `claude` or `codex` call of an episode runs with the shims' `COMPARE_HIDE`
-naming `E`, `W/episodes`, `W/records`, `W/runs`, `W/agents`, `W/env-manifests` and each mode 1 `--hide` directory
-(`driver.hidden_roots`: the driver's own directories are created if missing, a `--hide` path that is not an existing
-directory is refused with `ValueError`; all are recorded as the episode row's `hidden_roots`). The shims mask each
-with an empty tmpfs and bind the episode's own tree back, so the call reads its `cand-1`, `tmp/` and `py/` but
-no sibling episode, evaluation, archive candidate or log row; a path into them is not found. With a `claude` or
-`codex` `--agent-cmd` that is the whole mutator; a mutator command that is neither runs outside the sandbox and
-only its CLI calls are masked. The mask names roots and is no allowlist: home, the runtime and every other
-directory stay readable and only the scan reports reads there, so pass other runs' roots with `--hide`.
-
-```
-W/records/<evaluation_id>/run-1/   run_arm's records: record.json (with the scan), inputs.json, command.sh, calls/
-W/runs/<evaluation_id>/<run_id>/   the run's state (memo.jsonl); none for an I3 evaluation
-W/agents/<tree>/cand-1/            the clone the run works in
-W/agents/<tree>/cand-1/.orchestrate/runs/<run_id>/
-                                   I3: the Python run's state (terminal.json, effects/<n>/attempt-1/result.json)
-W/env-manifests/<digest>.json      Python, platform, distributions and claude/codex/bwrap/git --version output
-W/episodes/episode-<n>/cand-1/     the mutator's copy of the parent, a git repository whose one commit is the parent
-                                   snapshot (the shims' COMPARE_BASE); the child is its final files (.git removed)
-W/episodes/episode-<n>/tmp/        the mutator's private /tmp under the shims
-W/episodes/episode-<n>/py/         runtime orchestrator/ and top-level experiment Python modules for admission
-W/episodes/episode-<n>/config.json episode configuration, outside the candidate snapshot
-W/episodes/episode-<n>/admission.json local parent commit/configuration/site metadata for the check
-E/log.jsonl                        episode and evaluation records, append-only
-E/calls.json                       the provider-call ledger, one entry per evaluation and episode
-E/candidates/<candidate_id>/       the archive: catalog seeds and accepted children
-E/episodes/episode-<n>.log         the mutator command's output
-E/episodes/<episode_id>/           the episode's shim records: calls/<n>/, record.json (with the scan)
-E/episodes/<episode_id>.diff       the episode's final diff against its parent, accepted or refused
-E/readout.json                     per-seed outcomes, episode outcomes and refusals, skeleton diversity
-                                   (mode 2: per-interface episode readouts and the archive trajectory)
-E/archive/gen-<n>.json             mode 2: the archive after generation n (gen-0: every valued seed, direct included)
-P/gen-<n>/<task>/                  mode 2: the generation's blind judging pool (P/validation/<task> for finalists);
-                                   P, the pools root, lies outside E and W: judges must not see the archive or the
-                                   log, and mutators and evaluated agents must not find the pools at a known place
-```
-
-An I3 candidate (a Python entry module, `evaluation.is_python`) is admitted by `acceptance.check_python` (pyright)
-instead of the compiler and runs through the comparison harness's generic-command arm: `record.json` names
-`arm_kind: generic-command` and its `state_root` (the clone's `.orchestrate/runs`, the evaluation record's
-`state_dir`), and `command.sh` runs `python -P <candidate>/direct.py inputs.json` behind the same shims, so its
-calls, patches and scans are recorded like an ORC evaluation's. The run's `terminal.json` is classified like a
-memo's terminal row (`completed`, `failed`; none: `incident`) and `prepare.collect` reads it; other directories
-there, such as an orchestrator run the coder started from the clone, are not the run. There is no `resume.sh`: an
-I3 incident is not resumable (`evaluation.resume` refuses it), and one killed before its terminal is recorded with
-run id `unavailable`.
-
-Mode 2 adds four kinds of log rows: one `{"kind": "reference", "candidate_id", "run"}` row naming the initial
-incumbent; one `{"kind": "judging", "generation", "task", "pool", "results"}` row per judged pool; one
-`{"kind": "judge_incident", "generation", "detail"}` row per generation a judge failed twice; and every
-evaluation row carries `generation` and `split` (`adaptive`, or `validation` with generation -1). Each judge of a
-pool has a `kind: "judge"` entry in `E/calls.json`, reserved (one planned call per batch) before any judge runs; the
-judging records (`mapping.json`, each judge's records, `results.json`) are under `P/.../records/`.
-
-After every evaluation `prepare.scan` runs over its records with `E` and `W/episodes` named `archive`,
-`E/log.jsonl` named `lineage`, each `--holdout` named `holdout`, and the names of the other evaluations' run
-directories under `W/runs` counted as other trees (an I3 run keeps its state in its clone, so its scan names them as
-an ORC run's does). A nonzero hit count marks the evaluation
-record `scan_pending`. The log is append-only, so that flag is never cleared: the adjudicated verdict
-(`prepare.py scan --run R --verdict ...`) lives in the run's `<records_dir>/record.json`, which is the record to
-read before using a flagged evaluation.
-
-After every episode `prepare.scan` runs over `E/episodes/<episode_id>/` with `E`, `W/records`, `W/runs`, `W/agents`
-and `W/env-manifests` named `archive`, `E/log.jsonl` `lineage` and each `--holdout` `holdout` (other episodes' trees
-are the scan's sibling trees), once per distinct solution hash until a scan hits; hits mark the episode
-`scan_pending`. Its `record.json` holds the scan that hit: after clearing it, rescan with the remaining hashes
-(`prepare.py scan --run E/episodes/<episode_id> --hash ...`). A contaminated episode verdict (the mutator read
-sibling episodes' trees or the evidence root) takes its child out of the Phase 1 readout: every row of that child is
-left out and the readout lists it under `excluded_children` (`scoring.contaminated_children`); mark the child's
-evaluation records contaminated too so the pool leaves them out. The scan matches path patterns, not reads: it
-catches a literal `episode-N` and absolute (or `~`) paths into those roots, but misses relative reads
-(`../../records/...`, the work root's `records/`, `runs/` and `agents/` included) and globs (`episode-$i`,
-`episode-*`, `W/rec*`), which give no hit at all. Read every accepted episode's transcript commands, those with no
-hits included, before the readout (Phase 1, 2026-10-19: episode 11's
-`for e in 6 7 8 9 10; do diff ... episode-$e/...` had no driver hit).
-
-The evaluation id covers the environment manifest, so it changes with a CLI version; model names are the
-candidate's provider bindings and `:model` values, already in its candidate id.
-
-## Not implemented
-
-- I3 in mode 2 (it interleaves I1 and I2; `run_episode` and `evaluate` take I3 candidates), feedback-targeted
-  site selection and failure- or cost-weighted parent selection (mode 2 draws uniformly).
-- A command line for mode 2 (`run_mode2` and `validate_finalists` are called from Python).
-- Live mode 2: the live Phase 1 decision did not select Phase 2 for family (a)
-  ([Phase 1 report](../../docs/reports/2026-10-18-orc-structural-search-phase1.md)); a live run needs a new owner
-  selection and budget approval. The server-side model revision is recorded `unavailable`.
-- Guaranteed complete metering: log consumption remains `unavailable` whenever native receipts are absent,
-  ambiguous, malformed or incomplete; no provider-dollar inference from partial coverage.
-- A quota guard for mode 2: mode 2 has no quota guard for episodes, and each `evaluate_all` starts an unpaused guard
-  (`adaptive.py`), so a quota episode is an incident that uses its slot and a generation's first evaluations can hit
-  the limit again before they pause.
-- Isolation of the mutator command itself: only the agent CLIs it starts through `PATH` run in the sandbox; the
-  command (e.g. a wrapper script) runs unsandboxed with the shim environment.
-
-## Deviations (`ponytail:`)
-
-- The `dev-check` command boundary runs the task's checks in the working clone; no fresh-checkout patch
-  application yet.
-- A wall-clock kill (evaluation launch or mutator command) kills the launcher's process group only; a process
-  that starts its own session escapes it.
-- The call ledger's lock is per driver process: two drivers on one evidence root are not serialized.
-- An evaluation's planned maximum (`ledger.max_provider_calls`) counts the provider calls of the module's own
-  definitions the entry calls (in expression positions; binder names are no calls), times every enclosing literal
-  `:max`; provider retries are not in it, and the ledger records the actual calls afterwards.
-- A mode 2 frontier wider than the archive size keeps its best-valued members (`adaptive.prune`), no crowding
-  distance.
-- An episode scan stops at the first solution hash that hits (see Layout).
+Native receipts can be absent or incomplete; hosted server revisions remain unavailable.
+A wrapper mutator runs outside the CLI sandbox; home/network remain shared and scans
+are pattern based. Process-group kills cannot stop children that start new sessions.
+The ledger serializes one driver process, not separate drivers sharing evidence.
+The development check runs in the working clone. See the driver design for remaining
+scope and live-qualification limits.

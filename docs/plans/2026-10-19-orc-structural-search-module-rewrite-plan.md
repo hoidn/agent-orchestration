@@ -1,17 +1,18 @@
 # ORC Structural Search: The `module` Condition (Rewrite, Compile, Repair)
 
-- **Status:** partially implemented offline (scripted providers), 2026-10-19.
-  The earlier steps 1–7 and 1b were delivered before the owner revision below;
-  their evidence is preserved under "Prior Offline Execution Evidence" and does
-  not verify the revised requirements. The revised closed-program maximum,
-  shim cap, calibrated quality and model-aware cost endpoints remain work in the
+- **Status:** revised apparatus implemented offline (scripted providers),
+  2026-10-19; final integrated verification is recorded in the
   [implementation plan](2026-10-19-orc-structural-search-module-condition-implementation-plan.md).
+  Closed-program reservations, shim caps, external qualification and matched
+  per-arm model-aware Pareto endpoints extend the earlier delivery. Evidence
+  under "Prior Offline Execution Evidence" remains scoped to that earlier code.
   No live successor study or provider budget is selected.
-- **Kind:** decision record and implementation plan for the fifth edit condition
+- **Kind:** maintained decision and live-selection gates for the fifth edit condition
   `module` and the separate `I1/module` measured arm. The
   [driver design](../design/orc_structural_search_driver.md#edit-validation-and-transactions)
-  describes delivered admission and the revised target; this plan owns scoped
-  execution, evidence and live-selection prerequisites. The owner's revision
+  owns delivered admission and selection semantics; the active implementation
+  plan owns execution and fresh verification. This decision preserves evidence
+  and owns live-selection prerequisites. The owner's revision
   makes better Pareto over quality and metered deployed cost.
 - **Authority:** the [research charter](2026-09-08-orc-research-charter.md), the
   [program-search boundaries](../design/workflow_lisp_program_search_boundaries.md)
@@ -98,9 +99,9 @@ fixed would produce children the evaluator cannot rank.
 
 ## The `module` Condition
 
-The table describes the revised target; the prior offline delivery does not
-complete every item. The driver design and experiment README describe the
-delivered configuration and check command.
+The table describes the accepted contract. Revised offline delivery and its
+verification are tracked in the active implementation plan; the driver design
+and experiment README describe the current configuration and check command.
 
 Everything not listed is a frozen surface, refused as today by
 `candidates.validate_frozen_surfaces`.
@@ -310,6 +311,11 @@ make a representation claim: ORC against Python is the roadmap's Phase 3 test
 with its own budget.
 
 ## Implementation Steps (Offline, No Provider Spend)
+
+This original checklist preserves the decision's delivery outline. The
+[active delta plan](2026-10-19-orc-structural-search-module-condition-implementation-plan.md)
+supersedes its execution details, source-helper locations and verification
+commands; the driver design owns current field schemas and guards.
 
 | Step | Change | Completion evidence |
 | --- | --- | --- |
