@@ -2,8 +2,8 @@
 
 Design and decisions: [`docs/design/orc_effectiveness_comparison_harness.md`](../../docs/design/orc_effectiveness_comparison_harness.md).
 The harness runs a maintained workflow unchanged, records every agent call through a transparent
-shim, pools the resulting patches blind, scores them with `score.orc`, and summarizes against a
-criterion frozen before scoring.
+shim, pools the resulting patches blind, selects `score.orc` or the explicit reference rubric,
+and summarizes against a criterion frozen before scoring.
 
 Structural-search callers additionally enforce their
 [external qualification contract](../../docs/design/orc_structural_search_driver.md#external-qualification-receipt)
@@ -15,7 +15,7 @@ criteria and captured recipes confer no fresh permission.
 
 | File | Role |
 | --- | --- |
-| `prepare.py` | command line: `run`, `collect`, `scan` (hits, then a verdict), `pool`, `verify-pool` |
+| `prepare.py` | command line: `run`, `collect`, `scan` (hits, then a verdict), `pool`, `calibrate`, `verify-pool` |
 | `repos.py`, `scan.py`, `pool.py` | candidate builds and patches; the contamination scan; the blind pool and its check |
 | `shim/claude`, `shim/codex` | first on `PATH` during a run and a judge's scoring; run the real CLI under bubblewrap (private `/tmp`, `/dev/shm` and process list; empty `/var/tmp`) with the bookkeeping variables stripped; record `calls/<n>/` |
 | `control/direct_task.orc` | the control: the library `direct_task` plus `:timeout-sec 14400`; module `control/direct_task` |
@@ -29,8 +29,8 @@ criteria and captured recipes confer no fresh permission.
 
 `experiments/compare/tasks/<package>/` holds `task.txt` (what every arm receives), `intent.txt`
 (what judges and reviewers receive), `base_commit`, `seed/` (files committed onto the base in every
-candidate and clone, so they never appear in a patch), `anchors/<name>.diff` (the two anchors, built
-against the seeded commit), and optionally `hidden_tests.txt` (node ids, one per line, or a file
+candidate and clone, so they never appear in a patch), `anchors/<name>.diff` (all declared controls, built
+against the seeded commit; the reference calibration uses four roles), and optionally `hidden_tests.txt` (node ids, one per line, or a file
 path for all its tests) with `hidden/` (test files copied over a copy of each clone, without `.git`,
 before they run). Without both, hidden acceptance is skipped.
 
@@ -372,7 +372,10 @@ rubric above, declares the judges and four anchor roles per task under `anchors`
 and supplies `calibration.margin`, `calibration.mutant_margin`,
 `calibration.error_rate`, and `anchor_spread_limit`. The measurement plan freezes
 these as 4, 2, 0 and 2 respectively. Controls are constructed independently;
-hidden acceptance is descriptive secondary evidence.
+hidden acceptance is descriptive secondary evidence. Calibration summarization
+performs no new per-node hidden runs and leaves `hidden`/`hidden_failed` null;
+it uses retained control-construction diagnostics and produces no new filler
+hidden rates. Other criterion purposes retain normal hidden measurement.
 
 1. Obtain filler patches from the collected runs of the same task and amended
    seeded base; use their recorded paths and hashes from the frozen criterion.
@@ -385,7 +388,7 @@ hidden acceptance is descriptive secondary evidence.
    ten repositories is the limit including both. Two batches of four or five
    fillers need at least eight applicable patches when there are four anchors
    and a reference.
-3. Obtain the stated provider-spend approval, then follow the scoring, pool
+3. Use the recorded provider-spend approval, then follow the scoring, pool
    verification, scan/adjudication and summarization steps above. A judge running
    `pytest` or `dev_check` produces a `judge ran tests` scan hit. Inspect and
    adjudicate it through the existing flow; it has no automatic model exclusion.
@@ -401,8 +404,19 @@ hidden acceptance is descriptive secondary evidence.
    every supplied pool and combines their anchor spreads. All pools must have
    passed independently and the cross-pool spread must meet the same limit.
 
-Calibration prepares evidence for a separately selected study. It neither opens
-structural V1 qualification to the reference rubric nor authorizes provider spend.
+Calibration prepares evidence for a separately selected study. It never opens
+structural V1 qualification to the reference rubric. The
+[measurement plan](../../docs/plans/2026-10-19-orc-structural-search-measurement-plan.md)
+records Step A's existing approval (8 calls, cap10); final verified freeze still
+precedes execution, and A′/B/B2/C require their own approval. No passing quality
+or calibration result follows from the apparatus tests.
+
+For judge metering, join the recorded judge calls under `P/records/judges/MODEL`
+with tree `P/judges/<mapping.judges[MODEL].dir>` and `mapping.created_at` through
+`metering.receipts`. Pass the physical call count and returned `receipt_usage`
+to `pricing.cost` with the frozen criterion's `price_table`. This is an operator
+readout join, not a second pricing or session-discovery API; incomplete coverage
+stays unavailable and list-price equivalent is not billed spend.
 
 ## Measures
 

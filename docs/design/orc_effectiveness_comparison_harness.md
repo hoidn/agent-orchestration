@@ -8,7 +8,7 @@
 - **Owner:** experiment and evaluated-runtime maintainers
 - **Reviewers:** one independent design reviewer; one code reviewer distinct from the implementer
 - **Created:** 2026-10-14
-- **Last material update:** 2026-10-14
+- **Last material update:** 2026-10-19; generic reference-rubric calibration and the current model cap are implemented; live calibration evidence remains separate
 - **Related docs / issues / plans:**
   [design lessons](../orc_workflow_design_lessons.md) (methodology authority),
   [workflows versus a single call](../reports/2026-09-28-orc-versus-single-call.md),
@@ -161,7 +161,16 @@ The original apparatus deletion decision is completed history; preserved evidenc
   asserts it differs from the library file by that one line. The control uses the same provider
   binding, model and effort as the treatment's executor. The comparator of
   every arm is named in the criterion file and reported.
-- **D4. Scoring is side by side per batch, typed, in applied-patch clones.**
+- **D4. Scoring is typed, criterion-selected, in applied-patch clones.**
+  The default `score.orc` and the historical batch shapes below remain supported.
+  Generic pools can select `score_ref.orc` using a rubric mapping: four rating
+  criteria (`completeness`, `correctness`, `scope`, `layering`) and an upstream
+  reference bound outside the blind clone list. All repositories, including
+  the unscored reference, count toward the ten-repository limit. A historical
+  missing or descriptive-string rubric selects `score.orc`; a mapping selects
+  an explicit workflow. Structural V1 quality admission still rejects the
+  reference rubric. The following original default-rubric recipes retain their
+  captured two-anchor scope.
   Batches are built by `prepare.py` under random ids with the mapping written
   to the pool's records directory, never an ancestor of the clones, and never reveal which patches belong together: for
   `best_of_n` a batch is one run's four independent candidates, one of the
@@ -221,7 +230,26 @@ The original apparatus deletion decision is completed history; preserved evidenc
   detection, not prevention, and is stated as a limit in every report. Whether the
   commits must postdate the models' training data, and from which date, is
   the owner's call (Q5).
-- **D6. Anchors are two real patches, blind.** The upstream commit's diff
+- **D6. Blind controls and a disclosed reference have different roles.**
+  The generic reference calibration freezes four blind controls per task:
+  upstream, stub, partial and mutant. Each batch includes every control plus
+  its own disclosed upstream reference, which receives no rating, run value,
+  hidden-acceptance result or primary score. Reference IDs and rubric selection
+  are recorded in the mapping and checked against scoring inputs/results.
+  Calibration is explicit `purpose: "calibration"`: every declared judge ×
+  batch pair remains in the denominator; absent/excluded judges or incomplete
+  control ratings fail. The selected measurement freezes P1 upstream−stub ≥4,
+  P2 stub < partial < upstream, P3 upstream−mutant ≥2, zero tolerated error and
+  per-anchor spread ≤2. B2 compares with the actual accepted A or A2 pools.
+  These predicates are implemented; no live passing result is implied.
+  Calibration summarization skips fresh hidden-test execution and leaves clone
+  `hidden`/`hidden_failed` null. Retained construction fractions are secondary
+  diagnostics; A/B2 produce no new filler hidden rates. Other purposes retain
+  their existing hidden measurement. The current control construction and its
+  disclosed pre-judge amendment live in the
+  [measurement plan](../plans/2026-10-19-orc-structural-search-measurement-plan.md).
+
+  **Historical/default two-anchor recipe.** The upstream commit's diff
   without its tests, and a fixed patch written by the experimenter that
   silences the symptom without fixing the cause. Both enter every batch under
   random ids with no scores in the prompt. Each judge's anchor scores are
@@ -327,11 +355,11 @@ otherwise.
    records its hits; the experimenter records a verdict for a run with hits.
 5. `prepare.py pool` takes the frozen criterion and the judges, builds one
    applied-patch clone per pooled patch under a random id, with `git add -A -N .` so a judge's `git diff` shows new files,
-   strips the paths in D8, adds the two anchors to every batch, writes the
+   strips the paths in D8, adds every package anchor to each batch, writes the
    batches as one scoring inputs file and command per judge, and writes
    `mapping.json` to the pool's records directory.
-6. `orchestrator run experiments/compare/score.orc` once per judge, one judge
-   after another, behind the shims, from the judge's own working directory
+6. Run the criterion-selected scoring workflow (`score.orc` by default) once
+   per judge, one judge after another, behind the shims, from the judge's own working directory
    with its state directory inside it, with the batches, the intent, the
    judge model and `criterion_sha256` as inputs. Judges run unrestricted on the same clones,
    so `prepare.py verify-pool` runs before each judge and after the last:
@@ -415,7 +443,22 @@ The criterion names which measure is primary.
 
 ### Experiment Model Policy
 
-**Model policy (owner, 2026-10-15).** No new experiment call uses a Fable
+**Current policy (owner, 2026-10-19).** Every experimental role and nested
+instrumented call is capped at Sonnet/Terra; the admitted exact IDs are
+`claude-sonnet-5-5` and `gpt-5.6-terra`. Fable, higher models and unknown IDs refuse.
+Both guarded CLI names enforce the cap; Claude native agents are pinned to Sonnet,
+Codex native multiagent features and independent model-dispatch routes refuse.
+Actual forbidden Claude/Codex session metadata produces non-clearable scan hits.
+The [current guard guide](../../experiments/compare/README.md#recipe) owns exact
+flags, inherited settings and prevention limits. This cap does not itself
+qualify a task family, calibrate a model pair or approve spend. Historical
+criteria/workflows keep their bytes and refuse new guarded launches when their
+models violate the cap.
+
+The following dated policy and mechanics are a historical record superseded for
+new launches by that cap; they preserve the original experiment chronology.
+
+**Historical model policy (owner, 2026-10-15).** No new experiment call uses a Fable
 model: no workflow arm, control, review, judge or delegated agent. Claude
 planning uses `claude-opus-5-5`. Frozen historical criteria, such as E-B's, keep
 the models they recorded.

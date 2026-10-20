@@ -187,6 +187,9 @@ live run follow the
 [live Phase 0 gates and Phase 1 plan](2026-10-18-orc-structural-search-live-phase1-plan.md), whose allocation, all limits
 first-exhausted, is:
 
+The following allocation records the original selected Phase0/1 campaign;
+its historical model list does not grant new calls under the current Sonnet/Terra cap.
+
 | Limit | Value |
 | --- | --- |
 | Provider calls, all roles (arms, judges, mutators, smoke) | 160 |
@@ -371,7 +374,7 @@ the objective's cost axis (Decision Criteria).
 | Screening | Advancement, finalist replication beside the reference seed, and the shrinkage readout (screening mean against validation mean) follow the driver's selection rule; the pilot stays descriptive |
 | Quota | No new run once the owner-stated window floor is reached unless the stated credit policy covers it; the readout says what completed |
 | Lost runs | Provider-infrastructure stops are resumed, never relaunched; a timeout or contamination is an outcome under the frozen rule, its attempted cost counts, and the attempt rate is reported |
-| Model policy | The harness model policy of 2026-10-15 applies to every mutator, candidate and judge call |
+| Model policy | The current 2026-10-19 exact `claude-sonnet-5-5`/`gpt-5.6-terra` cap applies to every experimental role and nested guarded call; frozen historical model choices remain evidence, not new launch permission |
 
 ## Verification Obligations
 
@@ -439,7 +442,11 @@ candidate, and one anchor pair was inverted. Phase 2 is not selected, and a
 better-targeted experiment needs a new owner selection. The next plan to
 execute offline is the [measurement calibration plan](2026-10-19-orc-structural-search-measurement-plan.md):
 an evaluator calibrated on known controls and
-a task family whose agent-visible check fails sometimes. It precedes any
+a task family whose agent-visible check fails sometimes. Generic reference
+calibration and the current Sonnet/Terra guard are implemented, and the real
+controller matrix has passed. Final integration and freeze remain pending. Step A's 8 calls,
+cap10 are approved; later paid stages remain separately gated. No calibration
+result or live `module` arm follows from implementation. It precedes any
 live `module` arm
 ([module condition](2026-10-19-orc-structural-search-module-rewrite-plan.md#gate-for-a-live-module-arm)).
 

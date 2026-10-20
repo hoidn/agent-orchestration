@@ -1,8 +1,25 @@
 # Calibration ladder
 
 Plan Task 8 ("Candidate ladder"), ruling R42. This file fixes the candidate order and metrics before any
-calibration run. Rung *n* is the *n*-th row of the ranked table. Each rung's package is built and verified when the
-rung is reached; only rung 1 (`cf1-generic-unions`) has a package now. `eb-repl` is not a rung (live smoke only).
+calibration run. Rung *n* is the *n*-th row of the ranked table. The packages for rungs 1, 2 and 4 are built;
+rungs 3, 5 and 6 are not. `eb-repl` is not a rung (live smoke only).
+
+**Task 3 package update (2026-10-19).** The current RPI and PRR packages use the separately promoted visible
+checks and the amended first-existing-semantic-control selection recorded in the measurement plan. Current hidden
+denominators are 111 and 129; earlier ladder scan counts below are retained as historical evidence and are not the
+current denominators. The ranked table retains its original pre-calibration counts;
+use the current package sections for amended counts. The final package hashes are RPI `b2c9cfcae5b8e8b91ac115af518f90c092b7fbd245d253d70dea0bb001879136`
+and PRR `08696557c2de2d8d2e521b7e9fed8c05f365c058df43bf5813910ad6a4645278`.
+
+The original control-selection bands remain part of the record: all authorized partial attempts were outside
+0.3–0.7, PRR's mutant attempts were outside 0.3–0.8, and RPI mutant-01 was inside its original band. All 12
+attempts are retained in `/home/ollie/sc-evidence/preparation/task3/manifest.json`; no new control construction
+occurred. After seeing those fractions and before any judge input, selection changed to the first existing
+semantically adequate candidate per role. Fractions and failed-node IDs are descriptive only. The reviewed proof
+is `/home/ollie/sc-evidence/preparation/task3/semantic-proof.json` (SHA-256
+`eae7669a73755809e3e096b44ab8ed82008e364d98645a1716a26aa5714345d5`); `/home/ollie/sc-evidence/preparation/task3/semantic-review.json`
+approves offline package integration only, not predicted judge scores, calibration, or live spend. Both new
+anchors enter future `anchor_checks` spread under the frozen `phase2.json`.
 
 ## Rules
 
@@ -270,8 +287,9 @@ Limits of the search:
 
 - **Base check.** The base's `.gitignore` ignores `.orchestrate/` and `artifacts/` (lines 10 and 11, confirmed with
   `git check-ignore`).
-- **Files.** `task.txt`, `intent.txt`, `base_commit`, `hidden/` (26 files) and `hidden_tests.txt` (169 node ids,
-  `LC_ALL=C` sorted). Anchors:
+- **Current files.** `task.txt`, `intent.txt`, `base_commit`, `hidden/`, `hidden_tests.txt` (111 remaining ids,
+  `LC_ALL=C` sorted), `seed/dev-check.json`, and `seed/tests/` with the promoted test and its support helper.
+  The package has four anchors: upstream, stub, partial and mutant.
   - `anchors/resume-projection-integrity-upstream.diff` is `base..solution` restricted to `orchestrator/`,
     `specs/` and `workflows/` (R48). It has 18 files, there are no merges in the range, and it passes
     `git apply --check` at the base.
@@ -284,14 +302,17 @@ Limits of the search:
     - the two `StateManager` recorders, which raise.
 
     It applies.
-  - There is no `seed/`.
-- **Hidden set.** `hidden/` holds every test file the range adds or changes (18 test files, the helper
+  - The amended four-control set also includes `anchors/resume-projection-integrity-partial.diff` and
+    `anchors/resume-projection-integrity-mutant.diff` (hashes below).
+- **Original hidden qualification scan (historical).** `hidden/` holds every test file the range adds or changes (18 test files, the helper
   `workflow_bundle_helpers.py` and 7 golden fixtures). Their 1130 node ids were each run alone, with TMPDIR under the
   scratch directory:
   - At the base, 951 pass and 179 fail.
   - At the solution, 1126 pass. The 4 that fail there (`test_workflow_lisp_key_migrations.py` tracked-plan
     evidence) fail at the base too.
   - Qualifying: 175.
+- The following drop/keep/verification detail preserves the original qualification scan and does not describe the
+  current 111-node denominator. Task 3 promoted eight of the former hidden nodes:
 - **Dropped (6).**
   - R44, private functions the solution added:
     - `tests/test_subworkflow_calls.py::test_reached_call_fresh_retry_audits_all_failed_history_before_allocation`
@@ -314,7 +335,7 @@ Limits of the search:
     `_compile_entry` and `_reattach_bundle_provenance`.
   - The module-level `audit_scope` bindings in `calls`, `executor` and `resume`, which eight kept test functions
     (15 nodes) substitute, and the auditor module's source guard (no receipts, no retirement readers). task.txt names both.
-- **Verification.** Each of the 169 node ids was run alone:
+- **Original verification (historical).** Each of the 169 node ids was run alone:
   - Upstream anchor applied at the base: 169 of 169 pass.
   - Stub applied at the base: 50 of 169 pass. These failed at the base only because a new name was missing, or
     they pass with an auditor that accepts everything:
@@ -324,11 +345,42 @@ Limits of the search:
       2 auditor-module source guards.
 
   So a single call that only adds the entry points scores 50/169 = 0.30.
+- **Promoted node ids:**
+  - `tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[always]`
+  - `tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[failure]`
+  - `tests/test_runtime_step_lifecycle.py::test_projection_error_bypasses_failure_success_always_and_on_error_continue[success]`
+  - `tests/test_runtime_step_lifecycle.py::test_projection_error_exits_for_each_and_repeat_until_without_next_iteration[for_each]`
+  - `tests/test_runtime_step_lifecycle.py::test_projection_error_exits_for_each_and_repeat_until_without_next_iteration[repeat_until]`
+  - `tests/test_runtime_step_lifecycle.py::test_projection_error_finalization_failure_is_supplemental`
+  - `tests/test_runtime_step_lifecycle.py::test_projection_error_finalization_sticky_failure_is_supplemental`
+  - `tests/test_runtime_step_lifecycle.py::test_projection_error_in_finalization_promotes_without_prior_sticky_error`
+- **Promoted check.** `seed/dev-check.json` runs `seed/tests/test_runtime_step_lifecycle.py` first; that file's SHA-256 is
+  `6c0ffb91970adc7eaeeef8a2362d81ee57e290775821e78f48c9a6ca32a61506`. The verbatim
+  `seed/tests/workflow_bundle_helpers.py` support file has SHA-256
+  `6cc53929e568b3f4f827d948d43fab72619cefd6d1566df4b9f67816b16ab773`; the config hash is
+  `a52074d9d1733d24f353dfdf35c3581386cb442a5d5f83387ab9be871e98c96e`. Controller tests on a tiny task fixture
+  cover an empty/base failure and an upstream-anchor pass. Root's post-commit integration run will check the real
+  package's base, upstream and stub controls.
+- **Semantic controls.** Partial anchor SHA-256 `759242bdc3dade91afaa7fc642e207b0b868065e3cb4b458b44120e9ea3d249b`
+  omits `orchestrator/workflow/calls.py`: the root-executor resume audit remains,
+  but a reached child call does not audit its local projection. The retained-behavior test is
+  `test_projection_resume_root_direct_executor_rechecks_checksum_and_audit_before_prologue`; the functional
+  counterexample is `test_reached_call_checksum_precedes_local_projection_failure`, which fails with
+  `call_failed` instead of `resume_projection_integrity_error`. The partial passes the promoted visible check;
+  its 96/111 fraction (0.8649) is descriptive only. Full failing-node evidence is
+  `/home/ollie/sc-evidence/preparation/task3/reports/hidden/resume-projection-integrity-partial-01-no-calls.json`.
+  Mutant anchor SHA-256 `79570b62aba0f82708c3fc9e29d878cd5040d84e1f154a60ea3b40c91cd28cd8` adds one early return
+  that skips `audit_scope`; it retains 2,499/2,499 upstream added lines
+  and fails `test_projection_resume_root_direct_executor_rechecks_checksum_and_audit_before_prologue` at the
+  functional assertion `root guard must reject before prologue`; the promoted visible check passes and its 73/111
+  fraction is descriptive only. Full failing-node evidence is
+  `/home/ollie/sc-evidence/preparation/task3/reports/hidden/resume-projection-integrity-mutant-01-skip-audit.json`.
 - **Evidence** in `/home/ollie/Documents/agent-orchestration-compare-evidence/calibration/`:
   `resume-projection-integrity-hidden-base.txt` and `resume-projection-integrity-hidden-solution.txt` give
   per-node results for all 1130 nodes; `resume-projection-integrity-anchor-upstream.txt` and
   `resume-projection-integrity-anchor-stub.txt` cover the 169.
-- **Rung 2's scan solution hash:** `db9889937a895d67810dee1ea0b1b53552d30eca`.
+- **Rung 2's scan solution hash:** `db9889937a895d67810dee1ea0b1b53552d30eca`. Final package-tree SHA-256:
+  `b2c9cfcae5b8e8b91ac115af518f90c092b7fbd245d253d70dea0bb001879136`.
 
 ## Rung 3 package: `adopted-attempt-lineage`
 
@@ -393,9 +445,9 @@ Limits of the search:
 
 - **Base check.** The base's `.gitignore` ignores `.orchestrate/` and `artifacts/` (lines 10 and 11, confirmed with
   `git check-ignore`).
-- **Files.** `task.txt`, `intent.txt`, `base_commit`, `hidden/` (14 files: 13 test files and the
-  `pure_result_replay_effect_barrier.orc` fixture) and `hidden_tests.txt` (134 node ids, `LC_ALL=C` sorted).
-  Anchors:
+- **Current files.** `task.txt`, `intent.txt`, `base_commit`, `hidden/`, `hidden_tests.txt` (129 remaining ids,
+  `LC_ALL=C` sorted), `seed/dev-check.json`, and `seed/tests/test_runtime_step_lifecycle.py`. The package has four
+  anchors: upstream, stub, partial and mutant.
   - `anchors/pure-result-replay-upstream.diff` is `base..solution` restricted to `orchestrator/`, `specs/` and
     `workflows/` (R48). It has 15 files; there are no merges in the range. It includes `ce02cd17` (14 lines),
     earlier listed as foreign.
@@ -408,14 +460,13 @@ Limits of the search:
       (`persist_step_result`) and `restart_node_id` (`determine_default_resume_decision`), accepted and ignored.
 
     Both anchors pass `git apply --check` at the base.
-  - There is no `seed/`.
-- **Hidden set.**
+- **Original hidden qualification scan (historical).**
   - Verification ran with **TMPDIR unset**, so pytest uses the default `/tmp`, as `summarize` does.
   - The 13 test files hold 971 node ids, each run alone. At the base, 141 pass and 830 fail; almost all fail
     because nine of the files import the new module at collection. At the solution, 969 pass; the 2 that fail
     there (documentation-routing tests) fail at the base too.
   - Qualifying: 828.
-- **Dropped (694).**
+- **Original dropped-node accounting (historical, 694).**
   - R49: 643 node ids the stub passes. They failed at the base only because the new module or a new name was
     missing. The list is in the evidence file `pure-result-replay-drops-r49.txt`.
   - R44: 37 tests that call, patch or read private functions or attributes the solution added or changed:
@@ -489,10 +540,32 @@ Limits of the search:
 - **Verification.** Each node id was run alone, on all 828 qualifying ids:
   - Upstream anchor applied at the base: 826 of 828 pass (the 2 documentation tests fail), so 134 of the 134 kept.
   - Stub applied at the base: 643 of 828 pass (the R49 drops), so 0 of the 134 kept.
-- **Evidence** in `/home/ollie/Documents/agent-orchestration-compare-evidence/calibration/`:
+- **Original evidence** in `/home/ollie/Documents/agent-orchestration-compare-evidence/calibration/`:
   `pure-result-replay-hidden-base.txt` and `pure-result-replay-hidden-solution.txt` give per-node results for all
-  971 nodes; `pure-result-replay-anchor-upstream.txt` and `pure-result-replay-anchor-stub.txt` cover the 828; the
+  971 nodes; `pure-result-replay-anchor-upstream.txt` and `pure-result-replay-anchor-stub.txt` cover the original 828; the
   drop lists are `pure-result-replay-drops-r49.txt`, `-r44.txt` and `-r50.txt`.
+- **Promoted check.** `seed/dev-check.json` runs `seed/tests/test_runtime_step_lifecycle.py` first. The test file's
+  SHA-256 is `ab179a6abd29333d0a67dabc3e1d70c74848d7753df8b9977fe28fb11dddf32a`; the config hash is
+  `db2cd149712cb964df6611eccfb801feb4ca09c3992cf4b7d9fdbe2895407145`. Five former hidden nodes moved to this
+  check:
+  - `tests/test_runtime_step_lifecycle.py::test_call_frame_persistence_profile_rejects_malformed_existing_state_before_write[missing]`
+  - `tests/test_runtime_step_lifecycle.py::test_call_frame_persistence_profile_rejects_malformed_existing_state_before_write[non-mapping]`
+  - `tests/test_runtime_step_lifecycle.py::test_outcome_recorder_atomic_pure_failure_or_skip_uses_full_row[failed]`
+  - `tests/test_runtime_step_lifecycle.py::test_outcome_recorder_atomic_pure_failure_or_skip_uses_full_row[skipped]`
+  - `tests/test_runtime_step_lifecycle.py::test_outcome_recorder_atomic_pure_success_uses_exact_shell`
+- **Semantic controls.** Partial anchor SHA-256 `5fc14a94fccea40a55e5601a9593070f21f23489332ddee0bd1017a5cbf0c755`
+  omits `orchestrator/workflow/executor.py`: exact shell settlement in state
+  remains, but public workflow execution does not activate the replay profile. Its counterexample,
+  `test_public_run_activates_replay_profile_with_value_free_pure_results`, fails at runtime because
+  `WorkflowExecutor._pure_replay_profile_enabled_for_step` is absent; the retained behavior test
+  `test_atomic_pure_success_returns_and_persists_exact_shell` passes. Its 101/129 fraction (0.7829) is descriptive
+  only, and its promoted visible check fails at the same absent executor API. Mutant anchor SHA-256
+  `62583c797165847aa06ce3001e63ff200537e0032e011d25e0923427ee4f8739`; its one early return makes
+  `required_node_ids_for_boundary` return an empty closure; it retains 4,170/4,170 upstream added lines and fails
+  `test_pure_replay_boundary_indexes_list_root_value_documents` because the required pure-node ID is missing. Its
+  116/129 fraction (0.8992) is descriptive only.
+- **Final package-tree SHA-256:**
+  `08696557c2de2d8d2e521b7e9fed8c05f365c058df43bf5813910ad6a4645278`.
 - **Rung 4's scan solution hash:** `76427bdedbbac300bbd82d45db7fa6e24a770f84`.
 
 ## Contamination

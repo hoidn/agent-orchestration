@@ -52,7 +52,8 @@
   ordinary admitted 2.39 programs run through public `compile`/`run`/`resume`
   ([CLI boundary](../../specs/cli.md#executable-support-boundary)).
 - **Selection:** the [structural search roadmap](../plans/2026-10-18-orc-structural-search-roadmap.md).
-- **Inherited experiment rules:** no Fable model in any experiment call;
+- **Inherited experiment rules:** exact Sonnet/Terra model cap in every new
+  experimental role and nested guarded call; Fable remains forbidden;
   task difficulty calibrated before treatment runs; missing receipts are
   unavailable evidence, never zero.
 
@@ -111,8 +112,9 @@ Required harness extension, landing in `experiments/compare/`:
 ## Mutator Sessions
 
 Only shimmed CLIs exist: `experiments/compare/shim/claude`, `shim/codex` and
-`shim/model-guard` record every call, run it under bubblewrap and refuse any
-Fable model. An OMP session gets none of that, so mutator and arm sessions
+`shim/model-guard` record every call, run it under bubblewrap and enforce the
+exact `claude-sonnet-5-5` / `gpt-5.6-terra` cap, including Fable refusal. An OMP session gets none of that, so mutator
+and arm sessions
 are restricted to the shimmed Claude and Codex CLIs; an OMP shim with the
 same recording, sandbox and guard is a prerequisite before OMP is used.
 Within that restriction the session is ordinary (configured tools, project
@@ -218,7 +220,7 @@ first and needs its separate gates and allocation.
 | Private `defrecord`, `defunion`, `defenum` | Add, remove, rename or rewrite; imported-name collisions refuse before compilation. `deftype` remains frozen |
 | Public types and other candidate files | Frozen, including `common.orc`, `providers.json` and `commands.json`; listing a plain file in `mutable_files` does not unfreeze it |
 | Imports and resolved module graph | Import forms are frozen. The qualifiers in compiled `definitions` and `types` must match the parent's, excluding the candidate's own module and compiler-owned `workflow_lisp/private`; a changed graph refuses as `frozen_surface_changed` |
-| Provider model/effort | Every compiled provider `perform` must carry allowlisted string literals from `models`; missing, nonliteral or unlisted values refuse as `model_not_allowed`. Fable remains refused even if listed |
+| Provider model/effort | Every compiled provider `perform` must carry allowlisted string literals from `models`; missing, nonliteral or unlisted values refuse as `model_not_allowed`. Fable remains refused even if listed; the current CLI guard also refuses any model outside the exact Sonnet/Terra cap, which an allowlist cannot raise |
 | Per-call ceilings | A positive finite literal `timeout_sec` no greater than `per_call_timeout_sec` is required; missing/nonliteral values or additional unadmitted ceiling policies refuse as `per_call_ceiling_exceeded` |
 | Effect shapes | Compiled `provider_phased`, `agent` and `agent_turn` effects refuse as `unsupported_effect_shape`; the ordinary bounded-call check still refuses `unbounded_calls` |
 | Runtime, compiler, evaluator, task repositories, hidden checks and scoring | Outside the mutation surface |
@@ -557,7 +559,7 @@ Decision Points.
 
 | Family | Truth | State |
 | --- | --- | --- |
-| (a) Review/planning improvement on the harness task packages | Blind side-by-side judge `score.orc` under a criterion frozen and hashed before scoring; judge-primary rubric; hidden acceptance descriptive only | Usable now; expensive per evaluation; few calibrated rungs |
+| (a) Review/planning improvement on the harness task packages | Structural V1 uses pinned `score.orc` and its frozen qualification identity; generic comparison also supports reference-rubric calibration with four blind controls; hidden acceptance remains secondary | Generic calibration mechanics are implemented; amended packages/current capped model pair have no calibration result from implementation alone; structural V2 remains deferred |
 | (b) Hard-oracle repair seeded by `examples/demo_task_linear_classifier_port/` with `orchestrator/demo/evaluators/linear_classifier.py` | Deterministic behavioral checks plus a soft quality report | Needs a verified green baseline before defect variants are authored; evaluation cost unknown until then |
 
 Experiment O's catalog
@@ -571,6 +573,28 @@ and a family every seed solves or every seed fails is uninformative. Family
 ([Task 8](../plans/2026-10-14-effectiveness-harness-and-experiments-plan.md#task-8-task-difficulty-calibration));
 family (b) qualification shows the oracle accepting two structurally
 different correct submissions and rejecting a broken one.
+
+### Generic Reference Calibration And Current Experiment Policy
+
+The generic comparator supports criterion-selected `score_ref.orc`, four blind
+control roles (upstream/stub/partial/mutant), an unscored disclosed reference and
+P1/P2/P3/spread verdicts. The
+[harness contract](orc_effectiveness_comparison_harness.md#decision)
+owns those batch/control rules; the
+[measurement plan](../plans/2026-10-19-orc-structural-search-measurement-plan.md)
+owns current preparation and paid stages. Explicit calibration skips new
+per-node hidden acceptance, retaining existing construction diagnostics only.
+This generic path does not widen structural V1's rubric or receipt admission.
+V1 still validates its pinned historical rubric/family/evaluator inputs; a new
+V2 qualification contract requires separate selection before a successor quality
+study. Fresh adaptive launches remain unsupported.
+
+Every new experiment role uses the exact Sonnet/Terra cap: `claude-sonnet-5-5`
+or `gpt-5.6-terra`, including judges, controls, diagnosis and nested guarded
+calls. The measurement-specific Step-C seed is an external frozen copy with
+Sonnet-medium coder and Terra-high diagnosis; historical source retains its Sol
+policy and is not the current launch input. Model-cap enforcement and preparation
+do not establish family qualification, calibration or quality improvement.
 
 ### External Qualification Receipt
 
@@ -609,14 +633,14 @@ The placeholders illustrate a schema, not a frozen study or provider allocation.
 {
   "purpose": "quality",
   "tasks": ["experiments/compare/tasks/resume-projection-integrity"],
-  "judges": ["gpt-6.1-sol"],
+  "judges": ["gpt-5.6-terra"],
   "calibration": {"margin": 2.0, "error_rate": 0.0},
   "qualification": {"file": "/external/qualification.json", "sha256": "..."},
   "measurement": {
     "evaluator": {
       "score_workflow": {"file": "/frozen/score.orc", "sha256": "..."},
       "judges": {
-        "gpt-6.1-sol": {
+        "gpt-5.6-terra": {
           "effort": "high",
           "providers": {"file": "/frozen/score_codex.json", "sha256": "..."}
         }
@@ -987,8 +1011,9 @@ establish this proxy.
 ## Evaluation Hygiene
 
 The harness rules apply unchanged: shims first on `PATH` under bubblewrap,
-the Fable-refusing model guard with the subagent model pinned, the
-contamination scan whose Fable or solution-prefix hits cannot be cleared,
+the exact Sonnet/Terra model guard with Claude subagents pinned and independent
+Codex dispatch disabled, the contamination scan whose forbidden-model or
+solution-prefix hits cannot be cleared,
 blind random-id pools with repeated anchors, and a criterion frozen and
 hashed before scoring and bound into `run.json`. Added here: matched tasks
 and execution blocks (repetitions are observations, not tasks; a replicate
