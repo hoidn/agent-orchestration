@@ -96,8 +96,9 @@ def pool_pairs(pool, containing, calibration_sha, study, study_path, expected):
     results = read(reference(pool['results'], containing))
     require(mapping['criterion_sha256'] == results['criterion_sha256'] == calibration_sha,
             'calibration criterion hash does not match pool/results')
-    dispatch(study, study_path, Path(mapping['runtime']),
-             [f"{name}={info['providers']}" for name, info in mapping['judges'].items()])
+    from experiments.orc_structural_search.qualification import pool_context
+    context = pool_context(reference(pool['mapping'], containing).parent.parent)
+    dispatch(study, study_path, context['runtime'], context['judges'])
     task = pool['task_id']
     require(task in expected and Path(mapping['task']).name == task, 'calibration pool task mismatch')
     judges = set(study['judges'])

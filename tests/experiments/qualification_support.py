@@ -35,7 +35,7 @@ def measure_free(root, *, template=None, tasks=()):
     return write(root / "measure-free.json", value)
 
 
-def qualified(root, *, runtime=None, tasks=None, judges=("gpt-6.1-sol",)):
+def qualified(root, *, runtime=None, tasks=None, judges=("gpt-6.1-sol",), providers=None):
     """Create two qualifying raw R55 samples and a calibrated blind anchor pool per task."""
     root.mkdir(parents=True, exist_ok=True)
     runtime = runtime or root / "runtime"
@@ -59,7 +59,12 @@ def qualified(root, *, runtime=None, tasks=None, judges=("gpt-6.1-sol",)):
         for role in ("upstream", "stub"):
             anchor = anchors / f"{task.name}-{role}.diff"
             if not anchor.exists():
-                anchor.write_text(f"{role} patch")
+                alternatives = list(anchors.glob('*.diff'))
+                selected = [p for p in alternatives if ('upstream' in p.stem) == (role == 'upstream')]
+                if len(alternatives) == 2 and len(selected) == 1:
+                    anchor = selected[0]
+                else:
+                    anchor.write_text(f"{role} patch")
             controls[role] = {"label": anchor.stem, "source": ref(anchor), "pooled_patch_sha256": sha(anchor)}
         digest, samples = package_sha(task), []
         for n in (1, 2):
@@ -86,7 +91,7 @@ def qualified(root, *, runtime=None, tasks=None, judges=("gpt-6.1-sol",)):
         measurements[task.name] = {"package_sha256": digest, "controls": controls}
     measurement = {"evaluator": {
         "score_workflow": ref(runtime / "experiments/compare/score.orc"),
-        "judges": {name: {"effort": "high", "providers": ref(bindings)} for name in judges}},
+        "judges": {name: {"effort": "high", "providers": ref((providers or {}).get(name, bindings))} for name in judges}},
         "tasks": measurements}
     calibration = write(root / "private/calibration/criterion.json", {
         "purpose": "calibration", "calibration_kind": "measure", "budget": {"call_cap": 20},
@@ -97,8 +102,11 @@ def qualified(root, *, runtime=None, tasks=None, judges=("gpt-6.1-sol",)):
                   for role in ("upstream", "stub")}
         mapping = write(pool / "records/mapping.json", {
             "task": str(task), "runtime": str(runtime), "criterion_sha256": sha(calibration), "runs": {},
-            "judges": {name: {"dir": name, "providers": str(bindings)} for name in judges},
+            "judges": {name: {"dir": name, "providers": str((providers or {}).get(name, bindings))} for name in judges},
             "clones": clones, "batches": [["upstream", "stub"]]})
+        for judge in judges:
+            write(pool / 'records' / f'score-inputs-{judge}.json',
+                  {'judge_model': judge, 'criterion_sha256': sha(calibration)})
         results = write(pool / "records/results.json", {
             "criterion_sha256": sha(calibration), "judges": list(judges), "excluded_judges": {},
             "clones": {cid: clone | {"ratings": {name: {key: 2 if cid == "upstream" else 0
@@ -135,6 +143,13 @@ def refresh(q):
     for pool in receipt["measure"]["pools"]:
         for key in ("mapping", "results"):
             pool[key] = ref(Path(pool[key]["file"]))
+        mapping = json.loads(Path(pool['mapping']['file']).read_text())
+        for judge in mapping['judges']:
+            path = Path(pool['mapping']['file']).parent / f'score-inputs-{judge}.json'
+            if path.exists():
+                inputs = json.loads(path.read_text())
+                inputs['criterion_sha256'] = mapping['criterion_sha256']
+                write(path, inputs)
     write(q.receipt, receipt)
     study = json.loads(q.criterion.read_text())
     study["qualification"] = ref(q.receipt)

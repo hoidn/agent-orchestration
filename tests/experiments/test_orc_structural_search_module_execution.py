@@ -284,7 +284,7 @@ rows = [{{"type": "user", "message": {{"content": prompt}}}},
                       agent_cmd=["claude", "-p"], work_root=world.outside / "work", evidence_root=evidence,
                       episode_index=0, runtime=world.runtime, env=env, solutions={world.task.name: world.solution},
                       call_cap=160, fields={"criterion_sha256": "spoof"}, criterion=world.criterion)
-    assert (row["outcome"], row["criterion_sha256"], len(row["native_session_paths"])) == ("accepted", "actual", 1)
+    assert (row["outcome"], row["criterion_sha256"], len(row["native_session_paths"])) == ("accepted", sha(world.criterion), 1)
     assert Path(row["native_session_paths"][0]).is_file()
     if complete:
         assert row["consumption"]["claude"]["tokens"] == 20
@@ -402,9 +402,9 @@ def test_truncated_native_session_turns_completed_evaluation_into_unpoolable_inc
     assert row["realized_perform_sites"][0]["status"] == "completed" and row["scan_error"]
     assert len(read_records(evidence / "log.jsonl")) == 1
     assert "scan" not in json.loads((Path(row["records_dir"]) / "record.json").read_text())
-    with pytest.raises(ValueError, match="no completed evaluation"):
+    with pytest.raises(ValueError, match="measure-free"):
         scoring.pool_evaluations(evidence, world.task, out=world.outside / "pool", criterion=criterion,
-                                judges=json.loads(criterion.read_text())["judges"])
+                                judges=[])
     assert json.loads((evidence / "calls.json").read_text())[0]["calls"] == 1
 
 
@@ -470,10 +470,10 @@ def test_evaluation_beyond_reserved_maximum_fails_at_shim_and_settles_refused_ca
     cid, root = archive(world.candidate, world.evidence, world.runtime)
     script(world, [{"match": "Implement this change", "result": {"summary": "set VALUE", "account": "edited"}}])
     monkeypatch.setattr(ledger, "planned_calls", lambda *args, **kwargs: 1)
-    row = driver.evaluate_and_scan(root, module_config(), task=world.task, replicate=1,
+    row = driver.evaluate_and_scan(root, launch_config(world, module_config()), task=world.task, replicate=1,
         work_root=world.outside / "work", evidence_root=world.evidence, runtime=world.runtime,
         env={**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}", "SCRIPTED_RESULTS_FILE": str(world.results)},
-        timeout_sec=60, solutions={world.task.name: world.solution}, holdouts=(), fields={"candidate_id": cid}, call_cap=10)
+        timeout_sec=60, solutions={world.task.name: world.solution}, holdouts=(), fields={"candidate_id": cid}, call_cap=10, criterion=world.criterion)
     assert row["outcome"] == "failed", row
     assert not any("quota" in incident for incident in row["incidents"])
     records = Path(row["records_dir"])

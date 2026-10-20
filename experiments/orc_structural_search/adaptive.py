@@ -318,13 +318,10 @@ def run_mode2(config_path: Path, *, phase1_joined: Path, seeds: Sequence[Path], 
               timeout_sec: float, solutions: Mapping[str, str], call_cap: int, concurrency: int, criterion: Path,
               judges: Sequence[str], pools_root: Path,
               scorer: Callable[[Path, str, str], None] | None = None) -> tuple[dict, dict]:
-    """One mode 2 run on a fresh evidence root (see the module docstring): (the readout, also
-    <evidence>/readout.json even when a generation is refused; the launch mapping, validate_finalists' `launch`).
-    `phase1_joined` is Phase 1's joined.json (each task pool's scoring.read_pool rows: join_scores rows plus the
-    failed and incident evaluations); judges are MODEL[=PROVIDERS_JSON]; the
-    tasks must be the criterion's; judge pools go under `pools_root` (check_pools_root)."""
+    """Refuse fresh adaptive selection; historical Phase 2 helpers remain available for interpretation."""
     config = load_config(config_path)
     check_splits(adaptive_tasks, validation_task, criterion)
+    check_pools_root(pools_root, work_root, evidence_root)
     qualification.validate(criterion, tasks=[*adaptive_tasks, validation_task], config_sha256=config.criterion_sha256,
                            runtime=runtime, judges=judges, operation='launch')
     raise ValueError('successor adaptive selection is unsupported; frozen Phase 2 is read-only')

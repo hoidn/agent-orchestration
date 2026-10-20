@@ -2,31 +2,19 @@
 validation, with scripted providers, a scripted mutator and a scripted judge (no provider is called)."""
 
 import json
-import os
 import random
 import shutil
-import subprocess
 import sys
-import threading
 from collections import Counter
-from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 
-from experiments.compare.repos import sha256_file
 
-from experiments.compare import pool as pooling, prepare
-from experiments.orc_structural_search import judging
-from experiments.orc_structural_search.adaptive import (
-    feedback, incumbent, initial_archive, retain, run_mode2, select_parent, validate_finalists)
-from experiments.orc_structural_search.config import load_config
+from experiments.orc_structural_search.adaptive import feedback, incumbent, initial_archive, retain, run_mode2, select_parent
 from experiments.orc_structural_search.judging import judge_generation
-from experiments.orc_structural_search.ledger import CallCapExceeded
 from experiments.orc_structural_search.records import append_record, read_records
-from experiments.orc_structural_search.scoring import read_pool
-from experiments.orc_structural_search.scoring_phase2 import phase2_readout
-from tests.experiments.compare_harness_support import skip_without_sandbox, write_memo
+from tests.experiments.compare_harness_support import write_memo
 from tests.experiments.orc_structural_search_support import REPO, SEEDS, script, world  # noqa: F401 (world: fixture)
 
 PHASE2 = REPO / "experiments" / "orc_structural_search" / "criteria" / "phase2.json"
@@ -204,234 +192,27 @@ def scripted_judge(log, hit=None):
     return scorer
 
 
-@pytest.fixture
-def m2(world):
-    """The world with anchors, a validation task package, a Phase 2 criterion over them, Phase 1 prior rows for
-    the direct seed, the configuration and the scripted mutator, providers and judge."""
-    skip_without_sandbox()
-    validation = world.tmp / "task-v"
-    shutil.copytree(world.task, validation)
-    for task in (world.task, validation):
-        add_anchors(task)
-    criterion = world.tmp / "criterion.json"
-    criterion.write_text(json.dumps(json.loads(PHASE2.read_text()) | {
-        "adaptive_tasks": [str(world.task)], "validation_task": str(validation), "judges": JUDGES,
-        "anchors": {t.name: {"upstream": f"{t.name}-upstream", "stub": f"{t.name}-stub"} for t in (world.task, validation)}}))
-    (world.tmp / "joined.json").write_text(json.dumps([joined("direct", world.task.name, 4.0)]))
-    (world.tmp / "config.json").write_text(json.dumps(CONFIG | {"criterion_sha256": sha256_file(criterion)}))
-    mutator = world.outside / "mutator.py"
-    mutator.write_text(MUTATOR)
-    script(world, [{"match": "Implement this change", "result": {"summary": "set VALUE", "account": "edited pkg"}}])
-    env = {**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}", "SCRIPTED_RESULTS_FILE": str(world.results)}
-    return world, {"validation": validation, "criterion": criterion, "mutator": mutator, "env": env}
 
-
-def mode2(m2, tag="a", *, generations=1, episodes=4, run_seed=7, call_cap=200, scorer=None, mutator=None):
-    """(readout, log rows, evidence root, launch) of one scripted mode 2 run."""
-    world, m = m2
-    evidence = world.outside / f"evidence-{tag}"
-    result, launch = run_mode2(world.tmp / "config.json", phase1_joined=world.tmp / "joined.json", seeds=[SEEDS / "direct.orc"],
-                       adaptive_tasks=[world.task], validation_task=m["validation"], generations=generations,
-                       episodes_per_generation=episodes, run_seed=run_seed, work_root=world.outside / f"work-{tag}",
-                       evidence_root=evidence, agent_cmd=[sys.executable, "-I", str(mutator or m["mutator"])],
-                       runtime=world.runtime, env=m["env"], timeout_sec=600,
-                       solutions={t: world.solution for t in (world.task.name, m["validation"].name)},
-                       call_cap=call_cap, concurrency=4, criterion=m["criterion"], judges=JUDGES,
-                       pools_root=world.outside / f"pools-{tag}",
-                       scorer=scorer or scripted_judge(evidence / "log.jsonl"))
-    return result, read_records(evidence / "log.jsonl"), evidence, launch
-
-
-def kind(rows, name):
-    return [row for row in rows if row["kind"] == name]
-
-
-def test_generation_judges_each_task_once_with_both_anchors_and_updates_the_archive(m2):
-    world, _ = m2
-    _, rows, evidence, _ = mode2(m2)
-    pools = [Path(row["pool"]) for row in kind(rows, "judging")]
-    batches = [json.loads((p / "records" / "mapping.json").read_text()) for p in pools]
-    anchors = [sorted(mapping["clones"][c]["labels"][0] for c in batch if mapping["clones"][c]["arm"] == "anchor")
-               for mapping in batches for batch in mapping["batches"]]
-    children = {row["candidate_id"] for row in kind(rows, "episode") if row["outcome"] == "accepted"}
-    gen1 = json.loads((evidence / "archive" / "gen-1.json").read_text())
-    assert ([(row["generation"], row["task"]) for row in kind(rows, "judging")], anchors,
-            {e["candidate_id"] for e in gen1} == children, {e["mean_value"] for e in gen1},
-            {p.parent.parent for p in pools}, (evidence / "pools").exists()) == (
-        [(0, world.task.name), (1, world.task.name)], [[f"{world.task.name}-stub", f"{world.task.name}-upstream"]] * 2,
-        True, {6.0}, {(world.outside / "pools-a").resolve()}, False)
-
-
-def test_generation_splits_more_than_eight_children_into_anchored_batches(m2):
-    _, rows, _, _ = mode2(m2, episodes=9)
-    (gen1,) = [row for row in kind(rows, "judging") if row["generation"] == 1]
-    mapping = json.loads((Path(gen1["pool"]) / "records" / "mapping.json").read_text())
-    arms = [Counter(mapping["clones"][c]["arm"] == "anchor" for c in batch) for batch in mapping["batches"]]
-    assert (len([r for r in kind(rows, "episode") if r["outcome"] == "accepted"]), sorted(a[False] for a in arms),
-            [a[True] for a in arms], len(json.loads(Path(gen1["results"]).read_text())["runs"])) == (9, [4, 5], [2, 2], 9)
-
-
-def test_judge_calls_enter_the_ledger_and_the_cap_refuses_a_generation_before_its_episodes(m2):
-    world, _ = m2
-    evidence = world.outside / "evidence-a"
-    with pytest.raises(CallCapExceeded, match="generation 1's episodes"):
-        mode2(m2, call_cap=3)  # generation 0: one evaluation and two judges; 4 episodes, children and judges exceed
-    rows = read_records(evidence / "log.jsonl")
-    ledger = json.loads((evidence / "calls.json").read_text())
-    trajectory = json.loads((evidence / "readout.json").read_text())["trajectory"]
-    assert ([(e["key"], e["planned"], e["calls"]) for e in ledger if e["kind"] == "judge"], kind(rows, "episode"),
-            [r["generation"] for r in kind(rows, "evaluation")], (evidence / "archive" / "gen-1.json").exists(),
-            [t["generation"] for t in trajectory]) == (
-        [(f"gen 0 {world.task.name} {j}", 1, 0) for j in JUDGES], [], [0], False, [0])
-
-
-def read_json(path):
-    try:
-        return json.loads(path.read_text())
-    except ValueError:  # being written
-        return {}
-
-
-WAITING = "waiting for a scan verdict on "
-
-
-class Waits:
-    """sys.stdout passed through, keeping the scan file of every line announcing that the driver waits for it."""
-
-    def __init__(self, out):
-        self.out, self.paths = out, []
-
-    def write(self, text):
-        self.paths += [Path(line[len(WAITING):].split(": ")[0]) for line in text.splitlines()
-                       if line.startswith(WAITING)]
-        return self.out.write(text)
-
-    def flush(self):
-        self.out.flush()
-
-
-@contextmanager
-def adjudicator(waits, delay=0.3):
-    """Records a `cleared` verdict on each scan the driver announces it waits for, `delay` seconds after."""
-    stop, done = threading.Event(), set()
-
-    def clear():
-        while not stop.wait(delay):
-            for path in [p for p in waits.paths if p not in done]:
-                if path.name == "record.json":
-                    prepare.adjudicate(path.parent, "cleared", "test")
-                else:  # <pool>/records/judges/<judge>/scan.json
-                    pooling.adjudicate_judge(path.parents[3], path.parent.name, "cleared", "test")
-                done.add(path)
-
-    thread = threading.Thread(target=clear, daemon=True)
-    thread.start()
-    try:
-        yield
-    finally:
-        stop.set()
-        thread.join()
-
-
-PROBE = """
-import subprocess
-subprocess.run(["claude", "-p"], input="holdout probe\\n- path: /dev/null\\n", text=True, check=True)
-"""
-
-
-def mode2_with_hits(m2, monkeypatch):
-    """A mode 2 run (one generation, two episodes) whose evaluations' coder and episodes' mutator (through one claude
-    call) print the validation task's path, and whose judge-a output in generation 1 names the solution; every scan
-    is cleared by the test after the driver announces it waits for it. (readout, rows, evidence, launch, the scan
-    files waited for, in order)."""
-    world, m = m2
-    monkeypatch.setattr(judging, "POLL_SEC", 0.05)
-    script(world, [{"match": "Implement this change", "print": str(m["validation"]),
-                    "result": {"summary": "set VALUE", "account": "edited pkg"}},
-                   {"match": "holdout probe", "print": str(m["validation"]), "result": {}}])
-    probe = world.outside / "probe.py"
-    probe.write_text(MUTATOR + PROBE)
-    log, waits = world.outside / "evidence-a" / "log.jsonl", Waits(sys.stdout)
-    monkeypatch.setattr(sys, "stdout", waits)
-    with adjudicator(waits):
-        return (*mode2(m2, episodes=2, scorer=scripted_judge(log, hit=world.solution), mutator=probe), waits.paths)
-
-
-def test_mode2_waits_for_verdicts_on_run_and_judge_scan_hits_then_continues(m2, monkeypatch):
-    _, rows, evidence, _, waits = mode2_with_hits(m2, monkeypatch)
-    runs = {Path(r["records_dir"]) / "record.json" for r in kind(rows, "evaluation")}
-    (judged,) = [Path(r["pool"]) for r in kind(rows, "judging") if r["generation"] == 1]
-    assert (len(waits) == len(set(waits)), set(waits) == runs | {judged / "records/judges/judge-a/scan.json"},
-            [r["generation"] for r in kind(rows, "judging")], (evidence / "archive" / "gen-1.json").exists()) == (
-        True, True, [0, 1], True)
-
-
-def test_the_validation_task_is_a_holdout_root_of_episode_and_adaptive_evaluation_scans(m2, monkeypatch):
-    _, rows, evidence, _, _ = mode2_with_hits(m2, monkeypatch)
-    def patterns(record):
-        return {hit["pattern"] for hit in read_json(record)["scan"]["hits"]}
-    episodes = [patterns(evidence / "episodes" / r["episode_id"] / "record.json") for r in kind(rows, "episode")]
-    evaluations = [patterns(Path(r["records_dir"]) / "record.json") for r in kind(rows, "evaluation")]
-    assert (len(episodes), len(evaluations) > 1, all("holdout" in p for p in episodes + evaluations)) == (2, True, True)
-
-
-def test_a_judge_that_fails_twice_is_a_judge_incident_and_the_loop_continues(m2):
-    world, _ = m2
-    judged, attempts = scripted_judge(world.outside / "evidence-a" / "log.jsonl"), []
-
-    def failing(pool, judge, script="score"):
-        attempts.append((pool.parent.name, judge, script))
-        if (pool.parent.name, judge) == ("gen-1", "judge-a"):
-            raise subprocess.CalledProcessError(1, f"{script}-{judge}.sh")
-        judged(pool, judge, script)
-
-    _, rows, evidence, _ = mode2(m2, generations=2, episodes=2, scorer=failing)
-    ledger = json.loads((evidence / "calls.json").read_text())
-    assert ([r["generation"] for r in kind(rows, "judge_incident")], [a for a in attempts if a[0] == "gen-1"],
-            sorted(p.name for p in (evidence / "archive").glob("gen-*.json")),
-            [e["key"] for e in ledger if e["calls"] is None]) == (
-        [1], [("gen-1", "judge-a", "score"), ("gen-1", "judge-a", "resume")], ["gen-0.json", "gen-2.json"], [])
-
-
-def test_mode2_interleaves_i1_and_i2_and_reports_per_interface_figures(m2):
-    result, rows, _, _ = mode2(m2)
-    assert ([row["interface"] for row in kind(rows, "episode")], [row["site_id"] is None for row in kind(rows, "episode")],
-            {name: (r["episodes"], r["distinct_skeletons"]) for name, r in result["interfaces"].items()}) == (
-        ["I1", "I2", "I1", "I2"], [True, False, True, False], {"I1": ({"accepted": 2}, 1), "I2": ({"accepted": 2}, 2)})
-
-
-def test_mode2_is_reproducible_for_a_run_seed(m2):
-    draws = []
-    for tag in ("a", "b"):
-        _, rows, _, _ = mode2(m2, tag, generations=2, episodes=2, run_seed=11)
-        draws.append([(r["generation"], r["parent_candidate_id"], r["site_id"]) for r in kind(rows, "episode")])
-    assert (draws[0] == draws[1], len({d[1] for d in draws[0]}) > 1) == (True, True)
-
-
-def test_validation_task_never_reaches_an_episode_or_adaptive_evaluation(m2):
-    world, m = m2
-    _, rows, _, _ = mode2(m2)
-    briefs = (m["mutator"].parent / "briefs.txt").read_text()
-    assert ([r for r in rows if r.get("task_id") == m["validation"].name and r.get("split") != "validation"],
-            str(m["validation"]) in briefs, m["validation"].name in briefs,
-            {r["split"] for r in kind(rows, "evaluation")}, briefs.count("# Episode")) == ([], False, False, {"adaptive"}, 4)
-
-
-def test_validate_finalists_replicates_the_reference_and_direct_beside_the_finalists(m2):
-    world, m = m2
-    _, _, evidence, launch = mode2(m2)
-    judge = {"criterion": m["criterion"], "judges": JUDGES, "scorer": scripted_judge(evidence / "log.jsonl")}
-    config, gen1 = load_config(world.tmp / "config.json"), evidence / "archive" / "gen-1.json"
-    with pytest.raises(ValueError, match="pools root"):
-        validate_finalists(gen1, config=config, validation_task=m["validation"], judge=judge,
-                           launch=launch | {"pools_root": evidence / "pools"})
-    rows = validate_finalists(gen1, config=config, validation_task=m["validation"], launch=launch, judge=judge)
-    log = read_records(evidence / "log.jsonl")
-    (validation,) = [r for r in kind(log, "judging") if r["task"] == m["validation"].name]
-    readout = phase2_readout([evidence / "log.jsonl"], [evidence / "archive"],
-                             read_pool(Path(validation["results"]), evidence / "log.jsonl", m["criterion"]),
-                             m["criterion"])
-    direct = next(r["candidate_id"] for r in kind(log, "reference"))
-    assert (sorted(Counter(r["candidate_id"] for r in rows).values()), direct in {r["candidate_id"] for r in rows},
-            {r["split"] for r in kind(log, "evaluation") if r["task_id"] == m["validation"].name},
-            readout["rule"], readout["final_choice"] != direct) == ([2, 2, 2], True, {"validation"}, "chosen", True)
+@pytest.mark.parametrize('purpose', ['quality-unqualified', 'measure-free', 'quality-qualified'])
+def test_mode2_refuses_fresh_adaptive_launch_without_provider_work(tmp_path, purpose):
+    from tests.experiments.qualification_support import qualified, write, sha
+    q = qualified(tmp_path / 'first')
+    validation = tmp_path / 'validation'
+    shutil.copytree(q.tasks[0], validation)
+    q = qualified(tmp_path / 'qualification', runtime=q.runtime, tasks=[q.tasks[0], validation], judges=JUDGES)
+    frozen = json.loads(PHASE2.read_text()) | json.loads(q.criterion.read_text())
+    frozen.update(adaptive_tasks=[str(q.tasks[0])], validation_task=str(validation))
+    if purpose == 'measure-free':
+        frozen['purpose'] = 'measure-free'
+    elif purpose == 'quality-unqualified':
+        del frozen['qualification']
+    write(q.criterion, frozen)
+    config = write(tmp_path / 'config.json', CONFIG | {'criterion_sha256': sha(q.criterion)})
+    expected = 'unsupported' if purpose != 'quality-unqualified' else 'qualification'
+    with pytest.raises(ValueError, match=expected):
+        run_mode2(config, phase1_joined=tmp_path / 'joined.json', seeds=[], adaptive_tasks=[q.tasks[0]],
+            validation_task=validation, generations=1, episodes_per_generation=1, run_seed=1,
+            work_root=tmp_path / 'work', evidence_root=tmp_path / 'evidence', agent_cmd=[], runtime=q.runtime,
+            env={}, timeout_sec=1, solutions={}, call_cap=1, concurrency=1, criterion=q.criterion,
+            judges=JUDGES, pools_root=tmp_path / 'pools')
+    assert not (tmp_path / 'evidence').exists()

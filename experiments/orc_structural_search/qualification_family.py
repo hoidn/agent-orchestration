@@ -105,18 +105,26 @@ def oracle_rule(rule, containing, task, package):
     checks = names(rule['checks'], 'oracle checks')
     frozen = rule['tasks'][task.name]
     require(frozen['package_sha256'] == package, 'oracle rule task package mismatch')
-    controls = frozen['controls']
+    controls = oracle_controls(frozen['controls'])
+    return controls, checks, rule['oracle']['sha256']
+
+
+def oracle_controls(controls):
     require(isinstance(controls, list) and len(controls) == 3, 'oracle rule needs exactly three controls')
-    ids = names([c['id'] for c in controls], 'oracle controls')
+    names([c['id'] for c in controls], 'oracle controls')
     hashes = [hash_value(c['submission_sha256']) for c in controls]
     require(len(set(hashes)) == 3, 'oracle submissions must be distinct')
     accepted = [c for c in controls if c['expected'] == 'accept']
     rejected = [c for c in controls if c['expected'] == 'reject']
     require(len(accepted) == 2 and len(rejected) == 1, 'oracle controls need two accept and one reject')
+    validate_structure_classes(accepted)
+    return {c['id']: c for c in controls}
+
+
+def validate_structure_classes(accepted):
     classes = [c.get('structure_class') for c in accepted]
     require(all(isinstance(c, str) and c for c in classes) and len(set(classes)) == 2,
             'correct controls require distinct frozen structure classes')
-    return {c['id']: c for c in controls}, checks, rule['oracle']['sha256']
 
 
 def oracle_task(evidence, rule, containing, rule_path, task, package):

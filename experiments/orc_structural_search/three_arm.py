@@ -443,13 +443,13 @@ def judge(evidence_root: Path, pool: Path, task: Path, *, criterion: Path, judge
     if mapping.get("criterion_sha256") != frozen["criterion_sha256"]:
         raise ValueError("pool criterion_sha256 differs from the requested criterion")
     check_row_criteria(read_records(evidence_root / "log.jsonl"), frozen)
-    judging.score_pool(evidence_root, pool, f"three-arm {task.name}", names=names, solution=solution,
+    checked = judging.score_pool(evidence_root, pool, f"three-arm {task.name}", names=names, solution=solution,
                        call_cap=call_cap, scorer=scorer or judging.run_judge, criterion=criterion)
     for name in names:
         judging.judge_scan(pool, name)
     summarize.summarize(pool, criterion)
     row = {"kind": "judging", "generation": -2, "task": task.name, "pool": str(pool),
-           "results": str(pool / "records" / "results.json")}
+           "results": str(pool / "records" / "results.json"), "qualification": checked}
     append_record(evidence_root / "log.jsonl", row)
     return row
 

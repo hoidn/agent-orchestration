@@ -109,6 +109,10 @@ def private_roots(criterion: Path | None, *, public_roots=(), workspace_roots=()
     protected += [reference(info['providers'], criterion) for info in evaluator['judges'].values()]
     if receipt['family']['rule']['sha256'] in PUBLIC_RULE_HASHES:
         protected.append(reference(receipt['family']['rule'], receipt_path))
+    return allowed_roots(roots, protected)
+
+
+def allowed_roots(roots, protected):
     for root in roots:
         require(all(not public.is_relative_to(root) for public in protected),
                 f'private evidence layout would mask public execution path: {root}')

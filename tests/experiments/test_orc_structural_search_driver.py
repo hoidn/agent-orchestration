@@ -452,7 +452,7 @@ def test_two_structurally_different_i2_replacements_both_compile_and_execute(san
     rows = [i2_episode(world, index)[0] for index in (0, 2)]
     script(world, ANSWERS)
     env = {**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}", "SCRIPTED_RESULTS_FILE": str(world.results)}
-    evaluations = evaluate_all([(Path(row["candidate_root"]), config_of(), {}) for row in rows], tasks=[world.task],
+    evaluations = evaluate_all([(Path(row["candidate_root"]), launch_config(world, config_of()), {}) for row in rows], tasks=[world.task],
                                replicates=1, concurrency=2, work_root=world.outside / "work",
                                evidence_root=world.tmp / "evidence", runtime=world.runtime, env=env, timeout_sec=600,
                                solutions={world.task.name: world.solution}, holdouts=(), call_cap=160, criterion=world.criterion)

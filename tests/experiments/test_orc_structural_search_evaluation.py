@@ -239,9 +239,13 @@ def test_i3_launch_killed_beside_an_orchestrator_run_of_the_coder_is_an_incident
 
 
 def test_a_generic_command_incident_is_not_resumable(tmp_path):
-    record = EvaluationRecord("e", "unavailable", tmp_path, tmp_path, "sha256:e", "incident", None, 0.0, 0, 0, ())
+    from tests.experiments.qualification_support import measure_free, sha, write
+    criterion = measure_free(tmp_path)
+    write(tmp_path / 'record.json', {'runtime': str(tmp_path), 'task': str(tmp_path), 'tree': str(tmp_path)})
+    record = EvaluationRecord("e", "unavailable", tmp_path, tmp_path, "sha256:e", "incident", None, 0.0, 0, 0, (),
+                              criterion_sha256=sha(criterion))
     with pytest.raises(ValueError, match="no resume.sh"):
-        resume(record, env={}, timeout_sec=1)
+        resume(record, env={}, timeout_sec=1, criterion=criterion)
 
 
 def test_effect_evidence_distinguishes_not_started_generic_and_pure_zero(sandboxed, world):

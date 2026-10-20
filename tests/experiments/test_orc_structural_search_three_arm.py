@@ -1,3 +1,4 @@
+from tests.experiments.qualification_support import measure_free, qualified, write
 from tests.experiments.orc_structural_search_support import launch_config
 """The three-arm run (three_arm.py): I1, I2 and I3 episodes against the rebound direct parents, the stratified subset,
 its evaluations, judging through the ledger and the per-arm readout, with a scripted `codex` (the mutator command's
@@ -103,17 +104,19 @@ def env_of(world):
 
 def criterion_for(world, tasks):
     """The frozen criterion with the scripted judges and the test tasks' anchors."""
-    path = world.tmp / "criterion.json"
-    path.write_text(json.dumps(json.loads(CRITERION.read_text()) | {
-        "judges": JUDGES, "tasks": [str(t) for t in tasks],
-        "anchors": {t.name: {"upstream": f"{t.name}-upstream", "stub": f"{t.name}-stub"} for t in tasks}}))
-    return path
+    q = qualified(world.tmp / 'qualified-three-arm', runtime=world.runtime, tasks=tasks, judges=JUDGES)
+    data = json.loads(CRITERION.read_text()) | json.loads(q.criterion.read_text())
+    data['anchors'] = {t.name: {'upstream': f'{t.name}-upstream', 'stub': f'{t.name}-stub'} for t in tasks}
+    write(q.criterion, data)
+    return q.criterion
 
 
 def run(world, *, episodes=1, tasks=None, call_cap=200, continue_run=False, run_seed=7, criterion=CRITERION,
         guard=None):
     """(result, log rows, evidence root) of one scripted three-arm run (installed with `install`)."""
     evidence = world.tmp / "evidence"
+    if criterion == CRITERION:
+        criterion = measure_free(world.tmp / 'three-arm-mechanics', template=criterion, tasks=tasks or [world.task])
     configure(world, criterion)
     result = three_arm.run_three_arm(
         world.tmp / "config.json", parents={name: world.tmp / "parents" / name for name in ("orc", "python")},
@@ -246,7 +249,7 @@ def test_a_launch_beyond_the_cap_waits_for_an_evaluation_in_flight_to_settle(san
     def launch(tag, gate):
         evidence = world.tmp / f"evidence-{tag}"
         _, root = archive(world.tmp / "python", evidence, world.runtime)
-        return launch_units([Unit(root, I3_CONFIG, {}, task, 1) for task in tasks], concurrency=3, gate=gate,
+        return launch_units([Unit(root, launch_config(world, I3_CONFIG), {}, task, 1) for task in tasks], concurrency=3, gate=gate,
                             work_root=world.outside / f"work-{tag}", evidence_root=evidence, runtime=world.runtime,
                             env=env_of(world), timeout_sec=600, solutions={t.name: world.solution for t in tasks},
                             holdouts=(), call_cap=20, criterion=world.criterion)
@@ -425,7 +428,7 @@ def test_a_smoke_evaluates_the_two_parents_once_per_task_through_the_command_lin
     evidence, parents = world.tmp / "evidence", world.tmp / "parents"
     three_arm.main(["run", "--smoke", "--episodes-per-arm", "0", "--config", str(world.tmp / "config.json"),
                     "--parents", f"orc={parents / 'orc'}", f"python={parents / 'python'}",
-                    "--criterion", str(CRITERION), "--tasks", str(world.task),
+                    "--criterion", str(measure_free(world.tmp / "cli-mechanics", template=CRITERION, tasks=[world.task])), "--tasks", str(world.task),
                     "--work-root", str(world.outside / "work"), "--evidence", str(evidence),
                     "--agent-cmd", " ".join(CODEX_MUTATOR), "--runtime", str(world.runtime),
                     "--eval-timeout-sec", "14400",

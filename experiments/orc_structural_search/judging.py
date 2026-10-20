@@ -58,19 +58,22 @@ def run_judge(pool: Path, judge: str, script: str = "score") -> None:
     subprocess.run(["bash", str(pool / "records" / f"{script}-{judge}.sh"), *args], check=True)
 
 
-def attempt_judge(scorer: Callable[[Path, str, str], None], pool: Path, name: str) -> None:
+def attempt_judge(scorer: Callable[[Path, str, str], None], pool: Path, name: str, *, criterion: Path) -> None:
     """Score; on a nonzero exit resume once; a second failure is a JudgeIncident."""
+    def launch(script):
+        qualification.validate(criterion, **qualification.pool_context(pool), operation='quality')
+        scorer(pool, name, script)
     try:
-        scorer(pool, name, "score")
+        launch('score')
     except subprocess.CalledProcessError:
         try:
-            scorer(pool, name, "resume")
+            launch('resume')
         except subprocess.CalledProcessError as error:
             raise JudgeIncident(f"judge {name} of {pool} failed, and so did its resume: {error}") from error
 
 
 def score_pool(evidence_root: Path, pool: Path, key: str, *, names: Sequence[str], solution: str, call_cap: int,
-               scorer: Callable[[Path, str, str], None], criterion: Path | None = None) -> None:
+               scorer: Callable[[Path, str, str], None], criterion: Path | None = None) -> dict:
     """Reserve every judge's ledger entry (one planned call per batch), then per judge: score (attempt_judge),
     verify the clones, scan the judge; every entry is settled at the end, whatever happened."""
     if criterion is None:
@@ -78,20 +81,20 @@ def score_pool(evidence_root: Path, pool: Path, key: str, *, names: Sequence[str
     context = qualification.pool_context(pool)
     checked = qualification.validate(criterion, **context, operation='quality')
     mapping = json.loads((pool / 'records/mapping.json').read_text())
-    if mapping['criterion_sha256'] != checked['criterion_sha256'] or set(names) != set(mapping['judges']):
+    if mapping['criterion_sha256'] != checked['criterion_sha256'] or len(names) != len(set(names)) or set(names) != set(mapping['judges']):
         raise ValueError('qualification: actual pool criterion/judge dispatch mismatch')
     batches = len(mapping['batches'])
     slots = {name: ledger.reserve(evidence_root, kind="judge", key=f"{key} {name}", planned=batches, cap=call_cap)
              for name in names}
     try:
         for name in names:
-            qualification.validate(criterion, **qualification.pool_context(pool), operation='quality')
-            attempt_judge(scorer, pool, name)
+            attempt_judge(scorer, pool, name, criterion=criterion)
             pooling.verify_pool(pool)
             pooling.scan_judge(pool, name, solution)
     finally:
         for name, slot in slots.items():
             ledger.settle(evidence_root, slot, pool / "records" / "judges" / name)
+    return checked
 
 
 def unadjudicated(scan: Mapping) -> bool:
@@ -150,16 +153,14 @@ def judge_generation(evidence_root: Path, generation: int, tasks: Sequence[Path]
     names = [spec.partition("=")[0] for spec in judges]
     joined = []
     for task in tasks:
-        kept = [r for r in latest_evaluations(read_records(log)) if include(r)]
-        failures = outcome_rows(kept, task.name)
-        completed = [r for r in kept if r["task_id"] == task.name and r["outcome"] == "completed"]
+        failures, completed = task_evaluations(log, task, include)
         if all([excluded(run_scan(r)) for r in completed]):  # a list: wait for every verdict
             joined += [unvalued_row(r) for r in completed] + failures
             continue
         label = f"gen-{generation}" if generation >= 0 else VALIDATION
         pool = pool_evaluations(evidence_root, task, out=pool_root / label / task.name, judges=judges,
                                 criterion=criterion, include=include)
-        score_pool(evidence_root, pool, f"gen {generation} {task.name}", names=names, solution=solutions[task.name],
+        checked = score_pool(evidence_root, pool, f"gen {generation} {task.name}", names=names, solution=solutions[task.name],
                    call_cap=call_cap, scorer=scorer, criterion=criterion)
         for name in names:
             judge_scan(pool, name)
@@ -167,5 +168,12 @@ def judge_generation(evidence_root: Path, generation: int, tasks: Sequence[Path]
         results = pool / "records" / "results.json"
         joined += join_scores(results, log) + failures
         append_record(log, {"kind": "judging", "generation": generation, "task": task.name, "pool": str(pool),
-                            "results": str(results)})
+                            "results": str(results), "qualification": checked})
     return joined
+
+
+def task_evaluations(log, task, include):
+    kept = [r for r in latest_evaluations(read_records(log)) if include(r)]
+    failures = outcome_rows(kept, task.name)
+    completed = [r for r in kept if r["task_id"] == task.name and r["outcome"] == "completed"]
+    return failures, completed

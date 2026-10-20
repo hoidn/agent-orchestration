@@ -121,13 +121,7 @@ def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, repli
     if not is_python(config):
         require_candidate(root, config, runtime=runtime)
     key = lambda n: f"{cid} {task.name} replicate {replicate}" + (f" attempt {n}" if n > 1 else "")  # noqa: E731
-    while (killed := records_root(root, task_package=task, work_root=work_root, replicate=replicate, runtime=runtime,
-                                  env=env, attempt=attempt)).exists():  # killed in flight, unlogged: skipped, settled
-        if killed.name in logged_evaluations(evidence_root):
-            raise FileExistsError(f"{killed}: evaluation {killed.name} already ran and is logged; resume it rather "
-                                  "than rerun it")
-        ledger.settle_killed(evidence_root, "evaluation", key(attempt), killed / "run-1")
-        attempt += 1
+    attempt = next_evaluation_attempt(root, task, work_root, evidence_root, replicate, runtime, env, attempt, key)
     qualification.validate(criterion, tasks=[task], config_sha256=config.criterion_sha256, runtime=runtime)
     private = qualification.private_roots(criterion, public_roots=[runtime, task], workspace_roots=[root, work_root])
     planned = ledger.planned_calls(root, config, runtime=runtime)
@@ -155,6 +149,18 @@ def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, repli
     with _LOG_LOCK:
         append_record(evidence_root / "log.jsonl", row)
     return row
+
+
+def next_evaluation_attempt(root, task, work_root, evidence_root, replicate, runtime, env, attempt, key):
+    """Settle unlogged killed launches before selecting a new attempt identity."""
+    while (killed := records_root(root, task_package=task, work_root=work_root, replicate=replicate, runtime=runtime,
+                                  env=env, attempt=attempt)).exists():  # killed in flight, unlogged: skipped, settled
+        if killed.name in logged_evaluations(evidence_root):
+            raise FileExistsError(f"{killed}: evaluation {killed.name} already ran and is logged; resume it rather "
+                                  "than rerun it")
+        ledger.settle_killed(evidence_root, "evaluation", key(attempt), killed / "run-1")
+        attempt += 1
+    return attempt
 
 
 def settle_scan(records: Path, scan: Callable[[], list[dict]]) -> tuple[list[dict] | str, str | None]:

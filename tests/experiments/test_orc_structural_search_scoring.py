@@ -1,3 +1,4 @@
+from tests.experiments.qualification_support import qualified
 """Structural search scoring: the blind pool of evaluations, the join of summarize's runs to evaluation records,
 and the Phase 1 readout (Phase 2: test_orc_structural_search_scoring_phase2.py). Synthetic logs, memos, scoring
 runs and results.json; no provider is called."""
@@ -51,8 +52,9 @@ def evaluations(world):
     log = world.outside / "evidence" / "log.jsonl"
     log.parent.mkdir(parents=True)
     runs = {"e1": evaluation(world, "e1", "a + b"), "e2": evaluation(world, "e2", "b + a")}
-    criterion = world.tmp / "criterion.json"
-    criterion.write_text(json.dumps({"judges": ["judge-a", "judge-b"], "primary": [], "secondary": []}))
+    q = qualified(world.tmp / 'quality', runtime=world.runtime, tasks=[world.task], judges=['judge-a', 'judge-b'],
+                  providers={'judge-b': REPO / 'experiments/compare/providers/score_codex.json'})
+    criterion = q.criterion
     for eid, records in runs.items():
         append_record(log, log_row(records, eid=eid, seed={"e1": "direct", "e2": "best_of_n"}[eid]) |
                       {"criterion_sha256": sha256_file(criterion)})
