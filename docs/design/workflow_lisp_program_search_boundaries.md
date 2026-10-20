@@ -130,6 +130,5 @@ search roadmap; rationale in the
 <a id="proposed-amendment-2026-10-19"></a>
 
 Amended 2026-10-19: invariant 4 replaced under the owner's cumulative
-workflow evolution extension (accepted for design, unselected for spend);
-rationale in the
+workflow evolution extension; rationale in the
 [cumulative campaigns design](orc_structural_search_cumulative_campaigns.md).
