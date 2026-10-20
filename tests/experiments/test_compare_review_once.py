@@ -63,7 +63,12 @@ def reviewer(arm):
 
 
 def test_review_once_compiles_the_reviewer_of_reviewed_change():
-    assert reviewer("review_once") == reviewer("reviewed_change")
+    actual, historical = reviewer("review_once"), reviewer("reviewed_change")
+    def without_model(contract):
+        policy, provider = contract["binding"]
+        return contract | {"binding": ({key: value for key, value in policy.items() if key != "model"}, provider)}
+    assert without_model(actual) == without_model(historical)
+    assert actual["binding"][0]["model"]["v"] == "gpt-5.6-terra"
 
 
 def test_the_reviewer_is_bound_as_in_reviewed_change():

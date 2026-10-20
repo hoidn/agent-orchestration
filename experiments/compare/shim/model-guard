@@ -1,50 +1,71 @@
 #!/usr/bin/env bash
-# Stand-in for the claude CLI on an experiment agent's PATH (owner policy 2026-10-15: no Fable model in any
-# experiment call). The shim copies it to $COMPARE_TREE/.model-guard/claude and puts that directory first on
-# the sandboxed agent's PATH, so the top-level call and any claude an agent, a Codex agent or a candidate's
-# tests start through PATH come here. It refuses a --model or --fallback-model (either as two arguments or
-# with =; a fallback may list several models, comma-separated) naming Fable (exit 2, the real CLI never
-# runs), adds --model claude-opus-5-5 when no --model is given, whatever the fallback (the shared
-# ~/.claude/settings.json default must not win), and otherwise runs the next real claude on PATH with the
-# same arguments, stdin, streams and exit status. In-process subagents never pass through PATH; the shim's
-# CLAUDE_CODE_SUBAGENT_MODEL(_FORCE) environment pins them. An absolute path to the real CLI, a reset PATH or a
-# direct API call bypasses prevention. The scan detects Fable only in recorded Claude sessions under the
-# tree; a direct API call without such a session is invisible (scan.py, "Fable model").
-here=$(cd "$(dirname "$0")" && pwd -P); real=
-IFS=: read -ra dirs <<< "$PATH"
-for d in "${dirs[@]}"; do
-  [ "$(cd "$d" 2>/dev/null && pwd -P)" = "$here" ] && continue
-  [ -x "$d/claude" ] && { real="$d/claude"; break; }
-done
-[ -n "$real" ] || { echo "model guard: no real claude on PATH outside $here" >&2; exit 127; }
+# Experiment PATH guard for both CLI names. Absolute paths, reset PATH and direct APIs bypass it;
+# session metadata is scanned separately. Exact IDs deliberately refuse unknown model tiers.
+name=$(basename "$0"); here=$(cd "$(dirname "$0")" && pwd -P); real=
+case $name in
+  claude) default=claude-sonnet-5-5 ;;
+  codex) default=gpt-5.6-terra ;;
+  *) echo "model guard: unsupported CLI '$name'" >&2; exit 2 ;;
+esac
+refuse() { echo "model guard: $*" >&2; exit 2; }
 check_model() {
-  local model=$1
-  shopt -s nocasematch
-  [[ $model == *fable* ]] && { echo "model guard: '$model' names a Fable model, which no experiment call may use" >&2; exit 2; }
-  shopt -u nocasematch
-  if [ -n "${ORC_ALLOWED_CLAUDE_MODELS+set}" ]; then
+  [ "$1" = "$default" ] || refuse "'$1' is outside the owner's Sonnet/Terra model cap"
+  if [ "$name" = claude ] && [ -n "${ORC_ALLOWED_CLAUDE_MODELS+set}" ]; then
     case ,$ORC_ALLOWED_CLAUDE_MODELS, in
-      *,"$model",*) [ -n "$model" ] && return ;;
+      *,"$1",*) return ;;
     esac
-    echo "model guard: '$model' is outside the criterion's allowed Claude model IDs" >&2; exit 2
+    refuse "'$1' is outside the criterion's allowed Claude model IDs"
   fi
+}
+# A config file/table/profile can change model routes or enable native agents. Only the binding's
+# ordinary scalar effort setting is admitted; quoted values must be single TOML string literals.
+check_config() {
+  [[ $1 =~ ^model_reasoning_effort=(none|minimal|low|medium|high|xhigh|\"(none|minimal|low|medium|high|xhigh)\"|\'(none|minimal|low|medium|high|xhigh)\')$ ]] ||
+    refuse "configuration override '$1' is not an ordinary effort setting"
 }
 given=; args=("$@")
 for ((i = 0; i < ${#args[@]}; i++)); do
-  case ${args[i]} in
+  arg=${args[i]}; model=
+  case $arg in
+    --) break ;;
     --model) given=1; model=${args[i + 1]-} ;;
-    --model=*) given=1; model=${args[i]#--model=} ;;
+    --model=*) given=1; model=${arg#--model=} ;;
     --fallback-model) model=${args[i + 1]-} ;;
-    --fallback-model=*) model=${args[i]#--fallback-model=} ;;
-    *) continue ;;
+    --fallback-model=*) model=${arg#--fallback-model=} ;;
+    *)
+      if [ "$name" = codex ]; then
+        case $arg in
+          -m) given=1; model=${args[i + 1]-} ;;
+          -m*) given=1; model=${arg#-m}; model=${model#=} ;;
+          -c|--config) check_config "${args[i + 1]-}"; continue ;;
+          -c*) check_config "${arg#-c}"; continue ;;
+          --config=*) check_config "${arg#--config=}"; continue ;;
+          review|-p*|--profile|--profile=*|--model-provider|--model-provider=*|--local-provider|--local-provider=*|--oss|--enable|--enable=*)
+            refuse "'$arg' can override the model route or native-agent policy" ;;
+          *) continue ;;
+        esac
+      else
+        continue
+      fi ;;
   esac
+  [[ -n $model && $model != ,* && $model != *, && $model != *,,* ]] || check_model ""
   IFS=, read -ra models <<< "$model"
-  [ ${#models[@]} -gt 0 ] || check_model ""
   for selected in "${models[@]}"; do check_model "$selected"; done
 done
-check_model "${CLAUDE_CODE_SUBAGENT_MODEL:-claude-opus-5-5}"
+[ "${CLAUDE_CODE_SUBAGENT_MODEL:-claude-sonnet-5-5}" = claude-sonnet-5-5 ] ||
+  refuse "forbidden forced Claude subagent model '${CLAUDE_CODE_SUBAGENT_MODEL}'"
+export CLAUDE_CODE_SUBAGENT_MODEL=claude-sonnet-5-5 CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1
 if [ -z "$given" ]; then
-  check_model claude-opus-5-5
-  set -- --model claude-opus-5-5 "$@"
+  check_model "$default"
+  set -- --model "$default" "$@"
 fi
+if [ "$name" = codex ]; then
+  set -- --disable multi_agent --disable multi_agent_v2 --disable multi_agent_v2_dynamic_tools "$@"
+fi
+IFS=: read -ra dirs <<< "$PATH"
+for d in "${dirs[@]}"; do
+  [ "$(cd "$d" 2>/dev/null && pwd -P)" = "$here" ] && continue
+  [ -x "$d/$name" ] && { real="$d/$name"; break; }
+done
+[ -n "$real" ] || { echo "model guard: no real $name on PATH outside $here" >&2; exit 127; }
 exec "$real" "$@"

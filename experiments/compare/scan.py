@@ -19,10 +19,9 @@ seven characters; any mention of other sessions' transcripts or tmux sockets (.c
 .codex/sessions, .codex/history, claude-tmux-sockets), which stay readable on disk (R35). Paths
 match as typed: absolute, or under ~, $HOME or ${HOME} (R23).
 
-Model policy (owner, 2026-10-15): no experiment call may use a Fable model. The same Claude sessions are
-also read for each assistant message's message.model metadata (only there: printed text naming a model is
-not an answer); a Fable one is a "Fable model" hit, which cannot be cleared and excludes the run or judge
-(model_policy). Standard library only.
+Model policy (owner, 2026-10-19): only the exact current Sonnet/Terra IDs are admitted. Read actual
+Claude assistant message.model and Codex turn_context.model metadata, never printed model names.
+Fable and every other forbidden/unknown model are non-clearable policy hits. Standard library only.
 """
 
 import json
@@ -31,6 +30,7 @@ from pathlib import Path
 
 ARMS = "best_of_n|reviewed_change|design_review_execute|direct_task"
 FABLE = "Fable model"
+FORBIDDEN_MODEL = "Forbidden model"
 JUDGE_TESTS = r"\bpytest\b|\bdev_check(?:\.py)?\b"
 BOUNDARY = r"(?![\w.-])"  # a path ends here: what follows is not part of its last component
 POOL_FILES = r"records/(?:mapping\.json|patches/|score-inputs-|(?:score|resume)-\S*\.sh|results\.(?:json|md)|judges/)"
@@ -69,19 +69,25 @@ def claude_actions(row):
 
 
 def answering_model(row):
-    """The model that answered, from an assistant row's message.model metadata."""
-    model = (row.get("message") or {}).get("model") if row.get("type") == "assistant" else None
+    """Actual answering-model metadata from a Claude assistant or a Codex turn context."""
+    if row.get("type") == "assistant":
+        model = (row.get("message") or {}).get("model")
+    elif row.get("type") == "turn_context":
+        model = (row.get("payload") or {}).get("model")
+    else:
+        model = None
     return [model] if isinstance(model, str) else []
 
 
 def model_policy(hits):
-    """Why Fable answers in the scanned sessions exclude the run or judge, or None (they cannot be cleared)."""
-    fable = sum(hit["pattern"] == FABLE for hit in hits)
-    return f"Fable model used in {fable} assistant message(s): no experiment call may use Fable" if fable else None
+    """Policy violations exclude a run or judge regardless of an operator verdict."""
+    violations = [hit for hit in hits if hit["pattern"] in (FABLE, FORBIDDEN_MODEL)]
+    return (f"{violations[0]['pattern']} used in {len(violations)} model record(s): "
+            "experiment calls are limited to Sonnet/Terra; Fable is forbidden") if violations else None
 
 
 def refuse_clearing(verdict, hits, subject):
-    """A controller may not clear Fable answers: they break the model policy, whatever the reason."""
+    """A controller may not clear answers outside the owner model cap."""
     if verdict == "cleared" and model_policy(hits):
         raise SystemExit(f"{subject}: {model_policy(hits)}; it cannot be cleared")
 
@@ -116,9 +122,8 @@ def sources(calls_root, tree, since, home):
             yield path, number, line
     for path in claude_sessions(tree, home):
         yield from json_actions(path, claude_actions)
-    for path in sorted((home / ".codex" / "sessions").glob("*/*/*/rollout-*.jsonl")):
-        if path.stat().st_mtime >= since and (codex_cwd(path) + "/").startswith(f"{tree}/"):
-            yield from json_actions(path, codex_actions)
+    for path in codex_sessions(tree, since, home):
+        yield from json_actions(path, codex_actions)
 
 
 def claude_sessions(tree, home):
@@ -127,6 +132,21 @@ def claude_sessions(tree, home):
     for project in sorted((home / ".claude" / "projects").glob(slug + "*")):
         if project.name == slug or project.name.startswith(slug + "-"):
             yield from sorted(project.rglob("*.jsonl"))
+
+
+def codex_sessions(tree, since, home):
+    """Rollouts modified since launch whose recorded cwd belongs to this tree."""
+    for path in sorted((home / ".codex" / "sessions").glob("*/*/*/rollout-*.jsonl")):
+        if path.stat().st_mtime >= since and (codex_cwd(path) + "/").startswith(f"{tree}/"):
+            yield path
+
+
+def model_hits(paths, allowed):
+    for path in paths:
+        for _, number, model in json_actions(path, answering_model):
+            if model != allowed:
+                pattern = FABLE if "fable" in model.lower() else FORBIDDEN_MODEL
+                yield {"file": str(path), "line": number, "pattern": pattern, "text": f"model: {model}"}
 
 
 def siblings(tree):
@@ -141,8 +161,6 @@ def find_hits(calls_root, tree, since, home, compiled):
             if found:
                 hits.append({"file": str(path), "line": number, "pattern": name,
                              "text": text[max(0, found.start() - 80):found.end() + 80]})
-    for path in claude_sessions(Path(tree), Path(home)):  # the model policy reads metadata, never printed text
-        for _, number, model in json_actions(path, answering_model):
-            if "fable" in model.lower():
-                hits.append({"file": str(path), "line": number, "pattern": FABLE, "text": f"message.model: {model}"})
+    hits.extend(model_hits(claude_sessions(Path(tree), Path(home)), "claude-sonnet-5-5"))
+    hits.extend(model_hits(codex_sessions(Path(tree), since, Path(home)), "gpt-5.6-terra"))
     return hits

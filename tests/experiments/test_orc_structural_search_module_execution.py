@@ -74,12 +74,12 @@ def test_module_arm_uses_i1_interface_and_its_own_condition(tmp_path):
 
 
 @pytest.mark.parametrize("args,forced,allowed,status", [
-    (["--model", "claude-opus-5-5"], "claude-opus-5-5", "claude-opus-5-5", 0),
-    (["--model=claude-sonnet-5-5"], "claude-opus-5-5", "claude-opus-5-5", 2),
-    ([], "claude-opus-5-5", "claude-sonnet-5-5", 2),
-    (["--model", "claude-opus-5-5", "--fallback-model=claude-opus-5-5,other"], "claude-opus-5-5", "claude-opus-5-5", 2),
-    (["--model", "claude-opus-5-5"], "other", "claude-opus-5-5", 2),
-    (["--model", "fable"], "claude-opus-5-5", "fable,claude-opus-5-5", 2),
+    (["--model", "claude-sonnet-5-5"], "claude-sonnet-5-5", "claude-sonnet-5-5", 0),
+    (["--model=claude-opus-5-5"], "claude-sonnet-5-5", "claude-sonnet-5-5", 2),
+    ([], "claude-sonnet-5-5", "claude-opus-5-5", 2),
+    (["--model", "claude-sonnet-5-5", "--fallback-model=claude-sonnet-5-5,other"], "claude-sonnet-5-5", "claude-sonnet-5-5", 2),
+    (["--model", "claude-sonnet-5-5"], "other", "claude-sonnet-5-5", 2),
+    (["--model", "fable"], "claude-sonnet-5-5", "fable,claude-sonnet-5-5", 2),
 ])
 def test_claude_guard_checks_explicit_default_fallback_and_forced_subagent(tmp_path, args, forced, allowed, status):
     from tests.experiments.orc_structural_search_support import REPO
@@ -229,8 +229,8 @@ def test_original_criterion_accepts_historical_rows_without_hash():
 
 @pytest.mark.parametrize("args,allowed,expected", [
     (["--model", "outside"], {"claude-opus-5-5": ["high"], "claude-sonnet-5-5": ["medium"]}, "incident"),
-    ([], {"claude-sonnet-5-5": ["medium"]}, "incident"),
-    (["--model", "claude-opus-5-5"], {"claude-opus-5-5": ["high"], "claude-sonnet-5-5": ["medium"]}, "accepted"),
+    ([], {"claude-sonnet-5-5": ["medium"]}, "accepted"),
+    (["--model", "claude-opus-5-5"], {"claude-opus-5-5": ["high"], "claude-sonnet-5-5": ["medium"]}, "incident"),
 ])
 def test_initial_claude_launch_enforces_allowlist_after_compare_environment_is_stripped(sandboxed, world, args,
                                                                                        allowed, expected):
@@ -357,7 +357,7 @@ def test_truncated_native_session_does_not_abort_episode_settlement(sandboxed, w
     evidence = world.tmp / "evidence"
     _, parent = archive(world.candidate, evidence, world.runtime)
     config = replace(module_config(), episode_wall_clock_sec=5 if exhausted else 120)
-    row = run_episode(parent, launch_config(world, config), interface="I1", mode="unguided", agent_cmd=[provider, "-p"],
+    row = run_episode(parent, launch_config(world, config), interface="I1", mode="unguided", agent_cmd=[provider, "exec" if provider == "codex" else "-p"],
                       work_root=world.outside / "work", evidence_root=evidence, episode_index=0,
                       runtime=world.runtime, env={**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}"},
                       solutions={world.task.name: world.solution}, call_cap=160, criterion=world.criterion)

@@ -80,7 +80,7 @@ What it does not isolate:
 | --- | --- |
 | `W/records/<arm>/run-<k>/` (`R`) | `record.json`, `inputs.json`, `command.sh`, `resume.sh`, `calls/<n>/`, `collected/`, `run.log` |
 | `<cwd>/.orchestrate/runs/<run_id>/` | the run's orchestrator state (memo, `run.json`, attempt files), in the working directory; `record.json` names it as `state_root`. For `best_of_n` it is `<tree>/.orchestrate/best-of-n-runs/<run_id>/`, linked from every `cand-k/.orchestrate/` |
-| `W/agents/<16 hex>/` | the agents' tree: `cand-1` ... `cand-N`, `tmp/` (TMPDIR, and `/tmp` inside the sandbox) and `.model-guard/claude` (first on the agent's `PATH`); `record.json` names the tree |
+| `W/agents/<16 hex>/` | the agents' tree: `cand-1` ... `cand-N`, `tmp/` (TMPDIR, and `/tmp` inside the sandbox) and `.model-guard/{claude,codex}` (first on the agent's `PATH`); `record.json` names the tree |
 | `P/clones/<id>/` | applied-patch clones, what judges read |
 | `P/judges/<16 hex>/` | one judge's working directory, with its `state/` and `tmp/` (its `/tmp` inside the sandbox) |
 | `P/records/judges/<judge>/` | the judge's shim call records (`calls/<n>/`) and `scan.json` |
@@ -105,48 +105,41 @@ git -C $MAIN worktree add --detach $RT $C        # 0. frozen runtime outside MAI
 PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
 ```
 
-Model policy (owner, 2026-10-15): no experiment call uses a Fable model. This covers arms, controls, reviews,
-judges and delegated agents, and Claude planning uses `claude-opus-5-5`. A new criterion records the models it
-freezes. E-B's frozen `criteria/eb.json` pin of `claude-fable-5-1` is historical.
+Model policy (owner, 2026-10-19): all experiment workflows use mid/low-tier models at or below
+Sonnet/Terra, including judges, reviewers, coders and nested agents. The current measurement admits
+exactly `claude-sonnet-5-5` and `gpt-5.6-terra`; Fable remains forbidden. Frozen high-model arms and
+criteria preserve historical evidence and refuse new guarded launches until separately amended.
+Changing a model does not authorize spend or establish calibration for a new model pair.
 
-Agents share `$HOME`, and the user's `~/.claude/settings.json` selects Fable. So the harness both guards and checks.
-It does not claim perfect isolation.
-- **Guard.** On every call, the shims install `shim/model-guard` as `<tree>/.model-guard/claude` and put it first on
-  the sandboxed agent's `PATH`.
-  - Parallel calls in one tree (a judge's batches) never write over or replace a guard that another call is running.
-    - An identical guard is left as it is.
-    - A missing one is created by hard-linking a fully written copy, which cannot replace an existing guard.
-    - Only an edited guard is replaced, by rename, which restores it on the next call.
-    - Rename alone is not enough: `bwrap`'s `execvp` was seen to fail with "No such file" for a file being renamed
-      over.
-  - Every `claude` process started through `PATH` therefore goes through it: the top-level call, one a Codex agent
-    starts, a `claude` subprocess an agent starts, or one a candidate's tests start.
-  - It refuses a `--model` or `--fallback-model` that names Fable, with exit 2, and the real CLI never runs. Both
-    the two-argument and the `=` forms are checked, and every model in a comma-separated fallback list.
-  - It adds `--model claude-opus-5-5` when no `--model` is given, even if a fallback model is.
-  - With optional `COMPARE_CLAUDE_MODELS` (comma-separated IDs, forwarded as `ORC_ALLOWED_CLAUDE_MODELS`), it also refuses models outside that list,
-    including the implicit Opus default, every fallback and the forced subagent model. Structural-search
-    configurations with `models` supply it for every configured arm; a list omitting forced Opus therefore
-    refuses the launch. Without the variable, the existing Fable guard/default behavior applies.
-  - Otherwise it runs the real CLI unchanged. Codex model allowlisting is enforced by structural-search
-    module admission, not this Claude guard.
-- **In-process subagents.** A Claude CLI's Agent-tool subagents, teammates and workflow agents run inside its
-  process, not through `PATH`. The shims therefore set `CLAUDE_CODE_SUBAGENT_MODEL=claude-opus-5-5` and
-  `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` in the sandbox environment, which nested processes inherit.
-  - By the CLI's documented contract ([run every subagent on one model](https://code.claude.com/docs/en/sub-agents#run-every-subagent-on-one-model), Claude Code 2.1.257 or later; 2.1.301
-    is installed), these two variables override the models of agent definitions and of each invocation.
-  - The main model, the explicit `--model`, is unchanged.
-  - The harness tests check that both variables reach the agent. They cannot check the CLI's internal behaviour.
-- **Check.** A few paths bypass both of the above:
-  - an absolute path to the real CLI;
-  - a reset `PATH`;
-  - an environment that deliberately drops the two variables;
-  - an older CLI;
-  - a direct API call.
+Agents share `$HOME`, so the harness guards instrumented CLI routes and checks recorded usage:
 
-  The scan reads answering models in recorded Claude sessions under the tree (see step 4), including subagent transcripts. A direct API call without such a session is invisible. A
-  Fable answer cannot be cleared. Sessions started with a literal sandbox `/tmp/...` working directory, rather than
-  under `TMPDIR`, are not attributed to the run.
+- **Guard.** The shims install the same `shim/model-guard` under both `<tree>/.model-guard/claude`
+  and `codex`, first on the sandboxed agent's `PATH`, for top-level and nested CLI calls. Parallel
+  installation leaves identical copies alone, creates missing copies by atomic hard link and
+  restores edited copies by rename. Arguments, stdin, streams and status reach the real CLI.
+  Claude defaults to Sonnet; explicit and fallback model arguments (separate or `=` forms,
+  including every comma-separated fallback) must use the exact Sonnet ID. Optional
+  `COMPARE_CLAUDE_MODELS`, forwarded as `ORC_ALLOWED_CLAUDE_MODELS`, can narrow this owner cap but
+  cannot raise it. The forced Claude subagent model must also be Sonnet.
+- **Codex.** The same guard defaults to Terra and checks long and short model arguments. It
+  rejects review subcommands (which can select a separate `review_model`), profile, provider,
+  local-model and feature-enabling overrides, and admits only scalar
+  `model_reasoning_effort` configuration overrides used by the provider binding. It always adds
+  `--disable multi_agent --disable multi_agent_v2 --disable multi_agent_v2_dynamic_tools` to
+  disable native agents whose model selection does not pass through `PATH`.
+- **Claude native agents.** The shims and guard set
+  `CLAUDE_CODE_SUBAGENT_MODEL=claude-sonnet-5-5` and `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`.
+  These cover Agent-tool subagents, teammates and workflow agents under the CLI contract
+  ([run every subagent on one model](https://code.claude.com/docs/en/sub-agents#run-every-subagent-on-one-model),
+  Claude Code 2.1.257 or later). Offline tests verify the variables reach the CLI, rather than
+  claiming a live verification of its internals.
+- **Scan and limits.** Absolute real-CLI paths, a reset `PATH`, dropped environment pins, older
+  CLIs and direct APIs bypass prevention. The scan reads actual Claude assistant `message.model`
+  and Codex `turn_context.model` metadata in attributed sessions, including nested sessions.
+  Fable or any other forbidden/unknown model produces a non-clearable policy hit. Printed model
+  names do not count as usage. Direct API calls without a scoped session are invisible, and
+  sessions started at literal sandbox `/tmp/...` paths rather than under `TMPDIR` are not
+  attributed to the tree. These guards do not claim prevention beyond instrumented routes.
 
 1. **Prepare** one run per invocation. It prints the command, writes it to `R/command.sh` and
    writes `R/resume.sh`.
@@ -155,12 +148,16 @@ It does not claim perfect isolation.
    $PY $H/prepare.py run --task $T --arm best_of_n --root $W --runtime $RT [--candidates 4]
    $PY $H/prepare.py run --task $T --arm reviewed_change --root $W --runtime $RT
    $PY $H/prepare.py run --task $T --arm design_review_execute --root $W --runtime $RT \
-     --set planner_model=claude-opus-5-5 --set reviewer_model=gpt-6.1-sol
+     --set planner_model=claude-sonnet-5-5 --set reviewer_model=gpt-5.6-terra
    $PY $H/prepare.py run --task $T --arm direct_task --root $W --runtime $RT \
-     --set model=gpt-6-sol --set effort=high
+     --set model=gpt-5.6-terra --set effort=high
    $PY $H/prepare.py run --task $T --arm review_once --root $W --runtime $RT \
      --apply $W/records/direct_task/run-<k>/collected/final.diff
    ```
+
+   `best_of_n`, `reviewed_change` and `design_review_execute` retain historical internal model
+   choices; preparation alone does not make them launchable under the current cap. Use the
+   direct/review controls above or an explicitly amended measurement workflow.
 
    | arm | inputs | working directory of the command |
    | --- | --- | --- |
@@ -234,15 +231,15 @@ It does not claim perfect isolation.
    - another run's tree name;
    - `github.com`, `gh ` and `git fetch`;
    - the solution hash;
-   - `Fable model`: an assistant message whose `message.model` metadata names Fable, in any of the tree's Claude
-     sessions. Printed text naming a model does not count. This applies to every session,
-     including nested ones such as `<tree>/tmp/pytest-…`.
+   - `Fable model` or `Forbidden model`: actual Claude assistant `message.model` or Codex
+     `turn_context.model` metadata outside the admitted IDs, including nested attributed sessions.
+     Printed text naming a model does not count.
 
    A path also matches when it is written under `~`, `$HOME` or `${HOME}`.
 
    For a run with hits, the controller reads them and records a verdict. `pool` refuses a run
    with hits and no verdict, excludes contaminated runs (listed with the reason) and includes
-   cleared ones. A `Fable model` hit breaks the model policy and cannot be cleared:
+   cleared ones. A `Fable model` or `Forbidden model` hit breaks the model policy and cannot be cleared:
    - `scan --verdict cleared` refuses it;
    - `pool` excludes the run, and `summarize` excludes the judge, with the number of Fable messages.
 
@@ -268,7 +265,7 @@ It does not claim perfect isolation.
 
    ```bash
    $PY $H/prepare.py pool --task $T --criterion <criterion.json> --out $P \
-     --judge claude-opus-5-5 --judge gpt-6.1-sol=$H/providers/score_codex.json $W/records/best_of_n/run-* ...
+     --judge claude-sonnet-5-5 --judge gpt-5.6-terra=$H/providers/score_codex.json $W/records/best_of_n/run-* ...
    ```
 
 7. **Score** one judge after another, behind the shims, which record the judge's calls in
@@ -283,12 +280,12 @@ It does not claim perfect isolation.
    several work roots; rescan those judges.
 
    ```bash
-   bash $P/records/score-claude-opus-5-5.sh && $PY $H/prepare.py verify-pool --pool $P
-   bash $P/records/resume-claude-opus-5-5.sh <run_id>      # only after a stop; run_id under P/judges/<dir>/state
-   $PY $H/prepare.py scan --pool $P --judge claude-opus-5-5 --hash $SOL
-   $PY $H/prepare.py scan --pool $P --judge claude-opus-5-5 --verdict cleared --reason "<why>"
-   bash $P/records/score-gpt-6.1-sol.sh && $PY $H/prepare.py verify-pool --pool $P
-   $PY $H/prepare.py scan --pool $P --judge gpt-6.1-sol --hash $SOL
+   bash $P/records/score-claude-sonnet-5-5.sh && $PY $H/prepare.py verify-pool --pool $P
+   bash $P/records/resume-claude-sonnet-5-5.sh <run_id>      # only after a stop; run_id under P/judges/<dir>/state
+   $PY $H/prepare.py scan --pool $P --judge claude-sonnet-5-5 --hash $SOL
+   $PY $H/prepare.py scan --pool $P --judge claude-sonnet-5-5 --verdict cleared --reason "<why>"
+   bash $P/records/score-gpt-5.6-terra.sh && $PY $H/prepare.py verify-pool --pool $P
+   $PY $H/prepare.py scan --pool $P --judge gpt-5.6-terra --hash $SOL
    ```
 
 8. **Summarize.** It refuses in these cases:

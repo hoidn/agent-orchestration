@@ -183,7 +183,7 @@ def test_shim_hides_the_runtime_and_the_records_from_the_agent(world):
             [d for d in env["PATH"].split(":") if d.endswith("experiments/compare/shim")],
             [k for k, v in env.items() if str(world.runtime) in v or str(records) in v],
             env.get("CLAUDE_CODE_SUBAGENT_MODEL"), env.get("CLAUDE_CODE_SUBAGENT_MODEL_FORCE")) == (
-        [], [], [], "claude-opus-5-5", "1")
+        [], [], [], "claude-sonnet-5-5", "1")
 
 
 ATTEMPT = ("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY", "ORCHESTRATOR_WORKSPACE_ROOT")
@@ -411,11 +411,11 @@ def log_claude_argv(world, monkeypatch):
     return log
 
 
-def test_claude_without_a_model_runs_opus_at_the_top_and_when_nested(world, monkeypatch):
+def test_claude_without_a_model_runs_sonnet_at_the_top_and_when_nested(world, monkeypatch):
     log = log_claude_argv(world, monkeypatch)
     _, record = start(world, "direct_task")
     assert call(world, record, "claude -p nested </dev/null").returncode == 0
-    assert log.read_text().splitlines() == ["--model claude-opus-5-5 -p", "--model claude-opus-5-5 -p nested"]
+    assert log.read_text().splitlines() == ["--model claude-sonnet-5-5 -p", "--model claude-sonnet-5-5 -p nested"]
 
 
 @pytest.mark.parametrize("model", ["--model fable", "--model=claude-fable-5-1"])
@@ -423,7 +423,7 @@ def test_nested_claude_asking_for_fable_is_refused_before_the_cli_runs(world, mo
     log = log_claude_argv(world, monkeypatch)
     _, record = start(world, "direct_task")
     done = call(world, record, f"claude {model} -p nested </dev/null; echo nested-exit=$?")
-    assert (log.read_text().splitlines(), "nested-exit=2" in done.stdout) == (["--model claude-opus-5-5 -p"], True)
+    assert (log.read_text().splitlines(), "nested-exit=2" in done.stdout) == (["--model claude-sonnet-5-5 -p"], True)
 
 
 @pytest.mark.parametrize("fallback", ["--model opus --fallback-model fable",
@@ -432,14 +432,14 @@ def test_nested_claude_with_a_fable_fallback_is_refused_before_the_cli_runs(worl
     log = log_claude_argv(world, monkeypatch)
     _, record = start(world, "direct_task")
     done = call(world, record, f"claude {fallback} -p nested </dev/null; echo nested-exit=$?")
-    assert (log.read_text().splitlines(), "nested-exit=2" in done.stdout) == (["--model claude-opus-5-5 -p"], True)
+    assert (log.read_text().splitlines(), "nested-exit=2" in done.stdout) == (["--model claude-sonnet-5-5 -p"], True)
 
 
-def test_a_fallback_model_alone_still_gets_opus_as_the_model(world, monkeypatch):
+def test_a_fallback_model_alone_still_gets_sonnet_as_the_model(world, monkeypatch):
     log = log_claude_argv(world, monkeypatch)
     _, record = start(world, "direct_task")
     call(world, record, "claude --fallback-model claude-sonnet-5-5 -p nested </dev/null")
-    assert log.read_text().splitlines()[1] == "--model claude-opus-5-5 --fallback-model claude-sonnet-5-5 -p nested"
+    assert log.read_text().splitlines()[1] == "--model claude-sonnet-5-5 --fallback-model claude-sonnet-5-5 -p nested"
 
 
 def test_a_top_level_fable_call_is_refused_and_still_recorded(world, monkeypatch):
@@ -457,11 +457,11 @@ def test_nested_claude_keeps_an_explicit_other_model(world, monkeypatch):
     assert log.read_text().splitlines()[1] == "--model claude-sonnet-5-5 -p nested"
 
 
-def test_claude_started_by_a_codex_agent_runs_opus(world, monkeypatch):
+def test_claude_started_by_a_codex_agent_runs_sonnet(world, monkeypatch):
     log = log_claude_argv(world, monkeypatch)
     _, record = start(world, "direct_task")
     assert call(world, record, "claude -p nested </dev/null", binary="codex").returncode == 0
-    assert log.read_text().splitlines() == ["--model claude-opus-5-5 -p nested"]
+    assert log.read_text().splitlines() == ["--model claude-sonnet-5-5 -p nested"]
 
 
 def test_parallel_calls_in_one_tree_all_run_through_the_guard(world, monkeypatch):
@@ -471,7 +471,7 @@ def test_parallel_calls_in_one_tree_all_run_through_the_guard(world, monkeypatch
         done = list(pool.map(lambda k: call(world, record, f"claude -p nested-{k} </dev/null"), range(16)))
     nested = sorted(line for line in log.read_text().splitlines() if "nested" in line)
     assert ([d.returncode for d in done], nested, sorted(p.name for p in (Path(record["tree"]) / ".model-guard").iterdir())) == (
-        [0] * 16, sorted(f"--model claude-opus-5-5 -p nested-{k}" for k in range(16)), ["claude"])
+        [0] * 16, sorted(f"--model claude-sonnet-5-5 -p nested-{k}" for k in range(16)), ["claude", "codex"])
 
 
 def test_an_edited_guard_is_restored_by_the_next_call(world, monkeypatch):
@@ -481,7 +481,7 @@ def test_an_edited_guard_is_restored_by_the_next_call(world, monkeypatch):
     edited = Path(record["tree"]) / ".model-guard" / "claude"
     edited.write_text(f'#!/bin/sh\nexec {world.fakebin}/claude "$@"\n')
     call(world, record, "claude -p nested </dev/null")
-    assert log.read_text().splitlines()[-1] == "--model claude-opus-5-5 -p nested"
+    assert log.read_text().splitlines()[-1] == "--model claude-sonnet-5-5 -p nested"
 
 
 def model_session(home, directory, model):
@@ -497,7 +497,7 @@ def test_scan_flags_fable_answers_in_a_nested_session_of_the_tree(world):
     home = world.tmp / "home"
     nested = Path(record["tree"]) / "tmp/pytest-of-u/pytest-0/probe0"
     model_session(home, nested, "claude-fable-5-1")
-    model_session(home, nested, "claude-opus-5-5")
+    model_session(home, nested, "claude-sonnet-5-5")
     assert [(Path(h["file"]).name, h["pattern"]) for h in prepare.scan(records, world.solution, home=home)] == [
         ("claude-fable-5-1.jsonl", "Fable model")]
 

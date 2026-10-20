@@ -32,7 +32,7 @@
                 :intent intent
                 :account account
                 :replies replies)
-      :model "gpt-6-sol"
+      :model "gpt-5.6-terra"
       :effort "high"
       :timeout-sec 5400))
 )
