@@ -14,10 +14,16 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import re
 from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 
 from orchestrator.workflow_lisp.reader import read_sexpr_text
+from orchestrator.workflow_lisp.type_expressions import (
+    parse_type_expression,
+    type_expression_application_heads,
+    type_expression_names,
+)
 from orchestrator.workflow_lisp.sexpr import (
     BoolAtom,
     KeywordAtom,
@@ -54,7 +60,7 @@ def read_records(log: Path) -> list[dict]:
     return [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines() if line]
 
 
-def skeleton_hash(source: str, *, definitions: Sequence[str]) -> str:
+def skeleton_hash(source: str, *, definitions: Sequence[str], module_entry: str | None = None) -> str:
     """Return the sha256 of the normalized named definitions in `source`.
 
     Binders (see `_Normalizer`; definition parameters included) and their
@@ -64,19 +70,37 @@ def skeleton_hash(source: str, *, definitions: Sequence[str]) -> str:
     and values are kept) becomes `#prompt`; `providers.*` externs become
     `#provider`. Form heads, keywords and arity are kept. A named `defprompt`
     contributes nothing, so a prompt-only child hashes equal to its parent.
+    With `module_entry` (optionally module::entry), private declarations and
+    their references share ordinals in selection order; field/variant/member
+    labels stay authored. This recognizes consistent order-preserving renames,
+    not declaration reordering or semantic equivalence.
     Raises ValueError when a named definition is absent.
     """
 
-    canonical = "\n".join(_normalize_definition(d) for d in _named_definitions(source, definitions))
+    selected = _named_definitions(source, definitions)
+    names = _module_names(selected, module_entry) if module_entry is not None else None
+    canonical = "\n".join(_ModuleNormalizer(selected, names).definition(d) if names is not None
+                          else _normalize_definition(d) for d in selected)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def provider_allocation(source: str, *, definitions: Sequence[str]) -> dict[str, list[str]]:
+def provider_allocation(source: str, *, definitions: Sequence[str], module_entry: str | None = None) -> dict[str, list[str]]:
     """Return, per named non-prompt definition, the `providers.*` externs it
     names in source order (the role allocation the skeleton hash masks).
+    `module_entry` uses the same private declaration keys as `skeleton_hash`.
     Raises ValueError when a named definition is absent."""
 
-    return {d.items[1].value: _provider_externs(d) for d in _named_definitions(source, definitions)}
+    selected = _named_definitions(source, definitions)
+    names = _module_names(selected, module_entry) if module_entry is not None else {}
+    return {names.get(d.items[1].value, d.items[1].value): _provider_externs(d) for d in selected}
+
+
+def _module_names(definitions: Sequence[ListExpr], entry: str) -> dict[str, str]:
+    """Prompts are already excluded, so adding one cannot shift declaration IDs."""
+    module, _, entry_name = entry.rpartition("::")
+    private = [d.items[1].value for d in definitions if d.items[1].value != entry_name]
+    names = {name: f"$decl{i}" for i, name in enumerate(private)}
+    return {**names, **{f"{module}/{name}": ordinal for name, ordinal in names.items()}} if module else names
 
 
 def control_heads(source: str, *, definitions: Sequence[str]) -> dict[str, int]:
@@ -273,6 +297,154 @@ class _Normalizer:
 
 
 _PARALLEL_BINDING_HEADS = {"list/map", "list/map-effect", "with-live-providers", "with-live-provider-peers"}
+
+
+class _ModuleNormalizer(_Normalizer):
+    """Module references have distinct value, type and literal-label positions."""
+
+    def __init__(self, definitions: Sequence[ListExpr], names: dict[str, str]) -> None:
+        super().__init__()
+        self.names = names
+        self.local_procs: dict[str, str] = {}
+        types = {d.items[1].value for d in definitions if d.items[0].value in _TYPE_HEADS}
+        calls = {d.items[1].value for d in definitions if d.items[0].value in _DEFINITION_HEADS}
+        self.types = {name: value for name, value in names.items() if name.rsplit("/", 1)[-1] in types}
+        self.calls = {name: value for name, value in names.items() if name.rsplit("/", 1)[-1] in calls}
+        enums = {d.items[1].value for d in definitions if d.items[0].value == "defenum"}
+        self.enums = {name: value for name, value in self.types.items() if name.rsplit("/", 1)[-1] in enums}
+
+    def _type(self, expr: SExpr) -> str:
+        if isinstance(expr, ListExpr) and len(expr.items) >= 2 and isinstance(expr.items[0], SymbolAtom) and expr.items[0].value == "result":
+            return _wrap(["result", self._type(expr.items[1]), *self._render_all(expr.items[2:], {})])
+        if not isinstance(expr, SymbolAtom):
+            return self.render(expr, {})
+        parsed = parse_type_expression(expr.value, span=expr.span, form_path=())
+        referenced = type_expression_names(parsed) | frozenset(type_expression_application_heads(parsed))
+        names = {name: self.types.get(name, name) for name in referenced}
+        return re.sub(r"->|(?:[^\s\[\](),-]|-(?!>))+", lambda match: names.get(match[0], match[0]), expr.value)
+
+    def bind_params(self, params: SExpr, scope: dict[str, str]) -> tuple[str, dict[str, str]]:
+        rendered = []
+        for param in params.items if isinstance(params, ListExpr) else ():
+            name = _binder_name(param)
+            if name is None:
+                rendered.append(self.render(param, {}))
+                continue
+            scope = self.bind(name, scope)
+            rest = [self._type(item) for item in param.items[1:]] if isinstance(param, ListExpr) else []
+            rendered.append(_wrap([scope[name], *rest]) if isinstance(param, ListExpr) else scope[name])
+        return _wrap(rendered), scope
+
+    def definition(self, definition: ListExpr) -> str:
+        items = definition.items
+        head, name = items[0].value, items[1].value
+        parts = [head, self.names.get(name, name)]
+        index = 2
+        if index < len(items) and isinstance(items[index], KeywordAtom) and items[index].value == ":forall":
+            params = items[index + 1]
+            bound = []
+            for i, param in enumerate(params.items):
+                self.types[param.value] = f"$type{i}"
+                bound.append(self.types[param.value])
+            parts += [":forall", _wrap(bound)]
+            index += 2
+        if head in _TYPE_HEADS:
+            for item in items[index:]:
+                if head == "defrecord":
+                    parts.append(self._field(item))
+                elif head == "defunion" and isinstance(item, ListExpr) and item.items:
+                    parts.append(_wrap([self.render(item.items[0], {}), *[self._field(f) for f in item.items[1:]]]))
+                else:
+                    parts.append(self.render(item, {}))
+            return _wrap(parts)
+        params, scope = self.bind_params(items[index], {})
+        tail = self._render_items(items[index + 1:], scope)
+        return _wrap([*parts, params, tail[1:-1]])
+
+    def _field(self, expr: SExpr) -> str:
+        if isinstance(expr, ListExpr) and expr.items:
+            return _wrap([self.render(expr.items[0], {}), *[self._type(t) for t in expr.items[1:]]])
+        return self.render(expr, {})
+
+    def render(self, expr: SExpr, scope: dict[str, str]) -> str:
+        if isinstance(expr, SymbolAtom):
+            root, dot, member = expr.value.partition(".")
+            if dot and root not in scope and root in self.enums:
+                return self.enums[root] + dot + member
+        return super().render(expr, scope)
+
+    def _render_list(self, expr: ListExpr, scope: dict[str, str]) -> str:
+        items = expr.items
+        head = items[0].value if items and isinstance(items[0], SymbolAtom) else None
+        if head in {"record", "variant"} and len(items) >= 2:
+            prefix = [head, self._type(items[1])]
+            start = 2
+            if head == "variant" and len(items) >= 3:
+                prefix.append(super().render(items[2], {}))
+                start = 3
+            return _wrap([*prefix, *self._render_all(items[start:], scope)])
+        if head in {"proc-ref", "workflow-ref"} and len(items) == 2 and isinstance(items[1], SymbolAtom):
+            target = items[1].value
+            local = self.local_procs if head == "proc-ref" else {}
+            return _wrap([head, local.get(target, self.calls.get(target, target))])
+        if head == "loop-state" and len(items) > 1 and isinstance(items[1], ListExpr):
+            fields = []
+            for field in items[1:]:
+                if isinstance(field, ListExpr) and len(field.items) >= 2:
+                    fields.append(_wrap([super().render(field.items[0], {}), self._type(field.items[1]),
+                                         *self._render_all(field.items[2:], scope)]))
+                else:
+                    fields.append(self.render(field, scope))
+            return _wrap([head, *fields])
+        return super()._render_list(expr, scope)
+
+    def _render_let_proc(self, items: Sequence[SExpr], scope: dict[str, str]) -> str:
+        procs = [proc for proc in items[1].items if isinstance(proc, ListExpr) and len(proc.items) >= 2 and _binder_name(proc)]
+        outer = self.local_procs
+        for proc in procs:
+            scope = self.bind(proc.items[0].value, scope)
+        self.local_procs = {**outer, **{proc.items[0].value: scope[proc.items[0].value] for proc in procs}}
+        try:
+            rendered = []
+            for proc in items[1].items:
+                if proc not in procs:
+                    rendered.append(self.render(proc, scope))
+                    continue
+                params, inner = self.bind_params(proc.items[1], scope)
+                rendered.append(_wrap([self.local_procs[proc.items[0].value], params,
+                                       *self._render_all(proc.items[2:], inner)]))
+            return _wrap(["let-proc", _wrap(rendered), *self._render_all(items[2:], scope)])
+        finally:
+            self.local_procs = outer
+
+    def _render_items(self, items: Sequence[SExpr], scope: dict[str, str]) -> str:
+        parts = []
+        previous = None
+        for index, item in enumerate(items):
+            if previous in {"->", ":returns"}:
+                parts.append(self._type(item))
+            elif previous == ":where" and isinstance(item, ListExpr):
+                clauses = []
+                for clause in item.items:
+                    subject, constraint, *operands = clause.items
+                    args = []
+                    for i, operand in enumerate(operands):
+                        args.append(self._field(operand) if isinstance(operand, ListExpr) else
+                                    self._type(operand) if constraint.value in {"has-field", "has-shared-union-field"} and i == 1
+                                    else super().render(operand, {}))
+                    clauses.append(_wrap([self._type(subject), constraint.value, *args]))
+                parts.append(_wrap(clauses))
+            elif previous == ":prompt":
+                parts.append(self._render_prompt(item, scope))
+            elif previous in _LITERAL_KEYWORDS:
+                parts.append("#lit")
+            elif index == 0 and isinstance(item, SymbolAtom):
+                parts.append(_render_symbol(item.value, scope) if item.value.partition(".")[0] in scope
+                             else self.calls.get(item.value, self.render(item, scope)))
+            else:
+                parts.append(self.render(item, scope))
+            previous = item.value if isinstance(item, (KeywordAtom, SymbolAtom)) else None
+        return _wrap(parts)
 
 
 def _binder_name(expr: SExpr) -> str | None:

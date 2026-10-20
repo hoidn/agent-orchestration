@@ -356,14 +356,16 @@ def skeleton(root: Path, config: ExperimentConfig) -> str:
     """The skeleton hash of the mutable definitions; prompts contribute nothing (records.skeleton_hash, for an I3
     module records.python_skeleton_hash)."""
     hash_of = python_skeleton_hash if is_python(config) else skeleton_hash
-    return hash_of(mutable_source(root, config), definitions=metric_definitions(root, config))
+    options = {"module_entry": config.entry_workflow} if config.condition == "module" and not is_python(config) else {}
+    return hash_of(mutable_source(root, config), definitions=metric_definitions(root, config), **options)
 
 
 def allocation(root: Path, config: ExperimentConfig) -> dict[str, list[str]]:
     """The provider externs (an I3 module: provider keys) each non-prompt mutable definition names, in source
     order."""
     allocate = python_provider_allocation if is_python(config) else provider_allocation
-    return allocate(mutable_source(root, config), definitions=metric_definitions(root, config))
+    options = {"module_entry": config.entry_workflow} if config.condition == "module" and not is_python(config) else {}
+    return allocate(mutable_source(root, config), definitions=metric_definitions(root, config), **options)
 
 
 def metric_definitions(root: Path, config: ExperimentConfig) -> tuple[str, ...]:

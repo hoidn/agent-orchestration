@@ -140,11 +140,14 @@ def test_module_metrics_include_helper_body_and_provider_allocation(tmp_path):
     parent, child = pair(tmp_path, source)
     config = cfg()
     assert acceptance.judge_child(parent, child, config, runtime=REPO)["outcome"] == "accepted"
-    assert driver.skeleton(child, config) == records.skeleton_hash(source, definitions=("run", "helper"))
+    assert driver.skeleton(child, config) == records.skeleton_hash(source, definitions=("run", "helper"), module_entry="direct::run")
     assert driver.skeleton(child, config) != records.skeleton_hash(source, definitions=("run",))
-    assert driver.allocation(child, config)["helper"] == ["providers.coder"]
+    assert driver.allocation(child, config)["$decl0"] == ["providers.coder"]
     assert driver.skeleton(parent, config) == records.skeleton_hash(SOURCE, definitions=("run",))
     assert driver.skeleton(child, replace(config, condition="joint")) == records.skeleton_hash(source, definitions=("run",))
+    before = driver.skeleton(child, config), driver.allocation(child, config)
+    (child / "direct.orc").write_text(source.replace("helper", "renamed"))
+    assert (driver.skeleton(child, config), driver.allocation(child, config)) == before
 
 
 def test_module_removes_and_rewrites_private_definitions_without_mutable_name_list(tmp_path):
@@ -281,8 +284,8 @@ def test_module_preserves_all_compile_diagnostics_for_repair(tmp_path):
 def test_module_metrics_cover_private_types_too(tmp_path):
     source = SOURCE.replace("  (defworkflow run", PRIVATE + "\n  (defworkflow run")
     _, child = pair(tmp_path, source)
-    assert driver.skeleton(child, cfg()) == records.skeleton_hash(source, definitions=("run", "Review", "review"))
-    assert tuple(driver.allocation(child, cfg())) == ("run", "Review", "review")
+    assert driver.skeleton(child, cfg()) == records.skeleton_hash(source, definitions=("run", "Review", "review"), module_entry="direct::run")
+    assert tuple(driver.allocation(child, cfg())) == ("run", "$decl0", "$decl1")
 
 
 def test_module_keeps_plain_files_frozen_even_if_listed_as_mutable(tmp_path):
