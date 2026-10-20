@@ -42,9 +42,7 @@ import itertools
 import json
 import os
 import random
-import re
 import shlex
-import threading
 from collections import Counter
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from dataclasses import replace
@@ -60,6 +58,9 @@ from experiments.orc_structural_search.config import (
 from experiments.orc_structural_search.driver import (
     archive, check_hide, check_roots, check_solutions, launch_units, run_episode)
 from experiments.orc_structural_search.evaluation import cli_version
+from experiments.orc_structural_search.three_arm_figures import (
+    JUDGED, OUT_OF_SCOPE, DIFF_FILE, arm_figures, exact_repeats, files_touched, judged_figures)
+from experiments.orc_structural_search.three_arm_gate import CapGate, QuotaExhausted
 from experiments.orc_structural_search.mode1 import continued
 from experiments.orc_structural_search.quota import QuotaGuard, prior_rows, quota_reason, with_retries
 from experiments.orc_structural_search.readout import diversity, outcome, share
@@ -71,18 +72,9 @@ from experiments.orc_structural_search.sites import eligible_sites, select_site,
 ARMS = ("I1", "I2", "I3")
 PARENT_OF = {"I1": "orc", "I2": "orc", "I3": "python"}
 MODE = "three_arm"
-JUDGED = ("accepted", "rejected")  # an episode whose child was judged (locality's denominator)
-# criterion "locality": the verdicts of an edit outside its scope
-OUT_OF_SCOPE = frozenset({"scope_exceeded", "frozen_surface_changed", "digest_mismatch", "site_unlocatable",
-                          "declaration_collision"})
-DIFF_FILE = re.compile(r"^\+\+\+ b/(.+)$", re.M)  # driver.episode_diff's header of a file
 SEEDS = ("orc", "python", "run_seed", "subset_seed")  # the parents row fields a continued run must repeat
 EPISODE_KEYS = ("work_root", "evidence_root", "runtime", "env", "solutions", "call_cap", "holdouts", "criterion")
 CONTINUE = "rerun with --continue after the provider's reset"
-
-
-class QuotaExhausted(RuntimeError):
-    """A launch's quota relaunches are used up: the run stops before any further launch (see CONTINUE)."""
 
 
 HISTORICAL_CRITERION_SHA256 = "d994f8daad608b76e342fa4bedcbc03f1e3c771f719877937331035eb0ae97ba"
@@ -122,64 +114,6 @@ def arm_config(base: Path, arm: str, criterion: Mapping | None = None) -> Experi
                    mutable_definitions=("run",), condition=spec["condition"], interface=spec["interface"],
                    entry_workflow="direct::run", source_root=".", providers_file="providers.json",
                    command_boundaries_file=None if python else "commands.json")
-
-
-class CapGate:
-    """Reservation-aware launches (criterion i3.planned_maximum) under the run's quota guard: `run` waits out a quota
-    pause before every launch and relaunch, retries a launch refused at the call cap (ledger.reserve, before any
-    workspace) once another launch of the gate has ended, and raises the refusal when no other launch is in flight
-    and none ended since it started. A launch that returns a quota incident pauses the guard before the waiters
-    wake, so none relaunches into the provider's limit. Once more than guard.retries launches of the gate, any job's,
-    have ended in a quota incident since the last launch that did not (`streak`), no further launch starts: `run`
-    raises QuotaExhausted (`exhausted`). Under a lasting limit at most max(concurrency, 1 + guard.retries) launches
-    happen; a capacity blip that hits that many launches in flight at once also stops the run (for --continue)."""
-
-    def __init__(self, guard: QuotaGuard) -> None:
-        self.guard, self.running, self.ended, self.changed = guard, 0, 0, threading.Condition()
-        self.streak, self.exhausted = 0, None  # quota incidents since the last launch that ended without one
-
-    def run(self, launch: Callable[[], dict]) -> dict:
-        while True:
-            self.guard.wait()
-            with self.changed:
-                if self.exhausted:
-                    raise QuotaExhausted(self.exhausted)
-                self.running, seen = self.running + 1, self.ended
-            try:
-                row = launch()
-            except ledger.CallCapExceeded as refusal:
-                self.refused(refusal, seen)
-                continue
-            except BaseException:
-                self.end(None)
-                raise
-            self.end(row)
-            return row
-
-    def refused(self, refusal: ledger.CallCapExceeded, seen: int) -> None:
-        """Leave the gate; raise `refusal` when no launch is in flight and none ended since this one started (`seen`),
-        else wait for one to end, unless one already has."""
-        with self.changed:
-            self.running -= 1
-            if self.ended == seen and self.running == 0:
-                self.changed.notify_all()  # waiters retry and find nothing in flight either
-                raise refusal
-            if self.ended == seen:
-                self.changed.wait()
-
-    def end(self, row: Mapping | None) -> None:
-        """Leave the gate after a launch ended (`row`, None when it raised) and wake the waiters."""
-        reason = quota_reason(row) if row is not None else None
-        if reason:
-            self.guard.pause(reason)
-        with self.changed:
-            if row is not None:
-                self.streak = self.streak + 1 if reason else 0
-            if reason and self.streak > self.guard.retries:
-                self.exhausted = (f"{self.streak} evaluation launches in a row ended in a quota incident (the last "
-                                  f"{row['evaluation_id']}: {reason}); {CONTINUE}")
-            self.running, self.ended = self.running - 1, self.ended + 1
-            self.changed.notify_all()
 
 
 def archive_parents(parents: Mapping[str, Path], config_path: Path, *, evidence_root: Path, runtime: Path,
@@ -330,12 +264,31 @@ def run_three_arm(config_path: Path, *, parents: Mapping[str, Path], tasks: Sequ
                  {"mode": MODE, "arm": arm, **{key: r[key] for key in (
                      "episode_id", "candidate_id", "parent_candidate_id", "candidate_root")}})
                 for arm, picked in chosen.items() for r in picked]
+    if not smoke:
+        jobs += parent_jobs(roots, config_path, frozen, runtime=runtime)
     gate = CapGate(guard)
-    evaluated = launch_units(continued(jobs, tasks, 1, read_records(log)), concurrency=concurrency, guard=guard,
+    evaluated = launch_units(continued(jobs, tasks, frozen["subset"]["replicates"], read_records(log)), concurrency=concurrency, guard=guard,
                              gate=gate.run, **launch)
     if gate.exhausted:  # the last unit used up its quota relaunches: no later unit raised it
         raise QuotaExhausted(gate.exhausted)
     return result or {"smoke": evaluated}
+
+
+def parent_jobs(roots: Mapping[str, Path], config_path: Path, criterion: Mapping, *, runtime: Path) -> list:
+    """Admit a shared parent under every applicable policy, then project one evaluation to its arms."""
+    grouped = {}
+    for arm, spec in arm_specs(criterion).items():
+        root, config = roots[spec['parent']], arm_config(config_path, arm, criterion)
+        if config.interface == 'I3':
+            check_parent(root, config, runtime=runtime)
+        else:
+            require_candidate(root, config, runtime=runtime)
+        if root.name not in grouped:
+            fields = {'mode': MODE, 'arm': arm, 'parent': spec['parent'], 'candidate_id': root.name,
+                      'candidate_root': str(root), 'parent_for_arms': []}
+            grouped[root.name] = (root, config, fields)
+        grouped[root.name][2]['parent_for_arms'].append(arm)
+    return list(grouped.values())
 
 
 def tie_break(seed: int, candidate: str) -> str:
@@ -377,46 +330,6 @@ def subset(rows: Sequence[Mapping], criterion: Mapping, seed: int,
         taken |= {row["parent_candidate_id"] for row in eligible}
         chosen[arm] = pick(eligible, taken, seed, criterion["subset"]["per_arm"])
     return chosen
-
-
-def files_touched(evidence_root: Path, row: Mapping) -> list[str]:
-    """The files the episode's final diff (E/episodes/<episode_id>.diff) names."""
-    return sorted(set(DIFF_FILE.findall((evidence_root / "episodes" / f"{row['episode_id']}.diff").read_text())))
-
-
-def exact_repeats(accepted: Sequence[Mapping], parent_digest: str | None) -> int:
-    """Accepted children whose program digest is the parent's or an earlier accepted child's."""
-    seen, repeats = {parent_digest}, 0
-    for row in sorted(accepted, key=lambda row: row["episode_index"]):
-        repeats += row["program_digest"] in seen
-        seen.add(row["program_digest"])
-    return repeats
-
-
-def arm_figures(episodes: Sequence[Mapping], criterion: Mapping, evidence_root: Path,
-                parent_digest: str | None) -> dict:
-    """One arm's compile-only figures: episode outcomes (quota rows as quota_incident), completed (non-quota)
-    episodes, acceptance per completed episode, refusals, locality over judged episodes and the files each touched,
-    readout.diversity of the accepted children, exact repeats, and collapse against the criterion's threshold."""
-    completed = [row for row in episodes if quota_reason(row, evidence_root) is None]
-    judged = [row for row in completed if row["outcome"] in JUDGED]
-    accepted = [row for row in judged if row["outcome"] == "accepted"]
-    figures = diversity(accepted)
-    terminal = figures["terminal_only_share"]
-    return {"episodes": dict(Counter(outcome(row, evidence_root) for row in episodes)), "completed": len(completed),
-            "judged": len(judged), "accepted": len(accepted), "acceptance_rate": share(len(accepted), len(completed)),
-            **judged_figures(judged, evidence_root), **figures,
-            "exact_repeats": exact_repeats(accepted, parent_digest),
-            "collapsed": terminal if terminal == UNAVAILABLE else terminal > criterion["collapse_threshold"]}
-
-
-def judged_figures(judged: Sequence[Mapping], evidence_root: Path) -> dict:
-    """The judged episodes' refusals (refusal or diagnostics code), locality (out-of-scope verdicts over judged
-    episodes) and the files each episode's final diff touched."""
-    return {"refused": dict(Counter(row["refusal_code"] or row["diagnostics_class"]
-                                    for row in judged if row["outcome"] == "rejected")),
-            "locality": share(sum(row["refusal_code"] in OUT_OF_SCOPE for row in judged), len(judged)),
-            "files_touched": {row["episode_id"]: files_touched(evidence_root, row) for row in judged}}
 
 
 def compile_readout(rows: Sequence[Mapping], criterion: Mapping, evidence_root: Path) -> dict:
@@ -494,6 +407,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     readout_cmd = sub.add_parser("readout", help="the per-arm, per-child judged readout")
     for name in ("--log", "--driver-readout", "--criterion"):
         readout_cmd.add_argument(name, type=Path, required=True)
+    readout_cmd.add_argument("--measure-free", action="store_true", help="execution/calls/cost/compile only")
     readout_cmd.add_argument("results", type=Path, nargs="*", help="each task pool's records/results.json")
     a = parser.parse_args(argv)
     from experiments.orc_structural_search.three_arm_readout import readout  # it imports this module
@@ -501,7 +415,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         result = judge(a.evidence, a.pool, a.task, criterion=a.criterion, judges=a.judge, solution=a.solution,
                        call_cap=a.call_cap)
     elif a.command == "readout":
-        result = readout(a.log, a.driver_readout, a.criterion, a.results)
+        result = readout(a.log, a.driver_readout, a.criterion, a.results, measure_free=a.measure_free)
     else:
         result = run_three_arm(
             a.config, parents={name: Path(path) for name, path in a.parents}, tasks=a.tasks, work_root=a.work_root,

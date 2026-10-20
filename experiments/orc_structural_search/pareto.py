@@ -17,7 +17,6 @@ def dominates(a, b, tau_q, tau_c):
 
 def frontier(rows, tau_q, tau_c):
     tolerances(tau_q, tau_c)
-    eligible = [row for row in rows if row['above_floor'] and row['quality'] != UNAVAILABLE
-                and row['cost'] != UNAVAILABLE]
+    eligible = [row for row in rows if row['above_floor'] and number(row['quality']) and number(row['cost'])]
     return sorted(a['candidate_id'] for a in eligible
                   if not any(dominates(b, a, tau_q, tau_c) for b in eligible if a is not b))

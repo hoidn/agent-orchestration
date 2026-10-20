@@ -34,6 +34,7 @@ from pathlib import Path
 from statistics import mean
 
 from experiments.compare.repos import sha256_file
+from experiments.orc_structural_search import readout_guard
 from experiments.orc_structural_search.readout import diversity, share
 from experiments.orc_structural_search.records import (UNAVAILABLE, control_heads, read_records)
 from experiments.orc_structural_search.selection import (final_choice)
@@ -77,11 +78,15 @@ def adaptive_means(pools: Sequence[tuple[int, Mapping]], log_rows: Sequence[Mapp
         for row in pool["rows"]:
             if row["outcome"] == "completed" and row["value"] is not None:
                 values.setdefault(row["candidate_id"], {}).setdefault(row["task"], []).append(row["value"])
-    failed = [row for row in latest_evaluations(log_rows) if row.get("split") == "adaptive"
-              and scored_outcome(row) in FAILURES and row["task_id"] in tasks]
+    failed = adaptive_failures(log_rows, tasks)
     for row in failed:
         values.setdefault(row["candidate_id"], {}).setdefault(row["task_id"], []).append(FAILED_POINTS)
     return {cid: mean(mean(per[t]) for t in tasks) for cid, per in values.items() if set(per) >= set(tasks)}
+
+
+def adaptive_failures(log_rows, tasks):
+    return [row for row in latest_evaluations(log_rows) if row.get('split') == 'adaptive'
+            and scored_outcome(row) in FAILURES and row['task_id'] in tasks]
 
 
 def adaptive_anchors(pools: Sequence[tuple[int, Mapping]], tasks: Sequence[str], criterion: Mapping) -> dict:
@@ -140,7 +145,7 @@ def interface_figures(episodes: Sequence[Mapping], *, child_means: Mapping[str, 
     completed = [row for row in episodes if row["outcome"] in COMPLETED]
     accepted = [row for row in completed if row["outcome"] == "accepted"]
     gains = {row["candidate_id"]: gain(row, child_means, archive) for row in accepted}
-    improved = sorted(c for c, g in gains.items() if g != UNAVAILABLE and g > criterion["improvement"]["min_gain"])
+    improved = improved_children(gains, criterion)
     figures = diversity(accepted)
     terminal = figures["terminal_only_share"]
     judged = [row for row in completed if row["generation"] in archive]  # a refused or judge-incident one has none
@@ -152,6 +157,16 @@ def interface_figures(episodes: Sequence[Mapping], *, child_means: Mapping[str, 
             "control_flow_changes": control_flow_changes(accepted, roots, criterion["control_flow"]["definitions"])}
 
 
+def improved_children(gains, criterion):
+    return sorted(c for c, g in gains.items() if g != UNAVAILABLE and g > criterion['improvement']['min_gain'])
+
+
+def candidate_roots(files, episodes):
+    roots = {e['candidate_id']: e['candidate_root'] for _, entries in files for e in entries}
+    roots.update({row['candidate_id']: row['candidate_root'] for row in episodes if row['outcome'] == 'accepted'})
+    return roots
+
+
 def run_readout(log: Path, rows: Sequence[Mapping], files: Sequence[tuple[int, list]], criterion: Mapping,
                 criterion_path: Path) -> dict:
     tasks = [Path(task).name for task in criterion["adaptive_tasks"]]
@@ -160,15 +175,18 @@ def run_readout(log: Path, rows: Sequence[Mapping], files: Sequence[tuple[int, l
     anchors = adaptive_anchors(pools, tasks, criterion)
     rule = trust_rule(anchors)
     episodes = [row for row in rows if row["kind"] == "episode"]
-    roots = {e["candidate_id"]: e["candidate_root"] for _, entries in files for e in entries}
-    roots |= {row["candidate_id"]: row["candidate_root"] for row in episodes if row["outcome"] == "accepted"}
+    roots = candidate_roots(files, episodes)
     context = {"child_means": adaptive_means(pools, rows, tasks), "archive": dict(files), "roots": roots,
                "criterion": criterion, "trusted": rule == "trusted"}
     interfaces = {name: interface_figures([row for row in episodes if row["interface"] == name], **context)
                   for name in dict.fromkeys(criterion["scale"]["interfaces"])}
-    trajectory = [{"generation": n, "incumbent_mean": max(e["mean_value"] for e in entries)} for n, entries in files]
+    trajectory = archive_trajectory(files)
     return {"log": str(log), "anchors": anchors, "improvement_rule": rule, "interfaces": interfaces,
             "trajectory": trajectory}
+
+
+def archive_trajectory(files):
+    return [{'generation': n, 'incumbent_mean': max(e['mean_value'] for e in entries)} for n, entries in files]
 
 
 def expected_candidates(runs: Sequence[Sequence[tuple[int, list]]], ref: str, criterion: Mapping) -> set[str]:
@@ -208,7 +226,7 @@ def grouped_validation(pool: Mapping, expected: set[str], replicates: int) -> di
     grouped: dict[str, list] = {}
     for row in pool["rows"]:
         grouped.setdefault(row["candidate_id"], []).append(row)
-    runs = {cid: sum(row["outcome"] in ("completed", *FAILURES) for row in rows) for cid, rows in grouped.items()}
+    runs = validation_counts(grouped)
     if {cid for cid, n in runs.items() if n} != expected:
         raise ValueError(f"the validation pool holds {sorted(c for c, n in runs.items() if n)}, not the finalists, "
                          f"reference and direct {sorted(expected)}")
@@ -216,6 +234,10 @@ def grouped_validation(pool: Mapping, expected: set[str], replicates: int) -> di
     if counts:
         raise ValueError(f"validation candidates without {replicates} replicates: {counts}")
     return {cid: grouped[cid] for cid in expected}
+
+
+def validation_counts(grouped):
+    return {cid: sum(row['outcome'] in ('completed', *FAILURES) for row in rows) for cid, rows in grouped.items()}
 
 
 def validation_readout(pool: Mapping, runs: Sequence[Sequence[tuple[int, list]]], ref: str, criterion: Mapping,
@@ -239,15 +261,23 @@ def validation_readout(pool: Mapping, runs: Sequence[Sequence[tuple[int, list]]]
 
 
 def phase2_readout(logs: Sequence[Path], archives: Sequence[Path], validation_pool: Mapping | None,
-                   criterion: Path) -> dict:
+                   criterion: Path, *, measure_free: bool = False) -> dict:
     """`logs` and `archives` pair up per run (each run's log.jsonl and archive directory); `validation_pool` is
     read_pool's result for the validation pool, or None before validation; `criterion` is criteria/phase2.json's
     path (its SHA-256 is checked against every pool)."""
+    if readout_guard.mode(criterion, measure_free):
+        return readout_guard.execution(logs, criterion, measure_free=measure_free)
     criterion_path = Path(criterion)
     rules, sha = json.loads(criterion_path.read_text()), sha256_file(criterion_path)
     runs = [archive_files(directory) for directory in archives]
     rows = [read_records(Path(log)) for log in logs]
     ref = reference(logs, rows)
+    sources = [row['results'] for log in logs for row in read_records(log) if row['kind'] == 'judging']
+    if validation_pool is not None:
+        if not validation_pool.get('results'):
+            raise ValueError('validation pool lacks actual scoring provenance')
+        sources.append(validation_pool['results'])
+    readout_guard.require_pools(sources, criterion)
     result = {"min_gain": rules["improvement"]["min_gain"], "collapse_threshold": rules["collapse_threshold"],
               "reference": ref, "runs": [run_readout(Path(log), run_rows, files, rules, criterion_path)
                                          for log, run_rows, files in zip(logs, rows, runs, strict=True)]}

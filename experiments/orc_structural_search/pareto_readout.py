@@ -1,0 +1,200 @@
+"""Matched candidate/parent observations and per-arm calibrated Pareto endpoints."""
+from collections.abc import Mapping
+from pathlib import Path
+from statistics import mean
+
+from experiments.orc_structural_search import pareto, pricing
+from experiments.orc_structural_search.quota import quota_reason
+from experiments.orc_structural_search.readout import share
+from experiments.orc_structural_search.records import UNAVAILABLE
+from experiments.orc_structural_search.scoring import latest_evaluations, primary_value
+
+TERMINAL = ('accepted', 'rejected', 'exhausted', 'incident')
+
+
+def rules(criterion):
+    tau_q = criterion['final_choice']['equivalence_tolerance']
+    tau_c = criterion['dominance_cost_tolerance']
+    pareto.tolerances(tau_q, tau_c)
+    if criterion.get('quality_floor') != {'kind': 'above_stub'}:
+        raise ValueError('quality_floor supports only {kind: above_stub}')
+    if 'calibration' not in criterion:
+        raise ValueError('calibration required for Pareto readout')
+    pricing.validate(criterion.get('price_table'))
+    return tau_q, tau_c
+
+
+def stub_floor(pools, criterion):
+    totals = {}
+    for pool in pools:
+        task = pool['task']
+        role = criterion['anchors'][task]['stub']
+        valid = [a['total'] for a in pool['anchors'] if a.get('anchor') == role and pricing.number(a.get('total'))]
+        if valid:
+            totals[task] = mean(valid)
+    tasks = {Path(task).name for task in criterion['tasks']}
+    return mean(totals.values()) if set(totals) == tasks else UNAVAILABLE
+
+
+def joined_rows(pools, raw, sha):
+    joined = {}
+    for pool in pools:
+        if pool.get('criterion_sha256') != sha:
+            raise ValueError('pool criterion_sha256 differs from Pareto criterion')
+        for row in pool['rows']:
+            eid = row['evaluation_id']
+            if eid not in raw:
+                raise ValueError(f'joined evaluation {eid} has no current log receipt')
+            if eid in joined and joined[eid] != row:
+                raise ValueError(f'conflicting harness joins for {eid}')
+            joined[eid] = row
+    return list(joined.values())
+
+
+def signature_pairs(signature):
+    if not isinstance(signature, Mapping) or not signature:
+        return None
+    pairs = set()
+    for policy in signature.values():
+        if not isinstance(policy, Mapping) or policy.get('provider') not in ('claude', 'codex'):
+            return None
+        pair = policy.get('model'), policy.get('effort')
+        if not all(isinstance(v, str) and v.strip() and v not in ('unavailable', 'unknown', 'auto', 'default') for v in pair):
+            return None
+        pairs.add(pair)
+    return pairs
+
+
+def homogeneous(raw, candidates):
+    grouped = {cid: [] for cid in candidates}
+    for row in raw.values():
+        if row['candidate_id'] in grouped:
+            grouped[row['candidate_id']].append(signature_pairs(row.get('allocation_signature')))
+    pairs = set()
+    for signatures in grouped.values():
+        if not signatures or any(s is None for s in signatures):
+            return False
+        for signature in signatures:
+            pairs.update(signature)
+    return len(pairs) == 1
+
+
+def support(criterion):
+    replicates = criterion['subset']['replicates']
+    if type(replicates) is not int or replicates < 1:
+        raise ValueError('subset.replicates must be a positive integer')
+    return {(Path(task).name, rep) for task in criterion['tasks'] for rep in range(1, replicates + 1)}
+
+
+def candidate_rows(cid, joined, expected):
+    mine = [row for row in joined if row['candidate_id'] == cid]
+    keys = [(row['task'], row['replicate']) for row in mine]
+    values = [primary_value(row) for row in mine]
+    matched = len(keys) == len(set(keys)) and set(keys) == expected
+    valued = all(pricing.number(value) for value in values)
+    return mine, matched and valued
+
+
+def complete_mean(mine, expected, values):
+    keys = [(row['task'], row['replicate']) for row in mine]
+    if len(keys) != len(expected) or set(keys) != expected:
+        return UNAVAILABLE
+    return mean(values) if all(pricing.number(value) for value in values) else UNAVAILABLE
+
+
+def candidate_figure(cid, joined, raw, expected, table, floor):
+    mine, matched = candidate_rows(cid, joined, expected)
+    quality = mean(primary_value(row) for row in mine) if matched else UNAVAILABLE
+    costs = [pricing.cost(raw[row['evaluation_id']], table) for row in mine]
+    calls = [row.get('calls') for row in mine]
+    return {'candidate_id': cid, 'quality': quality, 'metered_cost': complete_mean(mine, expected, costs),
+            'provider_calls': complete_mean(mine, expected, calls),
+            'above_floor': matched and floor != UNAVAILABLE and quality > floor,
+            'reason': None if matched else 'unmatched_task_replicate_support',
+            'support': sorted([row['task'], row['replicate']] for row in mine)}
+
+
+def allocation_class(episodes, cid):
+    values = {r.get('allocation_changed', UNAVAILABLE) for r in episodes if r.get('candidate_id') == cid}
+    if values == {True}:
+        return 'allocation_changed'
+    return 'structure_only' if values == {False} else 'allocation_unknown'
+
+
+def comparable(a, b):
+    return all(pricing.number(row[key]) for row in (a, b) for key in ('quality', 'cost'))
+
+
+def arm_endpoints(episodes, table, parent, frontier, tolerances, evidence_root):
+    completed = completed_episodes(episodes, evidence_root)
+    children = sorted({row['candidate_id'] for row in completed if row['outcome'] == 'accepted'})
+    valued = [cid for cid in children if cid in table and comparable(table[cid], table[parent])]
+    improvements = dominating_children(valued, table, parent, tolerances)
+    entries = [cid for cid in children if cid in frontier]
+    result = {'parent_candidate_id': parent, 'completed': len(completed), 'dominating_improvements': improvements,
+              'improvements_per_completed_episode': share(len(improvements), len(completed)),
+              'frontier_entries': entries, 'frontier_entries_per_completed_episode': share(len(entries), len(completed)),
+              'unvalued': [cid for cid in children if cid not in valued]}
+    for kind in ('allocation_changed', 'structure_only', 'allocation_unknown'):
+        result[kind] = split_endpoints(children, completed, improvements, entries, kind)
+    return result
+
+
+def completed_episodes(episodes, evidence_root):
+    return [row for row in episodes if row['outcome'] in TERMINAL and quota_reason(row, evidence_root) is None]
+
+
+def dominating_children(valued, table, parent, tolerances):
+    return [cid for cid in valued if table[cid]['above_floor'] and
+            pareto.dominates(table[cid], table[parent], *tolerances)]
+
+
+def split_endpoints(children, episodes, improvements, entries, kind):
+    mine = [cid for cid in children if allocation_class(episodes, cid) == kind]
+    improved = sorted(set(mine).intersection(improvements))
+    members = sorted(set(mine).intersection(entries))
+    return {'children': mine, 'dominating_improvements': improved, 'frontier_entries': members,
+            'improvements_per_completed_episode': share(len(improved), len(episodes)),
+            'frontier_entries_per_completed_episode': share(len(members), len(episodes))}
+
+
+def report(pools, rows, criterion, evidence_root):
+    """Every valued candidate has identical declared task/replicate support, including the parent."""
+    from experiments.orc_structural_search.three_arm import arm_specs
+    tolerances = rules(criterion)
+    sha = criterion['criterion_sha256']
+    raw = raw_evidence(rows, sha)
+    parents = next(row for row in rows if row['kind'] == 'parents')
+    episodes = study_episodes(rows)
+    candidates = evaluated_candidates(raw, parents, arm_specs(criterion))
+    joined, floor, expected = joined_rows(pools, raw, sha), stub_floor(pools, criterion), support(criterion)
+    table = {cid: candidate_figure(cid, joined, raw, expected, criterion['price_table'], floor) for cid in sorted(candidates)}
+    use_proxy = homogeneous(raw, candidates) and any(r['metered_cost'] == UNAVAILABLE for r in table.values())
+    axis = 'provider_calls' if use_proxy else 'metered_USD'
+    for row in table.values():
+        row['cost'] = row['provider_calls'] if use_proxy else row['metered_cost']
+    frontier = pareto.frontier(list(table.values()), *tolerances)
+    arms = arm_reports(arm_specs(criterion), episodes, parents, table, frontier, tolerances, evidence_root)
+    return {'quality_floor': floor, 'cost_axis': axis, 'candidates': table, 'frontier': frontier, 'arms': arms}
+
+
+def raw_evidence(rows, sha):
+    raw = {row['evaluation_id']: row for row in latest_evaluations(rows)}
+    if any(row.get('criterion_sha256') != sha for row in raw.values()):
+        raise ValueError('evaluation criterion_sha256 differs from Pareto criterion')
+    return raw
+
+
+def study_episodes(rows):
+    return [row for row in rows if row['kind'] == 'episode' and row.get('mode') == 'three_arm']
+
+
+def evaluated_candidates(raw, parents, specs):
+    candidates = {row['candidate_id'] for row in raw.values()}
+    candidates.update(parents[spec['parent']] for spec in specs.values())
+    return candidates
+
+
+def arm_reports(specs, episodes, parents, table, frontier, tolerances, evidence_root):
+    return {arm: arm_endpoints([row for row in episodes if row['arm'] == arm], table, parents[spec['parent']],
+                              frontier, tolerances, evidence_root) for arm, spec in specs.items()}

@@ -210,19 +210,14 @@ def test_successor_readout_keeps_module_and_legacy_arms_separate_and_checks_hash
                             "exercised_branches": "unavailable", "branch_coverage_reason": "memo_records_effects_only"})
     driver.write_text(json.dumps({"criterion_sha256": digest, "arms": {
         arm: {"subset": [f"c{n}"]} for n, arm in enumerate(three_arm.arm_specs(frozen))}}))
-    result = three_arm_readout.readout(log, driver, criterion, [])
-    figures = result["tasks"]["t1"]["arms"]
-    assert {arm: list(value["children"]) for arm, value in figures.items()} == {
-        "I1": ["c0"], "I2": ["c1"], "I3": ["c2"], "I1/module": ["c3"]}
-    assert figures["I1/module"]["evaluations"] == [{
-        "evaluation_id": "e3", "candidate_id": "c3", "provider_calls": 3,
-        "realized_perform_sites": [{"identity": "named.then", "effect_class": "command", "attempts": 2,
-                                    "status": "failed"}],
-        "exercised_branches": "unavailable", "branch_coverage_reason": "memo_records_effects_only"}]
+    result = three_arm_readout.readout(log, driver, criterion, [], measure_free=True)
+    assert result['mode'] == 'measure-free'
+    assert {row['arm'] for row in result['executions']} == {'I1', 'I2', 'I3', 'I1/module'}
+    assert 'tasks' not in result and 'pareto' not in result
     rows = log.read_text()
     log.write_text(rows.replace(digest, "foreign", 1))
     with pytest.raises(ValueError, match="criterion_sha256"):
-        three_arm_readout.readout(log, driver, criterion, [])
+        three_arm_readout.readout(log, driver, criterion, [], measure_free=True)
 
 
 def test_original_criterion_accepts_historical_rows_without_hash():

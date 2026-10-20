@@ -264,6 +264,9 @@ def test_three_arm_readout_reports_per_arm_and_per_child_descriptively_without_a
     criterion = tmp_path / "criterion.json"
     criterion.write_text(json.dumps(json.loads(CRITERION.read_text()) | {
         "tasks": ["tasks/t1"], "anchors": {"t1": {"upstream": "t1-upstream", "stub": "t1-stub"}}}))
+    from tests.experiments.readout_support import report_qualification, report_pool
+    q = report_qualification(tmp_path / 'quality', criterion, ['t1'])
+    criterion = q.criterion
     evaluations = [("e1", "I1", "c1", "completed"), ("e2", "I3", "c3", "completed"), ("e3", "I3", "c4", "failed"),
                    ("e4", "I2", "c2", "completed"), ("e5", "I1", "c9", "failed")]  # c9: no longer in the subset
     for eid, arm, cid, outcome in evaluations:
@@ -278,6 +281,7 @@ def test_three_arm_readout_reports_per_arm_and_per_child_descriptively_without_a
     results = tmp_path / "results.json"
     results.write_text(json.dumps({"criterion_sha256": hashlib.sha256(criterion.read_bytes()).hexdigest(),
                                    "runs": runs, "anchors": anchors, "agreement": {}, "excluded_judges": {}}))
+    report_pool(results, q, 't1')
     driver = {"criterion_sha256": hashlib.sha256(criterion.read_bytes()).hexdigest(),
               "arms": {"I1": {"completed": 6, "subset": ["c1"]}, "I2": {"subset": ["c2", "c5"]},
                        "I3": {"subset": ["c3", "c4"]}}}
@@ -291,7 +295,7 @@ def test_three_arm_readout_reports_per_arm_and_per_child_descriptively_without_a
             arms["I3"]["children"]["c4"]["values"], task["anchor_checks"]["anchors_ok"],
             arms["I2"]["children"]["c5"]["mean"],
             result["compile_only"], result["decision"]) == (
-        (6.0, 0, 2.0, 1, "unavailable", 1), {"I1": ["c1"], "I2": ["c2", "c5"], "I3": ["c3", "c4"]}, [0.0], True,
+        (3.0, 1, 2.0, 1, "unavailable", 1), {"I1": ["c1", "c9"], "I2": ["c2", "c5"], "I3": ["c3", "c4"]}, [0.0], True,
         "unavailable", driver,
         "descriptive; no separation rule applied (Phase 1 decision stands)")
 
@@ -387,9 +391,12 @@ def test_the_readout_command_reads_the_log_alone_without_results(tmp_path, capsy
                                                        "arms": {"I1": {"subset": ["c1"]}, "I2": {"subset": []},
                                                                 "I3": {"subset": []}}}))
     three_arm.main(["readout", "--log", str(tmp_path / "log.jsonl"), "--driver-readout",
-                    str(tmp_path / "readout.json"), "--criterion", str(criterion)])
-    task = json.loads(capsys.readouterr().out)["tasks"]["t1"]
-    assert (task["no_pool"], task["arms"]["I1"]["failed"], task["arms"]["I1"]["mean"]) == (True, 1, 0.0)
+                    str(tmp_path / "readout.json"), "--criterion", str(criterion), "--measure-free"])
+    result = json.loads(capsys.readouterr().out)
+    assert result['mode'] == 'measure-free'
+    assert result['executions'][0]['outcome'] == 'failed'
+    assert 'tasks' not in result and 'anchors' not in result
+
 
 
 def test_an_accepted_episode_with_unadjudicated_scan_hits_stops_the_run_before_the_subset(sandboxed, world, pyright):

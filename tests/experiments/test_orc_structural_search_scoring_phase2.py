@@ -11,6 +11,8 @@ from experiments.orc_structural_search.records import UNAVAILABLE, append_record
 from experiments.orc_structural_search.scoring import DIRECT, main
 from experiments.orc_structural_search.scoring_phase2 import phase2_readout
 from tests.experiments.compare_harness_support import REPO
+from tests.experiments.readout_support import report_qualification, report_pool
+from tests.experiments.qualification_support import write
 from tests.experiments.test_orc_structural_search_scoring import FAILED, INCIDENT, log_row, run_row
 
 
@@ -20,6 +22,15 @@ ADAPTIVE = [Path(t).name for t in CRIT2["adaptive_tasks"]]
 VALIDATION = Path(CRIT2["validation_task"]).name
 BODY = "(provider-result providers.coder :prompt (p :task task))"
 BRANCHED = f'(if true {BODY} (record Change :summary "s" :account "a"))'
+
+
+@pytest.fixture(autouse=True)
+def qualified_reports(tmp_path, monkeypatch):
+    q = report_qualification(tmp_path / 'report-quality', CRIT2,
+                             [*ADAPTIVE, VALIDATION])
+    module = __import__(__name__, fromlist=['CRITERION2'])
+    monkeypatch.setattr(module, 'CRITERION2', q.criterion)
+    monkeypatch.setattr(module, 'REPORT_Q', q, raising=False)
 
 
 def program(body=BODY):
@@ -36,6 +47,9 @@ def results_json(path, runs, anchors):
     path.parent.mkdir(parents=True)
     path.write_text(json.dumps({"runs": runs, "criterion_sha256": sha256_file(CRITERION2), "anchors": anchors,
                                 "agreement": {}, "excluded_judges": {}}))
+    labels = {a['anchor'] for a in anchors}
+    task = next(t for t in REPORT_Q.tasks if CRIT2['anchors'][t.name]['stub'] in labels)
+    report_pool(path, REPORT_Q, task.name)
     return path
 
 
@@ -106,7 +120,10 @@ def validation_pool(values, anchors=None):
              "task": VALIDATION, "replicate": k + 1, "outcome": v if v in (FAILED, INCIDENT) else "completed",
              "value": None if v in (FAILED, INCIDENT) else v, "hidden": None, "calls": c, "wall_clock_sec": w}
             for cid, runs in values.items() for k, (v, c, w) in enumerate(runs)]
-    return {"task": VALIDATION, "rows": rows, "anchors": anchors_of(VALIDATION) if anchors is None else anchors,
+    provenance = REPORT_Q.criterion.parent / 'validation/records/results.json'
+    write(provenance, {'criterion_sha256': sha256_file(CRITERION2)})
+    report_pool(provenance, REPORT_Q, VALIDATION)
+    return {"results": str(provenance), "task": VALIDATION, "rows": rows, "anchors": anchors_of(VALIDATION) if anchors is None else anchors,
             "agreement": {}, "excluded_judges": {}, "unpooled": [], "criterion_sha256": sha256_file(CRITERION2)}
 
 
@@ -204,7 +221,7 @@ def test_phase2_readout_refuses_an_adaptive_pool_summarized_under_another_criter
     run.episode("C1", interface="I1", value=6.0)
     other = tmp_path / "other.json"
     other.write_text(CRITERION2.read_text() + " ")
-    with pytest.raises(ValueError, match="summarized under criterion sha256"):
+    with pytest.raises(ValueError, match="criterion"):
         phase2_readout([run.log], [run.archive], None, other)
 
 

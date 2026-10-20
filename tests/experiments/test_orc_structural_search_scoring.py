@@ -102,10 +102,25 @@ def test_read_pool_joins_summarized_runs_to_their_evaluation_records(evaluations
         [("best_of_n", "task", 1, 4, 1), ("direct", "task", 1, 4, 1)], [])
 
 
+@pytest.fixture(autouse=True)
+def qualified_readouts(request, tmp_path, monkeypatch):
+    if 'read_pool' not in request.node.name and 'readout_cli_phase1' not in request.node.name:
+        return
+    from tests.experiments.readout_support import report_qualification
+    template = CRITERION
+    names = ['task'] if 'read_pool' in request.node.name else None
+    q = report_qualification(tmp_path / 'readout-quality', template, names)
+    monkeypatch.setattr(__import__(__name__, fromlist=['CRITERION']), 'CRITERION', q.criterion)
+    monkeypatch.setattr(__import__(__name__, fromlist=['REPORT_Q']), 'REPORT_Q', q, raising=False)
+
+
 def results_file(tmp_path, runs, sha="0" * 64):
     path = tmp_path / "results.json"
     path.write_text(json.dumps({"runs": runs, "criterion_sha256": sha, "anchors": [], "agreement": {},
                                 "excluded_judges": {}}))
+    if 'REPORT_Q' in globals():
+        from tests.experiments.readout_support import report_pool
+        report_pool(path, REPORT_Q, 'task')
     return path
 
 
@@ -390,6 +405,9 @@ def test_readout_cli_phase1_takes_one_log_and_each_tasks_results(tmp_path, capsy
                                         {"batch": 0, "judge": "j", "anchor": roles["stub"], "total": 1}]}))
         results.append(str(path))
     (tmp_path / "readout.json").write_text(json.dumps(DIVERSE))
+    from tests.experiments.readout_support import report_pool
+    for result_path in results:
+        report_pool(Path(result_path), REPORT_Q, Path(result_path).parent.name)
     main(["readout", "--log", str(log), "--driver-readout", str(tmp_path / "readout.json"), "--criterion",
           str(CRITERION), "--joined-out", str(tmp_path / "joined.json"), *results])
     result = json.loads(capsys.readouterr().out)
@@ -409,6 +427,8 @@ def test_readout_cli_phase1_writes_every_tasks_rows_with_their_outcomes_for_phas
                                     {"batch": 0, "judge": "j", "anchor": roles["upstream"], "total": 8},
                                     {"batch": 0, "judge": "j", "anchor": roles["stub"], "total": 1}]}))
     (tmp_path / "readout.json").write_text(json.dumps(DIVERSE))
+    from tests.experiments.readout_support import report_pool
+    report_pool(path, REPORT_Q, pooled)
     main(["readout", "--log", str(log), "--driver-readout", str(tmp_path / "readout.json"), "--criterion",
           str(CRITERION), "--joined-out", str(tmp_path / "joined.json"), str(path)])
     joined = json.loads((tmp_path / "joined.json").read_text())
@@ -421,7 +441,7 @@ def test_readout_cli_phase1_writes_no_joined_rows_when_the_readout_fails(tmp_pat
     for task in (Path(t).name for t in criterion["tasks"]):
         append_record(log, log_row(tmp_path / "records" / task, eid=task, task=task, outcome="failed"))
     (tmp_path / "readout.json").write_text(json.dumps({}))  # no diversity figures: phase1_readout raises
-    with pytest.raises(KeyError):
+    with pytest.raises(ValueError, match="scoring pool provenance"):
         main(["readout", "--log", str(log), "--driver-readout", str(tmp_path / "readout.json"), "--criterion",
               str(CRITERION), "--joined-out", str(tmp_path / "joined.json")])
     assert not (tmp_path / "joined.json").exists()
@@ -478,6 +498,8 @@ def phase1_with_a_contaminated_child(tmp_path):
                                     {"batch": 0, "judge": "j", "anchor": roles["upstream"], "total": 8},
                                     {"batch": 0, "judge": "j", "anchor": roles["stub"], "total": 1}]}))
     (tmp_path / "readout.json").write_text(json.dumps(DIVERSE))
+    from tests.experiments.readout_support import report_pool
+    report_pool(path, REPORT_Q, pooled)
     main(["readout", "--log", str(log), "--driver-readout", str(tmp_path / "readout.json"), "--criterion",
           str(CRITERION), "--joined-out", str(tmp_path / "joined.json"), str(path)])
 

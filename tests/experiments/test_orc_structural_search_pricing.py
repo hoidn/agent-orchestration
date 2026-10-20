@@ -11,7 +11,7 @@ TABLE = {"currency": "USD", "tokens_per_unit": 1000000, "source": "frozen synthe
 
 def receipt():
     return {"provider_calls": 1, "receipt_usage": [{"call_id": "1", "status": "complete", "provider": "codex",
-            "usage": [{"model": "m", "charge_tokens": {"input": 10, "output": 5, "cache_read": 2,
+            "usage": [{"model": "m", "provenance": {"complete_native_transcript": True}, "charge_tokens": {"input": 10, "output": 5, "cache_read": 2,
                                                          "cache_write": 3}}]}]}
 
 
@@ -22,6 +22,9 @@ def test_prices_only_normalized_charge_tokens_once():
 
 
 @pytest.mark.parametrize("edit", [
+    lambda r: r["receipt_usage"][0].update(provider="unknown"),
+    lambda r: r["receipt_usage"][0]["usage"][0].update(model=[]),
+    lambda r: r["receipt_usage"][0]["usage"][0]["provenance"].update(complete_native_transcript=False),
     lambda r: r.update(provider_calls=2), lambda r: r.update(receipt_usage="unavailable"),
     lambda r: r["receipt_usage"][0].update(status="unavailable"),
     lambda r: r["receipt_usage"][0]["usage"][0].update(model="unknown"),

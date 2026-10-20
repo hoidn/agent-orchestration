@@ -29,3 +29,8 @@ def test_frontier_recomputes_every_candidate_and_applies_floor_first():
 def test_tolerances_reject_invalid_values(tau):
     with pytest.raises(ValueError):
         pareto.frontier([], tau, 0)
+
+
+def test_nonfinite_candidates_cannot_enter_frontier():
+    assert pareto.frontier([candidate('bad-q', float('nan'), 1),
+                            candidate('bad-cost', 1, float('inf'))], 0, 0) == []
