@@ -77,7 +77,7 @@ Checked against code at `90ae778c`. Each fact constrains the phases below.
 | `trial` SDK symbols are gone; the `trial` subcommand and form refuse; confined `run-ref` children are command-only (`refuse_confined_run_ref_sites`) | No trial revival; candidate provider calls stay on the ordinary route |
 | A closed-program site row is `[owner definition, label path]`; runtime identity adds the activation path and loop ordinals | A candidate-local site locator is a separate derived identity |
 | There is no run registry; a run is a directory under `--state-dir`; the workspace lock admits one active run per working directory; parent/child linkage exists only for `run-ref` children | One fresh clone per evaluation, run id as the join key, lineage in the driver's log; invariant 1 needs an explicit reading for external controllers |
-| The evaluated runtime persists no usage; `experiments/compare` collects none; `run-ref` accounting is `UNKNOWN`; OMP usage cannot be summed from a missing field, since `validate_usage` in `orchestrator/providers/omp_protocol.py` rejects any closed assistant message lacking `totalTokens` or `cost.total`; Claude and Codex session parsing lives in `experiments/orc_structural_search/metering.py` | Budget units are episodes, provider calls and wall clock; dollars only where coverage is complete |
+| The evaluated runtime persists no usage; `experiments/compare` collects none; `run-ref` accounting is `UNKNOWN`; OMP usage cannot be summed from a missing field, since `validate_usage` in `orchestrator/providers/omp_protocol.py` rejects any closed assistant message lacking `totalTokens` or `cost.total`; Claude and Codex session parsing lives in `experiments/orc_structural_search/metering.py` | Budget units are episodes, provider calls and wall clock, and are not the objective's cost axis (metered cost; Decision Criteria); dollars only where coverage is complete |
 | `experiments/compare/` is implemented: PATH shims for `claude` and `codex` under bubblewrap, a model guard refusing Fable, a contamination scan, a blind pool and `score.orc`, a frozen hashed criterion; there is no OMP shim | Reused for hygiene; mutators run through shimmed CLIs; an OMP shim is a prerequisite before OMP sessions |
 | Experiment O's catalog `workflows/experiments/qa_placement_effectiveness/qa_placement_arms.orc` is at a retired target; the linear-classifier hard-oracle seed lacks a verified green baseline | Both are Phase 0 cost items, not assumed assets |
 | Owner rules: no Fable model in any experiment call; tasks calibrated before treatment runs; missing receipts are unavailable, never zero | Adopted for every arm, control, judge and mutator |
@@ -263,6 +263,9 @@ first-exhausted, is:
   allocation; screen on four development tasks, then expand. A pilot of
   roughly twelve adaptive, six validation and twelve sealed task groups is
   descriptive, not a powered study.
+- `phase2.json` predates the cost-proxy rule (its `mean_cost` is wall clock
+  over a multi-model catalog) and is not changed; a Phase 2 selection needs
+  a successor criterion with metered cost.
 
 ### Phase 3 Gates
 
@@ -328,7 +331,8 @@ search and selection use the family's frozen criterion (the blind rubric for
 
 Budget placeholders are stated in provider calls, workflow runs, wall clock
 and mutator episodes; tokens appear only where a session-file reader
-provides them, and no dollar figure is claimed.
+provides them, and no dollar figure is claimed. These are budget units, not
+the objective's cost axis (Decision Criteria).
 
 | Phase | Formula | Owner placeholders |
 | --- | --- | --- |
@@ -341,7 +345,7 @@ provides them, and no dollar figure is claimed.
 | Point | Rule |
 | --- | --- |
 | Family choice | Only a family qualified under the frozen rule and with measured headroom on the family criterion; otherwise Phase 0 reports "no affordable qualified family" and stops |
-| Calibration | In every live phase and experiment, no provider call is spent on quality evaluation unless the quality measure passed a predeclared calibration on known controls (for a judge measure: the upstream anchor strictly above the stub for every judge and batch by a predeclared margin, with the tolerated error rate stated in the criterion) and the family is qualified under the frozen difficulty-calibration rule; an uncalibrated measure reports only measure-free figures (compile-only metrics, execution outcomes, cost) and no quality comparison, frontier or improvement claim |
+| Calibration | In every live phase and experiment, no provider call is spent on quality evaluation (candidate evaluation runs and judge calls whose purpose is a quality comparison) unless the quality measure passed a predeclared calibration on known controls (for a judge measure: for each judge and batch the upstream anchor's total minus the stub's is at least `calibration.margin`, and the fraction of (judge, batch) pairs failing that is at most `calibration.error_rate`, default 0, both in the criterion) and the family is qualified under its own frozen rule (family (a): the harness difficulty-calibration rule; family (b): the oracle qualification in the driver design); calibration runs are their own predeclared experiments with their own budget and pass first; an uncalibrated measure reports only measure-free figures (compile-only metrics, execution outcomes, cost) and no quality comparison, frontier or improvement claim. The rule applies to provider spend from 2026-10-19 on: the in-progress three-arm readout runs no judge stage (its controller ruling R19, 2026-10-19) and reports compile-only figures, execution outcomes and cost, with quality `unavailable: evaluator uncalibrated` |
 | Phase 1 separation | Tolerance predeclared in the criterion's units (default two within-arm standard deviations, measured on the family in Phase 1), judged per task and required on at least two tasks; DIRECT sole winner or everything within tolerance is recorded under the charter's decision rule and Phase 2 is not selected for the family |
 | Collapse | If the share of accepted children whose skeleton equals the parent's exceeds the predeclared threshold (default 0.75) for an interface, that interface has collapsed to renames and literals and the adaptive claim is not tested on it; if every interface collapses, Phase 2 is not selected |
 | Screening | Advancement, finalist replication beside the reference seed, and the shrinkage readout (screening mean against validation mean) follow the driver's selection rule; the pilot stays descriptive |
@@ -369,12 +373,18 @@ each referencing existing run records by path rather than copying them.
 
 ## Decision Criteria And Next Commitment
 
-In every claim below, and wherever this roadmap says "beats" or
-"improvement", better means Pareto dominance on (quality, metered deployed
-cost), or an extension of the non-dominated frontier, as the
+Between candidates, wherever this roadmap says "beats" or "improvement",
+better means Pareto dominance on (quality, metered deployed cost), or an
+extension of the non-dominated frontier, as the
 [driver design's objective](../design/orc_structural_search_driver.md#objective-selection-and-local-observations)
 defines them; a higher score at any cost is not an improvement, and provider
-calls stand in for cost only where model and effort are frozen.
+calls stand in for cost only when every compared candidate's provider calls
+resolve to one and the same (model, effort) pair. A claim about a search
+method (feedback-guided search against enumeration or random sampling)
+compares frontier entries per completed episode at equal budget. The frozen
+criteria `phase1.json`, `phase2.json` (its scalar `improvement.min_gain`
+included) and `three_arm.json` keep their rules; Pareto views of their runs
+are descriptive.
 
 | Claim | Supporting evidence |
 | --- | --- |

@@ -254,25 +254,32 @@ while experiment_envelope_remains():
     log(parent, site, interface, episode, child, evidence)
 ```
 
-The archive is the non-dominated set on quality and metered deployed cost
-(the objective below), an incumbent plus a small set (four to eight after
-cost calibration): a child enters when no member dominates it and evicts
-the members it dominates. Provider calls stand in for the cost axis only
-under a condition that freezes model and effort. Parent and site selection
-start uniform; local-feedback targeting is a compared condition. I2
-proposals need the manifest; I1 proposals use frozen-surface validation
-alone.
+The archive is a bounded subset of the frontier, the non-dominated set on
+quality and metered deployed cost (the objective below), recomputed from
+every evaluated candidate after each generation: a child enters when no
+member dominates it and evicts the members it dominates; when the frontier
+exceeds the archive size (`ARCHIVE_SIZE`), members are dropped by a
+predeclared spread rule that keeps the cheapest and the highest-quality
+members, then the members with the largest cost gaps to their neighbours.
+Provider calls stand in for the cost axis only when every compared
+candidate's provider calls resolve to one and the same (model, effort)
+pair; otherwise metered cost is required. Parent and site selection start
+uniform; local-feedback targeting is a compared condition. I2 proposals
+need the manifest; I1 proposals use frozen-surface validation alone.
 
 As implemented (`experiments/orc_structural_search/adaptive.py`,
 `run_mode2`): an archive entry carries per-task primary values and
 provider calls of its counted evaluations; the archive is the incumbent
 plus at most `ARCHIVE_SIZE` (6) members non-dominated on (mean value
 higher, mean calls lower), ranked by mean value, then fewer calls, then the
-earlier id. Mean calls is the cost axis there, admissible only while model
-and effort are frozen (topology-only, prompt-only); under any other
-condition the axis is metered cost at the frozen price table (Metering And
-Consumption), and a child without it is not placed on the frontier.
-Generation 0 seeds it from Phase 1's joined rows
+earlier id. Recorded divergences from the archive rule above, to fix when
+Phase 2 is selected: `dominates` applies no tolerance; `prune` truncates
+the frontier by quality rank, not by the spread rule; `retain` applies no
+quality floor; nothing reads the condition or the cost axis, so mean calls
+is the cost axis whatever the candidates' models. The frozen `phase2.json`
+(`mean_cost` is wall clock, over a multi-model catalog) predates the
+cost-proxy rule and is not changed; a Phase 2 selection needs a successor
+criterion with metered cost. Generation 0 seeds it from Phase 1's joined rows
 (`scoring readout --joined-out`) as prior evidence, logs a `reference` row
 naming the incumbent and re-measures the incumbent on every adaptive task.
 Each later generation alternates I1 and I2 episodes, draws parents
@@ -396,14 +403,25 @@ python -m orchestrator run <candidate entry .orc> [frontend flags] \
 R2 task qualification remains its own selection and a prerequisite; this
 design absorbs none of it. One family is chosen before candidate work and
 not swapped to escape an unfavorable result. No uncalibrated experiment: no
-live experiment spends provider calls on quality evaluation unless its
-quality measure passed a predeclared calibration on known controls (for a
-judge measure, the upstream anchor strictly above the stub for every judge
-and batch by a predeclared margin, with the tolerated error rate stated in
-the criterion) and its family is qualified under the frozen
-difficulty-calibration rule; an experiment whose measure is uncalibrated
+live experiment spends provider calls on quality evaluation (candidate
+evaluation runs and judge calls whose purpose is a quality comparison)
+unless its quality measure passed a predeclared calibration on known
+controls and its family is qualified under its own frozen rule (family (a):
+the harness
+[difficulty-calibration rule](../plans/2026-10-14-effectiveness-harness-and-experiments-plan.md#task-8-task-difficulty-calibration);
+family (b): the oracle qualification below). For a judge measure the
+calibration is: for each judge and batch, the upstream anchor's total minus
+the stub's is at least `calibration.margin`, and the measure passes when
+the fraction of (judge, batch) pairs failing that is at most
+`calibration.error_rate` (default 0), both predeclared in the criterion.
+Calibration runs (anchor and control batches, difficulty qualification) are
+calibration experiments with their own budget, exempt from this rule, and
+pass before any candidate is scored; in-run anchors stay a monitored check
+reported beside the result. An experiment whose measure is uncalibrated
 reports only measure-free figures (compile-only metrics, execution outcomes,
-cost) and makes no quality comparison, frontier or improvement claim.
+cost) and makes no quality comparison, frontier or improvement claim; the
+transition for an experiment frozen before this rule is in the roadmap's
+Decision Points.
 
 | Family | Truth | State |
 | --- | --- | --- |
@@ -442,11 +460,17 @@ The objective is Pareto over two values per candidate: quality, the mean
 task success the family's frozen criterion names, and deployed compute
 cost, the metered cost of executing the candidate on a task (Metering And
 Consumption), both under a fixed per-task execution envelope (wall clock,
-provider calls, metered cost). Better means dominance: A dominates B when
-A's quality is not lower and its cost not higher and one is strictly
-better, each beyond a predeclared equivalence tolerance on means (quality
-in the criterion's units, cost relative). A timeout, invalid submission or
-task failure is an outcome whose consumption still counts. Failure rule
+provider calls; metered cost recorded). Both are means over the candidate's
+counted evaluations on the same task set and replicates: q is quality, c is
+cost, and the criterion predeclares two tolerances, `tau_q` in the
+criterion's units (the same field as the final choice's
+`equivalence_tolerance`) and `tau_c` relative (`dominance_cost_tolerance`).
+Better means dominance: A dominates B iff q_A >= q_B - tau_q and
+c_A <= c_B * (1 + tau_c), and q_A > q_B + tau_q or c_A < c_B * (1 - tau_c).
+The frontier is recomputed from all evaluated candidates each time, never
+incrementally, so it does not depend on the order candidates arrive in. A
+timeout, invalid submission or task failure is an outcome whose
+consumption still counts. Failure rule
 (criteria amended 2026-10-18; `primary_value` and `scored_outcome` in
 `experiments/orc_structural_search/scoring.py`): a failed evaluation and an
 envelope timeout (an incident killed at its wall-clock envelope) score 0
@@ -462,13 +486,16 @@ precondition of any adaptive claim.
 
 The authored reference seed is always evaluated on the validation split
 beside the finalists, and its runs are budgeted with them, so every finalist
-is compared with the incumbent on the same tasks. Deployment takes one
-frontier point by a rule written into the criterion before adaptive work:
-among frontier candidates under a stated mean-cost ceiling, those whose
-validation success is within a stated equivalence tolerance of the highest,
-then lower mean cost, then fewer provider calls, then the earlier candidate
-id; only under a condition that freezes model and effort may the ceiling be
-in provider calls and wall clock, and the criterion says so. Deployed cost
+is compared with the incumbent on the same tasks. Deployment follows a rule
+written into the criterion before adaptive work, over every candidate
+validated on the validation split, the reference seed included, whether or
+not it is a frontier member (`records.final_choice`): among those under a
+stated mean-cost ceiling, the ones whose validation success is within a
+stated equivalence tolerance of the highest, then lower mean cost, then
+fewer provider calls, then the earlier candidate id; the ceiling may be in
+provider calls and wall clock only when every validated candidate's
+provider calls resolve to one and the same (model, effort) pair, and the
+criterion says so. Deployed cost
 defines the frontier. Search cost (episodes, compiler and repair work,
 evaluations, retries, rejected proposals, preparation, substantive human
 assistance) is reported apart from it:
@@ -514,12 +541,23 @@ conditions.
 The cost unit reflects the model: metered tokens priced by a per-model
 table frozen in the criterion, with input, output, cache-read and
 cache-write prices per model and the table's source and date stated, so a
-child that moves to a dearer model pays for it on the cost axis. Calls and
-wall clock are an acceptable cost proxy only where model and effort are
-frozen (topology-only, prompt-only). Under any condition that may change
-them (module, provider-only, joint) metering is mandatory: a candidate
-without metered cost has cost `unavailable`, is not placed on the frontier
-and is reported as such.
+child that moves to a dearer model pays for it on the cost axis. Metered
+cost is the list-price equivalent from that table, not billed spend;
+subscription billing and Codex window readings stay bounds. The mapping
+from receipt fields to prices is frozen with the table: a Claude usage row
+charges `input_tokens` at input, `output_tokens` at output,
+`cache_read_input_tokens` at cache-read and `cache_creation_input_tokens`
+at cache-write; a Codex `total_token_usage` charges
+`input_tokens - cached_input_tokens` at input, `cached_input_tokens` at
+cache-read, `cache_write_input_tokens` at cache-write and `output_tokens`
+at output, never adding `reasoning_output_tokens`, which `output_tokens`
+already contains (in the recorded three-arm rollouts input plus output
+equals `total_tokens`). Calls and wall clock are an acceptable cost proxy
+only when every compared candidate's provider calls resolve to one and the
+same (model, effort) pair; a condition name is not that test, since
+topology-only lets a child reuse any model or effort already in the parent.
+Otherwise metering is mandatory: a candidate without metered cost has cost
+`unavailable`, is not placed on the frontier and is reported as such.
 
 ## Evaluation Hygiene
 
@@ -585,8 +623,10 @@ improvements, a child that dominates its parent on matched adaptive tasks
 under the frozen rule (Objective, Selection And Local Observations), and
 frontier entries, a child non-dominated against the archive; the frontier
 entries are reported by candidate, and both endpoints are split by whether
-the child changed its provider allocation (`allocation_distinct`) or its
-structure only. Secondary: skeleton diversity and revisit rate, acceptance
+the child changed its allocation (`allocation_changed`: its per-call-site
+(provider, model, effort) differs from the parent's; reported beside the
+collapse figure's `allocation_distinct`, which sees extern names only) or
+its structure only. Secondary: skeleton diversity and revisit rate, acceptance
 rate, repair iterations per accepted proposal. Wall clock and provider
 calls are always reported; dollars only where metering coverage is
 complete, and metered cost is the cost axis of any arm whose model or
@@ -684,7 +724,11 @@ provider call in an unexecuted branch is recorded as unobserved; the
 skeleton hash is invariant under renaming and literal changes and differs
 for a control-flow change; the final-choice rule refuses without a criterion
 hash; a missing receipt serializes as `unavailable`; an incident resume
-keeps its evaluation id. One public compile/run integration check runs a
+keeps its evaluation id; a child within both tolerances of its parent
+neither dominates nor is dominated; a child below the quality floor stays
+off the frontier however cheap; a candidate with cost `unavailable` stays
+off the frontier and is reported; the frontier is the same whatever the
+order candidates are offered in. One public compile/run integration check runs a
 seed candidate through the launch form above with a scripted leaf and
 scores it. No prompt-text assertions.
 
