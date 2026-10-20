@@ -4,6 +4,7 @@ import json
 import pytest
 
 from experiments.orc_structural_search import campaign
+from experiments.orc_structural_search.records import UNAVAILABLE
 
 TABLE = {"currency": "USD", "tokens_per_unit": 1, "source": "frozen synthetic", "date": "2026-10-19",
          "models": {"m": {"input": 1, "output": 1, "cache_read": 1, "cache_write": 1}}}
@@ -40,7 +41,7 @@ def judge_pool(pool, *, judge="m", records_dir=None, calls=1, seconds=3, receipt
 def test_overlapping_rows_and_repeated_pool_count_each_physical_receipt_once(tmp_path):
     episode = work(tmp_path / "episode", kind="episode", seconds=4, receipts=[receipt("1", 2)])
     pool = tmp_path / "pool"
-    judge_pool(pool, records_dir=tmp_path / "judge", seconds=5, receipts=[receipt("1", 3)])
+    judge_pool(pool, seconds=5, receipts=[receipt("1", 3)])
 
     result = budget([episode, dict(episode)], [pool, pool])
 
@@ -89,6 +90,31 @@ def test_episode_without_actual_records_dir_cannot_be_priced():
     assert result["unpriced_work"][0]["reason"] == "missing_records_dir"
 
 
+def test_unavailable_records_dir_does_not_collapse_rows_or_enable_pricing():
+    rows = [work("unavailable", calls=1, seconds=2, receipts=[receipt("1", 2)], evaluation_id="e1"),
+            work(UNAVAILABLE, calls=1, seconds=3, receipts=[receipt("1", 3)], evaluation_id="e2")]
+
+    result = budget(rows)
+
+    assert (result["calls"], result["wall_clock_sec"]) == (2, 5)
+    assert result["metered_cost"] == UNAVAILABLE
+
+
+def test_unknown_calls_preserve_known_wall_time(tmp_path):
+    result = budget([work(tmp_path / "records", calls=UNAVAILABLE, seconds=4, receipts=[receipt()])])
+
+    assert result["calls"] == UNAVAILABLE
+    assert result["wall_clock_sec"] == 4
+
+
+def test_unknown_wall_time_preserves_known_calls(tmp_path):
+    result = budget([work(tmp_path / "records", calls=2, seconds=UNAVAILABLE,
+                          receipts=[receipt("1"), receipt("2")])])
+
+    assert result["calls"] == 2
+    assert result["wall_clock_sec"] == UNAVAILABLE
+
+
 def test_unknown_native_pricing_proof_makes_cost_unavailable(tmp_path):
     result = budget([work(tmp_path / "records", receipts=[receipt(complete=False)])])
 
@@ -118,7 +144,7 @@ def test_missing_expected_judge_record_is_unknown_work_not_free(tmp_path):
 
 def test_kind_breakdown_sums_observed_episode_evaluation_and_judge_work(tmp_path):
     pool = tmp_path / "pool"
-    judge_pool(pool, records_dir=tmp_path / "judge", receipts=[receipt(tokens=4)])
+    judge_pool(pool, receipts=[receipt(tokens=4)])
     rows = [work(tmp_path / "episode", kind="episode", seconds=2, receipts=[receipt(tokens=1)]),
             work(tmp_path / "evaluation", seconds=3, receipts=[receipt(tokens=2)])]
 
@@ -137,3 +163,21 @@ def test_conflicting_duplicate_call_receipts_are_rejected(tmp_path):
 
     with pytest.raises(ValueError, match="conflicting.*receipt|receipt.*conflicting"):
         budget([row])
+
+
+def test_judges_cannot_claim_another_judges_records_directory(tmp_path):
+    pool, shared = tmp_path / "pool", tmp_path / "shared"
+    records = pool / "records"
+    for judge in ("a", "b"):
+        directory = records / "judges" / judge
+        directory.mkdir(parents=True)
+        (directory / "record.json").write_text(json.dumps({
+            "kind": "judge", "records_dir": str(shared), "provider_calls": 1, "wall_clock_sec": 3,
+            "receipt_usage": [receipt()], "native_session_paths": []}))
+    (records / "mapping.json").write_text(json.dumps({"judges": {"a": {}, "b": {}}}))
+
+    result = budget([], [pool])
+
+    assert (result["calls"], result["wall_clock_sec"], result["metered_cost"]) == (
+        UNAVAILABLE, UNAVAILABLE, UNAVAILABLE)
+    assert len(result["unpriced_work"]) == 2

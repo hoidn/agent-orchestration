@@ -357,7 +357,7 @@ _BUDGET_KINDS = ("episode", "evaluation", "judge")
 
 
 def _budget_path(value: Any) -> str | None:
-    if isinstance(value, (str, Path)) and str(value).strip():
+    if isinstance(value, (str, Path)) and str(value).strip() not in {"", UNAVAILABLE}:
         return str(Path(value).resolve())
     return None
 
@@ -401,8 +401,10 @@ def _judge_work(judge_pools: Sequence[Path]) -> list[dict]:
 def _read_judge_record(pool: Path, name: str) -> dict:
     if not name or Path(name).name != name or name in {".", ".."}:
         raise ValueError("invalid_judge_name")
-    record = json.loads((pool / "records" / "judges" / name / "record.json").read_text())
-    if not isinstance(record, dict) or record.get("kind") != "judge" or not _budget_path(record.get("records_dir")):
+    records_dir = pool / "records" / "judges" / name
+    record = json.loads((records_dir / "record.json").read_text())
+    if (not isinstance(record, dict) or record.get("kind") != "judge" or
+            _budget_path(record.get("records_dir")) != str(records_dir.resolve())):
         raise ValueError("invalid_judge_record")
     return record
 
@@ -474,11 +476,12 @@ def _budget_summary(details: dict, receipts: Mapping, receipt_kinds: Mapping) ->
                      "metered_cost": _sum_or_unavailable(values["metered_cost"], values["cost_known"]),
                      "receipts": values["receipts"], "unpriced_work": values["unpriced_work"]}
               for kind, values in details.items()}
-    unknown = any(not values["calls_known"] or not values["time_known"] for values in details.values())
+    unknown_calls = any(not values["calls_known"] for values in details.values())
+    unknown_time = any(not values["time_known"] for values in details.values())
     unpriced = [entry for values in details.values() for entry in values["unpriced_work"]]
     totals = {key: sum(values[key] for values in details.values()) for key in ("calls", "wall_clock_sec", "metered_cost")}
-    return {"calls": _sum_or_unavailable(totals["calls"], not unknown),
-            "wall_clock_sec": _sum_or_unavailable(totals["wall_clock_sec"], not unknown),
+    return {"calls": _sum_or_unavailable(totals["calls"], not unknown_calls),
+            "wall_clock_sec": _sum_or_unavailable(totals["wall_clock_sec"], not unknown_time),
             "metered_cost": _sum_or_unavailable(totals["metered_cost"], not unpriced),
             "receipts": len(receipts), "unpriced_work": unpriced, "by_kind": result}
 
