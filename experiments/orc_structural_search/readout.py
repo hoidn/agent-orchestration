@@ -81,7 +81,9 @@ def behaviour_descriptor(evaluation_rows: Sequence[Mapping], episode_row: Mappin
     calls = _realized_provider_calls(evaluation_rows)
     role_count = UNAVAILABLE if calls == UNAVAILABLE else len({call["provider_role"] for call in calls})
     structure = episode_row.get("structure", {}) if episode_row is not None else {}
-    controls = structure.get("control_heads", {}) if isinstance(structure, Mapping) else {}
+    if not isinstance(structure, Mapping):
+        structure = {}
+    controls = structure.get("control_heads", {})
     loop = structure.get("loop")
     if type(loop) is not bool:
         loop = isinstance(controls, Mapping) and type(controls.get("loop/recur")) is int \

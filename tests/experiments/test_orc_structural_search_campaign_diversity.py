@@ -4,6 +4,8 @@ import hashlib
 import json
 from pathlib import Path
 
+import pytest
+
 from experiments.orc_structural_search import campaign, evaluation, site_evidence
 from experiments.compare.repos import runtime_commit
 from experiments.orc_structural_search.candidates import candidate_id, compile_candidate
@@ -202,6 +204,13 @@ def test_behaviour_descriptor_reports_known_empty_effects_as_zero():
         [{"realized_perform_sites": []}], {"structure": {"loop": True}, "allocation_changed": False})
     assert result == {"realized_provider_calls": [], "distinct_provider_roles": 0,
                       "loop_present": True, "allocation_changed": False}
+
+
+@pytest.mark.parametrize("structure", [None, UNAVAILABLE, []])
+def test_behaviour_descriptor_treats_non_mapping_structure_as_no_loop(structure):
+    result = campaign.behaviour_descriptor(
+        [{"realized_perform_sites": []}], {"structure": structure, "allocation_changed": False})
+    assert result["loop_present"] is False
 
 
 def test_behaviour_descriptor_preserves_unavailable_and_incomplete_call_evidence():
