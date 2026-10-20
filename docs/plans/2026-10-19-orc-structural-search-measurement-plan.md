@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Status:** selected for offline Tasks 1–5 and live Step A. The owner explicitly approved Step A at 8 calls, cap 10 on 2026-10-19 (`ac58e0ba`); do not ask for the same approval again. Offline Tasks 1–5 are complete and verified; implementation `I=25ca21e1` and criterion freeze `F=cc5464ac` passed independent review. Task4 reuses audited receipt/pricing APIs. Step A completed exactly 8 calls under its approved cap 10 and failed: RPI exceeded the spread limit, while PRR passed. [The A report](../reports/2026-10-19-orc-structural-search-measurement-calibration.md) records the joined results, scans and complete receipt costs. The reference-free A′ implementation passed offline review and verification; its offline packet is ready and frozen at `I_A2=49cd27e6` / `F2=f58d70db`, but the owner reiterated the no-Claude restriction on 2026-10-20 without an expiry while authorizing A′'s 8 planned calls, cap 10, subject to that restriction. The frozen Sonnet/Terra packet is incompatible and remains blocked; the Terra-only amendment design has independent Astra acceptance, but is not implemented/frozen or calibrated. The code-first prerequisite is complete: C1 offline Tasks 1–7, reviews, checks and main integration are recorded at `a92eeeea`. On 2026-10-20 the owner instructed “execute the calibration and experiments”; preparation of the accepted Terra-only A′ packet has resumed under the existing conditional authority. No new provider call has run at this preparation checkpoint. B, B2 and C retain separate approval gates. Preparation and freeze establish no calibration or quality result.
+> **Status:** offline Tasks 1–5 and live Step A complete; compatible A′ is authorized and ready to launch. The owner explicitly approved Step A at 8 calls, cap 10 on 2026-10-19 (`ac58e0ba`); do not ask for the same approval again. Offline Tasks 1–5 are complete and verified; implementation `I=25ca21e1` and criterion freeze `F=cc5464ac` passed independent review. Task4 reuses audited receipt/pricing APIs. Step A completed exactly 8 calls under its approved cap 10 and failed: RPI exceeded the spread limit, while PRR passed. [The A report](../reports/2026-10-19-orc-structural-search-measurement-calibration.md) records the joined results, scans and complete receipt costs. The reference-free A′ implementation passed offline review and verification; its offline packet is ready and frozen at `I_A2=49cd27e6` / `F2=f58d70db`, but the owner reiterated the no-Claude restriction on 2026-10-20 without an expiry while authorizing A′'s 8 planned calls, cap 10, subject to that restriction. The frozen Sonnet/Terra packet is incompatible and remains blocked; the Terra-only amendment design has independent Astra acceptance and its operator is implemented, independently reviewed and frozen; calibration remains unmeasured until AT finishes. The code-first prerequisite is complete: C1 offline Tasks 1–7, reviews, checks and main integration are recorded at `a92eeeea`. On 2026-10-20 the owner instructed “execute the calibration and experiments”; preparation of the accepted Terra-only A′ packet has resumed under the existing conditional authority. No new provider call has run at this preparation checkpoint. B, B2 and C retain separate approval gates. Preparation and freeze establish no calibration or quality result.
 
 > **Revision 2026-10-19** (after the independent review, coordinator rulings C1 and I1–I10 applied): a fourth blind control per task, the `mutant` (upstream with one behaviour-breaking edit), and rule P3 `total(upstream) − total(mutant) ≥ 2`, so a judge that scores similarity to the disclosed reference fails calibration; fillers are only patches that pass `git apply --check` on the amended seeded base, drawn from the retained Phase 1 pools and the three-arm final patches, with exact counts and a minimum; the authoritative gate-3 check is controller-side and restores the package's `dev-check.json` and promoted test before running (`evaluation.check_first_attempt`); Step C (the check-gated seed's own coder) is required and is the gate-3 measurement, Step B's figure beside it; a new `calibration-amends-5.json` references the unchanged historical criterion and records `amends_5` (frozen implementation commit, reviewer `gpt-6.1-sol`, amended package hashes) before Step B; B2 has its own per-pool verdict plus `summarize.calibration_over`; the failure-policy rerun is its own owner-gated step (A′) and the worst-case total is stated (50 calls); the driver design and harness D6 are amended offline before any spend; `summarize` skips `reference` clones and reads a mapping without `rubric` as the historical rubric; `score_ref.orc` runs end to end with scripted providers before the criterion freezes; no `calibrate.py` (shared `pool.write_pool`, `pool.pool_from_diffs`); citation, count, metering-mapping, measurement-order, batch-size, judge-scan and ledger minors applied.
 
@@ -394,14 +394,14 @@ RPI failed Terra mutant spread (0 versus 4, limit 2); PRR passed with maximum
 spread 1. Complete receipts price at USD 7.8836138 list equivalent. Proceed only
 to preparation of the predeclared A′ option; its launch requires separate approval.
 
-### Task 6b: Live Step A′ — one rerun after the predeclared revision (owner gate: 8 calls, cap 10)
+### Task 6b: Live Step A′ — one rerun after the predeclared revision (4 planned calls, cap 10; existing authority)
 
 **Current launch restriction (2026-10-20):** in response to the concrete A′
 request for 8 planned calls, cap 10, the owner said “still no claude, everythign
 else is fine”. This authorizes that call budget subject to the continuing
 no-Claude restriction; no expiry is assumed. It does not authorize the frozen
 Sonnet/Terra F2 packet, which remains incompatible and must not launch. The Terra-only amendment design is independently accepted, as recorded below;
-this is neither a frozen packet nor a calibration result. The code-first prerequisite is now satisfied by `a92eeeea`; the owner’s renewed
+the compatible AT packet is now frozen and independently approved for launch, with no calibration result yet. The code-first prerequisite is now satisfied by `a92eeeea`; the owner’s renewed
 execution instruction selects preparation and execution of the compatible A′
 packet under the existing authority. No new provider call has run at this
 preparation checkpoint. I_A2/F2 and their runtime/criterion bytes remain frozen. The earlier
@@ -417,8 +417,8 @@ spread 2 are unchanged. This consumes the same predeclared A′ alternative:
 no additional rubric revision or A3 is selected. I_A2 may remain the runtime
 only with a frozen operator audit: an empty Claude allowlist checked at launch
 and resume, persisted actual-Claude metadata reported as non-clearable
-`FORBIDDEN` hits, and positive Terra per-call receipt proof. These are accepted
-design obligations, not claims that an audit or new freeze already exists.
+`FORBIDDEN` hits, and positive Terra per-call receipt proof. These obligations are implemented in the frozen AT operator below; they do not
+establish a calibration result.
 Original F2 remains unchanged and unexecuted.
 
 Prospective B stays Terra; B2 becomes two planned calls, cap 4. C needs a new
@@ -472,19 +472,48 @@ all 18 clones unchanged per task. Both pools remain unscored, with no run or
 call records and zero provider calls. The packet is ready offline and authorizes
 no calls; the dated no-Claude restriction still applies.
 
-- [ ] **Step 1: Complete a compatible launch packet.** The owner has authorized 8 planned calls, cap 10, subject to no Claude. The frozen Sonnet/Terra packet cannot satisfy that restriction. After the prospective amendment is accepted, record its concrete runtime/criterion hashes and the remaining worst-case total against that authority before launching; any changed spend or scope needs owner approval. No compatible amendment or new criterion is accepted by this status update.
-- [ ] **Step 2: Use the prospective I_A2/F2 bindings above** and repeat Task 6's pool/scoring/scan/readout mechanics under the new absolute criterion in fresh pools `P/<task>/A2`; do not reuse A's runtime or reference criterion. A′ may reuse the same A fillers; this does not make them unused for B2.
+- [x] **Step 1: Complete a compatible launch packet.** Existing conditional authority covers four planned calls, cap 10. The Terra-only criterion below and reviewed operator satisfy the continuing restriction; historical F2 remains unchanged. Realized A8 plus remaining caps10+14+4+12 gives worst-case48, without transferring A's unused reserve.
+- [ ] **Step 2: Execute AT** using I_A2 and `E/freeze-at/judge-calibration-at.json`, fresh pools `P/<task>/AT`, two batches/task and one Terra-high judge. Verify pools, audit models and native receipts, adjudicate scans and obtain the frozen harness readout. AT preserves exact A filler membership; those fillers remain unavailable to B2. Complete observations are never rescored; mechanical recovery may resume only the existing run's pending effects within the original cap.
 - [ ] **Step 3: Decide**: both pools `passed` → calibrated; otherwise the judge measure is uncalibrated for the family, no further live step runs, and Task 9's failure branch applies.
 
-### Task 7: Live Step B — family re-qualification under `amends_5` (owner gate: 8 calls, cap 14) and B2 (4 calls, cap 4)
+### Task 7: Live Step B — family re-qualification under `amends_5` (owner gate: 8 calls, cap 14) and B2 (2 calls, cap 4)
 
 **Files:** operator commands only; `W/B/records/{direct_task,review_once}/run-k`; `P/<task>/B2`; ledger entries.
 
-- [ ] **Step 1: Ask the owner** with: `amends_5` text for acceptance; per task 2 `direct_task` + 2 `review_once` = 8, +2 per borderline task, +1 per frozen-rule review rerun, cap 14; B2's 4; the remaining worst-case total. Step B does not launch without `amends_5` accepted in the ledger.
+- [ ] **Step 1: Ask the owner** with: `amends_5` text for acceptance; per task 2 `direct_task` + 2 `review_once` = 8, +2 per borderline task, +1 per frozen-rule review rerun, cap 14; B2's two Terra calls, cap4; the remaining worst-case total. Step B does not launch without `amends_5` accepted in the ledger.
 - [ ] **Step 2: Run** `prepare.py run --task <task> --arm direct_task --root $W/B --runtime $RT --set model=gpt-5.6-terra --set effort=high` (k = 2 per task, in tmux), `collect`, `scan --hash SOL`, adjudicate; then `--arm review_once --apply <final.diff>` per patch, `collect` (records `blockers`), scan, adjudicate.
 - [ ] **Step 3: Step B first-attempt figure (reported, not the gate)**: `python -m experiments.orc_structural_search.evaluation check --task --patch <final.diff> --runtime $RT` per single-call patch; record pass/fail and `touched_frozen`; measure each patch's hidden fraction (descriptive).
 - [ ] **Step 4: Qualification**: the first two samples qualify a task at mean blockers ≥1.5; an initial mean in [1,1.5) adds the third pair (owner notified, within the cap) and qualifies only with final mean ≥1; an initial mean below1 fails. Record every original sample/paired review and any frozen-rule rerun. All B launches/extensions/replacements/reruns count against cap14; check the ledger before each launch and stop without an unbudgeted replacement. The old four-run count is historical only. Two qualified tasks are required before any later live arm; this does not admit the amended family into structural V1.
-- [ ] **Step 5 (B2)**: freeze the membership from all usable B single-call patches used in qualification, then deterministically add unused applicable fillers to maximum5/minimum2 under `filler_seed`. Do not selectively omit B qualification patches. Exclude the union of fillers selected in every earlier A/A2 pool, including failed A; A′ may reuse A fillers, but B2 may not. Two or three usable B patches satisfy minimum2 even with zero unused retained fillers; preserve existing duplicate-patch refusals. Per task run `prepare.py calibrate ... --out $P/<task>/B2 --batches 1 --per-batch 5 --min-per-batch 2 --filler <all usable Step B qualification patches> --filler <unused applicable fillers>`; score both judges; summarize; then `summarize.py --calibration-over <accepted-A-or-A2-results.json> $P/<task>/B2/records/results.json --criterion <criterion>`: the B2 pool must pass P1–P3 and the cross-pool spread must stay ≤ 2 for the measure to remain calibrated.
+- [ ] **Step 5 (B2)**: freeze the membership from all usable B single-call patches used in qualification, then deterministically add unused applicable fillers to maximum5/minimum2 under `filler_seed`. Do not selectively omit B qualification patches. Exclude the union of fillers selected in every earlier A/A2 pool, including failed A; A′ may reuse A fillers, but B2 may not. Two or three usable B patches satisfy minimum2 even with zero unused retained fillers; preserve existing duplicate-patch refusals. Per task run `prepare.py calibrate ... --out $P/<task>/B2 --batches 1 --per-batch 5 --min-per-batch 2 --filler <all usable Step B qualification patches> --filler <unused applicable fillers>`; score the single Terra-high judge; summarize; then `summarize.py --calibration-over <accepted-A-or-A2-results.json> $P/<task>/B2/records/results.json --criterion <criterion>`: the B2 pool must pass P1–P3 and the cross-pool spread must stay ≤ 2 for the measure to remain calibrated.
+
+### Compatible AT Freeze — 2026-10-20
+
+Criterion [judge-calibration-at.json](../../experiments/compare/criteria/judge-calibration-at.json),
+identical to `E/freeze-at/judge-calibration-at.json`, has SHA-256
+`2963e39670c32962ac226fa4f8646029de5815f29d03eb1c0cea5bf66362de60`.
+The identity manifest is `E/freeze-at/identities.json`; runtime remains clean
+I_A2 `49cd27e6d3c059092e38fcf9836aa4bc50ae8b52`. Original F2 stays unchanged
+and unexecuted. The family amendment and price table are unchanged. AT uses
+four declared judge×batch pairs, four planned calls/cap10 and no hidden-test
+execution. One judge reduces cross-provider coverage. Removing the reference
+and narrowing the judge panel together prevents attributing any change solely
+to reference removal.
+
+Seven external operator scripts are bound by the criterion's hashes. Independent
+review and ten provider-free selfchecks cover empty Claude allowlists, sticky
+forbidden metadata, positive native Terra receipts, call-ID joins, exact controls
+and input membership, physical clone verification and same-run recovery.
+`operator_audit.per_run_call_cap=2` describes the **initial** allocation per task;
+the frozen operator implements the explicitly accepted mechanical-recovery rule:
+only pending effects may use the remaining global cap10. Committed observations,
+including invalid judgments, cannot be rescored. Invalid frozen-harness joins or
+an excluded sole judge close as failure/incomplete, never a reduced denominator.
+
+Fresh repository verification: 44 focused checks passed. The broad command
+recorded 1423 passed/2 failed in730.63s; both failures were the dirty-runtime guard
+seeing this plan's uncommitted status edit. After committing that edit at
+`f3a21df2`, both affected checks passed in5.56s, exit0, without code/test changes.
+The broad run is not relabeled PASS. Evidence: `E/preparation/AT-verification/`.
 
 ### Task 8: Live Step C — measure-free gate-3 check (owner gate: ≤ 12 calls, cap 12)
 
@@ -582,3 +611,5 @@ not transferred. Remaining planned calls are 32, or 40 including A and A′.
 | Owner: “execute the calibration and experiments” | Resume the accepted Terra-only A′ alternative under the existing authorization: four planned calls, cap 10. Do not repeat the approval request. Later stages remain subject to the frozen scientific predicates and their recorded budgets; this instruction does not waive a failed calibration or authorize a further revision |
 | Operator preparation | Reuse frozen I_A2 only with the accepted model audit; prepare fresh AT pools and a prospective criterion without changing F2 or A/A2 evidence. Independent operator review and public CLI dry runs precede calls |
 | Capacity observation | `E/preparation/quota-before-AT.json` records the latest local native event at `2026-10-20T17:11:39.099Z`: 41% weekly use. It is a local observation, not a fresh server request |
+
+| AT prelaunch verification | `E/AT/prelaunch-review.json` records independent PASS: both public dry runs exit0, 36 actual clones intact, exact A membership, fresh IDs, two batches/task, no references, one Terra-high judge, zero provider calls. Historical220file hashes and F2 remain unchanged. The initial allocation is2 calls/task; reviewed mechanical recovery stays within globalcap10 and never rescores committed judgments |
