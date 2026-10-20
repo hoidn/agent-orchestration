@@ -75,11 +75,12 @@ def settle_killed(evidence_root: Path, kind: str, key: str, records: Path) -> No
 
 
 def settle_killed_episodes(evidence_root: Path) -> None:
-    """Settle every unsettled episode entry whose records <evidence>/episodes/<key> exist (episodes killed in
-    flight; a continue runs this before its first launch)."""
+    """Settle interrupted episodes from physical calls directories; missing directories are inconsistent."""
     for entry in _read(evidence_root / LEDGER):
         records = evidence_root / "episodes" / entry["key"]
-        if entry["kind"] == "episode" and entry["calls"] is None and records.is_dir():
+        if entry["kind"] == "episode" and entry["calls"] is None:
+            if not (records / 'calls').is_dir():
+                raise ValueError(f'interrupted episode is missing its calls directory: {records}')
             settle_killed(evidence_root, "episode", entry["key"], records)
 
 
@@ -237,3 +238,21 @@ def planned_judged(calls, tasks, replicates, judges, *, capacities=None):
     from experiments.orc_structural_search import scoring
     capacities = capacities if capacities is not None else [scoring.BATCH_CLONES - scoring.ANCHORS_PER_BATCH] * tasks
     return tasks * replicates * sum(calls) + sum(math.ceil(len(calls) * replicates / cap) for cap in capacities) * judges
+
+
+def episode_reservation(evidence, key):
+    """Recover only the selected identity; empty initialization may precede its reservation."""
+    entries = [row for row in _read(evidence / LEDGER) if (row['kind'], row['key']) == ('episode', key)]
+    records = evidence / 'episodes' / key
+    calls = records / 'calls'
+    if len(entries) > 1:
+        raise ValueError(f'episode reservation has duplicate identity: {key}')
+    if entries:
+        if not calls.is_dir():
+            raise ValueError(f'episode reservation is missing calls: {key}')
+        return entries[0]
+    if records.exists() and any(records.iterdir()):
+        empty = calls.is_dir() and not any(calls.iterdir()) and set(records.iterdir()) == {calls}
+        if not empty:
+            raise ValueError(f'episode calls without reservation: {key}')
+    return None

@@ -12,6 +12,7 @@ from dataclasses import replace
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+from experiments.compare import repos
 from experiments.orc_structural_search import ledger, qualification
 from experiments.orc_structural_search.candidates import imports
 from experiments.orc_structural_search.config import ExperimentConfig, load_config
@@ -162,3 +163,19 @@ def enumerate_catalog(seeds: Sequence[Path], config: ExperimentConfig, *, tasks:
                         concurrency=concurrency, work_root=work_root,
                         evidence_root=evidence_root, runtime=runtime, env=env, timeout_sec=timeout_sec,
                         solutions=solutions, holdouts=holdouts, call_cap=call_cap, criterion=criterion)
+
+
+def check_seed_catalog(seeds, runtime):
+    """Bind copied acquisition inputs to the versioned capped catalog of the frozen runtime."""
+    commit = repos.runtime_commit(runtime)
+    relative = Path('experiments/orc_structural_search/seeds/capped')
+    authority = runtime / relative
+    tracked = set(repos.git(runtime, 'ls-tree', '-r', '--name-only', commit, str(relative)).splitlines())
+    for seed in seeds:
+        canonical = seed_files(authority / seed.name)
+        if seed.name not in canonical or seed_files(seed) != canonical:
+            raise ValueError('warm seed differs from canonical runtime catalog')
+        for name, data in canonical.items():
+            path = str(relative / name)
+            if path not in tracked or repos.git(runtime, 'show', f'{commit}:{path}', raw=True) != data:
+                raise ValueError('runtime catalog contains bytes outside its versioned commit')

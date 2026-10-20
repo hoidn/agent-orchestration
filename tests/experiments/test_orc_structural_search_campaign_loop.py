@@ -134,7 +134,10 @@ def test_check_campaign_refuses_an_unadmitted_model_a_legacy_condition_an_unknow
             adaptive_tasks=s.common['adaptive_tasks'], launch=s.launch | {'concurrency': 2},
             judge={'criterion': s.q.criterion, 'judges': s.common['judges']})
     base = json.loads(s.config.read_text())
-    for key, value in [('models', {'unknown': ['medium']}), ('condition', 'topology-only')]:
+    for key, value in [('models', {'unknown': ['medium']}), ('condition', 'topology-only'),
+                       ('entry_workflow', 'other::run'), ('source_root', 'elsewhere'),
+                       ('providers_file', 'other.json'), ('command_boundaries_file', None),
+                       ('mutable_files', ['other.orc']), ('mutable_definitions', ['other']), ('interface', 'I2')]:
         write(s.config, base | {key: value})
         with pytest.raises(ValueError):
             adaptive.check_campaign(s.config, s.q.criterion, agent_cmd=s.common['agent_cmd'],

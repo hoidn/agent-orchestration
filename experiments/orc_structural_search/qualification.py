@@ -5,6 +5,9 @@ import os
 import shlex
 from pathlib import Path
 
+from experiments.compare import repos
+from experiments.orc_structural_search.config import load_config
+
 from experiments.orc_structural_search.qualification_family import validate_family, validate_family_v2
 from experiments.orc_structural_search.qualification_io import (
     calibration, digest, names, package_digest, read, reference, require)
@@ -437,8 +440,44 @@ def check_warm_inputs(frozen, seeds, tasks, launch):
     if launch['call_cap'] != frozen['budget']['steps']['P0']['cap'] or sorted(p.stem for p in seeds) != sorted(frozen['horizon']['warm_start']['seeds']):
         raise ValueError('warm start cap or seeds differ from frozen acquisition')
     runtime = launch['runtime']
+    from experiments.orc_structural_search.mode1 import check_seed_catalog
+    check_seed_catalog(seeds, runtime)
     actual = {Path(t).resolve() for t in tasks}
     if actual != {(runtime / t).resolve() for t in frozen['tasks']}:
         raise ValueError('warm adaptive tasks differ from frozen packages')
     if {Path(t).resolve() for t in launch.get('holdouts', ())} != {(runtime / frozen[k]).resolve() for k in ('validation_task', 'sealed_task')}:
         raise ValueError('warm holdouts differ from frozen validation and sealed packages')
+
+
+def check_campaign(config_path, criterion, *, agent_cmd, timeout_sec, policy, runtime):
+    frozen, config = read(criterion), load_config(config_path)
+    validate_campaign_criterion(frozen, criterion)
+    expected = (frozen['models'], frozen['per_call_timeout_sec'], frozen['envelope']['episode'],
+                repos.sha256_file(criterion), shlex.split(frozen['model_policy']['mutator']), frozen['envelope']['evaluation'])
+    actual = (config.models, config.per_call_timeout_sec, config.episode_wall_clock_sec,
+              config.criterion_sha256, list(agent_cmd), timeout_sec)
+    scope = (config.interface, config.entry_workflow, config.source_root, config.providers_file,
+             config.command_boundaries_file, config.mutable_files, config.mutable_definitions)
+    if scope != ('I1', 'direct::run', '.', 'providers.json', 'commands.json', ('direct.orc',), ('run',)):
+        raise ValueError('campaign requires the canonical capped I1 configuration')
+    if actual != expected or config.condition != 'module' or policy not in frozen['policies']:
+        raise ValueError('campaign configuration/policy differs from frozen C1 criterion')
+    if frozen['model_policy']['allowed'] != ['gpt-5.6-terra']:
+        raise ValueError('C1 campaign requires the frozen Terra-only model policy')
+    validate(criterion, config_sha256=config.criterion_sha256, runtime=runtime, operation='launch')
+    return frozen | {'criterion_sha256': repos.sha256_file(criterion)}
+
+
+def check_run_parameters(frozen, generations, episodes, label, policy, seed, cap, concurrency, tasks, validation, sealed, runtime):
+    if (label, policy, seed) not in {(row['label'], row['policy'], row['run_seed']) for row in frozen['campaigns']}:
+        raise ValueError('campaign label, policy and seed must match one preregistered declaration')
+    if not 0 <= generations <= frozen['horizon']['generations'] or episodes != frozen['horizon']['episodes_per_generation']:
+        raise ValueError('requested horizon exceeds or differs from frozen horizon')
+    stage = 'P1' if policy == 'frontier_only' else 'P2'
+    if cap != frozen['budget']['steps'][stage]['cap'] or concurrency != frozen['envelope']['concurrency']:
+        raise ValueError('call cap/concurrency differs from frozen budget')
+    actual = (sorted(str(Path(t).resolve()) for t in tasks), str(validation.resolve()), str(sealed.resolve()))
+    expected = (sorted(str((runtime / t).resolve()) for t in frozen['tasks']),
+                str((runtime / frozen['validation_task']).resolve()), str((runtime / frozen['sealed_task']).resolve()))
+    if actual != expected:
+        raise ValueError('declared task roles differ from frozen C1 packages')

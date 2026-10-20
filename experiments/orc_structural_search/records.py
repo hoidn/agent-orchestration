@@ -260,3 +260,12 @@ def prepare_log(evidence, continued):
     if path.exists() and not continued:
         raise ValueError('fresh campaign evidence already contains a log; use resume')
     path.touch(exist_ok=True)
+
+
+def replay_judge_incidents(state, rows):
+    """Resolve durable incident events ahead of the saved ingestion position before any new work."""
+    for row in rows[state['ingestion_position']:]:
+        if row['kind'] == 'judge_incident' and row['campaign_id'] == state['campaign_id']:
+            state.update({key: row[key] for key in ('generation', 'completed_generation', 'judge_incidents',
+                                                  'rng_state', 'stopped')})
+            state['scheduled'] = []

@@ -1,7 +1,6 @@
 """Offline-qualified cumulative whole-program campaigns; historical mode 2 is read-only."""
 import json
 import random
-import shlex
 import threading
 import time
 from pathlib import Path
@@ -13,12 +12,12 @@ from experiments.orc_structural_search.briefs import structural_summary
 from experiments.orc_structural_search.call_identity import require_campaign_scan, campaign_proxy_comparable
 from experiments.orc_structural_search.config import load_config
 from experiments.orc_structural_search.evaluation import EVALUATOR_VERSION
-from experiments.orc_structural_search.qualification import check_warm_inputs
+from experiments.orc_structural_search.qualification import check_warm_inputs, check_campaign, check_run_parameters
 from experiments.orc_structural_search.qualification_io import package_digest
 from experiments.orc_structural_search.quota import quota_reason, with_retries, campaign_guard, campaign_elapsed
 from experiments.orc_structural_search.three_arm_gate import QuotaExhausted, CapGate
 from experiments.orc_structural_search.three_arm import episode_indexes
-from experiments.orc_structural_search.records import UNAVAILABLE, append_record, find_campaign, read_records, tuples, prepare_log
+from experiments.orc_structural_search.records import UNAVAILABLE, append_record, find_campaign, read_records, tuples, prepare_log, replay_judge_incidents
 from experiments.orc_structural_search.scoring_phase2 import (
     rank, make_entry, initial_archive, incumbent, dominates, frontier, prune, retain, select_parent,
     terminal, feedback, lineage_config, write_archive, mode2_readout, validate_finalists,
@@ -34,20 +33,6 @@ EVALUATION_KEYS = ('work_root', 'evidence_root', 'runtime', 'env', 'timeout_sec'
 def read_log(path):
     return read_records(path) if path.exists() else []
 
-
-def check_campaign(config_path, criterion, *, agent_cmd, timeout_sec, policy, runtime):
-    frozen, config = json.loads(Path(criterion).read_text()), load_config(config_path)
-    qualification.validate_campaign_criterion(frozen, criterion)
-    expected = (frozen['models'], frozen['per_call_timeout_sec'], frozen['envelope']['episode'],
-                repos.sha256_file(criterion), shlex.split(frozen['model_policy']['mutator']), frozen['envelope']['evaluation'])
-    actual = (config.models, config.per_call_timeout_sec, config.episode_wall_clock_sec,
-              config.criterion_sha256, list(agent_cmd), timeout_sec)
-    if actual != expected or config.condition != 'module' or policy not in frozen['policies']:
-        raise ValueError('campaign configuration/policy differs from frozen C1 criterion')
-    if frozen['model_policy']['allowed'] != ['gpt-5.6-terra']:
-        raise ValueError('C1 campaign requires the frozen Terra-only model policy')
-    qualification.validate(criterion, config_sha256=config.criterion_sha256, runtime=runtime, operation='launch')
-    return frozen | {'criterion_sha256': repos.sha256_file(criterion)}
 
 
 def subject_config(subject, config):
@@ -246,8 +231,12 @@ def campaign_episode(draw, state, config, *, store, campaign_id, criterion, rng,
 def launch_episode(subject, config, chosen, draw, state, store, cid, criterion, launch):
     index = chosen['episode_index']
     prior = [r for r in read_log(launch['evidence_root'] / 'log.jsonl') if r['kind'] == 'episode' and r['episode_index'] == index]
-    if (launch['work_root'] / 'episodes' / f'episode-{index}').exists() and not prior:
-        return killed_episode(subject, chosen, state, launch)
+    key = driver.episode_key(subject['candidate_id'], config, 'I1', index, state['generation'], run_seed=launch['run_seed'])
+    slot = ledger.episode_reservation(launch['evidence_root'], key)
+    if slot and not prior:
+        return killed_episode(subject, chosen, state, launch, slot)
+    if not prior and (launch['work_root'] / 'episodes' / f'episode-{index}').exists():
+        raise ValueError('episode workspace without its reservation')
     own = campaign.evidence(store, subject['candidate_id'], find_campaign(store, cid)['context_key'],
         tasks=launch['frozen']['tasks'], price_table=launch['frozen']['price_table'], min_trials=1)
     def run(attempt):
@@ -288,11 +277,9 @@ def classify_child(row, state, store, cid, config, launch):
     return 'fresh', {'subject': subject}
 
 
-def killed_episode(subject, chosen, state, launch):
+def killed_episode(subject, chosen, state, launch, slot):
     """A paid, unlogged launch consumes its original draw and is never repeated."""
     evidence, index = launch['evidence_root'], chosen['episode_index']
-    logged = {r['episode_id'] for r in read_log(evidence / 'log.jsonl') if r['kind'] == 'episode'}
-    slot = next(r for r in reversed(ledger._read(evidence / ledger.LEDGER)) if r['kind'] == 'episode' and r['key'] not in logged)
     records, tree = evidence / 'episodes' / slot['key'], launch['work_root'] / 'episodes' / f'episode-{index}'
     driver.scan_episode(records, tree, runtime=launch['runtime'], work_root=launch['work_root'],
         evidence_root=evidence, solutions=launch['solutions'], holdouts=launch['holdouts'],
@@ -431,6 +418,7 @@ def run_campaign(config_path, *, criterion, label, policy, store, seeds, adaptiv
             raise ValueError('resume requires an existing campaign checkpoint')
     else:
         cid, state = start_state(store, label, policy, ctx, params, frozen, adaptive_tasks, validation_task, sealed_task)
+    replay_judge_incidents(state, read_log(evidence_root / 'log.jsonl'))
     rng = random.Random(run_seed)
     if state['rng_state'] is not None:
         rng.setstate(tuples(state['rng_state']))
@@ -466,11 +454,13 @@ def run_generations(state, generations, config, store, cid, criterion, rng, task
             campaign_generation(state['completed_generation'] + 1, state, config, store=store, campaign_id=cid,
                 criterion=criterion, rng=rng, adaptive_tasks=tasks, launch=launch, judge=judge)
         except judging.JudgeIncident:
-            state['judge_incidents'] = state.get('judge_incidents', 0) + 1
-            if state['judge_incidents'] >= 2:
-                state['stopped'] = 'judge_incidents'
-            state['completed_generation'] += 1
-            state['scheduled'] = []
+            count = state.get('judge_incidents', 0) + 1
+            log = launch['evidence_root'] / 'log.jsonl'
+            append_record(log, {'kind': 'judge_incident', 'campaign_id': cid, 'generation': state['generation'],
+                'completed_generation': state['generation'], 'judge_incidents': count, 'rng_state': rng.getstate(),
+                'stopped': 'judge_incidents' if count >= 2 else None})
+            replay_judge_incidents(state, read_log(log))
+            launch['settled']()
     if not state['stopped'] and generations == launch['frozen']['horizon']['generations']:
         state['stopped'] = 'horizon'
 
@@ -479,18 +469,3 @@ def masked_roots(store, cid, hide):
     previous = [Path(value) for row in store.rows('campaign') if row['campaign_id'] != cid
                 for value in row['roots'].values() if Path(value).is_dir()]
     return list(dict.fromkeys([store.root, *hide, *previous]))
-
-
-def check_run_parameters(frozen, generations, episodes, label, policy, seed, cap, concurrency, tasks, validation, sealed, runtime):
-    if (label, policy, seed) not in {(row['label'], row['policy'], row['run_seed']) for row in frozen['campaigns']}:
-        raise ValueError('campaign label, policy and seed must match one preregistered declaration')
-    if not 0 <= generations <= frozen['horizon']['generations'] or episodes != frozen['horizon']['episodes_per_generation']:
-        raise ValueError('requested horizon exceeds or differs from frozen horizon')
-    stage = 'P1' if policy == 'frontier_only' else 'P2'
-    if cap != frozen['budget']['steps'][stage]['cap'] or concurrency != frozen['envelope']['concurrency']:
-        raise ValueError('call cap/concurrency differs from frozen budget')
-    actual = (sorted(str(Path(t).resolve()) for t in tasks), str(validation.resolve()), str(sealed.resolve()))
-    expected = (sorted(str((runtime / t).resolve()) for t in frozen['tasks']),
-                str((runtime / frozen['validation_task']).resolve()), str((runtime / frozen['sealed_task']).resolve()))
-    if actual != expected:
-        raise ValueError('declared task roles differ from frozen C1 packages')

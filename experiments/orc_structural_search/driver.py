@@ -364,6 +364,16 @@ def episode_verdict(parent_root: Path, copy: Path, base: str, config: Experiment
     return intact, verdict
 
 
+
+def episode_key(parent_id, config, interface, index, generation=None, site=None, run_seed=None):
+    """The unchanged episode identity, also available before a workspace exists."""
+    site_id = site['site_id'] if site else None
+    identity = [parent_id, interface, config.condition, config.episode_wall_clock_sec, index]
+    if (generation, site_id, run_seed) != (None, None, None):
+        identity += [generation, site_id, run_seed]
+    return "sha256:" + hashlib.sha256(json.dumps(identity).encode()).hexdigest()
+
+
 def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, mode: str, agent_cmd: Sequence[str],
                 work_root: Path, evidence_root: Path, episode_index: int, runtime: Path, env: Mapping[str, str],
                 solutions: Mapping[str, str], call_cap: int, holdouts: Sequence[Path] = (),
@@ -384,21 +394,20 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
     parent_compiled = require_candidate(parent_root, config, runtime=runtime) if not is_python(config) else None
     parent_evidence = site_evidence.candidate_evidence(parent_root, config, runtime=runtime, compiled=parent_compiled)
     site_id = site["site_id"] if site else None
-    identity = [parent_id, interface, config.condition, config.episode_wall_clock_sec, episode_index]
-    if (generation, site_id, run_seed) != (None, None, None):  # Phase 1 episode ids stay as they were
-        identity += [generation, site_id, run_seed]
-    episode_id = "sha256:" + hashlib.sha256(json.dumps(identity).encode()).hexdigest()
+    episode_id = episode_key(parent_id, config, interface, episode_index, generation, site, run_seed)
     checked = qualification.validate(criterion, config_sha256=config.criterion_sha256, runtime=runtime)
     private = qualification.private_roots(criterion, public_roots=[runtime], workspace_roots=[parent_root, work_root])
-    slot = ledger.reserve(evidence_root, kind="episode", key=episode_id, planned=1, cap=call_cap)
+    ledger.check_budget(evidence_root, 1, call_cap, "episode")
     parent_shape = {"parent_skeleton": skeleton(parent_root, config),  # before the episode, which may be paid
                     "parent_provider_allocation": allocation(parent_root, config)}
     tree, records = work_root / "episodes" / f"episode-{episode_index}", evidence_root / "episodes" / episode_id
     brief = episode_brief(config, episode_index, site=site, feedback=feedback)
+    tree.parent.mkdir(parents=True, exist_ok=True)
+    records.mkdir(parents=True, exist_ok=mode == 'campaign')
+    (records / 'calls').mkdir(exist_ok=mode == 'campaign')
+    slot = ledger.reserve(evidence_root, kind="episode", key=episode_id, planned=1, cap=call_cap)
     copy, base = episode_workspace(parent_root, tree, brief, runtime, config=config, site=site,
                                    parent_candidate_id=parent_id)
-    records.mkdir(parents=True)
-    (records / 'calls').mkdir()
     created_at, started = time.time(), time.monotonic()
     hidden = hidden_roots(work_root, evidence_root, [*hide, *private])
     shim_env = {"COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": base, "TMPDIR": tree / "tmp",
