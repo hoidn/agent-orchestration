@@ -29,11 +29,11 @@ from pathlib import Path
 from statistics import mean
 
 try:
-    from .pool import DEFAULT_RUBRIC, rubric
+    from .pool import rubric
     from .prepare import paired_calls, read_memo  # imported as experiments.compare.summarize
     from .scan import model_policy
 except ImportError:  # run as a script
-    from pool import DEFAULT_RUBRIC, rubric
+    from pool import rubric
     from prepare import paired_calls, read_memo
     from scan import model_policy
 
@@ -44,7 +44,7 @@ NODE_TIMEOUT_SEC = 1800  # a hidden test that hangs counts as failed
 
 
 def criteria_of(mapping):
-    return tuple(mapping.get("rubric", DEFAULT_RUBRIC)["criteria"])
+    return tuple(rubric(mapping)["criteria"])
 
 
 def judge_exclusion(pool, judge):
@@ -316,7 +316,7 @@ def markdown(results):
 
 def reference_paths(pool, mapping):
     """Reference-selected pools require one valid disclosed clone per batch before any judge join."""
-    if not mapping.get("rubric", DEFAULT_RUBRIC)["reference"]:
+    if not rubric(mapping)["reference"]:
         return []
     refs = mapping.get("references")
     if not isinstance(refs, list) or len(refs) != len(mapping["batches"]):
@@ -370,7 +370,7 @@ def summarize(pool, criterion, python=sys.executable):
     if sorted(frozen["judges"]) != sorted(mapping["judges"]):
         raise SystemExit(f"the criterion names judges {sorted(frozen['judges'])} "
                          f"but the pool has {sorted(mapping['judges'])}")
-    if rubric(criterion) != mapping.get("rubric", DEFAULT_RUBRIC):
+    if rubric(frozen) != rubric(mapping):
         raise SystemExit("the criterion rubric differs from the pool rubric")
     criteria = criteria_of(mapping)
     excluded, ratings = judged_ratings(pool, mapping, sha)

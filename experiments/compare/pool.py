@@ -15,6 +15,7 @@ import re
 import secrets
 import time
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 
 try:
@@ -36,7 +37,14 @@ DEFAULT_RUBRIC = {"workflow": "score.orc", "entry": "score::score",
 
 
 def rubric(criterion):
-    return load(criterion).get("rubric", DEFAULT_RUBRIC)
+    """Historical rubric descriptions are metadata; only mappings select a workflow."""
+    value = criterion if isinstance(criterion, Mapping) else load(criterion)
+    selected = value.get("rubric", DEFAULT_RUBRIC)
+    if isinstance(selected, str):
+        return DEFAULT_RUBRIC
+    if not isinstance(selected, Mapping):
+        raise SystemExit("rubric must be a selector mapping or a historical description")
+    return selected
 
 
 ROW_KEYS = ("arm", "outcome", "failure", "calls", "wall_clock_sec", "selected", "variant")  # per run, in mapping.json
@@ -248,7 +256,7 @@ def diff_batches(fillers, batches, per_batch, minimum, seed):
 def write_score_inputs(out, mapping, intent, runtime):
     """Per judge: score.orc inputs with that judge's random clone order, a working and state directory of
     its own, and the command and resume script behind the shims (records/score-<judge>.sh, resume-<judge>.sh)."""
-    rng, rule = random.SystemRandom(), mapping.get("rubric", DEFAULT_RUBRIC)
+    rng, rule = random.SystemRandom(), rubric(mapping)
     for judge, info in mapping["judges"].items():
         inputs, home = out / "records" / f"score-inputs-{judge}.json", out / "judges" / info["dir"]
         batches = [{"clones": [str(out / "clones" / cid) for cid in rng.sample(ids, len(ids))]}

@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from experiments.compare.pool import DEFAULT_RUBRIC
+from experiments.compare.pool import DEFAULT_RUBRIC, rubric
 
 from experiments.orc_structural_search.qualification_io import (
     calibration, digest, names, normalized, read, reference, require)
@@ -39,7 +39,7 @@ def measurement(criterion, containing, tasks, packages):
 
 def dispatch(criterion, containing, runtime, judges):
     require(runtime is not None, 'actual scoring runtime required')
-    require(criterion.get('rubric', DEFAULT_RUBRIC) == DEFAULT_RUBRIC, 'unsupported v1 rubric selection')
+    require(rubric(criterion) == DEFAULT_RUBRIC, 'unsupported v1 rubric selection')
     evaluator = criterion['measurement']['evaluator']
     workflow = Path(runtime) / 'experiments/compare/score.orc'
     reference(evaluator['score_workflow'], containing)

@@ -109,10 +109,10 @@ calibrate the measure or select a live structural-search study.
 - Test: `tests/experiments/test_compare_pool_summarize.py`, `tests/experiments/test_orc_structural_search_scoring.py`
 
 **Interfaces:**
-- Produces: `pool.DEFAULT_RUBRIC = {"workflow": "score.orc", "entry": "score::score", "criteria": ["root_cause","scope","generality","layering"], "reference": None}`; `pool.rubric(criterion: Path) -> dict` = `criterion.get("rubric", DEFAULT_RUBRIC)`.
+- Produces: `pool.DEFAULT_RUBRIC = {"workflow": "score.orc", "entry": "score::score", "criteria": ["root_cause","scope","generality","layering"], "reference": None}`; `pool.rubric(criterion: Path | Mapping) -> Mapping`: absent or historical descriptive-string `rubric` means `DEFAULT_RUBRIC`; a mapping selects the workflow; other field types refuse explicitly. Pool construction, input writing, summarization and V1 dispatch share this normalizer.
 - Produces: `pool.write_pool(task: Path, criterion: Path, out: Path, judges: Sequence[str], ref: Mapping, rows: dict, batches: list, *, qualification: Mapping | None = None) -> dict` (guard, sandbox visibility, mkdir, `build_batches`, mapping with `rubric`, `references`, `runs`, `clones`, `batches`, `write_score_inputs`, chmod; returns the mapping). `pool.pool` and `scoring.build_pool` call it. The structural caller keeps `qualification.validate` before this call and passes its verified proof through to `mapping.qualification`; generic callers do not gain structural quality authority.
 - Produces: mapping gains `rubric` and, with a reference, `references: [clone id per batch]`; reference clone entries carry `arm: "reference"`, `labels: ["reference"]`; `score-inputs-<judge>.json` batches carry `"reference": <path>` and exclude it from `clones`; `score-<judge>.sh` names `rubric["workflow"]`/`rubric["entry"]`.
-- Produces: `summarize.criteria_of(mapping) -> tuple[str, ...]` (`mapping.get("rubric", DEFAULT_RUBRIC)["criteria"]`); `summarize()` refuses when `pool.rubric(criterion) != mapping.get("rubric", DEFAULT_RUBRIC)`; clones with `arm == "reference"` are excluded from `clone_scores`, ratings, `run_rows`, anchor figures and hidden acceptance and reported under `clones` with `score: null`.
+- Produces: `summarize.criteria_of(mapping) -> tuple[str, ...]` (`pool.rubric(mapping)["criteria"]`); `summarize()` refuses when `pool.rubric(criterion) != pool.rubric(mapping)`; clones with `arm == "reference"` are excluded from `clone_scores`, ratings, `run_rows`, anchor figures and hidden acceptance and reported under `clones` with `score: null`.
 - Produces: `scoring.fillers_per_batch(task: Path, rubric: Mapping) -> int` = `10 − len(anchors) − (1 if rubric["reference"] else 0)`.
 
 - [x] **Step 1: Write the failing tests** in `tests/experiments/test_compare_pool_summarize.py`:
@@ -156,6 +156,24 @@ closure rejects a top-level selected rubric even with otherwise valid V1 evidenc
 without it the proof validated `score.orc` while the writer selected `score_ref.orc`.
 The regression demonstrated that path before the fix. No historical criterion,
 provider binding, `score.orc`, or orchestrator file changed; no provider call ran.
+
+Task 1 historical-rubric correction (2026-10-19): the broader suite exposed
+that frozen `criteria/phase2.json` already has a descriptive string under
+`rubric`. Treating every present field as a workflow selector incorrectly rejected
+its otherwise valid V1 qualification and failed pool construction. The shared
+normalizer now accepts a criterion path or decoded mapping: absent/string fields
+select the historical workflow, mappings retain explicit selection, and invalid
+field types refuse. Every rubric reader and V1 dispatch uses this one owner.
+The actual frozen Phase 2 description is exercised through normalization,
+pool/input construction, summarization and qualified dispatch; a reference mapping
+still fails V1. The new module initially had **10 failing tests and 1 passing V1
+rejection**, then passed **11 tests in 1.27 s**; **11 tests collected**. The existing
+Phase 2 readout, qualification, rubric, pool, calibration, reference-integrity and
+public `score`/`score_ref` scripted workflow selectors passed **176 tests in
+28.86 s**, with `-q -n 16 --dist=worksteal` under tmux. Evidence:
+`/tmp/measurement-rubric-compat-{red,green,collect,suite}.log`. Changed production
+modules have 340/414/193 lines and AST complexity maxima 11/12/9. Frozen
+criterion/provider/workflow bytes remain unchanged; no provider calls ran.
 
 ### Task 2: Calibration pools from applicable recorded diffs and the calibration verdicts
 

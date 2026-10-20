@@ -356,7 +356,8 @@ reference has its own random clone ID, is bound separately from the blind clone
 list, and receives no rating, run value or hidden-acceptance result. All repositories
 count toward the ten-repository batch limit. `mapping.json` records the rubric and
 reference IDs; summarization rejects a different criterion rubric or bound reference.
-Historical mappings without `rubric` retain the historical criteria.
+Historical mappings without `rubric`, and descriptive string-valued `rubric`
+metadata in criteria or mappings, retain the historical criteria.
 
 Generic comparison pools support this route. Structural quality operations retain
 V1 qualification and reject a selected reference rubric; generic calibration does
