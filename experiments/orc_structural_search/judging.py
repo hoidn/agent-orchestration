@@ -236,7 +236,7 @@ def judge_generation(evidence_root: Path, generation: int, tasks: Sequence[Path]
 
 
 def logged_judging(log, generation, task):
-    return [row for row in read_records(log) if row['kind'] == 'judging'
+    return [row for row in optional_records(log) if row['kind'] == 'judging'
             and (row.get('generation'), row['task']) == (generation, task.name)]
 
 

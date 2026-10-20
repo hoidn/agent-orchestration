@@ -191,6 +191,16 @@ def _final_support(pool, task, candidates, replicates):
         _matched_rows([row for row in pool['rows'] if row['candidate_id'] == cid], expected)
 
 
+
+def _settled_assessment(roots, criterion, role):
+    from experiments.orc_structural_search import ledger
+    entries = json.loads((Path(roots['evidence_root']) / ledger.LEDGER).read_text())
+    if any(type(row.get('calls')) is not int or row['calls'] < 0 for row in entries):
+        raise ValueError('final assessment refuses unsettled ledger work')
+    step = 'P3' if role == 'validation' else 'P4'
+    if ledger.total(entries) > criterion['budget']['steps'][step]['cap']:
+        raise ValueError('final assessment exceeds its frozen call cap')
+
 def final_pool(store, authorization, *, role):
     from experiments.compare.repos import sha256_file
     from experiments.orc_structural_search import records, scoring
@@ -212,7 +222,9 @@ def final_pool(store, authorization, *, role):
     pool = pools[0]
     _final_support(pool, task, candidates, authorization['replicates'])
     from experiments.orc_structural_search.adaptive import scan_work
-    scan_work(Path(roots['evidence_root']), json.loads(criterion.read_text()))
+    frozen = json.loads(criterion.read_text())
+    _settled_assessment(roots, frozen, role)
+    scan_work(Path(roots['evidence_root']), frozen)
     return pool | {'raw': {row['evaluation_id']: row for row in scoring.latest_evaluations(rows)},
         'log_sha256': sha256_file(log), 'results_sha256': sha256_file(Path(pool['results']))}
 
