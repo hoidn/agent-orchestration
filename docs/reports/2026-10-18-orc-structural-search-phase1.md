@@ -30,6 +30,11 @@ difference between the merged fix and an inert stub. Under the charter's decisio
 uncertain, not as disproof. The roadmap's response to an inconclusive pilot is a better-targeted experiment, with
 the measure as the bottleneck to improve first ([Next Step](#next-step)).
 
+**The three-arm readout** (run 2026-10-19, [section below](#three-arm-readout)) closes the Phase 1 compile-only gate
+for I1, I2 and I3. Every arm accepted 6 of 6 proposals with 6 distinct skeletons and no collapse. All 18 children
+are variants of one idea: implement, run the check, repair on failure. Their paid evaluations reported no quality,
+because the evaluator is uncalibrated.
+
 ## Scope And Criterion
 
 | | |
@@ -190,6 +195,113 @@ Six I1 episodes were accepted. Each of the 6 quota-refused episode attempts was 
 The driver's `episodes` count (6 accepted, 6 quota incidents) still includes the four contaminated episodes, and
 was not recomputed. The collapse verdict covers I1 only; see [Limitations](#limitations).
 
+## Three-Arm Readout
+
+The roadmap's Phase 1 gate also asks for a compile-only readout over three interfaces. That readout ran on
+2026-10-19 under its own [plan](../plans/2026-10-19-orc-structural-search-three-arm-readout-plan.md) and frozen
+criterion
+([`criteria/three_arm.json`](../../experiments/orc_structural_search/criteria/three_arm.json), sha256
+`d994f8daad608b76e342fa4bedcbc03f1e3c771f719877937331035eb0ae97ba`). The runtime was `RT3` at `5a85c41e`.
+
+**The three interfaces:**
+- I1 rewrites the whole Lisp program.
+- I2 rewrites one site of the typed manifest.
+- I3 makes a Python diff against the matched typed Python workflow. Its admission is an AST scope check plus pyright
+  1.1.403.
+
+**The shared envelope:**
+- Parent: `direct`, with its coder rebound to Codex `gpt-6.1-sol`, effort `high`, plus its Python twin.
+- Mutator: Codex `gpt-6.1-sol` for every arm (owner directives of 2026-10-19).
+- Condition: `topology-only`.
+- Tasks and wall clock: Phase 1's two tasks; 3,600 s per episode.
+- Isolation: masked roots (`COMPARE_HIDE` hides the evidence root, sibling episodes, the work-root evaluation
+  directories and every earlier run's roots).
+- Size: 6 episodes per arm.
+
+**The smoke.** Both parents completed on `resume-projection-integrity`, with 1 call each. Their prompts were
+identical except for the output contract's `- path:` line.
+
+### Compile-only figures
+
+These come from the driver readout, `readout.json`. Every arm ran 6 episodes, each with 1 provider call.
+
+| figure | I1 | I2 | I3 |
+| --- | --- | --- | --- |
+| accepted | 6 | 6 | 6 |
+| acceptance rate | 1.0 | 1.0 | 1.0 |
+| locality (out-of-scope episodes / judged) | 0.0 | 0.0 | 0.0 |
+| distinct skeletons | 6 | 6 | 6 |
+| revisit rate | 0.0 | 0.0 | 0.0 |
+| exact repeats (`program_digest`) | 0 | 0 | 0 |
+| terminal-only share (collapse at 0.75) | 0.0 | 0.0 | 0.0 |
+| collapsed | no | no | no |
+| children whose provider allocation changed | 3 | 4 | 0 |
+| mean episode wall clock s | 143 | 153 | 80 |
+
+**Collapse verdict per interface:** none of I1, I2 and I3 collapsed.
+
+**Skeletons across arms.** The 18 children have 17 distinct skeletons; one is shared by an I1 child and an I2 child.
+
+**I2 sites.** The parent has two eligible sites, `direct.orc:21:20` (`common::Change`) and `direct.orc:21:5`
+(`common::Outcome`). Both carry a type. The seeded draw chose each three times.
+
+**Allocation.** Every allocation change is a second call site for the same coder. No child changed a model or an
+effort.
+
+**What the children did (from the episode diffs).** All 18 children add the same pattern: implement, run the
+agent-visible check, and on failure repair with the check output (a loop or a single retry). None adds review,
+planning or judging. So the skeleton count measures syntactic variety. It does not measure distinct ideas: across
+all three interfaces the proposals converge on one idea.
+
+### Paid subset: execution only
+
+Each arm's subset was 2 children evaluated on both tasks, 12 evaluations in all.
+
+| | I1 | I2 | I3 |
+| --- | --- | --- | --- |
+| evaluations | 4 | 4 | 4 |
+| outcome | all completed | all completed | all completed |
+| provider calls per evaluation | 1 | 1 | 1 |
+| mean wall clock s | 988 | 1,072 | 908 |
+
+**No repair ran.** Every evaluation made one coder call: the check passed on the first try, as in Phase 1.
+
+**Quality is unavailable.** The evaluator is uncalibrated. Phase 1's judges placed the upstream fix at or below the
+candidates, and one anchor pair was inverted. Under the owner's directive of 2026-10-19, "there should be no
+uncalibrated experiments" (rule P8 in the [driver design](../design/orc_structural_search_driver.md)), the judge
+stage did not run. That is the three-arm readout's controller ruling R19. So this readout makes no quality,
+frontier or improvement claim. Hidden acceptance is not reported either.
+
+**How the measure-free figures were produced.** The `three_arm readout` command has no measure-free mode: it
+requires judged results for tasks with completed evaluations. The figures above therefore come from their two
+sources: `readout.json` for the compile-only figures and the log rows for execution. Both are combined in
+`measure-free-readout.json`.
+
+### Scans and exposure
+
+**Episodes.** Every episode with scan hits (13 of 18) was cleared. The Codex mutators read main-checkout ORC
+documentation, example workflows and language tests, because the owner's `~/.codex/AGENTS.md` directs that for
+`.orc` work. This is reported as tool-retrieved exposure (controller ruling R18). Five verdicts also record catalog
+exposure: reads of `experiments/orc_structural_search/seeds/` or of the three-arm parents.
+
+**Evaluations.** All 12 evaluation scans were cleared. The hits were the coder reading its own tmux skill, and pytest
+failure output from the task repository's tests that names the main checkout in recorded fixture values. None was a
+read of the solution commit.
+
+### Calls and budget
+
+The owner approved about 60 calls with a cap of 65. Actual spend:
+
+| item | calls |
+| --- | --- |
+| smoke | 2 |
+| episodes | 18 |
+| evaluations | 12 |
+| judges | 0 |
+| **total** | **32** |
+
+There were no quota or capacity refusals.
+
 ## Scans
 
 | subject | hits | verdict |
@@ -262,15 +374,16 @@ which were green at base. It passed on the first try in every evaluation that ra
 `implement_check_diagnose_repair` never reached diagnose/repair, and both I1 children's loops stopped after one coder
 call. In realized behaviour these check-gated structures are `direct` plus a check.
 
-**The unguided arm is small and the episode sandbox is not isolated.** Four of six accepted episodes were
-contaminated: the mutator sandbox can read sibling episode trees and the evidence root. The unguided arm therefore
-rests on two children. The episode scan also misses relative-path reads.
+**The Phase 1 unguided arm is small.** In the Phase 1 run the episode sandbox was not isolated. Four of six accepted
+episodes were contaminated by reading sibling episode trees or the evidence root, so the unguided arm rests on two
+children. The episode scan also misses relative-path reads. The three-arm run added isolation by masking. Home and
+the main checkout stay readable, and reads there are scan-detected and reported.
 
-**The three-arm compile-only readout was not run.** The roadmap's Phase 1 lists a three-arm compile-only readout
-(I3, I1, I2 with `E₀` episodes each, plus paid whole-run evaluation of a stratified subset). The plan's allocation
-budgeted no `E₀` episodes, and I3 is not implemented. A controller ruling (2026-10-19) records the readout as an
-unmet gate. So the collapse verdict and the acceptance and locality figures exist for I1 only, and this Phase 1 gate
-is unmet.
+**The three-arm readout is measure-free.** It ran on 2026-10-19 ([Three-Arm Readout](#three-arm-readout)) and gave
+compile-only figures and a collapse verdict for every interface. Its other limits:
+- 6 episodes per arm, one mutator model, one trivial parent;
+- convergence on one idea, which the skeleton hash cannot see;
+- paid evaluations with execution figures only, because the evaluator is uncalibrated (P8).
 
 **Other limitations.**
 - **Runtime defect.** Agent turns inside `loop/recur` hit `agent_turn_unresolved` on the second turn ("native store
@@ -301,10 +414,10 @@ A follow-up would need, in order:
 1. **A measure whose anchors discriminate.** The upstream fix must score well above every candidate and the stub,
    independent of batch composition. Examples are absolute rubric anchoring or pairwise comparison against upstream.
 2. **A family whose agent-visible check fails often enough** that check-gated control flow actually branches.
-3. **Mutator isolation** from sibling episodes and the evidence root.
-4. **The `agent_turn_unresolved` fix** for loop agent turns.
-5. **The compile-only three-arm readout:** I3, I1 and I2 with `E₀` episodes each, plus the roadmap's paid
-   whole-run evaluation of a stratified subset `S`. I3 must be implemented first.
+3. **The `agent_turn_unresolved` fix** for loop agent turns.
+
+Mutator isolation and the compile-only three-arm readout, items of earlier versions of this list, are done (see
+[Three-Arm Readout](#three-arm-readout)).
 
 Any of these needs a new owner selection and provider budget.
 
@@ -317,6 +430,13 @@ The evidence stays outside the repository and is retained:
 - the incident-1 roots `ss-work-incident1` and `ss-evidence-incident1`;
 - the smoke roots `/home/ollie/ss-evidence-smoke`, `/home/ollie/ss-work-smoke` and `/home/ollie/ss-pool-smoke`;
 - the operator scripts and logs in `/home/ollie/ss-evidence-meta`.
+- the three-arm readout's roots: runtime `/home/ollie/ss3-runtime` (`5a85c41e`), evidence `/home/ollie/ss3-evidence`,
+  work `/home/ollie/ss3-work`, smoke `/home/ollie/ss3-{evidence,work}-smoke`, and the operator directory
+  `/home/ollie/ss3-meta` (scripts, `preconditions.md`, `smoke.md`, adjudication helpers).
+
+**Disk cleanup in `ss-work2`.** The agents' private pytest scratch, `agents/*/tmp/pytest-of-ollie` (78 GB), was
+deleted on 2026-10-19 to free disk for the three-arm run. No figure in this report reads it. Every patch,
+transcript, record, run state and episode was kept, along with the agents' other temporary files.
 
 | file | sha256 |
 | --- | --- |
@@ -327,6 +447,11 @@ The evidence stays outside the repository and is retained:
 | `ss-evidence2/joined.json` (28 joined rows) | `daf21376443b95316a2641f35ba2d07e40f95e62b85a19c6bf9fe9094b8fe545` |
 | `resume-projection-integrity/records/results.json` | `2426abe50453a8d86d8166e6b2b9b4a7bc4b4e3650163edce12ef2f02282774e` |
 | `pure-result-replay/records/results.json` | `d8dcfc37d94939f7bb82a5afc62b2fd7ebffe6669c6c56f73034e7d9c5cd1539` |
+| `ss3-evidence/log.jsonl` (three-arm, 31 rows) | `bdec081db2607988c578b5f8af788f135600e29823fdafe8de3650a1dbf8515e` |
+| `ss3-evidence/calls.json` (three-arm ledger) | `a169d66ab75439903853289a0de22d01337d74bb98b93ae8549b5e81226e9930` |
+| `ss3-evidence/readout.json` (three-arm compile-only) | `ae460b745b212c15aba977119f05440464f01bba0777ce26bbb261ee403d88e6` |
+| `ss3-evidence/measure-free-readout.json` | `e21272161a9dbb18ce2f25bf400813066c3957109bdcd0b905fc3017e334918d` |
+| `ss3-evidence-smoke/log.jsonl` | `d116ff4006ec86650d828022487e75bba39dd137317e1d58595658443eef0147` |
 
 Every number above comes from `summarize`'s `results.json`/`results.md` (clone-id join) and from
 `python -m experiments.orc_structural_search.scoring readout` over them, the log and the driver readout. Exceptions:

@@ -12,8 +12,8 @@
   for family (a) ([Phase 1 report](../reports/2026-10-18-orc-structural-search-phase1.md));
   a live Phase 2 needs a new owner selection and budget approval. I3 is implemented
   offline for the three-arm compile-only readout (`three_arm.py`, scripted providers
-  only; not in mode 2) and has not run live
-  ([three-arm plan](../plans/2026-10-19-orc-structural-search-three-arm-readout-plan.md)). Fixed-workflow comparisons use
+  only; not in mode 2) and ran live once in the measure-free three-arm readout
+  ([Phase 1 report](../reports/2026-10-18-orc-structural-search-phase1.md#three-arm-readout); [three-arm plan](../plans/2026-10-19-orc-structural-search-three-arm-readout-plan.md)). Fixed-workflow comparisons use
   [`experiments/compare/`](../../experiments/compare/README.md) today.
 - **Kind:** experiment-side apparatus contract: controller modes, proposal
   interfaces, edit validation and transactions, candidate identities,
