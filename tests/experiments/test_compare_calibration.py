@@ -213,7 +213,7 @@ def test_judge_scan_reports_test_runs_and_requires_existing_adjudication(world, 
     assert summarize.judge_exclusion(out, "judge-a") is None
 
 
-def test_summarize_writes_calibration_from_joined_control_ratings(world, package):
+def test_summarize_writes_calibration_without_rerunning_hidden_acceptance(world, package, monkeypatch):
     rule, diffs, _ = package
     mapping = make_pool(world, diffs)
     out = world.outside / "calibration"
@@ -233,8 +233,15 @@ def test_summarize_writes_calibration_from_joined_control_ratings(world, package
         repos.dump(state / "run.json", {"bound_inputs": inputs})
         write_memo({"state_root": state.parent}, [], value)
         pooling.scan_judge(out, judge, world.solution, home=world.tmp / "home")
+
+    def reject_hidden_run(*args, **kwargs):
+        raise AssertionError("calibration summaries must use retained hidden diagnostics")
+
+    monkeypatch.setattr(summarize, "hidden_acceptance", reject_hidden_run)
     result = summarize.summarize(out, world.criterion)
     assert result["calibration"]["passed"] is True
+    assert all(clone["hidden"] is None and clone["hidden_failed"] is None
+               for clone in result["clones"].values())
     assert repos.load(out / "records/results.json")["calibration"] == result["calibration"]
     assert "Calibration:" in (out / "records/results.md").read_text()
     assert summarize.calibration_over([out / "records/results.json"], world.criterion)["passed"] is True

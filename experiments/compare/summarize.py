@@ -10,9 +10,10 @@ scanned, whose scan predates calls, or whose hits have no verdict; leaves out a 
 contaminated. Refuses unless every other judge has exactly one completed scoring run that bound the
 criterion file's SHA-256 and the judge's model, whose provider starts pair one to one with the judge's
 shim call records (prepare.paired_calls), and every batch's ratings line up with its clones.
-When the task package has hidden/ and hidden_tests.txt, runs each listed node id in a copy of every
-clone without .git, with hidden/ copied over it and PYTHONPATH at the copy; results.json gives each
-clone's pass fraction (`hidden`) and failing node ids (`hidden_failed`).
+For non-calibration criteria, when the task package has hidden/ and hidden_tests.txt, runs each listed node id in a
+copy of every clone without .git, with hidden/ copied over it and PYTHONPATH at the copy; results.json gives each
+clone's pass fraction (`hidden`) and failing node ids (`hidden_failed`). Calibration reports omit these reruns;
+their hidden-control construction diagnostics come from their separately retained evidence.
 Writes P/records/results.json and P/records/results.md and prints the latter. Standard library only.
 """
 
@@ -375,7 +376,8 @@ def summarize(pool, criterion, python=sys.executable):
     criteria = criteria_of(mapping)
     excluded, ratings = judged_ratings(pool, mapping, sha)
     totals, clone_scores = score_values(mapping, ratings)
-    clone_hidden, hidden_failed = hidden_acceptance(pool, mapping, python)
+    clone_hidden, hidden_failed = ({}, {}) if frozen.get("purpose") == "calibration" else hidden_acceptance(
+        pool, mapping, python)
     rows = run_rows(mapping, clone_scores, clone_hidden)
     m = measures(rows)
     results = {
