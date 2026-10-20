@@ -7,7 +7,12 @@ selected on 2026-10-18 under the owner's directive to execute the roadmap,
 with the allocation below. Phase 1 ran on 2026-10-18 and 2026-10-19, its compile-only
 three-arm readout included (measure-free under the calibration rule; [Phase 1 report](../reports/2026-10-18-orc-structural-search-phase1.md#three-arm-readout)). Its decision rule fired
 `anchors_inverted`, and neither task separated within tolerance, so Phases 2–5
-are not selected for family (a) ([Phase 1 report](../reports/2026-10-18-orc-structural-search-phase1.md)). It replaces an earlier
+are not selected for family (a) ([Phase 1 report](../reports/2026-10-18-orc-structural-search-phase1.md)).
+Amended 2026-10-19: the owner's cumulative workflow evolution extension is
+accepted for design and unselected for spend; Phase 2 is redefined as
+cumulative whole-program campaigns (C1) with a conditional Phase 2b (C2)
+under the [cumulative campaigns design](../design/orc_structural_search_cumulative_campaigns.md),
+and the measurement plan stays the prerequisite of any live campaign. It replaces an earlier
 external draft ("ORC as a Searchable Workflow Language", 2026-10-16, not in
 the repository).
 
@@ -104,6 +109,11 @@ corrected in the change that adds this roadmap.
 5. Complete-workflow evidence selects. Local scores target and explain.
 6. Finite catalog, enumeration and unguided proposal sampling precede any
    adaptive method; adaptive search needs a useful-search-space result first.
+   Amended 2026-10-19 for successor studies: a flat or tiny one-step
+   neighbourhood is a finding about that sample, and a prebudgeted
+   multi-generation pilot is eligible once the calibrated measure, admission,
+   metering and task qualification hold (Decision Points, "Cumulative pilot
+   eligibility").
 7. One task family, sequential evaluation in separate clones, frozen external
    contracts and a small archive.
 8. Structural variation and measured skeleton diversity precede fragment
@@ -116,7 +126,9 @@ corrected in the change that adds this roadmap.
     transforms deferred to compositional work.
 11. The boundary amendment precedes implementation; it was applied in place
     in the boundaries document on 2026-10-18 and the driver design carries
-    its rationale.
+    its rationale. Invariant 4 was amended in place on 2026-10-19 and the
+    [cumulative campaigns design](../design/orc_structural_search_cumulative_campaigns.md#boundary-compliance)
+    carries that rationale.
 
 ## Search Space And Proposal Interfaces
 
@@ -169,7 +181,8 @@ from the earlier delivery.
 | --- | --- | --- |
 | 0 Governance and integration spike | Owner selection and allocation after R2's own selection; boundary amendment accepted; task family chosen per the charter and calibrated; catalog ported to 2.39 or re-authored; green baseline where family (b) is chosen; harness extension (arm spec from a candidate root, a generic-command arm, scan patterns for the archive, lineage and score records, holdout roots and other candidates' trees); clone-per-evaluation launch through public `run`; metering coverage measured per provider; one agent episode cost-calibrated; P-1 feasibility fixture | One authored candidate compiles, runs through the admitted route in a fresh clone and receives an independent score; a written list of API gaps, metering coverage and prerequisite costs |
 | 1 Catalog, enumeration and unguided I1 search | Frozen-surface validation and candidate snapshots in the driver; the finite authored catalog enumerated; equal-budget unguided I1 proposal sampling with no feedback; the three-arm compile-only readout (acceptance per episode, edit locality, distinct skeletons) with REPL-derived site facts for the locus arm; skeleton-diversity and collapse readout; JSONL lineage | Structurally distinct candidates with measured whole-run quality and cost differences, or the recorded finding that the neighbourhood is tiny or flat; the compile-only three-arm readout and a collapse verdict per interface |
-| 2 Manifest, I2 and adaptive search | The inspection design's manifest with P-1 resolved; the I2 one-site transaction; the adaptive loop with incumbent, archive and contextual site feedback, enabled only on Phase 1's useful-search-space result | Reproducible adaptive search over one family; at least one genuine control-flow change; complete candidate, cost and failure history; diversity and revisit rates against Phase 1 |
+| 2 Cumulative whole-program campaigns (C1) | The persistent evidence store, campaign checkpoint and resume, the results archive with the metered Pareto frontier, the bounded breeding pool (frontier subset plus reservoir), the two parent policies, diversity pressure with the revisit and futility rule and the cumulative budget readout, all under `module` ([cumulative campaigns design](../design/orc_structural_search_cumulative_campaigns.md)); the manifest and the I2 one-site transaction were delivered offline under the historical Phase 2 plan and remain available as interfaces and controls | Offline: the stepping-stone fixture (A → B → C) and the diversity/revisit fixture pass through the actual compiler, public runs and production ingestion with scripted providers; a second process extends the store; a restart preserves committed decisions. Live, gated and approved per campaign: matched replicate campaigns per policy at equal cumulative budgets under the predeclared power statement; endpoints at fixed budgets and deployed-cost ceilings; the final validated frontier; a null result reported without extending the horizon |
+| 2b Persistent contextual fragment evidence (C2), conditional | Fragment identity with capture contracts, invocation accounting, the context schema, estimates and the composite adapter, at contract level in the cumulative campaigns design; an implementation plan only when Phase 2 shows a frontier gain from the mixture at equal budget or a proposal-targeting need whole-program evidence cannot serve; also the entry increment of Phase 4 | Identity fixtures (one ID across locations and alpha-renaming; literal, prompt or capture changes alter it; unresolved closure unavailable) and invocation fixtures (distinct visits, `not_reached`, deduplicated nesting, retries counted, incomplete joins unavailable, nine visits one terminal cluster) |
 | 3 Comparative evidence | Three-arm interface test (I3, I1, I2) with its pre-registered endpoints; then the controls the claim requires, including the protocol delivered as an agent skill; supplied-assistance ablations; frozen sealed assessment | A report separating structural gains, search-efficiency effects, representation and integration effort, and uncertainty |
 | 4 Compositional search | Fragment contracts with explicit inputs, hygienic insertion, capture-aware extraction for a documented subset, I4 certified transforms, crossover | One extracted composition transfers between workflows and survives complete-program evaluation |
 | 5 Broader utility | Measured bottlenecks only: parallel evaluation across clones, richer adaptive policies, scientific transfer, protocol evolution, caching | Evidence supports each expansion |
@@ -267,28 +280,62 @@ its historical model list does not grant new calls under the current Sonnet/Terr
 
 ### Phase 2 Gates
 
-- The manifest passes its feasibility fixtures (P-1 and F-a through F-e in
-  the inspection design); site resolution under shadowing is tested; a shared
-  definition keeps one static site, and its callers and specializations are
-  reported as fan-out, not as extra owners.
-- The I2 transaction rejects a result-type change and an edit outside the
-  selected site; two structurally different valid replacements both compile
-  and execute.
-- A changed candidate receives fresh execution state; cross-candidate
-  provider or effect reuse is disabled; cached evaluation evidence is not a
-  replicate and original cost is recorded separately.
-- The authored reference seed is replicated on the validation split beside
-  the finalists and budgeted with them.
-- A provider call in an unexecuted branch stays unobserved; missing
-  measurements are not zero.
-- Approximately 20 to 30 completed episodes per search run and three
-  independent runs are the illustrative pilot scale, subject to the Phase 0
-  allocation; screen on four development tasks, then expand. A pilot of
-  roughly twelve adaptive, six validation and twelve sealed task groups is
-  descriptive, not a powered study.
-- `phase2.json` predates the cost-proxy rule (its `mean_cost` is wall clock
-  over a multi-model catalog) and is not changed; a Phase 2 selection needs
-  a successor criterion with metered cost.
+Cumulative whole-program campaigns (C1), owned by the
+[cumulative campaigns design](../design/orc_structural_search_cumulative_campaigns.md#staging-and-gates).
+
+- Prerequisites of any live campaign, each recorded in the ledger before
+  spend: the [measurement plan](2026-10-19-orc-structural-search-measurement-plan.md)'s
+  Step A passed (the calibrated measure; B2 keeps it calibrated) and a family
+  qualified under `amends_5`; metering wired with the price table frozen in
+  the successor criterion; a sealed split; the module condition's offline
+  tasks (the pilot mutates under `module`); mutator isolation covering the
+  evidence store; this amendment accepted with the roadmap, boundaries
+  document, driver design, capability matrix and design README updated
+  together. No uncalibrated experiment.
+- Endpoints, predeclared in the successor criterion: best supported quality
+  at a few fixed deployed-cost ceilings and cheapest deployed cost meeting
+  fixed quality targets, read at fixed cumulative search budgets from
+  checkpoints, plus the final independently validated frontier (validation
+  split with the reference seed on matched tasks; the sealed holdout opened
+  once after selection and analysis freeze). Secondary: improvements per
+  episode, frontier entries, diversity, lineage. The cumulative budget
+  counts proposals, repairs, compile and evaluation overhead, judges,
+  retries, failures and substantive human intervention, with priced
+  compute, wall clock and unpriced work kept explicit and warm-start
+  evidence's acquisition cost recorded separately.
+- Policies: frontier-only against one mixture policy (uniform reservoir
+  sampling for a fixed minority of parent draws), at equal total budget
+  from identical initial evidence, with reservoir capacity, admission and
+  eviction and the exploration fraction frozen in the criterion; reservoir
+  membership is no deployment endorsement.
+- Diversity: every brief carries structural summaries of already-evaluated
+  children and the instruction to differ from them; a child equal by program
+  digest, or by skeleton with an unchanged policy set, is a revisit (logged,
+  not re-evaluated, counted toward the futility rule); the behaviour
+  descriptor is recorded; no quality-diversity grid.
+- Power before spend: the pilot plan predeclares the formula and inputs in
+  the design (Phase 1's within-arm SD 0.93 and 1.20 rubric points;
+  one-call evaluations of 908 to 1,072 s, multi-call seeds 1,754 to
+  4,718 s; 1 call per evaluation at the parent's structure, up to the
+  child's planned maximum otherwise), the minimal detectable campaign-level
+  effect, replicate campaigns per policy, generations and episodes, and
+  the call budget with a hard cap; if the affordable design cannot detect a
+  plausible effect, it sizes a descriptive pilot and says so. Every live
+  campaign is a separate owner approval.
+- Model cap: the owner's 2026-10-19 amendment (Decision Points, "Model
+  policy") applies to every route; seeds and parents are capped copies,
+  historical seeds unchanged.
+- Carried forward: a changed candidate receives fresh execution state;
+  cross-candidate provider or effect reuse is disabled; cached evidence is
+  not a replicate and its original cost is recorded separately; the
+  reference seed is replicated on the validation split beside the finalists
+  and budgeted with them; a provider call in an unexecuted branch stays
+  unobserved and missing measurements are not zero; `phase2.json` predates
+  the cost-proxy rule and is not changed, and its calls-based archive and
+  generation protocol are superseded (historical
+  [Phase 2 plan](2026-10-18-orc-structural-search-phase2-plan.md)); the
+  successor criterion carries metered cost, and no calls-only selection
+  returns through a compatibility fallback.
 
 ### Phase 3 Gates
 
@@ -360,7 +407,7 @@ the objective's cost axis (Decision Criteria).
 | Phase | Formula | Owner placeholders |
 | --- | --- | --- |
 | 1 catalog, unguided sampling, compile-only three-arm | runs = `P` policies × `R` replicates × `T₀` tasks; attempts = runs × `L` (measured 1.0 to 1.8; budget 1.5); calls = attempts × `c`; mutator episodes = unguided `E₁` + 3 × `E₀`; paid three-arm runs on a stratified subset `S` | `P`, `R`, `T₀` (at least 2), `E₁`, `E₀`, `S`, concurrency, hard call ceiling, quota policy |
-| 2 adaptive pilot | candidates = seeds + accepted proposals ≤ `E₂`; screening runs = candidates × `T₂`; validation runs = (`F` finalists + the reference seed) × `V` tasks × `r` replicates; attempts = runs × `L` | `E₂` (8 to 12), `T₂` (2 to 3), `F`, `V`, `r`, hard call ceiling, quota policy |
+| 2 cumulative pilot | per campaign: calls = `G` generations × `E` episodes × (1 mutator call + `a` × `T` tasks × `r` replicates × `c_eval`) + judge batches per generation × judges × `T` + (`F` finalists + the reference seed) × `V` × `r` × `c_eval` with its judges and one smoke; campaigns = 2 policies × `K` replicates; formula and measured inputs in the design ([Endpoints, Budget Accounting And Power](../design/orc_structural_search_cumulative_campaigns.md#endpoints-budget-accounting-and-power)) | `K`, `G`, `E`, `T`, `r`, `a`, `c_eval`, `F`, `V`, the fixed budgets, cost ceilings and quality targets, `R`, reservoir capacity and exploration fraction, hard call ceiling, quota policy |
 | 3 comparison | each search arm repeats a Phase 2-scale search; each fixed arm costs `T₂` × `r` runs; sealed judging adds two judges per batch | Stated at Phase 3 selection from Phase 2's measured numbers; its own preregistration |
 
 ## Decision Points And Stop Rules
@@ -369,12 +416,14 @@ the objective's cost axis (Decision Criteria).
 | --- | --- |
 | Family choice | Only a family qualified under the frozen rule and with measured headroom on the family criterion; otherwise Phase 0 reports "no affordable qualified family" and stops |
 | Calibration | In every live phase and experiment, no provider call is spent on quality evaluation (candidate evaluation runs and judge calls whose purpose is a quality comparison) unless the quality measure passed a predeclared calibration on known controls (for a judge measure: for each judge and batch the upstream anchor's total minus the stub's is at least `calibration.margin`, and the fraction of (judge, batch) pairs failing that is at most `calibration.error_rate`, default 0, both in the criterion) and the family is qualified under its own frozen rule (family (a): the harness difficulty-calibration rule; family (b): the oracle qualification in the driver design); calibration runs are their own predeclared experiments with their own budget and pass first; an uncalibrated measure reports only measure-free figures (compile-only metrics, execution outcomes, cost) and no quality comparison, frontier or improvement claim. The rule applies to provider spend launched after its adoption (commit `f4bec466`, 2026-10-19 17:04 PDT); the three-arm readout's paid subset was launched before it (about 15:33–16:12) and is reported with execution figures only, and its judge stage, still to run at adoption, does not run (its controller ruling R19, 2026-10-19) and reports compile-only figures, execution outcomes and cost, with quality `unavailable: evaluator uncalibrated` |
-| Phase 1 separation | Tolerance predeclared in the criterion's units (default two within-arm standard deviations, measured on the family in Phase 1), judged per task and required on at least two tasks; DIRECT sole winner or everything within tolerance is recorded under the charter's decision rule and Phase 2 is not selected for the family |
+| Phase 1 separation | Tolerance predeclared in the criterion's units (default two within-arm standard deviations, measured on the family in Phase 1), judged per task and required on at least two tasks; DIRECT sole winner or everything within tolerance is recorded under the charter's decision rule and Phase 2 is not selected for the family. Historical record of the Phase 1 decision; successor studies follow the next row |
+| Cumulative pilot eligibility | For successor studies, a flat or tiny one-step neighbourhood is a finding about that sample, not a verdict against cumulative search; a prebudgeted multi-generation pilot is eligible once the calibrated measure, admission, metering and task qualification hold (Phase 2 Gates), with its total spend and wall-clock ceilings, minimum horizon, checkpoints, replicate campaigns and stop rules predeclared and each live campaign separately approved; an interrupted pilot is reported incomplete, and long-horizon framing grants no unlimited spend |
+| Futility and stop | A child equal to an already-evaluated candidate by program digest, or by skeleton with an unchanged policy set, is a revisit: logged, not re-evaluated, counted toward the predeclared rule that `R` consecutive revisits or rejections stop the campaign; budget exhaustion, invalid evidence and persistent infrastructure failure also stop it; the sealed holdout opens once after selection and analysis freeze, and no horizon is extended after outcomes are seen |
 | Collapse | If the share of accepted children whose skeleton equals the parent's exceeds the predeclared threshold (default 0.75) for an interface, that interface has collapsed to renames and literals and the adaptive claim is not tested on it; if every interface collapses, Phase 2 is not selected |
 | Screening | Advancement, finalist replication beside the reference seed, and the shrinkage readout (screening mean against validation mean) follow the driver's selection rule; the pilot stays descriptive |
 | Quota | No new run once the owner-stated window floor is reached unless the stated credit policy covers it; the readout says what completed |
 | Lost runs | Provider-infrastructure stops are resumed, never relaunched; a timeout or contamination is an outcome under the frozen rule, its attempted cost counts, and the attempt rate is reported |
-| Model policy | The current 2026-10-19 exact `claude-sonnet-5-5`/`gpt-5.6-terra` cap applies to every experimental role and nested guarded call; frozen historical model choices remain evidence, not new launch permission |
+| Model policy | No Fable in any experiment call. The current 2026-10-19 exact `claude-sonnet-5-5`/`gpt-5.6-terra` cap applies to every experimental role, nested CLI process and native agent; higher or unknown IDs refuse until explicitly amended. Every seed or parent of a cumulative campaign is a capped copy; frozen historical seeds, allocations and model choices remain evidence, not new launch permission |
 
 ## Verification Obligations
 
@@ -414,7 +463,7 @@ are descriptive.
 | Structural feasibility | Agents produce previously unlisted working compositions through ordinary editing and full compilation |
 | Useful search space | Structurally distinct candidates show meaningful whole-workflow quality and cost differences beyond the enumerated catalog |
 | Proposal interface | Locus-plus-fragment improves the endpoints against whole-program and diff interfaces, with diversity reported |
-| Adaptive optimization | Feedback-guided search beats equal-budget enumeration and random controls on independent evaluation |
+| Adaptive optimization (cumulative campaigns) | At equal cumulative search budgets from identical initial evidence, a campaign's best supported quality at fixed deployed-cost ceilings, its cheapest deployed cost at fixed quality targets and its final independently validated frontier beat the frontier-only baseline (for the mixture policy) and the equal-budget enumeration and unguided controls; improvements per episode, frontier entries, diversity and lineage are secondary |
 | Compiler assistance | Single-factor ablations, not the three-arm test, show pre-supplied typed context or diagnostics improving proposal efficiency, repair effort or outcomes; tool-retrieved exposure is reported |
 | ORC-specific value | The matched Python and agent-skill comparisons show a search, reliable-transformation or integration advantage, and the report says which |
 | Compositional evolution | Extracted fragments transfer and recombine usefully |
@@ -449,6 +498,14 @@ cap10 are approved; later paid stages remain separately gated. No calibration
 result or live `module` arm follows from implementation. It precedes any
 live `module` arm
 ([module condition](2026-10-19-orc-structural-search-module-rewrite-plan.md#gate-for-a-live-module-arm)).
+Amended 2026-10-19: the cumulative workflow evolution extension redefines
+Phase 2 as cumulative whole-program campaigns (C1), with Phase 2b (C2)
+conditional on its result; it is accepted for design and unselected for
+spend, the measurement plan remains the prerequisite of any live campaign,
+and the pilot plan
+`docs/plans/2026-10-19-orc-structural-search-cumulative-pilot-plan.md`,
+written when C1 is selected, computes the power and budget numbers; every
+live campaign is its own owner approval.
 
 ## Routing And Records
 
@@ -456,7 +513,9 @@ This is an authored roadmap, not an executable selector; no tranche manifest
 or queue is added. Code placement: the manifest module near
 `orchestrator/workflow_lisp/`, everything else under
 `experiments/orc_structural_search/` with immutable candidate files and one
-append-only JSONL episode and evaluation log. Fitness, archives and selection
+append-only JSONL episode and evaluation log; the cumulative design's
+evidence store is one experiment-owned durable root shared by campaigns, at
+most one new module. Fitness, archives and selection
 never enter `orchestrator/`. The boundary amendment is applied in the
 boundaries document, whose change note keeps its anchor; the driver design
 carries its rationale. Limits carried into every phase: one active run
@@ -480,6 +539,14 @@ table in the checker, and no OMP shim.
 - Evolution through Large Models (Lehman et al., 2022) and AlphaEvolve
   (Novikov et al., 2025): LLM proposers in evolutionary loops; targeted
   diffs outperforming full rewrites motivates locality-native interfaces.
+- Novelty search: selecting parents for behavioural novelty rather than
+  objective value; the reservoir borrows the idea that a stepping stone may
+  be objectively worse than its competitors.
+- Quality-diversity: illuminating a behaviour space with a best candidate
+  per niche; C1 records the behaviour descriptor and defers any grid.
+- Stepping stones: useful descendants sometimes require dominated
+  ancestors; the stepping-stone fixture tests reachability and accounting,
+  not benefit.
 
 The proposed contribution is the practical value of a compiler-aware workflow
 representation for structural mutation and recombination, established by

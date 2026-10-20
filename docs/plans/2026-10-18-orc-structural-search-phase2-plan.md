@@ -1,5 +1,16 @@
 # ORC Structural Search Phase 2 (I2 And Adaptive Search) Implementation Plan
 
+> **Status note (2026-10-19):** historical record. Tasks 1–5 were delivered
+> offline with scripted providers; Phase 2 was not selected by the Phase 1
+> decision and Task 6 does not run from this plan. Its calls-based archive
+> (Decision 6: incumbent plus six on mean value and mean calls) and its
+> generation protocol are superseded for successor studies by the
+> [cumulative campaigns design](../design/orc_structural_search_cumulative_campaigns.md)
+> (roadmap Phase 2, C1); no calls-only selection returns through a
+> compatibility fallback. The I2 helpers, `adaptive.py`, judging and the
+> validation-split mechanics it delivered are reused as that design states.
+> The body below is preserved as written and selects no work.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Prepare Phase 2 of the [structural search roadmap](2026-10-18-orc-structural-search-roadmap.md) offline (I2 locus-plus-fragment episodes over the implemented site manifest, the mode-2 adaptive loop with an archive, per-generation blind judging and a validation split) so that a live run can start the day Phase 1's readout selects Phase 2, and stops cleanly if it does not.
