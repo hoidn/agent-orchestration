@@ -1,5 +1,5 @@
 """Matched candidate/parent observations and per-arm calibrated Pareto endpoints."""
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from statistics import mean
 
@@ -234,3 +234,46 @@ def arm_reports(specs, episodes, parents, table, tolerances, evidence_root):
         frontier = pareto.frontier(candidates, *tolerances)
         result[arm] = arm_endpoints(mine, table, parent, frontier, tolerances, evidence_root)
     return result
+
+
+def _endpoint_thresholds(**thresholds):
+    for name, values in thresholds.items():
+        if any(not pricing.number(value) for value in values):
+            raise ValueError(f'{name} must contain finite nonnegative numbers')
+
+
+def _supported_frontier(checkpoint):
+    rows = [checkpoint['table'][cid] for cid in checkpoint['frontier']]
+    return [row for row in rows if row.get('support') == 'every_adaptive_task'
+            and row.get('above_floor') is True and comparable(row, row)]
+
+
+def _campaign_checkpoint(checkpoint, ceilings, targets):
+    rows = _supported_frontier(checkpoint)
+    return {'generation': checkpoint['generation'], 'budget': dict(checkpoint['budget']),
+            'frontier': list(checkpoint['frontier']),
+            'best_quality_under': {str(ceiling): max((row['quality'] for row in rows if row['cost'] <= ceiling),
+                                                    default=UNAVAILABLE) for ceiling in ceilings},
+            'cheapest_meeting': {str(target): min((row['cost'] for row in rows if row['quality'] >= target),
+                                                 default=UNAVAILABLE) for target in targets}}
+
+
+def _cost_cut(checkpoints, cut):
+    eligible = [checkpoint for checkpoint in checkpoints
+                if pricing.number(checkpoint['budget']['metered_cost'])
+                and checkpoint['budget']['metered_cost'] <= cut]
+    return {'cut': cut, 'checkpoint': eligible[-1] if eligible else None}
+
+
+def campaign_endpoints(trajectory: Sequence[Mapping], *, ceilings, targets, cuts, calls_cuts) -> dict:
+    """Read bounded-frontier endpoints at the last accounted checkpoint within each cost cut.
+
+    Append order preserves settlements within a generation. An earlier pending budget is not
+    repriced from later receipts; only the latest accounting snapshot decides cost comparability.
+    """
+    _endpoint_thresholds(ceilings=ceilings, targets=targets, cuts=cuts)
+    checkpoints = [_campaign_checkpoint(checkpoint, ceilings, targets) for checkpoint in trajectory]
+    result = {'checkpoints': checkpoints}
+    if not checkpoints or not pricing.number(checkpoints[-1]['budget']['metered_cost']):
+        return result | {'not_comparable_at_cost_cuts': True}
+    return result | {'cost_cuts': [_cost_cut(checkpoints, cut) for cut in cuts]}
