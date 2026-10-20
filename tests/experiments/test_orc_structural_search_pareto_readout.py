@@ -39,7 +39,7 @@ def fixture():
 def test_full_frontier_and_parent_improvements_split_by_allocation_with_unvalued_denominator(tmp_path):
     criterion, log, pools = fixture()
     result = pareto_readout.report(pools, log, criterion, tmp_path)
-    assert result['frontier'] == ['M']
+    assert result['arms']['module']['frontier'] == ['M']
     assert result['cost_axis'] == 'metered_USD'
     assert result['arms']['module']['completed'] == 3
     assert result['arms']['module']['unvalued'] == ['U']
@@ -54,18 +54,18 @@ def test_mismatched_replicates_do_not_silently_compare_means(tmp_path):
     result = pareto_readout.report(pools, log, criterion, tmp_path)
     assert result['candidates']['M']['quality'] == 'unavailable'
     assert result['candidates']['M']['reason'] == 'unmatched_task_replicate_support'
-    assert 'M' not in result['frontier']
+    assert 'M' not in result['arms']['module']['frontier']
 
 
 def test_missing_stub_and_quality_equal_to_stub_are_off_frontier(tmp_path):
     criterion, log, pools = fixture()
     for p in pools:
         p['anchors'][0]['total'] = 7
-    assert pareto_readout.report(pools, log, criterion, tmp_path)['frontier'] == []
+    assert pareto_readout.report(pools, log, criterion, tmp_path)['arms']['module']['frontier'] == []
     pools[0]['anchors'] = []
     result = pareto_readout.report(pools, log, criterion, tmp_path)
     assert result['quality_floor'] == 'unavailable'
-    assert result['frontier'] == []
+    assert result['arms']['module']['frontier'] == []
 
 
 def test_proxy_needs_all_candidates_resolved_to_same_single_pair(tmp_path):
@@ -73,11 +73,11 @@ def test_proxy_needs_all_candidates_resolved_to_same_single_pair(tmp_path):
     for row in log:
         if row['kind'] == 'evaluation':
             row['receipt_usage'] = 'unavailable'
-    assert pareto_readout.report(pools, log, criterion, tmp_path)['cost_axis'] == 'provider_calls'
+    assert pareto_readout.report(pools, log, criterion, tmp_path)['cost_axis'] == 'metered_USD'
     next(row for row in log if row.get('candidate_id') == 'U' and row['kind'] == 'evaluation')['allocation_signature'] = 'unavailable'
     result = pareto_readout.report(pools, log, criterion, tmp_path)
     assert result['cost_axis'] == 'metered_USD'
-    assert result['frontier'] == []
+    assert result['arms']['module']['frontier'] == []
 
 
 def test_mixed_models_require_metering_even_if_declarations_allow_both(tmp_path):
@@ -88,7 +88,7 @@ def test_mixed_models_require_metering_even_if_declarations_allow_both(tmp_path)
             if row['candidate_id'] == 'M':
                 row['allocation_signature']['run#0']['model'] = 'expensive'
     result = pareto_readout.report(pools, log, criterion, tmp_path)
-    assert result['cost_axis'] == 'metered_USD' and result['frontier'] == []
+    assert result['cost_axis'] == 'metered_USD' and result['arms']['module']['frontier'] == []
 
 
 def test_failures_zero_incidents_excluded_and_study_hash_never_pooled(tmp_path):
@@ -101,3 +101,39 @@ def test_failures_zero_incidents_excluded_and_study_hash_never_pooled(tmp_path):
     log[-1]['criterion_sha256'] = 'b' * 64
     with pytest.raises(ValueError, match='criterion'):
         pareto_readout.report(pools, log, criterion, tmp_path)
+
+
+def test_calls_proxy_requires_explicit_actual_effort_and_no_native_contradiction(tmp_path):
+    criterion, log, pools = fixture()
+    criterion['price_table'] = dict(TABLE, models={'unrelated': TABLE['models']['m']})
+    for row in log:
+        if row['kind'] == 'evaluation':
+            records = tmp_path / row['evaluation_id']
+            call = records / 'calls/1'
+            call.mkdir(parents=True)
+            (call / 'argv.nul').write_bytes(b'--model\0m\0--config\0model_reasoning_effort=high\0')
+            row['records_dir'] = str(records)
+            row['allocation_signature']['run#0']['provider'] = 'codex_unrestricted_workspace'
+            row['receipt_usage'][0]['usage'][0]['provenance']['session_sha256'] = 'sha256:' + 'a' * 64
+    assert pareto_readout.report(pools, log, criterion, tmp_path)['cost_axis'] == 'provider_calls'
+    raw = next(r for r in log if r['kind'] == 'evaluation')
+    raw['receipt_usage'][0]['usage'][0]['model'] = 'expensive'
+    assert pareto_readout.report(pools, log, criterion, tmp_path)['cost_axis'] == 'metered_USD'
+
+
+def test_excluded_continuation_child_cannot_reenter_frontier_and_keeps_denominator(tmp_path):
+    criterion, log, pools = fixture()
+    result = pareto_readout.report(pools, log, criterion, tmp_path, excluded={'M'})
+    assert result['candidates']['M']['quality'] == 'unavailable'
+    assert result['candidates']['M']['reason'] == 'contaminated_episode'
+    assert 'M' not in result['arms']['module']['frontier']
+    assert result['arms']['module']['completed'] == 3
+    assert 'M' in result['arms']['module']['unvalued']
+
+
+def test_another_arms_stronger_child_cannot_remove_this_arms_frontier_entry(tmp_path):
+    criterion, log, pools = fixture()
+    result = pareto_readout.report(pools, log, criterion, tmp_path)
+    assert result['arms']['I1']['frontier'] == ['C']
+    assert result['arms']['module']['frontier'] == ['M']
+    assert result['arms']['I1']['frontier_entries_per_completed_episode'] == 1

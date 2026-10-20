@@ -232,6 +232,7 @@ def run_three_arm(config_path: Path, *, parents: Mapping[str, Path], tasks: Sequ
     if smoke and episodes_per_arm:
         raise ValueError("a smoke run evaluates the parents only: pass episodes_per_arm 0")
     frozen = check_run(config_path, criterion, agent_cmd, timeout_sec)
+    replicates = subset_replicates(frozen)
     check_hide(hide)
     qualification.validate(criterion, tasks=tasks, config_sha256=load_config(config_path).criterion_sha256,
                            runtime=runtime)
@@ -246,6 +247,7 @@ def run_three_arm(config_path: Path, *, parents: Mapping[str, Path], tasks: Sequ
                                  run_seed=run_seed, subset_seed=subset_seed)
     row["criterion_sha256"] = frozen["criterion_sha256"]
     log_parents(row, prior, log)
+    baselines = parent_jobs(roots, config_path, frozen, runtime=runtime)
     result: dict = {}
     if smoke:
         jobs = [(roots[name], arm_config(config_path, arm), {"mode": "smoke", "parent": name,
@@ -265,13 +267,20 @@ def run_three_arm(config_path: Path, *, parents: Mapping[str, Path], tasks: Sequ
                      "episode_id", "candidate_id", "parent_candidate_id", "candidate_root")}})
                 for arm, picked in chosen.items() for r in picked]
     if not smoke:
-        jobs += parent_jobs(roots, config_path, frozen, runtime=runtime)
+        jobs += baselines
     gate = CapGate(guard)
-    evaluated = launch_units(continued(jobs, tasks, frozen["subset"]["replicates"], read_records(log)), concurrency=concurrency, guard=guard,
+    evaluated = launch_units(continued(jobs, tasks, replicates, read_records(log)), concurrency=concurrency, guard=guard,
                              gate=gate.run, **launch)
     if gate.exhausted:  # the last unit used up its quota relaunches: no later unit raised it
         raise QuotaExhausted(gate.exhausted)
     return result or {"smoke": evaluated}
+
+
+def subset_replicates(criterion):
+    count = criterion['subset']['replicates']
+    if type(count) is not int or count < 1:
+        raise ValueError('subset.replicates must be a positive integer')
+    return count
 
 
 def parent_jobs(roots: Mapping[str, Path], config_path: Path, criterion: Mapping, *, runtime: Path) -> list:

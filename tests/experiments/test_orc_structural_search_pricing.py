@@ -51,3 +51,11 @@ def test_missing_exact_model_rate_is_unavailable():
     row = receipt()
     row["receipt_usage"][0]["usage"][0]["model"] = "m-alias"
     assert pricing.cost(row, TABLE) == "unavailable"
+
+
+def test_missing_model_rate_is_unavailable_but_other_models_still_price():
+    table = copy.deepcopy(TABLE)
+    table['models']['m'].pop('cache_write')
+    assert pricing.cost(receipt(), table) == 'unavailable'
+    table['models']['m'] = {}
+    assert pricing.cost(receipt(), table) == 'unavailable'

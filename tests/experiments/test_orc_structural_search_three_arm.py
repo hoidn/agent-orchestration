@@ -156,7 +156,7 @@ def test_three_arm_runs_six_episodes_per_arm_against_the_two_parents_and_writes_
 def episode_row(arm, index, cid, skeleton, outcome="accepted", parent="p", mode="three_arm", program=None):
     return {"kind": "episode", "mode": mode, "arm": arm, "interface": arm, "episode_index": index,
             "episode_id": f"e{index}", "candidate_id": cid, "parent_candidate_id": parent, "skeleton": skeleton,
-            "outcome": outcome, "program_digest": program or f"program-{cid}"}
+            "outcome": outcome, "provider_calls": 1, "program_digest": program or f"program-{cid}"}
 
 
 def tie(seed, cid):
@@ -183,7 +183,7 @@ def test_subset_prefers_distinct_skeletons_and_is_reproducible():
 def scanned(evidence, episode_id, hits, verdict):
     records = evidence / "episodes" / episode_id
     records.mkdir(parents=True, exist_ok=True)
-    (records / "record.json").write_text(json.dumps({"scan": {"hits": hits, "verdict": verdict}}))
+    (records / "record.json").write_text(json.dumps({"scan": {"calls": 1, "hits": hits, "verdict": verdict}}))
 
 
 def test_a_contaminated_child_is_never_chosen_and_an_unadjudicated_hit_is_refused(tmp_path):
@@ -206,7 +206,9 @@ def test_subset_children_are_evaluated_once_per_task_and_logged_with_their_arm(s
     shutil.copytree(world.task, second)
     result, rows, _ = run(world, tasks=[world.task, second])
     chosen = {cid: arm for arm, figures in result["arms"].items() for cid in figures["subset"]}
-    evaluations = kind(rows, "evaluation")
+    baselines = [row for row in kind(rows, "evaluation") if row.get("parent_for_arms")]
+    assert len(baselines) == 4
+    evaluations = [row for row in kind(rows, "evaluation") if not row.get("parent_for_arms")]
     assert (Counter((row["candidate_id"], row["task_id"]) for row in evaluations),
             {row["candidate_id"]: row["arm"] for row in evaluations}, {row["mode"] for row in evaluations},
             all(row["episode_id"] and row["parent_candidate_id"] and row["candidate_root"] for row in evaluations),

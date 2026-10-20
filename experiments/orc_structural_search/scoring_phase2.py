@@ -260,6 +260,12 @@ def validation_readout(pool: Mapping, runs: Sequence[Sequence[tuple[int, list]]]
     return {"validation": table, "unvalued": unvalued, "final_choice": choice, "rule": rule, **checks}
 
 
+def verified_validation_pool(pool, criterion):
+    if not pool.get('results') or not pool.get('source_log'):
+        raise ValueError('validation pool lacks actual scoring provenance')
+    return read_pool(Path(pool['results']), Path(pool['source_log']), criterion)
+
+
 def phase2_readout(logs: Sequence[Path], archives: Sequence[Path], validation_pool: Mapping | None,
                    criterion: Path, *, measure_free: bool = False) -> dict:
     """`logs` and `archives` pair up per run (each run's log.jsonl and archive directory); `validation_pool` is
@@ -274,6 +280,7 @@ def phase2_readout(logs: Sequence[Path], archives: Sequence[Path], validation_po
     ref = reference(logs, rows)
     sources = [row['results'] for log in logs for row in read_records(log) if row['kind'] == 'judging']
     if validation_pool is not None:
+        validation_pool = verified_validation_pool(validation_pool, criterion)
         if not validation_pool.get('results'):
             raise ValueError('validation pool lacks actual scoring provenance')
         sources.append(validation_pool['results'])

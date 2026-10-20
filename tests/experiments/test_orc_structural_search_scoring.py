@@ -25,7 +25,8 @@ TOKENS = {"upstream": ("S2",) * 4, "symptom": ("S0",) * 4}  # anchors; every eva
 
 def log_row(records_dir, *, eid, task="task", outcome="completed", mode="catalog", seed="direct", replicate=1):
     row = {"kind": "evaluation", "mode": mode, "evaluation_id": eid, "candidate_id": f"sha256:{eid}",
-           "records_dir": str(records_dir), "task_id": task, "replicate": replicate, "outcome": outcome}
+           "records_dir": str(records_dir), "task_id": task, "replicate": replicate, "outcome": outcome,
+           "criterion_sha256": sha256_file(CRITERION)}
     return row | ({"seed": seed} if mode == "catalog" else {})
 
 
@@ -58,8 +59,8 @@ def evaluations(world):
     for eid, records in runs.items():
         append_record(log, log_row(records, eid=eid, seed={"e1": "direct", "e2": "best_of_n"}[eid]) |
                       {"criterion_sha256": sha256_file(criterion)})
-    append_record(log, log_row(world.root / "records" / "e3" / "run-1", eid="e3", outcome="incident"))
-    append_record(log, log_row(world.root / "records" / "e4" / "run-1", eid="e4", task="other"))
+    append_record(log, log_row(world.root / "records" / "e3" / "run-1", eid="e3", outcome="incident") | {"criterion_sha256": sha256_file(criterion)})
+    append_record(log, log_row(world.root / "records" / "e4" / "run-1", eid="e4", task="other") | {"criterion_sha256": sha256_file(criterion)})
     out = pool_evaluations(log.parent, world.task, out=world.outside / "pool", criterion=criterion,
                            judges=["judge-a", f"judge-b={REPO / 'experiments/compare/providers/score_codex.json'}"])
     return out, json.loads((out / "records" / "mapping.json").read_text()), runs, log, criterion
@@ -453,9 +454,9 @@ def episode(log, name, verdict, *, hits=1, outcome="accepted", skeleton="parent"
     records = log.parent / "episodes" / name
     records.mkdir(parents=True)
     (records / "record.json").write_text(json.dumps({"scan": {
-        "calls": 1, "hits": [{}] * hits, "verdict": verdict and {"verdict": verdict, "reason": "r"}}}))
+        "calls": 1, "hits": [{"pattern": "synthetic"}] * hits, "verdict": verdict and {"verdict": verdict, "reason": "r"}}}))
     append_record(log, {"kind": "episode", "episode_id": name, "outcome": outcome, "candidate_id": f"sha256:{name}",
-                        "scan_pending": bool(hits), "skeleton": skeleton, "parent_skeleton": "parent",
+                        "scan_pending": bool(hits), "provider_calls": 1, "skeleton": skeleton, "parent_skeleton": "parent",
                         "provider_allocation": "a", "parent_provider_allocation": "a"})
 
 

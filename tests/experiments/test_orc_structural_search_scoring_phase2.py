@@ -8,7 +8,7 @@ import pytest
 
 from experiments.compare.repos import sha256_file
 from experiments.orc_structural_search.records import UNAVAILABLE, append_record
-from experiments.orc_structural_search.scoring import DIRECT, main
+from experiments.orc_structural_search.scoring import DIRECT, main, read_pool
 from experiments.orc_structural_search.scoring_phase2 import phase2_readout
 from tests.experiments.compare_harness_support import REPO
 from tests.experiments.readout_support import report_qualification, report_pool
@@ -96,7 +96,7 @@ class Run:
 
     def failed(self, cid, task, *, generation=1, replicate=2):
         """A failed adaptive evaluation of `cid` on `task`: in the log only, no pool row."""
-        append_record(self.log, {"kind": "evaluation", "mode": "adaptive", "evaluation_id": f"{cid}-{task}-failed",
+        append_record(self.log, {"kind": "evaluation", "criterion_sha256": sha256_file(CRITERION2), "mode": "adaptive", "evaluation_id": f"{cid}-{task}-failed",
                                  "candidate_id": cid, "records_dir": str(self.root / "records" / "failed"),
                                  "task_id": task, "replicate": replicate, "outcome": "failed", "split": "adaptive",
                                  "generation": generation})
@@ -104,7 +104,7 @@ class Run:
     def judged(self, cid, task, value, *, generation, up):
         eid = f"{cid}-{task}"
         records = self.root / "records" / eid / "run-1"
-        append_record(self.log, {"kind": "evaluation", "mode": "adaptive", "evaluation_id": eid, "candidate_id": cid,
+        append_record(self.log, {"kind": "evaluation", "criterion_sha256": sha256_file(CRITERION2), "mode": "adaptive", "evaluation_id": eid, "candidate_id": cid,
                                  "records_dir": str(records), "task_id": task, "replicate": 1,
                                  "outcome": "completed", "split": "adaptive", "generation": generation})
         results = results_json(self.root / "pools" / eid / "results.json", [run_row(records, eid, value)],
@@ -121,10 +121,23 @@ def validation_pool(values, anchors=None):
              "value": None if v in (FAILED, INCIDENT) else v, "hidden": None, "calls": c, "wall_clock_sec": w}
             for cid, runs in values.items() for k, (v, c, w) in enumerate(runs)]
     provenance = REPORT_Q.criterion.parent / 'validation/records/results.json'
-    write(provenance, {'criterion_sha256': sha256_file(CRITERION2)})
+    log = provenance.parent / 'log.jsonl'
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text('')
+    runs = []
+    for row in rows:
+        records = provenance.parent / row['evaluation_id']
+        append_record(log, {'kind': 'evaluation', 'criterion_sha256': sha256_file(CRITERION2),
+            'candidate_id': row['candidate_id'], 'evaluation_id': row['evaluation_id'], 'mode': 'validation',
+            'task_id': VALIDATION, 'replicate': row['replicate'], 'outcome': row['outcome'],
+            'records_dir': str(records), 'provider_calls': row['calls'], 'wall_clock_sec': row['wall_clock_sec']})
+        if row['outcome'] == 'completed':
+            runs.append(run_row(records, row['evaluation_id'], row['value']) |
+                        {'calls': row['calls'], 'wall_clock_sec': row['wall_clock_sec'], 'hidden_value': None})
+    write(provenance, {'criterion_sha256': sha256_file(CRITERION2), 'runs': runs,
+        'anchors': anchors_of(VALIDATION) if anchors is None else anchors, 'agreement': {}, 'excluded_judges': {}})
     report_pool(provenance, REPORT_Q, VALIDATION)
-    return {"results": str(provenance), "task": VALIDATION, "rows": rows, "anchors": anchors_of(VALIDATION) if anchors is None else anchors,
-            "agreement": {}, "excluded_judges": {}, "unpooled": [], "criterion_sha256": sha256_file(CRITERION2)}
+    return read_pool(provenance, log, CRITERION2)
 
 
 @pytest.fixture
@@ -202,7 +215,7 @@ def test_phase2_readout_validation_mean_counts_a_failed_replicate_as_zero(run):
 def test_phase2_readout_child_adaptive_mean_counts_a_timeout_as_zero(run):
     run.episode("C1", interface="I1", value=6.0)
     run.failed("C1", ADAPTIVE[0])
-    append_record(run.log, {"kind": "evaluation", "mode": "adaptive", "evaluation_id": "C1-timeout",
+    append_record(run.log, {"kind": "evaluation", "criterion_sha256": sha256_file(CRITERION2), "mode": "adaptive", "evaluation_id": "C1-timeout",
                             "candidate_id": "C1", "records_dir": str(run.root / "records" / "t"),
                             "task_id": ADAPTIVE[1], "replicate": 2, "outcome": "incident", "split": "adaptive",
                             "generation": 1, "incidents": ["launch 0: no terminal row in run r (launcher exit -9; "
@@ -345,7 +358,7 @@ def test_readout_cli_phase2_reads_runs_and_the_validation_pool(run, tmp_path, ca
         for k, (value, _, _) in enumerate(rows):
             records = tmp_path / "validation" / "records" / f"v-{cid}-{k}" / "run-1"
             append_record(vlog, log_row(records, eid=f"v-{cid}-{k}", task=VALIDATION, mode="validation",
-                                        replicate=k + 1) | {"candidate_id": cid})
+                                        replicate=k + 1) | {"candidate_id": cid, "criterion_sha256": sha256_file(CRITERION2)})
             runs.append(run_row(records, f"v-{cid}-{k}", value) | {"calls": rows[k][1], "wall_clock_sec": rows[k][2]})
     results = results_json(tmp_path / "validation" / "pool" / "results.json", runs, anchors_of(VALIDATION))
     main(["readout", "--phase", "2", "--criterion", str(CRITERION2), "--log", str(run.log), "--archive",

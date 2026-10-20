@@ -63,7 +63,7 @@ from statistics import mean, stdev, variance
 from experiments.compare import pool as pooling, prepare
 from experiments.compare.repos import dump, guard, load, runtime_commit, sha256_file, visible_in_sandbox
 from experiments.orc_structural_search import qualification
-from experiments.orc_structural_search import readout_guard
+from experiments.orc_structural_search import readout_guard, readout_join
 from experiments.orc_structural_search.config import check_criterion_hashes
 from experiments.orc_structural_search.quota import job_key
 from experiments.orc_structural_search.readout import QUOTA_INCIDENT, diversity, outcome, share
@@ -216,15 +216,17 @@ def read_pool(results_json: Path, log: Path, criterion: Path, *, measure_free: b
     if results["criterion_sha256"] != sha:
         raise ValueError(f"{results_json} was summarized under criterion sha256 {results['criterion_sha256']}, "
                          f"not {criterion}'s {sha}")
-    rows = join_scores(results_json, log)
+    lineages = readout_join.clone_ids(results_json, readout_guard.pool_path(results_json), results)
+    records = latest_evaluations(read_records(log))
+    check_criterion_hashes(records, sha)
+    rows = [row | {'clone_ids': lineages[row['evaluation_id']]} for row in join_scores(results_json, log)]
     tasks = {row["task"] for row in rows}
     if len(tasks) != 1:
         raise ValueError(f"{results_json}: expected the runs of one task, found {sorted(tasks)}")
     task, pooled = tasks.pop(), {row["evaluation_id"] for row in rows}
-    records = latest_evaluations(read_records(log))
     unpooled = sorted(r["evaluation_id"] for r in records
                       if r["task_id"] == task and r["outcome"] == "completed" and r["evaluation_id"] not in pooled)
-    return {"task": task, "results": str(results_json), "rows": rows + outcome_rows(records, task),
+    return {"task": task, "results": str(results_json), "source_log": str(log), "rows": rows + outcome_rows(records, task),
             "anchors": results["anchors"], "agreement": results["agreement"],
             "excluded_judges": results["excluded_judges"], "unpooled": unpooled, "criterion_sha256": sha,
             "no_pool": False}
@@ -264,13 +266,9 @@ def contaminated_children(log: Path) -> set[str]:
     for row in read_records(log):
         if row["kind"] != "episode" or row["outcome"] != "accepted":
             continue
-        scan = load(Path(log).parent / "episodes" / row["episode_id"] / "record.json").get("scan")
-        if scan is None:
-            raise ValueError(f"episode {row['episode_id']} was not scanned: prepare.py scan --run <its records>")
-        if scan["hits"] and scan["verdict"] is None:
-            raise ValueError(f"episode {row['episode_id']} has {len(scan['hits'])} scan hits and no verdict")
-        if scan["verdict"] and scan["verdict"]["verdict"] == "contaminated":
-            children.add(row["candidate_id"])
+        records = Path(log).parent / 'episodes' / row['episode_id']
+        if readout_join.episode_exclusion(records, row):
+            children.add(row['candidate_id'])
     return children
 
 def pooled_sd(groups: Sequence[Sequence[float]]) -> float | str:

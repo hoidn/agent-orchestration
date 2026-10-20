@@ -3,7 +3,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from statistics import mean
 
-from experiments.orc_structural_search import pareto, pricing
+from experiments.orc_structural_search import call_identity, pareto, pricing
 from experiments.orc_structural_search.quota import quota_reason
 from experiments.orc_structural_search.readout import share
 from experiments.orc_structural_search.records import UNAVAILABLE
@@ -56,7 +56,7 @@ def signature_pairs(signature):
         return None
     pairs = set()
     for policy in signature.values():
-        if not isinstance(policy, Mapping) or policy.get('provider') not in ('claude', 'codex'):
+        if not isinstance(policy, Mapping) or not known_policy(policy):
             return None
         pair = policy.get('model'), policy.get('effort')
         if not all(isinstance(v, str) and v.strip() and v not in ('unavailable', 'unknown', 'auto', 'default') for v in pair):
@@ -65,11 +65,17 @@ def signature_pairs(signature):
     return pairs
 
 
+def known_policy(policy):
+    values = [policy.get(key) for key in ('provider', 'model', 'effort')]
+    return all(isinstance(v, str) and bool(v.strip()) and
+               v.lower() not in ('unavailable', 'unknown', 'auto', 'default') for v in values)
+
+
 def homogeneous(raw, candidates):
     grouped = {cid: [] for cid in candidates}
     for row in raw.values():
         if row['candidate_id'] in grouped:
-            grouped[row['candidate_id']].append(signature_pairs(row.get('allocation_signature')))
+            grouped[row['candidate_id']].append(resolved_pairs(row))
     pairs = set()
     for signatures in grouped.values():
         if not signatures or any(s is None for s in signatures):
@@ -77,6 +83,14 @@ def homogeneous(raw, candidates):
         for signature in signatures:
             pairs.update(signature)
     return len(pairs) == 1
+
+
+def resolved_pairs(row):
+    declared = signature_pairs(row.get('allocation_signature'))
+    observed = call_identity.observed_pairs(row)
+    if declared is None or observed is None or declared != observed:
+        return None
+    return declared
 
 
 def support(criterion):
@@ -131,7 +145,7 @@ def arm_endpoints(episodes, table, parent, frontier, tolerances, evidence_root):
     valued = [cid for cid in children if cid in table and comparable(table[cid], table[parent])]
     improvements = dominating_children(valued, table, parent, tolerances)
     entries = [cid for cid in children if cid in frontier]
-    result = {'parent_candidate_id': parent, 'completed': len(completed), 'dominating_improvements': improvements,
+    result = {'parent_candidate_id': parent, 'frontier': frontier, 'completed': len(completed), 'dominating_improvements': improvements,
               'improvements_per_completed_episode': share(len(improvements), len(completed)),
               'frontier_entries': entries, 'frontier_entries_per_completed_episode': share(len(entries), len(completed)),
               'unvalued': [cid for cid in children if cid not in valued]}
@@ -158,7 +172,7 @@ def split_endpoints(children, episodes, improvements, entries, kind):
             'frontier_entries_per_completed_episode': share(len(members), len(episodes))}
 
 
-def report(pools, rows, criterion, evidence_root):
+def report(pools, rows, criterion, evidence_root, *, excluded=frozenset()):
     """Every valued candidate has identical declared task/replicate support, including the parent."""
     from experiments.orc_structural_search.three_arm import arm_specs
     tolerances = rules(criterion)
@@ -173,9 +187,10 @@ def report(pools, rows, criterion, evidence_root):
     axis = 'provider_calls' if use_proxy else 'metered_USD'
     for row in table.values():
         row['cost'] = row['provider_calls'] if use_proxy else row['metered_cost']
-    frontier = pareto.frontier(list(table.values()), *tolerances)
-    arms = arm_reports(arm_specs(criterion), episodes, parents, table, frontier, tolerances, evidence_root)
-    return {'quality_floor': floor, 'cost_axis': axis, 'candidates': table, 'frontier': frontier, 'arms': arms}
+    for cid in excluded.intersection(table):
+        table[cid].update(quality=UNAVAILABLE, above_floor=False, reason='contaminated_episode')
+    arms = arm_reports(arm_specs(criterion), episodes, parents, table, tolerances, evidence_root)
+    return {'quality_floor': floor, 'cost_axis': axis, 'candidates': table, 'arms': arms}
 
 
 def raw_evidence(rows, sha):
@@ -195,6 +210,13 @@ def evaluated_candidates(raw, parents, specs):
     return candidates
 
 
-def arm_reports(specs, episodes, parents, table, frontier, tolerances, evidence_root):
-    return {arm: arm_endpoints([row for row in episodes if row['arm'] == arm], table, parents[spec['parent']],
-                              frontier, tolerances, evidence_root) for arm, spec in specs.items()}
+def arm_reports(specs, episodes, parents, table, tolerances, evidence_root):
+    result = {}
+    for arm, spec in specs.items():
+        mine = [row for row in episodes if row['arm'] == arm]
+        parent = parents[spec['parent']]
+        children = {row['candidate_id'] for row in mine if row['outcome'] == 'accepted'}
+        candidates = [table[cid] for cid in children | {parent} if cid in table]
+        frontier = pareto.frontier(candidates, *tolerances)
+        result[arm] = arm_endpoints(mine, table, parent, frontier, tolerances, evidence_root)
+    return result

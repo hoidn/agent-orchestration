@@ -42,7 +42,7 @@ def validate_date(value):
 
 
 def valid_rates(rates):
-    return isinstance(rates, Mapping) and all(number(rates.get(key)) for key in FIELDS)
+    return isinstance(rates, Mapping) and all(number(rates[key]) for key in FIELDS if key in rates)
 
 
 def usage_cost(usage, table):
@@ -54,7 +54,9 @@ def usage_cost(usage, table):
     tokens = usage.get('charge_tokens')
     if rates is None or not isinstance(tokens, Mapping):
         return UNAVAILABLE
-    if not all(type(tokens.get(key)) is int and tokens[key] >= 0 for key in FIELDS):
+    if not all(key in rates for key in FIELDS):
+        return UNAVAILABLE
+    if not valid_tokens(tokens):
         return UNAVAILABLE
     try:
         value = sum(tokens[key] * rates[key] / table['tokens_per_unit'] for key in FIELDS)
@@ -63,9 +65,14 @@ def usage_cost(usage, table):
         return UNAVAILABLE
 
 
+def valid_tokens(tokens):
+    return all(type(tokens.get(key)) is int and tokens[key] >= 0 for key in FIELDS)
+
+
 def valid_usage(usage):
     model, proof = usage.get('model'), usage.get('provenance')
-    return (isinstance(model, str) and bool(model.strip()) and isinstance(proof, Mapping)
+    return (isinstance(model, str) and bool(model.strip()) and
+            model.lower() not in ('unknown', 'unavailable', 'auto', 'default') and isinstance(proof, Mapping)
             and proof.get('complete_native_transcript') is True)
 
 

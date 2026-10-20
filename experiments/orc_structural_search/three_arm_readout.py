@@ -8,7 +8,7 @@ from statistics import mean
 from experiments.orc_structural_search import pareto_readout, readout_guard
 from experiments.orc_structural_search.records import UNAVAILABLE, read_records
 from experiments.orc_structural_search.scoring import (
-    anchor_checks, latest_evaluations, log_only_pool, policy_stats, primary_value, read_pool)
+    anchor_checks, contaminated_children, latest_evaluations, log_only_pool, policy_stats, primary_value, read_pool)
 from experiments.orc_structural_search.three_arm import (
     HISTORICAL_CRITERION_SHA256, MODE, arm_specs, check_row_criteria, load_criterion)
 
@@ -17,25 +17,21 @@ DECISION = 'descriptive; no separation rule applied (Phase 1 decision stands)'
 
 def site_figures(rows, evidence):
     records = [evidence.get(row['evaluation_id'], {}) for row in rows]
-    realized = [r['realized_perform_sites'] for r in records if isinstance(r.get('realized_perform_sites'), Mapping)]
     counts = Counter()
-    for sites in realized:
-        counts.update(sites)
-    planned = planned_labels(records)
-    return {'realized_perform_sites': dict(counts) if realized else UNAVAILABLE,
-            'planned_perform_sites': planned or UNAVAILABLE,
-            'unexercised_sites': sorted(site for site in planned if not any(key.endswith(site) for key in counts))
-                                 if realized else UNAVAILABLE}
+    known = False
+    for record in records:
+        sites = record.get('realized_perform_sites')
+        if isinstance(sites, list):
+            known = True
+            counts.update({row['identity']: row['attempts'] for row in sites})
+    return {'realized_perform_sites': dict(counts) if known else UNAVAILABLE,
+            'planned_perform_sites': merged_labels(records, 'planned_perform_sites'),
+            'unexercised_perform_sites': merged_labels(records, 'unexercised_perform_sites')}
 
 
-def planned_labels(records):
-    return sorted({site for record in records for site in site_labels(record.get('planned_perform_sites'))})
-
-
-def site_labels(sites):
-    if not isinstance(sites, list):
-        return []
-    return [row.get('site', '') if isinstance(row, Mapping) else row for row in sites]
+def merged_labels(records, key):
+    known = [record[key] for record in records if isinstance(record.get(key), list)]
+    return sorted({row['identity'] for sites in known for row in sites}) if known else UNAVAILABLE
 
 
 def child_figures(rows: Sequence[Mapping], evidence: Mapping | None = None) -> dict:
@@ -47,15 +43,15 @@ def evaluation_evidence(row: Mapping, record: Mapping) -> dict:
     return {'evaluation_id': row['evaluation_id'], 'candidate_id': row['candidate_id'],
             'provider_calls': row.get('calls', UNAVAILABLE),
             **{key: record.get(key, UNAVAILABLE) for key in (
-                'realized_perform_sites', 'planned_perform_sites', 'unexercised_sites', 'exercised_branches',
+                'realized_perform_sites', 'planned_perform_sites', 'unexercised_perform_sites', 'exercised_branches',
                 'branch_coverage_reason', 'allocation_changed')}}
 
 
 def arm_task_figures(pool, children, parent, evidence):
     mine = [row for row in pool['rows'] if row['candidate_id'] in children]
     baseline = [row for row in pool['rows'] if row['candidate_id'] == parent]
-    sites = [len(evidence[row['evaluation_id']]['unexercised_sites']) for row in mine
-             if isinstance(evidence.get(row['evaluation_id'], {}).get('unexercised_sites'), list)]
+    sites = [len(evidence[row['evaluation_id']]['unexercised_perform_sites']) for row in mine
+             if isinstance(evidence.get(row['evaluation_id'], {}).get('unexercised_perform_sites'), list)]
     return policy_stats(mine) | {
         'children': {cid: child_figures([row for row in mine if row['candidate_id'] == cid], evidence)
                      for cid in sorted(children)}, 'parent_candidate_id': parent,
@@ -97,7 +93,7 @@ def study_pools(results, log, criterion, frozen):
         raise ValueError('duplicate task pools: supply one cumulative harness pool per task')
     for task in frozen['tasks']:
         if Path(task).name not in pooled:
-            pools.append(log_only_pool(log, Path(task).name))
+            pools.append(log_only_pool(log, Path(task).name) | {'criterion_sha256': frozen['criterion_sha256']})
     return sorted(pools, key=lambda p: p['task'])
 
 
@@ -113,8 +109,10 @@ def readout(log: Path, driver_readout: Path, criterion: Path, results: Sequence[
     parents = next((row for row in rows if row['kind'] == 'parents'), {})
     evidence = {row['evaluation_id']: row for row in latest_evaluations(rows)}
     pools = study_pools(results, log, criterion, frozen)
+    excluded = contaminated_children(log)
+    pools = [pool | {'rows': [row for row in pool['rows'] if row['candidate_id'] not in excluded]} for pool in pools]
     result = {'tasks': {pool['task']: task_figures(pool, chosen, parents, frozen, evidence) for pool in pools},
-              'compile_only': compile_only, 'decision': DECISION}
+              'compile_only': compile_only, 'decision': DECISION, 'excluded_children': sorted(excluded)}
     if 'arms' in frozen:
-        result['pareto'] = pareto_readout.report(pools, rows, frozen, Path(log).parent)
+        result['pareto'] = pareto_readout.report(pools, rows, frozen, Path(log).parent, excluded=excluded)
     return result

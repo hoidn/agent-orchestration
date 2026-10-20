@@ -8,7 +8,7 @@ from experiments.orc_structural_search.records import UNAVAILABLE, read_records
 
 EXECUTION_KEYS = ('evaluation_id', 'candidate_id', 'task_id', 'replicate', 'outcome', 'mode', 'arm',
                   'provider_calls', 'wall_clock_sec', 'allocation_changed', 'planned_perform_sites',
-                  'realized_perform_sites', 'unexercised_sites', 'branch_coverage_reason')
+                  'realized_perform_sites', 'unexercised_perform_sites', 'branch_coverage_reason')
 COMPILE_KEYS = ('criterion_sha256', 'episodes', 'completed', 'judged', 'accepted', 'acceptance_rate',
                 'refused', 'locality', 'files_touched', 'distinct_skeletons', 'revisit_rate',
                 'terminal_only_share', 'allocation_distinct', 'exact_repeats', 'subset', 'frozen_surface')
@@ -35,6 +35,7 @@ def quality(results, criterion):
         proof = qualification.validate(criterion, **context, operation='readout')
         if mapping['criterion_sha256'] != proof['criterion_sha256']:
             raise ValueError('pool mapping criterion differs from requested criterion')
+        anchor_roles(json.loads(Path(criterion).read_text()))
         return proof
     except (OSError, KeyError, TypeError) as error:
         raise ValueError(f'qualification: missing or malformed scoring pool provenance: {error}') from error
@@ -76,3 +77,12 @@ def execution(logs, criterion, *, driver=None, measure_free=False):
 def check_execution_criteria(rows, sha):
     if any(row.get('criterion_sha256') not in (None, sha) for row in rows):
         raise ValueError('execution criterion_sha256 differs from requested criterion')
+
+
+def anchor_roles(criterion):
+    if 'anchors' not in criterion:
+        return
+    for task, evidence in criterion['measurement']['tasks'].items():
+        expected = {role: info['label'] for role, info in evidence['controls'].items()}
+        if criterion['anchors'].get(task) != expected:
+            raise ValueError('anchor roles differ from calibrated measurement controls')

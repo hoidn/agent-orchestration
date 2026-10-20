@@ -5,6 +5,7 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+from experiments.orc_structural_search.records import UNAVAILABLE
 from experiments.orc_structural_search.quota import quota_reason
 from experiments.orc_structural_search.readout import diversity, outcome, share
 
