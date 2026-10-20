@@ -21,20 +21,19 @@ from experiments.orc_structural_search.config import check_criterion_hashes
 from experiments.orc_structural_search.quota import job_key
 from experiments.orc_structural_search.pareto import bounded_frontier, reservoir_update, select_parent
 from experiments.orc_structural_search.records import (
-    LOG, SCHEMA, Index, Store, UNAVAILABLE, add_assessments as _assess, add_trials as _add_trials,
+    CHECKPOINT, CHECKPOINT_KEYS, LOG, SCHEMA, Index, Store, UNAVAILABLE, _checkpoint,
+    add_assessments as _assess, add_trials as _add_trials,
     append_record, campaign_candidates, check_roots, check_row, find_campaign as _campaign,
-    open_campaign_store as _open_store, read_records, trial_id, trial_record as _trial,
+    open_campaign_store as _open_store, read_checkpoint, read_records, trial_id,
+    trial_record as _trial, write_checkpoint,
 )
 
-CHECKPOINT = "campaign-checkpoint-v1"
 ESTIMATOR_VERSION = "campaign-estimate-1"
 WARM_START = "warm_start"  # the policy of a context's shared warm-start campaign
 ROLES = ("adaptive", "validation", "sealed")
 FORBIDDEN = {"adaptive": {"sealed"}, "validation": {"adaptive", "sealed"},  # prior exposures that refuse a role
              "sealed": {"adaptive", "validation", "sealed"}}
 DISPOSITIONS = ("contaminated", "invalidated", "superseded", "frozen", "sealed_opened")
-CHECKPOINT_KEYS = ("generation", "frontier", "reservoir", "rng_state", "ingestion_position", "ledger_index",
-                   "futility_streak", "budget", "stopped")
 
 
 def _sha(value) -> str:
@@ -343,11 +342,12 @@ def _fully_valued(row):
     return row.get("support") == "every_adaptive_task" and pricing.number(row.get("quality"))
 
 
-def _reservoir_admissions(table, previous):
+def _reservoir_admissions(table, previous, frontier):
     prior_members = {row["candidate_id"] for row in previous.get("reservoir", ())}
     prior_table = previous.get("table", {})
+    demoted = set(previous.get("frontier", ())) - set(frontier)
     return {candidate_id: row for candidate_id, row in table.items()
-            if candidate_id in prior_members or
+            if candidate_id in prior_members or candidate_id in demoted or
             (_fully_valued(row) and not _fully_valued(prior_table.get(candidate_id, {})))}
 
 
@@ -362,43 +362,12 @@ def rebuild(store: Store, campaign_id: str, *, criterion: Mapping, pools: Sequen
     index = store.index()
     disposed = {trial["candidate_id"] for trial_id, trial in index.trials.items()
                 if trial["candidate_id"] in table and trial["origin_trial_id"] is None
+                and trial["context_key"] == campaign["context_key"]
                 and trial_id in index.dispositions}
-    admissions = _reservoir_admissions(table, previous)
+    admissions = _reservoir_admissions(table, previous, bounded)
     reservoir = reservoir_update(previous.get("reservoir", ()), admissions, bounded, generation=generation,
                                  capacity=capacity, disposed=disposed)
     return {"floor": floor, "table": table, "frontier": bounded, "reservoir": reservoir}
-
-
-def _checkpoint(store: Store, campaign_id: str) -> tuple[Path, dict]:
-    """The checkpoint path and the identity it must carry (the campaign record's)."""
-    campaign = _campaign(store, campaign_id)
-    identity = {key: campaign[key] for key in ("campaign_id", "context_key", "criterion_sha256")}
-    return store.root / "campaigns" / campaign_id / "checkpoint.json", {"schema": CHECKPOINT, **identity}
-
-
-def write_checkpoint(store: Store, campaign_id: str, state: Mapping) -> Path:
-    """`state` (CHECKPOINT_KEYS) under the campaign's identity, via a temporary file renamed over the last one."""
-    if not store.writer:
-        raise PermissionError(f"the store {store.root} is open read-only")
-    if missing := sorted(set(CHECKPOINT_KEYS) - set(state)):
-        raise ValueError(f"checkpoint state lacks {missing}")
-    path, identity = _checkpoint(store, campaign_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps({**state, **identity}, sort_keys=True) + "\n")
-    os.replace(temporary, path)
-    return path
-
-
-def read_checkpoint(store: Store, campaign_id: str) -> dict | None:
-    """The campaign's checkpoint or None; refuses one whose identity is not the campaign record's."""
-    path, identity = _checkpoint(store, campaign_id)
-    if not path.exists():
-        return None
-    state = json.loads(path.read_text())
-    if any(state.get(key) != value for key, value in identity.items()):
-        raise ValueError(f"{path} is not a {CHECKPOINT} of campaign {campaign_id} under its context and criterion")
-    return state
 
 
 def behaviour_descriptor(evaluation_rows: Sequence[Mapping], episode_row: Mapping | None) -> dict:

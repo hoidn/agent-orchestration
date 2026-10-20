@@ -25,6 +25,17 @@ def frontier(rows, tau_q, tau_c):
                   if not any(dominates(b, a, tau_q, tau_c) for b in eligible if a is not b))
 
 
+def _neighbour_span(index, ranked):
+    left = ranked[index - 1]['cost'] if index else ranked[index]['cost']
+    right = ranked[index + 1]['cost'] if index + 1 < len(ranked) else ranked[index]['cost']
+    return right - left
+
+
+def _spread_order(ranked):
+    return sorted((-_neighbour_span(index, ranked), row['candidate_id'])
+                  for index, row in enumerate(ranked))
+
+
 def bounded_frontier(table: Mapping[str, Mapping], *, size: int, tau_q: float, tau_c: float) -> list[str]:
     if type(size) is not int or size < 1:
         raise ValueError('frontier size must be a positive integer')
@@ -36,11 +47,11 @@ def bounded_frontier(table: Mapping[str, Mapping], *, size: int, tau_q: float, t
     if size == 1:
         return sorted(selected)
     selected.add(min(ranked, key=lambda row: (-row['quality'], row['candidate_id']))['candidate_id'])
-    while len(selected) < size:
-        remaining = [row for row in ranked if row['candidate_id'] not in selected]
-        chosen = min(remaining, key=lambda row: (
-            -min(abs(row['cost'] - table[cid]['cost']) for cid in selected), row['candidate_id']))
-        selected.add(chosen['candidate_id'])
+    for _, candidate_id in _spread_order(ranked):
+        if candidate_id not in selected:
+            selected.add(candidate_id)
+        if len(selected) == size:
+            break
     return sorted(selected)
 
 

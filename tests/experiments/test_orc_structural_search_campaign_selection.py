@@ -14,10 +14,10 @@ PRICE_TABLE = {"currency": "USD", "tokens_per_unit": 1_000_000, "source": "synth
 CONTEXT = "ctx1:test"
 
 
-def _receipt(call_id):
+def _receipt(call_id, tokens=1000):
     return [{"call_id": call_id, "status": "complete", "provider": "claude", "usage": [{
         "model": MODEL, "provenance": {"complete_native_transcript": True},
-        "charge_tokens": {"input": 1000, "output": 1000, "cache_read": 0, "cache_write": 0}}]}]
+        "charge_tokens": {"input": tokens, "output": tokens, "cache_read": 0, "cache_write": 0}}]}]
 
 
 def _store(campaigns, candidates):
@@ -31,7 +31,7 @@ def _store(campaigns, candidates):
             rows.append({"kind": "subject", "candidate_id": cid, "campaign_id": spec.get("subject_campaign", owner)})
             subjects.add(cid)
         tid = spec.get("trial_id", f"trial:{index}")
-        receipts = _receipt(tid) if spec.get("metered", True) else UNAVAILABLE
+        receipts = _receipt(tid, spec.get("tokens", 1000)) if spec.get("metered", True) else UNAVAILABLE
         rows.append({"kind": "trial", "trial_id": tid, "campaign_id": owner, "context_key": spec.get("context", CONTEXT),
                      "origin_trial_id": None, "candidate_id": cid, "task": spec.get("task", "t1"),
                      "provider_calls": 1, "wall_clock_sec": 30.0, "receipt_usage": receipts})
@@ -55,6 +55,18 @@ def _point(candidate_id, quality, cost, **fields):
     return {"candidate_id": candidate_id, "quality": quality, "cost": cost, "above_floor": True,
             "reason": None, "support": "every_adaptive_task", "provider_calls": 1, "wall_clock_sec": 30.0,
             **fields}
+
+
+def _append_trial(store, candidate_id, campaign_id, trial_id, quality, tokens):
+    if not any(row.get("candidate_id") == candidate_id and row["kind"] == "subject"
+               and row["campaign_id"] == campaign_id for row in store._rows):
+        store._rows.append({"kind": "subject", "candidate_id": candidate_id, "campaign_id": campaign_id})
+    store._rows.extend([
+        {"kind": "trial", "trial_id": trial_id, "campaign_id": campaign_id, "context_key": CONTEXT,
+         "origin_trial_id": None, "candidate_id": candidate_id, "task": "t1", "provider_calls": 1,
+         "wall_clock_sec": 30.0, "receipt_usage": _receipt(trial_id, tokens)},
+        {"kind": "assessment", "trial_id": trial_id, "outcome": "completed", "value": quality},
+    ])
 
 
 def test_candidate_table_uses_metered_cost_and_leaves_unmetered_candidates_off_the_frontier():
@@ -123,6 +135,15 @@ def test_bounded_frontier_is_independent_of_candidate_arrival_order():
         campaign.bounded_frontier(reverse, size=4, tau_q=0, tau_c=0)
 
 
+def test_bounded_frontier_uses_neighbour_gaps_from_the_full_sorted_frontier():
+    points = [_point(f"p{cost}", quality, cost) for cost, quality in zip(
+        (1, 11, 50, 51, 52, 91, 101), range(1, 8))]
+
+    selected = campaign.bounded_frontier({p["candidate_id"]: p for p in points}, size=3, tau_q=0, tau_c=0)
+
+    assert selected == ["p1", "p101", "p11"]
+
+
 def test_candidates_within_both_tolerances_neither_dominate_nor_disappear():
     points = {"a": _point("a", 5, 10), "b": _point("b", 4.5, 10.9)}
 
@@ -167,6 +188,47 @@ def test_evicted_reservoir_parent_does_not_cycle_back_without_a_new_evaluation()
 
     assert first["reservoir"] == [{"candidate_id": "old-b", "admitted_generation": 1}]
     assert second["reservoir"] == first["reservoir"]
+
+
+def test_disposition_in_another_context_does_not_exclude_a_valued_reservoir_candidate():
+    store = _store({"c1": [], "c2": []}, [
+        {"candidate_id": "B", "campaign_id": "c1", "quality": 4},
+        {"candidate_id": "C", "campaign_id": "c1", "quality": 8},
+        {"candidate_id": "B", "campaign_id": "c2", "context": "ctx1:other", "quality": 99},
+    ])
+    foreign_trial = next(row["trial_id"] for row in store._rows
+                         if row["kind"] == "trial" and row["campaign_id"] == "c2")
+    store._rows.append({"kind": "disposition", "target_kind": "trial", "target_id": foreign_trial,
+                        "disposition": "invalidated", "reason": "other context", "supersedes": []})
+
+    rebuilt = campaign.rebuild(store, "c1", criterion=_criterion(), pools=[_pool(total=1)], generation=1,
+                               previous={})
+
+    assert rebuilt["table"]["B"]["quality"] == 4
+    assert [row["candidate_id"] for row in rebuilt["reservoir"]] == ["B"]
+
+
+def test_demoted_frontier_candidate_enters_reservoir_without_recycling_fifo_eviction():
+    specs = [
+        {"candidate_id": "A", "campaign_id": "c1", "quality": 5, "tokens": 1000},
+        {"candidate_id": "front", "campaign_id": "c1", "quality": 10, "tokens": 20_000},
+        {"candidate_id": "B", "campaign_id": "c1", "quality": 2, "tokens": 15_000},
+        {"candidate_id": "C", "campaign_id": "c1", "quality": 4, "tokens": 15_000},
+    ]
+    store = _store({"c1": []}, specs)
+    criterion = _criterion(reservoir_capacity=1)
+
+    first = campaign.rebuild(store, "c1", criterion=criterion, pools=[_pool(total=1)], generation=1, previous={})
+    _append_trial(store, "better", "c1", "better-trial", 6, 500)
+    _append_trial(store, "C", "c1", "C-gen2-trial", 10, 15_000)
+    second = campaign.rebuild(store, "c1", criterion=criterion, pools=[_pool(total=1)], generation=2,
+                              previous=first)
+
+    assert first["frontier"] == ["A", "front"]
+    assert first["reservoir"] == [{"candidate_id": "C", "admitted_generation": 1}]
+    assert "A" not in second["frontier"] and "C" in second["frontier"]
+    assert second["reservoir"] == [{"candidate_id": "A", "admitted_generation": 2}]
+    assert "B" not in {row["candidate_id"] for row in second["reservoir"]}
 
 
 def test_frontier_only_and_mixture_share_frontier_draws_and_empty_reservoir_falls_back():

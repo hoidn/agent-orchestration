@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import fcntl
 import hashlib
+import os
 from collections import defaultdict, namedtuple
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -21,6 +22,9 @@ from experiments.orc_structural_search.record_normalization import (
 
 UNAVAILABLE = "unavailable"
 SCHEMA, LOG = "campaign-evidence-v1", "evidence.jsonl"
+CHECKPOINT = "campaign-checkpoint-v1"
+CHECKPOINT_KEYS = ("generation", "frontier", "reservoir", "rng_state", "ingestion_position", "ledger_index",
+                   "futility_streak", "budget", "stopped")
 REQUIRED = {kind: fields.split() for kind, fields in {
     "campaign": "campaign_id label context_key criterion_sha256 policy parameters budget seeds run_seed warm_start "
                 "declared_roles roots",
@@ -109,6 +113,38 @@ def find_campaign(store: Store, campaign_id: str) -> dict:
     if found := [row for row in store.rows("campaign") if row["campaign_id"] == campaign_id]:
         return found[0]
     raise KeyError(f"no campaign {campaign_id} in {store.root}")
+
+
+def _checkpoint(store: Store, campaign_id: str) -> tuple[Path, dict]:
+    """Return the checkpoint path and its required campaign identity."""
+    campaign = find_campaign(store, campaign_id)
+    identity = {key: campaign[key] for key in ("campaign_id", "context_key", "criterion_sha256")}
+    return store.root / "campaigns" / campaign_id / "checkpoint.json", {"schema": CHECKPOINT, **identity}
+
+
+def write_checkpoint(store: Store, campaign_id: str, state: Mapping) -> Path:
+    """Atomically replace the checkpoint after requiring every persisted state key."""
+    if not store.writer:
+        raise PermissionError(f"the store {store.root} is open read-only")
+    if missing := sorted(set(CHECKPOINT_KEYS) - set(state)):
+        raise ValueError(f"checkpoint state lacks {missing}")
+    path, identity = _checkpoint(store, campaign_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(json.dumps({**state, **identity}, sort_keys=True) + "\n")
+    os.replace(temporary, path)
+    return path
+
+
+def read_checkpoint(store: Store, campaign_id: str) -> dict | None:
+    """Return the campaign checkpoint or refuse one with another identity."""
+    path, identity = _checkpoint(store, campaign_id)
+    if not path.exists():
+        return None
+    state = json.loads(path.read_text())
+    if any(state.get(key) != value for key, value in identity.items()):
+        raise ValueError(f"{path} is not a {CHECKPOINT} of campaign {campaign_id} under its context and criterion")
+    return state
 
 
 def campaign_candidates(store: Store, campaign_id: str, *, scheduled: Sequence[Mapping] = ()) -> dict[str, dict]:
