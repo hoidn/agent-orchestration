@@ -41,7 +41,7 @@ def observed_pairs(row):
 
 
 def receipt_pairs(row, receipt):
-    if receipt.get('provider') not in ('claude', 'codex'):
+    if not identity_status(receipt) or receipt.get('provider') not in ('claude', 'codex'):
         return None
     effort, usage = cli_effort(row.get('records_dir'), receipt), receipt.get('usage')
     if not effort or not isinstance(usage, list) or not usage:
@@ -67,3 +67,9 @@ def actual_coverage(row, receipts):
         return calls == {receipt['call_id'] for receipt in receipts}
     except (KeyError, TypeError, OSError):
         return False
+
+
+def identity_status(receipt):
+    status, reason = receipt.get('status'), receipt.get('reason')
+    return ((status == 'complete' and reason is None) or
+            (status == 'unavailable' and reason == 'missing_or_invalid_model_counters'))

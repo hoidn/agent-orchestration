@@ -141,7 +141,8 @@ def comparable(a, b):
 
 def arm_endpoints(episodes, table, parent, frontier, tolerances, evidence_root):
     completed = completed_episodes(episodes, evidence_root)
-    children = sorted({row['candidate_id'] for row in completed if row['outcome'] == 'accepted'})
+    children = sorted({row['candidate_id'] for row in completed
+                       if row['outcome'] == 'accepted' and row['candidate_id'] != parent})
     valued = [cid for cid in children if cid in table and comparable(table[cid], table[parent])]
     improvements = dominating_children(valued, table, parent, tolerances)
     entries = [cid for cid in children if cid in frontier]

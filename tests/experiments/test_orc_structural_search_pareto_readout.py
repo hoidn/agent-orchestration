@@ -137,3 +137,32 @@ def test_another_arms_stronger_child_cannot_remove_this_arms_frontier_entry(tmp_
     assert result['arms']['I1']['frontier'] == ['C']
     assert result['arms']['module']['frontier'] == ['M']
     assert result['arms']['I1']['frontier_entries_per_completed_episode'] == 1
+
+
+def test_exact_parent_repeat_never_counts_as_child_frontier_entry(tmp_path):
+    criterion, log, pools = fixture()
+    log = [row for row in log if row.get('kind') != 'episode'] + [
+        {'kind': 'episode', 'mode': 'three_arm', 'arm': 'I1', 'outcome': 'accepted', 'episode_id': 'repeat',
+         'candidate_id': 'P', 'parent_candidate_id': 'P', 'allocation_changed': False}]
+    result = pareto_readout.report(pools, log, criterion, tmp_path)['arms']['I1']
+    assert result['frontier'] == ['P']
+    assert result['completed'] == 1
+    assert result['frontier_entries'] == []
+    assert result['frontier_entries_per_completed_episode'] == 0
+
+
+@pytest.mark.parametrize('status,reason,allowed', [
+    ('complete', None, True), ('unavailable', 'missing_or_invalid_model_counters', True),
+    ('unavailable', 'unmatched_or_ambiguous_session', False), ('unavailable', None, False),
+    ('unknown', None, False), ('complete', 'unmatched_or_ambiguous_session', False)])
+def test_proxy_never_reinterprets_ambiguous_receipts_as_known_identity(tmp_path, status, reason, allowed):
+    from experiments.orc_structural_search.call_identity import observed_pairs
+    row = receipt()
+    row['records_dir'] = str(tmp_path)
+    call = tmp_path / 'calls/1'
+    call.mkdir(parents=True)
+    (call / 'argv.nul').write_bytes(b'--config\0model_reasoning_effort=high\0')
+    native = row['receipt_usage'][0]
+    native.update(status=status, reason=reason)
+    native['usage'][0]['provenance']['session_sha256'] = 'sha256:' + 'a' * 64
+    assert (observed_pairs(row) is not None) == allowed

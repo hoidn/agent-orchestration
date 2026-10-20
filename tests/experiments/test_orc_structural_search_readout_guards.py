@@ -131,3 +131,14 @@ def test_missing_task_anchor_pool_reports_unavailable_floor_without_dropping_fai
     assert result['pareto']['quality_floor'] == 'unavailable'
     assert all(not arm['frontier'] for arm in result['pareto']['arms'].values())
     assert result['pareto']['candidates']['C']['quality'] == 3
+
+
+def test_unexercised_task_mean_counts_only_valued_evaluations():
+    pool = {'rows': [{'evaluation_id': 'valued', 'candidate_id': 'C', 'outcome': 'completed', 'value': 4,
+                     'hidden': None, 'calls': 1, 'wall_clock_sec': 1},
+                    {'evaluation_id': 'excluded', 'candidate_id': 'C', 'outcome': 'completed', 'value': None,
+                     'hidden': None, 'calls': 1, 'wall_clock_sec': 1}]}
+    evidence = {'valued': {'unexercised_perform_sites': [{'identity': 'a'}]},
+                'excluded': {'unexercised_perform_sites': [{'identity': 'a'}, {'identity': 'b'}, {'identity': 'c'}]}}
+    result = three_arm_readout.arm_task_figures(pool, {'C'}, 'P', evidence)
+    assert result['sites_unexercised_mean'] == 1

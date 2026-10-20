@@ -50,14 +50,19 @@ def evaluation_evidence(row: Mapping, record: Mapping) -> dict:
 def arm_task_figures(pool, children, parent, evidence):
     mine = [row for row in pool['rows'] if row['candidate_id'] in children]
     baseline = [row for row in pool['rows'] if row['candidate_id'] == parent]
-    sites = [len(evidence[row['evaluation_id']]['unexercised_perform_sites']) for row in mine
-             if isinstance(evidence.get(row['evaluation_id'], {}).get('unexercised_perform_sites'), list)]
+    sites = unexercised_counts(mine, evidence)
     return policy_stats(mine) | {
         'children': {cid: child_figures([row for row in mine if row['candidate_id'] == cid], evidence)
                      for cid in sorted(children)}, 'parent_candidate_id': parent,
         'parent': child_figures(baseline, evidence),
         'sites_unexercised_mean': mean(sites) if sites else UNAVAILABLE,
         'evaluations': [evaluation_evidence(row, evidence.get(row['evaluation_id'], {})) for row in mine]}
+
+
+def unexercised_counts(rows, evidence):
+    return [len(evidence[row['evaluation_id']]['unexercised_perform_sites']) for row in rows
+            if primary_value(row) is not None and
+            isinstance(evidence.get(row['evaluation_id'], {}).get('unexercised_perform_sites'), list)]
 
 
 def task_figures(pool, chosen, parents, criterion, evidence):
