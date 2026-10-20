@@ -80,6 +80,8 @@ def compiled_refusal(parent: Mapping, child: Mapping, config) -> dict | None:
 def _children(node):
     kind = node["k"]
     if kind == "perform":
+        if node["class"] not in PROVIDER_CLASSES | {"command", "run_ref"}:
+            _unbounded(f"unknown effect class {node['class']!r}")
         return _effect_value_children(node)
     if kind == "case":
         return [node["subject"], *(value for arm in node["arms"] for value in _arm_root_values(arm)),

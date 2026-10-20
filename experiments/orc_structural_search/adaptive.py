@@ -220,15 +220,7 @@ def generation(n: int, archive: list[dict], config: ExperimentConfig, *, rng: ra
                       launch=launch)
         if row["outcome"] == "accepted":
             children.setdefault(row["candidate_id"], (parent, row))
-    log = launch["evidence_root"] / "log.jsonl"
-    known = {r["candidate_id"] for r in read_records(log) if r["kind"] == "evaluation"} | {
-        e["candidate_id"] for e in archive}
-    fresh = {cid: pair for cid, pair in children.items() if cid not in known}
-    jobs = [(Path(row["candidate_root"]), lineage_config(parent, config),
-             {"mode": ADAPTIVE, "split": ADAPTIVE, "generation": n, "candidate_id": cid,
-              "candidate_root": row["candidate_root"], "episode_id": row["episode_id"],
-              "parent_candidate_id": row["parent_candidate_id"], "interface": row["interface"]})
-            for cid, (parent, row) in fresh.items()]
+    fresh, jobs = generation_jobs(children, archive, config, launch, n)
     rows = judged_or_incident(jobs, n, adaptive_tasks, launch=launch, judge=judge)
     if rows is None:
         return archive
@@ -239,6 +231,21 @@ def generation(n: int, archive: list[dict], config: ExperimentConfig, *, rng: ra
         archive = retain(archive, child) if child else archive
     write_archive(launch["evidence_root"], n, archive)
     return archive
+
+
+def generation_jobs(children: Mapping, archive: Sequence[Mapping], config: ExperimentConfig,
+                    launch: Mapping, n: int) -> tuple[dict, list]:
+    """Prepare only generation children without existing evaluation evidence."""
+    log = launch["evidence_root"] / "log.jsonl"
+    known = {r["candidate_id"] for r in read_records(log) if r["kind"] == "evaluation"} | {
+        e["candidate_id"] for e in archive}
+    fresh = {cid: pair for cid, pair in children.items() if cid not in known}
+    jobs = [(Path(row["candidate_root"]), lineage_config(parent, config),
+             {"mode": ADAPTIVE, "split": ADAPTIVE, "generation": n, "candidate_id": cid,
+              "candidate_root": row["candidate_root"], "episode_id": row["episode_id"],
+              "parent_candidate_id": row["parent_candidate_id"], "interface": row["interface"]})
+            for cid, (parent, row) in fresh.items()]
+    return fresh, jobs
 
 
 def judged_or_incident(jobs: Sequence[tuple[Path, ExperimentConfig, Mapping]], n: int, tasks: Sequence[Path], *,

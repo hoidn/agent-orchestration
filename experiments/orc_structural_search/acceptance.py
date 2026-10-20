@@ -42,6 +42,26 @@ COMPILER_INCIDENT_CODES = frozenset({
 })
 
 
+class CandidateAdmissionError(ValueError):
+    """A structured compiler or admission failure, distinct from a call-budget refusal."""
+
+    def __init__(self, verdict):
+        self.verdict = verdict
+        super().__init__(json.dumps(verdict))
+
+
+def require_candidate(root: Path, config: ExperimentConfig, *, runtime: Path, compiled=None):
+    """Admit a compiled root before reserving or launching any provider work."""
+    checked = compiled or compile_candidate(root, config, runtime=runtime)
+    if checked.status != "accepted":
+        raise CandidateAdmissionError(_compile_failure(checked))
+    program = closed_program(root, checked.build_key)
+    refusal = compiled_refusal(program, program, config)
+    if refusal is not None:
+        raise CandidateAdmissionError({"outcome": "rejected", **refusal})
+    return checked
+
+
 def entry_result(root: Path, build_key: str) -> object:
     return closed_program(root, build_key)["result"]
 

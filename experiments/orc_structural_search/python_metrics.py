@@ -130,4 +130,3 @@ class _PythonSkeleton(ast.NodeTransformer):
         return self.generic_visit(node)
 
     visit_FunctionDef = visit_AsyncFunctionDef = visit_ClassDef = _visit_scope
-

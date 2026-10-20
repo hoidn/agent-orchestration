@@ -143,7 +143,9 @@ def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Pa
     python = is_python(config)
     compiled = (acceptance.check_python(candidate_root, config, runtime=runtime) if python
                 else compile_candidate(candidate_root, config, runtime=runtime))
-    if compiled.status != "accepted":
+    if not python:
+        acceptance.require_candidate(candidate_root, config, runtime=runtime, compiled=compiled)
+    elif compiled.status != "accepted":
         raise ValueError(f"{candidate_root} does not compile; only accepted candidates are evaluated: "
                          f"{compiled.diagnostics}")
     if not (candidate_root / DEV_CHECK).is_file():

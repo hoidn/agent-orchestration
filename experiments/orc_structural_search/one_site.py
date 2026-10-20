@@ -154,4 +154,3 @@ def _scope_verdict(parent_forms, child_forms, owner: SExpr, site: tuple[int, ...
     if replacement is None or child_site is None or canonical_form(child_site) != canonical_form(replacement):
         return _refuse("scope_exceeded", "the child's site subtree is not the receipt's replacement expression")
     return ACCEPTED
-

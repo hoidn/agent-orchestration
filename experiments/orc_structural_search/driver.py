@@ -17,25 +17,14 @@ Design: docs/design/orc_structural_search_driver.md ("Search Modes" mode 1, "Pro
     episodes/<episode_id>.diff                 the episode's final diff against its parent, whatever the outcome
     readout.json                               the mode 1 readout
 
-The evidence root must be fresh unless `run_mode1` continues its run (`--continue`: quota.py, README "Quota
-guard"); the driver never resumes an incident. A quota launch pauses new launches until the reset and is relaunched
-as a new attempt (quota.QuotaGuard, with_retries). An archived candidate is checked before each episode and
-evaluation: its content must still hash to its directory name (archive tamper check).
+Archived content is checked before every launch. ORC roots pass compiled admission before any reservation.
+Quota launches pause and retry as new attempts (quota.py); ordinary incidents require explicit recovery.
 
-After every evaluation `prepare.scan` runs over its records with the
-evidence root and the episode copies named `archive`, the log `lineage` and the holdout roots `holdout`, and
-after every episode (scan_episode) over the episode's shim records; the solution commits come from the
-operator's `solutions` mapping (task package name -> hash, checked by check_solutions), never from the package,
-which agents can read. Hits mark the record `scan_pending`; the log is append-only, so the adjudicated verdict
-lives in the scanned records' record.json. The mutator runs behind the shims (run_agent). Evaluations run at most
-`concurrency` at a time (evaluate_all; log and ledger writes are serialized); every launch is refused beyond the
-call cap (ledger.py).
-
-`run_mode1` (mode1.py) runs mode 1 over these functions; `main` is its command line.
-
-Dependencies: everything evaluation.py needs (git, bwrap, a clean runtime checkout, the shims); `env` is the
-launch environment of evaluations and of the mutator command (the driver adds the shims itself). Consumption is
-matched to scoped native-session receipts; missing coverage remains "unavailable".
+Evaluations and episodes scan their shim records against the archive, lineage and holdouts.
+Operator-supplied solution hashes govern those scans. Hits remain pending until adjudicated.
+Evaluation concurrency, serialized ledger writes and shim limits bound launches (ledger.py).
+`run_mode1` lives in mode1.py; `main` is its CLI. Dependencies match evaluation.py.
+Consumption requires native-session coverage; incomplete coverage stays unavailable.
 """
 
 import argparse
@@ -61,7 +50,7 @@ from experiments.compare import prepare
 from experiments.compare.repos import (
     SEED_COMMIT, SEED_DATES, dump, git, guard, main_checkout, runtime_commit, shim_prefix, visible_in_sandbox)
 from experiments.orc_structural_search import ledger, metering
-from experiments.orc_structural_search.acceptance import judge_child
+from experiments.orc_structural_search.acceptance import judge_child, require_candidate
 from experiments.orc_structural_search.briefs import episode_brief
 from experiments.orc_structural_search.candidates import (
     _exported_names, _file_names, _parent_forms, _split_forms, candidate_id, snapshot)
@@ -129,6 +118,8 @@ def evaluate_and_scan(root: Path, config: ExperimentConfig, *, task: Path, repli
     """Evaluate the archived `root` once as `attempt` (refused beyond the call cap), scan the run and append the
     evaluation record (with `fields`) to the log."""
     cid, env = check_archived(root, runtime_commit(runtime)), {**env, **LAUNCH_ENV}
+    if not is_python(config):
+        require_candidate(root, config, runtime=runtime)
     key = lambda n: f"{cid} {task.name} replicate {replicate}" + (f" attempt {n}" if n > 1 else "")  # noqa: E731
     while (killed := records_root(root, task_package=task, work_root=work_root, replicate=replicate, runtime=runtime,
                                   env=env, attempt=attempt)).exists():  # killed in flight, unlogged: skipped, settled
@@ -384,6 +375,17 @@ def drop_git(copy: Path, base: str) -> bool:
     return intact
 
 
+def episode_verdict(parent_root: Path, copy: Path, base: str, config: ExperimentConfig, *, runtime: Path,
+                    site: Mapping | None, parent_id: str, stopped: str | None, quota: str | None,
+                    scan_error: str | None) -> tuple[bool, dict]:
+    """Judge final files only when the episode finished with its original Git base intact."""
+    intact = drop_git(copy, base)
+    stopped = "incident" if quota else stopped or (None if intact and scan_error is None else "incident")
+    verdict = {"outcome": stopped, "receipt": None} if stopped else judge_child(
+        parent_root, copy, config, runtime=runtime, site=site, parent_candidate_id=parent_id)
+    return intact, verdict
+
+
 def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, mode: str, agent_cmd: Sequence[str],
                 work_root: Path, evidence_root: Path, episode_index: int, runtime: Path, env: Mapping[str, str],
                 solutions: Mapping[str, str], call_cap: int, holdouts: Sequence[Path] = (),
@@ -401,6 +403,8 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
     work_root, evidence_root = check_roots(work_root, evidence_root)
     commit = runtime_commit(runtime)
     parent_id = check_archived(parent_root, commit)
+    if not is_python(config):
+        require_candidate(parent_root, config, runtime=runtime)
     site_id = site["site_id"] if site else None
     identity = [parent_id, interface, config.condition, config.episode_wall_clock_sec, episode_index]
     if (generation, site_id, run_seed) != (None, None, None):  # Phase 1 episode ids stay as they were
@@ -433,10 +437,8 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
     if scan_error:
         incidents.insert(0, scan_error)
     (copy / EPISODE).unlink(missing_ok=True)
-    intact = drop_git(copy, base)
-    stopped = "incident" if quota else stopped or (None if intact and scan_error is None else "incident")
-    verdict = {"outcome": stopped, "receipt": None} if stopped else judge_child(
-        parent_root, copy, config, runtime=runtime, site=site, parent_candidate_id=parent_id)
+    intact, verdict = episode_verdict(parent_root, copy, base, config, runtime=runtime, site=site,
+                                     parent_id=parent_id, stopped=stopped, quota=quota, scan_error=scan_error)
     drop_hypothesis(copy)  # judge_child read it into the receipt; it is never part of the child
     (evidence_root / "episodes" / f"{episode_id}.diff").write_text(episode_diff(parent_root, copy))
     row = {**fields, "kind": "episode", "mode": mode, "interface": interface, "condition": config.condition,

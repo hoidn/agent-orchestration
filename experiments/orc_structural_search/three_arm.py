@@ -53,7 +53,7 @@ from pathlib import Path
 from experiments.compare import summarize
 from experiments.compare.repos import sha256_file
 from experiments.orc_structural_search import judging, ledger
-from experiments.orc_structural_search.acceptance import check_parent, diagnosis
+from experiments.orc_structural_search.acceptance import check_parent, diagnosis, require_candidate
 from experiments.orc_structural_search.candidates import compile_candidate
 from experiments.orc_structural_search.config import (
     ExperimentConfig, check_criterion_hashes, load_config, solution)
@@ -195,6 +195,7 @@ def archive_parents(parents: Mapping[str, Path], config_path: Path, *, evidence_
     compiled = compile_candidate(roots["orc"], orc, runtime=runtime)
     if compiled.status != "accepted":
         raise RuntimeError(f"the ORC parent does not compile against {runtime}: {diagnosis(compiled)['detail']}")
+    require_candidate(roots["orc"], orc, runtime=runtime, compiled=compiled)
     check_parent(roots["python"], python, runtime=runtime)
     digests = {"orc": compiled.program_digest,
                "python": python_program_digest(ledger.entry_of(roots["python"], python)[0].read_text())}

@@ -36,4 +36,3 @@ def _under_ceiling(cost: float | str, ceiling: float) -> bool:
 
 def _tie_key(row: Mapping) -> tuple:
     return (row["mean_cost"], row["provider_calls"], row["candidate_id"])
-
