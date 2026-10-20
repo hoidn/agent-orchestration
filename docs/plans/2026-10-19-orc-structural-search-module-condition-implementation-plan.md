@@ -275,14 +275,21 @@ control anchors first. These synthetic checks establish mechanics, not utility.
 
 ## Current Offline Verification Evidence
 
-Code delivery through `63798076` includes A's bound/cap and immutable check parent,
+Code delivery through `2290710d` includes A's bound/cap and immutable check parent,
 B's receipts/static allocation/site joins, C's qualification, D's matched parent
 and per-arm Pareto endpoints, and E's module/function budget cleanup. This evidence
 uses scripted providers only and makes no quality or live-utility claim.
 
 - C: 52 qualification tests and 17 adaptive-boundary tests passed; additional
   qualified episode/resume privacy and actual-pool stale-scan refusal checks
-  passed. C was independently reviewed at `11213141`.
+  passed. C was independently reviewed at `11213141`; follow-up qualification
+  and lineage corrections were reviewed at `2290710d`. The mixed-provider
+  qualified launch passed (1 test, 5.65 s), portable qualification/lineage checks
+  passed (74 tests), and collection found 75 tests. A read-only membership check
+  accepted original rung-2 runs 3/4 and the known rung-1 continuation's full
+  identities; this did not establish full family qualification because original
+  task packages were absent or differed from the current checkout. No quality
+  claim follows.
 - D: 169 relevant tests passed in 85.91 s (`/tmp/d-relevant.log`); final focused
   checks passed (42 in 1.26 s, including 17 Pareto tests in 1.18 s). Its new
   modules collected 55 tests after the final case. Independent review completed
@@ -296,20 +303,31 @@ uses scripted providers only and makes no quality or live-utility claim.
   moved to `record_normalization.py`; public record/metric imports are retained.
 - `pytest -q tests/experiments/test_compare_pool_summarize.py tests/test_demo_trial_smoke.py`:
   36 passed in 37.52 s (`/tmp/structural-final-harness.log`).
-- Full experiments collection: 945 tests collected in 1.38 s. The required
-  `PYTHONPATH=. pytest -q -n 16 --dist=worksteal tests/experiments/` run is pending
-  final results; earlier failures are being investigated. No pass is claimed.
+- Initial full experiments collection: 945 tests collected in 1.38 s. The
+  initial broad run returned 936 passed and 9 failed. Eight failures needed
+  fixture corrections for the revised contracts; focused bound/admission checks
+  then passed (13 tests, 18.04 s) and quota checks passed (22 tests, 58.33 s).
+  The unchanged native-probe test passed twice in isolation; its initial failure
+  has no confirmed cause. A read-only review identified a possible `/proc`
+  process-exit race, without changing the probe or expanding runtime scope.
+  The fresh required `PYTHONPATH=. pytest -q -n 16 --dist=worksteal tests/experiments/`
+  run remains pending (`/tmp/structural-verified-suite.log` and `.exit`). Fresh
+  collection at `2290710d` found 968 tests in 1.85 s
+  (`/tmp/structural-verified-collect.log`). No final full-suite pass is claimed.
 - README provider-free sequence extracted to `/tmp/structural-readme-selfcheck.sh`
   and executed unchanged: exit 0, accepted JSON admission. Guide prose measures
-  656 words. No provider was called.
+  666 words after the frontier wording correction. No provider was called.
+  The coordinator independently reran the unchanged sequence successfully.
 - `python /tmp/check-structural-delivery-docs.py`: nine changed Markdown files,
   763 local links/anchors passed including explicit HTML IDs; three historical
   criteria and two provider JSON files are byte-identical to `efa79ef9`; the
   decision's prior evidence body is unchanged; illustrative successor criterion
   absent. The stock link checker reports three false missing anchors because it
   does not read explicit HTML IDs; the scoped check includes them.
-- `git diff --check` passed. Independent documentation review and final
-  coordinator diff inspection remain pending. The prior 774-pass result remains historical evidence
+- `git diff --check` passed. Independent documentation review accepted the
+  bounded reconciliation with frontier wording, generic-comparison calibration
+  routing and separate allowlist/price fields corrected. Final coordinator diff
+  inspection and the full-suite result remain pending. The prior 774-pass result remains historical evidence
   for the earlier delivery only.
 
 ## Decision Ledger

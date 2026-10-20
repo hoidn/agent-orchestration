@@ -645,7 +645,16 @@ hashes: their purposes and budgets differ. The declared judge set must equal the
 criterion's judges and actual dispatch judges. V1 uses the existing `score.orc`
 rubric and its fixed `high` effort. Verify the workflow and provider-binding
 bytes actually selected by the study runtime and judge arguments, not merely
-files named in the receipt. Control sources must match the study task's anchors.
+files named in the receipt. At a launch boundary without explicit judge arguments,
+validate planned bindings from each measurement judge's `providers` reference.
+If the criterion also declares legacy `judge_bindings`, it must name exactly the
+judge set and its paths, resolved against the selected runtime, must have the
+same verified bytes. Do not assume a default backend for planned dispatch.
+At pooling, judging and quality readout, explicit judge arguments and recorded
+pool inputs own actual dispatch: bare `MODEL` selects that runtime's
+`experiments/compare/score.providers.json`, while `MODEL=PATH` selects that file.
+Each actual choice must match the calibrated provider reference, independently
+of the earlier planned check. Control sources must match the study task's anchors.
 The pooled patch SHA identifies the recorded, normalized clone diff, which need
 not equal the source diff's bytes after stripping and application.
 
@@ -701,8 +710,24 @@ Compare the package with both family and measurement evidence.
 `9faa4c01d0e3f231278f85d809a3e0d3bb3f64813cd59afba690089afd355f46`.
 The [continuation](../../experiments/compare/criteria/calibration-continuation.json),
 SHA `c6cfb85a9b21268fcffb32209fa45974ca139743c3cc1cdb0444d04e7c37efc9`,
-and difficulty summaries can be hashed sources of provenance; their stored
-qualification decisions do not replace the calculation.
+and raw rung summaries supply hashed provenance; stored qualification decisions
+do not replace the calculation. Exactly one source must match the task's `slug`
+and `package_sha256` and declare its complete ordered `single_calls` list with
+`run: "direct_task/run-N"` entries. The raw samples must match that entire list,
+not a chosen prefix or suffix. Original full run paths are identities, and their
+numbers must ascend consecutively within the original root; a rung may start at
+any positive number, such as runs 3/4 or 7/8. Direct and review identities must be
+unique, even though their numeric suffixes may coincide in different arm roots.
+
+Only the exact known frozen continuation SHA permits a two-sample source plus a
+third sample from a different root. Its task/package, reused rung-1 summary SHA
+and both original raw record/diff/review hashes must match the frozen rule.
+The third direct identity must be the rule's full
+`work_root/records/direct_task/run-1`; its nonempty patch requires the full
+`work_root/records/review_once/run-1` review identity. Archived reference files
+may relocate, but these original identities and bytes cannot change. This narrow
+membership exception does not accept replacement histories or summary booleans,
+and raw blockers still determine whether exactly two or three samples are needed.
 
 Each sample requires a completed `direct_task`, its frozen control model/effort
 inputs and its final diff. Validate common task/base, unique original run

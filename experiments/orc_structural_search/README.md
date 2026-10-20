@@ -130,8 +130,9 @@ fails closed. A measure-free criterion permits execution/cost reporting; it perm
 no judging or adaptive quality selection.
 
 Qualified successor readouts join harness clone IDs, report anchors first and compare
-matched tasks/replicates. Each arm's frontier contains its own parent and all evaluated
-children, including earlier continuation subsets. Parents share one evaluation per
+matched tasks/replicates. Each arm's frontier is recomputed over its parent and all
+evaluated children, including earlier continuation subsets; it retains only
+non-dominated candidates above the quality floor. Parents share one evaluation per
 identity, projected to their arms. Readout-only prices come from the criterion;
 missing usage/rates remain unavailable. Calls substitute for cost only with complete,
 unambiguous actual model/effort identity proof for every compared call.
