@@ -88,8 +88,9 @@ printed plan lines and forty were printed assigned-clone `AGENTS.md` test
 guidance. The coordinator inspected every excerpt and all 54 native commands,
 with no test invocation; [action provenance](/home/ollie/sc-evidence/A/pure-result-replay-terra-action-audit.json)
 and the [scan verdict](/home/ollie/sc-pools/pure-result-replay/A/records/judges/gpt-5.6-terra/scan.json)
-retain that adjudication. All 40 clones passed integrity verification after
-each judge, and actual metadata names only the two admitted models.
+retain that adjudication. Each task's 20 clones passed integrity verification
+after each of its judges (40 unique clones in aggregate), and actual metadata
+names only the two admitted models.
 The original hits and verdict reasons remain in each pool's
 `records/judges/<judge>/scan.json`; no judge was silently excluded.
 
@@ -107,6 +108,11 @@ calls, with no hidden-test runs. Elapsed launch-to-final-completion time was
 are retained under [/home/ollie/sc-evidence/A](/home/ollie/sc-evidence/A). These
 are standard short-context list-price equivalents under the frozen table,
 not billed spend; no incomplete receipt was priced as zero.
+
+The controls contain no known-correct, structurally different implementation.
+Passing their calibration would therefore not establish fair scoring of an
+equivalent alternative implementation; reference copies, partials and mutants
+do not test that property.
 
 ## Consequence And Prospective A′
 
@@ -130,8 +136,28 @@ the narrow repeat (2 passed), then the unchanged full suite passed **1128 in
 [verification evidence](/home/ollie/sc-evidence/preparation/a2-verification/verification.json)
 retains both attempts. This preparation supplies no calibration outcome.
 
-Before A′ (pools A2), freeze a new implementation runtime and new criterion
-identities. A′ would score nine blind clones per batch with the same models,
+The offline A′ packet is ready and frozen: runtime
+`I_A2=49cd27e6d3c059092e38fcf9836aa4bc50ae8b52` at
+`/home/ollie/sc-runtime-a2`, and criterion freeze
+`F2=f58d70dba4ce2e857e9e5951f76821a20d4efc22`. The
+[identity manifest](/home/ollie/sc-evidence/freeze-a2/identities.json),
+[hash record](/home/ollie/sc-evidence/criterion-a2.sha256) and independent
+[freeze review](/home/ollie/sc-evidence/preparation/freeze-a2-review.json) retain
+the exact new judge/family criteria and external C identities. Final-runtime
+absolute-scoring checks passed 3 in 15.84 s with fake providers only.
+Both A2 pools are prepared and unscored: 18 fresh blind clones per task, two
+batches of nine and no reference. Four dry runs and independent
+[pool verification](/home/ollie/sc-evidence/A2/pool-verification.json) passed;
+per-batch filler/control patch hashes match A, all clones are unchanged, and no
+run or call record exists. Preparation launched zero provider calls. The
+[plan's current bindings](../plans/2026-10-19-orc-structural-search-measurement-plan.md#task-6b-live-step-a--one-rerun-after-the-predeclared-revision-owner-gate-8-calls-cap-10)
+apply the new runtime/criteria to prospective A′, B, B2 and C, preserving the
+original A artifacts and all scientific rules. The new family copy supersedes
+only its unexecuted predecessor for future B; C retains the identical capped
+seed/scientific configuration with runtime/path identities rebound. This
+preparation grants no spend approval and does not reopen A.
+
+A′ would score nine blind clones per batch with the same models,
 controls, fillers and rules, at eight calls, cap 10; it requires separate owner
 approval. The declared 32 planned calls and maximum 50 across all stages are
 planning bounds, not an approved allocation. With A completed at exactly eight

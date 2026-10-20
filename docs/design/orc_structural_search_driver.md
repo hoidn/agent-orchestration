@@ -29,8 +29,7 @@
   [measurement plan](../plans/2026-10-19-orc-structural-search-measurement-plan.md)
   records completed and verified offline calibration preparation with independent
   I/F freeze review; Step A completed 8 calls within cap 10 and failed calibration
-  (RPI spread; PRR passed). A′ offline preparation is verified; its new freeze
-  and approval are pending. The no-Claude experiment directive blocks it on
+  (RPI spread; PRR passed). A′ offline packet is ready and frozen at I_A2/F2; spend approval is pending. The no-Claude experiment directive blocks it on
   2026-10-19 (America/Los_Angeles). Later live steps keep their own owner budget gates.
   No live successor study or provider budget is selected. Fixed-workflow comparisons use
   [`experiments/compare/`](../../experiments/compare/README.md) today.

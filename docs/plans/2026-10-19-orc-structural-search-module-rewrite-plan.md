@@ -276,8 +276,7 @@ owns the measurement preparation and live gates under the
 Its generic calibration and package/helper preparation is implemented; the real
 controller matrix, final integration and independently reviewed I/F freeze have
 passed. Calibration Step A completed 8 calls within cap 10 and failed
-(RPI spread; PRR passed). A′ offline preparation is verified; its new freeze
-and approval are pending. The no-Claude experiment directive blocks A′ on
+(RPI spread; PRR passed). A′ offline packet is ready and frozen at I_A2/F2; spend approval is pending. The no-Claude experiment directive blocks A′ on
 2026-10-19 (America/Los_Angeles). The owner has selected no live `module` arm;
 no such arm precedes the required gate results or its own selection. Both gates instantiate the rule that no uncalibrated
 experiment runs (driver design,

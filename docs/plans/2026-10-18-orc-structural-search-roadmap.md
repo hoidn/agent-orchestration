@@ -519,7 +519,7 @@ calibration and the current Sonnet/Terra guard are implemented, and the real
 controller matrix has passed. Offline preparation and final verification are complete;
 implementation I and criterion freeze F passed independent review. Step A's approved
 8 calls completed within cap 10; A failed calibration (RPI spread; PRR passed).
-A′ offline preparation is verified, with new freeze and approval pending; the
+A′ offline packet is ready and frozen at I_A2/F2, with spend approval pending; the
 no-Claude experiment directive blocks it on 2026-10-19 (America/Los_Angeles).
 Later paid stages remain separately gated. No calibration
 result or live `module` arm follows from implementation. It precedes any
