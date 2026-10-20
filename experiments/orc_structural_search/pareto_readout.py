@@ -27,13 +27,13 @@ def rules(criterion):
 def stub_floor(pools, criterion):
     totals = {}
     for pool in pools:
-        task = pool['task']
+        task = Path(pool['task']).name
         role = criterion['anchors'][task]['stub']
         valid = [a['total'] for a in pool['anchors'] if a.get('anchor') == role and pricing.number(a.get('total'))]
         if valid:
-            totals[task] = mean(valid)
+            totals.setdefault(task, []).extend(valid)
     tasks = {Path(task).name for task in criterion['tasks']}
-    return mean(totals.values()) if set(totals) == tasks else UNAVAILABLE
+    return mean(mean(totals[task]) for task in tasks) if set(totals) == tasks else UNAVAILABLE
 
 
 def joined_rows(pools, raw, sha):

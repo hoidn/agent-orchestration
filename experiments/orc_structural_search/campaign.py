@@ -1,54 +1,38 @@
-"""Cumulative search campaigns: the persistent evidence store, C1 identities, exposure on actual use, the
-campaign-scoped candidate set, idempotent ingestion, dispositions, estimates and the campaign checkpoint.
+"""Cumulative campaigns: persistent evidence, identities, exposures, estimates and checkpoints.
 
-Design: docs/design/orc_structural_search_cumulative_campaigns.md ("Identities", "Persistent Evidence Store",
-"Campaign Protocol", "Estimates And Attribution"). The store root S (outside every work, evidence and pools root
-and the main checkout prefix) holds S/evidence.jsonl (append-only `campaign-evidence-v1` rows, `seq` = line
-number; indexes are rebuilt from them on every call), S/.lock (one writer process), S/candidates/<candidate_id>/
-(driver.archive) and S/campaigns/<campaign_id>/checkpoint.json (replaced atomically). Run records are referenced
-by path; dispositions supersede and nothing is deleted. Estimates pool every trial of equal `context_key` across
-campaigns; the candidate set a campaign selects from is its own (campaign_candidates).
+The evidence store is append-only and indexes are rebuilt per call; run records are referenced by path, dispositions
+supersede without deletion, and estimates pool equal-context trials while candidate sets remain campaign-scoped.
+See docs/design/orc_structural_search_cumulative_campaigns.md for the governing storage and attribution contract.
 """
 
-import fcntl
 import hashlib
 import json
 import os
 import re
-from collections import defaultdict, namedtuple
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from statistics import mean, stdev
-from typing import TextIO
 
 from experiments.compare import repos
-from experiments.orc_structural_search import driver, pricing, scoring
+from experiments.orc_structural_search import driver, pareto_readout, pricing, scoring
 from experiments.orc_structural_search.config import check_criterion_hashes
 from experiments.orc_structural_search.quota import job_key
-from experiments.orc_structural_search.records import UNAVAILABLE, append_record, read_records
+from experiments.orc_structural_search.pareto import bounded_frontier, reservoir_update, select_parent
+from experiments.orc_structural_search.records import (
+    LOG, SCHEMA, Index, Store, UNAVAILABLE, add_assessments as _assess, add_trials as _add_trials,
+    append_record, campaign_candidates, check_roots, check_row, find_campaign as _campaign,
+    open_campaign_store as _open_store, read_records, trial_id, trial_record as _trial,
+)
 
-SCHEMA, CHECKPOINT, LOG = "campaign-evidence-v1", "campaign-checkpoint-v1", "evidence.jsonl"
+CHECKPOINT = "campaign-checkpoint-v1"
 ESTIMATOR_VERSION = "campaign-estimate-1"
 WARM_START = "warm_start"  # the policy of a context's shared warm-start campaign
 ROLES = ("adaptive", "validation", "sealed")
 FORBIDDEN = {"adaptive": {"sealed"}, "validation": {"adaptive", "sealed"},  # prior exposures that refuse a role
              "sealed": {"adaptive", "validation", "sealed"}}
 DISPOSITIONS = ("contaminated", "invalidated", "superseded", "frozen", "sealed_opened")
-REQUIRED = {kind: fields.split() for kind, fields in {  # the fields every row of a kind carries
-    "campaign": "campaign_id label context_key criterion_sha256 policy parameters budget seeds run_seed warm_start "
-                "declared_roles roots",
-    "subject": "candidate_id parent source skeleton policies idea_key descriptor campaign_id",
-    "trial": "trial_id origin_trial_id campaign_id context_key evaluation_id run_id attempt candidate_id task "
-             "replicate outcome records_dir",
-    "assessment": "trial_id results clone_ids task outcome value criterion_sha256 proof_sha256 split",
-    "disposition": "target_kind target_id disposition reason supersedes",
-    "exposure": "package_sha256 role campaign_id criterion_sha256"}.items()}
 CHECKPOINT_KEYS = ("generation", "frontier", "reservoir", "rng_state", "ingestion_position", "ledger_index",
                    "futility_streak", "budget", "stopped")
-
-# {trial_id: latest trial}, {trial_id: [assessment]}, {target_id: [disposition]}, {package_sha256: exposure}
-Index = namedtuple("Index", "trials assessments dispositions exposure")
 
 
 def _sha(value) -> str:
@@ -64,10 +48,6 @@ def context_key(criterion: Mapping, *, package_digests: Mapping[str, str], runti
                            "envelope": criterion["envelope"], "model_policy": criterion["model_policy"]})
 
 
-def trial_id(campaign_id: str, run_id: str, evaluation_id: str, attempt: int) -> str:
-    return "trial:" + _sha([campaign_id, run_id, evaluation_id, attempt])
-
-
 def campaign_label(label: str) -> str:
     if not re.fullmatch(r"[a-z0-9-]{1,32}", label):
         raise ValueError(f"campaign label {label!r} must match [a-z0-9-]{{1,32}}")
@@ -78,106 +58,10 @@ def main_prefix() -> Path:
     return repos.main_checkout(Path(__file__).resolve().parents[2])
 
 
-def check_roots(root: Path, roots) -> None:
-    for other in (Path(path).resolve() for path in roots):
-        if root.is_relative_to(other) or other.is_relative_to(root):
-            raise ValueError(f"the store root {root} and the campaign root {other} must not nest")
-
-
-def check_row(row, number: int) -> None:
-    if not isinstance(row, dict) or (row.get("schema"), row.get("seq")) != (SCHEMA, number) \
-            or row.get("kind") not in REQUIRED:
-        raise ValueError(f"line {number}: not a {SCHEMA} row of a known kind with seq {number}: {str(row)[:200]}")
-    if missing := [key for key in REQUIRED[row["kind"]] if key not in row]:
-        raise ValueError(f"line {number}: the {row['kind']} row lacks {missing}")
-
-
-def _load(log: Path) -> list[dict]:
-    rows = []
-    for number, line in enumerate(log.read_text(encoding="utf-8").splitlines(), 1):
-        try:
-            rows.append(json.loads(line))
-        except json.JSONDecodeError as error:
-            raise ValueError(f"{log}: line {number}: malformed JSON: {error}") from error
-        check_row(rows[-1], number)
-    return rows
-
-
-@dataclass
-class Store:
-    root: Path
-    _rows: list[dict]
-    _lock: TextIO | None = None
-
-    @property
-    def writer(self) -> bool:
-        return self._lock is not None
-
-    def append(self, record: Mapping) -> int:
-        if self._lock is None:
-            raise PermissionError(f"the store {self.root} is open read-only")
-        row = json.loads(json.dumps({**record, "schema": SCHEMA, "seq": len(self._rows) + 1}))
-        check_row(row, row["seq"])
-        append_record(self.root / LOG, row)
-        self._rows.append(row)
-        return row["seq"]
-
-    def rows(self, kind: str | None = None) -> list[dict]:
-        return [row for row in self._rows if kind is None or row["kind"] == kind]
-
-    def index(self) -> Index:
-        assessments, dispositions, exposures = defaultdict(list), defaultdict(list), {}
-        for row in self.rows("assessment"):
-            assessments[row["trial_id"]].append(row)
-        for row in self.rows("disposition"):
-            dispositions[row["target_id"]].append(row)
-        for row in self.rows("exposure"):
-            entry = exposures.setdefault(row["package_sha256"], {"roles": set(), "campaigns": []})
-            entry["roles"].add(row["role"])
-            if row["campaign_id"] not in entry["campaigns"]:
-                entry["campaigns"].append(row["campaign_id"])
-        trials = {row["trial_id"]: row for row in self.rows("trial")}
-        return Index(trials, dict(assessments), dict(dispositions), exposures)
-
-    def close(self) -> None:
-        if self._lock is not None:
-            self._lock.close()
-            self._lock = None
-
-
-def _writer_lock(root: Path) -> TextIO:
-    root.mkdir(parents=True, exist_ok=True)
-    (root / LOG).touch()
-    handle = (root / ".lock").open("a")
-    try:
-        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError as error:
-        handle.close()
-        raise RuntimeError(f"another writer holds {root / '.lock'}") from error
-    return handle
-
-
 def open_store(root: Path, *, writer: bool) -> Store:
     """The store at `root`, every row validated; refuses a root under the main checkout prefix or nested with a
     recorded campaign's roots, a second writer and a malformed file."""
-    root = Path(root).resolve()
-    repos.guard(main_prefix(), root)
-    repos.visible_in_sandbox(root)
-    store = Store(root, [], _writer_lock(root) if writer else None)
-    try:
-        store._rows = _load(root / LOG)
-        for row in store.rows("campaign"):
-            check_roots(root, row["roots"].values())
-    except BaseException:
-        store.close()
-        raise
-    return store
-
-
-def _campaign(store: Store, campaign_id: str) -> dict:
-    if found := [row for row in store.rows("campaign") if row["campaign_id"] == campaign_id]:
-        return found[0]
-    raise KeyError(f"no campaign {campaign_id} in {store.root}")
+    return _open_store(root, writer=writer, checkout_prefix=main_prefix())
 
 
 def _campaign_label_for(store: Store, policy: str, label: str, context: str) -> tuple[list[dict], str]:
@@ -227,21 +111,6 @@ def _held_roles(store: Store, declared_roles: Mapping[str, str]) -> dict[str, li
 def warm_start_id(store: Store, context: str) -> str | None:
     return next((row["campaign_id"] for row in store.rows("campaign")
                  if row["policy"] == WARM_START and row["context_key"] == context), None)
-
-
-def campaign_candidates(store: Store, campaign_id: str, *, scheduled: Sequence[Mapping] = ()) -> dict[str, dict]:
-    """{candidate_id: subject} of the campaign's initial-evidence candidates, its own evaluated children and the
-    `scheduled` subjects, never a sibling campaign's children; the campaign's own registration is preferred."""
-    campaign, trials = _campaign(store, campaign_id), store.index().trials
-    held = [trials[t]["candidate_id"] for t in campaign["warm_start"]]
-    held += [t["candidate_id"] for t in trials.values() if t["campaign_id"] == campaign_id]
-    subjects = {}
-    for row in store.rows("subject"):
-        if row["candidate_id"] not in subjects or row["campaign_id"] == campaign_id:
-            subjects[row["candidate_id"]] = row
-    if missing := sorted(set(held) - set(subjects)):
-        raise ValueError(f"campaign {campaign_id} holds unregistered candidates {missing}")
-    return {cid: subjects[cid] for cid in held} | {row["candidate_id"]: dict(row) for row in scheduled}
 
 
 def register_subject(store: Store, candidate_root: Path, *, runtime: Path, parent: str | None, skeleton: str,
@@ -294,29 +163,6 @@ def check_split_roles(store: Store, *, adaptive: Sequence[str], validation: str 
             raise ValueError(f"package {sha} was exposed as {held} in {prior[sha]['campaigns']}: refused as {role}")
 
 
-def _trial(row: Mapping, campaign_id: str, context: str) -> dict:
-    attempt = row.get("attempt", 1)
-    return {"kind": "trial", "trial_id": trial_id(campaign_id, row["run_id"], row["evaluation_id"], attempt),
-            "origin_trial_id": None, "campaign_id": campaign_id, "context_key": context, "attempt": attempt,
-            "task": row["task_id"], "split": row.get("split", UNAVAILABLE), "generation": row.get("generation"),
-            "incidents": row.get("incidents", []), "state_dir": row.get("state_dir"),
-            **{key: row[key] for key in ("evaluation_id", "run_id", "candidate_id", "replicate", "outcome",
-                                         "records_dir")},
-            **{key: row.get(key, UNAVAILABLE) for key in ("provider_calls", "wall_clock_sec", "consumption",
-                                                          "receipt_usage")}}
-
-
-def _add_trials(store: Store, trials: Sequence[dict]) -> int:
-    """Append each trial not yet stored or whose log row changed (an incident resumed under its trial id)."""
-    stored, added = store.index().trials, 0
-    for trial in trials:
-        known = stored.get(trial["trial_id"])
-        if known is None or {k: v for k, v in known.items() if k not in ("schema", "seq")} != trial:
-            store.append(trial)
-            added += 1
-    return added
-
-
 def _supersede(store: Store, evaluations: Sequence[Mapping], trials: Mapping[str, dict]) -> int:
     """A `superseded` disposition per attempt a quota relaunch replaced (a later evaluation id of its job)."""
     latest = {job_key(row): row["evaluation_id"] for row in evaluations}
@@ -329,21 +175,6 @@ def _supersede(store: Store, evaluations: Sequence[Mapping], trials: Mapping[str
                     reason=f"quota relaunch: evaluation {current} replaced this attempt")
             done.add(tid)
             added += 1
-    return added
-
-
-def _assess(store: Store, pools: Sequence[tuple[str, dict]], trials: Mapping[str, dict], proof: str | None) -> int:
-    seen, added = {(row["trial_id"], row["results"]) for row in store.rows("assessment")}, 0
-    for results, pool in pools:
-        for row in pool["rows"]:
-            trial = trials[row["evaluation_id"]]
-            if (trial["trial_id"], results) not in seen:
-                store.append({"kind": "assessment", "trial_id": trial["trial_id"], "results": results,
-                              "clone_ids": row.get("clone_ids", []), "task": row["task"], "outcome": row["outcome"],
-                              "value": row["value"], "hidden": row["hidden"], "split": trial["split"],
-                              "criterion_sha256": pool["criterion_sha256"], "proof_sha256": proof})
-                seen.add((trial["trial_id"], results))
-                added += 1
     return added
 
 
@@ -430,6 +261,108 @@ def evidence(store: Store, candidate_id: str, context: str, *, tasks: Sequence[s
         return result | {"kind": "unobserved", "quality": UNAVAILABLE, "cost": UNAVAILABLE}
     return result | {"kind": "observed"} | _observed_summary(
         _evidence_values(index, counted, names), counted, price_table, min_trials)
+
+
+def quality_floor(pools: Sequence[Mapping], criterion: Mapping) -> float | str:
+    return pareto_readout.stub_floor(pools, criterion)
+
+
+def _candidate_row(store: Store, candidate_id: str, context: str, tasks: Sequence[str], price_table: Mapping,
+                   floor: float | str, min_trials: int) -> dict:
+    estimate = evidence(store, candidate_id, context, tasks=tasks, price_table=price_table, min_trials=min_trials)
+    quality, cost = estimate["quality"], estimate["cost"]
+    above_floor = (estimate.get("support") == "every_adaptive_task" and floor != UNAVAILABLE
+                   and pricing.number(quality) and quality > floor)
+    if estimate["kind"] == "unobserved":
+        reason = "unobserved"
+    elif estimate.get("support") != "every_adaptive_task":
+        reason = "insufficient_support"
+    elif floor == UNAVAILABLE:
+        reason = "quality_floor_unavailable"
+    elif not pricing.number(quality):
+        reason = "quality_unavailable"
+    elif not above_floor:
+        reason = "below_quality_floor"
+    elif cost == UNAVAILABLE:
+        reason = "cost_unavailable"
+    else:
+        reason = None
+    return {"candidate_id": candidate_id, "quality": quality, "cost": cost, "above_floor": above_floor,
+            "reason": reason, "support": estimate.get("support", "unobserved"),
+            "provider_calls": estimate.get("calls", UNAVAILABLE),
+            "wall_clock_sec": estimate.get("wall_clock_sec", UNAVAILABLE)}
+
+
+def _candidate_table_names(context, tasks):
+    if not isinstance(context, str) or not context or not isinstance(tasks, Sequence) or not tasks:
+        raise ValueError("candidate table requires a context and nonempty tasks")
+    names = [Path(task).name for task in tasks]
+    if any(not name for name in names) or len(set(names)) != len(names):
+        raise ValueError("candidate table tasks must have unique nonempty basenames")
+    return names
+
+
+def _validate_candidate_cost(min_trials, floor, price_table):
+    if type(min_trials) is not int or min_trials < 1:
+        raise ValueError("candidate table min_trials must be a positive integer")
+    if floor != UNAVAILABLE and not pricing.number(floor):
+        raise ValueError("candidate table floor must be a finite nonnegative number or unavailable")
+    pricing.validate(price_table)
+
+
+def candidate_table(store: Store, campaign_id: str, *, context: str, tasks: Sequence[str], price_table: Mapping,
+                    floor: float | str, min_trials: int, scheduled: Sequence[Mapping] = ()) -> dict[str, dict]:
+    _candidate_table_names(context, tasks)
+    _validate_candidate_cost(min_trials, floor, price_table)
+    campaign = _campaign(store, campaign_id)
+    if campaign["context_key"] != context:
+        raise ValueError(f"candidate table context {context} differs from campaign {campaign_id}'s context")
+    subjects = campaign_candidates(store, campaign_id, scheduled=scheduled)
+    return {candidate_id: _candidate_row(store, candidate_id, context, tasks, price_table, floor, min_trials)
+            for candidate_id in sorted(subjects)}
+
+
+def _rebuild_options(criterion, generation, previous):
+    if type(generation) is not int or generation < 0 or not isinstance(previous, Mapping):
+        raise ValueError("rebuild requires a nonnegative generation and prior state mapping")
+    tau_q, tau_c = pareto_readout.rules(criterion)
+    size, capacity = criterion["archive"]["size"], criterion["reservoir"]["capacity"]
+    min_trials = criterion["support"]["min_trials"]
+    if type(size) is not int or size < 1 or type(capacity) is not int or capacity < 0:
+        raise ValueError("archive size must be positive and reservoir capacity nonnegative integers")
+    if type(min_trials) is not int or min_trials < 1:
+        raise ValueError("support.min_trials must be a positive integer")
+    return tau_q, tau_c, size, capacity, min_trials
+
+
+def _fully_valued(row):
+    return row.get("support") == "every_adaptive_task" and pricing.number(row.get("quality"))
+
+
+def _reservoir_admissions(table, previous):
+    prior_members = {row["candidate_id"] for row in previous.get("reservoir", ())}
+    prior_table = previous.get("table", {})
+    return {candidate_id: row for candidate_id, row in table.items()
+            if candidate_id in prior_members or
+            (_fully_valued(row) and not _fully_valued(prior_table.get(candidate_id, {})))}
+
+
+def rebuild(store: Store, campaign_id: str, *, criterion: Mapping, pools: Sequence[Mapping], generation: int,
+            previous: Mapping) -> dict:
+    tau_q, tau_c, size, capacity, min_trials = _rebuild_options(criterion, generation, previous)
+    campaign = _campaign(store, campaign_id)
+    floor = quality_floor(pools, criterion)
+    table = candidate_table(store, campaign_id, context=campaign["context_key"], tasks=criterion["tasks"],
+                            price_table=criterion["price_table"], floor=floor, min_trials=min_trials)
+    bounded = bounded_frontier(table, size=size, tau_q=tau_q, tau_c=tau_c)
+    index = store.index()
+    disposed = {trial["candidate_id"] for trial_id, trial in index.trials.items()
+                if trial["candidate_id"] in table and trial["origin_trial_id"] is None
+                and trial_id in index.dispositions}
+    admissions = _reservoir_admissions(table, previous)
+    reservoir = reservoir_update(previous.get("reservoir", ()), admissions, bounded, generation=generation,
+                                 capacity=capacity, disposed=disposed)
+    return {"floor": floor, "table": table, "frontier": bounded, "reservoir": reservoir}
 
 
 def _checkpoint(store: Store, campaign_id: str) -> tuple[Path, dict]:
