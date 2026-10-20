@@ -14,7 +14,7 @@ from tests.experiments.compare_harness_support import REPO, call, skip_without_s
 SONNET = "claude-sonnet-5-5"
 TERRA = "gpt-5.6-terra"
 DISABLED = ["--disable", "multi_agent", "--disable", "multi_agent_v2",
-            "--disable", "multi_agent_v2_dynamic_tools"]
+            "--disable", "multi_agent_v2_dynamic_tools", "-c", "agents.enabled=false"]
 
 
 @pytest.fixture
@@ -61,6 +61,9 @@ def test_guard_defaults_preserve_stdin_status_and_force_nested_policy(guarded, n
     ("codex", ["--model"]), ("codex", ["--config", "model='gpt-6.1-sol'"]),
     ("codex", ["-cmodel_provider=other"]), ("codex", ["-c", 'profile="high"']),
     ("codex", ["--config=features.multi_agent=true"]),
+    ("codex", ["--config", "agents.enabled=true"]),
+    ("codex", ["-cagents.enabled=true"]),
+    ("codex", ["--config=agents.enabled=true"]),
     ("codex", ["-c", 'features={multi_agent_v2=true}']),
     ("codex", ["--config", 'model_reasoning_effort="high"\nmodel="gpt-6.1-sol"']),
     ("codex", ["--profile", "high"]), ("codex", ["-phigh"]),

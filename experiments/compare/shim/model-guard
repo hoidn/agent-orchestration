@@ -68,7 +68,7 @@ if [ -z "$given" ]; then
   set -- --model "$default" "$@"
 fi
 if [ "$name" = codex ]; then
-  set -- --disable multi_agent --disable multi_agent_v2 --disable multi_agent_v2_dynamic_tools "$@"
+  set -- --disable multi_agent --disable multi_agent_v2 --disable multi_agent_v2_dynamic_tools -c agents.enabled=false "$@"
 fi
 IFS=: read -ra dirs <<< "$PATH"
 for d in "${dirs[@]}"; do
