@@ -54,14 +54,12 @@ import argparse
 import json
 import math
 import random
-import secrets
-import time
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from statistics import mean, stdev, variance
 
 from experiments.compare import pool as pooling, prepare
-from experiments.compare.repos import dump, guard, load, runtime_commit, sha256_file, visible_in_sandbox
+from experiments.compare.repos import load, sha256_file
 from experiments.orc_structural_search import qualification
 from experiments.orc_structural_search import readout_guard, readout_join
 from experiments.orc_structural_search.config import check_criterion_hashes
@@ -121,37 +119,27 @@ def split_batches(finals: Sequence, key: Callable, size: int = BATCH_CLONES - AN
     return [ordered[k::count] for k in range(count)]
 
 
-# ponytail: copy of experiments/compare/pool.py::pool with split_batches in place of pool.compose (which batches
-# only the harness's named arms); keep the mapping and checks in sync with that function.
+def fillers_per_batch(task: Path, rubric: Mapping) -> int:
+    capacity = BATCH_CLONES - len(list((task / "anchors").glob("*.diff"))) - bool(rubric["reference"])
+    if capacity < 1:
+        raise ValueError("anchors and reference leave no room for a filler in a ten-repository batch")
+    return capacity
+
+
 def build_pool(task: Path, criterion: Path, out: Path, judges: Sequence[str], records: dict[str, dict], *,
                key: Callable) -> None:
-    """`pool.pool` with every usable run's final patch in batches of at most ten clones, anchors repeated."""
+    """Validate structural quality authority before sending usable runs to the shared pool writer."""
     ref = next(iter(records.values()))
     checked = qualification.validate(criterion, tasks=[task], runtime=Path(ref['runtime']), judges=judges,
                                      operation='quality')
     if {(r["task"], r["compare_base"]) for r in records.values()} != {(str(task), ref["compare_base"])}:
         raise SystemExit("runs in one pool must share the task and the seeded commit")
-    guard(Path(ref["main"]), out)
-    visible_in_sandbox(out)
-    commit = runtime_commit(ref["runtime"])
     rows, usable = pooling.pool_runs(records)
     finals = [(path, rec, ["final"]) for runs in usable.values() for path, rec in runs]
     if not finals:
         raise SystemExit("no completed, uncontaminated evaluation to pool")
-    for directory in (out / "clones", out / "judges", out / "records" / "patches"):
-        directory.mkdir(parents=True)
-    clones, members = pooling.build_batches(out, task, ref, split_batches(finals, key))
-    default = Path(ref["runtime"]) / "experiments/compare/score.providers.json"
-    mapping = {"task": str(task), "criterion_sha256": sha256_file(criterion), "qualification": checked, "compare_base": ref["compare_base"],
-               "main": ref["main"], "runtime": ref["runtime"], "runtime_commit": commit, "created_at": time.time(),
-               "judges": {name: {"dir": secrets.token_hex(8), "providers": str(Path(providers or default).resolve())}
-                          for name, _, providers in (spec.partition("=") for spec in judges)},
-               "runs": rows, "clones": clones, "batches": members}
-    dump(out / "records" / "mapping.json", mapping)
-    pooling.write_score_inputs(out, mapping, (task / "intent.txt").read_text(), Path(ref["runtime"]))
-    (out / "clones").chmod(pooling.HIDDEN_DIR)
-    print(f"# {len(clones)} clones in {len(members)} batches; run the judges one after another, "
-          f"each followed by: prepare.py verify-pool --pool {out}")
+    batches = split_batches(finals, key, size=fillers_per_batch(task, pooling.rubric(criterion)))
+    pooling.write_pool(task, criterion, out, judges, ref, rows, batches, qualification=checked)
 
 def latest_evaluations(rows: Sequence[Mapping]) -> list[dict]:
     """The evaluation rows among log `rows`, one per job (quota.job_key: candidate, task, replicate, split,

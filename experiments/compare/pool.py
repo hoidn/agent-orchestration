@@ -30,6 +30,14 @@ except ImportError:
     )
 
 STRIPPED = ("docs/design/", "artifacts/")  # D8: removed from every pooled patch
+DEFAULT_RUBRIC = {"workflow": "score.orc", "entry": "score::score",
+                  "criteria": ["root_cause", "scope", "generality", "layering"], "reference": None}
+
+
+def rubric(criterion):
+    return load(criterion).get("rubric", DEFAULT_RUBRIC)
+
+
 ROW_KEYS = ("arm", "outcome", "failure", "calls", "wall_clock_sec", "selected", "variant")  # per run, in mapping.json
 
 
@@ -127,8 +135,8 @@ def pool_runs(records):
     return rows, usable
 
 
-def build_batches(out, task, ref, batches):
-    clones, members = {}, []
+def build_batches(out, task, ref, batches, rule):
+    clones, members, references = {}, [], []
     anchors = sorted((task / "anchors").glob("*.diff"))
     for batch in batches:
         made = [add_clone(out, task, ref, patch_bytes(path, rec, labels[0]),
@@ -137,7 +145,13 @@ def build_batches(out, task, ref, batches):
                  for a in anchors]
         clones.update(made)
         members.append([cid for cid, _ in made])
-    return clones, members
+        if rule["reference"]:
+            patch = task / "anchors" / f"{task.name}-{rule['reference']}.diff"
+            cid, entry = add_clone(out, task, ref, patch.read_bytes(),
+                                   {"run": None, "arm": "reference", "labels": ["reference"]})
+            clones[cid] = entry
+            references.append(cid)
+    return clones, members, references
 
 
 def pool(task, criterion, out, judges, runs):
@@ -147,22 +161,35 @@ def pool(task, criterion, out, judges, runs):
     ref = next(iter(records.values()))
     if {(r["task"], r["compare_base"]) for r in records.values()} != {(str(task), ref["compare_base"])}:
         raise SystemExit("runs in one pool must share the task and the seeded commit")
-    guard(Path(ref["main"]), out)
-    visible_in_sandbox(out)
-    commit = runtime_commit(ref["runtime"])
     rows, usable = pool_runs(records)
     batches = compose(usable)
     if not batches:
         raise SystemExit("no completed, uncontaminated run to pool")
+    return write_pool(task, criterion, out, judges, ref, rows, batches)
+
+
+def write_pool(task, criterion, out, judges, ref, rows, batches, *, qualification=None):
+    """Write either caller's pool, preserving its verified structural proof when supplied."""
+    task, out = Path(task).resolve(), Path(out).resolve()
+    guard(Path(ref["main"]), out)
+    visible_in_sandbox(out)
+    commit, rule = runtime_commit(ref["runtime"]), rubric(criterion)
+    overhead = len(list((task / "anchors").glob("*.diff"))) + bool(rule["reference"])
+    if not batches or any(len(batch) + overhead > 10 for batch in batches):
+        raise SystemExit("a pool needs nonempty batches with at most ten repositories including anchors and reference")
     for directory in (out / "clones", out / "judges", out / "records" / "patches"):
         directory.mkdir(parents=True)
-    clones, members = build_batches(out, task, ref, batches)
+    clones, members, references = build_batches(out, task, ref, batches, rule)
     default = Path(ref["runtime"]) / "experiments/compare/score.providers.json"
     mapping = {"task": str(task), "criterion_sha256": sha256_file(criterion), "compare_base": ref["compare_base"],
                "main": ref["main"], "runtime": ref["runtime"], "runtime_commit": commit, "created_at": time.time(),
                "judges": {name: {"dir": secrets.token_hex(8), "providers": str(Path(providers or default).resolve())}
                           for name, _, providers in (spec.partition("=") for spec in judges)},
-               "runs": rows, "clones": clones, "batches": members}
+               "runs": rows, "clones": clones, "batches": members, "rubric": rule}
+    if references:
+        mapping["references"] = references
+    if qualification is not None:
+        mapping["qualification"] = qualification
     dump(out / "records" / "mapping.json", mapping)
     write_score_inputs(out, mapping, (task / "intent.txt").read_text(), Path(ref["runtime"]))
     (out / "clones").chmod(HIDDEN_DIR)
@@ -174,18 +201,21 @@ def pool(task, criterion, out, judges, runs):
 def write_score_inputs(out, mapping, intent, runtime):
     """Per judge: score.orc inputs with that judge's random clone order, a working and state directory of
     its own, and the command and resume script behind the shims (records/score-<judge>.sh, resume-<judge>.sh)."""
-    rng = random.SystemRandom()
+    rng, rule = random.SystemRandom(), mapping.get("rubric", DEFAULT_RUBRIC)
     for judge, info in mapping["judges"].items():
         inputs, home = out / "records" / f"score-inputs-{judge}.json", out / "judges" / info["dir"]
-        dump(inputs, {"batches": [{"clones": [str(out / "clones" / cid) for cid in rng.sample(ids, len(ids))]}
-                                  for ids in mapping["batches"]],
-                      "intent": intent, "criterion_sha256": mapping["criterion_sha256"], "judge_model": judge})
+        batches = [{"clones": [str(out / "clones" / cid) for cid in rng.sample(ids, len(ids))]}
+                   for ids in mapping["batches"]]
+        for batch, cid in zip(batches, mapping.get("references", [])):
+            batch["reference"] = str(out / "clones" / cid)
+        dump(inputs, {"batches": batches, "intent": intent,
+                      "criterion_sha256": mapping["criterion_sha256"], "judge_model": judge})
         (home / "tmp").mkdir(parents=True)  # the judge's /tmp inside the shims' sandbox
         (out / "records" / "judges" / judge).mkdir(parents=True)
         command, resume = shim_commands(
             home, runtime, {"COMPARE_ROOT": out / "records" / "judges" / judge, "COMPARE_TREE": home,
                             "COMPARE_BASE": mapping["compare_base"]},
-            [str(runtime / "experiments/compare/score.orc"), "--entry-workflow", "score::score",
+            [str(runtime / "experiments/compare" / rule["workflow"]), "--entry-workflow", rule["entry"],
              "--source-root", str(runtime / "experiments/compare"), "--provider-externs-file", info["providers"],
              "--input-file", str(inputs)], home / "state")
         (out / "records" / f"score-{judge}.sh").write_text(command + "\n")

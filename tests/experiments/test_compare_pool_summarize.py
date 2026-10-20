@@ -26,7 +26,7 @@ TOKENS = {  # (arm, last label) -> four Score tokens; judge-b rates the control'
 
 
 def rating(path, clone, judge):
-    tokens = TOKENS[(clone["arm"], clone["labels"][-1])]
+    tokens = TOKENS[(clone["arm"], "upstream" if clone["labels"][-1].endswith("upstream") else clone["labels"][-1])]
     if judge == "judge-b" and clone["arm"] == "direct_task":
         tokens = ("S2",) + tokens[1:]
     return dict(zip(("root_cause", "scope", "generality", "layering"), tokens), clone=path, reason="r")
@@ -367,3 +367,117 @@ def test_reviewed_change_hidden_paired_gain_is_the_final_minus_the_first_hidden_
     values = summarize.run_values("reviewed_change", None, {"first": 3, "final": 5}, {"first": 0.25, "final": 0.75})
     rows = [{"arm": "reviewed_change", "calls": 4, "wall_clock_sec": 60, **values}]
     assert summarize.measures(rows)["reviewed_change.hidden_paired_gain_mean"] == 0.5
+
+
+REFERENCE_RUBRIC = {"workflow": "score_ref.orc", "entry": "score_ref::score",
+                    "criteria": ["completeness", "correctness", "scope", "layering"], "reference": "upstream"}
+
+
+@pytest.fixture
+def reference_pool(world):
+    frozen = json.loads(world.criterion.read_text()) | {"rubric": REFERENCE_RUBRIC}
+    world.criterion.write_text(json.dumps(frozen))
+    upstream = world.task / "anchors/upstream.diff"
+    upstream.rename(world.task / "anchors/task-upstream.diff")
+    run, _ = drive(world, "direct_task", [edit("$PWD", "a + b")], True)
+    out = world.outside / "reference-pool"
+    mapping = pooling.pool(world.task, world.criterion, out, ["judge-a", "judge-b"], [run])
+    return out, mapping
+
+
+def reference_scores(out, mapping, world):
+    def rename(value):
+        for batch in value:
+            for row in batch:
+                row["completeness"] = row.pop("root_cause")
+                row["correctness"] = row.pop("generality")
+    for judge in mapping["judges"]:
+        score(out, judge, mapping, world.tmp / "home", tamper=rename)
+
+
+def test_pool_with_a_reference_rubric_adds_one_reference_clone_per_batch_outside_the_blind_list(reference_pool):
+    out, mapping = reference_pool
+    assert len(mapping["references"]) == len(mapping["batches"]) == 1
+    for judge in mapping["judges"]:
+        inputs = repos.load(out / "records" / f"score-inputs-{judge}.json")
+        for batch, ids, cid in zip(inputs["batches"], mapping["batches"], mapping["references"]):
+            assert mapping["clones"][cid]["arm"] == "reference"
+            assert cid not in ids
+            assert batch["reference"] == str(out / "clones" / cid)
+            assert batch["reference"] not in batch["clones"]
+        command = (out / "records" / f"score-{judge}.sh").read_text()
+        assert "score_ref.orc" in command and "--entry-workflow score_ref::score" in command
+
+
+def test_summarize_joins_the_pools_criteria_names_and_reports_them(reference_pool, world):
+    out, mapping = reference_pool
+    reference_scores(out, mapping, world)
+    results = summarize.summarize(out, world.criterion)
+    assert set(results["agreement"]) == set(REFERENCE_RUBRIC["criteria"])
+    assert all(0 <= row["score"] <= 8 for row in results["clones"].values() if row["arm"] != "reference")
+    assert any(row["total"] == 8 for row in results["anchors"])
+
+
+def test_summarize_skips_reference_clones_everywhere(reference_pool, world, monkeypatch):
+    out, mapping = reference_pool
+    (world.task / "hidden").mkdir()
+    (world.task / "hidden_tests.txt").write_text("tests/hidden.py::test_add\n")
+    checked = []
+    monkeypatch.setattr(summarize, "hidden_failures", lambda clone, *args: checked.append(clone.name) or [])
+    reference_scores(out, mapping, world)
+    results = summarize.summarize(out, world.criterion)
+    for cid in mapping["references"]:
+        row = results["clones"][cid]
+        assert (row["score"], row["hidden"], row["ratings"]) == (None, None, {})
+        assert cid not in checked
+        assert all(cid not in run["scores"] for run in results["runs"])
+        assert all(anchor["anchor"] != "reference" for anchor in results["anchors"])
+
+
+def test_summarize_refuses_a_criterion_whose_rubric_differs_from_the_pools(pooled, world):
+    world.criterion.write_text(json.dumps(repos.load(world.criterion) | {"rubric": REFERENCE_RUBRIC}))
+    with pytest.raises(SystemExit, match="rubric"):
+        summarize.summarize(pooled.out, world.criterion)
+
+
+def test_summarize_reads_a_mapping_without_rubric_as_the_historical_rubric(pooled, world):
+    pooled.mapping.pop("rubric", None)
+    repos.dump(pooled.out / "records/mapping.json", pooled.mapping)
+    for judge in pooled.mapping["judges"]:
+        score(pooled.out, judge, pooled.mapping, world.tmp / "home")
+    assert set(summarize.summarize(pooled.out, world.criterion)["agreement"]) == set(summarize.CRITERIA)
+
+
+def test_pool_batches_carry_every_package_anchor_and_stay_within_ten(world):
+    from experiments.orc_structural_search import scoring
+    (world.task / "anchors/upstream.diff").rename(world.task / "anchors/task-upstream.diff")
+    patch = (world.task / "anchors/symptom.diff").read_bytes()
+    for name in ("partial", "mutant"):
+        (world.task / f"anchors/{name}.diff").write_bytes(patch)
+    world.criterion.write_text(json.dumps(repos.load(world.criterion) | {"rubric": REFERENCE_RUBRIC}))
+    records, record = drive(world, "direct_task", [edit("$PWD", "a + b")], True)
+    ref = repos.load(records / "record.json")
+    finals = [(str(records), ref, ["final"])] * 11
+    capacity = scoring.fillers_per_batch(world.task, REFERENCE_RUBRIC)
+    assert capacity == 5
+    batches = scoring.split_batches(finals, key=lambda row: row[0], size=capacity)
+    mapping = pooling.write_pool(world.task, world.criterion, world.outside / "four-anchors", ["judge-a"],
+                                 ref, {}, batches)
+    assert len(mapping["batches"]) == 3
+    for batch in mapping["batches"]:
+        assert sum(mapping["clones"][cid]["arm"] == "anchor" for cid in batch) == 4
+        assert len(batch) + 1 <= 10
+    with pytest.raises(SystemExit, match="ten|10"):
+        pooling.write_pool(world.task, world.criterion, world.outside / "overflow", ["judge-a"], ref, {}, [finals[:6]])
+    assert not (world.outside / "overflow").exists()
+
+
+def test_summarize_refuses_a_reference_bound_to_another_clone(reference_pool, world):
+    out, mapping = reference_pool
+    reference_scores(out, mapping, world)
+    run = out / "judges" / mapping["judges"]["judge-a"]["dir"] / "state/r1/run.json"
+    header = repos.load(run)
+    header["bound_inputs"]["batches"][0]["reference"] = str(out / "clones" / mapping["batches"][0][0])
+    repos.dump(run, header)
+    with pytest.raises(SystemExit, match="reference"):
+        summarize.summarize(out, world.criterion)

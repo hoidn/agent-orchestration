@@ -337,6 +337,29 @@ ignored), a terminal whose `calls` (the provider calls it launched) differs from
 and a completed run without that patch. The structural search's I3 parent
 (`experiments/orc_structural_search/three_arm/python/direct.py`) writes such a terminal.
 
+## Criterion-selected scoring
+
+Without `rubric`, the harness uses the historical `score.orc` criteria (`root_cause`,
+`scope`, `generality`, `layering`). A criterion can select the reference workflow:
+
+```json
+{"rubric": {"workflow": "score_ref.orc", "entry": "score_ref::score",
+            "criteria": ["completeness", "correctness", "scope", "layering"],
+            "reference": "upstream"}}
+```
+
+Each batch then includes a disclosed reference built from
+`anchors/<task-name>-upstream.diff`, alongside every blind package anchor. The
+reference has its own random clone ID, is bound separately from the blind clone
+list, and receives no rating, run value or hidden-acceptance result. All repositories
+count toward the ten-repository batch limit. `mapping.json` records the rubric and
+reference IDs; summarization rejects a different criterion rubric or bound reference.
+Historical mappings without `rubric` retain the historical criteria.
+
+Generic comparison pools support this route. Structural quality operations retain
+V1 qualification and reject a selected reference rubric; generic calibration does
+not grant structural quality authority.
+
 ## Measures
 
 `summarize.py` scores a clone as the judges' mean total of the four criteria (0 to 8). A run's

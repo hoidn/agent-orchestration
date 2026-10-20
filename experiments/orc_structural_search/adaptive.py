@@ -58,7 +58,8 @@ from experiments.orc_structural_search.mode1 import (archive_seed, seed_config)
 from experiments.orc_structural_search.judging import VALIDATION, JudgeIncident, judge_generation
 from experiments.orc_structural_search.readout import readout
 from experiments.orc_structural_search.records import UNAVAILABLE, append_record, read_records
-from experiments.orc_structural_search.scoring import ANCHORS_PER_BATCH, BATCH_CLONES, DIRECT, primary_value
+from experiments.compare.pool import rubric
+from experiments.orc_structural_search.scoring import ANCHORS_PER_BATCH, BATCH_CLONES, DIRECT, fillers_per_batch, primary_value
 from experiments.orc_structural_search.scoring_phase2 import archive_files, reference
 from experiments.orc_structural_search.sites import eligible_sites, select_site, site_manifest
 
@@ -160,11 +161,13 @@ def check_budget(evidence_root: Path, planned: int, cap: int, what: str) -> None
                                      f"{planned} planned for it exceed the call cap {cap}")
 
 
-def planned_judged(calls: Sequence[int], tasks: int, replicates: int, judges: int) -> int:
+def planned_judged(calls: Sequence[int], tasks: int, replicates: int, judges: int, *,
+                   capacities: Sequence[int] | None = None) -> int:
     """The planned calls of evaluating jobs with planned maxima `calls` `replicates` times on each of `tasks`
     tasks, and of their judges (one call per judge per batch of each task's pool)."""
-    batches = math.ceil(len(calls) * replicates / (BATCH_CLONES - ANCHORS_PER_BATCH))
-    return tasks * (replicates * sum(calls) + batches * judges)
+    capacities = capacities if capacities is not None else [BATCH_CLONES - ANCHORS_PER_BATCH] * tasks
+    batches = sum(math.ceil(len(calls) * replicates / capacity) for capacity in capacities)
+    return tasks * replicates * sum(calls) + batches * judges
 
 
 def evaluate_and_judge(jobs: Sequence[tuple[Path, ExperimentConfig, Mapping]], generation: int, tasks: Sequence[Path],
@@ -175,7 +178,8 @@ def evaluate_and_judge(jobs: Sequence[tuple[Path, ExperimentConfig, Mapping]], g
     if not jobs:
         return []
     planned = planned_judged([ledger.planned_calls(root, config, runtime=launch["runtime"]) for root, config, _ in jobs], len(tasks), replicates,
-                             len(judge["judges"]))
+                             len(judge["judges"]),
+                             capacities=[fillers_per_batch(task, rubric(judge["criterion"])) for task in tasks])
     check_budget(launch["evidence_root"], planned, launch["call_cap"], f"generation {generation}'s evaluations")
     evaluate_all(jobs, tasks=tasks, replicates=replicates, concurrency=launch["concurrency"],
                  holdouts=launch.get("holdouts", ()), **{key: launch[key] for key in EVALUATION_KEYS})
@@ -212,7 +216,8 @@ def generation(n: int, archive: list[dict], config: ExperimentConfig, *, rng: ra
     judge incident ends it)."""
     largest = max(ledger.planned_calls(Path(e["candidate_root"]), lineage_config(e, config), runtime=launch["runtime"]) for e in archive)
     check_budget(launch["evidence_root"], len(interfaces) + planned_judged(
-        [largest] * len(interfaces), len(adaptive_tasks), 1, len(judge["judges"])), launch["call_cap"],
+        [largest] * len(interfaces), len(adaptive_tasks), 1, len(judge["judges"]),
+        capacities=[fillers_per_batch(task, rubric(judge["criterion"])) for task in adaptive_tasks]), launch["call_cap"],
         f"generation {n}'s episodes")
     children: dict[str, tuple[Mapping, Mapping]] = {}
     for k, interface in enumerate(interfaces):

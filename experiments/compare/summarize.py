@@ -29,9 +29,11 @@ from pathlib import Path
 from statistics import mean
 
 try:
+    from .pool import DEFAULT_RUBRIC, rubric
     from .prepare import paired_calls, read_memo  # imported as experiments.compare.summarize
     from .scan import model_policy
 except ImportError:  # run as a script
+    from pool import DEFAULT_RUBRIC, rubric
     from prepare import paired_calls, read_memo
     from scan import model_policy
 
@@ -39,6 +41,10 @@ SCORES = {"S0": 0, "S1": 1, "S2": 2}  # score.orc's Score enumeration
 CRITERIA = ("root_cause", "scope", "generality", "layering")
 OPS = {">=": operator.ge, "<=": operator.le, ">": operator.gt, "<": operator.lt}
 NODE_TIMEOUT_SEC = 1800  # a hidden test that hangs counts as failed
+
+
+def criteria_of(mapping):
+    return tuple(mapping.get("rubric", DEFAULT_RUBRIC)["criteria"])
 
 
 def judge_exclusion(pool, judge):
@@ -79,12 +85,14 @@ def scoring_run(pool, judge, info, sha):
     return run, bound["batches"], rows[-1]["value"]
 
 
-def join(run, batches, value, members):
+def join(run, batches, value, members, criteria=CRITERIA, references=()):
     """clone id -> rating with integer scores, joined by position; refuse any batch that does not line up."""
     if len(batches) != len(members) or len(value) != len(members):
         raise SystemExit(f"{run}: {len(batches)} batches bound, {len(value)} rated, {len(members)} pooled")
     joined = {}
     for index, (batch, ratings, ids) in enumerate(zip(batches, value, members)):
+        if references and batch.get("reference") != references[index]:
+            raise SystemExit(f"{run}: batch {index} binds another reference than the pool")
         listed = batch["clones"]
         if sorted(Path(c).name for c in listed) != sorted(ids):
             raise SystemExit(f"{run}: batch {index} lists other clones than the pool's batch {index}")
@@ -94,7 +102,7 @@ def join(run, batches, value, members):
             if rating["clone"] not in (path, Path(path).name):
                 raise SystemExit(f"{run}: batch {index} position {position} copies back {rating['clone']!r} "
                                  f"but lists {path}")
-            joined[Path(path).name] = {c: SCORES[rating[c]] for c in CRITERIA} | {"reason": rating["reason"]}
+            joined[Path(path).name] = {c: SCORES[rating[c]] for c in criteria} | {"reason": rating["reason"]}
     return joined
 
 
@@ -136,6 +144,8 @@ def run_values(arm, selected, scores, hidden):
 def run_rows(mapping, clone_scores, clone_hidden):
     labels = {}
     for cid, clone in mapping["clones"].items():
+        if clone["arm"] == "reference":
+            continue
         for label in clone["labels"]:
             labels.setdefault(clone["run"], {})[label] = cid
     rows = []
@@ -182,14 +192,14 @@ def measures(rows):
                 if f"{arm}.{key}" in m and f"direct_task.{key}" in m}
 
 
-def agreement(ratings):
+def agreement(ratings, criteria=CRITERIA):
     """Exact agreement of all judges per criterion, over the clones."""
     judges = sorted(ratings)
     if len(judges) < 2:
         return {}
     ids = sorted(ratings[judges[0]])
     return {c: {"agree": sum(len({ratings[j][i][c] for j in judges}) == 1 for i in ids), "of": len(ids)}
-            for c in CRITERIA}
+            for c in criteria}
 
 
 def anchor_scores(mapping, totals):
@@ -241,7 +251,8 @@ def markdown(results):
 def judged_ratings(pool, mapping, sha):
     """(left-out judges with reasons, ratings by judge of every other listed judge)."""
     excluded = {judge: reason for judge in mapping["judges"] if (reason := judge_exclusion(pool, judge))}
-    ratings = {judge: join(*scoring_run(pool, judge, info, sha), mapping["batches"])
+    references = [str(pool / "clones" / cid) for cid in mapping.get("references", [])]
+    ratings = {judge: join(*scoring_run(pool, judge, info, sha), mapping["batches"], criteria_of(mapping), references)
                for judge, info in mapping["judges"].items() if judge not in excluded}
     if not ratings:
         raise SystemExit(f"every judge is excluded: {excluded}")
@@ -254,7 +265,8 @@ def hidden_acceptance(pool, mapping, python):
     if not ((task / "hidden").is_dir() and (task / "hidden_tests.txt").is_file()):
         return {}, {}
     nodes = [line.strip() for line in (task / "hidden_tests.txt").read_text().splitlines() if line.strip()]
-    failed = {cid: hidden_failures(pool / "clones" / cid, task, nodes, python) for cid in mapping["clones"]}
+    failed = {cid: hidden_failures(pool / "clones" / cid, task, nodes, python) for cid, clone in mapping["clones"].items()
+              if clone["arm"] != "reference"}
     return {cid: (len(nodes) - len(f)) / len(nodes) for cid, f in failed.items()}, failed
 
 
@@ -266,20 +278,24 @@ def summarize(pool, criterion, python=sys.executable):
     if sorted(frozen["judges"]) != sorted(mapping["judges"]):
         raise SystemExit(f"the criterion names judges {sorted(frozen['judges'])} "
                          f"but the pool has {sorted(mapping['judges'])}")
+    if rubric(criterion) != mapping.get("rubric", DEFAULT_RUBRIC):
+        raise SystemExit("the criterion rubric differs from the pool rubric")
+    criteria = criteria_of(mapping)
     excluded, ratings = judged_ratings(pool, mapping, sha)
-    totals = {judge: {cid: sum(r[c] for c in CRITERIA) for cid, r in rated.items()} for judge, rated in ratings.items()}
-    clone_scores = {cid: mean(totals[judge][cid] for judge in totals) for cid in mapping["clones"]}
+    totals = {judge: {cid: sum(r[c] for c in criteria) for cid, r in rated.items()} for judge, rated in ratings.items()}
+    clone_scores = {cid: mean(totals[judge][cid] for judge in totals) for cid, clone in mapping["clones"].items()
+                    if clone["arm"] != "reference"}
     clone_hidden, hidden_failed = hidden_acceptance(pool, mapping, python)
     rows = run_rows(mapping, clone_scores, clone_hidden)
     m = measures(rows)
     results = {
         "criterion_sha256": sha, "judges": sorted(ratings), "excluded_judges": excluded, "runs": rows,
         "measures": m,
-        "verdict": verdict(frozen, m), "agreement": agreement(ratings),
+        "verdict": verdict(frozen, m), "agreement": agreement(ratings, criteria),
         "anchors": anchor_scores(mapping, totals),
-        "clones": {cid: {**clone, "score": clone_scores[cid], "hidden": clone_hidden.get(cid),
+        "clones": {cid: {**clone, "score": clone_scores.get(cid), "hidden": clone_hidden.get(cid),
                          "hidden_failed": hidden_failed.get(cid),
-                         "ratings": {j: ratings[j][cid] for j in sorted(ratings)}}
+                         "ratings": {j: ratings[j][cid] for j in sorted(ratings) if cid in ratings[j]}}
                    for cid, clone in mapping["clones"].items()},
     }
     (pool / "records" / "results.json").write_text(json.dumps(results, indent=2) + "\n")
