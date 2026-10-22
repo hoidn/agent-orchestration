@@ -119,6 +119,49 @@ bypass remains a stated detection boundary. Freeze a corrected runtime and
 concrete recovery packet before seeking any additional spend; a fresh complete
 pilot needs ten sessions, exceeding the original cap after this incident.
 
+## Proposed recovery (TD2; budget approval pending)
+
+The correction is integrated on main in `bda0f693`; documentation routing follows
+in `5d839b19`. A clean detached runtime at
+`/home/ollie/sc-runtime-difficulty-recovery` uses `5d839b19236bc821fb08d04d7e4609a4da935eae`.
+The prospective criterion is
+`/home/ollie/sc-evidence/freeze-difficulty-recovery-20261022/criterion.json`, SHA256
+`488196790454b9a1367a3b44acc55b4b1dab2c6ee0bdb46d45827bf5cc21215a`.
+
+Tasks, seeded repositories, generation/judging bindings, rubric, two-point gap
+and exact observation counts are unchanged. TD2 uses fresh repositories and
+hides the interrupted TD work root from both coders and judges. Its operator
+counts scoped Claude session starts even without assistant responses and retains
+model-policy violations as non-clearable evidence.
+
+The proposed budget is **ten new sessions plus six incident starts, total cap
+sixteen**: an increase of six over the original cap. This is a proposal, not
+permission to spend. A recorded owner answer authorizing that budget must bind
+the criterion and generation packet before dispatch; the same answer also covers
+the later judging packet. No additional judge approval question is required.
+There are no automatic retries or replacements. An absent or mismatched approval
+record stops execution before any worker starts.
+
+Offline verification passed 202 affected tests with `-q -n 16 --dist=worksteal`
+in tmux, four public CLI smoke checks and 15 recovery-operator self-checks.
+Independent code, criterion and operator reviews passed. Full-suite testing was
+not repeated; the frozen task bytes and prior evidence remain unchanged.
+
+All eight prepared generation commands passed public dry runs. Eight additional
+production-shim checks used only a fake Codex executable with real HOME: all 127
+mask roots, installed Claude/auth isolation, credential scrubbing and interactive
+shell guard resolution passed. The prepared run records and indexes remain
+unchanged, with zero provider dispatches. The diagnostic PATH deliberately
+excludes real Codex fallback and does not qualify arbitrary PATH/API bypass.
+
+The frozen generation packet is
+`/home/ollie/sc-evidence/freeze-difficulty-recovery-20261022/generation-packet.json`,
+SHA256 `2eb21b9248f40bc05ebab7f42a5c35ecc30d1373a56b57110c10792259b9e4cd`.
+It binds 849 files, including the correction, operator, diagnostic helper and
+verification evidence. The preservation manifest covers 455 historical files.
+The preflight reports zero new dispatches and six historical starts. Owner
+approval remains pending; no approval record or paid launch exists.
+
 ## Superseded evaluator-control exercise (AS)
 
 The earlier revision of this plan selected the wrong calibration objective.

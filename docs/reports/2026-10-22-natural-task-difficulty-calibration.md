@@ -61,7 +61,9 @@ changes. Recovery must also count every scoped Claude CLI start, including calls
 without an assistant response. Offline verification passed 202 affected tests with
 `-q -n 16 --dist=worksteal` in tmux and
 four public CLI smoke checks, using fake providers. The original runtime and
-criterion remain unchanged; recovery uses a new snapshot and packet.
+criterion remain unchanged. The correction is integrated in `bda0f693`; the
+[proposed recovery](../plans/2026-10-22-simple-evaluation-calibration-plan.md#proposed-recovery-td2-budget-approval-pending)
+uses a new snapshot and packet, with additional budget approval still pending.
 
 ## Evidence and limits
 
