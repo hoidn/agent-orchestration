@@ -515,9 +515,10 @@ records an inconclusive pilot: the upstream anchor scored at or below every
 candidate, and one anchor pair was inverted. Phase 2 is not selected, and a
 better-targeted experiment needs a new owner selection. The
 [measurement calibration plan](2026-10-19-orc-structural-search-measurement-plan.md)
-owns evaluator calibration on known controls and measurement of a task family
-whose agent-visible check fails sometimes. Generic reference
-calibration and the current Sonnet/Terra guard are implemented, and the real
+preserves evaluator-control exercises and now selects natural weak/strong
+task-difficulty calibration under the [corrected plan](2026-10-22-simple-evaluation-calibration-plan.md).
+Artificial defects and visible-check failure bands do not select this pilot.
+Generic scoring and exact model guards are implemented, and the real
 controller matrix has passed. Offline preparation and final verification are complete;
 implementation I and criterion freeze F passed independent review. Step A's approved
 8 calls completed within cap 10; A failed calibration (RPI spread; PRR passed).
@@ -529,7 +530,10 @@ pending-only recovery completed two new sessions without native children;
 have no pending effects and do not transfer. B/B2/C remain unrun and separately
 gated; no A3 is selected. I_A2/F2 and the AT freeze remain unchanged. The
 [completion report](../reports/2026-10-20-orc-structural-search-measurement-at-completion.md)
-records the final result and incomplete total cost. No ORC benefit or live
+records that historical result and incomplete total cost. The corrected pilot
+selects eight fresh direct-task generations (Luna high versus Terra high), then
+two blind Terra-high judges; cap ten, no Claude or hidden tests. Its two-task
+mean-gap criterion is frozen before execution. No ORC benefit or live
 `module` selection follows. The measurement gate precedes any
 live `module` arm
 ([module condition](2026-10-19-orc-structural-search-module-rewrite-plan.md#gate-for-a-live-module-arm)).

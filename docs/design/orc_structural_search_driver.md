@@ -33,10 +33,13 @@
   [measurement plan](../plans/2026-10-19-orc-structural-search-measurement-plan.md)
   records completed and verified offline calibration preparation with independent
   I/F freeze review and completed failed Step A/A′ calibration. The
-  [simple evaluation plan](../plans/2026-10-22-simple-evaluation-plan.md) selects
-  offline simplification only; no new live measure is accepted or paid call
-  selected. The continuing no-Claude experiment restriction has no assumed
-  expiry. Historical AT failure and all separate stage budget gates remain.
+  [simple evaluation plan](../plans/2026-10-22-simple-evaluation-plan.md) records
+  offline evaluator simplification. The selected
+  [task-difficulty pilot](../plans/2026-10-22-simple-evaluation-calibration-plan.md)
+  compares fresh Luna-high and Terra-high solutions without artificial defects;
+  ten sessions are authorized, but no passing result is yet established. The
+  continuing no-Claude restriction has no assumed expiry. Historical AT failure
+  and separate campaign/stage budget gates remain.
   No live structural-search successor study or campaign budget is selected. Fixed-workflow comparisons use
   [`experiments/compare/`](../../experiments/compare/README.md) today.
 - **Kind:** experiment-side apparatus contract: controller modes, proposal
@@ -606,10 +609,13 @@ different correct submissions and rejecting a broken one.
 
 The generic comparator supports criterion-selected reference and absolute
 rubrics. The [harness contract](orc_effectiveness_comparison_harness.md#decision)
-owns control selection and calibration. The [simple evaluation plan](../plans/2026-10-22-simple-evaluation-plan.md)
-selects offline simplification to `control-means-v1`; implementation verification
-is tracked there. Historical AT remains completed FAIL_NOT_QUALIFIED under its
-original criterion. This selects no new paid experiment or passing measure.
+distinguishes natural task-difficulty calibration from evaluator control checks.
+The [simple evaluation plan](../plans/2026-10-22-simple-evaluation-plan.md) records
+control-check simplification; the [corrected difficulty plan](../plans/2026-10-22-simple-evaluation-calibration-plan.md)
+selects fresh weak/strong direct solutions and a predeclared mean gap. Historical
+AT remains completed FAIL_NOT_QUALIFIED under its original control criterion.
+A task-difficulty result does not automatically qualify the quality evaluator. Application
+of that pilot to C1 qualification remains a separate integration decision.
 Explicit calibration skips new per-node hidden acceptance, retaining existing
 construction diagnostics only.
 
@@ -626,9 +632,10 @@ step budgets. Earlier unused recovery allowance does not transfer; the
 preserves the completed historical decisions. Fresh mode-2 adaptive launches
 remain unsupported.
 
-Every new experiment role uses the exact Sonnet/Terra cap: `claude-sonnet-5-5`
-or `gpt-5.6-terra`, including judges, controls, diagnosis and nested guarded
-calls. The measurement-specific Step-C seed is an external frozen copy with
+Every new experiment role obeys its frozen exact-model binding. The current
+natural task-difficulty pilot uses `gpt-5.6-luna` and `gpt-5.6-terra` high;
+Claude, Fable, higher models and native delegation remain forbidden. The generic
+harness retains its default Terra policy and requires explicit per-run Luna opt-in. The measurement-specific Step-C seed is an external frozen copy with
 Sonnet-medium coder and Terra-high diagnosis; historical source retains its Sol
 policy and is not the current launch input. Model-cap enforcement and preparation
 do not establish family qualification, calibration or quality improvement.
