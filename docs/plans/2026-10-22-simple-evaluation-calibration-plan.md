@@ -166,6 +166,34 @@ Generation began at 22:05 UTC with the two RPI Luna-high attempts. Outcomes and
 all quality judgments remain pending; no further approval is needed for the two
 judging sessions within this same cap.
 
+At 22:21 UTC both original TD2 RPI Luna runs completed with exit zero and one
+verified Luna-high receipt each. Before dispatching Terra, the operator stopped
+because git worktree enumeration added `durable-host-input` and `python-api`
+under the already-masked main checkout. No roots disappeared, no protection was
+lost and no third session started. Eight zero-provider Bubblewrap checks using
+the exact original mask lists confirm both new paths were already hidden
+(`TD2-20261022/mask-roots-change.json`).
+
+Preserve the completed attempts, original operator, approval and packet. A new
+continuation operator may accept only added roots already covered by frozen
+masks outside the rebound candidate tree; genuine protection changes still stop.
+It must verify the successful two-run prefix and launch only the six untouched
+generation attempts, followed by the two already-authorized judges. This is no
+retry, replacement, criterion change or budget increase. Bind the continuation
+packet to the same owner approval before dispatch.
+
+The bounded continuation passed 18 self-checks, public prefix validation and
+independent source/packet review. The original 849 bound files remain unchanged;
+the new 822-file packet is
+`freeze-difficulty-recovery-20261022/generation-continuation-packet.json`, SHA256
+`aee3ed157a887b48b2ee8c8b7928fe95feaa14909aca51d194f434a1d40bfff2`.
+`TD2-20261022/owner-approval-continuation-generation.json` binds the same owner
+answer and original approval hash, without increasing the cap. Both completed
+Luna observations were publicly adjudicated as clear after an independent audit
+of all 420 structured actions: scan hits concerned generic tmux skill examples
+or each run's own private temporary sockets. This is an integrity decision, not
+a quality score. The continuation is running the original remaining units.
+
 ## Superseded evaluator-control exercise (AS)
 
 The earlier revision of this plan selected the wrong calibration objective.
