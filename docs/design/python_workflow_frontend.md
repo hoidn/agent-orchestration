@@ -103,6 +103,10 @@ coercion or schema validator. Callable parameter and return annotations are
 required, with `returns=T` as an explicit return annotation alternative;
 conflicting alternatives are errors.
 
+Optional annotations cover inputs and produced values. Authored `None` literals
+are refused because the current source language has no null constructor; the
+frontend does not synthesize a helper to manufacture one.
+
 Enum **values**, not Python member names or `str(member)`, are emitted wire
 tokens. Values must be unique strings admitted as `.orc` enum identifiers;
 aliases, integer values and invalid tokens are rejected. `Verdict.ACCEPT`
@@ -117,7 +121,9 @@ produce `python_variant_signature_unsupported`. Use `Attempt` and match inside
 the helper, or accept the case's individual fields. No hidden payload records
 or implicit case-to-record conversion are introduced.
 
-Constructors accept concrete and symbolic field values. Union construction is
+Symbolic protocol methods and private trace metadata names are reserved fields;
+ordinary domain names such as `kind`, `args`, `annotation`, and `site` remain
+available. Constructors accept concrete and symbolic field values. Union construction is
 resolved against its expected annotated/branch type; unresolved or conflicting
 union ownership is an error. Record fields are readable on symbolic values;
 union-case fields are readable only on the corresponding `match` binder.
@@ -215,8 +221,9 @@ targets; the compiler's ordinary default is `auto`, not inline. Imported `.orc`
 procedures retain their own lowering declaration.
 
 Supported operator overloads map only to existing operators: numeric arithmetic
-and ordering, supported equality, and field/index projections admitted by the
-compiler. Explicit helpers cover boolean combination, list length and string
+and ordering, supported equality, and field projections admitted by the
+compiler. Generic list indexing is refused because it has no existing source
+operator. Explicit helpers cover boolean combination, list length and string
 construction: `all_of`, `any_of`, `not_`, `length`, and `concat`. Boolean helpers
 with potentially effectful operands take thunks to preserve short-circuiting.
 No float equality, implicit mixed-number conversion or new pure operator is
