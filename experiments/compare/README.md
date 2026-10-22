@@ -19,7 +19,7 @@ criteria and captured recipes confer no fresh permission.
 | `repos.py`, `scan.py`, `pool.py` | candidate builds and patches; the contamination scan; the blind pool and its check |
 | `shim/claude`, `shim/codex` | first on `PATH` during a run and a judge's scoring; run the real CLI under bubblewrap (private `/tmp`, `/dev/shm` and process list; empty `/var/tmp`) with the bookkeeping variables stripped; record `calls/<n>/` |
 | `control/direct_task.orc` | the control: the library `direct_task` plus `:timeout-sec 14400`; module `control/direct_task` |
-| `control/review_once.orc` | one review of a given patch (difficulty calibration): `reviewed_change`'s `review-prompt`, `Review` and `ReviewReport`, copied, and its reviewer's binding; module `control/review_once` |
+| `control/review_once.orc` | one review of a given patch (historical blocker-based difficulty recipe): `reviewed_change`'s `review-prompt`, `Review` and `ReviewReport`, copied, and its reviewer's binding; module `control/review_once` |
 | `control/direct_task.providers.json`, `control/review_once.providers.json`, `providers/design_review_execute.json` | bindings for the control, the review-only arm and the E-B treatment |
 | `score.orc`, `score.providers.json`, `providers/score_codex.json` | blind side-by-side ratings; a Claude and an OpenAI judge binding |
 | `summarize.py` | `results.json` and `results.md`: runs, measures, verdict, agreement, anchors, scan verdicts |
@@ -106,8 +106,10 @@ PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
 ```
 
 Model policy (owner, 2026-10-19): all experiment workflows use mid/low-tier models at or below
-Sonnet/Terra, including judges, reviewers, coders and nested agents. The current measurement admits
-exactly `claude-sonnet-5-5` and `gpt-5.6-terra`; Fable remains forbidden. Frozen high-model arms and
+Sonnet/Terra, including judges, reviewers and coders. The selected natural-difficulty pilot
+binds `gpt-5.6-luna` and `gpt-5.6-terra` high, and prohibits Claude and native delegation.
+The generic guard retains Sonnet for legacy Claude callers and Terra by default for Codex;
+explicit per-run Codex bindings may select Luna. Fable remains forbidden. Frozen high-model arms and
 criteria preserve historical evidence and refuse new guarded launches until separately amended.
 Changing a model does not authorize spend or establish calibration for a new model pair.
 

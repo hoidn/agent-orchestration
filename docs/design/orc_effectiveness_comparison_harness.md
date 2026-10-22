@@ -475,9 +475,11 @@ The criterion names which measure is primary.
 
 ### Experiment Model Policy
 
-**Current policy (owner, 2026-10-19).** Every experimental role and nested
-instrumented call is capped at Sonnet/Terra; the admitted exact IDs are
-`claude-sonnet-5-5` and `gpt-5.6-terra`. Fable, higher models and unknown IDs refuse.
+**Current policy.** Every experimental role is capped at Sonnet/Terra. The
+selected natural-difficulty pilot binds exact `gpt-5.6-luna` and `gpt-5.6-terra`
+high and forbids Claude and native delegation. The generic guard retains
+`claude-sonnet-5-5` for legacy callers, defaults Codex to Terra, and admits Luna
+only through an explicit per-run binding. Fable, higher models and unknown IDs refuse.
 Both guarded CLI names enforce the cap; Claude native agents are pinned to Sonnet,
 Codex native multiagent features and independent model-dispatch routes refuse.
 Actual forbidden Claude/Codex session metadata produces non-clearable scan hits.

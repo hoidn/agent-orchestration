@@ -3,15 +3,24 @@
 Role: selected offline implementation plan. Owner instruction: “fix these issues.
 simplify the evaluation, don't complicate it” (2026-10-22).
 
+## Scope after the owner's task-difficulty correction
+
+This plan records evaluator-control implementation and verification. It does not
+select the current calibration experiment or qualify task difficulty. The
+[natural task-difficulty plan](2026-10-22-simple-evaluation-calibration-plan.md)
+supersedes that selection with fresh weak/strong solutions, without deliberate
+flaws. The control-check rules below remain available only for their stated
+evaluator purpose and historical evidence.
+
 ## Goal and accepted approach
 
-Replace prospective calibration's several brittle gates with one control-separation
+Replace evaluator-control calibration's several brittle gates with one control-separation
 check. Keep the four independent 0–2 rubric components and existing 0–8 Rating
 shape. Completeness and correctness concern implemented required behavior;
 correctness earns no credit when none is implemented. Scope and layering are
 independent: missing behavior does not automatically zero them.
 
-New criteria select exactly
+New evaluator-control criteria select exactly
 `calibration: {"rule": "control-means-v1", "margin": 1, "error_rate": 0}`
 and exactly three roles: `upstream`, `stub`, `mutant`. For each task and each
 declared judge, include every declared batch and require
