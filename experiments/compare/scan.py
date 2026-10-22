@@ -19,7 +19,7 @@ seven characters; any mention of other sessions' transcripts or tmux sockets (.c
 .codex/sessions, .codex/history, claude-tmux-sockets), which stay readable on disk (R35). Paths
 match as typed: absolute, or under ~, $HOME or ${HOME} (R23).
 
-Model policy (owner, 2026-10-19): only the exact current Sonnet/Terra IDs are admitted. Read actual
+Model policy: Sonnet/Terra remain the defaults; an explicitly bound Codex run may use Luna. Read actual
 Claude assistant message.model and Codex turn_context.model metadata, never printed model names.
 Fable and every other forbidden/unknown model are non-clearable policy hits. Standard library only.
 """
@@ -31,6 +31,7 @@ from pathlib import Path
 ARMS = "best_of_n|reviewed_change|design_review_execute|direct_task"
 FABLE = "Fable model"
 FORBIDDEN_MODEL = "Forbidden model"
+CODEX_MODELS = ("gpt-5.6-terra", "gpt-5.6-luna")
 JUDGE_TESTS = r"\bpytest\b|\bdev_check(?:\.py)?\b"
 BOUNDARY = r"(?![\w.-])"  # a path ends here: what follows is not part of its last component
 POOL_FILES = r"records/(?:mapping\.json|patches/|score-inputs-|(?:score|resume)-\S*\.sh|results\.(?:json|md)|judges/)"
@@ -83,7 +84,7 @@ def model_policy(hits):
     """Policy violations exclude a run or judge regardless of an operator verdict."""
     violations = [hit for hit in hits if hit["pattern"] in (FABLE, FORBIDDEN_MODEL)]
     return (f"{violations[0]['pattern']} used in {len(violations)} model record(s): "
-            "experiment calls are limited to Sonnet/Terra; Fable is forbidden") if violations else None
+            "answering model violates the frozen run policy; Fable is forbidden") if violations else None
 
 
 def refuse_clearing(verdict, hits, subject):
@@ -153,7 +154,9 @@ def siblings(tree):
     return sorted(p.name for p in Path(tree).parent.iterdir() if p.name != Path(tree).name)
 
 
-def find_hits(calls_root, tree, since, home, compiled):
+def find_hits(calls_root, tree, since, home, compiled, *, expected_codex_model="gpt-5.6-terra"):
+    if expected_codex_model not in CODEX_MODELS:
+        raise SystemExit("expected Codex model must be an exact known Terra/Luna ID")
     hits = []
     for path, number, text in sources(Path(calls_root), Path(tree), since, Path(home)):
         for name, pattern in compiled.items():
@@ -162,5 +165,5 @@ def find_hits(calls_root, tree, since, home, compiled):
                 hits.append({"file": str(path), "line": number, "pattern": name,
                              "text": text[max(0, found.start() - 80):found.end() + 80]})
     hits.extend(model_hits(claude_sessions(Path(tree), Path(home)), "claude-sonnet-5-5"))
-    hits.extend(model_hits(codex_sessions(Path(tree), since, Path(home)), "gpt-5.6-terra"))
+    hits.extend(model_hits(codex_sessions(Path(tree), since, Path(home)), expected_codex_model))
     return hits

@@ -50,9 +50,22 @@ def control_means(criterion):
     return True
 
 
+def task_difficulty(criterion):
+    """Only an explicit natural-solution calibration may omit package controls."""
+    value = criterion if isinstance(criterion, Mapping) else load(criterion)
+    if value.get("calibration_kind") != "task_difficulty":
+        return False
+    if (value.get("purpose") != "calibration" or value.get("anchors") != []
+            or "calibration" in value or rubric(value)["reference"] is not None):
+        raise SystemExit("task-difficulty calibration requires no anchors, reference or calibration block")
+    return True
+
+
 def anchor_paths(task, criterion=None):
     """Prospective pools contain their three declared controls; legacy pools keep every anchor."""
     task = Path(task)
+    if criterion is not None and task_difficulty(criterion):
+        return []
     if criterion is None or not control_means(criterion):
         return sorted((task / "anchors").glob("*.diff"))
     value = criterion if isinstance(criterion, Mapping) else load(criterion)
@@ -112,7 +125,9 @@ def compose(usable):
     batches = [[(path, rec, [Path(c).name]) for c in rec["candidates"]] for path, rec in usable.get("best_of_n", [])]
     for k, control in enumerate(controls if batches else []):
         batches[k % len(batches)].append(control)
-    rest = [(path, rec, ["final"]) for path, rec in usable.get("design_review_execute", [])]
+    rest = [(path, rec, ["final"]) for arm, runs in usable.items()
+            if arm not in ("direct_task", "best_of_n", "reviewed_change") for path, rec in runs
+            if "final" in rec.get("patches", {})]
     rest += [] if batches else controls
     return batches + stage_batches(usable.get("reviewed_change", []), rng) + ([rest] if rest else [])
 
@@ -297,9 +312,12 @@ def write_score_inputs(out, mapping, intent, runtime):
                       "criterion_sha256": mapping["criterion_sha256"], "judge_model": judge})
         (home / "tmp").mkdir(parents=True)  # the judge's /tmp inside the shims' sandbox
         (out / "records" / "judges" / judge).mkdir(parents=True)
+        env = {"COMPARE_ROOT": out / "records" / "judges" / judge, "COMPARE_TREE": home,
+               "COMPARE_BASE": mapping["compare_base"]}
+        if judge in contamination.CODEX_MODELS:
+            env["COMPARE_CODEX_MODELS"] = judge
         command, resume = shim_commands(
-            home, runtime, {"COMPARE_ROOT": out / "records" / "judges" / judge, "COMPARE_TREE": home,
-                            "COMPARE_BASE": mapping["compare_base"]},
+            home, runtime, env,
             [str(runtime / "experiments/compare" / rule["workflow"]), "--entry-workflow", rule["entry"],
              "--source-root", str(runtime / "experiments/compare"), "--provider-externs-file", info["providers"],
              "--input-file", str(inputs)], home / "state")
@@ -321,7 +339,9 @@ def scan_judge(out, judge, solution, home=None):
         roots=[("this pool's records", out / "records"), *(("run records", root) for root in run_roots),
                *(("agents' trees", root) for root in agent_roots)])
     compiled["judge ran tests"] = contamination.JUDGE_TESTS
-    hits = contamination.find_hits(calls_root, workdir, mapping["created_at"], home, compiled)
+    expected = judge if judge in contamination.CODEX_MODELS else "gpt-5.6-terra"
+    hits = contamination.find_hits(calls_root, workdir, mapping["created_at"], home, compiled,
+                                   expected_codex_model=expected)
     dump(calls_root / "scan.json", {"solution": solution, "hits": hits, "verdict": None,
                                     "calls": len(list((calls_root / "calls").glob("*")))})
     for hit in hits:

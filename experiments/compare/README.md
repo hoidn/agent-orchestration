@@ -381,10 +381,29 @@ Generic comparison pools support these routes. Structural V1 quality operations 
 V1 qualification and reject a selected reference rubric; generic calibration does
 not grant structural quality authority.
 
-## Calibration from recorded patches
+## Natural task-difficulty calibration
 
-Freeze a criterion with `purpose: "calibration"`, the selected rubric, declared
-judges and per-task `anchors` before scoring. Prospective calibration is exactly:
+Use `purpose: "calibration"`, `calibration_kind: "task_difficulty"`, `anchors: []`,
+a reference-free rubric, declared `arms` and `runs_per_arm`. Generate fresh
+independent solutions with the same direct workflow and task inputs, varying only
+the frozen model binding. Use `prepare.run_arm` with the direct-task `ArmSpec`
+for each arm; custom final-patch arms enter the ordinary pool. Per-run
+`COMPARE_CODEX_MODELS` binds the exact Luna or Terra model; unset policy retains
+Terra only. Native delegation remains disabled.
+
+Pool every declared natural output under blind clone IDs, then use the ordinary
+scoring and summarization path. Summarization checks the complete run/clone/judge
+denominator before applying the criterion's primary mean-gap comparison. Missing,
+excluded or invalid evidence cannot produce PASS. There are no artificial
+controls, references or hidden-test runs. The selected
+[task-difficulty plan](../../docs/plans/2026-10-22-simple-evaluation-calibration-plan.md)
+freezes the models, sample counts, threshold and authorized spend. Apparatus tests
+alone establish no task-difficulty result or campaign permission.
+
+## Evaluator control checks from recorded patches
+
+Artificial-control checks assess the evaluator, not task difficulty. Freeze a criterion with `purpose: "calibration"`, the selected rubric, declared
+judges and per-task `anchors` before scoring. The explicit control-check rule is:
 
 ```json
 {"calibration": {"rule": "control-means-v1", "margin": 1, "error_rate": 0},
@@ -398,7 +417,7 @@ missing, excluded or invalid observations fail. There is no partial-order or
 spread acceptance gate; spreads remain descriptive. A one-point margin is a
 prospective separation choice, not a measured reliability estimate.
 
-A criterion without `calibration.rule` retains the historical four-role
+A control-check criterion without `calibration.rule` retains the historical four-role
 upstream/stub/partial/mutant algorithm: P1/P2/P3, error rate and spread limit
 are unchanged. Unknown rules refuse. Extra anchor files in a package are not
 pooled when the criterion declares only three controls. Hidden acceptance is

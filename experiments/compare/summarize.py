@@ -31,11 +31,11 @@ from pathlib import Path
 from statistics import mean
 
 try:
-    from .pool import CONTROL_ROLES, control_means, rubric
+    from .pool import CONTROL_ROLES, control_means, rubric, task_difficulty
     from .prepare import paired_calls, read_memo  # imported as experiments.compare.summarize
     from .scan import model_policy
 except ImportError:  # run as a script
-    from pool import CONTROL_ROLES, control_means, rubric
+    from pool import CONTROL_ROLES, control_means, rubric, task_difficulty
     from prepare import paired_calls, read_memo
     from scan import model_policy
 
@@ -408,6 +408,37 @@ def score_values(mapping, ratings):
     return totals, clone_scores
 
 
+def validate_task_difficulty(criterion, mapping, excluded, ratings):
+    """An incomplete natural comparison cannot qualify by dropping failed observations."""
+    if not task_difficulty(criterion):
+        return
+    counts, arms = criterion.get("runs_per_arm", {}), criterion.get("arms", [])
+    if (not arms or len(set(arms)) != len(arms) or set(counts) != set(arms)
+            or any(type(n) is not int or n <= 0 for n in counts.values())):
+        raise SystemExit("task-difficulty requires explicit positive counts for every declared arm")
+    runs, clones = mapping["runs"], mapping["clones"]
+    if (set(row["arm"] for row in runs.values()) != set(arms)
+            or any(sum(row["arm"] == arm for row in runs.values()) != count for arm, count in counts.items())
+            or any(row["outcome"] != "completed" or row.get("excluded") for row in runs.values())):
+        raise SystemExit("task-difficulty requires every declared natural run, completed and unexcluded")
+    total = sum(counts.values())
+    if (len(mapping["batches"]) != 1 or len(mapping["batches"][0]) != total
+            or len(set(mapping["batches"][0])) != total or set(mapping["batches"][0]) != set(clones)
+            or mapping.get("references") or len(clones) != total):
+        raise SystemExit("task-difficulty requires one blind batch containing every natural solution exactly once")
+    origins = [clone["run"] for clone in clones.values()]
+    if (len(set(origins)) != total or set(origins) != set(runs)
+            or any(clone["labels"] != ["final"] or clone["arm"] != runs[clone["run"]]["arm"]
+                   for clone in clones.values())):
+        raise SystemExit("task-difficulty requires exactly one final clone per declared run, without controls")
+    judges = criterion["judges"]
+    if (not judges or len(set(judges)) != len(judges) or excluded or set(ratings) != set(judges)
+            or any(set(rated) != set(clones) for rated in ratings.values())
+            or any(type(rating.get(key)) is not int or not 0 <= rating[key] <= 2
+                   for rated in ratings.values() for rating in rated.values() for key in criteria_of(mapping))):
+        raise SystemExit("task-difficulty requires valid scores for every solution from every declared judge")
+
+
 def summarize(pool, criterion, python=sys.executable):
     pool = Path(pool).resolve()
     mapping = json.loads((pool / "records" / "mapping.json").read_text())
@@ -418,8 +449,11 @@ def summarize(pool, criterion, python=sys.executable):
                          f"but the pool has {sorted(mapping['judges'])}")
     if rubric(frozen) != rubric(mapping):
         raise SystemExit("the criterion rubric differs from the pool rubric")
+    if task_difficulty(frozen) and mapping.get("criterion_sha256") != sha:
+        raise SystemExit("task-difficulty pool criterion identity differs from the frozen criterion")
     criteria = criteria_of(mapping)
     excluded, ratings = judged_ratings(pool, mapping, sha)
+    validate_task_difficulty(frozen, mapping, excluded, ratings)
     totals, clone_scores = score_values(mapping, ratings)
     clone_hidden, hidden_failed = ({}, {}) if frozen.get("purpose") == "calibration" else hidden_acceptance(
         pool, mapping, python)

@@ -233,9 +233,12 @@ def run_arm(task, arm, root, runtime, candidates=None, sets=(), apply=None, spec
     require_ignored_state(cands)
     applied = apply_patch(records, tree, cands[0], patch)
     (tree / "tmp").mkdir()
-    dump(records / "inputs.json", arm_inputs(task, arm, cands, sets, spec.inputs))
+    inputs = arm_inputs(task, arm, cands, sets, spec.inputs)
+    dump(records / "inputs.json", inputs)
     cwd, state = (tree, link_best_of_n_state(tree, cands)) if arm == "best_of_n" else (cands[0], spec.state_dir)
     env = {"COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": compare_base, "TMPDIR": tree / "tmp"}
+    if inputs.get("model") in contamination.CODEX_MODELS:
+        env["COMPARE_CODEX_MODELS"] = inputs["model"]
     command = write_commands(records, cwd, state, runtime, env, spec)
     dump(records / "record.json", {
         "arm": arm, "arm_kind": "generic-command" if spec.command else "orc",
@@ -400,7 +403,10 @@ def scan(records, solution, home=None, roots=(), others=()):
     compiled = contamination.patterns(
         main=record["main"], runtime=record["runtime"], solution=solution, home=home, others=others,
         roots=[("records root", records.parents[1]), *((name, Path(path).resolve()) for name, path in roots)])
-    hits = contamination.find_hits(records, record["tree"], record["created_at"], home, compiled)
+    model = load(records / "inputs.json").get("model")
+    expected = model if model in contamination.CODEX_MODELS else "gpt-5.6-terra"
+    hits = contamination.find_hits(records, record["tree"], record["created_at"], home, compiled,
+                                   expected_codex_model=expected)
     record["scan"] = {"solution": solution, "hits": hits, "verdict": None,
                       "calls": len(list((records / "calls").glob("*")))}
     dump(records / "record.json", record)

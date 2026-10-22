@@ -234,8 +234,20 @@ The original apparatus deletion decision is completed history; preserved evidenc
   detection, not prevention, and is stated as a limit in every report. Whether the
   commits must postdate the models' training data, and from which date, is
   the owner's call (Q5).
-- **D6. The frozen criterion selects controls and calibration.**
-  Prospective criteria select exactly
+- **D6. The frozen criterion distinguishes task difficulty from evaluator controls.**
+  Natural task-difficulty calibration selects `purpose: "calibration"`,
+  `calibration_kind: "task_difficulty"`, `anchors: []`, a reference-free rubric,
+  declared arms and exact per-arm counts. The same direct-task workflow generates
+  fresh solutions under frozen weak/strong model bindings. Ordinary blind pools
+  contain only those natural outputs; no artificial control or reference enters.
+  Summarization requires every declared run and valid judge observation before
+  applying the primary arm-mean gap. The selected
+  [task-difficulty plan](../plans/2026-10-22-simple-evaluation-calibration-plan.md)
+  owns the models, threshold and budget. A missing observation cannot become a
+  passing smaller sample. This route does not reinterpret historical controls
+  or qualify structural V1/V2 and campaigns automatically.
+
+  Evaluator control checks instead select
   `calibration: {"rule": "control-means-v1", "margin": 1, "error_rate": 0}`
   and exactly three blind roles per task: upstream, stub and mutant. For each
   task and each declared judge, take each control's mean over every declared
@@ -245,7 +257,7 @@ The original apparatus deletion decision is completed history; preserved evidenc
   gates for this rule; report spread descriptively. One point is a frozen
   prospective choice, not an estimated error probability or reliability claim.
 
-  Absence of `calibration.rule` preserves the historical algorithm exactly:
+  For control checks, absence of `calibration.rule` preserves the historical algorithm exactly:
   four declared roles upstream/stub/partial/mutant, P1 upstream−stub ≥margin,
   P2 stub < partial < upstream, P3 upstream−mutant ≥mutant_margin, the declared
   failing-pair error rate and anchor spread gate. Unknown rules refuse. New-rule

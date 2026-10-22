@@ -9,6 +9,16 @@ case $name in
 esac
 refuse() { echo "model guard: $*" >&2; exit 2; }
 check_model() {
+  if [ "$name" = codex ]; then
+    case $1 in
+      gpt-5.6-terra|gpt-5.6-luna) ;;
+      *) refuse "'$1' is outside the owner's known Codex model cap" ;;
+    esac
+    case ,${ORC_ALLOWED_CODEX_MODELS-gpt-5.6-terra}, in
+      *,"$1",*) return ;;
+    esac
+    refuse "'$1' is outside the criterion's allowed Codex model IDs"
+  fi
   [ "$1" = "$default" ] || refuse "'$1' is outside the owner's Sonnet/Terra model cap"
   if [ "$name" = claude ] && [ -n "${ORC_ALLOWED_CLAUDE_MODELS+set}" ]; then
     case ,$ORC_ALLOWED_CLAUDE_MODELS, in
