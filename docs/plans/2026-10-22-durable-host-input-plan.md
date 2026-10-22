@@ -265,7 +265,7 @@ reducer invariants.
 `tests/test_cli_human_input.py`, `tests/test_monitor_ledger.py`,
 `tests/test_workflow_evaluated_monitor.py` and reader/dashboard tests as needed.
 
-- [ ] Add CLI tests for `input get RUN_ID`, `input answer RUN_ID
+- [x] Add CLI tests for `input get RUN_ID`, `input answer RUN_ID
   REQUEST_ID --value JSON --by PRINCIPAL`, and `input cancel RUN_ID
   REQUEST_ID --by PRINCIPAL`, including `--state-dir`, attestation and
   evidence override. The CLI only delegates; mutation never resumes work.
@@ -273,26 +273,26 @@ reducer invariants.
   Preserve `input get` evaluated routing and historical read compatibility;
   old-profile answer/cancel and old `--text` must not become a second current
   typed interface. Keep existing retirement tests meaningful.
-- [ ] Extend evaluated `RunState` status validation and the shared projection
+- [x] Extend evaluated `RunState` status validation and the shared projection
   with `suspended` before generic lock-released interruption. Expose exact
   pending request, deadline/deadline-elapsed observation and settled
   attribution from checked memo. A successful external reply leaves the run
   interrupted until ordinary resume. Current terminal semantics are unchanged.
   A durable suspension is suspended even while its publishing writer still
   holds the lock, so no post-unlock view write is needed.
-- [ ] Wire report/dashboard readers through the same projection. Test missing,
+- [x] Wire report/dashboard readers through the same projection. Test missing,
   stale and malformed view files with byte snapshots proving all read routes
   remain read-only; malformed authority refuses without legacy fallback.
   Expose request information using existing safe render/link/preview patterns;
   add no answer/cancel web endpoint or new storage registry.
-- [ ] Add `MonitorEventKind.SUSPENDED`, classification and the existing email
+- [x] Add `MonitorEventKind.SUSPENDED`, classification and the existing email
   renderer's request ID/deadline/command instructions. Do not include evidence
   bodies or attestations in email. Extend the existing ledger's suspension key
   with request ID only, retaining older entries and unchanged event keys for
   other kinds. Test two requests in one run notify separately, repeated scans
   deduplicate, released pending writers are not crashed/stalled, and settlement
   never occurs from monitor/read operations. Use only a recording emailer.
-- [ ] Collect changed/new tests, run a narrow host case, then in tmux run:
+- [x] Collect changed/new tests, run a narrow host case, then in tmux run:
 
   ```bash
   python -m pytest --collect-only -q tests/test_workflow_evaluated_host_input_hosts.py tests/test_cli_human_input.py tests/test_monitor_ledger.py
@@ -301,7 +301,7 @@ reducer invariants.
 
   Expected: public request commands and observation work; legacy readers,
   monitor events and watchdog behaviors retain their contracts.
-- [ ] Obtain independent review, apply corrections, record evidence, and
+- [x] Obtain independent review, apply corrections, record evidence, and
   commit owned files with `feat: expose pending input through existing hosts`.
 
 ## Task 4: Native bounded Python authoring and public py commands
@@ -491,6 +491,10 @@ owns final diff and verification. New architecture decisions return to Design.
   from live-provider qualification; do not change unrelated open gates. Keep
   target ranges accurate at the maintained entry points and preserve
   independently admitted older targets/import semantics.
+  Include minimal current-scope corrections in `specs/index.md`, root
+  `README.md`, `docs/architecture_overview.md`, `prompts/README.md`, and the
+  maintained value/continuation and REPL designs where they state the current
+  maximum target or sole authoring frontend. Preserve historical ranges.
 - [ ] Add the Python drafting guide and the Lisp/library host-input recipes;
   include complete executable approval examples, manifest/provider
   prerequisites, JSON settlement commands, report/monitor usage and explicit
@@ -538,6 +542,7 @@ owns final diff and verification. New architecture decisions return to Design.
 | 2026-10-22 | Python enum matches emit existing typed equality/if; union matches emit Lisp match. | Lisp match currently admits unions only; exhaustive enum callbacks need no new core construct. |
 | 2026-10-22 | Python path constructors take a child relative to the declared root. | Reuse public path/join-under and its validation; do not expose private path seeds or add implicit full-path conversion. |
 | 2026-10-22 | Evidence override does not waive a workflow input's must-exist contract. | Exact shared preflight remains authoritative. Missing presentation-only evidence is overrideable only when it has no independent input, Doc or producer obligation. Tests distinguish these cases rather than weakening ordinary input validation. |
+| 2026-10-22 | Preserve the watchdog health-result enum for suspended evaluated runs. | Map intentional waits to existing RUNNING_OK/NONE with no repair; report/dashboard/monitor retain the explicit suspended state. No historical watchdog workflow is re-admitted or extended. |
 | 2026-10-22 | Reconstruct configured capsule signatures only in modules that reference those workflow bindings. | Real HostReply enum/union capsule fixtures exposed reconstruction in unrelated stdlib/type/utility environments. Design review selected an extra existing expression-elaboration pass with a recording workflow resolver, only for explicit-import builds. This preserves lexical binding semantics at additional compile-time cost; no separate syntax scanner, native-signature fallback or lazy catalog is introduced. All supplied snapshots retain admission, conflict and closure checks. Known nominal return hints still require complete boundary-contract equality; erased imports retain their existing matching policy. |
 
 ## Evidence and current status
@@ -574,7 +579,17 @@ owns final diff and verification. New architecture decisions return to Design.
   successful checks were reused. The final two adversarial dependency cases
   verify both public pending and shared view refusal without writes. Root
   inspected the complete change, fresh outputs and clean diff before commit.
-- Task 3 host adapters are active. Native Python authoring and public parity /
-  real-process crash checks remain Tasks 4–5; runtime unit evidence does not
-  establish those capabilities.
+- Task 3 completed in `c0c34056` after independent spec and quality approval.
+  The required adapter regression passed **205 tests in 69.72s**, exit 0,
+  `/tmp/task3-host-input-final-tests.log`. The watchdog compatibility follow-up
+  passed **24 tests in 244.55s**, `/tmp/task3-watchdog-final.log`; it retains
+  `RUNNING_OK/NONE` and no repair for intentional host waits. Review corrections
+  for invalidated pending-row presentation, deeply nested JSON refusal and
+  frozen evidence hashes passed **111 tests in 19.40s**, exit 0,
+  `/tmp/task3-revision-pytest.log` (111 collected). Root inspected the code,
+  actual logs and clean diff before commit. Suspension emails contain only
+  metadata/commands: rendered questions can contain runtime Doc bodies.
+- Task 4 native Python authoring is active. Public paired examples and
+  real-process crash checks remain Task 5; earlier runtime/adapter evidence
+  does not establish native Python parity.
 - No provider-quality result or live-provider qualification is claimed.
