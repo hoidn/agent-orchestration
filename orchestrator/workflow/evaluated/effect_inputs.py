@@ -198,6 +198,13 @@ def _check_resume_boundary(authority, snapshot, node, operands, identity, reader
     if node["class"] == "run_ref":
         require_run_ref_root(authority)
     baseline = _retry_baseline(snapshot, identity, snapshot.latest_starts.get(identity))
+    if node['class'] == 'request_input' and identity in snapshot.pending_starts:
+        from .host_input import validate_checked_request, resolve_request_input
+        started = snapshot.pending_starts[identity]
+        request = validate_checked_request(authority, node, started)
+        resolved = resolve_request_input(node, operands, workspace=workspace)
+        if canonical_sha256(resolved.input_parts) != started.data['input_digest'] or effect_dependencies(operands) != request['depends_on']:
+            raise _EffectInputDiverged(identity, 'pending host request semantic inputs changed')
     launch_cwd = resolve_launch_cwd(workspace, launch_workspace, identity=identity, previous=baseline)
     if launch_cwd is not None and baseline is not None:
         _check_retry_cwd(identity, baseline, workspace, launch_cwd)
@@ -271,6 +278,10 @@ def _resolve_effect_input(
 
 
 def _resolve_external_input(authority, node, operands, identity, workspace, reader, commit, result_path, launch_cwd, snapshot):
+    if node['class'] == 'request_input':
+        from .host_input import resolve_request_input
+        resolved = resolve_request_input(node, operands, workspace=workspace)
+        return resolved, dict(resolved.input_parts)
     if node["class"] == "run_ref":
         require_run_ref_root(authority)
         return resolve_run_ref_input(node, operands)

@@ -179,3 +179,9 @@ def render_json_shape_contract_block(contract, descriptor, result_path):
     if guidance:
         lines.append("// " + _json({"guidance": guidance}))
     return "\n".join([*lines, *_shape(schema)]) + "\n"
+
+
+def render_answer_contract_block(descriptor):
+    """Show the same typed JSON shape for host answers without file delivery."""
+    schema = transport_schema_for_descriptor(descriptor, allow_nested_structures=True)
+    return "\n".join(["## Answer Contract", *_shape(schema)]) + "\n"

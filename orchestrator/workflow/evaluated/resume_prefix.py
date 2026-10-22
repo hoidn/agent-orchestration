@@ -25,9 +25,9 @@ def _runtime():
 logger = logging.getLogger(__name__)
 
 
-def _replay_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, site_classes, confined=None):
+def checked_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, site_classes, confined=None):
+    """The complete read-only reached-prefix preflight for resume and host settlement."""
     snapshot = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
-    commits = sorted(snapshot.active_commits.values(), key=lambda entry: entry.offset)
     prefix = discover_prefix(authority, snapshot, inputs=inputs, run_id=run_id, provider_io=provider_io)
     _validate_discovered_prefix(authority, prefix, snapshot, workspace, site_classes, defer_parallel_fault=True, confined=confined)
     from .parallel import has_parallel
@@ -36,6 +36,13 @@ def _replay_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, 
         obligations = [reached for reached in prefix.commits if reached.node["class"] == "run_ref"
             and (reached.identity, reached.commit.data["attempt"]) not in snapshot.settlements]
         inventory_parallel_run_ref_recovery(authority, obligations, workspace)
+    return snapshot, prefix
+
+
+def _replay_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, site_classes, confined=None):
+    snapshot, prefix = checked_resume_prefix(authority, inputs, run_id=run_id, workspace=workspace,
+        provider_io=provider_io, site_classes=site_classes, confined=confined)
+    commits = sorted(snapshot.active_commits.values(), key=lambda entry: entry.offset)
     return snapshot, commits, len(prefix.commits), prefix.value, not prefix.halted
 
 

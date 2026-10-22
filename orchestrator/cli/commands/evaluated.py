@@ -163,37 +163,46 @@ def _require_matching_result_root(header: Mapping[str, Any], run_root: Path, wor
         )
 
 
+def prepare_evaluated_resume(run_root: Path, *, workspace: Path, force_restart=False,
+                             run_ref_root=None, run_files=None):
+    """Read-only ordinary rebuild and input preflight, shared by resume and host writes."""
+    if run_files is not None:
+        from orchestrator.workflow.evaluated.authority import _require_retained_root
+        _require_retained_root(run_files)
+    header = load_run_header(run_root, run_files=run_files)
+    if "resume_request" not in header:
+        raise _ResumeRefusal("resume_request_missing", "run header has no durable rebuild request")
+    if force_restart:
+        raise _ResumeRefusal("evaluated_execution_unavailable", "force restart is unavailable for evaluated execution")
+    if run_ref_root is not None:
+        from orchestrator.cli.run_ref_root import resolve_run_ref_root
+        selected_root = resolve_run_ref_root(run_ref_root).as_posix()
+        if selected_root != header.get("run_ref_root", selected_root):
+            raise _ResumeRefusal(
+                "resume_run_ref_root_changed",
+                "explicit run-reference root differs from the run header",
+            )
+    _require_matching_result_root(header, run_root, workspace)
+    recipe = header["resume_request"]
+    request = _resume_build_request(header, workspace, run_files)
+    fresh = prepare_closed_program_bundle(request, source_read_trace=SourceReadTrace())
+    refuse_confined_run_ref_sites(fresh.program)
+    if fresh.program.digest != header["program_digest"]:
+        raise _ResumeRefusal("resume_program_changed", "current program differs from the run header")
+    inputs = _bind_recipe(fresh.program, recipe, workspace, run_files)
+    if canonical_sha256(inputs) != header["input_digest"]:
+        raise _ResumeRefusal("resume_inputs_changed", "current bound inputs differ from the run header")
+    authority = load_run_authority(run_root, header=header, run_files=run_files)
+    provider_io = fresh.provider_io.bind(authority.program)
+    return authority, inputs, provider_io
+
+
 def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart: bool = False, run_ref_root: str | None = None, run_files: WorkspaceFiles | None = None, stream_output: bool = True) -> int:
     """Rebuild and compare before loading the stored program, pins or memo."""
     try:
-        if run_files is not None:
-            from orchestrator.workflow.evaluated.authority import _require_retained_root
-            _require_retained_root(run_files)
-        header = load_run_header(run_root, run_files=run_files)
-        if "resume_request" not in header:
-            raise _ResumeRefusal("resume_request_missing", "run header has no durable rebuild request")
-        if force_restart:
-            raise _ResumeRefusal("evaluated_execution_unavailable", "force restart is unavailable for evaluated execution")
-        if run_ref_root is not None:
-            from orchestrator.cli.run_ref_root import resolve_run_ref_root
-            selected_root = resolve_run_ref_root(run_ref_root).as_posix()
-            if selected_root != header.get("run_ref_root", selected_root):
-                raise _ResumeRefusal(
-                    "resume_run_ref_root_changed",
-                    "explicit run-reference root differs from the run header",
-                )
-        _require_matching_result_root(header, run_root, workspace)
-        recipe = header["resume_request"]
-        request = _resume_build_request(header, workspace, run_files)
-        fresh = prepare_closed_program_bundle(request, source_read_trace=SourceReadTrace())
-        refuse_confined_run_ref_sites(fresh.program)
-        if fresh.program.digest != header["program_digest"]:
-            raise _ResumeRefusal("resume_program_changed", "current program differs from the run header")
-        inputs = _bind_recipe(fresh.program, recipe, workspace, run_files)
-        if canonical_sha256(inputs) != header["input_digest"]:
-            raise _ResumeRefusal("resume_inputs_changed", "current bound inputs differ from the run header")
-        authority = load_run_authority(run_root, header=header, run_files=run_files)
-        provider_io = fresh.provider_io.bind(authority.program)
+        authority, inputs, provider_io = prepare_evaluated_resume(
+            run_root, workspace=workspace, force_restart=force_restart,
+            run_ref_root=run_ref_root, run_files=run_files)
         _warn_changed_interpreters(authority)
         exit_code, _ = execute_pure_resume(authority, inputs, run_id=run_root.name, workspace=workspace, provider_io=provider_io, stream_output=stream_output)
         return exit_code

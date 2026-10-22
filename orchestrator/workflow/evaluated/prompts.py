@@ -10,7 +10,7 @@ from orchestrator.contracts.prompt_contract import (
     render_output_contract_block,
     render_variant_output_contract_block,
 )
-from orchestrator.contracts.prompt_json_shape import render_json_shape_contract_block
+from orchestrator.contracts.prompt_json_shape import render_json_shape_contract_block, render_answer_contract_block
 from orchestrator.deps.content_snapshot import (
     DependencyContentSnapshot,
     render_content_snapshot,
@@ -116,6 +116,17 @@ def _with_dependencies(
     return prompt
 
 
+def assemble_host_question(question, answer_descriptor):
+    return append_prompt_block(question, render_answer_contract_block(answer_descriptor))
+
+
+def assemble_task_prompt(node, fill_values, *, dependency_snapshot):
+    """Render the shared typed prompt task without provider delivery instructions."""
+    prompt = node['prompt']
+    return _with_dependencies(node, prompt.get('fills', ()),
+        _template_base(prompt, fill_values), dependency_snapshot)
+
+
 def provider_expected_outputs(
     fills: Sequence[Mapping[str, Any]], fill_values: Sequence[Any]
 ) -> list[dict[str, Any]]:
@@ -219,7 +230,7 @@ def assemble_provider_prompt_with_cut(
     fill_start = len(input_rows)
     fill_values = operand_values[fill_start : fill_start + len(fill_rows)]
     if "template" in prompt_data:
-        prompt = _template_base(prompt_data, fill_values)
+        prompt = assemble_task_prompt(checked_node, fill_values, dependency_snapshot=dependency_snapshot)
     else:
         if not isinstance(source_text, str):
             raise ValueError("captured provider prompt source text is required")
@@ -234,7 +245,7 @@ def assemble_provider_prompt_with_cut(
         for row, value in zip(input_rows, input_values, strict=True)
     ]
     typed_block, _rendered = render_typed_prompt_input_blocks(typed_rows)
-    prompt = _with_dependencies(
+    prompt = prompt if "template" in prompt_data else _with_dependencies(
         checked_node,
         tuple(fill for fill in fill_rows if isinstance(fill, Mapping)),
         prompt,

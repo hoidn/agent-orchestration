@@ -84,7 +84,7 @@ class _Discovery:
         self.consumed.add(identity)
         self.prefix.commits.append(reached)
         self.order.predecessors = (commit,)
-        return committed_value(self.authority, node, commit, identity)
+        return committed_value(self.authority, node, commit, identity, started=self.starts[(identity, commit.data["attempt"])], operands=operands)
 
     def _advance_agent_cursor(self, commit, dependencies):
         """Logical cursor: an `agent_turn` commit names the agent's previous replayed turn as its predecessor (and
@@ -103,6 +103,9 @@ class _Discovery:
         self.prefix.frontiers.append(reached)
         pending = self.snapshot.pending_starts.get(reached.identity)
         if pending is not None:
+            if reached.node['class'] == 'request_input':
+                from .host_input import validate_checked_request
+                validate_checked_request(self.authority, reached.node, pending, operands=reached.operands)
             self._check_order(pending, committed=False)
 
     def _check_order(self, entry, *, committed=True):
@@ -173,7 +176,12 @@ class _Discovery:
             raise MemoError('memo_inconsistent', 'a pending start is unreachable from the evaluated program')
 
 
-def committed_value(authority, node, commit, identity):
+def committed_value(authority, node, commit, identity, *, started=None, operands=None):
+    if node['class'] == 'request_input':
+        from .host_input import validate_checked_request
+        if started is None:
+            raise MemoError('memo_inconsistent', 'host replay requires its matching start')
+        validate_checked_request(authority, node, started, commit, operands=operands)
     try:
         return coerce_evaluated_value(commit.data['value'], node['result'],
             dependencies=(*commit.data['depends_on'], identity),

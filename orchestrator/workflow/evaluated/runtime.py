@@ -43,7 +43,7 @@ from .resume_prefix import (
 )
 from .views import ViewPublicationError
 from . import effect_inputs
-from . import agent_turns, phased_providers
+from . import agent_turns, phased_providers, host_input
 from .agent_views import AgentViews
 
 
@@ -78,6 +78,7 @@ def execute_pure_run(
     provider_io: ProviderIOContext | None = None,
     stream_output: bool = False,
     confined: Any = None,
+    expire_host_input: bool = False,
 ) -> tuple[int, Any]:
     """Evaluate the checked table and persist its terminal outcome under its writer lock.
 
@@ -105,7 +106,7 @@ def execute_pure_run(
 
         def handle(node, operands, identity, owner, reader, *, launch_workspace=None):
             nonlocal provider_executor, views
-            if node.get("class") not in {"command", "provider", "provider_phased", "run_ref", "agent", "agent_turn"}:
+            if node.get("class") not in {"command", "provider", "provider_phased", "run_ref", "agent", "agent_turn", "request_input"}:
                 raise RuntimeError("unsupported evaluated effect class")
             if confined is not None:
                 require_confinable(node, authority.header["interpreters"])
@@ -132,6 +133,7 @@ def execute_pure_run(
                 launch_workspace=launch_workspace,
                 confined=confined,
                 views=views,
+                **({"expire_host_input": expire_host_input} if node["class"] == "request_input" else {}),
             )
 
         handler = _execution_handler(handle, authority, inputs, run_id, workspace, provider_io,
@@ -147,6 +149,8 @@ def execute_pure_run(
             ).json_value()
             if confined is not None:
                 confined.finish()
+        except host_input.HostInputSuspended:
+            return 0, None
         except Exception as exc:
             code = getattr(exc, "code", "evaluated_execution_failed")
             message = str(exc) or code
@@ -235,7 +239,7 @@ def execute_pure_resume(
             return _resume_refusal(exc)
     result = execute_pure_run(
         authority, inputs, run_id=run_id, workspace=workspace, provider_io=provider_io,
-        stream_output=stream_output, confined=confined,
+        stream_output=stream_output, confined=confined, expire_host_input=True,
     )
     if result[0] == 0:
         from .run_ref import retry_evaluated_cleanup
@@ -297,6 +301,8 @@ def _append_failed_terminal_if_clear(
 
 
 def _execute_effect(authority, node, operands, identity, **kwargs):
+    if node['class'] == 'request_input':
+        return host_input.execute_request(authority, node, operands, identity, **kwargs)
     attempt = prepare_effect(authority, node, operands, identity, **kwargs)
     if isinstance(attempt, EvaluatedValue):
         return attempt

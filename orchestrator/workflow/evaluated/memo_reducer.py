@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import math
 import re
@@ -14,7 +14,7 @@ from orchestrator.workflow.evaluated.closure_evidence import validate_implementa
 
 _RECORDS = {"started", "committed", "failed", "suspended", "settled", "invalidated", "terminal"}
 
-_CLASSES = {"command", "provider", "provider_phased", "run_ref", "agent", "agent_turn"}
+_CLASSES = {"command", "provider", "provider_phased", "run_ref", "agent", "agent_turn", "request_input"}
 
 COORDINATOR_CLASSES = frozenset({"run_ref", "agent_turn", "provider_phased"})
 
@@ -51,6 +51,7 @@ class MemoSnapshot:
     settlements: frozenset[tuple[str, int]]
     unsettled_coordinators: dict[tuple[str, int], JournalEntry]
     terminal: JournalEntry | None
+    suspensions: dict[str, JournalEntry] = field(default_factory=dict)
 
 
 def is_coordinator_class(name: str) -> bool:
@@ -159,6 +160,7 @@ class _Reducer:
         self.active: dict[str, JournalEntry] = {}
         self.latest: dict[str, JournalEntry] = {}
         self.pending: dict[str, JournalEntry] = {}
+        self.suspensions: dict[str, JournalEntry] = {}
         self.settlements: set[tuple[str, int]] = set()
         self.unsettled: dict[tuple[str, int], JournalEntry] = {}
         self.terminal: JournalEntry | None = None
@@ -186,6 +188,7 @@ class _Reducer:
             frozenset(self.settlements),
             dict(self.unsettled),
             self.terminal,
+            dict(self.suspensions),
         )
 
     def accept(self, entry: JournalEntry) -> None:
@@ -223,8 +226,20 @@ class _Reducer:
 
     def started(self, entry: JournalEntry) -> None:
         row = entry.data
-        _shape(row, {"record", "identity", "attempt", "input_digest", "input_parts", "implementation_files", "result_path", "time"})
         identity, attempt, kind = self.identity_attempt(row)
+        required = {"record", "identity", "attempt", "input_digest", "input_parts", "implementation_files", "result_path", "time"}
+        _shape(row, required | ({'host_request'} if kind == 'request_input' else set()))
+        if self.suspensions or any(self.site_class(i) == 'request_input' for i in self.pending):
+            raise _inconsistent('cannot start another effect while a host request is pending')
+        if kind == 'request_input':
+            from .host_input import validate_request_start_binding
+            try:
+                request = validate_request_start_binding(row)
+                if self.pending or row['implementation_files'] or request['created_at'] != row['time']:
+                    raise ValueError('host start has inconsistent evidence')
+                self._dependencies(identity, request['depends_on'])
+            except (TypeError, ValueError, KeyError, OverflowError) as exc:
+                raise _inconsistent(str(exc)) from exc
         expected = self.next_ordinal.get(identity, 1)
         if attempt != expected or identity in self.active:
             raise _inconsistent("started attempt ordinal is not the next available ordinal")
@@ -254,7 +269,7 @@ class _Reducer:
 
     def committed(self, entry: JournalEntry) -> None:
         row = entry.data
-        _shape(row, {"record", "identity", "attempt", "input_digest", "input_parts", "value", "result_path", "result_digest", "implementation_files", "depends_on", "effect_class", "time"}, {"proof"})
+        _shape(row, {"record", "identity", "attempt", "input_digest", "input_parts", "value", "result_path", "result_digest", "implementation_files", "depends_on", "effect_class", "time"}, {"proof", "host_reply"})
         identity, attempt, expected_class = self.identity_attempt(row)
         started = self.pending.get(identity)
         if started is None or started.data["attempt"] != attempt:
@@ -271,6 +286,17 @@ class _Reducer:
         self._dependencies(identity, row["depends_on"])
         if row["effect_class"] != expected_class:
             raise _inconsistent("effect class disagrees with the checked site")
+        if expected_class == 'request_input':
+            from .host_input import validate_reply_payload
+            try:
+                if identity not in self.suspensions or 'proof' in row or row['depends_on'] != started.data['host_request']['depends_on']:
+                    raise ValueError('host commit lacks suspension or has inconsistent dependencies')
+                validate_reply_payload(started.data['host_request'], row)
+            except (TypeError, ValueError, KeyError, OverflowError) as exc:
+                raise _inconsistent(str(exc)) from exc
+            self.suspensions.pop(identity)
+        elif 'host_reply' in row:
+            raise _inconsistent('non-host commit carries host provenance')
         if expected_class == "run_ref":
             self._run_ref_proof(row.get("proof"), identity)
             self.unsettled[(identity, attempt)] = entry
@@ -351,10 +377,18 @@ class _Reducer:
         _object(row["exit_info"], "exit_info")
         if "violations" in row and not isinstance(row["violations"], list):
             raise _inconsistent("violations must be an array")
+        if self.site_class(identity) == 'request_input':
+            raise _inconsistent('host requests cannot close with failed')
         self.pending.pop(identity)
 
-    def suspended(self, _entry: JournalEntry) -> None:
-        raise _inconsistent("suspended effects are not admitted by this profile")
+    def suspended(self, entry: JournalEntry) -> None:
+        row = entry.data
+        _shape(row, {'record', 'identity', 'attempt', 'request_id'})
+        identity, attempt, kind = self.identity_attempt(row)
+        started = self._pending_attempt(identity, attempt)
+        if kind != 'request_input' or self.suspensions or row['request_id'] != started.data['host_request']['request_id']:
+            raise _inconsistent('suspension does not match one pending host request')
+        self.suspensions[identity] = entry
 
     def _pending_attempt(self, identity: str, attempt: int) -> JournalEntry:
         started = self.pending.get(identity)
@@ -385,6 +419,7 @@ class _Reducer:
         self._check_invalidation(anchor)
         self.active = {identity: item for identity, item in self.active.items() if item.offset < anchor}
         self.pending = {identity: item for identity, item in self.pending.items() if item.offset < anchor}
+        self.suspensions = {identity: item for identity, item in self.suspensions.items() if identity in self.pending}
         self.terminal = None
 
     def _check_invalidation(self, anchor: int) -> None:
