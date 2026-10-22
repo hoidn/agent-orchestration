@@ -1,6 +1,7 @@
 """Deferred authoring declarations. No body executes during registration."""
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 import inspect
 from pathlib import Path
@@ -198,14 +199,55 @@ class Provider:
         return trace.bind(trace.expression("provider", (self, fragment, options), fragment.prompt.returns))
 
 
+class Command:
+    def __init__(self, name, *, returns):
+        self.name = name
+        self.returns = returns
+
+    def __call__(self, *argv, inputs=None):
+        trace = active_trace()
+        inputs_present = inputs is not None
+        inputs = {} if inputs is None else inputs
+        if not isinstance(inputs, Mapping) or any(not isinstance(name, str) for name in inputs):
+            raise PythonFrontendError("python_command_inputs_invalid", "Command inputs must map string names to typed values")
+        return trace.bind(trace.expression(
+            "command", (self, tuple(argv), dict(inputs), inputs_present), self.returns,
+        ))
+
+
+@dataclass(frozen=True)
+class Effect:
+    kind: str
+    subject: object
+
+
+def uses_command(command):
+    if not isinstance(command, Command):
+        raise PythonFrontendError("python_proc_effect_invalid", "uses_command requires a Command")
+    return Effect("uses-command", command)
+
+
+def uses_provider(provider):
+    if not isinstance(provider, Provider):
+        raise PythonFrontendError("python_proc_effect_invalid", "uses_provider requires a Provider")
+    return Effect("uses-provider", provider)
+
+
+def calls_workflow(workflow):
+    if not isinstance(workflow, Definition) or workflow.kind != "workflow":
+        raise PythonFrontendError("python_proc_effect_invalid", "calls_workflow requires a workflow definition")
+    return Effect("calls-workflow", workflow)
+
+
 class Definition:
-    def __init__(self, function, *, returns=MISSING):
+    def __init__(self, function, *, returns=MISSING, kind="workflow", effects=MISSING):
         self.function = function
         self.returns = returns
+        self.effects = effects
         self.__name__ = function.__name__
         self.__module__ = function.__module__
         self.site = definition_site(function)
-        self.kind = "workflow"
+        self.kind = kind
 
     def signature(self):
         hints = resolved_hints(self.function)
@@ -236,3 +278,16 @@ class Definition:
 def workflow(function=None, *, returns=MISSING):
     def decorate(value): return Definition(value, returns=returns)
     return decorate if function is None else decorate(function)
+
+
+def proc(function=None, *, returns=MISSING, effects=MISSING):
+    def decorate(value):
+        if effects is not MISSING and (not isinstance(effects, (tuple, list)) or
+                                       any(not isinstance(effect, Effect) for effect in effects)):
+            raise PythonFrontendError("python_proc_effect_invalid", "proc effects must be a sequence of uses_command, uses_provider, or calls_workflow descriptors", site=definition_site(value))
+        return Definition(value, returns=returns, kind="proc", effects=effects)
+    return decorate if function is None else decorate(function)
+
+
+def pure(function):
+    return Definition(function, kind="pure")

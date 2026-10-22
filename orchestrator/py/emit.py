@@ -85,6 +85,7 @@ class ModuleGenerator:
         self.definition_names = {}
         self.prompt_names = {}
         self.traces = {}
+        self.loop_binders = {}
         self.fallback = PythonSite(str(module.__file__), 1)
         self._discover()
 
@@ -181,6 +182,10 @@ class ModuleGenerator:
         while index < len(self.definitions):
             definition = self.definitions[index]
             signature, annotations, returns = definition.signature()
+            if definition.effects is not MISSING:
+                for effect in definition.effects:
+                    if effect.kind == "calls-workflow":
+                        self.require_definition(effect.subject)
             for annotation in (*annotations.values(), returns):
                 self.type_ref(annotation, site=definition.site, signature=True)
             trace = Trace(self, definition)
@@ -271,18 +276,57 @@ class ModuleGenerator:
         trace, result, signature, annotations, returns = self.traces[id(definition)]
         self.fallback = definition.site
         with w.mark(definition.site, "definition"):
-            w.write(f"  (defworkflow {definition.__name__} (")
+            head = {"workflow": "defworkflow", "proc": "defproc", "pure": "defun"}[definition.kind]
+            w.write(f"  ({head} {definition.__name__} (")
             for index, (name, annotation) in enumerate(annotations.items()):
                 if index: w.write(" ")
                 w.write(f"({name} {self.type_ref(annotation)}")
                 default = signature.parameters[name].default
-                if default is not signature.empty:
+                if definition.kind == "workflow" and default is not signature.empty:
                     w.write(" :default ")
                     self.expression(default, expected=annotation)
                 w.write(")")
-            w.write(") -> " + self.type_ref(returns) + "\n    ")
+            w.write(") -> " + self.type_ref(returns))
+            if definition.kind == "proc":
+                target = str(getattr(self.module, "TARGET", "2.39"))
+                effects = definition.effects
+                if target == "2.39":
+                    if effects is not MISSING:
+                        self.emit_effects(effects)
+                else:
+                    if effects is MISSING:
+                        raise PythonFrontendError(
+                            "python_proc_effects_required",
+                            "Targets 2.35–2.38 require an explicit proc effects contract",
+                            site=definition.site,
+                        )
+                    self.emit_effects(effects)
+                    w.write(" :lowering inline")
+            w.write("\n    ")
             self.region(trace, result, expected=returns)
             w.write(")\n")
+
+    def emit_effects(self, effects):
+        from .declarations import Effect
+        self.writer.write(" :effects (")
+        for index, effect in enumerate(effects):
+            if index: self.writer.write(" ")
+            if not isinstance(effect, Effect):
+                raise PythonFrontendError(
+                    "python_proc_effect_invalid",
+                    "proc effects must use the declared effect descriptors",
+                )
+            subject = effect.subject
+            if effect.kind == "uses-command":
+                name = subject.name
+            elif effect.kind == "uses-provider":
+                name = subject.name
+            elif effect.kind == "calls-workflow":
+                name = self.definition_names[id(subject)]
+            else:
+                raise PythonFrontendError("python_proc_effect_invalid", "Unknown proc effect descriptor")
+            self.writer.write(f"({effect.kind} {name})")
+        self.writer.write(")")
 
     def region(self, trace, result, *, expected=None):
         w = self.writer
@@ -301,14 +345,20 @@ class ModuleGenerator:
     def binding_expectations(self, trace, result, expected):
         expectations = {}
 
-        def collect(value, annotation):
+        def collect(value, annotation, loop_state_type=None):
             if isinstance(value, Expr):
                 if value._kind == "ref":
                     if annotation is not None:
                         expectations.setdefault(value._args[0], []).append(annotation)
+                elif value._kind == "continue":
+                    _owner, state = value._args
+                    collect(state, loop_state_type, loop_state_type)
+                elif value._kind == "done":
+                    _owner, result = value._args
+                    collect(result, annotation, loop_state_type)
                 elif value._kind == "when":
                     condition, then_region, else_region = value._args
-                    collect(condition, bool)
+                    collect(condition, bool, loop_state_type)
                     collect_region(*then_region, expected=annotation)
                     collect_region(*else_region, expected=annotation)
                 elif value._kind == "match":
@@ -326,34 +376,49 @@ class ModuleGenerator:
                     definition, arguments = value._args
                     _signature, annotations, _returns = definition.signature()
                     for name, argument in arguments.items():
-                        collect(argument, annotations[name])
+                        collect(argument, annotations[name], loop_state_type)
+                elif value._kind == "loop":
+                    maximum, state, body_region, exhausted_region, _owner = value._args
+                    collect(maximum, int, loop_state_type)
+                    state_type = getattr(state, "_annotation", None)
+                    if state_type is None and type(state) in {bool, int, float, str}:
+                        state_type = type(state)
+                    collect(state, state_type, loop_state_type)
+                    result_type = annotation if annotation is not None else value._annotation
+                    collect_region(*body_region[:2], expected=result_type)
+                    collect_region(*exhausted_region[:2], expected=result_type)
+                elif value._kind == "command":
+                    command, argv, inputs, _inputs_present = value._args
+                    for argument in argv: collect(argument, None, loop_state_type)
+                    for argument in inputs.values(): collect(argument, None, loop_state_type)
                 elif value._kind == "provider":
                     from .declarations import PromptApplication
                     _provider, application, _options = value._args
                     if isinstance(application, PromptApplication) and not isinstance(application.values, tuple):
                         fills = application.prompt.signature()
                         for name, argument in application.values.items():
-                            collect(argument, fills[name].annotation)
+                            collect(argument, fills[name].annotation, loop_state_type)
                 elif value._kind == "op":
                     operator = value._args[0]
                     operand_type = bool if operator == "not" else str if operator == "string/concat" else None
-                    for argument in value._args[1:]: collect(argument, operand_type)
+                    for argument in value._args[1:]: collect(argument, operand_type, loop_state_type)
                 elif value._kind == "path":
-                    collect(value._args[1], str)
+                    collect(value._args[1], str, loop_state_type)
             elif isinstance(value, list):
                 arguments = get_args(annotation)
                 child_type = arguments[0] if get_origin(annotation) is list and arguments else None
-                for item in value: collect(item, child_type)
+                for item in value: collect(item, child_type, loop_state_type)
 
         def collect_region(region_trace, region_result, *, expected):
-            collect(region_result, expected)
+            collect(region_result, expected, region_trace.loop_state_type)
             for name, expression in reversed(region_trace.bindings):
                 types = expectations.get(name, ())
                 unique = []
                 for annotation in types:
                     if not any(annotation == item for item in unique): unique.append(annotation)
                 # Discarded bindings still supply declared argument and child-region contexts.
-                collect(expression, unique[0] if len(unique) == 1 else None)
+                collect(expression, unique[0] if len(unique) == 1 else None,
+                        region_trace.loop_state_type)
 
         collect_region(trace, result, expected=expected)
         bindings = dict(trace.bindings)
@@ -382,7 +447,7 @@ class ModuleGenerator:
     def expression(self, value, *, expected=None):
         w = self.writer
         site = value._site if isinstance(value, Expr) else self.fallback
-        kind = "call" if isinstance(value, Expr) and value._kind in {"call", "provider"} else "expression"
+        kind = "call" if isinstance(value, Expr) and value._kind in {"call", "provider", "command"} else "expression"
         with w.mark(site, kind):
             if isinstance(value, Expr):
                 self._expression(value, expected=expected)
@@ -434,11 +499,33 @@ class ModuleGenerator:
         elif value._kind == "call":
             definition, arguments = value._args
             _signature, annotations, _result = definition.signature()
-            w.write(f"(call {self.definition_names[id(definition)]}")
-            for name, argument in arguments.items():
-                w.write(f" :{name} ")
-                self.expression(argument, expected=annotations[name])
+            if definition.kind == "workflow":
+                w.write(f"(call {self.definition_names[id(definition)]}")
+                for name, argument in arguments.items():
+                    w.write(f" :{name} ")
+                    self.expression(argument, expected=annotations[name])
+            else:
+                w.write(f"({self.definition_names[id(definition)]}")
+                for name, annotation in annotations.items():
+                    w.write(" ")
+                    self.expression(arguments[name], expected=annotation)
             w.write(")")
+        elif value._kind == "command":
+            command, argv, inputs, inputs_present = value._args
+            w.write(f"(command-result {command.name} :argv (")
+            for index, argument in enumerate(argv):
+                if index: w.write(" ")
+                self.expression(argument)
+            w.write(")")
+            if inputs_present:
+                w.write(" :inputs (")
+                for index, (name, argument) in enumerate(inputs.items()):
+                    if index: w.write(" ")
+                    w.write(f"({name} ")
+                    self.expression(argument)
+                    w.write(")")
+                w.write(")")
+            w.write(" :returns " + self.type_ref(command.returns) + ")")
         elif value._kind == "provider": self.emit_provider(value)
         elif value._kind == "when":
             condition, then_region, else_region = value._args
@@ -458,10 +545,48 @@ class ModuleGenerator:
                 self.region(trace, result, expected=expected)
                 w.write(")")
             w.write(")")
+        elif value._kind == "loop":
+            maximum, state, body_region, exhausted_region, owner = value._args
+            body_trace, body_result, body_binder = body_region
+            exhausted_trace, exhausted_result, exhausted_binder = exhausted_region
+            w.write("(loop/recur :max ")
+            self.expression(maximum, expected=int)
+            w.write(" :state ")
+            self.expression(state, expected=body_trace.loop_state_type)
+            w.write(" :on-exhausted (let* ((" + exhausted_binder + " " + body_binder + ")) ")
+            self.region(exhausted_trace, exhausted_result, expected=expected)
+            w.write(") (fn (" + body_binder + ") ")
+            self.loop_binders[owner] = (body_binder, body_trace.loop_state_type)
+            try:
+                self.region(body_trace, body_result, expected=expected)
+            finally:
+                self.loop_binders.pop(owner, None)
+            w.write("))")
+        elif value._kind == "continue":
+            owner, state = value._args
+            self.require_current_loop_owner(owner, value)
+            w.write("(continue ")
+            self.expression(state, expected=self.loop_binders[owner][1])
+            w.write(")")
+        elif value._kind == "done":
+            owner, result = value._args
+            self.require_current_loop_owner(owner, value)
+            w.write("(done ")
+            self.expression(result, expected=expected)
+            w.write(")")
         elif value._kind in {"all_of", "any_of"}:
             self.emit_boolean_thunks(value._kind, value._args)
         else:
             raise PythonFrontendError("python_expression_unsupported", f"Unsupported expression {value._kind}", site=value._site)
+
+    def require_current_loop_owner(self, owner, value):
+        if not self.loop_binders or next(reversed(self.loop_binders)) is not owner:
+            site = value._site if isinstance(value, Expr) else self.fallback
+            raise PythonFrontendError(
+                "python_loop_control_owner_mismatch",
+                "Loop transfers must target the innermost active loop body",
+                site=site,
+            )
 
     def emit_boolean_thunks(self, kind, regions):
         if not regions:

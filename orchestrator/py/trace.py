@@ -12,6 +12,8 @@ from .diagnostics import PythonFrontendError, PythonSite, author_site
 
 
 _ACTIVE: ContextVar[Trace | None] = ContextVar("workflow_python_trace", default=None)
+_INHERIT_LOOP_OWNER = object()
+_INHERIT_LOOP_STATE = object()
 
 
 def active_trace() -> Trace:
@@ -151,21 +153,36 @@ class Trace:
     scope: TraceScope = field(default_factory=TraceScope)
     names: _NameAllocator | None = None
     bindings: list[tuple[str, Expr]] = field(default_factory=list)
+    loop_owner: object | None = None
+    loop_state_type: object = None
+    tail_controls: list[Expr] = field(default_factory=list)
 
     def __post_init__(self):
         if self.names is None:
             self.names = _NameAllocator(set(inspect.signature(self.definition.function).parameters))
 
-    def child(self):
-        return Trace(self.generator, self.definition, TraceScope(self.scope), self.names)
+    def child(self, *, loop_owner=_INHERIT_LOOP_OWNER,
+              loop_state_type=_INHERIT_LOOP_STATE):
+        owner = self.loop_owner if loop_owner is _INHERIT_LOOP_OWNER else loop_owner
+        state_type = (self.loop_state_type if loop_state_type is _INHERIT_LOOP_STATE
+                      else loop_state_type)
+        return Trace(
+            self.generator, self.definition, TraceScope(self.scope), self.names,
+            loop_owner=owner, loop_state_type=state_type,
+        )
 
     def expression(self, kind, args, annotation=None, *, site=None):
         site = site or author_site()
         if kind in {"when", "match"}:
             self.validate_value(args[0], site=site)
+        elif kind == "loop":
+            self.validate_value(args[:2], site=site)
         elif kind not in {"all_of", "any_of"}:
             self.validate_value(args, site=site)
-        return Expr(kind, args, annotation, site, self.scope)
+        expression = Expr(kind, args, annotation, site, self.scope)
+        if kind in {"when", "match", "continue", "done"} and _contains_loop_control(expression):
+            self.tail_controls.append(expression)
+        return expression
 
     def reference(self, name, annotation, *, site=None, kind="ref"):
         return Expr(kind, (name,), annotation, site or author_site(), self.scope)
@@ -180,7 +197,9 @@ class Trace:
                 self.validate_value(value._args[0], site=site)
             elif value._kind == "match":
                 self.validate_value(value._args[0], site=site)
-            elif value._kind in {"all_of", "any_of", "ref", "case_ref"}:
+            elif value._kind == "loop":
+                self.validate_value(value._args[:2], site=site)
+            elif value._kind in {"all_of", "any_of", "ref", "case_ref", "loop_ref"}:
                 return
             elif value._kind == "call":
                 self.validate_value(value._args[1], site=site)
@@ -213,35 +232,44 @@ class Trace:
             site=site,
         )
 
-    def region(self, function, *, binder_type=None):
+    def region(self, function, *, binder_type=None, binder_prefix="case",
+               binder_required=False, loop_owner=_INHERIT_LOOP_OWNER,
+               loop_state_type=_INHERIT_LOOP_STATE):
+        has_binder = binder_type is not None or binder_required
         if not callable(function):
-            code = "python_match_binder_required" if binder_type is not None else "python_when_thunk_required"
+            code = "python_match_binder_required" if has_binder else "python_when_thunk_required"
             raise PythonFrontendError(code, "Control callbacks must be callable lexical thunks", site=author_site())
         try:
             parameters = tuple(inspect.signature(function).parameters.values())
         except (TypeError, ValueError) as exc:
-            code = "python_match_binder_required" if binder_type is not None else "python_when_thunk_required"
+            code = "python_match_binder_required" if has_binder else "python_when_thunk_required"
             raise PythonFrontendError(code, "Control callbacks require an inspectable signature", site=author_site()) from exc
-        expected = 1 if binder_type is not None else 0
+        expected = 1 if has_binder else 0
         valid = len(parameters) == expected and all(
             parameter.kind in {parameter.POSITIONAL_OR_KEYWORD, parameter.KEYWORD_ONLY}
             for parameter in parameters
         )
         if not valid:
-            code = "python_match_binder_required" if binder_type is not None else "python_when_thunk_required"
+            code = "python_match_binder_required" if has_binder else "python_when_thunk_required"
             detail = "one named binder" if expected else "zero arguments"
             raise PythonFrontendError(code, f"Control callbacks require {detail}", site=author_site())
-        child = self.child()
+        child = self.child(loop_owner=loop_owner, loop_state_type=loop_state_type)
         binder = None
         arguments = {}
-        if binder_type is not None:
-            binder = child.fresh("case")
+        if has_binder:
+            binder = child.fresh(binder_prefix)
             arguments[parameters[0].name] = child.reference(binder, binder_type, kind="case_ref")
         result = child.run(function, arguments)
         return child, result, binder
 
     def bind(self, expression: Expr, *, prefix="e") -> Expr:
         self.validate_value(expression)
+        if _contains_loop_control(expression):
+            raise PythonFrontendError(
+                "python_loop_control_not_tail",
+                "Loop transfers must remain in the tail position of a loop body",
+                site=expression._site,
+            )
         name = self.fresh(prefix)
         self.bindings.append((name, expression))
         return self.reference(name, expression._annotation, site=expression._site)
@@ -251,6 +279,16 @@ class Trace:
         try:
             result = function(**arguments)
             self.validate_value(result)
+            retained = _tail_controls(result)
+            for control in retained:
+                if control._kind in {"continue", "done"} and control._args[0] is not self.loop_owner:
+                    raise PythonFrontendError("python_loop_control_owner_mismatch",
+                        "Loop transfers must target the innermost active loop body", site=control._site)
+            retained_ids = {id(control) for control in retained}
+            for control in self.tail_controls:
+                if id(control) not in retained_ids:
+                    raise PythonFrontendError("python_loop_control_not_tail",
+                        "Loop transfers must be retained in the returned tail control", site=control._site)
             return result
         finally:
             _ACTIVE.reset(token)
@@ -276,6 +314,54 @@ def _branch_annotation(generator, values):
     return annotations[0] if all(annotation == annotations[0] for annotation in annotations[1:]) else None
 
 
+def _tail_controls(value):
+    if not isinstance(value, Expr):
+        return []
+    if value._kind in {"continue", "done"}:
+        return [value]
+    if value._kind == "when":
+        regions = value._args[1:]
+        return [value, *(control for _trace, result in regions for control in _tail_controls(result))]
+    if value._kind == "match":
+        return [value, *(control for _case, _binder, _trace, result in value._args[1]
+                         for control in _tail_controls(result))]
+    return []
+
+
+def _contains_loop_control(value):
+    if isinstance(value, Expr):
+        if value._kind in {"continue", "done"}:
+            return True
+        if value._kind == "loop":
+            return False
+        return _contains_loop_control(value._args)
+    if isinstance(value, Trace):
+        return any(_contains_loop_control(expression) for _, expression in value.bindings)
+    if isinstance(value, Mapping):
+        return any(_contains_loop_control(child) for child in value.values())
+    if isinstance(value, (tuple, list, set, frozenset)):
+        return any(_contains_loop_control(child) for child in value)
+    return False
+
+
+def _done_values(value, owner):
+    if isinstance(value, Expr):
+        if value._kind == "done":
+            control_owner, payload = value._args
+            return [payload] if control_owner is owner else []
+        if value._kind in {"continue", "loop"}:
+            return []
+        return _done_values(value._args, owner)
+    if isinstance(value, Trace):
+        return [result for _, expression in value.bindings
+                for result in _done_values(expression, owner)]
+    if isinstance(value, Mapping):
+        return [result for child in value.values() for result in _done_values(child, owner)]
+    if isinstance(value, (tuple, list, set, frozenset)):
+        return [result for child in value for result in _done_values(child, owner)]
+    return []
+
+
 def _closed_union(annotation):
     args = get_args(annotation)
     return (get_origin(annotation) in {UnionType, Union} and args and
@@ -291,7 +377,7 @@ def when(condition, *, then, else_):
         "when", (condition, then_region[:2], else_region[:2]),
         _branch_annotation(trace.generator, (then_region[1], else_region[1])),
     )
-    return trace.bind(expression)
+    return expression if _contains_loop_control(expression) else trace.bind(expression)
 
 
 def match(value, **cases):
@@ -308,7 +394,8 @@ def match(value, **cases):
         child, result, binder = trace.region(cases[variant.__name__], binder_type=variant)
         arms.append((variant, binder, child, result))
     annotation = _branch_annotation(trace.generator, [result for _, _, _, result in arms])
-    return trace.bind(trace.expression("match", (value, tuple(arms)), annotation))
+    expression = trace.expression("match", (value, tuple(arms)), annotation)
+    return expression if _contains_loop_control(expression) else trace.bind(expression)
 
 
 def _boolean_thunks(kind, thunks):
@@ -324,3 +411,45 @@ def any_of(*thunks): return _boolean_thunks("any_of", thunks)
 def length(value): return declaration_expression("op", ("list/length", value), int)
 def concat(*values): return declaration_expression("op", ("string/concat", *values), str)
 def not_(value): return declaration_expression("op", ("not", value), bool)
+
+
+def loop(*, state, max, body, on_exhausted):
+    trace = active_trace()
+    trace.validate_value(max)
+    trace.validate_value(state)
+    state_type = getattr(state, "_annotation", None)
+    if state_type is None and type(state) in {bool, int, float, str}:
+        state_type = type(state)
+    owner = object()
+    body_region = trace.region(
+        body, binder_type=state_type, binder_required=True, binder_prefix="loop",
+        loop_owner=owner, loop_state_type=state_type,
+    )
+    exhausted_region = trace.region(
+        on_exhausted, binder_type=state_type, binder_required=True,
+        binder_prefix="exhausted",
+    )
+    result_values = _done_values(body_region[1], owner)
+    result_values.append(exhausted_region[1])
+    annotation = _branch_annotation(trace.generator, result_values)
+    return trace.bind(trace.expression(
+        "loop", (max, state, body_region, exhausted_region, owner), annotation,
+    ))
+
+
+def cont(state):
+    trace = active_trace()
+    if trace.loop_owner is None:
+        raise PythonFrontendError("python_loop_control_owner_mismatch", "cont requires an active loop body")
+    trace.validate_value(state)
+    return trace.expression("continue", (trace.loop_owner, state),
+                            getattr(state, "_annotation", None))
+
+
+def done(value):
+    trace = active_trace()
+    if trace.loop_owner is None:
+        raise PythonFrontendError("python_loop_control_owner_mismatch", "done requires an active loop body")
+    trace.validate_value(value)
+    return trace.expression("done", (trace.loop_owner, value),
+                            getattr(value, "_annotation", None))
