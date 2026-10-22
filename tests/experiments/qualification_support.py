@@ -257,7 +257,7 @@ def _v2_runtime(runtime, rubric, judges):
     return workflow, binding, binding_paths, control, commit
 
 
-def _v2_tasks(root, tasks, validation, sealed):
+def _v2_tasks(root, tasks, validation, sealed, roles=('upstream', 'stub', 'partial', 'mutant')):
     def task(name):
         path = root / 'tasks' / name
         (path / 'anchors').mkdir(parents=True)
@@ -273,7 +273,7 @@ def _v2_tasks(root, tasks, validation, sealed):
     for path in all_tasks:
         (path / 'anchors').mkdir(exist_ok=True)
         controls = {}
-        for role in ('upstream', 'stub', 'partial', 'mutant'):
+        for role in roles:
             patch = path / 'anchors' / f'{path.name}-{role}.diff'
             if not patch.exists():
                 patch.write_text(f'{path.name} {role} patch')
@@ -341,7 +341,8 @@ def _v2_measurement(rubric, judges, binding_paths, measurements, all_tasks, runt
     origin_common = {'price_table': price_table, 'runtime': {'path': str(runtime), 'commit': commit}, 'purpose': 'calibration',
         'tasks': list(map(str, all_tasks)), 'judges': list(judges), 'judge_bindings': bindings,
         'rubric': rubric, 'workflow_sha256': sha(workflow), 'anchors': anchors,
-        'calibration': {'margin': 4, 'mutant_margin': 2, 'error_rate': 0}, 'anchor_spread_limit': 2,
+        'calibration': overrides.get('calibration', {'margin': 4, 'mutant_margin': 2, 'error_rate': 0}),
+        'anchor_spread_limit': 2,
         'batches': {'A2': {'count': 2}, 'A': {'count': 2}, 'B2': {'count': 1},
                     'Q1': {'count': 2}, 'Q2': {'count': 2}}}
     return bindings, measurement, origin_common
@@ -410,7 +411,8 @@ def qualified_v2(root, *, runtime=None, tasks=None, validation=None, sealed=None
     root.mkdir(parents=True, exist_ok=True)
     runtime = runtime or root / 'runtime'
     workflow, binding, binding_paths, control, commit = _v2_runtime(runtime, rubric, judges)
-    tasks, validation, sealed, all_tasks, measurements, anchors = _v2_tasks(root, tasks, validation, sealed)
+    roles = ('upstream', 'stub', 'mutant') if overrides.get('calibration', {}).get('rule') == 'control-means-v1' else ('upstream', 'stub', 'partial', 'mutant')
+    tasks, validation, sealed, all_tasks, measurements, anchors = _v2_tasks(root, tasks, validation, sealed, roles)
     rules, family = _v2_family(root, runtime, control, tasks, validation, sealed, all_tasks, commit)
     bindings, measurement, origin_common = _v2_measurement(
         rubric, judges, binding_paths, measurements, all_tasks, runtime, commit, anchors, overrides, workflow)

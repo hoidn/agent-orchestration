@@ -163,9 +163,13 @@ The original apparatus deletion decision is completed history; preserved evidenc
   every arm is named in the criterion file and reported.
 - **D4. Scoring is typed, criterion-selected, in applied-patch clones.**
   The default `score.orc` and the historical batch shapes below remain supported.
-  Generic pools can select `score_ref.orc` using a rubric mapping: four rating
-  criteria (`completeness`, `correctness`, `scope`, `layering`) and an upstream
-  reference bound outside the blind clone list. All repositories, including
+  Generic pools select `score_ref.orc` or reference-free `score_absolute.orc`
+  through a rubric mapping. Both retain the four 0–2 component Rating shape
+  (`completeness`, `correctness`, `scope`, `layering`), total 0–8. The
+  prospective absolute rubric scores them independently: correctness earns no
+  credit when no required behavior is implemented; missing behavior does not automatically zero scope
+  or layering. There is no global-zero rule. The reference rubric binds an
+  upstream reference outside the blind clone list. All repositories, including
   the unscored reference, count toward the ten-repository limit. A historical
   missing or descriptive-string rubric selects `score.orc`; a mapping selects
   an explicit workflow. Structural V1 quality admission still rejects the
@@ -230,18 +234,34 @@ The original apparatus deletion decision is completed history; preserved evidenc
   detection, not prevention, and is stated as a limit in every report. Whether the
   commits must postdate the models' training data, and from which date, is
   the owner's call (Q5).
-- **D6. Blind controls and a disclosed reference have different roles.**
-  The generic reference calibration freezes four blind controls per task:
-  upstream, stub, partial and mutant. Each batch includes every control plus
-  its own disclosed upstream reference, which receives no rating, run value,
-  hidden-acceptance result or primary score. Reference IDs and rubric selection
-  are recorded in the mapping and checked against scoring inputs/results.
-  Calibration is explicit `purpose: "calibration"`: every declared judge ×
-  batch pair remains in the denominator; absent/excluded judges or incomplete
-  control ratings fail. The selected measurement freezes P1 upstream−stub ≥4,
-  P2 stub < partial < upstream, P3 upstream−mutant ≥2, zero tolerated error and
-  per-anchor spread ≤2. B2 compares with the actual accepted A or A2 pools.
-  These predicates are implemented; no live passing result is implied.
+- **D6. The frozen criterion selects controls and calibration.**
+  Prospective criteria select exactly
+  `calibration: {"rule": "control-means-v1", "margin": 1, "error_rate": 0}`
+  and exactly three blind roles per task: upstream, stub and mutant. For each
+  task and each declared judge, take each control's mean over every declared
+  batch and require `mean(upstream) − max(mean(stub), mean(mutant)) ≥ 1`.
+  Every judge must pass; missing, excluded or invalid observations fail rather
+  than shrink the denominator. Partial order and spread are not acceptance
+  gates for this rule; report spread descriptively. One point is a frozen
+  prospective choice, not an estimated error probability or reliability claim.
+
+  Absence of `calibration.rule` preserves the historical algorithm exactly:
+  four declared roles upstream/stub/partial/mutant, P1 upstream−stub ≥margin,
+  P2 stub < partial < upstream, P3 upstream−mutant ≥mutant_margin, the declared
+  failing-pair error rate and anchor spread gate. Unknown rules refuse. New-rule
+  batches contain exactly their three declared controls; extra package anchor
+  files do not add roles. Historical pools without a rule retain every package
+  anchor. Pool selection does not relax package construction
+  or family-qualification gates. A selected reference is unscored and counts toward
+  capacity. The mapping binds reference/rubric/control identities and the
+  criterion hash; scoring inputs/results must agree with those identities and
+  the criterion-selected rule. Later pools use the same selected rule; historical `calibration_over` retains its spread gate,
+  whereas `control-means-v1` keeps spread descriptive and requires each pool
+  to pass its own control-means check. Frozen AT failure is not reinterpreted.
+  Fresh rubric/source identities and fresh responses are required before any
+  live qualification under the new rule; the
+  [simple evaluation plan](../plans/2026-10-22-simple-evaluation-plan.md)
+  selects offline changes only, with implementation verification tracked there.
   Calibration summarization skips fresh hidden-test execution and leaves clone
   `hidden`/`hidden_failed` null. Retained construction fractions are secondary
   diagnostics; A/B2 produce no new filler hidden rates. Other purposes retain
@@ -355,7 +375,7 @@ otherwise.
    records its hits; the experimenter records a verdict for a run with hits.
 5. `prepare.py pool` takes the frozen criterion and the judges, builds one
    applied-patch clone per pooled patch under a random id, with `git add -A -N .` so a judge's `git diff` shows new files,
-   strips the paths in D8, adds every package anchor to each batch, writes the
+   strips the paths in D8, adds the criterion-selected anchors to each batch, writes the
    batches as one scoring inputs file and command per judge, and writes
    `mapping.json` to the pool's records directory.
 6. Run the criterion-selected scoring workflow (`score.orc` by default) once

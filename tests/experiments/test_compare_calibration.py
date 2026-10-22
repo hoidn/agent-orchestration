@@ -92,7 +92,7 @@ def test_calibrate_cli_filters_and_reports_nonapplicable_fillers(world, package,
 def observations(rule, *, batches=2, upstream=8, partial=5, mutant=5, stub=1):
     roles = rule["anchors"]["task"]
     mapping = {"task": "/tasks/task", "batches": [list(roles.values()) for _ in range(batches)]}
-    results = {"judges": rule["judges"], "excluded_judges": {}, "anchors": [
+    results = {"judges": list(rule["judges"]), "excluded_judges": {}, "anchors": [
         {"judge": judge, "batch": batch, "anchor": roles[role], "total": total}
         for judge in rule["judges"] for batch in range(batches)
         for role, total in {"upstream": upstream, "stub": stub, "partial": partial, "mutant": mutant}.items()]}
@@ -296,3 +296,141 @@ def test_absolute_calibration_pools_only_blind_clones_and_preserves_the_full_den
     incomplete = summarize.calibration(result, mapping, rule)
     assert len(incomplete["pairs"]) == len(rule["judges"]) * len(mapping["batches"])
     assert incomplete["passed"] is False
+
+
+def control_means_rule(rule):
+    return rule | {
+        "rubric": {**REFERENCE_RUBRIC, "workflow": "score_absolute.orc", "entry": "score_absolute::score",
+                   "reference": None},
+        "calibration": {"rule": "control-means-v1", "margin": 1, "error_rate": 0},
+        "anchors": {task: {role: label for role, label in roles.items() if role != "partial"}
+                    for task, roles in rule["anchors"].items()}}
+
+
+def control_means_observations(rule):
+    mapping = {"task": "/tasks/task", "batches": [[], []]}
+    results = {"judges": list(rule["judges"]), "excluded_judges": {}, "anchors": [
+        {"judge": judge, "batch": batch, "anchor": label,
+         "total": {"upstream": (4, 8), "stub": (4, 0), "mutant": (4, 0)}[role][batch]}
+        for judge in rule["judges"] for batch in range(2)
+        for role, label in rule["anchors"]["task"].items()]}
+    return results, mapping
+
+
+def test_control_means_accepts_aggregate_separation_despite_ties_and_spread(world, package):
+    rule = control_means_rule(package[0])
+    rule.pop("anchor_spread_limit")
+    results, mapping = control_means_observations(rule)
+    verdict = summarize.calibration(results, mapping, rule)
+    assert verdict["passed"] is True
+    assert verdict["rule"] == "control-means-v1"
+    assert verdict["anchor_spread"]["judge-a"]["task-upstream"] == 4
+    assert len(verdict["pairs"]) == len(rule["judges"]) * 2
+
+
+@pytest.mark.parametrize("negative", ["stub", "mutant"])
+def test_control_means_requires_separation_from_each_negative_for_every_judge(world, package, negative):
+    rule = control_means_rule(package[0])
+    results, mapping = control_means_observations(rule)
+    for row in results["anchors"]:
+        if row["judge"] == "judge-b" and row["anchor"] == f"task-{negative}":
+            row["total"] = 6
+    assert summarize.calibration(results, mapping, rule)["passed"] is False
+
+
+@pytest.mark.parametrize("damage", ["missing_judge", "excluded", "missing_control", "duplicate", "none",
+                                    "boolean", "nan", "infinity", "range", "missing_batch"])
+def test_control_means_fails_incomplete_or_invalid_observations(world, package, damage):
+    rule = control_means_rule(package[0])
+    results, mapping = control_means_observations(rule)
+    if damage == "missing_judge":
+        results["judges"].remove("judge-b")
+    elif damage == "excluded":
+        results["excluded_judges"]["judge-b"] = "contaminated"
+    elif damage == "missing_control":
+        results["anchors"].pop()
+    elif damage == "duplicate":
+        results["anchors"].append(dict(results["anchors"][0]))
+    elif damage == "missing_batch":
+        mapping["batches"].append([])
+    else:
+        results["anchors"][0]["total"] = {
+            "none": None, "boolean": True, "nan": float("nan"), "infinity": float("inf"), "range": 9}[damage]
+    verdict = summarize.calibration(results, mapping, rule)
+    assert verdict["passed"] is False
+    assert len(verdict["pairs"]) == len(rule["judges"]) * len(mapping["batches"])
+
+
+@pytest.mark.parametrize("change", [{"rule": "unknown"}, {"margin": 2}, {"error_rate": .1},
+                                     {"mutant_margin": 2}, {"margin": True}])
+def test_control_means_refuses_unknown_rules_and_configurable_parameters(world, package, change):
+    rule = control_means_rule(package[0])
+    results, mapping = control_means_observations(rule)
+    rule["calibration"].update(change)
+    with pytest.raises(SystemExit, match="calibration|control-means"):
+        summarize.calibration(results, mapping, rule)
+
+
+def test_control_means_pool_and_capacity_select_only_declared_controls(world, package):
+    from experiments.orc_structural_search.scoring import fillers_per_batch
+    rule = control_means_rule(package[0])
+    repos.dump(world.criterion, rule)
+    capacity = fillers_per_batch(world.task, rule["rubric"], world.criterion)
+    assert capacity == 7
+    mapping = make_pool(world, package[1], batches=1, per_batch=7, min_per_batch=7)
+    assert len(mapping["batches"][0]) == 10
+    assert {clone["labels"][0] for clone in mapping["clones"].values() if clone["arm"] == "anchor"} == {
+        "task-upstream", "task-stub", "task-mutant"}
+    assert (world.task / "anchors/task-partial.diff").is_file()
+
+
+def test_control_means_calibration_over_ignores_spread_but_requires_every_pool(world, package):
+    rule = control_means_rule(package[0])
+    rule.pop("anchor_spread_limit")
+    repos.dump(world.criterion, rule)
+    paths = []
+    for name, shift in (("A", 0), ("B2", -1)):
+        results, mapping = control_means_observations(rule)
+        for row in results["anchors"]:
+            if row["anchor"] == "task-upstream":
+                row["total"] += shift
+        results.update(task=mapping["task"], criterion_sha256=repos.sha256_file(world.criterion),
+                       calibration=summarize.calibration(results, mapping, rule))
+        path = world.tmp / f"means-{name}.json"
+        repos.dump(path, results)
+        paths.append(path)
+    assert summarize.calibration_over(paths, world.criterion)["passed"] is True
+    results["calibration"]["passed"] = False
+    repos.dump(paths[-1], results)
+    assert summarize.calibration_over(paths, world.criterion)["passed"] is False
+
+
+@pytest.mark.parametrize('totals,passed', [([(6, 0, 0, 4), (5, 0, 2, 3)], False),
+                                         ([(8, 0, 5, 4), (6, 0, 5, 2)], True)], ids=['AT-PRR', 'AT-RPI'])
+def test_historical_at_observations_keep_the_original_partial_order_gate(totals, passed):
+    roles = ('upstream', 'stub', 'partial', 'mutant')
+    criterion = {'purpose': 'calibration', 'judges': ['judge'],
+                 'anchors': {'task': {role: role for role in roles}},
+                 'calibration': {'margin': 4, 'mutant_margin': 2, 'error_rate': 0}, 'anchor_spread_limit': 2}
+    mapping = {'task': '/tasks/task', 'batches': [[], []]}
+    results = {'judges': ['judge'], 'anchors': [
+        {'judge': 'judge', 'batch': batch, 'anchor': role, 'total': total}
+        for batch, values in enumerate(totals) for role, total in zip(roles, values)]}
+    verdict = summarize.calibration(results, mapping, criterion)
+    assert verdict['passed'] is passed
+    assert verdict['p2_failing'] == (0 if passed else .5)
+
+
+@pytest.mark.parametrize('change', ['partial', 'duplicate', 'missing_file'])
+def test_control_means_pool_refuses_invalid_declared_roles_before_creation(world, package, change):
+    rule = control_means_rule(package[0])
+    if change == 'partial':
+        rule['anchors']['task']['partial'] = 'task-partial'
+    elif change == 'duplicate':
+        rule['anchors']['task']['mutant'] = 'task-stub'
+    else:
+        rule['anchors']['task']['mutant'] = 'absent-mutant'
+    repos.dump(world.criterion, rule)
+    with pytest.raises(SystemExit, match='anchor|role'):
+        make_pool(world, package[1])
+    assert not (world.outside / 'calibration').exists()

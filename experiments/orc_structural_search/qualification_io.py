@@ -72,6 +72,7 @@ def names(value, label):
 
 def calibration(value):
     require(isinstance(value, dict) and 'margin' in value, 'missing calibration margin')
+    require('rule' not in value, 'named calibration rule is unsupported by V1 qualification')
     margin, error = value['margin'], value.get('error_rate', 0)
     for number in (margin, error):
         require(type(number) in (int, float) and math.isfinite(number), 'calibration must be finite numbers')

@@ -1,4 +1,4 @@
-"""C1's four-control measurement, preserving each pool's frozen origin identity."""
+"""C1's control measurement, preserving each pool's frozen origin identity."""
 import hashlib
 from pathlib import Path
 
@@ -7,6 +7,10 @@ from experiments.compare.repos import runtime_commit
 from experiments.orc_structural_search.qualification_io import digest, names, read, reference, require, same_reference
 
 ROLES = frozenset(('upstream', 'stub', 'partial', 'mutant'))
+
+
+def control_roles(criterion):
+    return frozenset(harness.CONTROL_ROLES) if harness.control_means(criterion) else ROLES
 
 
 def binding_path(info, containing, runtime):
@@ -51,6 +55,7 @@ def dispatch(criterion, containing, runtime, judges=None):
 
 
 def measurement(study, containing, tasks, packages):
+    roles = control_roles(study)
     block = study['measurement']
     require(set(block) == {'evaluator', 'tasks'} and set(block['tasks']) == set(tasks),
             'V2 measurement tasks differ from all study packages')
@@ -68,7 +73,7 @@ def measurement(study, containing, tasks, packages):
     for name, path in tasks.items():
         require(study['base_commits'][name] == (path / 'base_commit').read_text().strip(), 'study base differs')
         info = block['tasks'][name]
-        require(info['package_sha256'] == packages[name] and set(info['controls']) == ROLES,
+        require(info['package_sha256'] == packages[name] and set(info['controls']) == roles,
                 'V2 measurement package or roles differ')
         require(study['anchors'][name] == {role: c['label'] for role, c in info['controls'].items()},
                 'V2 anchor labels differ from measurement')
@@ -85,10 +90,16 @@ def origin_identity(origin, origin_path, study, containing, task, packages):
     require(origin['purpose'] == 'calibration', 'V2 evidence needs calibration origin')
     require(harness.rubric(origin) == harness.rubric(study), 'accepted rubric differs from study')
     require(origin['judges'] == study['judges'], 'origin judges differ from accepted study judges')
-    for key in ('margin', 'mutant_margin', 'error_rate'):
-        require(origin['calibration'][key] == study['calibration'][key], 'origin calibration rules differ')
+    means_rule = harness.control_means(study)
+    require(harness.control_means(origin) == means_rule, 'origin calibration rule differs')
+    if means_rule:
+        require(origin['calibration'] == study['calibration'], 'origin calibration rules differ')
+    else:
+        for key in ('margin', 'mutant_margin', 'error_rate'):
+            require(origin['calibration'][key] == study['calibration'][key], 'origin calibration rules differ')
     require(origin['price_table'] == study['price_table'], 'origin frozen price table differs')
-    require(origin['anchor_spread_limit'] == study['anchor_spread_limit'], 'origin spread rule differs')
+    if not means_rule:
+        require(origin['anchor_spread_limit'] == study['anchor_spread_limit'], 'origin spread rule differs')
     require(origin['anchors'][task] == study['anchors'][task], 'origin anchor roles differ')
     runtime = Path(origin['runtime']['path'])
     require(runtime_commit(runtime) == origin['runtime']['commit'], 'origin runtime commit differs')
@@ -152,7 +163,7 @@ def check_batches(mapping, roles, origin, stage, pool_root):
     key = 'A2' if stage == 'A_prime' else stage
     require(isinstance(batches, list) and len(batches) == origin['batches'][key]['count'],
             'missing declared calibration batch')
-    seen = blind_members(mapping, roles)
+    seen = blind_members(mapping, roles, control_roles(origin))
     refs = {cid for cid, clone in mapping['clones'].items() if clone['arm'] == 'reference'}
     if harness.rubric(mapping)['reference']:
         summarize.reference_paths(pool_root, mapping)
@@ -162,14 +173,14 @@ def check_batches(mapping, roles, origin, stage, pool_root):
     require(seen | refs == set(mapping['clones']) and not seen & refs, 'unbatched clones or blind reference')
 
 
-def blind_members(mapping, roles):
+def blind_members(mapping, roles, expected_roles=ROLES):
     seen = set()
     for batch in mapping['batches']:
         require(isinstance(batch, list) and batch and len(set(batch)) == len(batch), 'duplicate batch clone')
         require(not seen.intersection(batch) and set(batch) <= set(mapping['clones']), 'invalid batch membership')
         seen.update(batch)
-        require(sorted(roles[cid] for cid in batch if cid in roles) == sorted(ROLES),
-                'each batch needs all four controls exactly once')
+        require(sorted(roles[cid] for cid in batch if cid in roles) == sorted(expected_roles),
+                'each batch needs all declared controls exactly once')
     return seen
 
 
@@ -202,7 +213,7 @@ def pool_observation(pool, containing, study, study_path, tasks, packages):
     anchors = summarize.anchor_scores(mapping, totals)
     recomputed = {'judges': list(judges), 'excluded_judges': {}, 'anchors': anchors}
     verdict = summarize.calibration(recomputed, mapping, {**study, 'purpose': 'calibration'})
-    require(verdict['passed'], 'V2 P1/P2/P3 or per-pool spread calibration failed')
+    require(verdict['passed'], 'V2 control calibration failed (legacy P1/P2/P3 and spread when selected)')
     return task, verdict, anchors
 
 
@@ -230,6 +241,7 @@ def validate_v2(measure, containing, study, study_path, tasks, packages, runtime
     result = {}
     for task, rows in figures.items():
         spread = summarize.anchor_spreads(anchors[task], study['judges'], study['anchors'][task].values())
-        require(summarize.spread_passes(spread, study['anchor_spread_limit']), 'aggregate anchor spread exceeded')
+        if not harness.control_means(study):
+            require(summarize.spread_passes(spread, study['anchor_spread_limit']), 'aggregate anchor spread exceeded')
         result[task] = {'pairs': len(rows), 'failing_pairs': 0, 'error_rate': 0, 'anchor_spread': spread}
     return result

@@ -300,7 +300,7 @@ def campaign_generation(n, state, config, *, store, campaign_id, criterion, rng,
     count = frozen['horizon']['episodes_per_generation']
     if not any(r['kind'] == 'parent_decision' and r['generation'] == n for r in read_log(launch['evidence_root'] / 'log.jsonl')):
         planned = count + planned_judged([frozen['envelope']['child_planned_maximum']] * count,
-            len(adaptive_tasks), 1, len(judge['judges']), capacities=[scoring.fillers_per_batch(t, rubric(criterion)) for t in adaptive_tasks])
+            len(adaptive_tasks), 1, len(judge['judges']), capacities=[scoring.fillers_per_batch(t, rubric(criterion), criterion) for t in adaptive_tasks])
         check_budget(launch['evidence_root'], planned, launch['call_cap'], f'generation {n}')
     for draw in range(count):
         resolved = campaign_episode(draw, state, config, store=store, campaign_id=campaign_id,

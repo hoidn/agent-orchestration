@@ -649,3 +649,10 @@ not transferred. Remaining planned calls are 32, or 40 including A and A′.
 | Close cap 20 without transferring its margin | Total 12 sessions = six CLI plus six historical children, all Terra high. Eight sessions remain unused recovery allowance, with no pending effects. No rescoring, A3, B/B2/C or live campaign is selected; later stages retain separate gates |
 | Preserve cost limits and hygiene | New complete PRR receipts price at USD 1.7394904; observed AT lower bound is USD 4.3461492, complete total unavailable. Both pools' 36 clones and 243 protected hashes remain intact; root cleared 46 continuation actions and read 18 PRR reasons without independently validating diagnoses. No candidate edits or judge unit/hidden-test execution observed |
 | Limited final-status routing correction | Update only this plan's current status/Task6b and this closure ledger, the module plan's current measurement paragraph, the roadmap's current measurement paragraph and the new [completion report](../reports/2026-10-20-orc-structural-search-measurement-at-completion.md). Coordinator separately updates the three hub status rows and adds the completion-report row; earlier reports, Phase2/cumulative text, designs, C1 plan, boundaries and frozen criteria remain unchanged |
+
+
+### Offline Evaluation Simplification Coordination — 2026-10-22
+
+| Decision | Consequence |
+| --- | --- |
+| Owner: “fix these issues. simplify the evaluation, don't complicate it” | The [simple evaluation plan](2026-10-22-simple-evaluation-plan.md) selects offline rubric/calibration fixes only. Align the cumulative design and C1 plan's current P1/P2/P3/spread statements with the criterion-selected calibration rule: prospective `control-means-v1` uses three controls and per-judge control means, while criteria without a rule retain the historical four-role predicates. Preserve all other C1 gates, Phase2 roadmap text, boundaries, frozen criteria and historical reports. AT remains completed FAIL_NOT_QUALIFIED; no new paid call is approved or executed and stage budgets remain separate |

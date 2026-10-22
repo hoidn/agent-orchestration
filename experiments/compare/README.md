@@ -2,7 +2,7 @@
 
 Design and decisions: [`docs/design/orc_effectiveness_comparison_harness.md`](../../docs/design/orc_effectiveness_comparison_harness.md).
 The harness runs a maintained workflow unchanged, records every agent call through a transparent
-shim, pools the resulting patches blind, selects `score.orc` or the explicit reference rubric,
+shim, pools the resulting patches blind, selects `score.orc` or an explicit reference/absolute rubric,
 and summarizes against a criterion frozen before scoring.
 
 Structural-search callers additionally enforce their
@@ -30,7 +30,7 @@ criteria and captured recipes confer no fresh permission.
 `experiments/compare/tasks/<package>/` holds `task.txt` (what every arm receives), `intent.txt`
 (what judges and reviewers receive), `base_commit`, `seed/` (files committed onto the base in every
 candidate and clone, so they never appear in a patch), `anchors/<name>.diff` (all declared controls, built
-against the seeded commit; the reference calibration uses four roles), and optionally `hidden_tests.txt` (node ids, one per line, or a file
+against the seeded commit; the criterion selects the control roles), and optionally `hidden_tests.txt` (node ids, one per line, or a file
 path for all its tests) with `hidden/` (test files copied over a copy of each clone, without `.git`,
 before they run). Without both, hidden acceptance is skipped.
 
@@ -361,7 +361,9 @@ Without `rubric`, the harness uses the historical `score.orc` criteria (`root_ca
 ```
 
 Each batch then includes a disclosed reference built from
-`anchors/<task-name>-upstream.diff`, alongside every blind package anchor. The
+`anchors/<task-name>-upstream.diff`, alongside the three declared blind controls
+for `control-means-v1`, or every package anchor for historical criteria without
+a rule identifier. The
 reference has its own random clone ID, is bound separately from the blind clone
 list, and receives no rating, run value or hidden-acceptance result. All repositories
 count toward the ten-repository batch limit. `mapping.json` records the rubric and
@@ -369,56 +371,70 @@ reference IDs; summarization rejects a different criterion rubric or bound refer
 Historical mappings without `rubric`, and descriptive string-valued `rubric`
 metadata in criteria or mappings, retain the historical criteria.
 
-Generic comparison pools support this route. Structural quality operations retain
+A reference-free rubric selects `score_absolute.orc`, entry
+`score_absolute::score`, with the same four criteria and `"reference": null`.
+Its four independent 0–2 components sum to 0–8. Completeness and correctness
+concern implemented required behavior; correctness is zero when none is
+implemented. Scope and layering are scored independently, with no global zero.
+
+Generic comparison pools support these routes. Structural V1 quality operations retain
 V1 qualification and reject a selected reference rubric; generic calibration does
 not grant structural quality authority.
 
 ## Calibration from recorded patches
 
-Prepare a frozen criterion with `purpose: "calibration"` before scoring. It selects the reference
-rubric above, declares the judges and four anchor roles per task under `anchors`
-(`upstream`, `stub`, `partial`, `mutant`, each naming the corresponding diff stem),
-and supplies `calibration.margin`, `calibration.mutant_margin`,
-`calibration.error_rate`, and `anchor_spread_limit`. The measurement plan freezes
-these as 4, 2, 0 and 2 respectively. Controls are constructed independently;
-hidden acceptance is descriptive secondary evidence. Calibration summarization
-performs no new per-node hidden runs and leaves `hidden`/`hidden_failed` null;
-it uses retained control-construction diagnostics and produces no new filler
-hidden rates. Other criterion purposes retain normal hidden measurement.
+Freeze a criterion with `purpose: "calibration"`, the selected rubric, declared
+judges and per-task `anchors` before scoring. Prospective calibration is exactly:
 
-1. Obtain filler patches from the collected runs of the same task and amended
-   seeded base; use their recorded paths and hashes from the frozen criterion.
+```json
+{"calibration": {"rule": "control-means-v1", "margin": 1, "error_rate": 0},
+ "anchors": {"TASK": {"upstream": "TASK-upstream", "stub": "TASK-stub",
+                       "mutant": "TASK-mutant"}}}
+```
+
+For each task and each declared judge, include every declared batch and require
+`mean(upstream) - max(mean(stub), mean(mutant)) >= 1`. Every judge must pass;
+missing, excluded or invalid observations fail. There is no partial-order or
+spread acceptance gate; spreads remain descriptive. A one-point margin is a
+prospective separation choice, not a measured reliability estimate.
+
+A criterion without `calibration.rule` retains the historical four-role
+upstream/stub/partial/mutant algorithm: P1/P2/P3, error rate and spread limit
+are unchanged. Unknown rules refuse. Extra anchor files in a package are not
+pooled when the criterion declares only three controls. Hidden acceptance is
+secondary: calibration summarization performs no new hidden runs, leaves
+`hidden`/`hidden_failed` null and retains construction diagnostics only.
+
+1. Obtain applicable filler patches for the same task/seeded base and freeze
+   their recorded paths and hashes.
 2. Run `prepare.py calibrate` with `--task`, `--criterion`, `--out`, `--runtime`,
-   repeated `--judge` and `--filler` arguments, and explicit `--batches`,
-   `--per-batch`, `--min-per-batch`, `--filler-seed`. This only prepares the pool.
-   It reports which patches apply, refuses duplicate patches or insufficient
-   fillers, and deals applicable fillers deterministically without replacement.
-   Every batch contains every package anchor and its own unscored reference;
-   ten repositories is the limit including both. Two batches of four or five
-   fillers need at least eight applicable patches when there are four anchors
-   and a reference.
-3. Use the recorded provider-spend approval, then follow the scoring, pool
-   verification, scan/adjudication and summarization steps above. A judge running
-   `pytest` or `dev_check` produces a `judge ran tests` scan hit. Inspect and
-   adjudicate it through the existing flow; it has no automatic model exclusion.
-4. Read `results.json`'s `calibration`: P1 requires upstream minus stub at least
-   the margin; P2 requires strict stub < partial < upstream; P3 requires upstream
-   minus mutant at least its margin. All declared judges × batches stay in the
-   denominator. Missing/excluded judges or missing control totals fail their
-   pairs; each anchor's cross-batch spread must meet the limit. Existing run and
-   rating integrity refusals still apply.
-5. For a later pool, run `summarize.py --calibration-over` with the actual accepted
-   A or A2 `results.json` followed by the later pool's `results.json`, and
-   `--criterion` naming their common frozen criterion. Its JSON output names
-   every supplied pool and combines their anchor spreads. All pools must have
-   passed independently and the cross-pool spread must meet the same limit.
+   repeated `--judge` and `--filler`, and explicit `--batches`, `--per-batch`,
+   `--min-per-batch`, `--filler-seed`. This prepares the pool without provider
+   calls, rejects duplicates/insufficient fillers and deals without replacement.
+   Each batch contains the declared controls and any selected unscored reference.
+   Capacity is ten minus those repositories: three controls permit seven
+   fillers without a reference, six with one. Reservations use the same count.
+3. Obtain the separate provider-spend approval, then follow scoring, pool
+   verification, scan/adjudication and summarization above. Judge test execution
+   still produces a `judge ran tests` scan hit requiring adjudication.
+4. Read `results.json`'s `calibration` using the selected rule and its full
+   declared observations. Existing rating, component and clone-join integrity
+   refusals still apply.
+5. `summarize.py --calibration-over` names every supplied pool under their common
+   frozen criterion. Every pool must pass independently; cross-pool spread is
+   descriptive for `control-means-v1`, while the historical rule retains its
+   spread gate.
 
-Calibration prepares evidence for a separately selected study. It never opens
-structural V1 qualification to the reference rubric. The
+The [simple evaluation plan](../../docs/plans/2026-10-22-simple-evaluation-plan.md)
+selects offline implementation and verification only, tracked there. No new
+provider call is approved or executed by this change. New rubric source needs
+fresh frozen criterion/source identities and fresh responses before live
+qualification. C1 V2 retains original component recomputation, source hashes
+and clone-ID joins; V1 rejects explicit rule keys and keeps its no-rule behavior.
+Historical AT remains completed FAIL_NOT_QUALIFIED under its frozen criterion, as the
 [measurement plan](../../docs/plans/2026-10-19-orc-structural-search-measurement-plan.md)
-records Step A's existing approval (8 calls, cap10); final verified freeze still
-precedes execution, and A′/B/B2/C require their own approval. No passing quality
-or calibration result follows from the apparatus tests.
+records. B/B2/C budgets remain separate and unused recovery allowance does not
+transfer. Apparatus tests establish no live calibration or quality result.
 
 For judge metering, join the recorded judge calls under `P/records/judges/MODEL`
 with tree `P/judges/<mapping.judges[MODEL].dir>` and `mapping.created_at` through

@@ -34,6 +34,36 @@ except ImportError:
 STRIPPED = ("docs/design/", "artifacts/")  # D8: removed from every pooled patch
 DEFAULT_RUBRIC = {"workflow": "score.orc", "entry": "score::score",
                   "criteria": ["root_cause", "scope", "generality", "layering"], "reference": None}
+CONTROL_ROLES = ("upstream", "stub", "mutant")
+
+
+def control_means(criterion):
+    """Only the named prospective rule changes historical calibration semantics."""
+    value = criterion if isinstance(criterion, Mapping) else load(criterion)
+    rules = value.get("calibration", {})
+    if "rule" not in rules:
+        return False
+    if (rules != {"rule": "control-means-v1", "margin": 1, "error_rate": 0}
+            or type(rules.get("margin")) not in (int, float)
+            or type(rules.get("error_rate")) not in (int, float)):
+        raise SystemExit("unsupported calibration rule or control-means-v1 parameters")
+    return True
+
+
+def anchor_paths(task, criterion=None):
+    """Prospective pools contain their three declared controls; legacy pools keep every anchor."""
+    task = Path(task)
+    if criterion is None or not control_means(criterion):
+        return sorted((task / "anchors").glob("*.diff"))
+    value = criterion if isinstance(criterion, Mapping) else load(criterion)
+    roles = value["anchors"][task.name]
+    if (set(roles) != set(CONTROL_ROLES) or not all(isinstance(label, str) and label
+            and Path(label).name == label for label in roles.values()) or len(set(roles.values())) != 3):
+        raise SystemExit("control-means-v1 requires exactly three distinct declared anchor roles")
+    paths = [task / "anchors" / f"{roles[role]}.diff" for role in CONTROL_ROLES]
+    if not all(path.is_file() for path in paths):
+        raise SystemExit("missing declared control-means-v1 anchor patch")
+    return paths
 
 
 def rubric(criterion):
@@ -144,9 +174,9 @@ def pool_runs(records):
     return rows, usable
 
 
-def build_batches(out, task, ref, batches, rule):
+def build_batches(out, task, ref, batches, rule, criterion=None):
     clones, members, references = {}, [], []
-    anchors = sorted((task / "anchors").glob("*.diff"))
+    anchors = anchor_paths(task, criterion)
     for batch in batches:
         made = [add_clone(out, task, ref, patch_bytes(path, rec, labels[0]),
                           {"run": path, "arm": rec["arm"], "labels": labels}) for path, rec, labels in batch]
@@ -183,12 +213,12 @@ def write_pool(task, criterion, out, judges, ref, rows, batches, *, qualificatio
     guard(Path(ref["main"]), out)
     visible_in_sandbox(out)
     commit, rule = runtime_commit(ref["runtime"]), rubric(criterion)
-    overhead = len(list((task / "anchors").glob("*.diff"))) + bool(rule["reference"])
+    overhead = len(anchor_paths(task, criterion)) + bool(rule["reference"])
     if not batches or any(len(batch) + overhead > 10 for batch in batches):
         raise SystemExit("a pool needs nonempty batches with at most ten repositories including anchors and reference")
     for directory in (out / "clones", out / "judges", out / "records" / "patches"):
         directory.mkdir(parents=True)
-    clones, members, references = build_batches(out, task, ref, batches, rule)
+    clones, members, references = build_batches(out, task, ref, batches, rule, criterion)
     default = Path(ref["runtime"]) / "experiments/compare/score.providers.json"
     mapping = {"task": str(task), "criterion_sha256": sha256_file(criterion), "compare_base": ref["compare_base"],
                "main": ref["main"], "runtime": ref["runtime"], "runtime_commit": commit, "created_at": time.time(),
@@ -226,7 +256,7 @@ def pool_from_diffs(task, criterion, out, judges, runtime, fillers, batches, per
     """Deal applicable recorded patches without replacement into deterministic calibration batches."""
     task, runtime = Path(task).resolve(), Path(runtime).resolve()
     rule = rubric(criterion)
-    capacity = 10 - len(list((task / "anchors").glob("*.diff"))) - bool(rule["reference"])
+    capacity = 10 - len(anchor_paths(task, criterion)) - bool(rule["reference"])
     if not 1 <= batches <= 24 or not 1 <= min_per_batch <= per_batch <= capacity:
         raise SystemExit("invalid batch count or filler capacity/minimum")
     fillers = [Path(path).resolve() for path in fillers]

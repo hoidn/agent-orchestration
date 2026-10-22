@@ -119,8 +119,8 @@ def split_batches(finals: Sequence, key: Callable, size: int = BATCH_CLONES - AN
     return [ordered[k::count] for k in range(count)]
 
 
-def fillers_per_batch(task: Path, rubric: Mapping) -> int:
-    capacity = BATCH_CLONES - len(list((task / "anchors").glob("*.diff"))) - bool(rubric["reference"])
+def fillers_per_batch(task: Path, rubric: Mapping, criterion=None) -> int:
+    capacity = BATCH_CLONES - len(pooling.anchor_paths(task, criterion)) - bool(rubric["reference"])
     if capacity < 1:
         raise ValueError("anchors and reference leave no room for a filler in a ten-repository batch")
     return capacity
@@ -138,7 +138,7 @@ def build_pool(task: Path, criterion: Path, out: Path, judges: Sequence[str], re
     finals = [(path, rec, ["final"]) for runs in usable.values() for path, rec in runs]
     if not finals:
         raise SystemExit("no completed, uncontaminated evaluation to pool")
-    batches = split_batches(finals, key, size=fillers_per_batch(task, pooling.rubric(criterion)))
+    batches = split_batches(finals, key, size=fillers_per_batch(task, pooling.rubric(criterion), criterion))
     pooling.write_pool(task, criterion, out, judges, ref, rows, batches, qualification=checked)
 
 def latest_evaluations(rows: Sequence[Mapping]) -> list[dict]:

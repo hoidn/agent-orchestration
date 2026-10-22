@@ -287,7 +287,7 @@ def evaluate_and_judge(jobs, generation, tasks, *, replicates, launch, judge, in
         return []
     pending = mode1.continued(jobs, tasks, replicates, optional_records(launch['evidence_root'] / 'log.jsonl'))
     calls = [ledger.planned_calls(u.root, u.config, runtime=launch['runtime']) for u in pending]
-    capacities = [scoring.fillers_per_batch(task, rubric(judge['criterion'])) for task in tasks]
+    capacities = [scoring.fillers_per_batch(task, rubric(judge['criterion']), judge['criterion']) for task in tasks]
     planned = sum(calls) + planned_judging(jobs, generation, tasks, replicates, launch, judge, capacities)
     ledger.check_budget(launch['evidence_root'], planned, launch['call_cap'], f'generation {generation} evaluations')
     driver.launch_units(pending, concurrency=launch['concurrency'], holdouts=launch.get('holdouts', ()),

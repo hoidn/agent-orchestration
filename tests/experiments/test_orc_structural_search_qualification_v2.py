@@ -429,3 +429,76 @@ def test_v2_disclosed_reference_must_be_the_verified_upstream_patch(tmp_path):
     rehash(q)
     with pytest.raises(ValueError):
         validate(q)
+
+
+CONTROL_MEANS = {'rule': 'control-means-v1', 'margin': 1, 'error_rate': 0}
+
+
+def test_v2_recomputes_fresh_three_control_evidence_without_spread_gate(tmp_path):
+    q = qualified_v2(tmp_path, calibration=CONTROL_MEANS)
+    study = load(q.criterion)
+    study.pop('anchor_spread_limit')
+    write(q.criterion, study)
+    for pool in q.pools:
+        results = load(pool['results']['file'])
+        for cid, clone in results['clones'].items():
+            batch, role = cid.split('-', 1)
+            total = {'upstream': (4, 8), 'stub': (4, 0), 'mutant': (4, 0)}[role][int(batch)]
+            clone['ratings'][q.judges[0]] = {key: min(2, max(0, total - i * 2))
+                for i, key in enumerate(study['rubric']['criteria'])}
+        # B2 has only one batch: it must qualify independently of the accepted baseline.
+        if pool['stage'] == 'B2':
+            for cid, clone in results['clones'].items():
+                if cid.endswith('upstream'):
+                    clone['ratings'][q.judges[0]] = dict.fromkeys(study['rubric']['criteria'], 2)
+        results['anchors'] = []
+        results['calibration'] = {'passed': False}
+        write(Path(pool['results']['file']), results)
+    rehash(q)
+    proof = validate(q)
+    assert proof['measure']['adaptive']['pairs'] == 3
+    assert set(study['measurement']['tasks']['adaptive']['controls']) == {'upstream', 'stub', 'mutant'}
+    assert proof['measure']['adaptive']['anchor_spread'][q.judges[0]]['adaptive-upstream'] == 4
+
+
+@pytest.mark.parametrize('change', ['rule', 'margin', 'error_rate', 'extra_parameter', 'roles', 'missing_control',
+                                     'components', 'stage_failure'])
+def test_v2_control_means_rejects_rehashed_mismatches_and_incomplete_evidence(tmp_path, change):
+    q = qualified_v2(tmp_path, calibration=CONTROL_MEANS)
+    pool = q.pools[0]
+    mapping, results = load(pool['mapping']['file']), load(pool['results']['file'])
+    if change in ('rule', 'margin', 'error_rate', 'extra_parameter'):
+        origin = load(q.calibration)
+        if change == 'rule':
+            origin['calibration'] = {'margin': 4, 'mutant_margin': 2, 'error_rate': 0}
+        else:
+            origin['calibration'][{'margin': 'margin', 'error_rate': 'error_rate',
+                                   'extra_parameter': 'mutant_margin'}[change]] = 2
+        write(q.calibration, origin)
+        for entry in q.pools:
+            bound = load(entry['mapping']['file'])
+            bound['criterion_sha256'] = sha(q.calibration)
+            write(Path(entry['mapping']['file']), bound)
+            cached = load(entry['results']['file'])
+            cached['criterion_sha256'] = sha(q.calibration)
+            write(Path(entry['results']['file']), cached)
+            for judge in q.judges:
+                write(Path(entry['mapping']['file']).parent / f'score-inputs-{judge}.json',
+                      {'judge_model': judge, 'criterion_sha256': sha(q.calibration)})
+    elif change == 'roles':
+        study = load(q.criterion)
+        study['measurement']['tasks']['adaptive']['controls']['partial'] = study['measurement']['tasks']['adaptive']['controls']['mutant']
+        write(q.criterion, study)
+    else:
+        if change == 'missing_control':
+            mapping['batches'][0].remove('0-mutant')
+        elif change == 'components':
+            results['clones']['0-upstream']['ratings'][q.judges[0]]['correctness'] = True
+        else:
+            for clone in results['clones'].values():
+                clone['ratings'][q.judges[0]] = dict.fromkeys(load(q.criterion)['rubric']['criteria'], 2)
+        write(Path(pool['mapping']['file']), mapping)
+        write(Path(pool['results']['file']), results)
+    rehash(q)
+    with pytest.raises(ValueError):
+        validate(q)

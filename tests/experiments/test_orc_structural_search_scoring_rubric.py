@@ -64,3 +64,23 @@ def test_shared_writer_refuses_reference_rubric_even_with_otherwise_valid_v1_evi
                    ["judge-a", f"judge-b={REPO / 'experiments/compare/providers/score_codex.json'}"],
                    records, key=lambda row: row[0])
     assert not out.exists()
+
+
+def test_control_means_capacity_agrees_with_generation_and_judging_reservations(world):
+    from experiments.orc_structural_search import judging, scoring
+    from experiments.orc_structural_search.adaptive import planned_judged
+    for role in ('stub', 'mutant', 'partial'):
+        (world.task / f'anchors/{role}.diff').write_text('')
+    criterion = {'calibration': {'rule': 'control-means-v1', 'margin': 1, 'error_rate': 0},
+                 'anchors': {world.task.name: {'upstream': 'upstream', 'stub': 'stub', 'mutant': 'mutant'}}}
+    capacity = scoring.fillers_per_batch(world.task, {'reference': None}, criterion)
+    jobs = [object()] * 14
+    batches = scoring.split_batches(jobs, key=lambda _: 0, size=capacity)
+    assert capacity == 7
+    assert [len(batch) for batch in batches] == [7, 7]
+    evaluation_and_judging = planned_judged([1] * len(jobs), 1, 1, 2, capacities=[capacity])
+    launch = {'evidence_root': world.tmp / 'evidence', 'pools_root': world.tmp / 'pools'}
+    launch['evidence_root'].mkdir()
+    reserved_judging = judging.planned_judging(jobs, 1, [world.task], 1, launch,
+                                               {'judges': ['judge-a', 'judge-b']}, [capacity])
+    assert reserved_judging == len(batches) * 2 == evaluation_and_judging - len(jobs)

@@ -32,12 +32,12 @@
   their focused and full-suite verification evidence. The separate
   [measurement plan](../plans/2026-10-19-orc-structural-search-measurement-plan.md)
   records completed and verified offline calibration preparation with independent
-  I/F freeze review; Step A completed 8 calls within cap 10 and failed calibration
-  (RPI spread; PRR passed). That plan owns A′'s conditional budget authorization
-  and the continuing no-Claude restriction, with no assumed expiry; the
-  incompatible frozen packet remains blocked. Later live steps keep their own
-  owner budget gates. No live structural-search successor study or campaign
-  budget is selected. Fixed-workflow comparisons use
+  I/F freeze review and completed failed Step A/A′ calibration. The
+  [simple evaluation plan](../plans/2026-10-22-simple-evaluation-plan.md) selects
+  offline simplification only; no new live measure is accepted or paid call
+  selected. The continuing no-Claude experiment restriction has no assumed
+  expiry. Historical AT failure and all separate stage budget gates remain.
+  No live structural-search successor study or campaign budget is selected. Fixed-workflow comparisons use
   [`experiments/compare/`](../../experiments/compare/README.md) today.
 - **Kind:** experiment-side apparatus contract: controller modes, proposal
   interfaces, edit validation and transactions, candidate identities,
@@ -567,11 +567,15 @@ unless its quality measure passed a predeclared calibration on known
 controls and its family is qualified under its own frozen rule (family (a):
 the harness
 [difficulty-calibration rule](../plans/2026-10-14-effectiveness-harness-and-experiments-plan.md#task-8-task-difficulty-calibration);
-family (b): the oracle qualification below). For a judge measure the
-calibration is: for each judge and batch, the upstream anchor's total minus
-the stub's is at least `calibration.margin`, and the measure passes when
-the fraction of (judge, batch) pairs failing that is at most
-`calibration.error_rate` (default 0), both predeclared in the criterion.
+family (b): the oracle qualification below). A judge measure uses its frozen
+criterion-selected rule. Prospective `control-means-v1` declares exactly
+upstream/stub/mutant, margin 1 and error_rate 0: for each task and each judge,
+`mean(upstream) − max(mean(stub), mean(mutant)) ≥ 1` over every declared batch.
+Every judge must pass; absent/excluded judges or missing/invalid controls fail.
+Spread is descriptive and there is no partial-order gate. Criteria without a
+rule retain their historical control/predicate/error/spread contract unchanged;
+unknown rules refuse. The [harness contract](orc_effectiveness_comparison_harness.md#decision)
+owns the exact rule, independent rubric components and control selection.
 Calibration runs (anchor and control batches, difficulty qualification) are
 calibration experiments with their own budget, exempt from this rule, and
 pass before any candidate is scored; in-run anchors stay a monitored check
@@ -583,7 +587,7 @@ Decision Points.
 
 | Family | Truth | State |
 | --- | --- | --- |
-| (a) Review/planning improvement on the harness task packages | Structural V1 uses pinned `score.orc` and its frozen qualification identity; generic comparison also supports reference-rubric calibration with four blind controls; hidden acceptance remains secondary | Generic calibration and C1 V2 qualification mechanics are implemented offline; neither implementation establishes live calibration or family qualification; the [C1 plan](../plans/2026-10-19-orc-structural-search-cumulative-pilot-plan.md) owns successor verification and live gates |
+| (a) Review/planning improvement on the harness task packages | Structural V1 uses pinned `score.orc` and its frozen qualification identity; generic comparison supports criterion-selected reference or absolute rubrics and control rules; hidden acceptance remains secondary | Generic calibration and C1 V2 qualification mechanics are implemented offline; neither implementation establishes live calibration or family qualification; the [C1 plan](../plans/2026-10-19-orc-structural-search-cumulative-pilot-plan.md) owns successor verification and live gates |
 | (b) Hard-oracle repair seeded by `examples/demo_task_linear_classifier_port/` with `orchestrator/demo/evaluators/linear_classifier.py` | Deterministic behavioral checks plus a soft quality report | Needs a verified green baseline before defect variants are authored; evaluation cost unknown until then |
 
 Experiment O's catalog
@@ -598,24 +602,29 @@ and a family every seed solves or every seed fails is uninformative. Family
 family (b) qualification shows the oracle accepting two structurally
 different correct submissions and rejecting a broken one.
 
-### Generic Reference Calibration And Current Experiment Policy
+### Generic Calibration And Current Experiment Policy
 
-The generic comparator supports criterion-selected `score_ref.orc`, four blind
-control roles (upstream/stub/partial/mutant), an unscored disclosed reference and
-P1/P2/P3/spread verdicts. The
-[harness contract](orc_effectiveness_comparison_harness.md#decision)
-owns those batch/control rules; the
-[measurement plan](../plans/2026-10-19-orc-structural-search-measurement-plan.md)
-owns current preparation and paid stages. Explicit calibration skips new
-per-node hidden acceptance, retaining existing construction diagnostics only.
-This generic path does not widen structural V1's rubric or receipt admission.
-V1 still validates its pinned historical rubric/family/evaluator inputs unchanged.
-C1's V2 qualification mechanics are selected and implemented offline under the
+The generic comparator supports criterion-selected reference and absolute
+rubrics. The [harness contract](orc_effectiveness_comparison_harness.md#decision)
+owns control selection and calibration. The [simple evaluation plan](../plans/2026-10-22-simple-evaluation-plan.md)
+selects offline simplification to `control-means-v1`; implementation verification
+is tracked there. Historical AT remains completed FAIL_NOT_QUALIFIED under its
+original criterion. This selects no new paid experiment or passing measure.
+Explicit calibration skips new per-node hidden acceptance, retaining existing
+construction diagnostics only.
+
+Structural V1's pinned historical rubric/family/evaluator admission remains
+unchanged when no rule key is present; V1 rejects every explicit rule key. C1 V2 recomputes the criterion-selected calibration from original
+rating components and clone-ID joins, preserving rubric/source hashes and
+control identities; it must not trust a copied passing verdict. The
 [cumulative campaigns design](orc_structural_search_cumulative_campaigns.md) and
-[C1 plan](../plans/2026-10-19-orc-structural-search-cumulative-pilot-plan.md).
-A live successor quality study still requires the accepted measure, real family
-and measure qualification evidence and separate owner-approved step budgets.
-Fresh mode-2 adaptive launches remain unsupported.
+[C1 plan](../plans/2026-10-19-orc-structural-search-cumulative-pilot-plan.md)
+own that path. A live successor still requires a freshly accepted measure,
+real family and measure qualification evidence and separate owner-approved
+step budgets. Earlier unused recovery allowance does not transfer; the
+[measurement plan](../plans/2026-10-19-orc-structural-search-measurement-plan.md)
+preserves the completed historical decisions. Fresh mode-2 adaptive launches
+remain unsupported.
 
 Every new experiment role uses the exact Sonnet/Terra cap: `claude-sonnet-5-5`
 or `gpt-5.6-terra`, including judges, controls, diagnosis and nested guarded

@@ -468,3 +468,16 @@ def test_evaluate_qualifies_mixed_planned_judge_backends_without_defaulting_sol_
     record, _ = run(world)
     assert record.outcome == 'completed'
     assert record.qualification['qualification_sha256'] == sha(q.receipt)
+
+
+@pytest.mark.parametrize('document', ['study', 'origin'])
+@pytest.mark.parametrize('rule', ['unknown-rule', 'control-means-v1'])
+def test_v1_rejects_named_calibration_rules_without_reinterpreting_legacy(tmp_path, document, rule):
+    q = qualified(tmp_path)
+    path = q.criterion if document == 'study' else q.calibration
+    value = json.loads(path.read_text())
+    value['calibration']['rule'] = rule
+    write(path, value)
+    refresh(q)
+    with pytest.raises(ValueError, match='rule'):
+        validate(q)

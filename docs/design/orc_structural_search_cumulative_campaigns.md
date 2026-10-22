@@ -216,7 +216,7 @@ Stop rules, predeclared per campaign and recorded as the checkpoint's
 Pressure And Revisits); the ledger's hard call cap; quota exhaustion; the
 per-campaign wall-clock ceiling (generation time, quota pauses excluded);
 invalid evidence (a generation pool whose calibration verdict fails the
-criterion's control margins or spread limit stops the campaign and attaches
+criterion-selected control rule stops the campaign and attaches
 an `invalidated` disposition to that generation's assessments, since no
 uncalibrated evidence may be spent on; an unadjudicated contamination or a
 malformed ingest likewise); a second judge incident; and persistent
@@ -567,11 +567,12 @@ the roadmap's Phase 2 Gates and the pilot plan's preconditions reference it
 and add nothing. Each item is recorded in the ledger with its evidence
 before any provider spend:
 
-1. The accepted measure: the
-   [measurement plan](../plans/2026-10-19-orc-structural-search-measurement-plan.md)'s
-   Step A passed, or the owner-approved A′ passed under that plan's
-   predeclared revision, with B2 keeping it calibrated; C1's criterion
-   inherits the accepted measure's rubric.
+1. The accepted measure: an owner-accepted frozen Step A or A′ measure,
+   with B2 keeping it calibrated; C1 inherits its rubric and criterion-selected
+   control rule, verified through V2's original component/source/clone joins.
+   Each supplied pool must pass independently. The [offline simplification plan](../plans/2026-10-22-simple-evaluation-plan.md)
+   requires a fresh A′ criterion/source identity and fresh responses before
+   acceptance; historical AT remains failed and no existing measure is accepted.
 2. Every package the study uses covered by a qualification rule file: the
    frozen `calibration-amends-5.json` covers rungs 2 and 4 only, so any
    further package (the sealed package, the validation package) needs the

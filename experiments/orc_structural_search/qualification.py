@@ -268,7 +268,10 @@ def validate_campaign_criterion(frozen, containing):
 
 def campaign_criterion_shape(frozen, containing):
     """Validate frozen C1 shape; evidence validity remains qualification.validate's job."""
-    require(FIELDS <= set(frozen), f'C1 missing frozen fields: {sorted(FIELDS - set(frozen))}')
+    from experiments.compare.pool import control_means
+    means_rule = control_means(frozen)
+    fields = FIELDS - {'anchor_spread_limit'} if means_rule else FIELDS
+    require(fields <= set(frozen), f'C1 missing frozen fields: {sorted(fields - set(frozen))}')
     require(frozen['purpose'] == 'quality' and frozen['written_before_scoring'] is True,
             'C1 needs predeclared quality criterion')
     campaign_nested_fields(frozen)
@@ -280,8 +283,8 @@ def campaign_criterion_shape(frozen, containing):
     require(set(frozen['family_amendments']) == {'amends_5', 'amends_6'}, 'C1 needs both family amendments')
     for value in frozen['family_amendments'].values():
         reference(value, containing)
-    require(frozen['calibration'].get('margin') == 4 and frozen['calibration'].get('mutant_margin') == 2 and
-            frozen['calibration'].get('error_rate') == 0 and frozen['anchor_spread_limit'] == 2,
+    require(means_rule or (frozen['calibration'].get('margin') == 4 and frozen['calibration'].get('mutant_margin') == 2 and
+            frozen['calibration'].get('error_rate') == 0 and frozen['anchor_spread_limit'] == 2),
             'C1 calibration rules differ')
     require(frozen['quality_floor'] == {'kind': 'above_stub'}, 'C1 requires above_stub quality floor')
     require(frozen['final_choice']['mean_cost'] == 'metered_USD', 'C1 requires metered USD cost axis')

@@ -20,6 +20,7 @@ Writes P/records/results.json and P/records/results.md and prints the latter. St
 import argparse
 import hashlib
 import json
+import math
 import operator
 import os
 import shutil
@@ -30,11 +31,11 @@ from pathlib import Path
 from statistics import mean
 
 try:
-    from .pool import rubric
+    from .pool import CONTROL_ROLES, control_means, rubric
     from .prepare import paired_calls, read_memo  # imported as experiments.compare.summarize
     from .scan import model_policy
 except ImportError:  # run as a script
-    from pool import rubric
+    from pool import CONTROL_ROLES, control_means, rubric
     from prepare import paired_calls, read_memo
     from scan import model_policy
 
@@ -236,6 +237,8 @@ def calibration(results, mapping, criterion):
     if criterion.get("purpose") != "calibration" or "calibration" not in criterion:
         return None
     rules, roles = criterion["calibration"], criterion["anchors"][Path(mapping["task"]).name]
+    if control_means(criterion):
+        return calibration_means(results, mapping, criterion, roles)
     totals = {(row["judge"], row["batch"], row["anchor"]): row.get("total") for row in results["anchors"]}
     pairs = []
     eligible = set(results["judges"]) - set(results.get("excluded_judges", {}))
@@ -249,6 +252,47 @@ def calibration(results, mapping, criterion):
     return {"pairs": pairs, **failures, "anchor_spread": spread,
             "passed": bool(pairs) and all(value <= rules["error_rate"] for value in failures.values())
             and spread_passes(spread, criterion["anchor_spread_limit"])}
+
+
+def calibration_means(results, mapping, criterion, roles):
+    """Every declared judge separates complete control means over every declared batch."""
+    if (set(roles) != set(CONTROL_ROLES) or not all(isinstance(label, str) and label for label in roles.values())
+            or len(set(roles.values())) != len(CONTROL_ROLES)):
+        raise SystemExit("control-means-v1 requires exactly three distinct declared anchor roles")
+    judges, batches = criterion["judges"], range(len(mapping["batches"]))
+    observations = {(judge, batch, label): [] for judge in judges for batch in batches for label in roles.values()}
+    valid = bool(judges) and len(set(judges)) == len(judges) and bool(batches)
+    for row in results["anchors"]:
+        key = row["judge"], row["batch"], row["anchor"]
+        if type(row["batch"]) is not int or key not in observations:
+            valid = False
+        else:
+            observations[key].append(row.get("total"))
+    eligible = set(results["judges"]) - set(results.get("excluded_judges", {}))
+    pairs, summaries = [], []
+    for judge in judges:
+        scores = {role: [] for role in CONTROL_ROLES}
+        for batch in batches:
+            pair = {"judge": judge, "batch": batch}
+            for role in CONTROL_ROLES:
+                values = observations[judge, batch, roles[role]]
+                value = values[0] if len(values) == 1 else None
+                usable = (judge in eligible and type(value) in (int, float) and math.isfinite(value)
+                          and 0 <= value <= 8)
+                pair[role] = value if usable else None
+                if usable:
+                    scores[role].append(value)
+            pairs.append(pair)
+        complete = all(len(values) == len(batches) and values for values in scores.values())
+        means = {role: mean(values) if complete else None for role, values in scores.items()}
+        separation = means["upstream"] - max(means["stub"], means["mutant"]) if complete else None
+        summaries.append({"judge": judge, **means, "separation": separation,
+                          "passed": complete and separation >= 1})
+    numeric = [row for row in results["anchors"] if type(row.get("total")) in (int, float)
+               and math.isfinite(row["total"]) and 0 <= row["total"] <= 8]
+    return {"rule": "control-means-v1", "pairs": pairs, "judge_means": summaries,
+            "anchor_spread": anchor_spreads(numeric, judges, roles.values()),
+            "passed": valid and all(row["passed"] for row in summaries)}
 
 
 def calibration_pair(judge, batch, totals, roles, rules, usable):
@@ -265,6 +309,7 @@ def calibration_pair(judge, batch, totals, roles, rules, usable):
 def calibration_over(results_paths, criterion):
     """Combine the supplied accepted baseline and later pools, retaining their actual identities."""
     frozen = json.loads(Path(criterion).read_text())
+    means_rule = control_means(frozen)
     sha = hashlib.sha256(Path(criterion).read_bytes()).hexdigest()
     pools = {str(Path(path).resolve()): json.loads(Path(path).read_text()) for path in results_paths}
     if not pools or any(pool["criterion_sha256"] != sha for pool in pools.values()):
@@ -277,7 +322,7 @@ def calibration_over(results_paths, criterion):
     spread = anchor_spreads(anchors, frozen["judges"], roles.values())
     passed = {path: pool.get("calibration", {}).get("passed") is True for path, pool in pools.items()}
     return {"pools": passed, "anchor_spread": spread,
-            "passed": all(passed.values()) and spread_passes(spread, frozen["anchor_spread_limit"])}
+            "passed": all(passed.values()) and (means_rule or spread_passes(spread, frozen["anchor_spread_limit"]))}
 
 
 def fmt(value):
