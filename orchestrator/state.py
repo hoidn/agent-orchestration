@@ -28,7 +28,7 @@ from ._common.io_atomic import (
 
 
 StateStatus = Literal["running", "suspended", "completed", "failed"]
-EvaluatedStateStatus = Literal["running", "settling", "interrupted", "completed", "failed"]
+EvaluatedStateStatus = Literal["running", "settling", "interrupted", "suspended", "completed", "failed"]
 StepStatus = Literal["pending", "running", "completed", "failed", "skipped"]
 
 
@@ -111,6 +111,7 @@ class RunState:
     current_step: Optional[Dict[str, Any]] = None
     memo_offset: Optional[int] = None
     next_effect: Optional[str] = None
+    pending_host_input: Optional[Dict[str, Any]] = None
     steps: Dict[str, Any] = field(default_factory=dict)
     for_each: Dict[str, ForEachState] = field(default_factory=dict)
     repeat_until: Dict[str, Any] = field(default_factory=dict)
@@ -132,8 +133,10 @@ class RunState:
         if self.result_persistence_profile == PROFILE:
             if self.schema_version != SCHEMA_VERSION:
                 raise ValueError("evaluated state schema is unsupported")
-            if self.status not in {"running", "settling", "interrupted", "completed", "failed"}:
+            if self.status not in {"running", "settling", "interrupted", "suspended", "completed", "failed"}:
                 raise ValueError("evaluated state status is unsupported")
+            if (self.status == "suspended") != (self.pending_host_input is not None):
+                raise ValueError("evaluated suspended state is inconsistent")
             if type(self.memo_offset) is not int or self.memo_offset < 0:
                 raise ValueError("evaluated memo offset is invalid")
             return
@@ -227,6 +230,8 @@ class RunState:
         )}
         result["steps"] = {name: value.to_dict() if isinstance(value, StepResult) else value
                            for name, value in self.steps.items()}
+        if self.pending_host_input is not None:
+            result["pending_host_input"] = self.pending_host_input
         return result
 
     @classmethod
@@ -328,7 +333,7 @@ class RunState:
             "workflow_checksum", "started_at", "updated_at", "status", "memo_offset",
         )}
         optional = {key: data.get(key) for key in (
-            "workflow_outputs", "error", "current_step", "next_effect",
+            "workflow_outputs", "error", "current_step", "next_effect", "pending_host_input",
         )}
         return cls(**required, **optional, bound_inputs=data.get("bound_inputs", {}),
                    steps=data.get("steps", {}))

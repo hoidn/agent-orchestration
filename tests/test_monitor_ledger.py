@@ -12,7 +12,7 @@ from orchestrator.monitor.ledger import NotificationLedger
 from orchestrator.monitor.models import MonitorEvent, MonitorEventKind, MonitorRun, MonitorWorkspace
 
 
-def _event(tmp_path: Path, kind: MonitorEventKind = MonitorEventKind.FAILED) -> MonitorEvent:
+def _event(tmp_path: Path, kind: MonitorEventKind = MonitorEventKind.FAILED, *, request_id=None) -> MonitorEvent:
     workspace = MonitorWorkspace(name="repo", path=tmp_path / "repo")
     run_root = workspace.path / ".orchestrate" / "runs" / "run1"
     return MonitorEvent(
@@ -26,6 +26,7 @@ def _event(tmp_path: Path, kind: MonitorEventKind = MonitorEventKind.FAILED) -> 
         ),
         reason="test",
         observed_at=datetime(2026, 4, 28, tzinfo=timezone.utc).isoformat(),
+        request_id=request_id,
     )
 
 
@@ -48,6 +49,30 @@ def test_ledger_records_and_suppresses_duplicates_across_reload(tmp_path: Path):
     reloaded = NotificationLedger.load(path)
     assert reloaded.has_sent(event)
     assert not reloaded.has_sent(_event(tmp_path, MonitorEventKind.COMPLETED))
+
+
+def test_suspended_ledger_dedupes_by_request_without_changing_other_keys(tmp_path: Path):
+    path = tmp_path / "notifications.json"
+    ledger = NotificationLedger.load(path)
+    failed = _event(tmp_path)
+    first = _event(tmp_path, MonitorEventKind.SUSPENDED, request_id="request-1")
+    second = _event(tmp_path, MonitorEventKind.SUSPENDED, request_id="request-2")
+
+    ledger.mark_sent(failed, sent_at="first")
+    ledger.mark_sent(first, sent_at="first")
+    ledger.mark_sent(first, sent_at="duplicate")
+    ledger.mark_sent(second, sent_at="second")
+    ledger.save()
+
+    reloaded = NotificationLedger.load(path)
+    assert reloaded.has_sent(failed) and reloaded.has_sent(first) and reloaded.has_sent(second)
+    assert not reloaded.has_sent(_event(tmp_path, MonitorEventKind.SUSPENDED, request_id="request-3"))
+    entries = json.loads(path.read_text(encoding="utf-8"))["sent"]
+    assert len(entries) == 3
+    failed_entry = next(entry for entry in entries if entry["event_kind"] == "FAILED")
+    assert set(failed_entry) == {"workspace", "run_dir_id", "event_kind", "sent_at"}
+    suspended = [entry for entry in entries if entry["event_kind"] == "SUSPENDED"]
+    assert {entry["request_id"] for entry in suspended} == {"request-1", "request-2"}
 
 
 def test_ledger_save_uses_temp_file_rename_without_leaving_temp_file(tmp_path: Path):

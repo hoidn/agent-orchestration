@@ -11,7 +11,7 @@ from typing import Any, Mapping
 
 from orchestrator.workflow.evaluated.authority import PROFILE
 
-from .models import MonitorConfig, MonitorEvent
+from .models import MonitorConfig, MonitorEvent, MonitorEventKind
 
 MAX_STREAM_PREVIEW_CHARS = 4096
 MAX_TOTAL_LOG_PREVIEW_CHARS = 8192
@@ -47,6 +47,19 @@ def _render_body(event: MonitorEvent, config: MonitorConfig) -> str:
         f"Observed at: {event.observed_at}",
         f"Current/failed step: {step_name or ''}",
     ]
+    if event.kind is MonitorEventKind.SUSPENDED:
+        request = state.get("pending_host_input")
+        if isinstance(request, Mapping):
+            lines.extend([
+                "",
+                "Pending host input:",
+                f"Request ID: {request.get('request_id', '')}",
+                f"Deadline: {request.get('deadline') if request.get('deadline') is not None else 'none'}",
+                "Input commands:",
+                f"- python -m orchestrator input get {event.run.run_dir_id}",
+                f"- python -m orchestrator input answer {event.run.run_dir_id} {request.get('request_id', '')} --value JSON --by PRINCIPAL",
+                f"- python -m orchestrator input cancel {event.run.run_dir_id} {request.get('request_id', '')} --by PRINCIPAL",
+            ])
     lines.extend(_attempt_lines(state, step_name))
     error = _error_summary(state, step_name)
     if error:
@@ -61,7 +74,9 @@ def _render_body(event: MonitorEvent, config: MonitorConfig) -> str:
             f"- python -m orchestrator resume {event.run.run_dir_id}",
         ]
     )
-    previews = _safe_log_previews(event.run.run_root, step_name, _secret_values(config), state)
+    previews = [] if event.kind is MonitorEventKind.SUSPENDED else _safe_log_previews(
+        event.run.run_root, step_name, _secret_values(config), state
+    )
     if previews:
         lines.append("")
         lines.append("Log previews:")

@@ -583,6 +583,49 @@ class DashboardApp:
             "</dl>",
             "</section>",
         ])
+        pending_host_input = (
+            detail.state.get("pending_host_input")
+            if isinstance(detail.state, Mapping)
+            else None
+        )
+        if isinstance(pending_host_input, Mapping):
+            lines.extend([
+                "<section><h2>Pending Host Input</h2><dl>",
+                f"<dt>Request</dt><dd>{self._e(pending_host_input.get('request_id', ''))}</dd>",
+                f"<dt>Question</dt><dd>{self._e(pending_host_input.get('question', ''))}</dd>",
+                f"<dt>Answer type</dt><dd><pre>{self._json(pending_host_input.get('answer_contract'))}</pre></dd>",
+                f"<dt>Deadline</dt><dd>{self._e(pending_host_input.get('deadline') if pending_host_input.get('deadline') is not None else 'none')}</dd>",
+                f"<dt>Deadline elapsed</dt><dd>{self._e(pending_host_input.get('deadline_elapsed', False))}</dd>",
+                "</dl>",
+            ])
+            shown = pending_host_input.get("show")
+            if isinstance(shown, list) and shown:
+                resolver = FileReferenceResolver(row.workspace_root, row.run_root)
+                lines.append("<h3>Shown evidence</h3><ul>")
+                for item in shown:
+                    if not isinstance(item, Mapping) or not isinstance(item.get("path"), str):
+                        continue
+                    path = item["path"]
+                    digest = item.get("sha256")
+                    digest_html = (
+                        f" <span class=\"muted\">SHA-256: {self._e(digest)}</span>"
+                        if isinstance(digest, str)
+                        else ""
+                    )
+                    try:
+                        file_ref = resolver.workspace_ref(path, label=path)
+                    except UnsafePathError:
+                        lines.append(
+                            f"<li>{self._e(path)} <span class=\"muted\">unsafe path</span>"
+                            f"{digest_html}</li>"
+                        )
+                        continue
+                    lines.append(
+                        f"<li><a href=\"{self._file_href(row, file_ref)}\">{self._e(path)}</a>"
+                        f"{digest_html}</li>"
+                    )
+                lines.append("</ul>")
+            lines.append("</section>")
         all_warnings = list(detail.warnings) + list(commands.warnings)
         if all_warnings:
             lines.extend(["<section><h2>Warnings</h2><ul>"])

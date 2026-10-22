@@ -33,6 +33,11 @@ def _classify_evaluated_run(run, *, now):
         "interrupted": (MonitorEventKind.CRASHED, "evaluated_writer_lock_released_interrupted"),
     }.get(run.state["status"])
     if event is None:
+        if run.state["status"] == "suspended":
+            request = run.state.get("pending_host_input")
+            if isinstance(request, Mapping) and isinstance(request.get("request_id"), str):
+                return MonitorEvent(MonitorEventKind.SUSPENDED, run, "pending_host_input",
+                    _normalize_now(now).isoformat(), request_id=request["request_id"])
         return None
     return MonitorEvent(event[0], run, event[1], _normalize_now(now).isoformat())
 

@@ -11,7 +11,8 @@ def test_request_suspends_and_resumes_without_dispatch_or_journal_changes(tmp_pa
     assert request['deadline'] > request['created_at']
     assert snapshot(run_root).terminal is None
     from orchestrator.workflow.evaluated.views import load_evaluated_view
-    assert load_evaluated_view(run_root)['pending_host_input'] == request
+    from orchestrator.host_input import pending
+    assert load_evaluated_view(run_root)['pending_host_input'] == pending(run_root)
     before = (run_root / 'memo.jsonl').read_bytes()
     for _ in range(2):
         assert resume(run_root) == 0

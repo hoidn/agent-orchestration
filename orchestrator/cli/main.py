@@ -576,13 +576,20 @@ def create_parser() -> argparse.ArgumentParser:
     )
     input_answer_parser.add_argument('run_id', metavar='RUN_ID')
     input_answer_parser.add_argument('request_id', metavar='REQUEST_ID')
-    input_answer_parser.add_argument('--text', required=True, type=str)
+    input_answer_parser.add_argument('--value', type=str, help='Strict JSON answer value')
+    input_answer_parser.add_argument('--by', type=str, help='Principal recorded with the answer')
+    input_answer_parser.add_argument('--attestation', type=str)
+    input_answer_parser.add_argument('--accept-changed-evidence', action='store_true')
+    input_answer_parser.add_argument('--text', type=str, help=argparse.SUPPRESS)
     input_answer_parser.add_argument('--state-dir', type=str)
     input_cancel_parser = input_subparsers.add_parser(
         'cancel', help='Cancel a request'
     )
     input_cancel_parser.add_argument('run_id', metavar='RUN_ID')
     input_cancel_parser.add_argument('request_id', metavar='REQUEST_ID')
+    input_cancel_parser.add_argument('--by', type=str, help='Principal recorded with the cancellation')
+    input_cancel_parser.add_argument('--attestation', type=str)
+    input_cancel_parser.add_argument('--accept-changed-evidence', action='store_true')
     input_cancel_parser.add_argument('--state-dir', type=str)
 
     report_parser = subparsers.add_parser('report', help='Render workflow run status')

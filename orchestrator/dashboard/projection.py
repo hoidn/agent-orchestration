@@ -61,6 +61,7 @@ class RunProjector:
         return DashboardStep(ref=identity, name=identity, step_id=identity,
             kind=payload["effect_class"], status=payload["status"],
             duration_ms=payload.get("duration_ms"), error=payload.get("error"),
+            outcome=payload.get("host_settlement"),
             file_refs=self._evaluated_file_refs(payload, resolver, warnings),
             output_preview=json.dumps(payload["value"], ensure_ascii=False)[:200] if "value" in payload else "")
 

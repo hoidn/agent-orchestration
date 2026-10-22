@@ -492,6 +492,14 @@ def _render_kv_lines(items: Iterable[tuple[str, Any]]) -> str:
     return "\n".join(f"- {key}: `{value}`" for key, value in items if value is not None)
 
 
+def _render_json_fence(value: Any) -> str:
+    payload = json.dumps(value, ensure_ascii=False, indent=2)
+    fence = "```"
+    while fence in payload:
+        fence += "`"
+    return f"{fence}json\n{payload}\n{fence}"
+
+
 def render_status_markdown(snapshot: Dict[str, Any]) -> str:
     """Render the selected persistence profile without invented audit data."""
     from orchestrator.workflow.evaluated.authority import PROFILE
@@ -507,6 +515,15 @@ def _render_evaluated_status_markdown(snapshot: Dict[str, Any]) -> str:
                                        "updated_at", "memo_offset", "current_step", "next_effect")), ""]
     if run.get("bound_inputs"):
         lines.extend(["## Inputs", _render_kv_lines(sorted(run["bound_inputs"].items())), ""])
+    pending_input = run.get("pending_host_input")
+    if isinstance(pending_input, Mapping):
+        lines.extend([
+            "## Pending Host Input",
+            _render_json_fence({key: pending_input.get(key) for key in (
+                "request_id", "question", "answer_contract", "deadline", "deadline_elapsed", "show"
+            )}),
+            "",
+        ])
     if run["status"] == "completed":
         lines.extend(["## Outputs", "```json", json.dumps(run["workflow_outputs"], indent=2), "```", ""])
     if run.get("error"):
@@ -522,7 +539,12 @@ def _render_evaluated_status_markdown(snapshot: Dict[str, Any]) -> str:
             (key, step.get(key)) for key in ("kind", "attempt", "result_path", "started_at", "completed_at",
                                          "agent", "predecessor", "continuation", "locator_present"))])
         if "value" in step:
-            lines.extend(["```json", json.dumps(step["value"], indent=2), "```"])
+            lines.append(_render_json_fence(step["value"]))
+        if isinstance(step.get("host_settlement"), Mapping):
+            lines.extend([
+                "Host settlement:",
+                _render_json_fence(step["host_settlement"]),
+            ])
         if step.get("error"):
             lines.append(_render_kv_lines(step["error"].items()))
         lines.append("")

@@ -345,6 +345,18 @@ def _checked_snapshot(authority):
     return snapshot, prefix
 
 
+def pending_projection(snapshot):
+    """Project the active frozen request with its memo-owned attempt locator."""
+    if not snapshot.suspensions:
+        return None
+    identity = next(iter(snapshot.suspensions))
+    row = snapshot.pending_starts[identity].data
+    request = row['host_request']
+    return {**request, 'identity': identity, 'attempt': row['attempt'],
+        'result_path': row['result_path'],
+        'deadline_elapsed': request['deadline'] is not None and time.time() >= request['deadline']}
+
+
 def pending(run_root):
     """Return the checked pending request, without repair, expiration or source IO."""
     from .authority import load_run_authority
@@ -352,13 +364,7 @@ def pending(run_root):
     with closing(WorkspaceFiles(root)) as files:
         authority = load_run_authority(root, run_files=files)
         snapshot, _ = _checked_snapshot(authority)
-        if not snapshot.suspensions:
-            return None
-        identity = next(iter(snapshot.suspensions))
-        row = snapshot.pending_starts[identity].data
-        request = row['host_request']
-        return {**request, 'identity': identity, 'attempt': row['attempt'], 'result_path': row['result_path'],
-            'deadline_elapsed': request['deadline'] is not None and time.time() >= request['deadline']}
+        return pending_projection(snapshot)
 
 
 def answer(run_root, request_id, value, *, by, attestation=None, accept_changed_evidence=False, workspace=None):

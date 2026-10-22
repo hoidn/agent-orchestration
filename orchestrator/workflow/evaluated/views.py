@@ -145,9 +145,10 @@ def _view(authority, snapshot, terminal, next_effect, halted, active):
         view["current_step"] = {"name": row["identity"], "identity": row["identity"],
                                 "attempt": row["attempt"], "result_path": row["result_path"]}
         view["next_effect"] = None
-    if snapshot.suspensions:
-        identity = next(iter(snapshot.suspensions))
-        view['pending_host_input'] = snapshot.pending_starts[identity].data['host_request']
+    from .host_input import pending_projection
+    pending_host_input = pending_projection(snapshot)
+    if pending_host_input is not None:
+        view['pending_host_input'] = pending_host_input
     view["error"] = None
     view["workflow_outputs"] = None
     if terminal is not None:
@@ -171,6 +172,9 @@ def _effect_rows(snapshot, classes):
         rows[identity] = {"name": identity, "identity": identity, "status": "running", "effect_class": kind,
                           "attempt": row["attempt"], "result_path": row["result_path"],
                           "started_at": _timestamp(row["time"])}
+        if (kind == "request_input" and identity not in snapshot.pending_starts
+                and identity not in snapshot.active_commits):
+            rows[identity]["status"] = "invalidated"
     for entry in snapshot.entries:
         row = entry.data
         identity = row.get("identity")
@@ -184,7 +188,15 @@ def _update_effect_row(target, row, snapshot):
     if row['record'] == 'suspended' and row['identity'] in snapshot.suspensions:
         target['status'] = 'suspended'
     if row['record'] == 'committed' and row.get('effect_class') == 'request_input':
-        target['host_reply'] = row['host_reply']
+        reply_value = row['value']
+        provenance = row['host_reply']
+        target['host_reply'] = provenance
+        target['host_settlement'] = {
+            'request_id': provenance['request_id'],
+            'variant': reply_value['variant'],
+            'by': reply_value.get('by'),
+            'settled_at': _timestamp(row['time']),
+        }
     kind = row["record"]
     if kind == "committed":
         active = snapshot.active_commits.get(row["identity"])
@@ -216,6 +228,6 @@ def report_snapshot(view: dict[str, Any], run_root: Path) -> dict[str, Any]:
                          "duration_ms": row.get("duration_ms")}}
              for row in view["steps"].values()]
     progress = {status: sum(row["status"] == status for row in steps)
-                for status in ("completed", "running", "failed", "pending", "skipped", "settling", "invalidated")}
+                for status in ("completed", "running", "failed", "pending", "skipped", "settling", "suspended", "invalidated")}
     progress["total"] = len(steps)
     return {"run": run, "progress": progress, "steps": steps}

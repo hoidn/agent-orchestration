@@ -22,6 +22,7 @@ from tests.test_workflow_evaluated_view_publication import _provider_env
 from tests.test_workflow_evaluated_invalidate import _cli
 from orchestrator.workflow.evaluated.views import load_evaluated_view
 from tests.test_workflow_evaluated_cli import _run_cli
+from tests.workflow_evaluated_host_input_helpers import start as _host_input_start
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -95,6 +96,22 @@ def test_copied_probe_reads_completed_evaluated_target_without_state(tmp_path):
     watch, evidence = _probe(workspace, run_root)
     assert (watch["watch_status"], watch["recommended_recovery"]) == ("COMPLETED", "NONE")
     assert evidence["run_status"] == "completed" and evidence["state_load_error"] == ""
+    assert _tree_bytes(target) == before
+
+
+def test_copied_probe_treats_host_input_suspension_as_healthy_wait(tmp_path, monkeypatch):
+    target = tmp_path / "T"
+    target.mkdir()
+    _, result = _host_input_start(target, monkeypatch)
+    workspace = tmp_path / "W"
+    workspace.mkdir()
+    before = _tree_bytes(target)
+
+    watch, evidence = _probe(workspace, result.run_root)
+
+    assert (watch["watch_status"], watch["recommended_recovery"]) == ("RUNNING_OK", "NONE")
+    assert watch["repair_required"] == "NO"
+    assert evidence["run_status"] == "suspended" and evidence["state_load_error"] == ""
     assert _tree_bytes(target) == before
 
 

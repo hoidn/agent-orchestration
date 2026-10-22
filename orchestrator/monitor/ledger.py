@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Mapping
 
 from .._common.io_atomic import atomic_write_text
-from .models import MonitorEvent
+from .models import MonitorEvent, MonitorEventKind
 
 LEDGER_SCHEMA = "orchestrator-monitor-ledger/v1"
 
@@ -48,25 +48,30 @@ class NotificationLedger:
     def mark_sent(self, event: MonitorEvent, *, sent_at: str) -> None:
         if self.has_sent(event):
             return
-        workspace, run_dir_id, event_kind = self._event_key(event)
-        self.sent.append(
-            {
-                "workspace": workspace,
-                "run_dir_id": run_dir_id,
-                "event_kind": event_kind,
-                "sent_at": sent_at,
-            }
-        )
+        workspace, run_dir_id, event_kind, request_id = self._event_key(event)
+        entry = {
+            "workspace": workspace,
+            "run_dir_id": run_dir_id,
+            "event_kind": event_kind,
+            "sent_at": sent_at,
+        }
+        if event.kind is MonitorEventKind.SUSPENDED:
+            if not request_id:
+                raise ValueError("suspended monitor event is missing request_id")
+            entry["request_id"] = request_id
+        self.sent.append(entry)
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {"schema": LEDGER_SCHEMA, "sent": self.sent}
         atomic_write_text(self.path, json.dumps(payload, indent=2))
 
-    def _event_key(self, event: MonitorEvent) -> tuple[str, str, str]:
+    def _event_key(self, event: MonitorEvent) -> tuple[str, str, str, str | None]:
         workspace = str(event.run.workspace.path.expanduser().resolve(strict=False))
-        return (workspace, event.run.run_dir_id, event.kind.value)
+        request_id = event.request_id if event.kind is MonitorEventKind.SUSPENDED else None
+        return (workspace, event.run.run_dir_id, event.kind.value, request_id)
 
-    def _entry_key(self, entry: Mapping[str, str]) -> tuple[str, str, str]:
+    def _entry_key(self, entry: Mapping[str, str]) -> tuple[str, str, str, str | None]:
         workspace = str(Path(entry.get("workspace", "")).expanduser().resolve(strict=False))
-        return (workspace, entry.get("run_dir_id", ""), entry.get("event_kind", ""))
+        request_id = entry.get("request_id") if entry.get("event_kind") == MonitorEventKind.SUSPENDED.value else None
+        return (workspace, entry.get("run_dir_id", ""), entry.get("event_kind", ""), request_id)

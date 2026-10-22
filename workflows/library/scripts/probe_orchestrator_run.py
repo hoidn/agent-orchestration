@@ -96,7 +96,7 @@ def _classify(state: dict[str, Any] | None, *, stale_seconds: int | None, max_st
         return "UNKNOWN", "INVESTIGATE"
     if state.get("result_persistence_profile") == PROFILE:
         return {"running": ("RUNNING_OK", "NONE"), "settling": ("RUNNING_OK", "NONE"),
-            "interrupted": ("CRASHED", "RESUME"), "completed": ("COMPLETED", "NONE"),
+            "suspended": ("RUNNING_OK", "NONE"), "interrupted": ("CRASHED", "RESUME"), "completed": ("COMPLETED", "NONE"),
             "failed": ("FAILED", "RESUME")}.get(state["status"], ("UNKNOWN", "INVESTIGATE"))
     status = str(state.get("status") or "unknown").strip().lower()
     failed = _failed_steps(state)

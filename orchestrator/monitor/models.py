@@ -54,6 +54,7 @@ class MonitorEventKind(Enum):
     FAILED = "FAILED"
     CRASHED = "CRASHED"
     STALLED = "STALLED"
+    SUSPENDED = "SUSPENDED"
 
 
 @dataclass(frozen=True)
@@ -88,3 +89,4 @@ class MonitorEvent:
     run: MonitorRun
     reason: str
     observed_at: str
+    request_id: str | None = None
