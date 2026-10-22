@@ -193,3 +193,113 @@ def test_shim_hands_off_codex_opt_in_and_nested_calls_keep_exact_policy(world, m
     assert f'allowed={LUNA}' in done.stdout
     assert 'outer=unset' in done.stdout
     assert 'nested-exit=2' in done.stdout
+
+
+def captured_run(tmp_path, arm='terra_high', outcome='failed', patch=b''):
+    """Synthetic terminal attempt and native usage; no CLI or provider executes."""
+    import hashlib
+    run = tmp_path / arm / 'run-1'
+    call = run / 'calls/1'; call.mkdir(parents=True)
+    (call / 'prompt.txt').write_text('task')
+    (call / 'patch-cand-1.diff').write_bytes(patch)
+    tree = tmp_path / f'tree-{arm}'
+    state = tree / 'cand-1/.orchestrate/runs'
+    failure = {'code': 'provider_result_missing', 'message': 'no result.json'} if outcome == 'failed' else None
+    record = {'arm': arm, 'outcome': outcome, 'failure': failure, 'selected': None, 'variant': None,
+              'calls': 1, 'wall_clock_sec': 1, 'patches': {}, 'tree': str(tree), 'state_root': str(state),
+              'candidates': [str(tree / 'cand-1')], 'scan': {'calls': 1, 'hits': [], 'verdict': None}}
+    (run / 'record.json').write_text(json.dumps(record))
+    terminal = {'record': 'terminal', 'outcome': outcome, **(failure or {'value': True})}
+    memo = state / 'original/memo.jsonl'; memo.parent.mkdir(parents=True)
+    memo.write_text(json.dumps({'record': 'started', 'identity': 'direct', 'attempt': 1,
+                               'input_parts': {'prompt': 'sha256:' + hashlib.sha256(b'task').hexdigest()}}) + '\n' +
+                    json.dumps(terminal) + '\n')
+    model = LUNA if arm == 'direct_task' else TERRA
+    native = tmp_path / f'native-{arm}.jsonl'
+    native.write_text(json.dumps({'type': 'session_meta', 'payload': {'cwd': str(tree / 'cand-1')}}) + '\n' +
+                      json.dumps({'type': 'turn_context', 'payload': {'model': model, 'effort': 'high'}}) + '\n')
+    receipt = tmp_path / f'receipt-{arm}.json'
+    receipt.write_text(json.dumps({'provider_calls': 1, 'native_session_paths': [str(native)], 'receipt_usage': [
+        {'provider': 'codex', 'call_id': '1', 'status': 'complete', 'usage': [
+            {'model': model, 'charge_tokens': {'input': 1}, 'provenance': {
+                'model_source': 'turn_context.model', 'complete_native_transcript': True,
+                'session_sha256': 'sha256:' + hashlib.sha256(native.read_bytes()).hexdigest()}}]}]}))
+    return run, receipt, model
+
+
+@pytest.mark.parametrize('outcome', ['completed', 'failed'])
+def test_natural_intake_uses_original_raw_snapshot_and_keeps_delivery(tmp_path, outcome):
+    run, receipt, model = captured_run(tmp_path, outcome=outcome)
+    before = {p: p.read_bytes() for p in tmp_path.rglob('*') if p.is_file()}
+    row, view = pool.natural_attempt(run, receipt, model)
+    assert row['outcome'] == outcome
+    assert row['failure'] == json.loads((run / 'record.json').read_text())['failure']
+    assert view['patches'] == {'final': str(run / 'calls/1/patch-cand-1.diff')}
+    assert pool.patch_bytes(run, view, 'final') == b''  # An actually captured empty patch is natural.
+    assert all(p.read_bytes() == data for p, data in before.items())
+    assert not list(tmp_path.rglob('result.json'))
+
+
+@pytest.mark.parametrize('damage', ['no_patch', 'nonterminal', 'record_status', 'extra_call', 'no_receipt',
+                                  'wrong_model', 'foreign_native', 'changed_native', 'zero_usage', 'excluded'])
+def test_natural_intake_rejects_unproved_attempts(tmp_path, damage):
+    run, receipt, model = captured_run(tmp_path)
+    record = json.loads((run / 'record.json').read_text())
+    if damage == 'no_patch':
+        (run / 'calls/1/patch-cand-1.diff').unlink()
+    elif damage == 'nonterminal':
+        memo = next(tmp_path.rglob('memo.jsonl')); memo.write_text(memo.read_text().splitlines()[0] + '\n')
+    elif damage == 'record_status':
+        record['outcome'] = 'completed'
+    elif damage == 'extra_call':
+        (run / 'calls/2').mkdir()
+    elif damage == 'no_receipt':
+        receipt.unlink()
+    elif damage == 'wrong_model':
+        model = LUNA
+    elif damage == 'foreign_native':
+        record['tree'] = str(tmp_path / 'foreign')
+    elif damage == 'changed_native':
+        native = next(tmp_path.glob('native-*'))
+        native.write_text(native.read_text() + json.dumps({'type': 'event_msg', 'payload': {}}) + '\n')
+    elif damage == 'zero_usage':
+        data = json.loads(receipt.read_text()); data['receipt_usage'][0]['usage'][0]['charge_tokens'] = {'input': 0}
+        receipt.write_text(json.dumps(data))
+    elif damage == 'excluded':
+        record['scan']['verdict'] = {'verdict': 'contaminated', 'reason': 'another attempt'}
+    (run / 'record.json').write_text(json.dumps(record))
+    with pytest.raises((SystemExit, FileNotFoundError)):
+        pool.natural_attempt(run, receipt, model)
+
+
+def test_amended_task_difficulty_rechecks_capture_and_scores_failed_delivery(tmp_path):
+    rule, mapping, ratings = observations()
+    rule['natural_attempt_intake'] = 'terminal-single-call-patch-v1'
+    changed = {}
+    for index, (old, row) in enumerate(mapping['runs'].items()):
+        run, receipt, model = captured_run(tmp_path / str(index), row['arm'],
+                                           'failed' if index == 3 else 'completed')
+        captured, _ = pool.natural_attempt(run, receipt, model)
+        changed[old] = str(run)
+        row.update(captured)
+    mapping['runs'] = {changed[old]: row for old, row in mapping['runs'].items()}
+    for clone in mapping['clones'].values():
+        clone['run'] = changed[clone['run']]
+    summarize.validate_task_difficulty(rule, mapping, {}, ratings)
+    _, values = summarize.score_values(mapping, ratings)
+    rows = summarize.run_rows(mapping, values, {})
+    assert [r['outcome'] for r in rows].count('failed') == 1
+    assert next(r for r in rows if r['outcome'] == 'failed')['failure']['code'] == 'provider_result_missing'
+    assert summarize.measures(rows)['terra_high.runs'] == 2
+    assert summarize.measures(rows)['terra_high.minus_control'] == 4
+    next(iter(mapping['runs'].values()))['capture']['patch']['sha256'] = 'forged'
+    with pytest.raises(SystemExit, match='task.difficulty'):
+        summarize.validate_task_difficulty(rule, mapping, {}, ratings)
+
+
+def test_natural_intake_opt_in_is_not_a_generic_failed_row_override():
+    rule, mapping, ratings = observations()
+    rule['natural_attempt_intake'] = 'terminal-single-call-patch-v1'
+    mapping['runs']['terra_high/run-2']['outcome'] = 'failed'
+    with pytest.raises(SystemExit, match='task.difficulty'):
+        summarize.validate_task_difficulty(rule, mapping, {}, ratings)

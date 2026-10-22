@@ -10,6 +10,7 @@ agents. verify_pool(out) restores any clone a judge changed; scan_judge and adju
 judge-side contamination scan and verdict. Standard library only.
 """
 
+import json
 import random
 import re
 import secrets
@@ -187,6 +188,67 @@ def pool_runs(records):
         if rec["outcome"] == "completed" and not excluded:
             usable.setdefault(rec["arm"], []).append((path, rec))
     return rows, usable
+
+
+def natural_intake(criterion):
+    """A frozen amendment selects raw terminal snapshots uniformly, including delivery failures."""
+    value = criterion if isinstance(criterion, Mapping) else load(criterion)
+    rule = value.get("natural_attempt_intake")
+    if rule is None:
+        return False
+    if rule != "terminal-single-call-patch-v1" or not task_difficulty(value):
+        raise SystemExit("task-difficulty natural intake requires terminal-single-call-patch-v1")
+    return True
+
+
+def natural_attempt(records, receipt_path, expected_model):
+    """Return an original mapping row and a read-only pooling view; never repair delivery artifacts."""
+    try:
+        from .prepare import finished_memo, outcome_of, paired_calls
+    except ImportError:
+        from prepare import finished_memo, outcome_of, paired_calls
+    records, receipt_path = Path(records).resolve(), Path(receipt_path).resolve()
+    record_path = records / "record.json"
+    record = load(record_path)
+    memo, rows = finished_memo(record["state_root"])
+    terminal = rows[-1]
+    if (terminal["outcome"] not in ("completed", "failed") or record.get("calls") != 1
+            or len(record["candidates"]) != 1 or len(paired_calls(records, rows)) != 1
+            or any(record.get(key) != value for key, value in outcome_of(record, terminal, []).items())):
+        raise SystemExit("task-difficulty intake needs one original terminal attempt and one captured candidate")
+    patch = records / "calls/1" / f"patch-{Path(record['candidates'][0]).name}.diff"
+    if not patch.is_file():
+        raise SystemExit("task-difficulty terminal attempt has no captured raw patch")
+    mapped, _ = pool_runs({str(records): record})
+    row = mapped[str(records)]
+    if row["excluded"]:
+        raise SystemExit("task-difficulty terminal attempt is excluded")
+    receipt = load(receipt_path)
+    receipts, natives = receipt.get("receipt_usage", []), receipt.get("native_session_paths", [])
+    if (receipt.get("provider_calls") != 1 or len(receipts) != 1 or len(natives) != 1
+            or receipts[0].get("provider") != "codex" or receipts[0].get("call_id") != "1"
+            or receipts[0].get("status") != "complete" or not receipts[0].get("usage")):
+        raise SystemExit("task-difficulty intake needs exactly one positive native Codex receipt")
+    native = Path(natives[0]).resolve()
+    native_rows = [json.loads(line) for line in native.read_text().splitlines()]
+    contexts = [item["payload"] for item in native_rows if item.get("type") == "turn_context"]
+    header = native_rows[0] if native_rows else {}
+    if (header.get("type") != "session_meta"
+            or not Path(header.get("payload", {}).get("cwd", "/missing")).is_relative_to(record["tree"])
+            or not contexts or any(context.get("model") != expected_model or context.get("effort") != "high"
+                                   for context in contexts)):
+        raise SystemExit("task-difficulty native receipt belongs to another attempt or model")
+    for usage in receipts[0]["usage"]:
+        provenance, tokens = usage.get("provenance", {}), usage.get("charge_tokens", {})
+        if (usage.get("model") != expected_model or provenance.get("model_source") != "turn_context.model"
+                or provenance.get("complete_native_transcript") is not True
+                or provenance.get("session_sha256") != "sha256:" + sha256_file(native)
+                or not isinstance(tokens, dict) or not tokens
+                or any(type(n) is not int or n < 0 for n in tokens.values()) or sum(tokens.values()) <= 0):
+            raise SystemExit("task-difficulty intake has no positive exact-model receipt for this native snapshot")
+    row["capture"] = {name: {"path": str(path), "sha256": sha256_file(path)} for name, path in (
+        ("record", record_path), ("memo", memo.resolve()), ("patch", patch), ("receipt", receipt_path), ("native", native))}
+    return row, record | {"patches": {"final": str(patch)}}
 
 
 def build_batches(out, task, ref, batches, rule, criterion=None):

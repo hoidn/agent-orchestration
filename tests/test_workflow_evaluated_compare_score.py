@@ -189,8 +189,9 @@ outputs = re.findall(r"(?m)^- path: ([^\\n]+)$", sys.stdin.read())
 if not outputs:
     raise SystemExit("scripted task provider did not find the workflow output path")
 result = Path(outputs[-1])
-result.parent.mkdir(parents=True, exist_ok=True)
-result.write_text("true", encoding="utf-8")
+if [model, attempt] not in plan.get("omit_delivery", []):
+    result.parent.mkdir(parents=True, exist_ok=True)
+    result.write_text("true", encoding="utf-8")
 with events.open("a", encoding="utf-8") as output:
     output.write(json.dumps({"model": model, "allowed_models": allowed, "argv": sys.argv[1:]}) + chr(10))
 ''', encoding="utf-8")
@@ -331,9 +332,11 @@ def test_control_means_runs_through_prepare_orchestrator_summary_and_c1(tmp_path
         shutil.rmtree(outside)
 
 
-def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(world, monkeypatch):
+@pytest.mark.parametrize('missing_delivery', [False, True])
+def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(world, monkeypatch, missing_delivery):
     """Four scripted, correct direct-task outputs reach the blind scorer and exact 2-point gate."""
-    from experiments.compare import prepare
+    import hashlib
+    from experiments.compare import prepare, pool as pooling
     from tests.experiments.compare_harness_support import skip_without_sandbox
 
     skip_without_sandbox()
@@ -353,12 +356,14 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(wo
         "primary": [{"measure": "terra_high.minus_control", "op": ">=", "value": 2}],
     }
     criterion_path = world.outside / "task-difficulty-criterion.json"
+    if missing_delivery:
+        criterion['natural_attempt_intake'] = 'terminal-single-call-patch-v1'
     criterion_path.write_text(json.dumps(criterion), encoding="utf-8")
     root = world.outside / "task-difficulty-work"
     pool = root / "pool"
     plan = world.outside / "task-difficulty-plan.json"
     calls = world.outside / "task-difficulty-calls.jsonl"
-    plan.write_text(json.dumps({"solutions": {
+    plan.write_text(json.dumps({"omit_delivery": [[judge, 1]] if missing_delivery else [], "solutions": {
         "gpt-5.6-luna": ["2", "1 + 1"],
         "gpt-5.6-terra": ["int(2)", "3 - 1"],
     }}), encoding="utf-8")
@@ -385,7 +390,7 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(wo
     env = {**os.environ,
            "PATH": f"{world.runtime / 'experiments/compare/shim'}:{fakebin}:{os.environ['PATH']}",
            "TASK_DIFFICULTY_PLAN": str(plan), "TASK_DIFFICULTY_CALLS": str(calls)}
-    records = []
+    records, captured_rows, views = [], {}, {}
     for arm, model, number in (("direct_task", models["direct_task"], 1),
                                ("direct_task", models["direct_task"], 2),
                                ("terra_high", models["terra_high"], 1),
@@ -407,11 +412,24 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(wo
         assert f"COMPARE_CODEX_MODELS={model}" in metadata["command"]
         executed = subprocess.run(["bash", str(run / "command.sh")], cwd=metadata["cwd"], env=env,
                                   capture_output=True, text=True, timeout=120, check=False)
-        assert executed.returncode == 0, executed.stderr
+        omitted = missing_delivery and arm == 'terra_high' and number == 2
+        assert bool(executed.returncode) == omitted, executed.stderr
         collected = prepare.collect(run)
-        assert collected["outcome"] == "completed" and collected["calls"] == 1
-        assert (run / "collected/final.diff").is_file()
+        assert collected['outcome'] == ('failed' if omitted else 'completed') and collected['calls'] == 1
+        assert (run / 'collected/final.diff').exists() is not omitted
         assert prepare.scan(run, world.solution, home=home) == []
+        if missing_delivery:
+            # Scripted native evidence is deliberately synthetic; this smoke never contacts a provider.
+            native = world.outside / f'native-{arm}-{number}.jsonl'
+            native.write_text(json.dumps({'type': 'session_meta', 'payload': {'cwd': metadata['cwd']}}) + '\n' +
+                              json.dumps({'type': 'turn_context', 'payload': {'model': model, 'effort': 'high'}}) + '\n')
+            receipt = world.outside / f'receipt-{arm}-{number}.json'
+            receipt.write_text(json.dumps({'provider_calls': 1, 'native_session_paths': [str(native)],
+                'receipt_usage': [{'provider': 'codex', 'call_id': '1', 'status': 'complete', 'usage': [
+                    {'model': model, 'charge_tokens': {'input': 1}, 'provenance': {
+                        'model_source': 'turn_context.model', 'complete_native_transcript': True,
+                        'session_sha256': 'sha256:' + hashlib.sha256(native.read_bytes()).hexdigest()}}]}]}))
+            captured_rows[str(run)], views[str(run)] = pooling.natural_attempt(run, receipt, model)
         records.append(run)
 
     events = [json.loads(line) for line in calls.read_text(encoding="utf-8").splitlines()]
@@ -419,17 +437,22 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(wo
     assert {model: sum(row["model"] == model for row in events) for model in models.values()} == {
         "gpt-5.6-luna": 2, "gpt-5.6-terra": 2}
     assert all(row["allowed_models"] == row["model"] for row in events)
-    assert len({(run / "collected/final.diff").read_bytes() for run in records}) == 4
+    assert len({(run / 'calls/1/patch-cand-1.diff').read_bytes() for run in records}) == 4
     assert not (world.task / "hidden").exists() and not (world.task / "anchors").exists()
 
     providers = world.outside / "codex-judge.providers.json"
     providers.write_text(json.dumps({"providers.judge": "codex_unrestricted_workspace"}), encoding="utf-8")
-    pooled = subprocess.run(
-        [sys.executable, str(repo / "experiments/compare/prepare.py"), "pool", "--task", str(world.task),
-         "--criterion", str(criterion_path), "--out", str(pool), "--judge", f"{judge}={providers}",
-         *(str(run) for run in records)],
-        cwd=repo, capture_output=True, text=True, check=False)
-    assert pooled.returncode == 0, pooled.stderr
+    if missing_delivery:
+        usable = {arm: [(run, view) for run, view in views.items() if view['arm'] == arm] for arm in models}
+        pooling.write_pool(world.task, criterion_path, pool, [f'{judge}={providers}'], next(iter(views.values())),
+                           captured_rows, pooling.compose(usable))
+    else:
+        pooled = subprocess.run(
+            [sys.executable, str(repo / "experiments/compare/prepare.py"), "pool", "--task", str(world.task),
+             "--criterion", str(criterion_path), "--out", str(pool), "--judge", f"{judge}={providers}",
+             *(str(run) for run in records)],
+            cwd=repo, capture_output=True, text=True, check=False)
+        assert pooled.returncode == 0, pooled.stderr
     mapping = json.loads((pool / "records/mapping.json").read_text(encoding="utf-8"))
     assert len(mapping["clones"]) == 4 and len(mapping["batches"]) == 1
     assert len(mapping["batches"][0]) == 4 and set(mapping["batches"][0]) == set(mapping["clones"])
@@ -487,8 +510,14 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(wo
         cwd=repo, capture_output=True, text=True, check=False)
     assert summarized.returncode == 0, summarized.stderr
     results = json.loads((pool / "records/results.json").read_text(encoding="utf-8"))
-    assert len(results["runs"]) == 4 and all(row["outcome"] == "completed" and not row["excluded"]
-                                                for row in results["runs"])
+    assert len(results['runs']) == 4 and all(not row['excluded'] for row in results['runs'])
+    failed = [row for row in results['runs'] if row['outcome'] == 'failed']
+    assert len(failed) == int(missing_delivery)
+    if missing_delivery:
+        assert failed[0]['failure']['code'] == 'provider_result_missing' and failed[0]['value'] == 8
+        original = records[-1]
+        assert json.loads((original / 'record.json').read_text())['patches'] == {}
+        assert not list(Path(views[str(original)]['state_root']).rglob('result.json'))
     assert results["measures"]["direct_task.runs"] == 2
     assert results["measures"]["terra_high.runs"] == 2
     assert results["measures"]["terra_high.minus_control"] == 2

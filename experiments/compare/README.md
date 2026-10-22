@@ -402,6 +402,19 @@ controls, references or hidden-test runs. The selected
 freezes the models, sample counts, threshold and authorized spend. Apparatus tests
 alone establish no task-difficulty result or campaign permission.
 
+The default intake requires completed delivery. A frozen task-difficulty criterion
+may explicitly select `natural_attempt_intake: "terminal-single-call-patch-v1"`:
+`pool.natural_attempt(records, receipt_path, expected_model)` then returns an original
+mapping row and a temporary pooling view of that attempt's raw shim snapshot.
+Use it uniformly for every declared attempt, including completed deliveries, and
+pass the rows and composed views to `write_pool`. Each attempt must be terminal,
+unexcluded, have exactly one captured candidate patch (which may be empty), and
+have one positive native receipt for its exact model. The helper binds the original
+record, memo, patch, receipt and native transcript by path and hash; summarization
+rechecks those sources. Original run IDs, delivery outcomes and failure reasons
+remain in the canonical results. This rule creates no result file, repair, retry,
+replacement or smaller denominator, and does not change other comparisons.
+
 ## Evaluator control checks from recorded patches
 
 Artificial-control checks assess the evaluator, not task difficulty. Freeze a criterion with `purpose: "calibration"`, the selected rubric, declared
