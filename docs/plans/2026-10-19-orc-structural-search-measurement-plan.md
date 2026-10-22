@@ -682,3 +682,11 @@ as simulated test output. No task-difficulty verdict exists. Preserve the origin
 criterion/operator/native evidence, repair the observed sandbox bypass offline,
 and require a separately recorded recovery budget before a fresh complete pilot.
 The correction does not change tasks, primary rubric, threshold or C1 interfaces.
+
+### Natural-output intake amendment — 2026-10-22
+
+| Decision | Consequence |
+| --- | --- |
+| Owner authorized sixteen total sessions, including six incident starts | TD2 retains four original RPI attempts and has six authorized sessions left: four untouched PRR generations and two judges. No retries, replacements, Claude/Fable or campaign calls |
+| One Terra attempt left a captured patch and native final response but omitted the workflow result envelope | Preserve `failed/provider_result_missing`; the original completed-only protocol remains interrupted. Before any quality scores, explicitly amend intake to evaluate every original terminal natural patch uniformly with exact single-session model/receipt proof and cleared contamination evidence. No synthesized result envelope, code repair or selective omission |
+| Independent method review accepts the bounded intake amendment | Freeze amended analysis identity and lineage before judging. Keep generation commands/runtime, tasks, models, two observations per arm, rubric and two-point threshold unchanged. Report delivery failure separately and attribute any qualification only to the amended protocol; no C1 interface or downstream gate changes |

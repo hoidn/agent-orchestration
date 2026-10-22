@@ -192,7 +192,42 @@ answer and original approval hash, without increasing the cap. Both completed
 Luna observations were publicly adjudicated as clear after an independent audit
 of all 420 structured actions: scan hits concerned generic tmux skill examples
 or each run's own private temporary sockets. This is an integrity decision, not
-a quality score. The continuation is running the original remaining units.
+a quality score. The continuation completed the two RPI Terra sessions, then
+stopped before PRR: the second Terra session left its native final response and
+captured code patch but omitted the workflow's `result.json` envelope. Its
+original outcome remains `failed/provider_result_missing`. Four TD2 sessions
+and six incident starts have been consumed; six sessions remain authorized.
+
+## Natural-output intake amendment (before judging)
+
+The original completed-workflow intake is interrupted. Before any quality
+scores, adopt the same collection rule for every original observation: evaluate
+the final raw patch captured by its sole provider call, including terminal
+delivery failures. Require a preserved terminal outcome, captured patch,
+exactly one actual-model session with a complete positive-usage receipt, and
+cleared contamination evidence. A captured empty patch is still an observation;
+an absent snapshot or unverifiable receipt is missing evidence. All declared
+observations remain in the denominator.
+
+This is an explicit operational amendment made after observing one Terra
+delivery failure, not a result under the original frozen protocol. Keep the
+original criterion, records, native responses and failed status immutable. Do
+not fabricate `result.json`, repair code, retry, replace or omit an attempt.
+Report delivery outcomes alongside quality scores. Freeze the amended criterion,
+analysis runtime and intake lineage before any judge starts; preserve the
+original generation runtime, commands, task text and tools for the four
+untouched PRR attempts.
+
+The tasks, models, two samples per arm, rubric and two-point mean-gap threshold
+are unchanged. The independent method review accepted this bounded change:
+the missing envelope is a harness delivery failure, while the task and rubric
+assess implemented repository behavior. Any qualification belongs only to the
+amended protocol. This makes direct comparison with the original intake rule
+inappropriate and must be disclosed with the results.
+
+The existing owner instruction to fix and simplify calibration, and the total
+sixteen-session authorization, cover this continuation: four untouched PRR
+generations plus two blind judges. No additional spend or campaign is selected.
 
 ## Superseded evaluator-control exercise (AS)
 
