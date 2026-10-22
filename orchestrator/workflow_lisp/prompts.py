@@ -84,6 +84,7 @@ class PromptDef:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    return_contract_declared: bool = True
 
     @property
     def return_type_name(self) -> str:
@@ -964,6 +965,7 @@ def _elaborate_prompt_definition(
         name=name.resolved_name,
         slots=slots,
         return_spec=return_spec,
+        return_contract_declared=len(tail) == 3,
         template=PromptTemplate(
             text=template_node.value,
             placeholder_names=placeholder_names,

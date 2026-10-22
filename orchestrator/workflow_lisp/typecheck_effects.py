@@ -74,28 +74,46 @@ def typecheck_request_input_expr(
 ):
     """Type one host question and retain any prefix effects before it."""
 
-    typed_question = recurse(expr.question)
-    if typed_question.type_ref != PrimitiveTypeRef(name="String"):
-        raise_error(
-            "`request-input` question must have type `String`",
-            code="request_input_question_type_invalid",
-            span=expr.question.span,
-            form_path=expr.question.form_path,
-            expansion_stack=expr.question.expansion_stack,
-        )
-    return typed_factory(
-        expr=replace(expr, question=typed_question.expr),
-        type_ref=context.type_env.resolve_type(
-            HUMAN_REPLY_TYPE_NAME,
-            span=expr.span,
-            form_path=expr.form_path,
-            expansion_stack=expr.expansion_stack,
-        ),
-        effect=merge_effect_summaries(
-            typed_question.effect_summary,
-            effect_summary_from_direct(direct_effects=(HostInputEffect(),)),
-        ),
-    )
+    typed_new = expr.answer_type_name is not None
+    def invalid(message, code, node=expr):
+        raise_error(message, code=code, span=node.span, form_path=node.form_path,
+            expansion_stack=node.expansion_stack)
+    if typed_new and context.type_env.target_dsl_version != "2.40":
+        invalid("typed request-input requires target 2.40", "request_input_target_invalid")
+    if isinstance(expr.question, PromptApplicationExpr):
+        question, summaries = typecheck_prompt_application(expr.question, recurse=recurse, type_env=context.type_env)
+    else:
+        typed_question = recurse(expr.question)
+        if typed_question.type_ref != PrimitiveTypeRef(name="String"):
+            invalid("`request-input` question must have type `String`", "request_input_question_type_invalid", expr.question)
+        question, summaries = typed_question.expr, (typed_question.effect_summary,)
+    result_name = HUMAN_REPLY_TYPE_NAME
+    if typed_new:
+        from .contracts import derive_prompt_guided_structured_result_contract
+        answer = context.type_env.resolve_type(expr.answer_type_name, span=expr.span, form_path=expr.form_path)
+        if not (answer == PrimitiveTypeRef(name="String") or isinstance(answer, UnionTypeRef) or isinstance(answer, PrimitiveTypeRef) and bool(answer.allowed_values)):
+            invalid("host answers require String, enum or closed transportable union", "request_input_answer_type_invalid")
+        derive_prompt_guided_structured_result_contract(answer, workflow_name="host-input", step_id="answer",
+            span=expr.span, form_path=expr.form_path, type_env=context.type_env)
+        if (isinstance(question, PromptApplicationExpr) and question.prompt.declaration.return_contract_declared
+                and not type_refs_compatible(answer, question.prompt.return_type_ref)):
+            invalid("question prompt return contract must match :returns", "request_input_prompt_return_invalid")
+        result_name = f"std/host::HostReply[{expr.answer_type_name}]"
+    timeout = recurse(expr.timeout_sec) if expr.timeout_sec is not None else None
+    if timeout is not None:
+        if timeout.type_ref != PrimitiveTypeRef(name="Int") or (isinstance(timeout.expr, LiteralExpr) and (type(timeout.expr.value) is not int or timeout.expr.value <= 0)):
+            invalid("timeout must be a positive Int", "request_input_timeout_invalid", expr.timeout_sec)
+        summaries = (*summaries, timeout.effect_summary)
+    shown = tuple(recurse(item) for item in expr.show)
+    for item in shown:
+        if not isinstance(item.type_ref, PathTypeRef) or item.type_ref.definition.kind != "relpath":
+            invalid("shown evidence requires typed file paths", "request_input_show_invalid", item.expr)
+    return typed_factory(expr=replace(expr, question=question,
+        timeout_sec=timeout.expr if timeout else None, show=tuple(item.expr for item in shown)),
+        type_ref=context.type_env.resolve_type(result_name, span=expr.span, form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack),
+        effect=merge_effect_summaries(*summaries, *(item.effect_summary for item in shown),
+            effect_summary_from_direct(direct_effects=(HostInputEffect(),))))
 
 
 def _extern_operand_name(expr: ExprNode) -> str | None:
@@ -865,7 +883,7 @@ def typecheck_provider_result_expr(
                     ),
                 ),
             )
-    if phased and getattr(context.type_env, "target_dsl_version", None) != "2.39":
+    if phased and getattr(context.type_env, "target_dsl_version", None) not in {"2.39", "2.40"}:
         raise_error(
             "provider-result phased delivery requires its defining source to target DSL 2.39",
             code="provider_phased_delivery_policy_invalid",

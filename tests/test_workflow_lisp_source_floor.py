@@ -20,7 +20,7 @@ from orchestrator.workflow_lisp.syntax import build_syntax_module
 
 
 OLD_TARGETS = ("2.14", "2.34")
-ADMITTED_TARGETS = ("2.35", "2.38", "2.39")
+ADMITTED_TARGETS = ("2.35", "2.38", "2.39", "2.40")
 
 
 @pytest.mark.parametrize(
@@ -30,8 +30,8 @@ ADMITTED_TARGETS = ("2.35", "2.38", "2.39")
         pytest.param(run_ref_config._SUPPORTED_TARGET_DSL_VERSIONS, id="run-ref-config"),
     ],
 )
-def test_supported_target_registry_is_narrowed_to_235_through_239(registry) -> None:
-    assert registry == frozenset({"2.35", "2.36", "2.37", "2.38", "2.39"})
+def test_supported_target_registry_is_narrowed_to_235_through_240(registry) -> None:
+    assert registry == frozenset({"2.35", "2.36", "2.37", "2.38", "2.39", "2.40"})
     assert run_ref_config._DEFAULT_TARGET_DSL_VERSION in registry
     assert trial_config._DEFAULT_TARGET_DSL_VERSION in registry
 

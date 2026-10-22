@@ -1054,13 +1054,21 @@ def map_perform_payload_values(perform_kind, payload, transform, *, include_tran
                 for plan in payload["argv_transport"]
             ]
         return result
-    if perform_kind not in {"provider_result", "agent_turn"}:
+    if perform_kind not in {"provider_result", "agent_turn", "request_input"}:
         return payload
     result = dict(payload)
+    application = payload.get("prompt_application")
+    if perform_kind == "request_input":
+        if isinstance(application, Mapping):
+            result["prompt_application"] = {**application, "fills": tuple(
+                {**row, "value": transform(row["value"])} for row in application["fills"])}
+        if payload.get("timeout_sec") is not None:
+            result["timeout_sec"] = transform(payload["timeout_sec"])
+        result["show"] = tuple(transform(value) for value in payload["show"])
+        return result
     for name in ("model", "effort", "timeout_sec", "delivery", "materialization_attempts"):
         if payload.get(name) is not None:
             result[name] = transform(payload[name])
-    application = payload.get("prompt_application")
     if isinstance(application, Mapping):
         result["prompt_application"] = {**application, "fills": tuple(
             {**row, "value": transform(row["value"])} for row in application["fills"])}

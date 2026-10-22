@@ -126,8 +126,10 @@ def find_parallel_effect(
 def check_parallel_effects(checker) -> None:
     """Backstop: agent and phased provider effects cannot run in parallel workers."""
 
-    found = find_parallel_effect(checker.tree, {"agent", "agent_turn", "provider_phased"})
+    found = find_parallel_effect(checker.tree, {"agent", "agent_turn", "provider_phased", "request_input"})
     if found is not None:
+        if found[1].get("class") == "request_input":
+            checker.fail("parallel_host_input_boundary", "a parallel worker reaches host input", found[0])
         rule = (
             "parallel_provider_boundary"
             if found[1].get("class") == "provider_phased"

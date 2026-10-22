@@ -1874,6 +1874,7 @@ def _signature_from_imported_contracts(
     type_env: FrontendTypeEnvironment,
     span: SourceSpan,
     form_path: tuple[str, ...],
+    return_type_hint: TypeRef | None = None,
 ) -> WorkflowSignature:
     """Resolve one caller-view signature from ordered boundary contract groups."""
 
@@ -1910,6 +1911,7 @@ def _signature_from_imported_contracts(
         type_env=type_env,
         generated_name="return",
         allow_union=True,
+        type_hint=return_type_hint,
         span=span,
         form_path=form_path,
     )
@@ -1990,6 +1992,35 @@ def _signature_from_imported_typed_program(
     input_contract_groups = tuple(
         (param_name, contracts_by_param[param_name]) for param_name in param_order
     )
+    return_type_hint = None
+    native_return = native_signature.return_type_ref
+    if isinstance(native_return, UnionTypeRef) and native_return.type_args:
+        from .closed.names import canonical_type_descriptor
+        from .type_env import _lookup_type_ref
+        from .type_expressions import (
+            parse_type_expression, type_expression_application_heads, type_expression_names,
+        )
+
+        def available_nominal_type(name):
+            source_ref = _lookup_type_ref(producer_env._type_refs, name, import_scope=producer_env._import_scope)
+            caller_ref = _lookup_type_ref(type_env._type_refs, name, import_scope=type_env._import_scope)
+            return (
+                source_ref is not None and caller_ref is not None
+                and type_refs_compatible(source_ref, caller_ref)
+                and getattr(source_ref, "definition", None) == getattr(caller_ref, "definition", None)
+                and (
+                    not isinstance(source_ref, PrimitiveTypeRef) or not source_ref.allowed_values
+                    or canonical_type_descriptor(source_ref, typed=program)["name"]
+                    == f"{type_env.declaring_module(caller_ref)}::{type_env.declaring_name(caller_ref)}"
+                )
+            )
+
+        parsed = parse_type_expression(native_return.name, span=native_signature.span, form_path=("workflow-lisp", alias))
+        names = type_expression_names(parsed) | set(type_expression_application_heads(parsed))
+        if all(available_nominal_type(name) for name in names):
+            return_type_hint = type_env.resolve_type(
+                native_return.name, span=native_signature.span, form_path=("workflow-lisp", alias)
+            )
     call_signature = _signature_from_imported_contracts(
         alias,
         input_contract_groups=input_contract_groups,
@@ -2000,6 +2031,7 @@ def _signature_from_imported_typed_program(
         type_env=type_env,
         span=native_signature.span,
         form_path=("workflow-lisp", alias),
+        return_type_hint=return_type_hint,
     )
     return replace(
         call_signature,
@@ -2240,6 +2272,7 @@ def _match_boundary_type_from_contracts(
     allow_union: bool,
     span: SourceSpan,
     form_path: tuple[str, ...],
+    type_hint: TypeRef | None = None,
 ) -> TypeRef:
     """Find the authored type whose flattened contracts match a bundle boundary."""
 
@@ -2256,21 +2289,26 @@ def _match_boundary_type_from_contracts(
             form_path=form_path,
         )
     candidates: list[TypeRef] = []
-    for candidate in type_env._type_refs.values():  # noqa: SLF001 - internal compiler matching
+    # Retained nominal identity cannot be replaced by a structural alias.
+    boundary_types = (type_hint,) if type_hint is not None else type_env._type_refs.values()  # noqa: SLF001
+    for candidate in boundary_types:
+        if isinstance(candidate, UnionTypeRef) and candidate.definition.type_params and not candidate.type_args:
+            continue
         if isinstance(candidate, UnionTypeRef) and not allow_union:
             continue
         if not isinstance(candidate, (PrimitiveTypeRef, PathTypeRef, RecordTypeRef, UnionTypeRef)):
             continue
-        analysis = analyze_workflow_boundary_type(
-            candidate,
-            source_path=(generated_name,),
-            allow_union=allow_union,
-            allow_nested_unions=(
-                generated_name == "return"
-            ),
-        )
-        if not analysis.lowerable:
-            continue
+        if type_hint is None:
+            analysis = analyze_workflow_boundary_type(
+                candidate,
+                source_path=(generated_name,),
+                allow_union=allow_union,
+                allow_nested_unions=(
+                    generated_name == "return"
+                ),
+            )
+            if not analysis.lowerable:
+                continue
         if _flattened_boundary_contracts(
             candidate,
             generated_name=generated_name,

@@ -7,7 +7,7 @@ AGENT_SESSIONS_MIN_TARGET_DSL_VERSION = "2.38"
 DEFAULT_LOWERING_SCHEMA = 2
 
 SUPPORTED_TARGET_DSL_VERSIONS = frozenset(
-    {"2.35", "2.36", "2.37", "2.38", "2.39"}
+    {"2.35", "2.36", "2.37", "2.38", "2.39", "2.40"}
 )
 
 

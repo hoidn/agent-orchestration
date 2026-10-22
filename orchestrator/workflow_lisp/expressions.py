@@ -1046,12 +1046,16 @@ CommandResultExpr.returns_type_name = property(lambda self: self.return_spec.typ
 
 @dataclass(frozen=True)
 class RequestInputExpr:
-    """One host-mediated String question with the fixed HumanReply result."""
+    """A host question; typed target-2.40 requests retain their full operands."""
 
-    question: "ExprNode"
+    question: "ExprNode | PromptApplicationExpr"
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+
+    answer_type_name: str | None = None
+    timeout_sec: "ExprNode | None" = None
+    show: tuple["ExprNode", ...] = ()
 
 
 @dataclass(frozen=True)
@@ -6386,30 +6390,36 @@ def _elaborate_request_input(
     procedure_names: frozenset[str],
     session_state: ElaborationSessionState,
 ) -> RequestInputExpr:
-    """Elaborate the target-gated single-operand host input form."""
-
-
-    if len(datum.items) != 2:
-        _raise_error(
-            "`request-input` requires exactly one String question",
-            code="request_input_arity_invalid",
-            span=datum.span,
-            form_path=form_path,
-            expansion_stack=datum.expansion_stack,
-        )
-    question = _elaborate(
-        datum.items[1],
-        form_path=form_path,
-        bound_names=bound_names,
-        procedure_names=procedure_names,
-        session_state=session_state,
-    )
-    return RequestInputExpr(
-        question=question,
-        span=datum.span,
-        form_path=form_path,
+    typed = session_state.target_dsl_version == "2.40"
+    if not typed and len(datum.items) > 2:
+        _raise_error("typed `request-input` requires target 2.40", code="closed_program_gap",
+            span=datum.span, form_path=form_path, expansion_stack=datum.expansion_stack)
+    if len(datum.items) < 2 or (not typed and len(datum.items) != 2):
+        _raise_error("`request-input` requires one question", code="request_input_arity_invalid",
+            span=datum.span, form_path=form_path, expansion_stack=datum.expansion_stack)
+    sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`request-input`") if typed else {}
+    if typed and (":returns" not in sections or set(sections) - {":returns", ":timeout-sec", ":show"}):
+        _raise_error("`request-input` requires :returns and admits only :timeout-sec and :show",
+            code="request_input_keyword_invalid", span=datum.span, form_path=form_path,
+            expansion_stack=datum.expansion_stack)
+    def operand(item):
+        return _elaborate(item, form_path=form_path, bound_names=bound_names,
+            procedure_names=procedure_names, session_state=session_state)
+    question_node = datum.items[1]
+    head = syntax_head(question_node) if isinstance(question_node, SyntaxList) else None
+    prompt = session_state.prompt_catalog.resolve(head.resolved_name) if typed and head is not None and session_state.prompt_catalog else None
+    question = elaborate_prompt_application(question_node, catalog=session_state.prompt_catalog,
+        elaborate_fill=operand, form_path=form_path) if prompt is not None else operand(question_node)
+    shown = sections.get(":show")
+    if shown is not None and not isinstance(shown, SyntaxList):
+        _raise_error("`:show` requires a list of file paths", code="request_input_show_invalid",
+            span=shown.span, form_path=form_path, expansion_stack=shown.expansion_stack)
+    return RequestInputExpr(question=question, span=datum.span, form_path=form_path,
         expansion_stack=datum.expansion_stack,
-    )
+        answer_type_name=parse_return_spec(sections[":returns"], form_path=form_path,
+            label="`request-input :returns`").type_name if typed else None,
+        timeout_sec=operand(sections[":timeout-sec"]) if ":timeout-sec" in sections else None,
+        show=tuple(operand(item) for item in shown.items) if shown is not None else ())
 
 
 def _parse_command_inputs(inputs_node, *, code, form_path, **elaboration):

@@ -117,7 +117,7 @@ _VALUE_KEYS = {
     "perform": {
         "k", "class", "result", "repeat", "site", "@", "boundary", "command",
         "closure", "contract", "argv", "document", "argv_transport", "provider", "prompt", "inputs",
-        "dependencies", "policy", "config", "arm_inputs", "question", "commit", "agent", "origins",
+        "dependencies", "policy", "config", "arm_inputs", "question", "commit", "agent", "origins", "answer", "show", "timeout_sec",
     },
 }
 _NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*\Z")
@@ -582,7 +582,7 @@ class _Checker:
 
     def _effect_children(self, node: Mapping[str, Any]) -> list[Any]:
         effect_class = node.get("class")
-        if effect_class in {"agent", "agent_turn"}:
+        if effect_class in {"agent", "agent_turn", "request_input"}:
             return _effect_value_children(node)
         if effect_class == "command":
             children = list(node.get("argv", [])) if isinstance(node.get("argv"), list) else []
@@ -917,7 +917,7 @@ class _Checker:
                 if effect_class in {"agent", "agent_turn"}:
                     check_agents.check_agent_configuration(self, node, scope, owner)
                     continue
-                if effect_class == "run_ref":
+                if effect_class in {"run_ref", "request_input"}:
                     continue
                 if effect_class == "command":
                     self._check_command_configuration(node, scope, owner)
@@ -1089,9 +1089,9 @@ class _Checker:
                 self.fail("run_ref_child", "a confined child entry cannot carry its own child entries")
             _Checker(child).run()
             bodies = [child["body"], *(definition["body"] for definition in child.get("definitions", {}).values())]
-            if any(node.get("k") == "perform" and node.get("class") in {"agent", "agent_turn"}
+            if any(node.get("k") == "perform" and node.get("class") in {"agent", "agent_turn", "request_input"}
                    for body in bodies for node in _ast_nodes(body)):
-                self.fail("run_ref_child", "confined child entries cannot contain agent session effects")
+                self.fail("run_ref_child", "confined child entries cannot contain agent session effects or host input effects")
             if program_digest(child) != digest:
                 self.fail("run_ref_child", "child entry content differs from its checked identity")
         for config in configs:
@@ -4487,6 +4487,9 @@ class _Checker:
         command_index=None,
     ) -> None:
         effect_class = node.get("class")
+        if effect_class == "request_input":
+            from .check_host_input import check_request_input
+            return check_request_input(self, node, env, owner=owner, loops=loops, scope=scope, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
         if effect_class in {"agent", "agent_turn"}:
             return check_agents.check_agent_effect_node(
                 self, node, env, owner=owner, loops=loops, scope=scope, provider_origins=provider_origins,
@@ -4602,7 +4605,7 @@ class _Checker:
             elif effect_class == "provider_phased":
                 self.fail("effect_shape", "phased provider requires a literal policy", node)
             if effect_class == "provider_phased":
-                if self.tree["target"] != "2.39":
+                if self.tree["target"] not in {"2.39", "2.40"}:
                     self.fail("effect_class", "phased provider requires target 2.39", node)
                 prompt = node.get("prompt")
                 if not isinstance(prompt, Mapping) or set(prompt) != {"template", "fills"}:
@@ -4964,7 +4967,10 @@ class _Checker:
                 identity = key_type.get("union_name")
             generated_identity = identity_has_generated(identity)
             generated_envelope = key_type.get("kind") == "run-ref-result"
-            terminal_descriptor = kind not in {"record", "union"}
+            # Nested unions are one complete transport row, rather than flattened selectors.
+            terminal_descriptor = kind not in {"record", "union"} or (
+                kind == "union" and wire_root in by_name
+            )
             is_unit = generated_envelope or generated_identity or (
                 terminal_descriptor and bool(dependencies)
             )
@@ -4991,6 +4997,9 @@ class _Checker:
                     }
                 )
 
+            if terminal_descriptor:
+                record_terminal(wire_root, descriptor, activation)
+                return
             if kind == "record":
                 for field in descriptor["fields"]:
                     walk(
@@ -5022,8 +5031,6 @@ class _Checker:
                             protected_ancestor=under_protected,
                         )
                 return
-            if terminal_descriptor:
-                record_terminal(wire_root, descriptor, activation)
 
         for root_name, descriptor in roots:
             walk(

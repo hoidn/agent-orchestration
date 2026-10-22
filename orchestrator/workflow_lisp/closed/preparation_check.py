@@ -87,6 +87,9 @@ def _closed_perform_payload(perform, builder):
         if type(payload) not in {w.WccRunRefPayload, w.WccRunRefWorkflowPayload}:
             raise ValueError("prepared executable run-ref has an unknown payload kind")
         return
+    if kind == "request_input":
+        _payload_fields(payload, {"answer_type", "show"}, {"timeout_sec", "prompt_application"}, "host input")
+        return
     if kind == "command_result":
         _payload_fields(payload, {"adapter_name", "adapter_inputs", "return_spec"},
             {"inputs_present", "operand_order", "argv_transport"}, "command")

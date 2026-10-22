@@ -81,6 +81,9 @@ def _effect_value_children(node: dict[str, Any]) -> list[dict[str, Any]]:
     """Read expression operands from the explicit effect-node schema."""
 
     kind = node.get("class")
+    if kind == "request_input":
+        children = [node["question"]] if "question" in node else _provider_value_children(node)
+        return children + ([node["timeout_sec"]] if "timeout_sec" in node else []) + list(node.get("show", []))
     if kind == "command":
         return _command_value_children(node)
     if kind == "agent":

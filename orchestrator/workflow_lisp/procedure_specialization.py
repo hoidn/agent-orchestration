@@ -322,6 +322,12 @@ def _private_workflow_result_type_for_expr(
             span=expr.span,
             form_path=expr.form_path,
         )
+    if isinstance(expr, RequestInputExpr):
+        return type_env.resolve_type(
+            f"std/host::HostReply[{expr.answer_type_name}]" if expr.answer_type_name else "HumanReply",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
     if isinstance(expr, ResourceTransitionExpr):
         if getattr(expr.spec, "mode", None) == "declared_transition":
             transition_def = type_env.resolve_transition_declaration(

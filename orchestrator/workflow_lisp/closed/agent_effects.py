@@ -83,16 +83,18 @@ def refuse_parallel_effects(tree: Mapping[str, Any]) -> None:
     from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
     from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 
-    found = find_parallel_effect(tree, {"agent", "agent_turn", "provider_phased"})
+    found = find_parallel_effect(tree, {"agent", "agent_turn", "provider_phased", "request_input"})
     if found is None:
         return
     worker, _effect = found
     rule = "parallel_provider_boundary" if _effect.get("class") == "provider_phased" else "parallel_agent_boundary"
+    if _effect.get("class") == "request_input":
+        rule = "parallel_host_input_boundary"
     path, line, column = worker["@"]["span"].rsplit(":", 2)
     position = SourcePosition(path=path, line=int(line), column=int(column), offset=0)
     raise LispFrontendCompileError((LispFrontendDiagnostic(
         code=rule,
-        message=(
+        message=("a parallel worker cannot reach host input" if rule == "parallel_host_input_boundary" else
             "a parallel worker cannot reach a phased provider effect, including through called helpers or workflows"
             if rule == "parallel_provider_boundary"
             else "a parallel worker cannot allocate or turn an `Agent`, including through called helpers or workflows"

@@ -295,7 +295,8 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
     if isinstance(expr, CommandResultExpr):
         return tuple(value for _, _, value in command_operands(expr))
     if isinstance(expr, RequestInputExpr):
-        return (expr.question,)
+        question = tuple(fill.value_expr for fill in expr.question.fills) if isinstance(expr.question, PromptApplicationExpr) else (expr.question,)
+        return (*question, *((expr.timeout_sec,) if expr.timeout_sec is not None else ()), *expr.show)
     if isinstance(expr, AgentExpr):
         return tuple(child for child in (expr.provider, expr.model, expr.effort) if child is not None)
     if isinstance(expr, ContinueExpr):

@@ -108,7 +108,7 @@ def require_command_closures(
 
 def require_closed_perform(builder: Any, perform: WccPerform) -> None:
     """Keep located source-surface refusals ahead of semantic closure and emission."""
-    if perform.perform_kind not in {"command_result", "provider_result", "agent", "agent_turn", "run_ref", "workflow_call"}:
+    if perform.perform_kind not in {"command_result", "provider_result", "agent", "agent_turn", "run_ref", "workflow_call", "request_input"}:
         forms = {
             "provider_result": "provider-result",
             "run_ref": "run-ref",
@@ -131,6 +131,8 @@ def require_closed_perform(builder: Any, perform: WccPerform) -> None:
             f"effect kind {perform.perform_kind!r} has no closed form in this task",
             perform,
         )
+    if perform.perform_kind == "request_input" and perform.operation_payload is None:
+        raise builder.gap("request-input", "historical host input has no closed form", perform)
     if perform.perform_kind in {"provider_result", "agent_turn"} and isinstance(perform.operation_payload, Mapping):
         payload = perform.operation_payload
         if payload.get("session_artifact") is not None:
@@ -150,6 +152,8 @@ def require_closed_perform(builder: Any, perform: WccPerform) -> None:
 
 def translate_perform(builder: Any, perform: WccPerform, d: Any, env: Mapping[str, Any]) -> dict[str, Any]:
     require_closed_perform(builder, perform)
+    if perform.perform_kind == "request_input":
+        return _translate_request_input(builder, perform, d, env)
     if perform.perform_kind == "provider_result":
         return _translate_provider_result(builder, perform, d, env)
     if perform.perform_kind == "run_ref":
@@ -282,7 +286,7 @@ def _translate_provider_result(
         and payload["delivery"].literal_kind == "string"
         and payload["delivery"].value == "phased"
     )
-    if phased and getattr(d.type_env, "target_dsl_version", None) != "2.39":
+    if phased and getattr(d.type_env, "target_dsl_version", None) not in {"2.39", "2.40"}:
         raise builder.gap(
             "provider-result",
             "phased provider delivery requires its defining source to target DSL 2.39",
@@ -506,3 +510,24 @@ def _translate_run_ref_workflow(builder, perform, d, env):
     producer.child = builder.child_entry(d.source_program, perform.operation_payload.workflow_name)
     node["result"] = builder.desc(perform.metadata.type_ref, d, run_ref_producer=producer)
     return node
+
+
+def _translate_request_input(builder, perform, d, env):
+    payload = perform.operation_payload
+    result = builder.desc(perform.metadata.type_ref, d)
+    answer = builder.desc(payload["answer_type"], d)
+    effect = {"k": "perform", "class": "request_input", "result": result,
+        "answer": answer, "repeat": "rerun", "show": [builder.value(value, d, env) for value in payload["show"]]}
+    application = payload.get("prompt_application")
+    if application is None:
+        effect["question"] = builder.value(perform.positional_args[0], d, env)
+    else:
+        effect["prompt"] = {"template": application["template"], "fills": [{
+            "name": row["name"], "kind": row["kind"], "type": builder.desc(row["type_ref"], d),
+            "value": builder.value(row["value"], d, env), "renderer_id": row["renderer_id"],
+            "output_role": row["output_role"], "placeholder_ordinals": list(row["placeholder_ordinals"])}
+            for row in application["fills"]]}
+    if payload.get("timeout_sec") is not None:
+        effect["timeout_sec"] = builder.value(payload["timeout_sec"], d, env)
+    effect.update(builder.provenance(perform.metadata))
+    return effect

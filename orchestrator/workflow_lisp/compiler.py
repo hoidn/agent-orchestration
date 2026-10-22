@@ -1784,29 +1784,6 @@ def _compile_stage3_graph(
             cloned_enum_origins=imported_enum_origins,
         )
         type_env.retain_enum_origins(imported_enum_origins)
-        effective_imported_bundles = dict(explicit_imported_bundles)
-        workflow_catalog = build_workflow_catalog(
-            definition_module,
-            workflow_defs,
-            type_env,
-            imported_signatures=imported_workflow_signatures,
-            lookup_aliases=workflow_lookup_aliases,
-            imported_workflow_bundles=effective_imported_bundles,
-            imported_programs=explicit_imported_programs,
-            allow_hidden_context_callers=module_name == graph.entry_module_name,
-            selected_entry_workflow_name=(
-                entry_workflow if module_name == graph.entry_module_name else None
-            ),
-            allow_collection_input_boundaries=True,
-
-            allow_transportable_input_boundaries=(
-                True
-            ),
-            family_profile_catalog=family_profile_catalog,
-        )
-        module_workflow_signatures[module_name] = dict(
-            workflow_catalog.signatures_by_name
-        )
         function_catalog = build_function_catalog(
             function_defs,
             type_env=type_env,
@@ -1822,6 +1799,68 @@ def _compile_stage3_graph(
         extern_environment = build_extern_environment(
             provider_externs=provider_externs,
             prompt_externs=prompt_externs,
+        )
+        effective_imported_bundles = dict(explicit_imported_bundles)
+        referenced_programs = set()
+        if explicit_imported_programs:
+            from .expressions import elaborate_expression
+            from .syntax import target_dsl_supports_local_hook_inference
+
+            # Discover actual consumers with the existing lexical elaborator in isolated state.
+            collect_function_resolver = _function_name_resolver(module_name, import_scope,
+                local_raw_names=frozenset(function.name for function in raw_function_defs))
+            collect_procedure_resolver = _procedure_name_resolver(module_name, import_scope,
+                local_raw_names=frozenset(procedure.name for procedure in raw_procedure_defs))
+            collect_workflow_resolver = _workflow_name_resolver(module_name, import_scope,
+                local_raw_names=frozenset(workflow.name for workflow in raw_workflow_defs),
+                external_workflow_names=frozenset({*effective_imported_bundles, *explicit_imported_programs}))
+
+            def record_workflow_reference(name, span, form_path):
+                resolved = collect_workflow_resolver(name, span, form_path)
+                if resolved in explicit_imported_programs:
+                    referenced_programs.add(resolved)
+                return resolved
+
+            extern_names = frozenset(extern_environment.bindings_by_name)
+            w3 = target_dsl_supports_local_hook_inference(type_env.target_dsl_version)
+            for definition in (*function_defs, *procedure_defs, *workflow_defs):
+                names = frozenset(param.name for param in definition.params)
+                if isinstance(definition, ProcedureDef):
+                    names |= frozenset(param.name for param in definition.type_params)
+                if isinstance(definition, FunctionDef):
+                    lexical_names, expression_externs = names, frozenset()
+                elif w3:
+                    lexical_names, expression_externs = names - extern_names, extern_names
+                else:
+                    lexical_names, expression_externs = names | extern_names, frozenset()
+                elaborate_expression(definition.body, bound_names=lexical_names, extern_names=expression_externs,
+                    procedure_names=frozenset(procedure_catalog.signatures_by_name),
+                    function_names=frozenset(function_catalog.signatures_by_name),
+                    function_name_resolver=collect_function_resolver, procedure_name_resolver=collect_procedure_resolver,
+                    workflow_name_resolver=record_workflow_reference, target_dsl_version=type_env.target_dsl_version,
+                    prompt_catalog=prompt_catalog)
+        workflow_catalog = build_workflow_catalog(
+            definition_module,
+            workflow_defs,
+            type_env,
+            imported_signatures=imported_workflow_signatures,
+            lookup_aliases=workflow_lookup_aliases,
+            imported_workflow_bundles=effective_imported_bundles,
+            imported_programs={name: program for name, program in explicit_imported_programs.items()
+                if name in referenced_programs},
+            allow_hidden_context_callers=module_name == graph.entry_module_name,
+            selected_entry_workflow_name=(
+                entry_workflow if module_name == graph.entry_module_name else None
+            ),
+            allow_collection_input_boundaries=True,
+
+            allow_transportable_input_boundaries=(
+                True
+            ),
+            family_profile_catalog=family_profile_catalog,
+        )
+        module_workflow_signatures[module_name] = dict(
+            workflow_catalog.signatures_by_name
         )
         module_externs[module_name] = dict(extern_environment.bindings_by_name)
         command_boundary_environment = build_command_boundary_environment(command_boundaries)

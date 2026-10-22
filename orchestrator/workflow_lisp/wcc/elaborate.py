@@ -5467,18 +5467,14 @@ def _prebind_effect_argument_matches(
     if isinstance(expr, CommandResultExpr):
         return _prebind_command_operands(expr, replace_arg, scope=scope), tuple(match_bindings)
     if isinstance(expr, RequestInputExpr):
-        return (
-            replace(
-                expr,
-                question=replace_arg(
-                    expr.question,
-                    role="request-input:question",
-                    prebind_pure_projection=True,
-                    force_prebind=True,
-                ),
-            ),
-            tuple(match_bindings),
-        )
+        question = (replace(expr.question, fills=tuple(replace(fill,
+            value_expr=replace_arg(fill.value_expr, role=f"request-input:fill:{fill.name}", prebind_pure_projection=True, force_prebind=True))
+            for fill in expr.question.fills)) if isinstance(expr.question, PromptApplicationExpr) else
+            replace_arg(expr.question, role="request-input:question", prebind_pure_projection=True, force_prebind=True))
+        return (replace(expr, question=question,
+            timeout_sec=replace_arg(expr.timeout_sec, role="request-input:timeout", prebind_pure_projection=True, force_prebind=True) if expr.timeout_sec is not None else None,
+            show=tuple(replace_arg(item, role=f"request-input:show:{index}", prebind_pure_projection=True, force_prebind=True)
+                for index, item in enumerate(expr.show))), tuple(match_bindings))
     if isinstance(expr, RunRefExpr):
         if isinstance(expr.program, RunRefWorkflowProgram):
             expr = replace(
@@ -6343,34 +6339,36 @@ def _elaborate_effect_expr_to_binding_value(
             procedure_edges_by_site=procedure_edges_by_site, compile_time_bindings=compile_time_bindings,
             active_phase_scope=active_phase_scope))
     if isinstance(expr, RequestInputExpr):
-        return WccPerform(
-            metadata=scope.value_metadata(
-                role="perform:request_input",
-                **metadata_kwargs,
-            ),
-            perform_kind="request_input",
-            target_name="request-input",
-            prompt_name=None,
-            positional_args=(
-                _elaborate_atomic_value(
-                    expr.question,
-                    scope=scope.child_scope(
-                        "request-input-question",
-                        authored_binding_name="question",
-                    ),
-                    type_env=type_env,
-                    value_env=value_env,
-                    workflow_return_types=workflow_return_types,
-                    procedure_return_types=procedure_return_types,
-                    effect_summary=effect_summary,
-                    procedure_edges_by_site=procedure_edges_by_site,
-                    compile_time_bindings=compile_time_bindings,
-                    active_phase_scope=active_phase_scope,
-                ),
-            ),
-            keyword_args=(),
-            returns_type_name=HUMAN_REPLY_TYPE_NAME,
-        )
+        def operand(item, name):
+            return _elaborate_atomic_value(item, scope=scope.child_scope("request-input", authored_binding_name=name),
+                type_env=type_env, value_env=value_env, workflow_return_types=workflow_return_types,
+                procedure_return_types=procedure_return_types, effect_summary=effect_summary,
+                procedure_edges_by_site=procedure_edges_by_site, compile_time_bindings=compile_time_bindings,
+                active_phase_scope=active_phase_scope)
+        payload = None
+        positional = ()
+        if expr.answer_type_name is not None:
+            payload = {"answer_type": type_env.resolve_type(expr.answer_type_name, span=expr.span, form_path=expr.form_path),
+                "show": tuple(operand(item, f"show:{i}") for i, item in enumerate(expr.show))}
+            if expr.timeout_sec is not None:
+                payload["timeout_sec"] = operand(expr.timeout_sec, "timeout")
+        if isinstance(expr.question, PromptApplicationExpr):
+            from orchestrator.workflow.prompt_fragment_contract import _RENDERERS_BY_KIND
+            application = expr.question
+            declaration = application.prompt.declaration
+            payload["prompt_application"] = {"template": declaration.template.text, "fills": tuple({
+                "name": fill.name, "kind": slot.declaration.kind.value, "type_ref": fill.static_type_ref,
+                "value": operand(fill.value_expr, f"fill:{fill.name}"),
+                "renderer_id": None if slot.declaration.kind.value == "doc" else fill.renderer_id or _RENDERERS_BY_KIND.get(slot.declaration.kind.value),
+                "output_role": slot.declaration.output_role.value,
+                "placeholder_ordinals": tuple(i for i, name in enumerate(declaration.template.placeholder_names) if name == fill.name)}
+                for slot, fill in zip(application.prompt.slots, application.fills, strict=True))}
+        else:
+            positional = (operand(expr.question, "question"),)
+        return WccPerform(metadata=scope.value_metadata(role="perform:request_input", **metadata_kwargs),
+            perform_kind="request_input", target_name="request-input", prompt_name=None, positional_args=positional,
+            keyword_args=(), returns_type_name=(f"std/host::HostReply[{expr.answer_type_name}]" if expr.answer_type_name else HUMAN_REPLY_TYPE_NAME),
+            operation_payload=payload)
     if isinstance(expr, CommandResultExpr):
         return _elaborate_command_perform(expr, scope=scope, metadata_kwargs=metadata_kwargs,
             type_env=type_env, value_env=value_env, workflow_return_types=workflow_return_types,
@@ -7307,7 +7305,7 @@ def _infer_expr_type(
         return PrimitiveTypeRef(name="Agent")
     if isinstance(expr, RequestInputExpr):
         return type_env.resolve_type(
-            HUMAN_REPLY_TYPE_NAME,
+            f"std/host::HostReply[{expr.answer_type_name}]" if expr.answer_type_name else HUMAN_REPLY_TYPE_NAME,
             span=expr.span,
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
