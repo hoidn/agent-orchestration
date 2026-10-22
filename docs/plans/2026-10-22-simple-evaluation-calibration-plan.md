@@ -66,7 +66,7 @@ workflow. Freeze `purpose: calibration`, `calibration_kind: task_difficulty`,
   Independent code/plan and public-smoke reviews passed. Verification: 29 new
   cases collected; 484 affected tests passed with `-q -n 16 --dist=worksteal`;
   11 public scoring/integration tests passed. Integrate before paid execution.
-- [ ] Freeze a fresh runtime, criterion, eight generation inputs, operator,
+- [x] Freeze a fresh runtime, criterion, eight generation inputs, operator,
   model constraints and source identities. Validate actual dry-run commands and
   masks; preserve the sealed cf1 split and all historical package/seed bytes.
 - [ ] Execute and supervise the ten-session experiment, collect every attempt,
@@ -81,6 +81,25 @@ per arm provide a small pilot, not statistical reliability; Terra judging may
 also favor its own family's implementations. These are reported limitations,
 not extra gates. If no frozen Luna price is available, report tokens and known
 Terra list-price equivalents with total monetary cost unavailable.
+
+## Frozen natural pilot execution
+
+Runtime: clean `b067d37ce1bdf96f7281c1e0265384727cbb24e5` at
+`/home/ollie/sc-runtime-difficulty`. Criterion:
+`/home/ollie/sc-evidence/freeze-difficulty-20261022/criterion.json`, SHA256
+`d92fccd9ff6a661bfc11032e47688906b83268c6b0fc80e995083be7c5c59b24`.
+Generation packet SHA256
+`e3dc89e7036fde367fbca217470de9e23698347866375fb76085df5bee7d784b`
+binds 781 files, including the operator, actual CLI/native binary, inputs and
+commands. The preservation manifest binds 364 historical files. All eight
+public dry runs and actual Bubblewrap mask checks passed without providers;
+11 operator checks and independent source/packet review passed.
+
+Execution started 2026-10-22 under `/home/ollie/sc-evidence/TD-20261022`.
+The first two original run IDs are `20261022T212827Z-ofrf57` and
+`20261022T212827Z-iimnec`; native metadata confirms Luna high with no children.
+The operator reserves two judge sessions, accepts at most one dispatch per unit,
+and does not retry. Actual observations and final outcome remain pending.
 
 ## Superseded evaluator-control exercise (AS)
 
