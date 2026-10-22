@@ -229,6 +229,19 @@ The existing owner instruction to fix and simplify calibration, and the total
 sixteen-session authorization, cover this continuation: four untouched PRR
 generations plus two blind judges. No additional spend or campaign is selected.
 
+The intake correction is integrated in `ce48c89c`, with 402 affected tests,
+two public fake-provider smokes and independent review passed. Its clean analysis
+runtime is `/home/ollie/sc-evidence/preparation/runtime-natural-intake` at
+`ce48c89c1a9d8efd9095a328c30b0782faa911a3`; the generation/judge execution runtime
+remains `5d839b19`. The amended `criterion-natural-intake.json` has SHA256
+`0d7440fed6cd1b0d70f5410313e144853360610ebf06dfdb376c3403bd716018`.
+The PRR continuation packet has SHA256
+`b01d6574b34c2effa58c48b892bec43417d2b081321d4c428f06ad60b4d74801`;
+it retains the same owner answer and original generation commands. All four
+PRR attempts completed, leaving eight original natural captures and fourteen
+total starts including the incident. The two blind judges remain within the
+authorized sixteen-session cap. No quality scores exist at this checkpoint.
+
 ## Superseded evaluator-control exercise (AS)
 
 The earlier revision of this plan selected the wrong calibration objective.
