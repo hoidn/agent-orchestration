@@ -8,7 +8,7 @@ import sys
 from typing import get_type_hints
 
 from .diagnostics import PythonFrontendError, author_site, definition_site
-from .trace import Expr, active_trace
+from .trace import Expr, active_trace, declaration_expression
 
 
 MISSING = object()
@@ -23,7 +23,7 @@ def resolved_hints(value):
 
 def fields_of(cls):
     annotations = resolved_hints(cls)
-    reserved = set(Expr.__dict__) | {"_kind", "_args", "_annotation", "_site"}
+    reserved = set(Expr.__dict__) | {"_kind", "_args", "_annotation", "_site", "_scope"}
     if reserved.intersection(annotations):
         raise PythonFrontendError("python_record_field_reserved", "Fields cannot use symbolic protocol or private trace names", site=definition_site(cls))
     return annotations
@@ -33,7 +33,7 @@ def _shape(cls, kind):
     cls._orc_kind = kind
     cls._orc_site = definition_site(cls)
     def construct(owner, **fields):
-        return Expr("construct", (owner, dict(fields)), owner)
+        return declaration_expression("construct", (owner, dict(fields)), owner)
     cls.__new__ = staticmethod(construct)
     return cls
 
@@ -53,7 +53,7 @@ class RelPath:
         cls._orc_site = definition_site(cls)
 
     def __new__(cls, value):
-        return Expr("path", (cls, value), cls)
+        return declaration_expression("path", (cls, value), cls)
 
 
 @dataclass(frozen=True)
@@ -195,7 +195,7 @@ class Provider:
             raise PythonFrontendError("python_provider_prompt", "Provider calls require a Prompt application")
         options = dict(self.options)
         options.update({name: value for name, value in dict(model=model, effort=effort, timeout_sec=timeout_sec).items() if value is not MISSING})
-        return trace.bind(Expr("provider", (self, fragment, options), fragment.prompt.returns))
+        return trace.bind(trace.expression("provider", (self, fragment, options), fragment.prompt.returns))
 
 
 class Definition:
@@ -230,7 +230,7 @@ class Definition:
         except TypeError as exc:
             raise PythonFrontendError("python_call_arguments", str(exc)) from exc
         trace.generator.require_definition(self)
-        return trace.bind(Expr("call", (self, dict(bound.arguments)), result))
+        return trace.bind(trace.expression("call", (self, dict(bound.arguments)), result))
 
 
 def workflow(function=None, *, returns=MISSING):

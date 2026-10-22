@@ -59,12 +59,12 @@ Read existing owners rather than copying them: `workflow_lisp/build.py:FrontendB
 **Modify:** `orchestrator/py/{__init__,declarations,trace,emit,diagnostics}.py`.
 **Create:** `tests/test_workflow_python_control.py`.
 
-- [ ] Add red selectors `test_when_traces_effects_in_selected_region`, `test_match_requires_exact_cases_and_scopes_binders`, `test_boolean_thunks_short_circuit`, `test_eager_branches_and_escaped_binders_refuse`. Compile fixtures to checked programs and evaluate pure branches or no-cost stub effects.
-- [ ] Run `pytest -q tests/test_workflow_python_control.py::test_when_traces_effects_in_selected_region` and verify the missing control behavior fails.
-- [ ] Implement `when(condition, then=lambda: ..., else_=lambda: ...)` as two independently traced regions; both author thunks run at build, but generated effects remain conditional. Reject eager values. Implement `match(value, Case=lambda payload: ...)` with exhaustive case selection, arm-local payload projection and lexical ownership checks. Preserve flat union transport; do not introduce payload records.
-- [ ] Implement thunk-based `all_of`/`any_of` short circuit using the same region mechanism. Keep outer effect references reusable and ordered; branch-local binders/results may not escape or cross into sibling regions. Defer result join and nominal proof to the compiler.
-- [ ] Cover effectful ignored expressions inside selected regions, unused branches, nested control and type mismatches. Assertions compare checked branches/effect execution, not emitted source substrings.
-- [ ] Run `pytest --collect-only -q tests/test_workflow_python_control.py`, then `pytest -q tests/test_workflow_python_control.py tests/test_workflow_python_declarations.py`. Independent review, corrections, commit `feat(py): add lexical branches and variant matching`.
+- [x] Add red selectors `test_when_traces_effects_in_selected_region`, `test_match_requires_exact_cases_and_scopes_binders`, `test_boolean_thunks_short_circuit`, `test_eager_branches_and_escaped_binders_refuse`. Compile fixtures to checked programs and evaluate pure branches or no-cost stub effects.
+- [x] Run `pytest -q tests/test_workflow_python_control.py::test_when_traces_effects_in_selected_region` and verify the missing control behavior fails.
+- [x] Implement `when(condition, then=lambda: ..., else_=lambda: ...)` as two independently traced regions; both author thunks run at build, but generated effects remain conditional. Reject eager values. Implement `match(value, Case=lambda payload: ...)` with exhaustive case selection, arm-local payload projection and lexical ownership checks. Preserve flat union transport; do not introduce payload records.
+- [x] Implement thunk-based `all_of`/`any_of` short circuit using the same region mechanism. Keep outer effect references reusable and ordered; branch-local binders/results may not escape or cross into sibling regions. Defer result join and nominal proof to the compiler.
+- [x] Cover effectful ignored expressions inside selected regions, unused branches, nested control and type mismatches. Assertions compare checked branches/effect execution, not emitted source substrings.
+- [x] Run `pytest --collect-only -q tests/test_workflow_python_control.py`, then `pytest -q tests/test_workflow_python_control.py tests/test_workflow_python_declarations.py`. Independent review, corrections, commit `feat(py): add lexical branches and variant matching`.
 
 ## Task 3: Procedures, Commands And Bounded Loops
 
@@ -159,6 +159,7 @@ Expected: exit 0, every selected test passing. The existing 73-test baseline is 
 | 2026-10-22 | No paid providers, judges, or quality-comparison experiments; compile/local commands/stubs only. | Spend constraint |
 | 2026-10-22 | Task 1 independently approved after metadata-field/name hygiene, reachable-definition, strict boolean path option and foreign-call diagnostic fixes. Final collection: 53 tests; module: 53 passed in 4.61s, `/tmp/python-foundation-review-{collect,green}.log`. Coordinator inspected the code and logs; an earlier independent module run passed 44 tests before final regressions. | Task 1 complete |
 | 2026-10-22 | Existing compiler has Optional transport but no null source constructor or generic list index operator. Explicit Python None/index refusals documented and tested; no synthesized semantics. | Verified scope clarification |
-| Pending | Tasks 2–6 commits, collection/regression logs, public smoke/recovery results, final diff review. | Record as executed |
+| 2026-10-22 | Task 2 independently approved after nested/ignored-result context, Float literal and module-level pure-expression regressions. Final pair: 77 collected and 77 passed in 5.22s (`/tmp/python-control-context-{collect,green}.log`). Coordinator independently ran the 20-test control module and four added discarded-call regressions; reviewer ran ten focused checks. Repeated context issue escalated from Luna to Sol; compiler remains type-join authority. | Task 2 complete |
+| Pending | Tasks 3–6 commits, collection/regression logs, public smoke/recovery results, final diff review. | Record as executed |
 
 Completion requires all six tasks and the acceptance rows above. Compilation and local command evidence establish implementation and integration only; they do not qualify live providers, environmental reproducibility, parallel execution or Agent sessions.

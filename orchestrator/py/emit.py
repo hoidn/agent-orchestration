@@ -184,7 +184,7 @@ class ModuleGenerator:
             for annotation in (*annotations.values(), returns):
                 self.type_ref(annotation, site=definition.site, signature=True)
             trace = Trace(self, definition)
-            arguments = {name: Expr("ref", (name,), annotation, definition.site)
+            arguments = {name: trace.reference(name, annotation, site=definition.site)
                          for name, annotation in annotations.items()}
             result = trace.run(definition.function, arguments)
             self.traces[id(definition)] = (trace, result, signature, annotations, returns)
@@ -286,16 +286,85 @@ class ModuleGenerator:
 
     def region(self, trace, result, *, expected=None):
         w = self.writer
+        expected_bindings = self.binding_expectations(trace, result, expected)
         if trace.bindings:
             w.write("(let* (")
             for index, (name, expression) in enumerate(trace.bindings):
                 if index: w.write("\n           ")
                 w.write(f"({name} ")
-                self.expression(expression)
+                self.expression(expression, expected=expected_bindings.get(name))
                 w.write(")")
             w.write(")\n      ")
         self.expression(result, expected=expected)
         if trace.bindings: w.write(")")
+
+    def binding_expectations(self, trace, result, expected):
+        expectations = {}
+
+        def collect(value, annotation):
+            if isinstance(value, Expr):
+                if value._kind == "ref":
+                    if annotation is not None:
+                        expectations.setdefault(value._args[0], []).append(annotation)
+                elif value._kind == "when":
+                    condition, then_region, else_region = value._args
+                    collect(condition, bool)
+                    collect_region(*then_region, expected=annotation)
+                    collect_region(*else_region, expected=annotation)
+                elif value._kind == "match":
+                    _subject, arms = value._args
+                    for _variant, _binder, child, child_result in arms:
+                        collect_region(child, child_result, expected=annotation)
+                elif value._kind in {"all_of", "any_of"}:
+                    for child, child_result in value._args:
+                        collect_region(child, child_result, expected=bool)
+                elif value._kind == "construct":
+                    owner, fields = value._args
+                    for name, field_type in fields_of(owner).items():
+                        if name in fields: collect(fields[name], field_type)
+                elif value._kind == "call":
+                    definition, arguments = value._args
+                    _signature, annotations, _returns = definition.signature()
+                    for name, argument in arguments.items():
+                        collect(argument, annotations[name])
+                elif value._kind == "provider":
+                    from .declarations import PromptApplication
+                    _provider, application, _options = value._args
+                    if isinstance(application, PromptApplication) and not isinstance(application.values, tuple):
+                        fills = application.prompt.signature()
+                        for name, argument in application.values.items():
+                            collect(argument, fills[name].annotation)
+                elif value._kind == "op":
+                    operator = value._args[0]
+                    operand_type = bool if operator == "not" else str if operator == "string/concat" else None
+                    for argument in value._args[1:]: collect(argument, operand_type)
+                elif value._kind == "path":
+                    collect(value._args[1], str)
+            elif isinstance(value, list):
+                arguments = get_args(annotation)
+                child_type = arguments[0] if get_origin(annotation) is list and arguments else None
+                for item in value: collect(item, child_type)
+
+        def collect_region(region_trace, region_result, *, expected):
+            collect(region_result, expected)
+            for name, expression in reversed(region_trace.bindings):
+                types = expectations.get(name, ())
+                unique = []
+                for annotation in types:
+                    if not any(annotation == item for item in unique): unique.append(annotation)
+                # Discarded bindings still supply declared argument and child-region contexts.
+                collect(expression, unique[0] if len(unique) == 1 else None)
+
+        collect_region(trace, result, expected=expected)
+        bindings = dict(trace.bindings)
+        resolved = {}
+        for name, types in expectations.items():
+            unique = []
+            for annotation in types:
+                if not any(annotation == item for item in unique): unique.append(annotation)
+            if len(unique) == 1 and name in bindings:
+                resolved[name] = unique[0]
+        return resolved
 
     def literal(self, value):
         if value is None:
@@ -333,6 +402,7 @@ class ModuleGenerator:
     def _expression(self, value, *, expected):
         w = self.writer
         if value._kind == "ref": w.write(value._args[0])
+        elif value._kind == "case_ref": w.write(value._args[0])
         elif value._kind == "field":
             self.expression(value._args[0])
             w.write("." + value._args[1])
@@ -370,8 +440,52 @@ class ModuleGenerator:
                 self.expression(argument, expected=annotations[name])
             w.write(")")
         elif value._kind == "provider": self.emit_provider(value)
+        elif value._kind == "when":
+            condition, then_region, else_region = value._args
+            w.write("(if ")
+            self.expression(condition, expected=bool)
+            w.write(" ")
+            self.region(*then_region, expected=expected)
+            w.write(" ")
+            self.region(*else_region, expected=expected)
+            w.write(")")
+        elif value._kind == "match":
+            subject, arms = value._args
+            w.write("(match ")
+            self.expression(subject)
+            for variant, binder, trace, result in arms:
+                w.write(f" (({variant.__name__} {binder}) ")
+                self.region(trace, result, expected=expected)
+                w.write(")")
+            w.write(")")
+        elif value._kind in {"all_of", "any_of"}:
+            self.emit_boolean_thunks(value._kind, value._args)
         else:
             raise PythonFrontendError("python_expression_unsupported", f"Unsupported expression {value._kind}", site=value._site)
+
+    def emit_boolean_thunks(self, kind, regions):
+        if not regions:
+            self.literal(kind == "all_of")
+            return
+
+        def emit(index):
+            if index == len(regions):
+                self.literal(kind == "all_of")
+                return
+            self.writer.write("(if ")
+            self.region(*regions[index], expected=bool)
+            self.writer.write(" ")
+            if kind == "all_of":
+                emit(index + 1)
+                self.writer.write(" ")
+                self.literal(False)
+            else:
+                self.literal(True)
+                self.writer.write(" ")
+                emit(index + 1)
+            self.writer.write(")")
+
+        emit(0)
 
     def union_for(self, case, expected, site):
         if _closed_union(expected) and case in get_args(expected): return expected
