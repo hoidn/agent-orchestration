@@ -539,9 +539,9 @@ def test_path_under_validation_remains_compiler_owned(tmp_path):
         compile_source(tmp_path, 'class Report(RelPath, under=123): pass\n@workflow\ndef run(path: Report) -> Report:\n    return path\n')
 
 
-def test_cross_module_call_has_named_frontend_refusal(tmp_path):
-    from orchestrator.py.diagnostics import PythonFrontendError
-    foreign = module_source(tmp_path / "foreign", '@workflow\ndef helper() -> int:\n    return 1\n', name="foreign_definition")
-    with pytest.raises(PythonFrontendError, match="python_module_import_unsupported") as error:
-        compile_source(tmp_path, 'from foreign_definition import helper\n@workflow\ndef run() -> int:\n    return helper()\n')
-    assert error.value.site.path == foreign.__file__
+def test_cross_module_call_preserves_definition_owner(tmp_path):
+    from orchestrator.workflow.evaluated.machine import evaluate_closed_program
+    module_source(tmp_path / "foreign", '@workflow\ndef helper() -> int:\n    return 1\n', name="foreign_definition")
+    _module, generated, built = compile_source(tmp_path, 'from foreign_definition import helper\n@workflow\ndef run() -> int:\n    return helper()\n')
+    assert evaluate_closed_program(built.program, {}).value == 1
+    assert (generated.source_root / "py/foreign_definition.orc").exists()

@@ -87,9 +87,12 @@ class Expr:
         from .declarations import fields_of
         trace = active_trace()
         trace.validate_value(self)
-        kind = getattr(self._annotation, "_orc_kind", None)
+        annotation = self._annotation
+        if trace.generator.graph is not None:
+            annotation = trace.generator.graph.resolve_annotation(annotation, trace.generator)
+        kind = getattr(annotation, "_orc_kind", None)
         if kind == "record" or (kind == "variant" and self._kind == "case_ref"):
-            annotation = fields_of(self._annotation).get(name)
+            annotation = fields_of(annotation).get(name)
             if annotation is None:
                 raise PythonFrontendError("python_symbolic_attribute", f"No readable symbolic field `{name}`; runtime values are immutable", site=author_site())
         else:
@@ -110,6 +113,7 @@ Expr.__delattr__ = lambda self, name: _immutable_expr(self, name, None)
 
 
 def _validate_unscoped(value, site):
+    from .declarations import PromptApplication
     if isinstance(value, Expr):
         if value._scope is not None:
             raise PythonFrontendError(
@@ -122,7 +126,7 @@ def _validate_unscoped(value, site):
         for child in value.values(): _validate_unscoped(child, site)
     elif isinstance(value, (tuple, list, set, frozenset)):
         for child in value: _validate_unscoped(child, site)
-    elif hasattr(value, "values") and hasattr(value, "prompt"):
+    elif isinstance(value, PromptApplication):
         _validate_unscoped(value.values, site)
 
 
@@ -191,6 +195,7 @@ class Trace:
         return self.names.next(prefix)
 
     def validate_value(self, value, *, site=None):
+        from .declarations import PromptApplication
         if isinstance(value, Expr):
             self._validate_scope(value._scope, site or value._site)
             if value._kind == "when":
@@ -215,7 +220,7 @@ class Trace:
             for child in value.values(): self.validate_value(child, site=site)
         elif isinstance(value, (tuple, list, set, frozenset)):
             for child in value: self.validate_value(child, site=site)
-        elif hasattr(value, "values") and hasattr(value, "prompt"):
+        elif isinstance(value, PromptApplication):
             self.validate_value(value.values, site=site)
 
     def _validate_scope(self, owner, site):
@@ -304,8 +309,13 @@ def _branch_annotation(generator, values):
     if not annotations or any(annotation is None for annotation in annotations):
         return None
     if all(getattr(annotation, "_orc_kind", None) == "variant" for annotation in annotations):
+        from .imports import CompilerCase
+        if all(isinstance(annotation, CompilerCase) for annotation in annotations):
+            first = annotations[0]._union
+            if all(annotation._union is first for annotation in annotations): return first
         owners = [
-            {union for union in generator.union_names if annotation in get_args(union)}
+            {union for union in (generator.graph.type_owners if generator.graph is not None else generator.union_names)
+             if annotation in get_args(union)}
             for annotation in annotations
         ]
         shared = set.intersection(*owners)
@@ -363,6 +373,8 @@ def _done_values(value, owner):
 
 
 def _closed_union(annotation):
+    from .imports import CompilerType
+    if isinstance(annotation, CompilerType): return annotation._orc_kind == "union"
     args = get_args(annotation)
     return (get_origin(annotation) in {UnionType, Union} and args and
             all(getattr(case, "_orc_kind", None) == "variant" for case in args))
@@ -385,7 +397,9 @@ def match(value, **cases):
     trace.validate_value(value)
     if not isinstance(value, Expr) or not _closed_union(value._annotation):
         raise PythonFrontendError("python_match_requires_union", "match requires a value annotated with a closed variant union", site=author_site())
-    variants = get_args(value._annotation)
+    from .imports import CompilerType
+    variants = (value._annotation._cases() if isinstance(value._annotation, CompilerType)
+                else get_args(value._annotation))
     names = [variant.__name__ for variant in variants]
     if len(set(names)) != len(names) or set(cases) != set(names):
         raise PythonFrontendError("python_match_cases", "match requires exactly one arm for every named union case", site=author_site())

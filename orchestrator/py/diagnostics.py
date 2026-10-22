@@ -1,7 +1,7 @@
 """Authored Python locations and generated source provenance."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import inspect
 from pathlib import Path
 
@@ -57,3 +57,31 @@ class PythonSourceMap:
     schema_version: str = "workflow-python/source-map/1"
     entries: list[SourceMapEntry] = field(default_factory=list)
     source_hashes: dict[str, str] = field(default_factory=dict)
+
+
+def python_span(site):
+    from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
+    return SourceSpan(SourcePosition(site.path, site.line, site.column, 0),
+                      SourcePosition(site.path, site.end_line or site.line,
+                                     site.end_column or site.column, 0))
+
+
+def remap_compiler_error(error, source_map):
+    """Display authored locations while retaining compiler codes and generated sites."""
+    from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+    diagnostics = []
+    for diagnostic in error.diagnostics:
+        start = diagnostic.span.start
+        candidates = [entry for entry in source_map.entries
+            if entry.generated.path == start.path and
+            (entry.generated.line, entry.generated.column) <= (start.line, start.column) <=
+            (entry.generated.end_line or entry.generated.line,
+             entry.generated.end_column or entry.generated.column)]
+        if candidates:
+            entry = min(candidates, key=lambda item: (
+                (item.generated.end_line or item.generated.line) - item.generated.line,
+                (item.generated.end_column or item.generated.column) - item.generated.column))
+            diagnostic = replace(diagnostic, span=python_span(entry.python),
+                notes=(*diagnostic.notes, f"Generated source: {start.path}:{start.line}:{start.column}"))
+        diagnostics.append(diagnostic)
+    return LispFrontendCompileError(tuple(diagnostics))

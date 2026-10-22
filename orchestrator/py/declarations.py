@@ -23,11 +23,18 @@ def resolved_hints(value):
 
 
 def fields_of(cls):
+    from .imports import CompilerCase, CompilerType
+    if isinstance(cls, (CompilerCase, CompilerType)):
+        return cls._fields()
     annotations = resolved_hints(cls)
-    reserved = set(Expr.__dict__) | {"_kind", "_args", "_annotation", "_site", "_scope"}
-    if reserved.intersection(annotations):
-        raise PythonFrontendError("python_record_field_reserved", "Fields cannot use symbolic protocol or private trace names", site=definition_site(cls))
+    validate_field_names(annotations, site=definition_site(cls))
     return annotations
+
+
+def validate_field_names(names, *, site=None):
+    reserved = set(Expr.__dict__) | {"_kind", "_args", "_annotation", "_site", "_scope"}
+    if reserved.intersection(names):
+        raise PythonFrontendError("python_record_field_reserved", "Fields cannot use symbolic protocol or private trace names", site=site)
 
 
 def _shape(cls, kind):
@@ -138,7 +145,8 @@ class Prompt:
         elif self.file is not None:
             path = (Path(self.site.path).parent / self.file).resolve()
             raw = path.read_bytes()
-            captures[path] = raw
+            if captures.setdefault(path, raw) != raw:
+                raise PythonFrontendError("python_source_changed", "Prompt source changed during generation", site=self.site)
             text = raw.decode("utf-8")
         else:
             text = self.text
@@ -234,7 +242,10 @@ def uses_provider(provider):
 
 
 def calls_workflow(workflow):
-    if not isinstance(workflow, Definition) or workflow.kind != "workflow":
+    from .imports import ImportedCallable, OrcMember
+    if isinstance(workflow, OrcMember):
+        return Effect("calls-workflow", workflow)
+    if not isinstance(workflow, (Definition, ImportedCallable, OrcMember)) or workflow.kind != "workflow":
         raise PythonFrontendError("python_proc_effect_invalid", "calls_workflow requires a workflow definition")
     return Effect("calls-workflow", workflow)
 
