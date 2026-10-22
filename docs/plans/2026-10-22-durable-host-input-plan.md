@@ -156,12 +156,12 @@ recording emailer are the only external substitutes.
 `tests/test_workflow_evaluated_memo.py` and invalidation tests only for shared
 reducer invariants.
 
-- [ ] Add a real run fixture that reaches an ask after one committed command.
+- [x] Add a real run fixture that reaches an ask after one committed command.
   Run its first failing test: execution must produce one `started` containing
   the frozen payload and one `suspended`, no terminal/continuation, and release
   its lock with exit 0. Two ordinary resumes must retain request ID, ordinal,
   deadline, memo bytes and earlier command count.
-- [ ] Add strict reducer cases before implementing the additive class. A
+- [x] Add strict reducer cases before implementing the additive class. A
   request start must carry the complete versioned payload; suspension must
   match its identity/attempt/request ID exactly; only one pending request is
   legal; commit must preserve the matching input fields and contain the typed
@@ -169,18 +169,18 @@ reducer invariants.
   malformed contract/digest/request identity, inconsistent provenance,
   suspended non-request classes, duplicate suspension and terminal with a
   pending request. No coordinator `proof` or `settled` is permitted here.
-- [ ] Bind memo request/reply contracts back to `RunAuthority.program` in one
+- [x] Bind memo request/reply contracts back to `RunAuthority.program` in one
   shared checked validator used by pending, reports, dashboard, replay and
   mutation. The reducer's site-class table is not full nominal type authority;
   a forged memo cannot validate itself by supplying its own descriptor.
-- [ ] Implement request identity from canonical schema/run/header/program/
+- [x] Implement request identity from canonical schema/run/header/program/
   dynamic effect/attempt identity. Freeze the complete prompt, full answer and
   reply contracts, ordered shown evidence, dependencies, creation time and
   absolute deadline in `started`, before attempt/view publication. Keep
   semantic input parts separate from frozen timestamps/show hashes. Validate
   exact positive integer durations and finite absolute deadlines before a
   start; never renew a deadline during recovery.
-- [ ] Integrate request preparation, replay and suspension into the existing
+- [x] Integrate request preparation, replay and suspension into the existing
   runtime before generic retry/external-provider fallback. Use shared prompt
   rendering, complete typed value validation and ordinary dependency tracking.
   Recover a complete start without suspension at the same attempt and append
@@ -188,7 +188,7 @@ reducer invariants.
   handling. Expire only from resume, after prefix preflight and under the
   writer lock; at `now >= deadline`, commit typed `EXPIRED` with runtime-only
   provenance and continue. Read APIs never expire or reconcile.
-- [ ] Implement the exact public API:
+- [x] Implement the exact public API:
 
   ```python
   pending(run_root)
@@ -210,7 +210,7 @@ reducer invariants.
   relationships. Duplicate committed replies need no source rebuild.
   Test source/program, manifest, runtime Doc and earlier producer divergence
   during new answer/cancel: memo, any torn tail and views remain unchanged.
-- [ ] Test invalid values, missing/extra union fields, forged wrappers,
+- [x] Test invalid values, missing/extra union fields, forged wrappers,
   constraints, empty principals, cross-run/stale IDs and
   `host_input_not_suspended`. Every refusal preserves memo, tail and views.
   Identical duplicate settlement returns its original value without writes
@@ -219,7 +219,7 @@ reducer invariants.
   Retrying an earlier noninvalidated committed request also succeeds while
   a later request is pending; lookup cannot consult only the current request.
   Invalidated requests are stale rather than idempotent successes.
-- [ ] Implement safe show-file snapshot comparison on answer and cancel.
+- [x] Implement safe show-file snapshot comparison on answer and cancel.
   Changed/missing/unreadable evidence refuses by default. Initial snapshots
   require regular files and reject directories; the source type is the existing
   `relpath`, not a new static file/directory distinction. Explicit override
@@ -230,13 +230,13 @@ reducer invariants.
   or earlier producer evidence still cause ordinary divergence. Tests must
   prove override succeeds through a subsequent resume and does not weaken
   those independent semantic checks.
-- [ ] Serialize deadline and invalidation decisions under the same run lock.
+- [x] Serialize deadline and invalidation decisions under the same run lock.
   Check the deadline immediately before host commit: a late answer/cancel
   refuses without expiring; a committed pre-deadline answer is never replaced.
   Existing suffix invalidation retires affected pending starts/suspensions;
   preserve their ordinal history and existing coordinator/session guards.
   Invalidating an answered request and resuming creates a new request ID.
-- [ ] Publish request prompt/JSON and reply JSON as rebuildable attempt views;
+- [x] Publish request prompt/JSON and reply JSON as rebuildable attempt views;
   do not materialize a redundant `result.json`, whose conventional locator
   remains in the normal memo row for existing tooling.
   memo inline reply and its canonical digest remain authority. Missing or
@@ -244,7 +244,7 @@ reducer invariants.
   commit/view publication gaps and torn tails now; Task 5 adds process-kill
   coverage. Retain descriptors and dependencies on replay so ordinary union
   match cannot inspect inactive fields.
-- [ ] Collect new modules, run the narrow request/reducer selectors, then in
+- [x] Collect new modules, run the narrow request/reducer selectors, then in
   tmux run:
 
   ```bash
@@ -254,7 +254,7 @@ reducer invariants.
 
   Expected: all lifecycle transitions, read-only refusals and historical
   command/provider/coordinator recovery remain valid.
-- [ ] Obtain independent review, apply corrections, record evidence, and
+- [x] Obtain independent review, apply corrections, record evidence, and
   commit owned files with `feat: persist and settle evaluated host requests`.
 
 ## Task 3: CLI, state/report/dashboard and suspension notifications
@@ -537,6 +537,7 @@ owns final diff and verification. New architecture decisions return to Design.
 | 2026-10-22 | No provider or live notification spend. | Deterministic external stand-ins suffice for functionality/recovery; no quality comparison or spend is authorized. |
 | 2026-10-22 | Python enum matches emit existing typed equality/if; union matches emit Lisp match. | Lisp match currently admits unions only; exhaustive enum callbacks need no new core construct. |
 | 2026-10-22 | Python path constructors take a child relative to the declared root. | Reuse public path/join-under and its validation; do not expose private path seeds or add implicit full-path conversion. |
+| 2026-10-22 | Evidence override does not waive a workflow input's must-exist contract. | Exact shared preflight remains authoritative. Missing presentation-only evidence is overrideable only when it has no independent input, Doc or producer obligation. Tests distinguish these cases rather than weakening ordinary input validation. |
 | 2026-10-22 | Reconstruct configured capsule signatures only in modules that reference those workflow bindings. | Real HostReply enum/union capsule fixtures exposed reconstruction in unrelated stdlib/type/utility environments. Design review selected an extra existing expression-elaboration pass with a recording workflow resolver, only for explicit-import builds. This preserves lexical binding semantics at additional compile-time cost; no separate syntax scanner, native-signature fallback or lazy catalog is introduced. All supplied snapshots retain admission, conflict and closure checks. Known nominal return hints still require complete boundary-contract equality; erased imports retain their existing matching policy. |
 
 ## Evidence and current status
@@ -561,6 +562,19 @@ owns final diff and verification. New architecture decisions return to Design.
   even without a supplied capsule (`/tmp/host-input-let-baseline.log`). Its
   changed frontend/catalog boundary is verified against that baseline; no
   unrelated WCC repair or executable support claim is included.
-- Task 2 runtime implementation is active. Compiler results alone do not
-  establish durable runtime capability.
+- Task 2 completed in `d6c2932b` after independent spec and quality approval.
+  The runtime regression passed **334 tests in 44.28s**, exit 0,
+  `/tmp/host-input-task2-final2-regression.log`. Review added public error-code,
+  active-writer status and exact reached-dependency checks. An expanded view
+  regression found six compatibility failures from an unconditional null
+  field; all six pass after emitting pending metadata only during suspension
+  (`/tmp/host-input-task2-review-view-compat.log`). Focused correction checks
+  passed 14, 9 and 5 cases respectively in the `review-narrow`, `review-final`
+  and `dependencies-green` logs under `/tmp/host-input-task2-`. Unchanged
+  successful checks were reused. The final two adversarial dependency cases
+  verify both public pending and shared view refusal without writes. Root
+  inspected the complete change, fresh outputs and clean diff before commit.
+- Task 3 host adapters are active. Native Python authoring and public parity /
+  real-process crash checks remain Tasks 4–5; runtime unit evidence does not
+  establish those capabilities.
 - No provider-quality result or live-provider qualification is claimed.

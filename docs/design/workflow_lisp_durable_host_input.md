@@ -289,6 +289,9 @@ rebuild refusal (`resume_program_changed` or compile error); changed runtime
 prompt inputs refuse with
 `effect_input_diverged`; `accept_changed_evidence` cannot waive those rules or
 any changed producer's own replay obligations.
+Ordinary input contracts also remain in force: a missing workflow input marked
+`:must-exist true` fails preflight even when the same path appears in `:show`
+and the host accepts changed presentation evidence.
 
 `:show` file bytes are a frozen presentation snapshot: its paths/contracts are
 semantic inputs, while its original content hashes belong to `host_request`.
