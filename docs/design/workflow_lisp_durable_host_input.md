@@ -109,8 +109,10 @@ The host question does not append provider-specific output-file instructions.
 The parentheses after `:show` are a syntactic list of path expressions, like
 other keyword operand lists. In this example `v.evidence` and `bundle.logs` are
 two field projections. There is no `v.evidence` callable, new view language or
-`materialize-view` effect. Each expression must have an admitted typed file-path
-type; plain strings, directories and arbitrary JSON objects are refused. Empty
+`materialize-view` effect. Each expression must have an admitted typed `relpath`
+type; plain strings and arbitrary JSON objects are refused statically. The
+snapshot reader requires a regular file and refuses directories at runtime;
+the existing path type does not statically distinguish files from directories. Empty
 `:show ()` means no evidence. The normal workspace path and no-follow file
 rules govern resolution and hashing. Source order is retained.
 
@@ -462,7 +464,8 @@ not the evaluator, request lifecycle, validation or storage.
 | Python parity | Native `ask`, lazy typed branches and procs emit the same effect/contract; generated source survives source-module edits/removal on resume; source attribution survives diagnostics |
 
 The end-to-end acceptance workflow diagnoses a fault with a stub provider,
-asks for `Approval`, and runs the repair command only for
+verifies that diagnosis with a command, asks for `Approval` with the verified
+evidence, and runs the repair command only for
 `ANSWERED(APPROVED, by)`. `ANSWERED(DENIED, by)`, `CANCELLED(by)` and `EXPIRED`
 all invoke the workflow's explicit escalation path. Run it from both Lisp and
 native Python authoring, inspect pending via CLI/API, settle via the other door,

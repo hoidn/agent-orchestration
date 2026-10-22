@@ -177,7 +177,8 @@ Declare paths with ordinary subclass keywords, for example
 `class EvidencePath(RelPath, under="artifacts/daq", must_exist=True): ...`.
 `under` is the authored relative path root and `must_exist` is a boolean;
 the declaration emits the existing `defpath :kind relpath` contract and its
-`:under`/`:must-exist` options. Path construction emits a typed path value;
+`:under`/`:must-exist` options. `EvidencePath("note.md")` takes a child relative
+to that declared root and emits the existing `path/join-under` constructor;
 it does not perform filesystem IO during tracing. The ordinary compiler and
 runtime retain path validation and existence checks.
 
@@ -210,6 +211,10 @@ union in this bounded subset; the author must use distinct variants.
 Generic user-defined records/unions, inheritance and
 arbitrary Python objects are outside this subset; imported `HostReply[A]` has
 its existing ordinary first-order generic descriptor.
+
+Enum matches lower to ordinary typed equality and lazy `if` expressions;
+union matches lower to ordinary Lisp `match`. The emitter checks enum coverage
+before lowering, since Lisp's `match` itself admits unions only.
 
 `match(value, TAG=callback, ...)` requires each admitted tag once, no unknown
 tag and one callback parameter. For a union the parameter has only that tag's

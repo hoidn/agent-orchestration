@@ -92,48 +92,48 @@ recording emailer are the only external substitutes.
 `tests/test_workflow_lisp_phased_239.py` and
 `tests/test_workflow_lisp_target_evaluated_execution.py` where relevant.
 
-- [ ] Add the smallest real compile fixture importing `std/host`, declaring
+- [x] Add the smallest real compile fixture importing `std/host`, declaring
   `Approval`, and returning `HostReply[Approval]` from a procedure containing
   `(request-input question :returns Approval :timeout-sec 60)`. Compile through
   `compile_typed_program` and `build_closed_program`, then restore with
   `ClosedProgram.from_artifact` after deleting source. Assert class
   `request_input`, full answer/reply descriptors, normal site and immutable
   artifact digest. Run the new selector and observe the missing target/effect.
-- [ ] Add positive String, enum and closed-union answer cases, including
+- [x] Add positive String, enum and closed-union answer cases, including
   constrained nested payloads and ordinary `match` refinement of
   `ANSWERED.value/by`, `CANCELLED.by` and payload-free `EXPIRED`. Reject a
   forged or wrong nominal reply descriptor, nontransportable/open/unbound
   answer types, wrong field accesses and missing/duplicate/unknown keywords.
-- [ ] Extend the retained expression rather than inventing another source
+- [x] Extend the retained expression rather than inventing another source
   effect. Carry `:returns`, optional positive integer timeout expression and
   ordered `:show` path operands through all expression/WCC transformations,
   specialization and closed emission. Keep old-target diagnostics and the
   original historical `HumanReply` type/reader semantics unchanged.
-- [ ] Add the ordinary `std/host` generic union. Keep a single nominal identity
+- [x] Add the ordinary `std/host` generic union. Keep a single nominal identity
   across imports, compiled capsules and later Python emission. Register 2.40
   through both target inventories, preserving defining-module target checks.
   Correct the three exact phased-provider 2.39 comparisons in
   `typecheck_effects.py`, `closed/effects.py` and
   `contracts/closed_program/check.py` so admitted 2.39 features also work at
   2.40 while old defining targets remain refused.
-- [ ] Admit a String question or fully applied `defprompt` in this position;
+- [x] Admit a String question or fully applied `defprompt` in this position;
   reuse typed fill/doc handling and check prompt answer agreement. Exercise
   prompt text/value/doc fills and shown file-path projections. Reject plain
-  String/directory/object show operands, mismatched prompt return type,
+  String/object show operands, mismatched prompt return type,
   missing fills and invalid timeout types; dynamic timeout positivity is also
   validated at the runtime boundary. No provider output-file suffix is added.
-- [ ] Preserve inferred subject-free `host-input` in direct/imported/proc-ref
+- [x] Preserve inferred subject-free `host-input` in direct/imported/proc-ref
   calls; omitted effects infer, an explicit empty ceiling refuses. Reject
   reachable requests under `par-map`, pure functions and any child `run-ref`
   before child creation/dispatch. Cover direct, imported and specialized
   transitive helpers. Ordinary `defproc`/same-memo workflow calls remain valid.
-- [ ] Independently enforce complete descriptor/operand/target/class shape,
+- [x] Independently enforce complete descriptor/operand/target/class shape,
   configuration checks and transitive parallel/child restrictions in the
   source-free closed checker. Mutate artifact JSON to prove frontend bypass
   cannot admit a malformed request. Include checks that non-request effects
   still emit/check unchanged and a new request cannot fall through to provider
   dispatch while Task 2 has not wired execution.
-- [ ] Collect and run the narrow module, then in tmux run:
+- [x] Collect and run the narrow module, then in tmux run:
 
   ```bash
   python -m pytest --collect-only -q tests/test_workflow_lisp_host_input.py
@@ -142,7 +142,7 @@ recording emailer are the only external substitutes.
 
   Expected: valid 2.40 fixtures compile/round-trip; prohibited routes refuse
   before execution; existing historical and target contracts stay green.
-- [ ] Obtain independent review, apply accepted corrections, record evidence,
+- [x] Obtain independent review, apply accepted corrections, record evidence,
   and commit this task's owned files only with
   `feat: compile typed durable host requests at target 2.40`.
 
@@ -220,7 +220,9 @@ reducer invariants.
   a later request is pending; lookup cannot consult only the current request.
   Invalidated requests are stale rather than idempotent successes.
 - [ ] Implement safe show-file snapshot comparison on answer and cancel.
-  Changed/missing/unreadable evidence refuses by default. Explicit override
+  Changed/missing/unreadable evidence refuses by default. Initial snapshots
+  require regular files and reject directories; the source type is the existing
+  `relpath`, not a new static file/directory distinction. Explicit override
   records original and observed digests/classification without modifying the
   frozen request; traversal/forbidden symlinks are never waived. Recheck the
   observed snapshot at publication where supported by the existing reader.
@@ -415,7 +417,9 @@ recovery/host/Python test modules and fixture helper from prior tasks.
 
 - [ ] Complete matching maintained Lisp and Python diagnose/approve/recover
   examples, all provider/command declarations and manifests, a recording
-  provider stub and action command. Provider stubs return by logical request
+  provider stub, a verification command before approval and an action command.
+  The request uses the verification command's typed cause/evidence output.
+  Provider stubs return by logical request
   identity, not call count, so retry/replay evidence is interpretable. Stub
   commands produce a typed Outcome and record repair/escalation invocation.
   Include typed shown evidence and prompt docs in dedicated variants.
@@ -531,6 +535,9 @@ owns final diff and verification. New architecture decisions return to Design.
 | 2026-10-22 | Full frozen payload in started; show bytes are presentation evidence. | Recover start-to-suspension crash gaps and retain accepted drift across resume without bypassing semantic docs/producers. |
 | 2026-10-22 | Sol 6.1 high for compiler/runtime/Python; Luna 6 xhigh for bounded hosts/tests. | Existing interfaces span multiple owners; user policy permits escalation for cross-cutting implementation. |
 | 2026-10-22 | No provider or live notification spend. | Deterministic external stand-ins suffice for functionality/recovery; no quality comparison or spend is authorized. |
+| 2026-10-22 | Python enum matches emit existing typed equality/if; union matches emit Lisp match. | Lisp match currently admits unions only; exhaustive enum callbacks need no new core construct. |
+| 2026-10-22 | Python path constructors take a child relative to the declared root. | Reuse public path/join-under and its validation; do not expose private path seeds or add implicit full-path conversion. |
+| 2026-10-22 | Reconstruct configured capsule signatures only in modules that reference those workflow bindings. | Real HostReply enum/union capsule fixtures exposed reconstruction in unrelated stdlib/type/utility environments. Design review selected an extra existing expression-elaboration pass with a recording workflow resolver, only for explicit-import builds. This preserves lexical binding semantics at additional compile-time cost; no separate syntax scanner, native-signature fallback or lazy catalog is introduced. All supplied snapshots retain admission, conflict and closure checks. Known nominal return hints still require complete boundary-contract equality; erased imports retain their existing matching policy. |
 
 ## Evidence and current status
 
@@ -541,7 +548,19 @@ owns final diff and verification. New architecture decisions return to Design.
   closed-program test file and exited 4; it was corrected before implementation
   and is not counted as test evidence.
 - Both designs and the revised implementation plan received independent
-  approval. All first-review plan findings are applied. Implementation tasks
-  remain open; Task 1 is ready for the coordinator's execution handoff.
-- This plan records no implemented capability, provider-quality result or
-  live-provider qualification yet.
+  approval. All first-review plan findings are applied.
+- Task 1 completed in `e93240f2` after independent spec and quality approvals.
+  Final affected compiler regression: **977 passed in 13.58s**, exit 0,
+  `/tmp/host-input-task1-final-regression.log`; host module: **71 passed**,
+  `/tmp/host-input-task1-capsules-final.log`, with all 71 collected. Root inspected
+  the final diff, logs and clean `git diff --check`. Review corrections cover
+  exact generic identity, erased-import compatibility, lexical capsule consumers
+  and checked atomic nested-union boundaries. Six source-free enum/union capsule
+  cases pass, with forged root/nested discriminants rejected.
+- The lexical `let*`/`WorkflowRef` fixture exposes a preexisting WCC `KeyError`
+  even without a supplied capsule (`/tmp/host-input-let-baseline.log`). Its
+  changed frontend/catalog boundary is verified against that baseline; no
+  unrelated WCC repair or executable support claim is included.
+- Task 2 runtime implementation is active. Compiler results alone do not
+  establish durable runtime capability.
+- No provider-quality result or live-provider qualification is claimed.
