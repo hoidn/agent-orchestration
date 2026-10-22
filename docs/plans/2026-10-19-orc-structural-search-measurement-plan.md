@@ -656,3 +656,11 @@ not transferred. Remaining planned calls are 32, or 40 including A and A′.
 | Decision | Consequence |
 | --- | --- |
 | Owner: “fix these issues. simplify the evaluation, don't complicate it” | The [simple evaluation plan](2026-10-22-simple-evaluation-plan.md) selects offline rubric/calibration fixes only. Align the cumulative design and C1 plan's current P1/P2/P3/spread statements with the criterion-selected calibration rule: prospective `control-means-v1` uses three controls and per-judge control means, while criteria without a rule retain the historical four-role predicates. Preserve all other C1 gates, Phase2 roadmap text, boundaries, frozen criteria and historical reports. AT remains completed FAIL_NOT_QUALIFIED; no new paid call is approved or executed and stage budgets remain separate |
+
+
+### Fresh Simplified Calibration Selection — 2026-10-22
+
+| Decision | Consequence |
+| --- | --- |
+| Owner: “finish calibration” after evaluation simplification | Select the [fresh calibration plan](2026-10-22-simple-evaluation-calibration-plan.md): four new Terra-high calls, hard cap four, two batches/task with upstream/stub/mutant and five retained fillers. Freeze the simplified rubric and `control-means-v1` before responses. This new authority does not transfer AT recovery margin or authorize Claude/Fable, hidden tests, B/B2/C or live campaigns |
+| Preserve identities and evidence | Use clean runtime `48799d3d` and new AS pools/criterion. Historical AT remains FAIL_NOT_QUALIFIED; preserve its packets, responses, controls and seeds. Only current measurement status/routing and this new execution record may change; cumulative architecture, Phase2 text and remaining gates stay unchanged |
