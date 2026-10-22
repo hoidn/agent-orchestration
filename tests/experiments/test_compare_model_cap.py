@@ -158,7 +158,8 @@ def test_scan_ignores_printed_high_model_names_and_unrelated_codex_sessions(tmp_
 
 
 @pytest.mark.parametrize("model,succeeds", [(TERRA, True), ("gpt-6.1-sol", False)])
-def test_public_orchestrator_cli_runs_scripted_provider_through_cap(world, model, succeeds):
+@pytest.mark.parametrize("no_claude", [False, True])
+def test_public_orchestrator_cli_runs_scripted_provider_through_cap(world, model, succeeds, no_claude):
     skip_without_sandbox()
     import sys
     from tests.experiments.compare_harness_support import SHIM
@@ -177,6 +178,7 @@ def test_public_orchestrator_cli_runs_scripted_provider_through_cap(world, model
         "--provider-externs-file", str(h / "control/direct_task.providers.json"), "--input-file", str(inputs),
     ], cwd=record["cwd"], capture_output=True, text=True, timeout=30,
         env={**os.environ, "PYTHONPATH": str(REPO), "PATH": f"{SHIM}:{world.fakebin}:{os.environ['PATH']}",
+             **({"COMPARE_CLAUDE_MODELS": ""} if no_claude else {}),
              "SCRIPTED_RESULTS_FILE": str(results), "COMPARE_ROOT": str(records),
              "COMPARE_TREE": record["tree"], "COMPARE_BASE": record["compare_base"]})
     assert (done.returncode == 0) is succeeds, done.stdout + done.stderr

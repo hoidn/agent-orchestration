@@ -98,8 +98,26 @@ public dry runs and actual Bubblewrap mask checks passed without providers;
 Execution started 2026-10-22 under `/home/ollie/sc-evidence/TD-20261022`.
 The first two original run IDs are `20261022T212827Z-ofrf57` and
 `20261022T212827Z-iimnec`; native metadata confirms Luna high with no children.
-The operator reserves two judge sessions, accepts at most one dispatch per unit,
-and does not retry. Actual observations and final outcome remain pending.
+The operator reserved two judge sessions and did not retry. The first generation
+wave was interrupted at 21:40 UTC by a real model-policy violation: a coder's broad
+local test run invoked legacy readiness probes through raw subprocesses. Four
+Claude sessions requested Fable; two recorded Fable responses before termination.
+Together with the two Luna roots this is at least six actual dispatches. No final
+solutions or judge observations were accepted; this is an invalid apparatus run,
+not evidence that either task passed or failed the quality-gap criterion. See the
+[captured incident report](../reports/2026-10-22-natural-task-difficulty-calibration.md)
+for the native inventory, accounting correction and causal limits.
+
+The incident is preserved under the original evidence root. No further provider
+calls are selected from that frozen packet. The correction is experiment-side:
+when Claude is explicitly forbidden, mask its installed binaries and auth/config
+inside Bubblewrap, scrub its credential environment, and prevent Bash startup
+profiles from replacing the inherited guarded PATH. Verify the observed bypass
+with fake binaries and preserve the original task/seed bytes. This makes login
+profile conveniences unavailable in those sessions; explicit arbitrary PATH/API
+bypass remains a stated detection boundary. Freeze a corrected runtime and
+concrete recovery packet before seeking any additional spend; a fresh complete
+pilot needs ten sessions, exceeding the original cap after this incident.
 
 ## Superseded evaluator-control exercise (AS)
 

@@ -672,3 +672,13 @@ not transferred. Remaining planned calls are 32, or 40 including A and A′.
 | --- | --- |
 | “the point of calibration is to know that the task is difficult enough that a weak agent performs noticeably worse ... without ... deliberate flaws”; “fix the calibration plan, then reexecute it” | Replace the selected calibration objective with the [natural weak/strong pilot](2026-10-22-simple-evaluation-calibration-plan.md). The owner selected a smaller model versus Terra high: Luna-high and Terra-high receive identical direct tasks. Eight fresh generations plus two blinded judgments, cap ten, one two-point mean-gap threshold per task. No synthetic controls, hidden tests, blocker threshold or dev-check failure band selects difficulty |
 | Preserve old evidence and downstream authority | AS's four sessions were already dispatched when corrected; complete/audit only as evaluator-control evidence, never as task-difficulty qualification. Preserve A/AT/F2/AS source identities and results. Update current measurement routing and the roadmap/module measurement paragraphs through this ledger; do not silently change C1 qualification formats, cumulative architecture, sealed cf1 or campaign selection |
+
+### Natural pilot isolation incident — 2026-10-22
+
+The selected TD pilot stopped during its first generation wave. Two Luna roots
+and four nested Claude readiness-probe sessions are observed; two Claude replies
+identify Fable. This violates the no-Claude/no-Fable policy and cannot be cleared
+as simulated test output. No task-difficulty verdict exists. Preserve the original
+criterion/operator/native evidence, repair the observed sandbox bypass offline,
+and require a separately recorded recovery budget before a fresh complete pilot.
+The correction does not change tasks, primary rubric, threshold or C1 interfaces.
