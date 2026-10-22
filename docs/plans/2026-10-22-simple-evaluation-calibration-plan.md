@@ -33,9 +33,9 @@ failed or remains inconclusive; do not change the threshold after seeing scores.
 No hidden tests are run. Agent-visible development checks may be used naturally
 by both coders but their failure rates and blocker counts do not select tasks.
 
-The selected budget is eight generation sessions plus two judging sessions,
-**ten planned, hard cap ten**, including any native children. This follows the
-new owner instruction; historical AT recovery allowance is not transferred.
+The initial TD budget was eight generation sessions plus two judging sessions,
+**ten planned, hard cap ten**, including any native children. The authorized TD2
+recovery budget is recorded below; historical AT allowance is not transferred.
 Use at most two concurrent generation sessions; run judges after collection.
 No Claude, Fable, higher model, native delegation, automatic retry or replacement.
 All physical dispatches count, including unsuccessful attempts. Preserve raw
@@ -119,7 +119,7 @@ bypass remains a stated detection boundary. Freeze a corrected runtime and
 concrete recovery packet before seeking any additional spend; a fresh complete
 pilot needs ten sessions, exceeding the original cap after this incident.
 
-## Proposed recovery (TD2; budget approval pending)
+## Recovery (TD2; budget approved)
 
 The correction is integrated on main in `bda0f693`; documentation routing follows
 in `5d839b19`. A clean detached runtime at
@@ -134,11 +134,10 @@ hides the interrupted TD work root from both coders and judges. Its operator
 counts scoped Claude session starts even without assistant responses and retains
 model-policy violations as non-clearable evidence.
 
-The proposed budget is **ten new sessions plus six incident starts, total cap
-sixteen**: an increase of six over the original cap. This is a proposal, not
-permission to spend. A recorded owner answer authorizing that budget must bind
-the criterion and generation packet before dispatch; the same answer also covers
-the later judging packet. No additional judge approval question is required.
+The owner approved **ten new sessions plus six incident starts, total cap
+sixteen**, answering “Autorizar 16 sesiones totales” on 2026-10-22. This increases
+the original cap by six. The recorded approval binds the criterion and generation
+packet; the same answer also covers the later judging packet. No additional judge approval question is required.
 There are no automatic retries or replacements. An absent or mismatched approval
 record stops execution before any worker starts.
 
@@ -159,8 +158,13 @@ The frozen generation packet is
 SHA256 `2eb21b9248f40bc05ebab7f42a5c35ecc30d1373a56b57110c10792259b9e4cd`.
 It binds 849 files, including the correction, operator, diagnostic helper and
 verification evidence. The preservation manifest covers 455 historical files.
-The preflight reports zero new dispatches and six historical starts. Owner
-approval remains pending; no approval record or paid launch exists.
+The preflight reported zero new dispatches and six historical starts. The
+immutable criterion retains its pre-approval proposal status; the operative
+`TD2-20261022/owner-approval-generation.json` binds the later owner answer, SHA256
+`f84689a45a00d525660a7d88db0461c40ecc55c0712a7f523cd2a2991a4d170f`.
+Generation began at 22:05 UTC with the two RPI Luna-high attempts. Outcomes and
+all quality judgments remain pending; no further approval is needed for the two
+judging sessions within this same cap.
 
 ## Superseded evaluator-control exercise (AS)
 
