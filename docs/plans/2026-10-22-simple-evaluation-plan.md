@@ -51,9 +51,9 @@ rounds, tunable tolerances, dependencies or campaign/store machinery are added.
 - [x] Update maintained harness/driver guidance, harness README and capability
   routing. Record coordination in the measurement ledger before any necessary
   cumulative-design/C1-plan edits; do not change their unrelated gates or roadmap.
-- [ ] Verify narrow tests, new-test collection, offline public orchestrator/CLI
+- [x] Verify narrow tests, new-test collection, offline public orchestrator/CLI
   smoke and affected experiment/integration suites; review the diff independently.
-- [ ] Integrate while preserving unrelated working changes and historical files.
+- [x] Integrate while preserving unrelated working changes and historical files.
 
 ## Verification contract
 
@@ -83,7 +83,7 @@ performance claim.
   (873.06 s). Both `direct_evaluation` variants of
   `test_unsupported_parent_refuses_before_reservation_or_launch` stopped at the
   runtime's clean-checkout guard because these implementation changes were
-  uncommitted. Preserve that result; rerun the admission module on the clean
+  uncommitted. Preserve that result; rerun the affected admission selectors on the clean
   implementation commit before integration. Log:
   `/tmp/sc-simple-evaluation-broad.log`.
 - All changed guide/plan links pass. The capability matrix retains two
@@ -92,4 +92,13 @@ performance claim.
   frozen criteria, protected roadmap/boundaries and main's 21 pre-existing dirty
   tracked files are unchanged.
 
-Clean-commit admission verification and final integration remain pending.
+The two affected admission selectors passed on clean commit
+`117ebb05f73053a529eff4557af763a64d2fea20`: `python -m pytest -q
+tests/experiments/test_orc_structural_search_admission.py -k direct_evaluation`
+returned 2 passed, 10 deselected in 5.69 s, exit 0. No production or test change
+was required; the 1,276 broad successes remain valid for identical source.
+
+Implementation commit `117ebb05` was fast-forwarded into local main. The final
+routing/evidence update is documentation-only. Main's existing posthoc index
+row remains an unstaged user change; unrelated tracked and untracked user work
+is preserved. No live criterion, judge response or paid experiment was created.
