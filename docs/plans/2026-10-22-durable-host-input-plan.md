@@ -4,7 +4,7 @@
 
 **Goal:** Deliver typed, durable human decisions through native Lisp `request-input` and Python `ask`, with one evaluated runtime, public settlement API, CLI, observational surfaces, and deterministic recovery evidence.
 
-**Architecture:** Add target 2.40's `request_input` effect to the existing checked program, effect memo and replay protocol. Implement the bounded Python frontend by tracing declarations into immutable ordinary `.orc` and passing supplied manifests unchanged to the existing compiler/run path. This makes arbitrary Python control flow and multiple simultaneous host requests unavailable; adding either later requires its own contract rather than another execution engine.
+**Architecture:** Add target 2.40's `request_input` effect to the existing checked program, effect memo and replay protocol. Extend the native Python frontend already merged on main: trace declarations into retained ordinary `.orc` using its isolated worker, snapshots and frozen-build protocol, then delegate to the existing compiler/run path. This makes arbitrary Python control flow and multiple simultaneous host requests unavailable; adding either later requires its own contract rather than another execution engine.
 
 **Tech Stack:** Existing Python 3.11 package, Workflow Lisp frontend/WCC, checked closed programs, append-only JSONL memo, descriptor-relative `WorkspaceFiles`, existing run locks, pytest and pytest-xdist. No new dependency or provider expenditure.
 
@@ -12,20 +12,30 @@
 
 ## Role, authority and selection
 
-**Integration update:** The owner noted that `main` now contains a separately
-merged native Python frontend (`67744139`, observed main `27bcc7e3`). This
-postdates this worktree's base. Tasks 1–5 below retain their captured evidence,
-but the bounded Python emitter is not the selected final frontend: integrate
-with the existing main package, add `ask`/canonical `HostReply` there, and remove
-duplicate implementation and conflicting guidance. Preserve main's existing
-API and retention/frozen-build guarantees. Final closeout remains open pending
-that design/plan revision, implementation and new integration verification.
+**Current selection: Task 7, then the remaining Task 6 closeout gates.**
+The owner noted that `main` now contains a separately merged native Python
+frontend (`67744139`, observed committed main `27bcc7e3`, after this branch's
+base `88bcfbd7`). Merge that committed revision into this feature worktree,
+retain main's Python implementation/API, and add native `ask` there. Do not
+copy or merge the root worktree's unrelated dirty files. Tasks 1–5 and the
+Task 6 documentation checkpoint retain their captured evidence; Task 4's
+Python implementation and the Python portions of Tasks 5–6's old evidence are
+superseded for final acceptance by Task 7. Lisp/runtime evidence remains valid
+unless the merge or a correction changes its tested boundary. The old broad
+run is diagnostic evidence only; triage its failures before acceptance and
+run the final selector again after integration. No green final gate is claimed.
+
+The selected approach preserves main's single authoring implementation rather
+than maintaining two Python APIs. It makes supporting callers of the discarded
+Task 4-only build signature, paths and unsupported-surface restrictions harder:
+those callers/examples/tests must migrate to the canonical main API; no
+compatibility wrapper or second emitter is selected.
 
 This is the selected implementation plan and decision/evidence ledger. It is
 not current runnable guidance until its implementation and verification steps
 are complete. The behavioral owners are
 [durable host input](../design/workflow_lisp_durable_host_input.md) and
-[Python authoring](../design/workflow_python_frontend.md), read with
+[Python authoring](../design/python_workflow_frontend.md), read with
 [evaluated execution](../design/workflow_lisp_evaluated_execution.md),
 [state](../../specs/state.md), [CLI](../../specs/cli.md),
 [IO](../../specs/io.md), [security](../../specs/security.md) and
@@ -38,7 +48,9 @@ on `feat/durable-host-input`. The root worktree has independent user work.
 Run commands from this worktree root. Do not modify historical `HumanReply`
 records or turn historical input settlement into an evaluated execution path.
 
-Execute Tasks 1–6 serially. Task 1 produces the actual compiler fixture used
+Tasks 1–5 are complete and Task 6 has a reviewed documentation checkpoint.
+Execute Task 7 before resuming Task 6's final verification/review/closeout.
+The original sequence was Tasks 1–6: Task 1 produces the compiler fixture used
 by Task 2; Task 3 consumes Task 2's public API; Task 4 emits Task 1's source and
 uses Tasks 2–3 for native Python execution; Task 5 verifies their composition.
 Each implementation task includes its own checks rather than deferring them
@@ -48,7 +60,7 @@ and artifact type. Independent read-only review may overlap other read-only
 work; never overlap writers to shared compiler/runtime/CLI files.
 
 The compiler, runtime and Python tasks are cross-cutting changes across
-established interfaces, so use **Sol 6.1 high** for Tasks 1, 2 and 4 under the
+established interfaces, so use **Sol 6.1 high** for Tasks 1, 2, 4 and 7 under the
 repository escalation rule. Use **Luna 6 xhigh** for the bounded host adapters
 in Task 3 and test preparation in Task 5; escalate a persistent or cross-cutting
 issue to Sol. Use **Sol 6.1 high** for documentation revision and code/plan
@@ -69,9 +81,11 @@ Keep each existing owner; add only the focused files specified here.
 | 2: evaluated lifecycle | `orchestrator/workflow/evaluated/{runtime,effect_inputs,memo_reducer,memo,replay,resume_prefix,attempts,views}.py`; reuse `prompts.py`, `values.py`, `authority.py` and `WorkspaceFiles`. Reuse/extract read-only preflight from `orchestrator/cli/commands/evaluated.py` and adapt `resume.py` only if needed to share that exact owner. Amend interfaces only for actual affected callers. |
 | 3: public hosts/readers | `orchestrator/cli/main.py`, `cli/commands/human_input.py`, `orchestrator/state.py`, `workflow/evaluated/views.py`, `observability/report.py`, `dashboard/{models,projection,cursor,preview,server}.py` as needed by the existing read routes. No dashboard mutation endpoint. |
 | 3: monitoring | `orchestrator/monitor/{models,classifier,ledger,messages}.py`; retain existing config/emailer and previous event-key behavior. |
-| 4: Python frontend | Create `orchestrator/py/{__init__,types,trace,emit,build}.py`: public exports; finite authoring descriptors; symbolic declaration/branch tracing; deterministic `.orc`/source-map emission; atomic retained bundle publication and compiler delegation with supplied manifests. Create `orchestrator/cli/commands/python.py`; extend `cli/main.py`. Existing `cli/commands/run.py`/`compile.py` change only for a necessary shared-call adaptation. |
+| 4: historical Python frontend, superseded by 7 | Originally create `orchestrator/py/{__init__,types,trace,emit,build}.py`: public exports; finite authoring descriptors; symbolic declaration/branch tracing; deterministic `.orc`/source-map emission; atomic retained bundle publication and compiler delegation with supplied manifests. Create `orchestrator/cli/commands/python.py`; extend `cli/main.py`. Existing `cli/commands/run.py`/`compile.py` change only for a necessary shared-call adaptation. |
 | 1–5: focused tests | Create `tests/test_workflow_lisp_host_input.py`, `tests/workflow_evaluated_host_input_helpers.py`, `tests/test_workflow_evaluated_host_input.py`, `tests/test_workflow_evaluated_host_input_recovery.py`, `tests/test_workflow_evaluated_host_input_hosts.py`, `tests/test_workflow_py_frontend.py`, `tests/test_workflow_py_build.py`, `tests/test_workflow_py_cli.py`, `tests/test_workflow_host_input_e2e.py`. Extend existing targeted tests named in each task. |
 | 5: executable examples | Create `workflows/examples/durable_host_input/{approval.orc,approval.py,README.md,providers.json,commands.json,stub_provider.py,action.py}`. Both frontends use the same recording external stand-ins and actual public lifecycle. |
+| 7: canonical main integration | Retain `orchestrator/py/{__init__,declarations,trace,emit,imports,build,_worker,diagnostics}.py`, `cli/commands/python.py` and main CLI ownership; extend declaration/tracing/emission only for host input and delete duplicate `py/types.py`. Preserve all six main `tests/test_workflow_python_{declarations,control,procedures,imports,build,cli}.py`; port host cases into `tests/test_workflow_python_host_input.py`, then remove the three old `test_workflow_py_{frontend,build,cli}.py` modules. Update the existing public e2e module and approval example, retaining all 26 public cases. |
+| 7: canonical Python guidance | `docs/design/python_workflow_frontend.md` and `docs/python_workflow_drafting_guide.md`; transfer host obligations and update inbound links before deleting `docs/design/workflow_python_frontend.md` (retain a redirect only for a demonstrated historical need). Correct affected main/feature contract, guide, capability, tests and example routing. |
 | 6: contracts/guides | `specs/{dsl,state,cli,io,observability,security,versioning}.md`; `docs/design/{workflow_lisp_evaluated_execution,workflow_lisp_frontend_specification}.md`; `docs/{index,capability_status_matrix,lisp_workflow_drafting_guide,lisp_library_reference,runtime_execution_lifecycle,workflow_monitoring}.md`, `docs/design/README.md`, `workflows/README.md`, `tests/README.md`; create `docs/python_workflow_drafting_guide.md`. |
 
 ## Verification protocol
@@ -315,6 +329,11 @@ reducer invariants.
 
 ## Task 4: Native bounded Python authoring and public py commands
 
+**Historical completed task; Python implementation superseded by Task 7.**
+The checked steps below describe what was delivered and tested at `e4f90d02`,
+not requirements to reintroduce beside main. Main's operators, serial loops,
+imports, pure procedures, build API and snapshot capture now govern Python.
+
 **Role/artifact:** Implementation / Python frontend, build publication and CLI.
 **Dependencies:** Tasks 1–3; compiler/runtime semantics are reused, not extended
 by a Python executor. First prove the small composition before expanding API.
@@ -418,6 +437,10 @@ by a Python executor. First prove the small composition before expanding API.
 
 ## Task 5: Public parity smoke, adversarial lineage and crash recovery
 
+**Captured pre-integration evidence.** Preserve these completed checks; rerun
+all 26 public cases against the canonical Python frontend in Task 7. Old
+Python snapshot/source-map assumptions are superseded, not acceptance criteria.
+
 **Role/artifact:** Implementation / integration tests and runnable examples.
 **Dependencies:** Tasks 1–4; retain their valid evidence and add only missing
 cross-layer/adversarial coverage. No synthetic provider-quality comparison.
@@ -487,7 +510,9 @@ recovery/host/Python test modules and fixture helper from prior tasks.
 
 **Role/artifact:** Revision / contracts, guides and plan evidence; coordinator
 owns final diff and verification. New architecture decisions return to Design.
-**Dependencies:** Working Tasks 1–5, their reviews and fresh smoke evidence.
+**Dependencies:** Working Tasks 1–5 and Task 7, their reviews and fresh smoke evidence.
+The completed documentation steps below record checkpoint `4745f8ba`; Task 7
+must reconcile their Python claims before final closeout.
 Stable contract/guide revision may proceed alongside Task 5 after Tasks 1–4
 are reviewed; final example validation, status claims and closeout still wait
 for Task 5's completed smoke and independent review. Documentation and example
@@ -524,11 +549,14 @@ writers have disjoint ownership; the coordinator reconciles their final output.
   `invalidate --from` spelling, provider polling or dashboard mutation appears
   in current guidance. Record any documentation test constraints honestly;
   add no tests asserting prompt/document wording.
-- [ ] Run final broad affected-suite verification in tmux after narrow checks
-  and the public smoke have passed:
+- [ ] Triage the old pre-integration broad run at the actual failing boundaries;
+  record the command/log, baseline comparison and disposition of each failure.
+  Do not call the old run green or silently weaken the selector.
+- [ ] After Task 7 and its fresh narrow/public smoke gates pass, run final broad
+  affected-suite verification in tmux:
 
   ```bash
-  python -m pytest -q -n 16 --dist=worksteal tests/test_workflow_lisp*.py tests/test_workflow_evaluated*.py tests/test_workflow_py*.py tests/test_workflow_host_input_e2e.py tests/test_cli_human_input.py tests/test_monitor*.py tests/test_dashboard*.py tests/test_state*.py
+  python -m pytest -q -n 16 --dist=worksteal tests/test_workflow_lisp*.py tests/test_workflow_evaluated*.py tests/test_workflow_python*.py tests/test_workflow_host_input_e2e.py tests/test_cli_human_input.py tests/test_monitor*.py tests/test_dashboard*.py tests/test_state*.py
   ```
 
   Capture command, environment, exit status and log path. If the branch has
@@ -545,6 +573,88 @@ writers have disjoint ownership; the coordinator reconciles their final output.
   Do not merge/publish or claim paid live qualification merely because local
   deterministic checks passed.
 
+## Task 7: Integrate host input into the native Python frontend on main
+
+**Role/artifact:** Revision / canonical Python implementation, tests, examples
+and current Python contracts/guides. **Status:** SELECTED, not implemented.
+**Dependencies:** Completed Tasks 1–5 and Task 6 checkpoint `4745f8ba`;
+architectural integration decision accepted. Must complete before final Task 6.
+Use distinct implementation and code/spec/plan reviewers. Preserve all main
+features and existing compiler/runtime/effect/host authorities; new architecture
+questions return to Design rather than being resolved with another frontend.
+
+- [ ] Merge committed main `27bcc7e3` into `feat/durable-host-input` in the
+  feature worktree. Resolve Python conflicts in favor of main's existing owners
+  listed above, then apply the host extension there. Keep the root worktree and
+  its unrelated dirty changes untouched; finish this feature worktree unmerged
+  to main. Inspect the merge diff, not only the conflicted files.
+- [ ] Preserve the canonical `build(source_file, entry_workflow=...,
+  workspace_root=..., ...)`, `check`, `run` and `PythonBuildResult` API;
+  `.orchestrate/python` immutable snapshots, capture of imported source,
+  manifests/prompt assets, isolated worker and frozen-build behavior remain
+  authoritative. Remove `py/types.py` and the competing old implementation;
+  do not add a second Type descriptor, parser, runtime or old-API wrapper.
+- [ ] Add `host_input = Effect("host-input", None)` in declarations and a
+  public `HostReply[A]` facade that produces main's existing `OrcMember` for the
+  ordinary generic `std/host` type only when applied. Do not export a bare
+  `OrcMember` that loads 2.40 during default-target star imports. Keep default
+  `TARGET = "2.39"`; `ask` and `HostReply` require explicit target 2.40.
+  Prepare `std/host` once in 2.40 tracing skeletons so a body-only `ask` works;
+  do not inject that import into older targets. Replace exact Python 2.39
+  inference checks with the shared actual capability check for targets >=2.39.
+- [ ] Trace `ask(question, returns=..., timeout_sec=..., show=...)` as an
+  ordinary bind expression and emit existing Lisp `request-input`. Preserve
+  main's operators, `when`, serial `loop`/`cont`/`done`, imports, pure
+  procedures and CLI behavior. Use ordinary prompt fill application for local,
+  decorated and imported prompt questions. Explicitly reject `Prompt.extern`
+  as a question: main's provider `:inputs` extern path is not a Lisp question.
+  Extract only the minimal shared provider/ask prompt emission needed; retain
+  Text/Value/Doc semantics and source attribution.
+- [ ] Port host-specific tests from the three old
+  `test_workflow_py_{frontend,build,cli}.py` modules into the new
+  `tests/test_workflow_python_host_input.py`, then delete those old modules.
+  Keep all six main Python modules. Cover provider -> verify -> ask -> act,
+  String/enum/union replies, inferred and explicit-empty effects, Doc/Value/show
+  and original/generated attribution, retained-source/source-map checks, source
+  deletion, prompt freeze and runtime Doc divergence. Add regressions for
+  default-2.39 `from orchestrator.py import *`, body-only ask at 2.40,
+  old-target refusal, serial Python loop asks and imported asking procedures.
+  Retain name hygiene, nominal identity and source-boundary protections through
+  main's owners; behavioral coverage replaces old implementation assumptions.
+- [ ] Adapt `approval.py` to explicit `TARGET = "2.40"`, outer `HostReply`
+  matching and inner `when(answer.value == Approval.APPROVED,
+  then=lambda: ..., else_=lambda: ...)`. Effects accept the canonical descriptor
+  objects, not strings. Adapt only Python snapshot/source-map assumptions in
+  `test_workflow_host_input_e2e.py`; retain and rerun all 26 public cases,
+  outcomes, dispatch counts, crash and concurrency assertions.
+- [ ] Transfer host authoring obligations into canonical
+  `docs/design/python_workflow_frontend.md` and the drafting guide. Update
+  inbound links before deleting the duplicate
+  `docs/design/workflow_python_frontend.md`; use a redirect only if an actual
+  historical-reference need is found. Correct all feature-owned claims about
+  equality/operators, loops, imports, the build signature, generated paths and
+  manifest capture in specs/guides/example/test routing. Preserve history in
+  this plan and keep unrelated qualification gates unchanged.
+- [ ] Collect new/renamed tests, then run the narrow new regressions before
+  the required integration gate in tmux:
+
+  ```bash
+  python -m pytest --collect-only -q tests/test_workflow_python_host_input.py tests/test_workflow_host_input_e2e.py
+  python -m pytest -q tests/test_workflow_python_host_input.py
+  python -m pytest -q -n 16 --dist=worksteal tests/test_workflow_python_declarations.py tests/test_workflow_python_control.py tests/test_workflow_python_procedures.py tests/test_workflow_python_imports.py tests/test_workflow_python_build.py tests/test_workflow_python_cli.py tests/test_workflow_python_host_input.py tests/test_workflow_host_input_e2e.py tests/test_workflow_evaluated_host_input_recovery.py tests/test_workflow_evaluated_host_input_hosts.py tests/test_workflow_lisp_host_input.py tests/test_workflow_evaluated_cli.py tests/test_workflow_evaluated_resume.py
+  ```
+
+  Record collection counts, exact commands, environment, logs and exit status.
+  This includes the real public provider-free orchestrator integration smoke;
+  rerun the current guide/example recipes against the canonical API. No paid
+  provider call, quality comparison, live notification or email is authorized.
+- [ ] Obtain independent plan, code and spec review; apply accepted findings,
+  rerun affected checks and let the coordinator inspect the complete diff and
+  actual verification output. Commit the integrated implementation/docs in
+  scoped commits, record new evidence below, then resume Task 6's final broad
+  selector and integrated review. Neither old Python checks nor an old broad
+  run substitute for these gates.
+
 ## Decision ledger
 
 | Date | Decision | Reason / boundary |
@@ -554,9 +664,9 @@ writers have disjoint ownership; the coordinator reconciles their final output.
 | 2026-10-22 | One outstanding serial request; reject transitive par-map and child run-ref. | No parent/child suspension coordinator or multiple-pending policy is selected; same-memo procedures/calls and serial loops are supported. |
 | 2026-10-22 | Full frozen payload in started; show bytes are presentation evidence. | Recover start-to-suspension crash gaps and retain accepted drift across resume without bypassing semantic docs/producers. |
 | 2026-10-22 | Sol 6.1 high for compiler/runtime/Python; Luna 6 xhigh for bounded hosts/tests. | Existing interfaces span multiple owners; user policy permits escalation for cross-cutting implementation. |
-| 2026-10-22 | Reuse the independently merged Python frontend from main. | Owner steering after Tasks 1–5; retain the evaluated host protocol, replace the duplicate authoring implementation, preserve existing main API and rerun parity/recovery. |
+| 2026-10-22 | Select Task 7: merge committed main `27bcc7e3` and extend its canonical Python frontend. | Owner steering after Tasks 1–5; retain the evaluated host protocol, default 2.39, main API/snapshots/frozen capture and existing Python features. Explicit 2.40 adds ask; remove the duplicate emitter/design/tests after porting obligations. Complete Task 7 before final Task 6; preserve the dirty root worktree. |
 | 2026-10-22 | No provider or live notification spend. | Deterministic external stand-ins suffice for functionality/recovery; no quality comparison or spend is authorized. |
-| 2026-10-22 | Python enum matches emit existing typed equality/if; union matches emit Lisp match. | Lisp match currently admits unions only; exhaustive enum callbacks need no new core construct. |
+| 2026-10-22 | Historical Task 4 enum matches emitted typed equality/if; union matches emitted Lisp match. | Superseded for final Python authoring by Task 7: retain main's operators and use outer HostReply matching plus `when` for the enum answer. No core construct is added. |
 | 2026-10-22 | Python path constructors take a child relative to the declared root. | Reuse public path/join-under and its validation; do not expose private path seeds or add implicit full-path conversion. |
 | 2026-10-22 | Evidence override does not waive a workflow input's must-exist contract. | Exact shared preflight remains authoritative. Missing presentation-only evidence is overrideable only when it has no independent input, Doc or producer obligation. Tests distinguish these cases rather than weakening ordinary input validation. |
 | 2026-10-22 | Preserve the watchdog health-result enum for suspended evaluated runs. | Map intentional waits to existing RUNNING_OK/NONE with no repair; report/dashboard/monitor retain the explicit suspended state. No historical watchdog workflow is re-admitted or extended. |
@@ -610,6 +720,7 @@ writers have disjoint ownership; the coordinator reconciles their final output.
   actual logs and clean diff before commit. Suspension emails contain only
   metadata/commands: rendered questions can contain runtime Doc bodies.
 - Task 4 completed in `e4f90d02` after independent spec and quality approval.
+  **Historical emitter evidence, superseded for Python acceptance by Task 7.**
   The required gate plus shared compiler/reference regressions passed **553
   tests in 43.31s**, exit 0, `/tmp/host-py-gate.log`. Final Python hygiene
   corrections passed **79 tests in 13.85s**, `/tmp/host-py-final.log` (79
@@ -621,6 +732,8 @@ writers have disjoint ownership; the coordinator reconciles their final output.
   feasibility includes actual provider/command stand-ins, HostReply through a
   forward procedure, settlement and repeated resume with exact dispatch counts.
 - Task 5 completed in `be934929` after independent SPEC and QUALITY approval.
+  Its Python evidence predates main integration; Task 7 must retain and rerun
+  all 26 public cases against the canonical frontend.
   The exact required combined public smoke selector passed **90 tests in
   36.65s**, exit 0, `/tmp/task5-host-input-final.log`; fresh collection of the
   new public module plus existing recovery module found **64 tests**. The 26
@@ -633,7 +746,9 @@ writers have disjoint ownership; the coordinator reconciles their final output.
   A final wording-assertion removal passed its same-memo selector (**1 test in
   12.10s**); fixture/runtime behavior did not change. Root inspected the full
   examples/tests, fresh smoke log and clean diff before commit.
-- Task 6 contracts/guides received independent SPEC and QUALITY approval.
+- Task 6 contracts/guides checkpoint `4745f8ba` received independent SPEC and
+  QUALITY approval. Its Python recipes/docs must be reconciled and reverified
+  in Task 7 before final acceptance.
   Exact provider-free Python and Lisp guide recipes completed with typed
   settlement, resume/repeated resume and report; logs are
   `/tmp/task6-python-guide.log` and `/tmp/task6-lisp-guide.log` (exit 0).
@@ -643,4 +758,11 @@ writers have disjoint ownership; the coordinator reconciles their final output.
   registry validation selectors passed (**2 tests in 2.57s**). The registry
   retains local-stub prerequisites and does not imply paid or LSP qualification.
   Final broad affected-suite verification and integrated review remain pending.
+- Task 7 is selected and pending. The committed main revision and canonical
+  design/API were inspected while revising this plan; no integration, new
+  test result or final acceptance is claimed here. The pre-integration broad
+  run remains diagnostic evidence pending root triage; record its actual final
+  status/failures and resolution before Task 6's final gate. No machine queue or
+  tranche manifest selects this plan; its checkboxes/current-selection section
+  own routing, and existing hub/design links already discover the same file.
 - No provider-quality result or live-provider qualification is claimed.
