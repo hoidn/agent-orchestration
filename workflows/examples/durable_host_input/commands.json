@@ -1,0 +1,10 @@
+{
+  "verify": {
+    "stable_command": ["python", "action.py"],
+    "closure": ["action.py"]
+  },
+  "action": {
+    "stable_command": ["python", "action.py"],
+    "closure": ["action.py"]
+  }
+}
