@@ -1,0 +1,70 @@
+# Functional calibration: single-call enforcement and bounded recovery
+
+> **For agentic workers:** Use Subagent-Driven execution. The coordinator owns integration, runtime selection, freeze, spend declarations, live dispatch and closure; independent review remains separate from implementation.
+
+**Goal:** Correct the observed nested-CLI dispatch gap, then complete the unchanged in-place-failure difficulty comparison with eight fresh generations plus two blind judges under the same corrected tools and limits.
+
+**Approach and tradeoff:** Enforce the existing `COMPARE_MAX_CALLS=1` contract at the shared CLI guard before a nested process can dispatch. An internal inherited state carries that restriction through shells and tmux; no new public option or shell-command parser is selected. Nested CLI help/version will also be refused in this mode, making agent-side CLI introspection harder; uncapped and larger-cap behavior retains its existing limits.
+
+## Authority and frozen scientific contract
+
+The [functional protocol](2026-10-22-functional-calibration-plan.md), [in-place-failure task plan](2026-10-23-functional-calibration-inplace-failure-plan.md) and [comparison contract](../design/orc_effectiveness_comparison_harness.md) govern. Read the [documentation index](../index.md) and capability matrix before runtime work. The older runtime and task bases are historical benchmark apparatus, not current runtime admission.
+
+LS6 stopped on an integrity violation: two complete Luna RPI attempts, two interrupted Sol RPI attempts, three undeclared nested Sol CLI roots, four unstarted PRR generations and zero judges. Seven starts are spent; the cumulative total is **50**. The independent Luna review accepts both natural attempts after normal scan adjudication, including the original failed delivery. The interrupted Sol attempts are scientifically unusable and receive no score. Keep the LS6 criterion, operator, runtime, logs, records, outcomes and native transcripts intact; explicit scan annotation preserves its byte-original predecessor and hash crosswalk.
+
+Under the owner's instruction to continue and removal of routine spend-permission requests, the coordinator selects **ten new starts, overall cap 60**: four fresh RPI generations, four fresh PRR generations, two sequential judges. This is a prospective bounded coordinator selection, not numeric owner approval and not automatic retry. No real call starts until the correction and complete new packet pass review. Both arms are fresh because refusing nested CLI help changes the available tool behavior. Two valid original Luna observations remain historical and unscored; their absence of CLI-help usage does not waive the owner's same-tools rule. This explicit coordinator choice supersedes the earlier conditional carryover proposal before any recovery dispatch.
+
+Unchanged roles are `gpt-5.6-luna` high (weaker hypothesis), `gpt-6.1-sol` low (stronger hypothesis), and `gpt-6.1-sol` high (blind judge). Each task has two observations per arm and four anonymous clones. Primary measure is the unchanged single functional S0–S8 rubric, with per-task gap ≥2 and `3 < Sol mean < 5`. Generations retain 14,400 seconds and at most two concurrent sessions; judges retain 3,600 seconds and run sequentially. No Claude/Fable, native delegation, hidden tests, artificial defects, references, retries, quality-based exclusions or rescoring. Unknown model prices stay unavailable, not zero. Separate evaluator qualification still gates later quality studies and campaigns.
+
+## Selected scope
+
+| Surface | Required change or preservation |
+| --- | --- |
+| Shared comparison launcher | `experiments/compare/shim/claude` (also used by the `codex` symlink) translates validated normalized cap one into internal guard state before removing private `COMPARE_*` variables. It overwrites inherited state for each independently recorded top-level launch. |
+| Shared CLI guard | `experiments/compare/shim/model-guard` rejects inherited dispatched state for both CLI names before reaching the backend; activates it only after the top-level call has passed ordinary validation. Existing exact model/config/native-agent restrictions remain. |
+| Behavioral tests and guide | Extend existing shim/guard tests; retain uncapped nested Claude behavior and independent recorded top-level calls. Explain cap-one scope and remaining deliberate-bypass limitations in `experiments/compare/README.md`. |
+| Runtime | New clean runtime worktree based on frozen `b2d217acfbead475080847f16c82b1fae901aec5` plus the reviewed guard fix. Never modify `/home/ollie/sc-runtime-functional-calibration` or an old frozen commit. |
+| Recovery artifacts | New direct revisions of the existing bounded operator/preparation/sandbox/packet helpers under `/home/ollie/sc-evidence/preparation/`, with fresh evidence/freeze/work roots. Retain prior helpers unchanged; no generic recovery framework or registry. |
+| Original observations | Preserve two valid LS6 RPI Luna original record/receipt/patch/native sources and their old runtime identity as unscored historical evidence. Exclude all LS6 samples from the new analysis. Create byte-identical new frozen copies of the LS6 task packages and retain their exact seeded bases as task inputs only; bind the new paths prospectively. |
+| New analysis | Bind the corrected runtime in all eight fresh records, the criterion and analysis pools. Preserve the existing single-runtime validation and canonical clone-id joins. No mixed-runtime ingestion or new carryover path is needed. |
+
+No task text, seed, rubric, threshold, model, effort, native binary, native model settings, host configuration, product recovery behavior, cumulative design, C1/store/V2 work, roadmap phase or sealed split change is selected. The new guard closes ordinary inherited reentry; arbitrary environment clearing, absolute binaries or direct APIs remain separately audited limitations, not a universal sandbox claim.
+
+## Execution tasks
+
+### 1. Close the incident and prove the correction offline
+
+- [x] Independently verify seven LS6 starts/50 overall, the exact three tmux child CLI roots and efforts, monitor termination, incomplete Sol terminal captures and absence of live experiment processes. Preserve every surviving artifact and the original Luna scan/record crosswalk.
+- [ ] Delegate the bounded shared guard/shim/test/guide correction to Implementation (code), Sol 6.1 high: it spans a provider-spend boundary and existing caller compatibility. Write a failing fake-provider test before implementation; no paid probe is needed.
+- [ ] Exercise the actual observed normal nested CLI path through a shell and tmux, using a scripted backend inside the real Bubblewrap sandbox: one outer start, all nested Codex/Claude starts refused before backend invocation, unchanged model/effort and disabled-native-agent forwarding, both interactive shell modes, no new dispatch during help/version refusal, private evidence masks intact. Prove separate recorded outer calls still work and uncapped nested behavior stays unchanged. Test `1` and normalized `01`, plus non-one behavior.
+- [ ] Collect changed test modules, run narrow behavioral tests, then appropriate comparison suites with `pytest -q -n 16 --dist=worksteal` in tmux. Run affected public comparison smoke checks. No literal prompt-text tests or real provider calls.
+- [ ] A distinct Sol code reviewer checks the diff, callers, evidence and identical corrected capabilities for both new arms. Coordinator inspects and integrates the reviewed change, creates the new clean runtime and verifies exact backport/source bindings. Complete affected checks in the selected runtime before proceeding.
+
+### 2. Prepare the prospective recovery protocol and packet
+
+- [ ] Bind the exact new runtime commit, new frozen task paths with unchanged package bytes/hashes/bases, roles, rubric and limits in a new criterion. Declare 50 historical starts, ten planned fresh starts and cap 60 everywhere in the operator. Select eight fresh generation keys, eight total analysis observations and exact two-per-arm denominators; no carried observations.
+- [ ] Retain the independent Luna integrity review and byte-original records/scans as historical evidence. No scan amendment is needed to ingest them because they are not selected for the fresh comparison. Do not let the unrelated later global Sol violation relabel the separately audited earlier Luna observations or erase the Sol incident.
+- [ ] Revise the existing all-fresh LS6 operator directly for new paths, corrected runtime and budgets, preserving its no-carryover and single-runtime validations. The core `natural_attempt`/`validate_natural_attempts` and clone-id joins remain authoritative. Do not weaken shared runtime or pool validation or fake original metadata.
+- [ ] Preserve LS6 incident/native/source evidence and all earlier historical survivors/tombstones, including explicit mappings for any later scan annotations. Count extra native roots as spent even if they have incomplete usage; never manufacture positive receipts or zero cost.
+- [ ] Test the fresh-only denominators, provenance, altered-source refusal, budget reservations, guard policy and failed-natural versus interrupted intake. Rerun the actual public fake-provider comparison for both task identities, exact current sandbox checks for eight fresh units, and all public dry runs. Reuse unaffected task fixture proofs and behavioral evidence where sources are unchanged.
+- [ ] Freeze source, criterion, prepared commands, historical preservation, proof artifacts and generation packet. Obtain independent packet review and zero-fresh-start preflight. Write a concrete coordinator declaration bound to the exact reviewed criterion/packet and cap 60; record it before dispatch.
+
+### 3. Execute, judge and close
+
+- [ ] Run eight fresh generations in tmux, at most two concurrently. Preserve failed natural attempts and complete receipts. Stop new dispatch on external abort or integrity violation; no automatic replacement or in-place apparatus changes.
+- [ ] Independently review all eight new captures. Build four anonymous clones per task with exact raw patches, an honest seeded review baseline and the actual corrected analysis runtime.
+- [ ] Qualify both real judge sandboxes with a fake CLI, freeze/review their packet and link the judging declaration to the original ten-start budget. Execute two Sol high judges sequentially.
+- [ ] Independently review judge integrity and close only through canonical clone-id joins. Report original scores, both means/gaps, all three predicates per task, ten fresh starts/60 total if complete, elapsed time and complete metered usage where available.
+- [ ] Record the result and update current routing. If qualification fails, preserve the scores and select the next prospective difficulty adjustment under the unchanged owner direction. No task-calibration result alone establishes evaluator qualification, ORC benefit or quality/cost Pareto dominance.
+
+## Decision ledger
+
+| Decision | Evidence / consequence |
+| --- | --- |
+| Incident scope | LS6 accounting SHA256 `e927981cc94ace047e7dddb8a11676094e0e8599f3299b77ff8a23b7ead7b4e6`; preservation SHA256 `f1e64e888f4011ca324c3286286236872230464729c806f1cde54e9fa22499a9`. No PRR/judge started and no interrupted Sol observation is usable. |
+| Preserve original Luna evidence; exclude from new analysis | Independent pair review SHA256 `cce287bfd98d2e3787e337b8f233b14e9631dffa9d7dd2d574c2697d48485fbc`: 613 structured actions, exact Luna high single-root/call receipts, no external abort; 28 public-skill/private-socket scan hits are clearable. Source records remain original. A conditional carryover proposal was rejected before dispatch: a ban on nested metadata queries changes tools, so observed non-use does not establish the owner's required equal toolset. Eight fresh observations avoid both that confound and mixed-runtime ingestion machinery. |
+| Existing cap-one enforcement scope | Shared launcher currently strips the cap and gives descendants a model-only guard. The correction enforces the already-declared one-call policy through internal inherited state; no new public option. Nested CLI help/version is refused too, avoiding a speculative argument parser. |
+| Prospective budget | Coordinator explicitly selects eight fresh generations and two judges: ten fresh starts, 50 historical, cap 60. This replaces the earlier conditional eight-start/cap-58 proposal before any new dispatch, based on the same-tools requirement. Concrete packet declarations remain pending. |
+| Design and incident review | Astra independently confirms the final all-fresh/cap-60 selection and cap-one guard scope. Sol incident review `LS6-20261023/incident-independent-review.json`, SHA256 `be5b810606618ed2ea6bdb151acf70447dd40dfad7a7c41a26afb6e62dd45df0`, confirms accounting, all 1,102 preservation references, interrupted Sol captures and no active experiment process. |
+| Independent plan review | Distinct Sol reviewer accepted the final all-fresh plan without findings. New external helper preparation is delegated separately to Luna 6 xhigh; it cannot create runtime/freeze/work roots or launch providers before coordinator binding and review. Task copies may occupy new frozen paths, with package metadata except path and every source byte equal to LS6. |
+| Readiness | Offline correction and review pending; zero recovery provider starts. |
