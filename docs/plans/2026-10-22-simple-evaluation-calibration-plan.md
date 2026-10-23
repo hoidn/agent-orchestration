@@ -14,7 +14,8 @@ archive masks and is excluded. RPI's retained, explicitly uncertain readout has
 Luna mean 6 and Terra mean 4.5, failing the required advantage. The two-task set
 is not calibrated. The [recovery report](../reports/2026-10-22-natural-task-difficulty-recovery.md)
 records that unchanged history. The environment correction is integrated in
-`629c3b9c`; per-arm effort support and fresh preparation remain offline work.
+`629c3b9c`, and exact per-arm effort support in `dd308a03`; fresh preparation
+remains offline work.
 The new contrast does not authorize provider spend.
 
 ## Selected prospective contrast (budget pending)
@@ -67,17 +68,21 @@ prospectively before any new call.
   output or instructions to ignore apparent deletions. Preserve raw patches.
   Integrated `629c3b9c`: 432 affected tests, real Bubblewrap/fake-provider smoke,
   independent review and exact reconstruction of all eight TD2 raw patches passed.
-- [ ] Add only the needed effort binding to the existing natural intake:
+- [x] Add only the needed effort binding to the existing natural intake:
   `expected_effort` defaults to `high` for historical callers. The new criterion
   declares `arm_efforts`; launch preparation and summary validate each arm's
   declared effort against complete native receipt metadata, alongside the exact
   model. Omitted effort declarations retain existing high-effort semantics;
   old freezes, V1 receipts and C1 callers keep their behavior.
-- [ ] Verify low/high receipt admission and wrong-effort refusal with offline
+- [x] Verify low/high receipt admission and wrong-effort refusal with offline
   fake providers, plus legacy high-effort behavior and complete-denominator
   joins. Run focused checks, collection for changed tests and a public
   generation/collection/pool/judge/readout smoke before the affected parallel
   suite. No real provider is needed for these checks.
+  Integrated `dd308a03` after independent review: 57 narrow checks, collection
+  of 71 changed-module cases, the public same-model low/high fake-provider smoke
+  and 447 affected tests passed. The broad log and exit zero are
+  `/tmp/compare-arm-effort-verify-wfffy2v9/pytest.log` and `pytest.exit`.
 - [ ] Integrate a reviewed clean runtime, then freeze a new criterion, operator,
   model/effort bindings, eight fresh generation inputs and commands, review-base
   derivation and exact raw-patch provenance. Run all preparation/dry runs

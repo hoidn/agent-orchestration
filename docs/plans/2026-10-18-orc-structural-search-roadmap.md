@@ -543,7 +543,8 @@ two unchanged Terra-high blind judges; high effort is not guaranteed to score
 better. The [current plan](2026-10-22-simple-evaluation-calibration-plan.md)
 requires a two-point high-effort mean advantage on each task and explicit
 model/effort receipt checks. The proper review-environment fix is integrated and
-verified in `629c3b9c`; effort support and fresh preparation remain offline work.
+verified in `629c3b9c`; exact effort support follows in `dd308a03`, with 447
+affected checks passed. Fresh preparation remains offline work.
 Ten new sessions and an overall cap of twenty-six, including
 the sixteen spent starts, are proposals pending owner budget approval. No old
 output is relabeled or reused as a fresh sample; no additional call, ORC benefit or live
