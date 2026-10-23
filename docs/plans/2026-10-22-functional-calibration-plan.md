@@ -38,10 +38,10 @@ authorize other experiments or further budget increases.
 **Current status:** LS1 stopped after four starts because its command detector
 mistook `codex --help` for nested model dispatch. Two Luna RPI captures are
 complete; two Sol RPI attempts were interrupted before terminal capture. No judge
-ran and no new quality score exists. Thirty starts are spent overall; the approved
-cap remains 36. The prospective LS2 recovery below is selected for offline
-preparation only; its six-command packet is prepared and frozen, and needs a
-concrete eight-session/cap-38 approval before launch.
+ran and no new quality score exists. LS2 is now authorized and executing under
+the owner's explicit **"yes"** to eight sessions and total cap 38, including all
+30 historical starts. Its six-command packet and two carried captures are frozen
+and independently reviewed. The same answer covers both later blind judges.
 
 ## Single functional score
 
@@ -296,10 +296,11 @@ Accounting and evaluation have different denominators: LS2 launches only six
 new generation units and two judges, while its evaluation contains all eight
 declared natural observations (two carried plus six new). The historical 30
 starts already include both carried Luna and both interrupted Sol calls. Thus
-the recovery proposes **eight new starts, overall cap 38**, with no retries,
-replacement samples or other spend. The existing cap 36 leaves six unused starts
-but does not authorize this new eight-session protocol or a higher cap. All new
-units use fresh paths; the original unused LS1 units remain unused.
+the recovery uses **eight new starts, overall cap 38**, with no retries,
+replacement samples or other spend. The owner explicitly approved this increase
+from cap 36 after reviewing the concrete packet; the old LS1 approval alone was
+not sufficient. All new units use fresh paths; the original unused LS1 units
+remain unused.
 
 - [x] Preserve the incident inventory, captured usage and independent capture
   audit; report incomplete Sol task delivery separately from metering status.
@@ -309,8 +310,8 @@ units use fresh paths; the original unused LS1 units remain unused.
   unchanged task/baseline/model/effort provenance and no double-counted starts.
 - [x] Qualify actual sandbox/CLI forwarding with fake providers, freeze all
   dependencies and proof, and obtain independent concrete-packet review.
-- [ ] Obtain owner approval for eight fresh starts and total cap 38, binding the
-  concrete criterion/packet. Do not infer this from LS1's approval.
+- [x] Obtain owner approval for eight fresh starts and total cap 38, binding the
+  concrete criterion/packet. The owner replied "yes" to the explicit proposal.
 - [ ] Execute the six generations then two blind judgments; preserve every
   declared observation, audit integrity, and compute the canonical complete
   readout. A new interruption stops without automatic retry.
@@ -333,7 +334,7 @@ Seven offline classifier checks pass, including the exact incident action and
 genuine later/wrapped dispatches; independent code and recovery-plan review pass.
 These are apparatus checks, not quality scores or provider-spend authorization.
 
-## LS2 concrete recovery packet (reviewed; approval pending)
+## LS2 concrete recovery packet (reviewed; authorized)
 
 Freeze directory: `/home/ollie/sc-evidence/freeze-functional-recovery-20261022`.
 The immutable `criterion.json` has SHA-256
@@ -360,11 +361,11 @@ remain applicable; they were not rerun for external-operator-only changes.
 
 The root independently verified every packet hash and reran the exact preflight:
 **zero fresh starts, 30 historical**, with no native children, extra roots,
-Claude calls or forbidden actions. No LS2 approval file exists. The original
+Claude calls or forbidden actions. This preflight preceded approval. The original
 LS1 alert, packet, captures, incomplete Sol attempts and usage remain preserved.
 Judge helpers exist and passed source review; actual judge-pool sandbox checks
 must run after the six new captures create their concrete anonymous pools and
-before either paid judge call. The eight-session authorization, if granted,
+before either paid judge call. The eight-session authorization
 covers both generations and judges; binding that same answer to the later
 judging packet does not require a second budget request.
 
@@ -373,6 +374,13 @@ all six exact commands/inputs, both canonical carryover admissions, full analysi
 denominator and zero-start inventory. Its new report is
 `/home/ollie/sc-evidence/LS2-20261022/generation-independent-review.json`
 (SHA-256 `6b0fb9e6b2f52721e749e7d0dd9fce61523121a33abbe8f7abdd1e596f9592f2`).
-All offline launch prerequisites are complete. The remaining prerequisite is
-owner approval for **eight new sessions, overall cap 38**, including the 30
-already spent; no paid LS2 dispatch is authorized yet.
+All offline launch prerequisites are complete. Owner approval is recorded at
+`/home/ollie/sc-evidence/LS2-20261022/owner-approval-generation.json`
+(SHA-256 `6aec761d013b93ca4dd328d48848d792f9ad4608712cab399a18506d188842ee`).
+The exact reply **"yes"** binds eight new sessions and total cap 38, including
+the 30 already spent. A fresh approved preflight passed before dispatch. The
+first two RPI Sol-low runs are `20261023T052532Z-1dkqnp` and
+`20261023T052532Z-gmfzbc`, supervised by the bounded operator in tmux
+`ls2-generation-20261022` on `/tmp/claude-tmux-sockets/sc-difficulty.sock`.
+No retry or other experiment is authorized. The original pending-status snapshot
+inside the frozen criterion remains unchanged; the separate approval is operative.

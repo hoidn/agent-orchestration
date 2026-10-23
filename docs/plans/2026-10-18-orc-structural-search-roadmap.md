@@ -547,9 +547,9 @@ preserves all scores, receipts and target failures. The
 high versus Sol 6.1 low and one functional score out of eight, judged blind by Sol
 high. Authorized LS1 stopped after four starts on an apparatus false positive:
 two Luna captures completed, two Sol attempts were interrupted, and no judge ran.
-Thirty starts are spent; the approved cap remains 36. Prospective LS2 offline
-recovery retains the two complete, unjudged Luna captures and proposes six new
-generations plus two judges, with cap 38 pending concrete owner approval.
+The owner has authorized LS2 recovery: six new generations plus two judges,
+retaining both complete, unjudged Luna captures, with total cap 38 including
+all 30 historical starts. The reviewed frozen packet is now executing.
 No historical score is changed, no stronger-arm success
 is guaranteed, and no ORC benefit or live `module` selection follows. The measurement gate precedes any
 live `module` arm
