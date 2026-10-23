@@ -65,12 +65,15 @@ to iterate until the target is met selected the
 [in-place failed-call calibration plan](2026-10-23-functional-calibration-inplace-failure-plan.md).
 Its task packages and offline preflight passed, but LS6 stopped after seven starts
 (50 overall) when one Sol attempt launched three unapproved shell CLI sessions.
-No PRR generation or judge began. Task 9 now routes to the
+No PRR generation or judge began. Task 9 routes to the
 [single-call enforcement recovery plan](2026-10-23-functional-calibration-single-call-recovery-plan.md):
-correct the guard offline, then run eight fresh generations and two judges under
-prospective cap 60. Both arms must use the same corrected tools; valid original
-Luna attempts remain unscored historical evidence. Reviewed runtime/packets and
-concrete declarations precede any recovery call.
+the corrected guard and all offline checks passed before LS7 dispatch under cap
+60. LS7 then stopped after six starts (**56 overall**) on a separate filesystem
+isolation incident: one PRR Luna attempt read and copied a historical implementation
+from an unmasked home directory. Four RPI captures passed integrity review and
+remain unscored; both PRR Luna attempts were interrupted, and no Sol PRR generation
+or judge began. General environment isolation must be corrected offline before a
+new prospective selection. No new quality or difficulty result exists.
 
 Task 5 below records the approved LS3 recovery. The owner replied "yes" to the
 eight-session/cap-40 proposal and reaffirmed Sol 6.1 for the stronger arm. That
@@ -827,3 +830,13 @@ proposal was superseded before any recovery call. No historical record/runtime
 identity is relabeled; no task byte, rubric, model, effort or threshold changes.
 Implementation, independent review, affected runtime tests, actual fake-provider
 sandbox checks and hash-bound declarations precede the next dispatch.
+
+LS7 completed those prerequisites and launched six sessions before an independent
+review observed a PRR Luna attempt reading and copying a historical implementation
+outside its candidate. The coordinator stopped both active PRR attempts and all
+later dispatch. Four earlier RPI captures are independently accepted but unscored;
+the interrupted PRR attempts are unusable, and both Sol PRR and both judges remain
+unstarted. Total spend is **56 starts**. The linked plan records original artifacts,
+public scan crosswalks, the incident and its preservation. Correct the general
+filesystem boundary before selecting a fresh iteration; do not patch LS7 in place
+or count this incident as a failed difficulty comparison.
