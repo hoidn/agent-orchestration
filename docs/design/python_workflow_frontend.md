@@ -5,7 +5,7 @@
 - **Kind:** frontend architecture and authoring contract
 - **Status:** accepted; serial subset implemented
 - **Implementation target:** Python 3.11+, generated Workflow Lisp targets
-  2.35–2.39; default 2.39
+  2.35–2.40; default 2.39
 - **Authority:** this document owns Python authoring and generation only. The
   contracts below continue to own compilation, execution and recovery.
 
@@ -41,6 +41,7 @@ Read [the documentation hub](../index.md) and
 | Target 2.39 procedure inference | [Procedure contracts](../lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239), [effect contract](workflow_lisp_effect_ledger_simplification.md) |
 | Closed compilation and configuration | `FrontendBuildRequest`, `workflow_lisp/closed/artifact.py:build_closed_program_bundle` |
 | Typed prompt assembly | [Prompt fragments](../lisp_workflow_drafting_guide.md#authoring-prompt-fragments), `workflow_lisp/prompts.py` |
+| Typed host questions and replies | [Durable host input](workflow_lisp_durable_host_input.md), [DSL](../../specs/dsl.md#evaluated-durable-host-input-target-240) |
 | Effect identity, memo, replay | [Evaluated execution](workflow_lisp_evaluated_execution.md), [state](../../specs/state.md) |
 | Run, locks and recovery | [CLI contract](../../specs/cli.md), `cli/commands/run.py:run_workflow`, `cli/commands/resume.py` |
 | Diagnostic locations | `LispFrontendDiagnostic.span`, `form_path`, `notes`, and existing renderer |
@@ -62,7 +63,7 @@ from orchestrator.py import (
     record, variant, RelPath, Text, Doc, PathOf, Value, Out,
     Prompt, prompt, Provider, Command,
     workflow, proc, pure, match, when, loop, cont, done,
-    build, check, run, import_orc,
+    build, check, run, import_orc, ask, HostReply, host_input,
 )
 
 class Verdict(Enum):
@@ -158,7 +159,8 @@ It is not a runtime workspace input file. `Text` maps to `:text`; explicit
 descriptors map to existing `:value`, `:doc`, `:path`, and `:path :out` kinds.
 Unsupported renderer/type pairs remain compiler
 errors. Prompt application yields a compile-time fragment, only consumed by a
-provider call; it is never stored in transported runtime values.
+provider call or, at target 2.40, a host question; it is never stored in
+transported runtime values.
 
 `@prompt` registers the function and its fill signature. At build it calls the
 function to obtain one literal template string; arguments are declaration
@@ -198,6 +200,76 @@ Provider/command calls outside a trace fail. Tracing records every effectful
 call in source evaluation order, even when its Python return value is ignored.
 An effect reused twice is one bound result, not two invocations.
 
+### Durable Host Decisions At Target 2.40
+
+Set the defining module's `TARGET = "2.40"` to use
+`ask(question, *, returns, timeout_sec=None, show=())`. It emits ordinary
+`request-input` and binds a symbolic `HostReply[returns]` result in source
+order. The default target remains 2.39. Importing the public names, including a
+star import, does not import `std/host` into an older-target module.
+`HostReply[A]` applies the existing generic `std/host` type through the ordinary
+`.orc` bridge; it does not declare another nominal union or value codec.
+At 2.40 the compiler skeleton prepares this standard type even when only the
+function body uses `ask`, without a HostReply return annotation.
+
+A question is a string, symbolic string or fully applied typed prompt. Local
+`Prompt`, decorated `@prompt` and imported prompt declarations use ordinary
+named fills, including `Text`, `Value` and runtime `Doc`. The prompt's return
+contract must agree with `returns`. `Prompt.extern` questions refuse: the
+provider extern `:inputs` form is not a Lisp question. Prompt-file bytes are
+captured authoring inputs; runtime document bytes remain semantic replay
+inputs. `show` contains typed file paths, whose bytes are frozen presentation
+evidence under the host-input contract. Omitted/None timeout has no deadline;
+a supplied timeout must be an exact positive integer when reached.
+
+`host_input` is the subject-free effect descriptor for an explicit procedure
+restriction, such as `@proc(effects=(host_input,))`. Omitted effects infer at
+2.39 and later; explicit empty restrictions still refuse reachable asks.
+Descriptors take declaration objects for subject-bearing effects, for example
+`uses_provider(author)` and `uses_command(checks)`.
+
+```python
+from enum import Enum
+from orchestrator.py import workflow, ask, match, when
+
+TARGET = "2.40"
+
+class Approval(Enum):
+    APPROVED = "APPROVED"
+    DENIED = "DENIED"
+
+@workflow
+def approval() -> str:
+    reply = ask("Approve this operation?", returns=Approval, timeout_sec=3600)
+    return match(
+        reply,
+        ANSWERED=lambda answer: when(
+            answer.value == Approval.APPROVED,
+            then=lambda: "approved",
+            else_=lambda: "denied",
+        ),
+        CANCELLED=lambda _: "cancelled",
+        EXPIRED=lambda _: "expired",
+    )
+```
+
+Outer matching uses the ordinary HostReply union; enum answers use supported
+equality and `when`. The [complete approval example](../../workflows/examples/durable_host_input/README.md)
+adds a local provider diagnosis, typed verification/evidence and conditional
+command actions with complete supplied manifests.
+
+Execution suspends the evaluated run and releases its writer; no Python process
+waits for the person. The external host API/CLI settles the exact request;
+ordinary resume consumes the typed reply and continues. Serial Python loops
+and imported asking procedures use the same dynamic activation/request identity
+as emitted Lisp. One request is pending per run; transitive parallel-worker or
+child-run asks refuse. The [host design](workflow_lisp_durable_host_input.md),
+[state](../../specs/state.md#evaluated-durable-host-input-target-240),
+[IO](../../specs/io.md#evaluated-host-input-io-target-240) and
+[CLI](../../specs/cli.md#evaluated-host-input-target-240) own answer admission,
+settlement, expiration, safe presentation override, invalidation and recovery.
+There is no `py resume`, Python continuation store or host mutation during trace.
+
 ### Definitions And Symbolic Expressions
 
 Decorators register metadata and the function without running its body.
@@ -209,9 +281,9 @@ Cycles are diagnosed by the existing compiler. Reachable ignored effectful
 calls still make their definitions reachable.
 
 `@workflow` emits `defworkflow`; nested calls emit ordinary workflow `call`.
-At 2.39, `@proc` emits `defproc` with omitted `:effects`, using inference.
+At 2.39 and later, `@proc` emits `defproc` with omitted `:effects`, using inference.
 `@pure` emits `defun`; its body must be pure according to the compiler. Do not
-emit `:lowering` at 2.39. `@proc(effects=())` deliberately imposes the existing
+emit `:lowering` at 2.39 or later. `@proc(effects=())` deliberately imposes the existing
 empty restriction. Explicit `uses_command(command)` and
 `uses_provider(provider)` and `calls_workflow(workflow)` descriptors map to
 existing effect clauses with compiler-resolved subjects; at
@@ -489,6 +561,15 @@ Required checks are behavioral and contractual, never literal prompt text:
   `program_digest` and effect sites. Use the existing digest and provenance
   handling; never recursively strip arbitrary `@` fields or semantic names.
   Separate behavioral parity tests may compare differently named programs.
+- At explicit target 2.40, run a provider diagnosis, command verification, ask
+  and conditional action through the real public lifecycle. Cover String,
+  enum and closed-union answers; inferred and explicit-empty effects; typed
+  Value/Doc/show inputs; prompt-file freeze versus runtime Doc divergence;
+  source deletion before settlement/resume; original/generated attribution;
+  serial loop visits and imported asking procedures. Test body-only ask,
+  old-target refusal, and a default-2.39 star import. Exercise all four host
+  outcomes, crash/reply race boundaries and exact dispatch counts using local
+  stand-ins. Source maps remain diagnostic evidence, never memo/site authority.
 - Diagnostics name the Python call/declaration and preserve the original `.orc`
   location and compiler code. An imported `.orc` failure remains attributable.
 
@@ -500,7 +581,9 @@ provider invocation is required for this frontend's implementation checks.
 The serial implementation is exercised by the declaration, control, procedure,
 import, build and public CLI/recovery checks named in the
 [implementation plan](../plans/2026-10-22-python-workflow-frontend-plan.md).
-The plan owns scoped verification results for the acceptance checks. The [authoring guide](../python_workflow_drafting_guide.md)
+That plan owns the serial frontend evidence; the [host-input delivery
+plan](../plans/2026-10-22-durable-host-input-plan.md) owns the additional
+target-2.40 host integration evidence and acceptance checks. The [authoring guide](../python_workflow_drafting_guide.md)
 provides the maintained local command recipe. Evidence is limited to compilation
 and local deterministic commands, without live-provider or editor qualification.
 

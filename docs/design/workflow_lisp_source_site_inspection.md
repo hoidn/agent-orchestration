@@ -4,7 +4,7 @@
   module `orchestrator/workflow_lisp/source_sites.py`, not admitted as a
   public surface).
 - **Kind:** read-only, compiler-derived inspection contract over admitted
-  2.35–2.39 source. It adds no language form, no runtime behavior, no edit
+  2.35–2.40 source. It adds no language form, no runtime behavior, no edit
   operation and no optimizer concept.
 - **Authority:** the [frontend baseline](workflow_lisp_frontend_specification.md)
   and [evaluated execution](workflow_lisp_evaluated_execution.md) own

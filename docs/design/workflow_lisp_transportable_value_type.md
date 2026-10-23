@@ -234,7 +234,7 @@ The following coded refusals are required:
 
 | Code | Condition |
 | --- | --- |
-| `target_dsl_unsupported` | Direct syntax/import analysis finds source or a retained typed-program capsule targeting outside 2.35–2.39, including transitive imports. |
+| `target_dsl_unsupported` | Direct syntax/import analysis finds source or a retained typed-program capsule targeting outside 2.35–2.40, including transitive imports. |
 | `invalid_transportable_value` | Recursive runtime validation encounters a non-JSON-like value. |
 | `value_guidance_example_unsupported` | `:example` is authored for `Value` before a checked Value-constant surface exists. |
 | existing `type_mismatch` | A `Value` expression is used where a narrower type is required. |

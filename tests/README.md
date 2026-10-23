@@ -150,8 +150,8 @@ Start narrowly with the changed owner, then run the broader modules in tmux:
 
 ```bash
 pytest -q tests/test_workflow_lisp_host_input.py
-pytest -q tests/test_workflow_py_cli.py -k py_run_reuses_runtime_inputs_state_and_retained_source
-pytest -q -n 16 --dist=worksteal tests/test_workflow_evaluated_host_input.py tests/test_workflow_evaluated_host_input_recovery.py tests/test_workflow_evaluated_host_input_hosts.py tests/test_workflow_py_frontend.py tests/test_workflow_py_build.py tests/test_workflow_py_cli.py
+pytest -q tests/test_workflow_python_host_input.py
+pytest -q -n 16 --dist=worksteal tests/test_workflow_evaluated_host_input.py tests/test_workflow_evaluated_host_input_recovery.py tests/test_workflow_evaluated_host_input_hosts.py tests/test_workflow_python_declarations.py tests/test_workflow_python_control.py tests/test_workflow_python_procedures.py tests/test_workflow_python_imports.py tests/test_workflow_python_build.py tests/test_workflow_python_cli.py tests/test_workflow_python_host_input.py
 ```
 
 The compiler owner covers full typed contracts, effects and transitive
@@ -159,8 +159,9 @@ parallel/child refusals. Runtime/recovery owners cover request identity,
 start/suspend/commit/view fault boundaries, deadline races, strict settlement,
 evidence override, invalidation, source/input preflight and idempotency. Host
 checks cover CLI, report/dashboard and request-keyed monitor notifications.
-Python owners cover declarations, lazy branch isolation, symbolic-operation
-refusals, immutable generation, mapped diagnostics and resume without the
+Python owners cover declarations, supported operators, lazy branches and serial
+loops, imports, symbolic coercion refusals, immutable snapshots/frozen capture,
+2.40 host asks, mapped diagnostics and resume without the
 original module/template. Assert typed outcomes, lineage, call counts and
 unchanged evidence on refusals; do not assert literal question or guide wording.
 Public Lisp/Python approval smoke is additionally required for integration;

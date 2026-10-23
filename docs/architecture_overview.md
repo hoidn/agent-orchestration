@@ -86,7 +86,7 @@ Public compilation and execution use admitted evaluated targets: 2.35/2.36,
 bounded 2.37 parallel-map support, and bounded 2.38 Agent Sessions and command-only
 confined run references. Target 2.39 adds inferred procedure effects with
 optional restrictions and compiler-owned lowering, using the same runtime.
-Source compilation, imports and editor analysis require targets 2.35–2.39;
+Source compilation, imports and editor analysis require targets 2.35–2.40;
 historical data readers do not admit older source. Public confined providers
 remain gated. The
 [evaluated design](design/workflow_lisp_evaluated_execution.md) owns that model;
@@ -98,6 +98,9 @@ The [Python frontend](design/python_workflow_frontend.md) generates inspectable
 ordinary `.orc` for a serial subset, using the same compiler and runtime.
 Its imports and tracing execute trusted Python; the build worker is not a
 sandbox. Retained snapshots let ordinary resume work without importing Python.
+Target 2.40 adds [typed durable host input](design/workflow_lisp_durable_host_input.md)
+through Lisp `request-input` and Python `ask`; external settlement records the
+reply and ordinary resume continues the run. Python defaults to target 2.39.
 If neither frontend supports the required form, record a capability gap rather
 than creating a lower-level or YAML workaround. Historical YAML/YML sources
 remain translation and evidence inputs, not executable workflows.

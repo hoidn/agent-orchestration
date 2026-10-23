@@ -402,7 +402,7 @@ The Q1 refusal set is closed:
 | `prompt_return_redeclaration_forbidden` | fragment-backed call also authors `:returns` | call-site `:returns`; declaration return is related |
 | `prompt_inputs_redeclaration_forbidden` | fragment-backed call also authors `:inputs` | call-site `:inputs`; declaration slots are related |
 | `prompt_dependency_redeclaration_forbidden` | fragment-backed call also authors `:prompt-dependencies` | call-site dependency form; declaration document slots are related |
-| `target_dsl_unsupported` | direct syntax/import analysis finds source or a retained typed-program capsule targeting outside 2.35–2.39, including transitive imports | target metadata |
+| `target_dsl_unsupported` | direct syntax/import analysis finds source or a retained typed-program capsule targeting outside 2.35–2.40, including transitive imports | target metadata |
 | `compiled_prompt_fragment_identity_missing` | Semantic IR, Executable IR, or attempt snapshot lacks the digest | provider application/source-map owner |
 | `compiled_prompt_fragment_identity_invalid` | a carried identity is not `sha256:` plus 64 lowercase hex digits or its bound canonical projection is malformed | malformed carrier or bound application |
 | `compiled_prompt_fragment_identity_mismatch` | carried digests disagree | provider application/source-map owner |

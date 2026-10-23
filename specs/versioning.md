@@ -1319,13 +1319,16 @@ Requests in transitive parallel workers or child `run-ref` programs are refused;
 public provider, confinement, parallel and LSP qualification gates stay separate.
 
 The bounded `orchestrator.py` authoring package traces once at explicit build,
-emits ordinary target-2.40 source plus a diagnostic map, and supplies ordinary
-unchanged extern manifests to the checked compiler. It adds no executor,
+emits ordinary source at targets 2.35–2.40 (default 2.39), captures supplied
+extern manifests without changing their binding meaning, and invokes the
+checked compiler. Native `ask` requires explicit target 2.40. Immutable sources,
+configuration and source maps are retained under `.orchestrate/python/` through
+the canonical isolated-worker and frozen-pin build protocol. It adds no executor,
 checkpoint format, provider adapter, Python resume or old-target bypass.
 Generated source remains a retained rebuild input. Python/module/template edits
 do not change existing runs; generated source/manifest changes and runtime
 Doc divergence follow their existing refusal rules. Supported declarations,
-exclusions and immutable publication are owned by the [frontend design](../docs/design/workflow_python_frontend.md)
+exclusions and immutable publication are owned by the [frontend design](../docs/design/python_workflow_frontend.md)
 and [Python guide](../docs/python_workflow_drafting_guide.md).
 
 Implementation and deterministic public acceptance are distinct from paid

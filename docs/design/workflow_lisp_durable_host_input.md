@@ -4,7 +4,7 @@
 - **Authority:** evaluated execution, retained frontend types and the normative
   state, CLI, IO, security and observability specifications
 - **Target:** DSL 2.40 on the evaluated execution profile
-- **Companion:** [Python authoring frontend](workflow_python_frontend.md)
+- **Companion:** [Python authoring frontend](python_workflow_frontend.md)
 
 This component contract is integrated with the [evaluated baseline](workflow_lisp_evaluated_execution.md#95-durable-host-requests-at-target-240)
 and normative [DSL](../../specs/dsl.md#evaluated-durable-host-input-target-240),

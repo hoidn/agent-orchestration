@@ -77,7 +77,7 @@ report/dashboard data access does not compile old source. See
     restrictions, caller-owned composition and finite source admission.
     Imported 2.35–2.38 definitions retain their original contracts; see the
     [procedure contract](../docs/design/workflow_lisp_effect_ledger_simplification.md).
-  - Target 2.40 adds typed serial durable host input and ordinary `std/host::HostReply[A]`; external answer/cancel settles the exact request and ordinary resume consumes it or expires it. The bounded [Python frontend](../docs/design/workflow_python_frontend.md) emits retained `.orc` and supplied manifests into the same checked compiler/runtime. See [DSL](dsl.md#evaluated-durable-host-input-target-240), [state](state.md#evaluated-durable-host-input-target-240) and [CLI](cli.md#python-authoring).
+  - Target 2.40 adds typed serial durable host input and ordinary `std/host::HostReply[A]`; external answer/cancel settles the exact request and ordinary resume consumes it or expires it. The bounded [Python frontend](../docs/design/python_workflow_frontend.md) emits retained `.orc` and supplied manifests into the same checked compiler/runtime. See [DSL](dsl.md#evaluated-durable-host-input-target-240), [state](state.md#evaluated-durable-host-input-target-240) and [CLI](cli.md#python-authoring).
   - State schema: historical runs through 2.34 used `schema_version: "2.1"`;
     admitted evaluated runs at 2.35–2.40 publish `"3.0"`
     (see [state](state.md)).

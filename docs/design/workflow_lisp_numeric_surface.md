@@ -179,7 +179,7 @@ waits for a fixture that needs it.
 ## 6. Targets And Compatibility
 
 - The rules were introduced at target 2.34 and apply throughout the current
-  2.35–2.39 source range. Section 2 preserves pre-2.34 behaviour as history.
+  2.35–2.40 source range. Section 2 preserves pre-2.34 behaviour as history.
 - Pre-2.35 source and typed-program imports are rejected. Historical data
   readers remain separate from source admission and evaluated execution.
 

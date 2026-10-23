@@ -468,7 +468,7 @@ Reports and dashboard remain read-only and expose no settlement endpoints.
 Runtime workflow attribution for Python-authored runs is the retained generated
 `.orc` in `workflow_file`; effect/request and reply attribution use the ordinary
 evaluated rows. The original Python declaration/line lives in the retained
-supplementary `source_map.json` and initial mapped compiler diagnostics, not a
+supplementary `source-map.json` and initial mapped compiler diagnostics, not a
 new runtime source-map reader or execution authority.
 
 Monitor `SUSPENDED` email includes request ID, deadline and inspection,

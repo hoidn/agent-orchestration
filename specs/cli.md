@@ -52,6 +52,8 @@ requires the exact complete release/environment qualified for the particular
 family; preserved source or a package pin alone is no universal recovery
 guarantee ([retirement policy](../docs/design/workflow_lisp_executor_retirement.md#7-recovery-policy-and-one-deletion-gate)).
 
+<a id="python-authoring"></a>
+
 ## Python authoring frontend
 
 `orchestrator py build <workflow.py>`, `orchestrator py check <workflow.py>`
@@ -68,8 +70,11 @@ All three commands accept `--entry-workflow`, repeatable `--source-root`,
 `--command-boundaries-file`, `--imported-workflow-bundles-file`, and `--frozen`.
 An explicit entry selects an exported workflow; a single exported workflow may
 be selected implicitly. There are no implicit extern bindings. Python modules
-select an admitted generated target 2.35–2.39 with `TARGET`, defaulting to 2.39.
+select an admitted generated target 2.35–2.40 with `TARGET`, defaulting to 2.39.
 Python source cannot widen target-specific admission or qualification.
+Native `ask`, `HostReply[A]` and `host_input` require explicit target 2.40;
+settlement uses the [host-input commands](#evaluated-host-input-target-240)
+and ordinary resume. There is no `py resume`.
 
 Build/check print JSON containing the retained generated `source_path`,
 `source_root`, `source_map_path`, `snapshot_path`, selected `entry_workflow`,
@@ -92,6 +97,11 @@ lock, input/result validation, output contract and exit 0/1/2 semantics apply.
 Authoring, compilation and frozen refusal exit 2. Saved run recipes refer to
 retained generated source. Ordinary `resume <run_id>` does not import Python;
 existing checked-program drift and memo-reuse contracts remain authoritative.
+The API selects a source file with `build(source_file, entry_workflow=...,
+workspace_root=..., ...)`, and exposes `check`, `run` and `PythonBuildResult`.
+Immutable snapshots live beneath `.orchestrate/python/`. Original Python
+locations in `source-map.json` supplement generated `.orc` diagnostics; runtime
+reports and request/effect identity retain ordinary evaluated attribution.
 
 ## Workspace execution ownership
 
@@ -923,41 +933,3 @@ requiring a new rebuild/evidence snapshot. Suspension itself is normal exit
 `0`, leaves no terminal, and publishes `suspended` before releasing the locks.
 Expiration is an ordinary runtime `EXPIRED` value committed by resume, not a
 CLI error or a host-authored settlement.
-
-## Python Authoring
-
-`py check`, `py build` and `py run` accept trusted `.py` files. They import the
-module once per invocation and select its decorated `--entry-workflow`; omission
-requires exactly one distinct exported workflow. The bounded declarations are
-defined in the [Python frontend contract](../docs/design/workflow_python_frontend.md)
-and [drafting guide](../docs/python_workflow_drafting_guide.md). All parameters
-require type annotations; a return annotation or `returns=` declares the result,
-and conflicting declarations refuse.
-
-```sh
-orchestrator py check workflow.py --entry-workflow approval
-orchestrator py build workflow.py --entry-workflow approval
-orchestrator py run workflow.py --entry-workflow approval --input-file inputs.json
-```
-
-These commands accept the ordinary `--source-root`, `--provider-externs-file`,
-`--prompt-externs-file` and `--command-boundaries-file` inputs. Supplied manifests
-are passed unchanged into the normal build request; Python supplies no provider
-bindings or defaults. Imported workflow-bundle manifests are outside this subset
-and refuse. `check` and `build` both trace, publish a complete retained generated
-bundle and invoke the ordinary checked compiler without starting a run. They
-print JSON keys `source_path`, `source_map_path`, `provider_externs_file`,
-`prompt_externs_file`, `command_boundaries_file`, `entry_workflow`, `build_key`
-and `program_digest`; success exits `0`, import/authoring/compiler refusal `2`.
-A compiler refusal may leave a complete generated bundle for diagnosis.
-
-`py run` adapts generated source, source roots, entry and supplied manifests into
-ordinary `run`, retaining its input, state-directory, provider, dry-run, lock and
-exit behavior. Ordinary `run workflow.py` still refuses `.orc required`.
-The rebuild recipe records generated `.orc`/manifest paths. Ordinary
-`resume RUN_ID` never imports Python, retraces decorators, rereads authoring
-prompt templates or chooses another generation. There is no `py resume`.
-Retained generated inputs must stay available and unmodified; normal program
-and runtime-input divergence rules apply. Python line/declaration attribution
-is supplementary `source_map.json` evidence and initial mapped compiler
-notes; runtime reports name generated `.orc` plus effect/request attribution.

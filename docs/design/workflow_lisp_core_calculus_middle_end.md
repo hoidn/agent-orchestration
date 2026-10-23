@@ -5,7 +5,7 @@ steps and the step runtime that executed them, targets through 2.34) was
 retired on 2026-10-13 and executable entries through 2.34 are refused; the
 retained middle-end (WCC elaboration, ANF normalization, scope/effect/proof
 analysis) feeds the closed program that the evaluated runtime executes at
-2.35–2.39 (§§10.1, 11.4, 13.5, 15), within each target's admitted effect surface
+2.35–2.40 (§§10.1, 11.4, 13.5, 15), within each target's admitted effect surface
 Kind: architecture decision / compiler architecture
 Created: 2026-06-09
 Updated: 2026-10-16 (source floor and complete executable WCC boundary)

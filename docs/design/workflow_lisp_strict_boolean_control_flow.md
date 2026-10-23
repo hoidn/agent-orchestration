@@ -2,7 +2,7 @@
 
 Execution scope: strict Boolean control was introduced at 2.26. Current source,
 transitive imports, retained typed-program capsules, REPL and LSP admit only
-targets 2.35–2.39; see the [source floor](workflow_lisp_executor_retirement.md#source-floor-235).
+targets 2.35–2.40; see the [source floor](workflow_lisp_executor_retirement.md#source-floor-235).
 Flat closed-member, projection and Executable IR examples are historical backend
 encodings. Current evaluated control must preserve strict `Bool`, selected-arm
 laziness, once-only operands and variant-proof identity without restoring that

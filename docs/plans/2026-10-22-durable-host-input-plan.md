@@ -12,7 +12,7 @@
 
 ## Role, authority and selection
 
-**Current selection: Task 7, then the remaining Task 6 closeout gates.**
+**Current selection: the remaining Task 6 verification and closeout gates; Task 7 is complete.**
 The owner noted that `main` now contains a separately merged native Python
 frontend (`67744139`, observed committed main `27bcc7e3`, after this branch's
 base `88bcfbd7`). Merge that committed revision into this feature worktree,
@@ -556,7 +556,7 @@ writers have disjoint ownership; the coordinator reconciles their final output.
   affected-suite verification in tmux:
 
   ```bash
-  python -m pytest -q -n 16 --dist=worksteal tests/test_workflow_lisp*.py tests/test_workflow_evaluated*.py tests/test_workflow_python*.py tests/test_workflow_host_input_e2e.py tests/test_cli_human_input.py tests/test_monitor*.py tests/test_dashboard*.py tests/test_state*.py
+  PYTHONPATH="$PWD" python -m pytest -q -n 16 --dist=worksteal tests/test_workflow_lisp*.py tests/test_workflow_evaluated*.py tests/test_workflow_python*.py tests/test_workflow_host_input_e2e.py tests/test_cli_human_input.py tests/test_monitor*.py tests/test_dashboard*.py tests/test_state*.py
   ```
 
   Capture command, environment, exit status and log path. If the branch has
@@ -576,25 +576,25 @@ writers have disjoint ownership; the coordinator reconciles their final output.
 ## Task 7: Integrate host input into the native Python frontend on main
 
 **Role/artifact:** Revision / canonical Python implementation, tests, examples
-and current Python contracts/guides. **Status:** SELECTED, not implemented.
+and current Python contracts/guides. **Status:** COMPLETE; final Task 6 verification remains open.
 **Dependencies:** Completed Tasks 1–5 and Task 6 checkpoint `4745f8ba`;
 architectural integration decision accepted. Must complete before final Task 6.
 Use distinct implementation and code/spec/plan reviewers. Preserve all main
 features and existing compiler/runtime/effect/host authorities; new architecture
 questions return to Design rather than being resolved with another frontend.
 
-- [ ] Merge committed main `27bcc7e3` into `feat/durable-host-input` in the
+- [x] Merge committed main `27bcc7e3` into `feat/durable-host-input` in the
   feature worktree. Resolve Python conflicts in favor of main's existing owners
   listed above, then apply the host extension there. Keep the root worktree and
   its unrelated dirty changes untouched; finish this feature worktree unmerged
   to main. Inspect the merge diff, not only the conflicted files.
-- [ ] Preserve the canonical `build(source_file, entry_workflow=...,
+- [x] Preserve the canonical `build(source_file, entry_workflow=...,
   workspace_root=..., ...)`, `check`, `run` and `PythonBuildResult` API;
   `.orchestrate/python` immutable snapshots, capture of imported source,
   manifests/prompt assets, isolated worker and frozen-build behavior remain
   authoritative. Remove `py/types.py` and the competing old implementation;
   do not add a second Type descriptor, parser, runtime or old-API wrapper.
-- [ ] Add `host_input = Effect("host-input", None)` in declarations and a
+- [x] Add `host_input = Effect("host-input", None)` in declarations and a
   public `HostReply[A]` facade that produces main's existing `OrcMember` for the
   ordinary generic `std/host` type only when applied. Do not export a bare
   `OrcMember` that loads 2.40 during default-target star imports. Keep default
@@ -602,7 +602,7 @@ questions return to Design rather than being resolved with another frontend.
   Prepare `std/host` once in 2.40 tracing skeletons so a body-only `ask` works;
   do not inject that import into older targets. Replace exact Python 2.39
   inference checks with the shared actual capability check for targets >=2.39.
-- [ ] Trace `ask(question, returns=..., timeout_sec=..., show=...)` as an
+- [x] Trace `ask(question, returns=..., timeout_sec=..., show=...)` as an
   ordinary bind expression and emit existing Lisp `request-input`. Preserve
   main's operators, `when`, serial `loop`/`cont`/`done`, imports, pure
   procedures and CLI behavior. Use ordinary prompt fill application for local,
@@ -610,7 +610,7 @@ questions return to Design rather than being resolved with another frontend.
   as a question: main's provider `:inputs` extern path is not a Lisp question.
   Extract only the minimal shared provider/ask prompt emission needed; retain
   Text/Value/Doc semantics and source attribution.
-- [ ] Port host-specific tests from the three old
+- [x] Port host-specific tests from the three old
   `test_workflow_py_{frontend,build,cli}.py` modules into the new
   `tests/test_workflow_python_host_input.py`, then delete those old modules.
   Keep all six main Python modules. Cover provider -> verify -> ask -> act,
@@ -621,13 +621,13 @@ questions return to Design rather than being resolved with another frontend.
   old-target refusal, serial Python loop asks and imported asking procedures.
   Retain name hygiene, nominal identity and source-boundary protections through
   main's owners; behavioral coverage replaces old implementation assumptions.
-- [ ] Adapt `approval.py` to explicit `TARGET = "2.40"`, outer `HostReply`
+- [x] Adapt `approval.py` to explicit `TARGET = "2.40"`, outer `HostReply`
   matching and inner `when(answer.value == Approval.APPROVED,
   then=lambda: ..., else_=lambda: ...)`. Effects accept the canonical descriptor
   objects, not strings. Adapt only Python snapshot/source-map assumptions in
   `test_workflow_host_input_e2e.py`; retain and rerun all 26 public cases,
   outcomes, dispatch counts, crash and concurrency assertions.
-- [ ] Transfer host authoring obligations into canonical
+- [x] Transfer host authoring obligations into canonical
   `docs/design/python_workflow_frontend.md` and the drafting guide. Update
   inbound links before deleting the duplicate
   `docs/design/workflow_python_frontend.md`; use a redirect only if an actual
@@ -635,7 +635,7 @@ questions return to Design rather than being resolved with another frontend.
   equality/operators, loops, imports, the build signature, generated paths and
   manifest capture in specs/guides/example/test routing. Preserve history in
   this plan and keep unrelated qualification gates unchanged.
-- [ ] Collect new/renamed tests, then run the narrow new regressions before
+- [x] Collect new/renamed tests, then run the narrow new regressions before
   the required integration gate in tmux:
 
   ```bash
@@ -648,7 +648,7 @@ questions return to Design rather than being resolved with another frontend.
   This includes the real public provider-free orchestrator integration smoke;
   rerun the current guide/example recipes against the canonical API. No paid
   provider call, quality comparison, live notification or email is authorized.
-- [ ] Obtain independent plan, code and spec review; apply accepted findings,
+- [x] Obtain independent plan, code and spec review; apply accepted findings,
   rerun affected checks and let the coordinator inspect the complete diff and
   actual verification output. Commit the integrated implementation/docs in
   scoped commits, record new evidence below, then resume Task 6's final broad
@@ -758,11 +758,53 @@ questions return to Design rather than being resolved with another frontend.
   registry validation selectors passed (**2 tests in 2.57s**). The registry
   retains local-stub prerequisites and does not imply paid or LSP qualification.
   Final broad affected-suite verification and integrated review remain pending.
-- Task 7 is selected and pending. The committed main revision and canonical
-  design/API were inspected while revising this plan; no integration, new
-  test result or final acceptance is claimed here. The pre-integration broad
-  run remains diagnostic evidence pending root triage; record its actual final
-  status/failures and resolution before Task 6's final gate. No machine queue or
+- Task 7 completed after independent plan, code SPEC/QUALITY and documentation
+  SPEC/QUALITY approval. Main `27bcc7e3` was merged
+  into this branch as `e3cbdc47`, retaining main's Python/CLI owners and adding
+  only host settlement flags to its CLI parser. The dirty root worktree was
+  untouched. The canonical frontend extension is committed in `d641446a`;
+  duplicate implementation/tests/design were removed. Build, worker, snapshots,
+  imports and public CLI retain main's owners. The new host module has **30
+  verified cases**: 28 passed in **45.34s**, exit 0,
+  `/tmp/host-main-python-final-narrow.log`; two additional Python-import cases
+  passed together with both corrected future-target negatives (**4 tests in
+  4.59s**, exit 0, `/tmp/host-main-python-final-fix.log`). Final collection of
+  declarations/host/e2e found **109 tests** in 1.33s.
+  The exact Task 7 integration selector produced **426 passed and 1 failed in
+  71.57s**, `/tmp/host-main-python-gate.log`: the sole failure was main's old
+  expectation that 2.40 is unsupported. That negative now uses 2.41 and passed
+  in the targeted correction above; the 426 unchanged successes were reused.
+  All **26 public e2e cases**, including current original-source AST attribution,
+  passed that gate. The final Task 6 broad run will independently verify the
+  entire corrected tree. Root read the production diff, complete new host tests,
+  actual outputs and clean diff before committing.
+- Canonical documentation reconciliation passed independent SPEC and QUALITY
+  review. The exact main command-loop guide recipe passed build, check, both
+  run inputs and frozen check (exit 0, `/tmp/task7-python-guide.log`), producing
+  outputs 2/0 with 2/0 commands. Exact paired README recipes passed with local
+  stubs and explicit worktree `PYTHONPATH`: Lisp APPROVED repaired once, Python
+  DENIED escalated once without repair; each diagnosis and verification ran
+  once through repeated resume. Logs `/tmp/task7-host-readme-lisp.log` and
+  `/tmp/task7-host-readme-python.log` both exit 0. Current-range consistency
+  corrections passed **4 tests in 1.26s**, `/tmp/task7-doc-range.log`; 78 new
+  local links/anchors resolved. Review also corrected generated snapshot versus
+  compiled artifact locations; unchanged executable recipes were not rerun.
+- The pre-integration broad run was deliberately interrupted when the owner
+  selected reuse of main's frontend: **12 failed, 8438 passed, 1 skipped,
+  1 xfailed in 824.43s**, exit 2, `/tmp/durable-host-input-final-tests.log`.
+  This incomplete run is diagnostic evidence, not an acceptance gate. Eleven
+  failures concerned stale future-target/docs assertions or missing standard
+  library/example inventories. Their owner corrections passed independent
+  review and **233 tests in 20.82s**, exit 0, `/tmp/lisp-inventory-final.log`,
+  and were committed in `367c4057`; renamed future-target cases were collected
+  (21 tests). The new approval corpus entry compiles with seven sites using its
+  real local closure; no refusal or qualification assertion was weakened. The remaining
+  nested CLI failure was reproduced and traced to the global editable install
+  pointing at another old worktree (`omp-i1-prerequisites`). With
+  `PYTHONPATH="$PWD"`, the exact nested selector passed **1 test in 2.86s**;
+  no runtime change or global environment installation was made. Final and
+  public subprocess checks must explicitly select this worktree through that
+  environment variable and record it with their evidence. No machine queue or
   tranche manifest selects this plan; its checkboxes/current-selection section
   own routing, and existing hub/design links already discover the same file.
 - No provider-quality result or live-provider qualification is claimed.

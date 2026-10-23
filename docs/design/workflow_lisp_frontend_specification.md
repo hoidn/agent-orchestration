@@ -92,7 +92,7 @@ targets do not acquire evaluated host input by importing `HostReply`.
 Normative rules are in [DSL](../../specs/dsl.md#evaluated-durable-host-input-target-240),
 [state](../../specs/state.md#evaluated-durable-host-input-target-240) and
 [CLI](../../specs/cli.md#evaluated-host-input-target-240).
-The [bounded Python frontend](workflow_python_frontend.md) emits these same
+The [bounded Python frontend](python_workflow_frontend.md) emits these same
 ordinary forms; it adds no runtime type/effect authority.
 
 Target 2.33 adds first-order generic unions (§8.5) and the `std/improve`

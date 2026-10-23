@@ -27,6 +27,7 @@ use the capability matrix to determine what is implemented and qualified.
 | Understand the system | [Architecture overview](architecture_overview.md) and [orchestration model](orchestration_start_here.md) | Concepts, authority and component boundaries |
 | Check available behavior | [Capability matrix](capability_status_matrix.md) | Implemented, partial, library, designed, future and historical surfaces; implementation does not imply public qualification |
 | Author a workflow | [Workflow Lisp drafting guide](lisp_workflow_drafting_guide.md) or [typed Python guide](python_workflow_drafting_guide.md) | Direct `.orc` authoring or serial Python generation into the same compiler/runtime; prerequisites and admitted shapes at each destination |
+| Ask for a durable decision | [Host-input recipe](lisp_workflow_drafting_guide.md#durable-host-input) and [approval example](../workflows/examples/durable_host_input/README.md) | Target 2.40 typed settlement, evidence and explicit resume |
 | Choose a reusable helper | [Library reference](lisp_library_reference.md) | Typed inputs, outputs, composition and examples |
 | Copy a complete example | [Workflow catalog](../workflows/README.md#which-example-should-i-copy) | Route readiness and copy safety; a compile check alone is not live-provider qualification |
 | Compile, run, resume or invalidate | [Lifecycle](runtime_execution_lifecycle.md) and [CLI contract](../specs/cli.md) | Evaluated execution is the sole current workflow runtime; old profiles remain read-only |
@@ -51,7 +52,8 @@ use the capability matrix to determine what is implemented and qualified.
   execution and the selected 2.35 source/import/tooling floor. Historical
   YAML/flat contracts and frozen source do not supply current analysis,
   execution or recovery permission.
-- Targets 2.35–2.39 share the evaluated runtime. Target 2.39 adds [procedure authoring](lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239), finite source admission and [bounded phased delivery](lisp_workflow_drafting_guide.md#authoring-phased-contract-delivery-target-239); imported 2.35–2.38 definitions retain their original contracts.
+- Targets 2.35–2.40 share the evaluated runtime. Target 2.39 adds [procedure authoring](lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239), finite source admission and [bounded phased delivery](lisp_workflow_drafting_guide.md#authoring-phased-contract-delivery-target-239); imported 2.35–2.38 definitions retain their original contracts.
+- Target 2.40 adds [durable host input](design/workflow_lisp_durable_host_input.md); native Python `ask` selects that target explicitly and uses the same settlement/resume lifecycle. Python's default target remains 2.39.
 - The 2.35 source floor covers transitive source and typed-program imports,
   REPL loading and LSP analysis. Historical report/dashboard data readers do
   not reopen those source doors; evaluated LSP F2 remains OPEN_NOT_WAIVED.

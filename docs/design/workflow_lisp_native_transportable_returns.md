@@ -192,7 +192,7 @@ leaf/collection schemas already used by frontend-lowered contracts. This is a
 deliberate normative widening, not a compiler-only loader exception. Existing
 DSL versions retained their authored-YAML restrictions at introduction. Current
 Workflow Lisp sources using root-valued public returns declare an admitted
-target in 2.35–2.39; the original 2.15 header is historical.
+target in 2.35–2.40; the original 2.15 header is historical.
 
 The alternatives are rejected:
 
@@ -871,7 +871,7 @@ byte-equivalent where deterministic serialization makes that measurable.
 The original v2.14 runtime could validate empty JSON pointers but could not
 accept the widened public outputs or guidance schema introduced at v2.15.
 Those version comparisons are historical: current authoring and imports use
-targets 2.35–2.39. Retained historical data does not acquire metadata implicitly
+targets 2.35–2.40. Retained historical data does not acquire metadata implicitly
 or grant old-profile resume permission.
 
 Build/executable artifact schema versions must be bumped only if persisted IR

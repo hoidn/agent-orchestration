@@ -10,7 +10,7 @@ Pre-2.35 introduction gates below are historical; data readers remain separate.
 - **Kind:** closed pure-expression surface extension plus one bounded
   effectful binder
 - **Owner:** Workflow Lisp frontend + pure evaluator
-- **Introduction target:** `(:target-dsl "2.18")`; current source requires 2.35–2.39
+- **Introduction target:** `(:target-dsl "2.18")`; current source requires 2.35–2.40
 - **Motivating consumer:** runtime-cardinality fan-out — for example, a
   review panel whose ordered lens names are workflow input data, whose
   provider calls each return a review-report path, and whose synthesis call
@@ -62,7 +62,7 @@ rereviews then approved this design.
 
 List forms were introduced at target DSL 2.18. That historical feature gate
 does not admit old source; every current module and typed-program import must
-target 2.35–2.39.
+target 2.35–2.40.
 
 The remaining payload/lowering rules in this section describe the original
 flat projection contract. They preserve data-format distinctions, not current

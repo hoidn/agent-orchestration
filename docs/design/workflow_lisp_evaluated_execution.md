@@ -2900,7 +2900,7 @@ The normative [state](../../specs/state.md#evaluated-durable-host-input-target-2
 [IO](../../specs/io.md#evaluated-host-input-io-target-240) and
 [CLI](../../specs/cli.md#evaluated-host-input-target-240) own exact fields,
 publication/recovery and refusal rules. The [component design](workflow_lisp_durable_host_input.md)
-explains the boundary choices. The bounded [Python frontend](workflow_python_frontend.md)
+explains the boundary choices. The bounded [Python frontend](python_workflow_frontend.md)
 emits ordinary source into this same checked compiler/runtime; its trace and
 source map are never execution or resume authority.
 

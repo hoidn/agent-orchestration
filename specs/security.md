@@ -350,9 +350,12 @@ Importing and tracing can perform normal Python filesystem, network or process
 side effects; symbolic-value refusals are not a sandbox. Decorators retain
 bodies until explicit build; runtime effects must use the admitted builders.
 The emitted `.orc` is checked through the same compiler, manifests and runtime.
-Generated bundles are published beneath the workspace generation root through
-no-follow retained directories, synchronized temporary files/directories and
-atomic no-replace installation. Existing bundles must match exact expected
+Captured local Python, prompt, imported `.orc` and manifest inputs are retained
+in immutable snapshots beneath `.orchestrate/python/`; frozen builds compare
+them with the entry-specific successful pin. Runtime closures and workspace
+inputs keep their existing freshness rules. Snapshots are published through
+no-follow retained directories, a complete temporary snapshot and atomic
+no-replace installation. Existing bundles must match exact expected
 files/bytes; divergent or symlinked destinations refuse. Keep generated source
 and its diagnostic map while runs reference them. Resume uses recorded generated
 source/manifests and never imports original Python or rereads authoring templates.
