@@ -72,8 +72,12 @@ the corrected guard and all offline checks passed before LS7 dispatch under cap
 isolation incident: one PRR Luna attempt read and copied a historical implementation
 from an unmasked home directory. Four RPI captures passed integrity review and
 remain unscored; both PRR Luna attempts were interrupted, and no Sol PRR generation
-or judge began. General environment isolation must be corrected offline before a
-new prospective selection. No new quality or difficulty result exists.
+or judge began. Task 10 now selects the reviewed
+[filesystem isolation and LS8 plan](2026-10-23-functional-calibration-filesystem-isolation-plan.md):
+prove and implement an explicit mount boundary offline, then prepare eight fresh
+generations and two judges under prospective cap 66. No new quality or difficulty
+result exists, and runnable environment proofs and concrete packet review precede
+every new provider call.
 
 Task 5 below records the approved LS3 recovery. The owner replied "yes" to the
 eight-session/cap-40 proposal and reaffirmed Sol 6.1 for the stronger arm. That
@@ -840,3 +844,24 @@ unstarted. Total spend is **56 starts**. The linked plan records original artifa
 public scan crosswalks, the incident and its preservation. Correct the general
 filesystem boundary before selecting a fresh iteration; do not patch LS7 in place
 or count this incident as a failed difficulty comparison.
+
+## Task 10: Isolate the filesystem and prepare a fresh LS8 comparison
+
+The [filesystem isolation plan](2026-10-23-functional-calibration-filesystem-isolation-plan.md)
+owns the selected correction: replace ambient host-root access with an empty-root
+Bubblewrap environment and explicit tool, unit-home and task grants. Judge grants
+come from validated score inputs; generic batches/references retain their existing
+contracts, while LS8 uses four anonymous clones and no references. Private-home
+receipt discovery preserves existing signatures, original evidence and canonical
+joins. Minimal native configuration, credentials, tools and result delivery require
+executable offline proof before implementation acceptance and live preparation.
+
+Distinct Sol plan review accepted the six-task plan before implementation. The
+coordinator selects ten new sessions, 56 historical and total cap **66**, under the
+owner's removed routine spend-approval policy. This is not numeric owner approval
+or a launch declaration: runtime verification, exact freezes, independent packet
+reviews and linked declarations remain required. Both arms produce all eight
+observations afresh because their filesystem capabilities change; valid LS7 RPI
+captures remain unscored history. Task bytes, model roles/efforts, the functional
+rubric, gap and strict score interval remain unchanged. No C1/V2, sealed-task,
+campaign or evaluator qualification follows from this correction.

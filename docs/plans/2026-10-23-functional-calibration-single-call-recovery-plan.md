@@ -6,6 +6,8 @@
 
 **Execution status:** LS7 stopped on a separate filesystem-isolation incident after six new starts, **56 overall**. Four RPI captures passed independent integrity review and remain unscored. One PRR Luna attempt read and copied a historical implementation from an unmasked directory outside its candidate; both active PRR attempts were stopped and have incomplete terminal captures. Neither Sol PRR generation nor either judge started. This is not a difficulty result. The single-call correction remains verified; general filesystem isolation must be corrected offline under a new prospective selection before further provider dispatch. Preserve all frozen LS7 sources and evidence.
 
+**Continuation:** the [filesystem isolation and LS8 plan](2026-10-23-functional-calibration-filesystem-isolation-plan.md) owns the reviewed offline correction and fresh prospective comparison. Its cap 66 selection does not reopen LS7 or qualify a task/evaluator; executable environment proofs and exact packet-bound declarations remain prerequisites.
+
 **Approach and tradeoff:** Enforce the existing `COMPARE_MAX_CALLS=1` contract at the shared CLI guard before a nested process can dispatch. An internal inherited state carries that restriction through shells and tmux; no new public option or shell-command parser is selected. Nested CLI help/version will also be refused in this mode, making agent-side CLI introspection harder; uncapped and larger-cap behavior retains its existing limits.
 
 ## Authority and frozen scientific contract
