@@ -126,8 +126,9 @@ PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
 Model policy: experiment workflows default to the owner's Sonnet/Terra ceiling.
 The generic guard retains Sonnet for legacy Claude callers and Terra by default for Codex;
 explicit per-run Codex bindings may select exactly `gpt-5.6-luna` or `gpt-6.1-sol`.
-The owner-approved Luna low/high comparison selects Sol 6.1 high judging and
-prohibits Claude and native delegation. `COMPARE_CODEX_MODELS=gpt-6.1-sol`
+The owner-selected functional calibration uses Luna high versus Sol 6.1 low,
+with Sol 6.1 high judging, and prohibits Claude and native delegation.
+Its bounded provider budget is separate from model selection. `COMPARE_CODEX_MODELS=gpt-6.1-sol`
 forwards the exact `ORC_ALLOWED_CODEX_MODELS` binding inside the sandbox;
 scans require the actual native model to match that run. Other higher or unknown
 model IDs remain forbidden even if placed in an allowlist. Frozen criteria and
@@ -400,6 +401,15 @@ Its four independent 0–2 components sum to 0–8. Completeness and correctness
 concern implemented required behavior; correctness is zero when none is
 implemented. Scope and layering are scored independently, with no global zero.
 
+The functional rubric selects `score_functional.orc`, entry
+`score_functional::score`, `"criteria": ["quality"]`, and `"reference": null`.
+It returns one functional score S0–S8 plus a reason: how much of the requested
+behavior works through normal entry points. Unused scaffolding and tidy code
+earn no separate credit; concrete functional regressions affect the score.
+The exact single-field selector admits 0–8; historical component rubrics retain
+0–2 per field, and mixed quality/component rubrics refuse. This is a different
+scale, so new totals must not be compared numerically to old additive totals.
+
 Generic comparison pools support these routes. Structural V1 quality operations retain
 V1 qualification and reject a selected reference rubric; generic calibration does
 not grant structural quality authority.
@@ -419,7 +429,7 @@ scoring and summarization path. Summarization checks the complete run/clone/judg
 denominator before applying the criterion's primary mean-gap comparison. Missing,
 excluded or invalid evidence cannot produce PASS. There are no artificial
 controls, references or hidden-test runs. The selected
-[task-difficulty plan](../../docs/plans/2026-10-22-simple-evaluation-calibration-plan.md)
+[task-difficulty plan](../../docs/plans/2026-10-22-functional-calibration-plan.md)
 freezes the models, sample counts, threshold and authorized spend. Apparatus tests
 alone establish no task-difficulty result or campaign permission.
 

@@ -2,9 +2,10 @@
 
 Role: captured LH experiment methods, results and limitations. This report grants
 no provider spend and is not a launch recipe. The
-[selected plan](../plans/2026-10-22-simple-evaluation-calibration-plan.md)
-owns selection; frozen criteria, canonical joins and the supplementary target
-report own the measurements. Earlier TD/TD2 records remain unchanged in the
+[captured LH plan](../plans/2026-10-22-simple-evaluation-calibration-plan.md)
+records this protocol; the [functional calibration plan](../plans/2026-10-22-functional-calibration-plan.md)
+owns current selection. Frozen criteria, canonical joins and the supplementary
+target report own the measurements. Earlier TD/TD2 records remain unchanged in the
 [recovery report](2026-10-22-natural-task-difficulty-recovery.md).
 
 **The two-task set is not calibrated.** RPI fails separation and the strict

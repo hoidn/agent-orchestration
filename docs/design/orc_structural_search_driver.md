@@ -611,8 +611,9 @@ The generic comparator supports criterion-selected reference and absolute
 rubrics. The [harness contract](orc_effectiveness_comparison_harness.md#decision)
 distinguishes natural task-difficulty calibration from evaluator control checks.
 The [simple evaluation plan](../plans/2026-10-22-simple-evaluation-plan.md) records
-control-check simplification; the [corrected difficulty plan](../plans/2026-10-22-simple-evaluation-calibration-plan.md)
-selects fresh weak/strong direct solutions and a predeclared mean gap. Historical
+control-check simplification; the [functional difficulty plan](../plans/2026-10-22-functional-calibration-plan.md)
+selects fresh weak/strong direct solutions, a single functional score, a
+predeclared mean gap and stronger-arm target interval. Historical
 AT remains completed FAIL_NOT_QUALIFIED under its original control criterion.
 A task-difficulty result does not automatically qualify the quality evaluator. Application
 of that pilot to C1 qualification remains a separate integration decision.
@@ -633,9 +634,12 @@ preserves the completed historical decisions. Fresh mode-2 adaptive launches
 remain unsupported.
 
 Every new experiment role obeys its frozen exact-model binding. The current
-natural task-difficulty pilot uses `gpt-5.6-luna` and `gpt-5.6-terra` high;
-Claude, Fable, higher models and native delegation remain forbidden. The generic
-harness retains its default Terra policy and requires explicit per-run Luna opt-in. The measurement-specific Step-C seed is an external frozen copy with
+natural task-difficulty selection uses `gpt-5.6-luna` high against `gpt-6.1-sol`
+low, with `gpt-6.1-sol` high judging under the owner's scoped exception.
+Claude, Fable, other higher models and native delegation remain forbidden. The
+generic harness retains its default Terra policy and requires explicit per-run
+Luna or Sol 6.1 opt-in. Model/rubric selection grants no new spend or C1
+qualification. The measurement-specific Step-C seed is an external frozen copy with
 Sonnet-medium coder and Terra-high diagnosis; historical source retains its Sol
 policy and is not the current launch input. Model-cap enforcement and preparation
 do not establish family qualification, calibration or quality improvement.
