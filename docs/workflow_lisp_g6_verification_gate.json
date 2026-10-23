@@ -49,6 +49,11 @@
       "owner": "workflow-lisp-generic-core-g5-context-generalization"
     },
     {
+      "module": "std/host",
+      "status": "landed",
+      "owner": "workflow-lisp-durable-host-input"
+    },
+    {
       "module": "std/phase",
       "status": "landed",
       "owner": "accepted-baseline"

@@ -214,10 +214,10 @@ def test_build_syntax_module_rejects_unknown_header_keyword() -> None:
     assert "unknown header keyword `:unknown`" in diagnostic.message
 
 
-def test_build_syntax_module_rejects_unallocated_target_dsl() -> None:
+def test_build_syntax_module_rejects_future_target_dsl() -> None:
     parse_tree = read_sexpr_text(
-        '(workflow-lisp (:language "0.1") (:target-dsl "2.40"))',
-        source_path="unallocated_target.orc",
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.41"))',
+        source_path="future_target.orc",
     )
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
@@ -225,5 +225,5 @@ def test_build_syntax_module_rejects_unallocated_target_dsl() -> None:
 
     diagnostic = excinfo.value.diagnostics[0]
     assert diagnostic.code == "target_dsl_unsupported"
-    assert diagnostic.span.start.path == "unallocated_target.orc"
+    assert diagnostic.span.start.path == "future_target.orc"
     assert diagnostic.span.start.line == 1

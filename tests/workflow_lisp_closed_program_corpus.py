@@ -377,6 +377,9 @@ def _copy_command_implementation(
                         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
                     )
                 continue
+            local_source = (workspace / closure_path).resolve()
+            if local_source.is_relative_to(workspace.resolve()) and local_source.is_file():
+                continue
             source = REPO_ROOT / closure_path
             if not source.is_file():
                 if (name == "launch_experiment"

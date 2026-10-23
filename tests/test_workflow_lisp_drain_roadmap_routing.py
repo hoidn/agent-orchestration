@@ -1084,7 +1084,7 @@ def test_procedure_first_status_surfaces_close_stage_6_and_route_stage_7_v1_1() 
     yaml_row = _markdown_table_row(capability_matrix_path, "YAML DSL v2.x")
     assert "| Retired |" in yaml_row
     assert "test_yaml_frontend_retirement.py" in yaml_row
-    assert "only authored workflow frontend" in yaml_row
+    assert "use direct `.orc` or typed Python generation" in yaml_row
     assert "OMP configuration" in yaml_row
     cli = (REPO_ROOT / "specs/cli.md").read_text(encoding="utf-8")
     assert "workflow_execution_profile_retired" in cli
@@ -1990,7 +1990,7 @@ def test_post_stage_8_successor_selects_value_then_prompt_calculus() -> None:
     assert "| Implemented |" in value_design_row
     normalized_value_row = _normalized_routing_text(value_design_row)
     assert "introduced at 2.19" in normalized_value_row
-    assert re.search(r"2\.35[–-]2\.39", value_design_row)
+    assert re.search(r"2\.35[–-]2\.40", value_design_row)
     _assert_doc_routes("docs/design/README.md", TRANSPORTABLE_VALUE_DESIGN_PATH)
     capability_row = _markdown_table_row(
         capability_matrix_path,
@@ -2278,7 +2278,7 @@ def test_prompt_output_positions_normative_and_authoring_surfaces_ship_q2() -> N
     )
 
     master_current = master.split("- Version history and current target extensions", 1)[0]
-    assert re.search(r"targets\s+2\.35[–-]2\.39", master_current)
+    assert re.search(r"targets\s+2\.35[–-]2\.40", master_current)
     _assert_doc_routes("specs/index.md", "specs/versioning.md", "specs/cli.md")
 
     version_rows = [

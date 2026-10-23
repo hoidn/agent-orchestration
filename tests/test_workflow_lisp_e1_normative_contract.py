@@ -143,7 +143,7 @@ def test_historical_e1_contract_routes_to_current_run_ref_admission() -> None:
 
     assert re.search(r"(?m)^\| 2\.24 \|[^\n]*`run-ref`", versioning)
     current_scope = index.split("- Version history and current target extensions", 1)[0]
-    assert re.search(r"targets\s+2\.35[–-]2\.39", current_scope)
+    assert re.search(r"targets\s+2\.35[–-]2\.40", current_scope)
 
     trial_runs_path = REPO_ROOT / "docs/design/workflow_lisp_trial_runs.md"
     trial_runs = _assert_doc_routes(
