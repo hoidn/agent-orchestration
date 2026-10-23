@@ -29,11 +29,11 @@ owns generic rubric selection and evidence joins. The [measurement ledger](2026-
 owns current selection and later stage gates. This plan changes no structural
 qualification V1/V2, campaign, reservoir, store or sealed rung-1 surface.
 
-Offline implementation and preparation are selected. **No fresh paid dispatch
-is authorized yet:** twenty-six historical sessions are spent. Prepare a concrete
-ten-session packet (eight generations and two judges), proposing an overall cap
-of thirty-six. Approval of that bounded packet is the final launch prerequisite;
-the owner's general continuation instruction does not supply a new numeric cap.
+Offline implementation and preparation are complete. The owner replied
+**"continue"** immediately after the explicit request for ten additional LS1
+sessions, increasing the total cap from 26 to 36. That reply authorizes this
+concrete packet: eight generations and two judges, with no retries. It does not
+authorize other experiments or further budget increases.
 
 ## Single functional score
 
@@ -152,9 +152,9 @@ task/seed and bounded spend before further observations. Do not force an orderin
   with zero-provider dry runs/fake CLI; freeze source, tests, inputs and proof.
 - [x] Independently review the concrete packet; all 815 frozen hashes and the
   zero-start preflight passed review.
-- [ ] Obtain the missing ten-session authorization (proposed overall cap 36).
-  Implementation, preparation and independent review are complete; do not launch
-  before that bounded approval.
+- [x] Obtain the ten-session authorization: the owner replied "continue" to the
+  explicit proposal; overall cap 36 includes 26 historical starts. Execution is
+  in progress using the reviewed packet.
 
 ## Decision ledger
 
@@ -163,7 +163,7 @@ task/seed and bounded spend before further observations. Do not force an orderin
 | Owner selects Luna high versus Sol 6.1 low | Fresh arm identities above; actual advantage must be observed |
 | Owner requests simpler rubric | One functional 0–8 score; no independent style/scope credit |
 | Existing strict target and gap retained | Apply to `sol_low`; both tasks and full denominators required |
-| Prior 26-session cap is exhausted | Offline preparation proceeds; proposed ten further sessions remain unapproved |
+| Owner replies "continue" to the reviewed ten-session proposal | Authorize LS1 eight generations and two judges, total cap 36 including 26 historical starts; no retries or other spend |
 
 ## Offline implementation evidence
 
@@ -193,7 +193,7 @@ smoke passed in 22.30 seconds (`/tmp/sc-functional-exact-runtime-smoke.log`, exi
 The selected workflow SHA-256 is
 `297e629ebc5579b8889fd4629a3a4400d2024dcbc7a88e83034b4608e53ae0e7`.
 
-## LS1 concrete launch packet (budget pending)
+## LS1 concrete launch packet (authorized; execution in progress)
 
 The fresh protocol is frozen at
 `/home/ollie/sc-evidence/freeze-functional-calibration-20261022/criterion.json`
@@ -215,13 +215,30 @@ and preserved all 48 generation records/index files. Its proof is
 The final operator preflight passed with **zero fresh starts, 26 historical
 starts**, no native children, extra roots or forbidden calls; see
 `/home/ollie/sc-evidence/LS1-20261022/generation-preflight.log` and `.exit`.
-No new owner approval exists and the operator refuses dispatch without it.
+This preflight preceded approval and observed no fresh starts. The subsequent
+owner approval binds the unchanged criterion and packet; the operator still
+refuses any dispatch without that exact budget binding.
 
-The proposal remains exactly ten new sessions (eight generations plus two
-judges), overall cap 36, no retries. This offline readiness is not a new quality
-result, a task-family qualification, or authorization for any paid experiment.
+The authorized scope is exactly ten new sessions (eight generations plus two
+judges), overall cap 36, no retries. Offline readiness is not a new quality result
+or a task-family qualification, and this approval selects no other paid experiment.
 
 Independent review passed the exact 815-file packet and its concrete commands,
 inputs, source bindings, mask proof and complete zero-start inventory. The root
 integrator separately verified every packet hash and the same preflight. The only
-remaining launch prerequisite is the owner's new bounded budget approval.
+remaining launch prerequisite was the owner's bounded budget approval, now
+recorded below.
+
+## Authorized LS1 execution
+
+The owner replied **"continue"** to the explicit ten-new-session/cap-36 request.
+The exact reply and proposal context are recorded at
+`/home/ollie/sc-evidence/LS1-20261022/owner-approval-generation.json`
+(SHA-256 `9d7031818275849e7aab87bb78e2215a2f1ba87e43ec521f76d2af120c346566`).
+The criterion and generation packet remain unchanged. A fresh preflight passed
+before dispatch; the operator started the two RPI Luna-high attempts in tmux
+`ls1-generation-20261022` on `/tmp/claude-tmux-sockets/sc-difficulty.sock`.
+Initial run IDs are `20261023T024142Z-gswhyi` and `20261023T024142Z-4zxhpi`.
+The operator owns the remaining ordered waves and enforces two concurrent
+generations, one physical call per unit and no retry. No new quality scores are
+available before blind judging; actual results will be recorded on closure.
