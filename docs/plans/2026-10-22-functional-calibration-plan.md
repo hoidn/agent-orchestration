@@ -111,32 +111,32 @@ task/seed and bounded spend before further observations. Do not force an orderin
 
 ### Task 1: Selected scoring workflow and canonical reader
 
-- [ ] Add the workflow above without changing historical `score_absolute.orc`.
-- [ ] Extend `experiments/compare/summarize.py` only enough to decode S0–S8 for
+- [x] Add the workflow above without changing historical `score_absolute.orc`.
+- [x] Extend `experiments/compare/summarize.py` only enough to decode S0–S8 for
   the exact single `quality` field; historical component fields remain S0–S2.
   Update `validate_task_difficulty` admission for that same exact selector;
   quality S8 must survive the canonical join and complete-denominator checks.
   Reject mixed quality/component rubrics rather than guessing their scale.
   Keep the existing positional/clone-id join and sum (one field needs no weighting).
-- [ ] Add behavioral cases in `tests/experiments/test_compare_pool_summarize.py`
+- [x] Add behavioral cases in `tests/experiments/test_compare_pool_summarize.py`
   or a focused adjacent module: endpoints/intermediate scores, unknown/out-of-range
   rejection, mismatched clones, mixed rubrics and unchanged historical component
   admission (including rejection of S3 for an old component).
-- [ ] Extend the public fake-provider smoke in
+- [x] Extend the public fake-provider smoke in
   `tests/test_workflow_evaluated_compare_score.py` to run the real new workflow,
   Sol-high binding, four natural captures and all three canonical predicates.
   Do not assert literal prompt phrasing or add a scoring framework.
-- [ ] Collect changed tests, run narrow checks and actual Bubblewrap/public CLI
+- [x] Collect changed tests, run narrow checks and actual Bubblewrap/public CLI
   smoke, then the affected suite using `pytest -q -n 16 --dist=worksteal` in tmux.
   Obtain independent code review and inspect the final diff before integration.
 
 ### Task 2: Current documentation and historical closure
 
-- [ ] Record LH completion and its rubric limitation in the report and old plan.
-- [ ] Update current routing in the measurement plan, roadmap measurement paragraph,
+- [x] Record LH completion and its rubric limitation in the report and old plan.
+- [x] Update current routing in the measurement plan, roadmap measurement paragraph,
   docs index, comparison README, capability row and concise AGENTS model policy.
   Preserve historical freezes and unrelated owner edits.
-- [ ] State the single functional score in the comparison contract, retaining
+- [x] State the single functional score in the comparison contract, retaining
   criterion-selected historical rubrics and separate later quality-launch gates.
 
 ### Task 3: Freeze and qualify the next launch offline
@@ -161,3 +161,20 @@ task/seed and bounded spend before further observations. Do not force an orderin
 | Owner requests simpler rubric | One functional 0–8 score; no independent style/scope credit |
 | Existing strict target and gap retained | Apply to `sol_low`; both tasks and full denominators required |
 | Prior 26-session cap is exhausted | Offline preparation proceeds; proposed ten further sessions remain unapproved |
+
+## Offline implementation evidence
+
+The functional workflow and exact-selector reader are implemented. The affected
+16-worker comparison suite passed 474 tests (`/tmp/compare-functional-verify-wzn07het/pytest.log`).
+Independent review found lost historical smoke coverage and an oversized module;
+the final revision restores all five historical cases alongside four functional
+cases and shortens the stale module description without compressing code. The
+final nine-case public Bubblewrap/orchestrator smoke passed in 18.03 seconds
+(`/tmp/functional-calibration-revision-20261022/public-smoke-final.log`). Changed
+modules collected 139 tests; the focused reader/difficulty/workflow checks passed
+9/5/3 respectively. Historical scoring workflows remain byte-identical.
+
+These checks use scripted providers and synthetic receipts; they establish
+software mechanics, not task difficulty, judge validity or model superiority.
+The LS1 operator has 32 passing offline checks and preserves 3,425 pinned
+historical files. Concrete runtime/command/mask qualification remains Task 3.

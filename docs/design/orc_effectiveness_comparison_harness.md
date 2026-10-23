@@ -242,10 +242,21 @@ The original apparatus deletion decision is completed history; preserved evidenc
   contain only those natural outputs; no artificial control or reference enters.
   Summarization requires every declared run and valid judge observation before
   applying the primary arm-mean gap. The selected
-  [task-difficulty plan](../plans/2026-10-22-simple-evaluation-calibration-plan.md)
+  [task-difficulty plan](../plans/2026-10-22-functional-calibration-plan.md)
   owns the models, threshold and budget. A missing observation cannot become a
   passing smaller sample. This route does not reinterpret historical controls
   or qualify structural V1/V2 and campaigns automatically.
+
+  A criterion can select `score_functional.orc`, `score_functional::score`,
+  `criteria: [quality]`, `reference: null` for one functional score S0–S8 and a
+  reason per clone. The score reflects required behavior that actually works
+  through normal entry points; scaffolding, code volume and organization earn
+  no independent points. Concrete regressions count against functional quality.
+  Only this exact single-field selector admits values through eight; historical
+  component selectors retain S0–S2, and mixed quality/component selectors refuse.
+  Existing clone-id joins and complete-denominator checks remain authoritative.
+  This scale does not reinterpret or numerically continue historical additive
+  scores, and implementation alone does not establish evaluator qualification.
 
   Evaluator control checks instead select
   `calibration: {"rule": "control-means-v1", "margin": 1, "error_rate": 0}`
@@ -475,11 +486,14 @@ The criterion names which measure is primary.
 
 ### Experiment Model Policy
 
-**Current policy.** Every experimental role is capped at Sonnet/Terra. The
-selected natural-difficulty pilot binds exact `gpt-5.6-luna` and `gpt-5.6-terra`
-high and forbids Claude and native delegation. The generic guard retains
-`claude-sonnet-5-5` for legacy callers, defaults Codex to Terra, and admits Luna
-only through an explicit per-run binding. Fable, higher models and unknown IDs refuse.
+**Current policy.** Experiment roles default to the owner's Sonnet/Terra cap.
+The owner-selected functional calibration binds exact `gpt-5.6-luna` high and
+`gpt-6.1-sol` low coders, with `gpt-6.1-sol` high judges, and forbids Claude and
+native delegation. That exception is scoped to the selected protocol, not a
+general increase or spend approval. The generic guard retains
+`claude-sonnet-5-5` for legacy callers, defaults Codex to Terra, and admits exact
+Luna or Sol 6.1 only through an explicit per-run binding. Fable, other higher
+models and unknown IDs refuse.
 Both guarded CLI names enforce the cap; Claude native agents are pinned to Sonnet,
 Codex native multiagent features and independent model-dispatch routes refuse.
 Actual forbidden Claude/Codex session metadata produces non-clearable scan hits.
