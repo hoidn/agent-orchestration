@@ -4,8 +4,9 @@ Role: selected implementation and authorized execution plan; generation underway
 tests whether natural solutions from a weaker agent score noticeably below those
 from a stronger agent, without deliberately introduced flaws. The owner's latest
 instruction offered “either luna low and luna high or luna and sol6.1”. The
-coordinator selected **the same Luna model at low versus high effort**. Sol 6.1
-is not selected. Higher effort is an experimental treatment, not a guarantee of
+coordinator selected **the same Luna model at low versus high effort**. The owner
+subsequently selected **`gpt-6.1-sol` high as the blind judge**, before any
+judging; Sol is not a coder arm. Higher effort is an experimental treatment, not a guarantee of
 better output; the fixed qualification rule may still fail.
 
 Current status: all sixteen previously authorized sessions are consumed. TD2 captured all
@@ -37,18 +38,20 @@ Effort is the sole treatment difference. Use fresh repositories and independent
 runs: none of TD/TD2's known Luna-high outputs or scores becomes a new sample.
 Keep those outputs as descriptive history, without relabeling their arms.
 
-One **Terra-high** blind judge per task still scores its four randomly ordered
-clones in one batch. Both experimental coder arms are Luna; Terra is not a coder
-arm in this contrast. Conceal arm/model/effort provenance and use the existing
+One **Sol 6.1 high** blind judge per task scores its four randomly ordered
+clones in one batch, following the owner's “change it to sol 6.1 high” instruction
+before any judging. Both experimental coder arms remain Luna. Conceal arm/model/effort provenance and use the existing
 independent completeness, correctness, scope and layering rubric, 0–2 each and
-0–8 total, without a reference or artificial controls. The sole primary rule is:
+0–8 total, without a reference or artificial controls. The original frozen
+criterion's separation component is:
 
 `luna_high.minus_control >= 2`
 
 That is `mean(Luna high) - mean(Luna low) >= 2` on **each** task. Retain exactly
 two original observations per arm and all individual scores. Missing, invalid
 or excluded evidence cannot shrink the denominator or produce PASS. Both tasks
-must pass to qualify the set; neither expected model strength nor observed
+must pass all three supplementary target predicates below to qualify the set;
+neither expected model strength nor observed
 scores justify changing the threshold, excluding a task or correcting a rating.
 No hidden tests, synthetic defects, retained fillers, retries, replacements or
 orchestrated improvement loops enter this pilot. Coders may use their visible
@@ -60,6 +63,48 @@ effort receipt, and contamination decision for every original attempt. Do not
 fabricate a result envelope or repair a failed attempt. The earlier amendment
 and TD/TD2 outcomes remain historical; a new criterion must declare this intake
 prospectively before any new call.
+
+### Supplementary difficulty target (before any judging)
+
+During generation, before any judge call or quality score, the owner instructed:
+
+> (let's let the calibration target score for high be >3, <5; if out of range (/8) difficulty must be adjusted. iteration until success)
+
+Interpret the target as the **mean of the two high-effort scores per task**,
+strictly between three and five out of eight. Retain the already declared
+separation rule. Final task qualification requires all three predicates on
+each task:
+
+- `luna_high.minus_control >= 2`;
+- `luna_high.mean > 3`;
+- `luna_high.mean < 5`.
+
+Means exactly three or five fail. Do not alter the running operator, runtime,
+original criterion, 850-file generation packet, candidate outputs or blind
+rubric. After independent review and before either judge starts, freeze a
+supplementary target receipt bound to both the original generation criterion,
+the new Sol analysis criterion and the exact instruction above. Bind that receipt, the small reporting helper and its
+offline self-checks as extra files in the future judging packet.
+
+The separately frozen analysis operator produces a canonical gap-only combined
+readout, retaining the original generation runtime alongside its analysis runtime.
+A separate post-canonical helper must use the existing `summarize.verdict` on
+those unchanged canonical measures and report all three target predicates for
+both complete tasks. Bind the input readout, source and target identities;
+missing, invalid or excluded observations cannot produce PASS. Preserve the
+original scores and gap-only report: that report alone is no longer the final
+qualification under the supplementary instruction.
+
+Report adjustment direction per task: high mean at least five is `too_easy`
+(make the natural task harder); at most three is `too_hard` (make it easier).
+Within the open interval but with gap below two, report
+`insufficient_separation`; otherwise report `qualified`. Iterate natural task
+design until the target is met, preserving each iteration's original results
+and freezing its task/seed changes and target before new observations. Do not
+manufacture defects, change scores, reinterpret prior outputs or relax the
+target to force success. The current ten sessions remain within the authorized
+overall cap twenty-six. This instruction supplies no extra provider budget;
+any needed subsequent iteration must first have a concrete bounded budget.
 
 ### Minimal offline work before preparation or spend
 
@@ -97,10 +142,10 @@ prospectively before any new call.
   child and failed start; refuse Claude/Fable, native delegation and unexpected
   models/efforts. No automatic retries or replacements.
 - [ ] Audit integrity before canonical joins and report each task's actual
-  outcome, original delivery failures and metered consumption. A Terra judge
+  outcome, original delivery failures and metered consumption. A Sol judge
   does not establish an unbiased measure; two samples per arm remain a pilot,
-  and higher Luna effort need not earn a higher score. Unknown Luna prices stay
-  unavailable, not zero. No ORC-benefit or quality–cost Pareto claim follows.
+  and higher Luna effort need not earn a higher score. Unknown Luna and Sol prices
+  stay unavailable, not zero. No ORC-benefit or quality–cost Pareto claim follows.
 
 ### Frozen offline preparation (no provider starts)
 
@@ -125,14 +170,18 @@ the original runtime, criterion and prior evidence remain immutable.
 ### Authorized budget and chronological decision ledger
 
 The owner approved **ten new sessions**: eight fresh generations and two
-Terra-high judges, within an overall cap of **twenty-six** including the sixteen
+blind judges, within an overall cap of **twenty-six** including the sixteen
 spent historical starts. The verbatim reply “i authorize” is recorded in
 `/home/ollie/sc-evidence/LH-20261022/owner-approval-generation.json`, SHA256
 `1db714f1b92c34f252618c95215843ee2ca53457d5c90fa8a2c5453ce5a48c01`.
 It binds the unchanged criterion and generation packet. The same answer covers
 the later derived judging packet; no further permission question is required
 for those two judges. The criterion's frozen pending-status field preserves its
-pre-approval snapshot; this separate approved record is operative. Earlier
+pre-approval snapshot; this separate approved record is operative. The later
+explicit Sol-high selection changes only the two prospective judges, not their
+number or the approved cap. Freeze a separate analysis criterion/runtime/operator
+and packet before judging; preserve the running generation freeze and all
+original generation commands, masks and observations. Earlier
 pending decisions below remain the preparation chronology.
 
 | Decision | Consequence |
@@ -142,6 +191,8 @@ pending decisions below remain the preparation chronology.
 | Preserve the apparatus findings and spent budget | Finish the offline environment/effort corrections first. Keep TD/TD2 protocols, raw results and partial readout unchanged; ten additional sessions and overall cap twenty-six remain pending owner approval. No campaign or Phase 2 work is selected |
 | LH offline preparation and independent packet review completed | Freeze runtime `fa057b59`, criterion `ffde67d9`, operator `dd4f8ece` and 850-file generation packet `7126fe64`; eight public dry runs, eight sandbox/fake-CLI checks, 28 self-checks and zero-start preflight passed. Budget approval and all provider execution remain pending |
 | Owner replied “i authorize” on 2026-10-23 UTC | The bound approval above authorizes all eight fresh generations and two sequential Terra-high judges, cap twenty-six including sixteen historical starts. Generation launched in `sc-lh-generation`; the initial RPI Luna-low runs are `20261023T004805Z-5xwueb` and `20261023T004805Z-lbgr1g`. Execution and integrity/readout checkboxes remain open; no completion or quality result is claimed |
+| Owner adds a strict high-score target before any judging | Freeze a supplementary receipt with `3 < luna_high.mean < 5` and the unchanged gap ≥2 for both tasks; bind receipt/helper/tests to the judging packet. Preserve the running freeze and original gap-only report, then derive final qualification without rescoring. Adjust natural difficulty and iterate until success; later iterations need their own concrete bounded spend, not an inferred cap increase |
+| Owner: “change it to sol 6.1 high” before any judge starts | Select exact `gpt-6.1-sol` at high effort for both blind judges. Preserve the Luna generation freeze and treatment; separately review and freeze the Sol-enabled analysis runtime/criterion/operator, supplementary target and judging packet. The same two judge calls remain within cap twenty-six; no further spend is inferred |
 
 ## Historical TD/TD2 model contrast and frozen design
 
