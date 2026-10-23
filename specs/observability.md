@@ -193,16 +193,17 @@ derives solely from the validated `.orc` executable and `state.json`.
     result content remain sidecar evidence and never report authority.
 
 - Workflow monitor notifications
-  - `orchestrator monitor` is a read-only observer over configured workspace roots. It scans `.orchestrate/runs/*/state.json` and must not mutate `state.json`, reconcile run status, resume runs, kill processes, or execute workflow control.
+  - `orchestrator monitor` is a read-only observer over configured workspace roots. It enumerates run directories under `.orchestrate/runs/` and must not mutate `state.json`, reconcile run status, resume runs, kill processes, or execute workflow control.
   - Monitor event kinds are:
+    - `SUSPENDED`: an evaluated authoritative view has an active durable host request; this intentional stop takes precedence over crash classification, regardless of whether a writer still holds the lock.
     - `COMPLETED`: persisted `state.status` is `completed`.
     - `FAILED`: persisted `state.status` is `failed`.
     - `CRASHED`: persisted `state.status` is `running`, and run-local process metadata confirms the original process identity is no longer alive.
     - `STALLED`: persisted `state.status` is `running`, and the active execution cursor heartbeat or fallback `state.updated_at` is older than the configured stale threshold.
-    - For an evaluated run (profile `evaluated_execution.v1`) the monitor detects the profile from `state.json` and then rebuilds the run's view from its memo, program and writer lock (`run.lock`): `CRASHED` is that view's `interrupted` status (no writer holds `run.lock` and the run has not ended), and `STALLED` is not emitted. The process-identity and heartbeat rules apply to historical flat-route runs.
+    - For evaluated authority (profile `evaluated_execution.v1`) the monitor selects the checked header/program/memo route independently of `state.json`, even when that derived file is missing or malformed. It reconstructs the view with the writer lock (`run.lock`): `CRASHED` is that view's `interrupted` status (no writer holds `run.lock` and the run has not ended), and `STALLED` is not emitted. The state-file, process-identity and heartbeat rules apply only to historical flat-route runs. Malformed evaluated authority surfaces a read error and never falls back to historical state.
   - Freshness classification must prefer the deepest active execution cursor heartbeat, including heartbeats in running reusable call frames, over root `state.updated_at`.
   - A live PID alone is not sufficient process identity. When process identity cannot be confirmed, the monitor must fall back to heartbeat/stale classification rather than suppressing notifications.
-  - The notification ledger is external to watched repositories by default and de-duplicates by resolved workspace path, run directory id, and event kind.
+  - The notification ledger is external to watched repositories by default and de-duplicates by resolved workspace path, run directory id, and event kind; `SUSPENDED` additionally includes exact `request_id`, so sequential requests notify separately and repeated scans do not. Existing event keys and ledger entries retain their meaning.
   - Email bodies must use bounded run-local log previews, exclude prompt audits and provider-session transport logs by default, and redact configured SMTP secrets plus simple secret-looking key/value lines.
   - v2.2 lowered structured-control nodes appear in snapshots as ordinary top-level entries:
     - branch markers use kind `structured_if_branch`
@@ -441,3 +442,37 @@ On step failure, record a structured error object similar to:
 
 - `--progress` renders `[n/N] StepName: Running (Xs)...` and loop progress `[i/total]`.
 - State includes: step duration, wait duration, provider time, and file I/O metrics where applicable.
+
+## Evaluated Host-Input Observation (Target 2.40)
+
+Checked program/header and memo own request/report/dashboard meaning. Pending
+readers validate complete answer/reply contracts and active lineage against
+the checked request site without source compilation, repair or publication.
+Missing/stale request view files are harmless; malformed evaluated authority
+fails closed rather than falling back to historical readers.
+
+A durable suspension projects `status: suspended` before generic running or
+no-writer/interrupted states, even while its publisher holds the lock. No
+terminal is appended. `pending_host_input` is the frozen payload plus effect
+`identity`, `attempt`, conventional `result_path` and observational
+`deadline_elapsed` while a request is suspended; the field is absent otherwise.
+It includes exact request ID, rendered question,
+answer/reply contracts, evidence paths/hashes and frozen deadline. A deadline
+elapsed in wall-clock time is not a committed `EXPIRED` result; only resume
+writes expiration. Host answer/cancel commits leave the run `interrupted`,
+requiring explicit resume, and committed request effect rows expose typed
+`value`, `host_reply` provenance and `host_settlement` attribution. Exact fields
+are owned by [State](state.md#evaluated-durable-host-input-target-240).
+
+Reports and dashboard remain read-only and expose no settlement endpoints.
+Runtime workflow attribution for Python-authored runs is the retained generated
+`.orc` in `workflow_file`; effect/request and reply attribution use the ordinary
+evaluated rows. The original Python declaration/line lives in the retained
+supplementary `source_map.json` and initial mapped compiler diagnostics, not a
+new runtime source-map reader or execution authority.
+
+Monitor `SUSPENDED` email includes request ID, deadline and inspection,
+answer/cancel and resume command shapes. It excludes question/evidence bodies,
+attestation strings and suspension log previews. The monitor never settles,
+expires or resumes the run and uses existing delivery configuration; there is
+no notification daemon or selected live-mail acceptance requirement.

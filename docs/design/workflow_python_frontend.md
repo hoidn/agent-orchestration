@@ -1,19 +1,22 @@
 # Python Authoring For Evaluated Workflows
 
-- **Kind:** frontend architecture and bounded authoring contract
+- **Kind:** current frontend architecture and bounded authoring contract
 - **Target:** DSL 2.40, emitted through the existing Workflow Lisp compiler
 - **Runtime owner:** [evaluated execution](workflow_lisp_evaluated_execution.md)
 - **Host input owner:** [durable host input](workflow_lisp_durable_host_input.md)
 
-This design selects the Python authoring subset needed for typed
-diagnose/approve/recover workflows. Implementation status and evidence belong
-in the implementation plan. Python `ask` is native authoring in this subset;
+This design owns the bounded Python authoring subset for typed
+diagnose/approve/recover workflows, integrated with the [frontend baseline](workflow_lisp_frontend_specification.md)
+and [normative CLI](../../specs/cli.md#python-authoring). The
+[drafting guide](../python_workflow_drafting_guide.md) owns executable authoring
+instructions; implementation status and evidence belong in the
+[delivery plan](../plans/2026-10-22-durable-host-input-plan.md). Python `ask` is native authoring in this subset;
 it does not call the external `orchestrator.host_input.answer` API or block a
 Python process waiting for a person.
 
 ## Decision And Owners
 
-Add `orchestrator.py` as a Python package with public exports in
+`orchestrator.py` is the bounded Python package with public exports in
 `orchestrator/py/__init__.py`. Its tracer records a small typed expression and
 declaration graph, emits ordinary `.orc`, and submits that source plus supplied
 ordinary extern manifests to `workflow_lisp/closed/artifact.py`'s
@@ -60,7 +63,7 @@ The package exports these functional surfaces, all backed by emitted Lisp:
 | `ask` | Emits target-2.40 `request-input`; returns symbolic `HostReply[A]` |
 | `build` | Traces and compiles a selected workflow, returning the generated source and checked build result |
 
-Return annotations may be accepted as shorthand for `returns=`, but conflicting
+Return annotations are accepted as shorthand for `returns=`, but conflicting
 annotations/decorator arguments fail rather than silently choosing one. Effects
 are omitted by default; `effects=[]` is a pure restriction and
 `effects=[host_input]` admits the subject-free effect. Provider/command effect
@@ -74,7 +77,9 @@ strings or paths. `HostReply` is an imported/reexported descriptor for
 
 `@proc`/`@workflow` decorators register declarations and retain their callable
 bodies without running them. Trace begins only at explicit `build` or CLI check/build/run,
-after the source module has finished importing. Forward references to helpers
+after the source module has finished importing. Parameters must be annotated
+and required; defaults, positional-only parameters and variadic arguments refuse.
+Forward references to helpers
 declared later in the module therefore work. The build discovers reachable
 procedure declarations, traces each once with typed symbolic parameters and
 emits definitions plus call expressions. Recursive call graphs retain the
@@ -266,8 +271,9 @@ retain the ordinary content-bound input/replay semantics. No source file is
 opened merely because a prompt argument happens to contain a path-like string.
 
 `build` emits a content-addressed bundle beneath
-`.orchestrate/generated/<module>/<digest>/`: entry `.orc` and a
-Python-to-generated-source map. Explicit supplied extern manifests remain
+`.orchestrate/generated/<entry>/<digest>/`: `<entry>.orc` and
+`source_map.json`, where entry is the selected workflow name, not the author
+Python filename. Explicit supplied extern manifests remain
 ordinary build inputs and retain their existing mutation/resume semantics;
 there is no generated provider/default binding manifest. The digest covers
 emitted source, canonical source-map bytes, emitter schema/version and any
@@ -343,13 +349,12 @@ Those require their own authoring contracts. Existing Lisp workflows retain
 their independently admitted features. Every name advertised above must work
 through emitted source; an unsupported type/option fails clearly at build.
 
-Before accepting the frontend, a small executable fixture must prove that a
-traced `@proc` returning `HostReply[Approval]`, a lazy typed `match`, a provider
-diagnosis and a command continuation compile through the real closed-program
-builder. This is a required implementation feasibility check, not a claim that
-the nonexistent Python frontend is already proven. If that shape requires new
-semantics below the emitter beyond the accepted host-input effect, revise this
-design before expanding the frontend.
+Frontend acceptance requires an executable fixture proving that a traced
+`@proc` returning `HostReply[Approval]`, a lazy typed `match`, a provider diagnosis
+and a command continuation compile through the real closed-program builder.
+The delivery plan owns the evidence, rather than this architecture claiming
+universal feasibility. Any extension requiring semantics below the emitter
+beyond the accepted host-input effect requires design revision before expansion.
 
 Tests must cover declaration-before-helper ordering, deterministic repeated
 builds, comment/line-only edits with correct source-map identity, exact
@@ -361,7 +366,9 @@ resume with scripted providers. Assert the same semantic outcomes and call
 counts for APPROVED, DENIED, CANCELLED and EXPIRED; program digests need not be
 identical because nominal/source identities differ. Delete/change the original
 Python file before resume to prove it is not imported. Preserve declaration,
-effect, request and original/generated source attribution in the test report.
+effect, request and generated-source attribution in runtime reports, with original
+Python declaration/line attribution in initial compiler diagnostics and retained
+source-map evidence. Runtime report/dashboard readers do not load that map.
 
 No live provider spend is required. Document the selected API, trusted build-time
 Python model, prompt snapshot distinction, retained generated inputs and native

@@ -10,7 +10,7 @@
 - **Created:** 2026-10-12
 - **Last material update:** 2026-10-15
 - **Related docs / issues / plans:** [Execution plan](../plans/2026-10-12-workflow-lisp-repl-plan.md), [introspection design](workflow_lisp_repl_introspection.md), [introspection plan](../plans/2026-10-12-workflow-lisp-repl-introspection-plan.md), [evaluated execution](workflow_lisp_evaluated_execution.md), [frontend baseline](workflow_lisp_frontend_specification.md)
-- **Implementation target:** admitted evaluated source at DSL 2.35–2.39; 2.39 adds restriction/inference inspection without effect evaluation
+- **Implementation target:** admitted evaluated source at DSL 2.35–2.40; 2.39 adds restriction/inference inspection without effect evaluation
 
 ## Summary
 

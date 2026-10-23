@@ -2,12 +2,12 @@
 
 ## Metadata
 
-- **Status:** implemented current introspection contract at admitted evaluated targets 2.35–2.39
+- **Status:** implemented current introspection contract at admitted evaluated targets 2.35–2.40
 - **Kind:** feature
 - **Owner:** Workflow Lisp frontend and CLI maintainers
 - **Reviewers:** Independent design and implementation reviewers
 - **Created / last material update:** 2026-10-12
-- **Implementation target:** admitted evaluated REPL targets 2.35–2.39; 2.39 restriction/inference inspection follows the definition-origin contract
+- **Implementation target:** admitted evaluated REPL targets 2.35–2.40; 2.39 restriction/inference inspection follows the definition-origin contract
 - **Related:** [REPL design](workflow_lisp_repl.md), [execution plan](../plans/2026-10-12-workflow-lisp-repl-introspection-plan.md)
 
 ## Summary And Scope

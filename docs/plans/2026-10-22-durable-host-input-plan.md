@@ -12,6 +12,15 @@
 
 ## Role, authority and selection
 
+**Integration update:** The owner noted that `main` now contains a separately
+merged native Python frontend (`67744139`, observed main `27bcc7e3`). This
+postdates this worktree's base. Tasks 1–5 below retain their captured evidence,
+but the bounded Python emitter is not the selected final frontend: integrate
+with the existing main package, add `ask`/canonical `HostReply` there, and remove
+duplicate implementation and conflicting guidance. Preserve main's existing
+API and retention/frozen-build guarantees. Final closeout remains open pending
+that design/plan revision, implementation and new integration verification.
+
 This is the selected implementation plan and decision/evidence ledger. It is
 not current runnable guidance until its implementation and verification steps
 are complete. The behavioral owners are
@@ -415,7 +424,7 @@ cross-layer/adversarial coverage. No synthetic provider-quality comparison.
 **Test files:** New `tests/test_workflow_host_input_e2e.py`; extend the new
 recovery/host/Python test modules and fixture helper from prior tasks.
 
-- [ ] Complete matching maintained Lisp and Python diagnose/approve/recover
+- [x] Complete matching maintained Lisp and Python diagnose/approve/recover
   examples, all provider/command declarations and manifests, a recording
   provider stub, a verification command before approval and an action command.
   The request uses the verification command's typed cause/evidence output.
@@ -423,19 +432,19 @@ recovery/host/Python test modules and fixture helper from prior tasks.
   identity, not call count, so retry/replay evidence is interpretable. Stub
   commands produce a typed Outcome and record repair/escalation invocation.
   Include typed shown evidence and prompt docs in dedicated variants.
-- [ ] Parametrize the public CLI integration across Lisp/native Python and
+- [x] Parametrize the public CLI integration across Lisp/native Python and
   APPROVED, DENIED, CANCELLED, EXPIRED. Run, inspect pending through API/CLI,
   settle through the other door, resume, then resume again. Assert repair only
   for ANSWERED(APPROVED); all other branches escalate with typed outcomes.
   Diagnosis runs once, command counts are exact, and no action runs before
   settlement. Compare semantic outcomes/contracts, not nominal program digest.
-- [ ] Exercise two visits of one loop site and two procedure activations in
+- [x] Exercise two visits of one loop site and two procedure activations in
   Lisp; assert distinct request IDs and correct request-to-activation mapping.
   Repeated pending resume keeps identity. Cover same-memo workflow calls,
   transitive imported/proc-ref effect rejection under parallel and child
   run-ref before any child launch, and parallel work adjacent to a serial ask
   where the existing parallel contract admits it.
-- [ ] Use existing recovery gate patterns from
+- [x] Use existing recovery gate patterns from
   `tests/workflow_evaluated_recovery_helpers.py` and
   `tests/test_workflow_evaluated_resume_kills.py`; add only request-specific
   gates. Kill a subprocess after durable start/before attempt creation,
@@ -444,23 +453,23 @@ recovery/host/Python test modules and fixture helper from prior tasks.
   the same attempt and produce exactly one authoritative settlement; missing
   request/reply/result views never change the answer. Use markers and bounded
   timeouts, never timing-only sleeps as ordering evidence.
-- [ ] Test concurrency with real separate-process writer locks and a
+- [x] Test concurrency with real separate-process writer locks and a
   controlled clock: answer-before-deadline wins; late answer leaves request
   pending; resume at the exact deadline expires; a waiting/late mutation cannot
   backdate a reply or replace expiration. A read observes deadline elapsed
   without changing memo. Assert every conflict/invalid reply preserves bytes,
   including a preexisting torn tail.
-- [ ] Cover changed/missing/unreadable show evidence, explicit accepted drift,
+- [x] Cover changed/missing/unreadable show evidence, explicit accepted drift,
   post-commit show-only changes, independent doc/producer divergence, unsafe
   path substitution and forged memo provenance. Cover invalidation of an
   earlier commit retiring a later pending request and invalidation/reissue of
   an answered request. Old IDs never settle the new attempt. Preserve existing
   coordinator/session invalidation refusals.
-- [ ] Exercise all read/notification surfaces against missing/stale views,
+- [x] Exercise all read/notification surfaces against missing/stale views,
   two sequential requests and settled/expired outcomes. Verify generated and
   original Python source attribution without making source maps runtime
   authority. No test sends real email or calls a paid provider.
-- [ ] Collect new/renamed modules and run the public integration smoke in tmux:
+- [x] Collect new/renamed modules and run the public integration smoke in tmux:
 
   ```bash
   python -m pytest --collect-only -q tests/test_workflow_host_input_e2e.py tests/test_workflow_evaluated_host_input_recovery.py
@@ -471,7 +480,7 @@ recovery/host/Python test modules and fixture helper from prior tasks.
   fixtures without duplicate dispatch or weakened replay. Record the exact
   smoke selector, exit status, branch counts and log; this is the required
   orchestrator end-to-end smoke, not a compiler-only substitute.
-- [ ] Obtain independent review, record evidence, and commit owned files with
+- [x] Obtain independent review, record evidence, and commit owned files with
   `test: prove durable approval parity and crash recovery`.
 
 ## Task 6: Contracts, current guidance and integrated closeout
@@ -479,14 +488,18 @@ recovery/host/Python test modules and fixture helper from prior tasks.
 **Role/artifact:** Revision / contracts, guides and plan evidence; coordinator
 owns final diff and verification. New architecture decisions return to Design.
 **Dependencies:** Working Tasks 1–5, their reviews and fresh smoke evidence.
+Stable contract/guide revision may proceed alongside Task 5 after Tasks 1–4
+are reviewed; final example validation, status claims and closeout still wait
+for Task 5's completed smoke and independent review. Documentation and example
+writers have disjoint ownership; the coordinator reconciles their final output.
 
-- [ ] Reconcile normative DSL/state/CLI/IO/security/observability/versioning
+- [x] Reconcile normative DSL/state/CLI/IO/security/observability/versioning
   contracts with the exact implemented target 2.40 behavior: class/row fields,
   typed answer restrictions, suspension/exit behavior, API attribution,
   deadlines, host mutation/idempotency, safe evidence override and invalidation.
   Correct evaluated-execution's previous suspended refusal and frontend rules
   without rewriting historical HumanReply sections as current behavior.
-- [ ] Update capability/design/index routing for 2.40 and bounded Python
+- [x] Update capability/design/index routing for 2.40 and bounded Python
   authoring. State implementation and deterministic verification separately
   from live-provider qualification; do not change unrelated open gates. Keep
   target ranges accurate at the maintained entry points and preserve
@@ -495,7 +508,10 @@ owns final diff and verification. New architecture decisions return to Design.
   `README.md`, `docs/architecture_overview.md`, `prompts/README.md`, and the
   maintained value/continuation and REPL designs where they state the current
   maximum target or sole authoring frontend. Preserve historical ranges.
-- [ ] Add the Python drafting guide and the Lisp/library host-input recipes;
+  Register the nested approval example in the existing route-readiness registry
+  with its public parity selector and explicit local-stub prerequisites; the
+  workflow catalog remains a view of that ordinary registry entry and evidence.
+- [x] Add the Python drafting guide and the Lisp/library host-input recipes;
   include complete executable approval examples, manifest/provider
   prerequisites, JSON settlement commands, report/monitor usage and explicit
   resume. Document trusted build-time Python, lazy branches, supported names,
@@ -503,7 +519,7 @@ owns final diff and verification. New architecture decisions return to Design.
   unsupported Python surfaces. Update lifecycle, monitoring, workflow catalog
   and tests routing. Keep chronology/results in this plan, not maintained
   contracts or guides.
-- [ ] Check links and examples against files and the actual CLI. Ensure no
+- [x] Check links and examples against files and the actual CLI. Ensure no
   placeholder APIs, duplicate nominal HostReply, retired execution path,
   `invalidate --from` spelling, provider polling or dashboard mutation appears
   in current guidance. Record any documentation test constraints honestly;
@@ -538,6 +554,7 @@ owns final diff and verification. New architecture decisions return to Design.
 | 2026-10-22 | One outstanding serial request; reject transitive par-map and child run-ref. | No parent/child suspension coordinator or multiple-pending policy is selected; same-memo procedures/calls and serial loops are supported. |
 | 2026-10-22 | Full frozen payload in started; show bytes are presentation evidence. | Recover start-to-suspension crash gaps and retain accepted drift across resume without bypassing semantic docs/producers. |
 | 2026-10-22 | Sol 6.1 high for compiler/runtime/Python; Luna 6 xhigh for bounded hosts/tests. | Existing interfaces span multiple owners; user policy permits escalation for cross-cutting implementation. |
+| 2026-10-22 | Reuse the independently merged Python frontend from main. | Owner steering after Tasks 1–5; retain the evaluated host protocol, replace the duplicate authoring implementation, preserve existing main API and rerun parity/recovery. |
 | 2026-10-22 | No provider or live notification spend. | Deterministic external stand-ins suffice for functionality/recovery; no quality comparison or spend is authorized. |
 | 2026-10-22 | Python enum matches emit existing typed equality/if; union matches emit Lisp match. | Lisp match currently admits unions only; exhaustive enum callbacks need no new core construct. |
 | 2026-10-22 | Python path constructors take a child relative to the declared root. | Reuse public path/join-under and its validation; do not expose private path seeds or add implicit full-path conversion. |
@@ -603,6 +620,27 @@ owns final diff and verification. New architecture decisions return to Design.
   CLI/shared-owner diffs, fresh logs and clean diff before committing. Native
   feasibility includes actual provider/command stand-ins, HostReply through a
   forward procedure, settlement and repeated resume with exact dispatch counts.
-- Task 5 public paired examples and real-process crash/race checks are active;
-  the initial Python feasibility check does not replace that full campaign.
+- Task 5 completed in `be934929` after independent SPEC and QUALITY approval.
+  The exact required combined public smoke selector passed **90 tests in
+  36.65s**, exit 0, `/tmp/task5-host-input-final.log`; fresh collection of the
+  new public module plus existing recovery module found **64 tests**. The 26
+  new public cases cover both frontends and all four outcomes, one static site
+  across four loop/call activations, same-memo imported calls, adjacent parallel
+  work, real SIGKILL at start/suspension/reply/continuation boundaries and a
+  separate-process lock with controlled exact-deadline races. Existing compiler,
+  runtime, recovery and reader suites supply adversarial contracts, evidence
+  overrides, invalidation, privacy and stale-view coverage without cloning it.
+  A final wording-assertion removal passed its same-memo selector (**1 test in
+  12.10s**); fixture/runtime behavior did not change. Root inspected the full
+  examples/tests, fresh smoke log and clean diff before commit.
+- Task 6 contracts/guides received independent SPEC and QUALITY approval.
+  Exact provider-free Python and Lisp guide recipes completed with typed
+  settlement, resume/repeated resume and report; logs are
+  `/tmp/task6-python-guide.log` and `/tmp/task6-lisp-guide.log` (exit 0).
+  The paired example's Lisp APPROVED and Python DENIED shell recipes also ran
+  successfully. CLI spellings were checked against actual help, **102 new local
+  links** across 28 owned Markdown files resolved, and the two route-readiness
+  registry validation selectors passed (**2 tests in 2.57s**). The registry
+  retains local-stub prerequisites and does not imply paid or LSP qualification.
+  Final broad affected-suite verification and integrated review remain pending.
 - No provider-quality result or live-provider qualification is claimed.

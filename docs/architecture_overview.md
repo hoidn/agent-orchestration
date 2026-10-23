@@ -86,7 +86,7 @@ Public compilation and execution use admitted evaluated targets: 2.35/2.36,
 bounded 2.37 parallel-map support, and bounded 2.38 Agent Sessions and command-only
 confined run references. Target 2.39 adds inferred procedure effects with
 optional restrictions and compiler-owned lowering, using the same runtime.
-Source compilation, imports and editor analysis require targets 2.35–2.39;
+Source compilation, imports and editor analysis require targets 2.35–2.40;
 historical data readers do not admit older source. Public confined providers
 remain gated. The
 [evaluated design](design/workflow_lisp_evaluated_execution.md) owns that model;
@@ -94,9 +94,12 @@ the [flat-route retrospective](reports/2026-10-13-flat-route-retirement-retrospe
 records the retired predecessor. The [capability matrix](capability_status_matrix.md)
 owns current availability, copy-safety and remaining gates for each surface.
 
-Workflow Lisp is the only fresh authoring frontend. If the required form is not
-implemented, record a capability gap rather than creating a lower-level or YAML
-workaround. Historical YAML/YML sources remain translation and evidence inputs,
+Workflow Lisp and the [bounded Python frontend](python_workflow_drafting_guide.md)
+author the same checked programs. Python traces at explicit build time and emits
+retained `.orc`; it adds no executor or Python continuation state. Target 2.40
+adds serial typed host requests, settled externally and consumed by ordinary
+resume. If the required form is not implemented, record a capability gap rather
+than creating a lower-level or YAML workaround. Historical YAML/YML sources remain translation and evidence inputs,
 not executable workflows.
 
 ## Next Reading

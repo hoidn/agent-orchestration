@@ -20,8 +20,9 @@ three extend existing composition paths; the last two genuinely add provider or
 host interaction and must not be described as syntax-only fixes.
 
 This design owns the union-input and rich-loop deltas, the incremental dependency
-boundaries, and the historical minimal human-input target; no evaluated
-host-input port is selected. It consumes, rather than replaces,
+boundaries, and the historical minimal human-input target. Current target-2.40
+[host input](workflow_lisp_durable_host_input.md) is a separate evaluated contract
+using generic `HostReply[A]`; portable context capture remains excluded. It consumes, rather than replaces,
 the existing [pure-call design](workflow_lisp_pure_call_composition.md) and
 [provider-context design](workflow_lisp_provider_context_values.md). Consumer
 rendering remains owned by the
@@ -52,7 +53,7 @@ limits are preferable to claiming uniformity before the relevant paths work.
 | Loop carriage | Target 2.29 carries rich lists through state, recursive exhaustion exits and committed-boundary resume. Older targets retain their original limits. |
 | Prompt consumption | Target 2.28 now admits whole closed unions and eligible lists through the [existing renderer](../../orchestrator/workflow_lisp/typed_prompt_inputs.py), including imported private returns and resumed consumption. Below 2.28 the previous boundary remains. This does not admit every result type as a prompt input. |
 | Helper expressions | Target 2.30 composes resolved inline effect-free helpers through expression positions; private/effectful or unrepresentable calls retain explicit placement requirements. |
-| Conversation | Historical targets 2.31/2.32 implemented portable capture and host input on the retired route. Current evaluated execution excludes capture/host input; [Agent Sessions](workflow_lisp_agent_sessions.md) has a separate bounded 2.38 contract. |
+| Conversation | Historical targets 2.31/2.32 implemented portable capture and host input on the retired route. Current evaluated execution excludes capture; target-2.40 [host input](workflow_lisp_durable_host_input.md) has a separate contract; [Agent Sessions](workflow_lisp_agent_sessions.md) has a separate bounded 2.38 contract. |
 
 Current-target probes established rich-list transport and pure-map typechecking,
 not full runtime traversal. Do not describe all record/union lists as unsupported
@@ -463,7 +464,7 @@ prerequisite or a substitute for expression composition.
 <a id="increment-5-one-human-question-as-a-host-interaction"></a>
 <a id="reviewed-preparation-contract"></a>
 
-Portable context capture (2.31) and host input (2.32) are historical execution contracts. `request-input`, `input answer` and `input cancel` cannot be launched or settled in the current package; see [CLI admission](../../specs/cli.md) and [retirement](workflow_lisp_executor_retirement.md). No evaluated capture/host-input port is selected. See the [preserved record](../reports/documentation-history/workflow_lisp_value_and_continuation_composition-history.md#increment-4-portable-provider-context-before-native-continuations).
+Portable context capture (2.31) and host input (2.32) are historical execution contracts. Their target-2.32 `request-input`, `input answer` and `input cancel` lifecycle cannot be launched or settled in the current package; see [CLI admission](../../specs/cli.md) and [retirement](workflow_lisp_executor_retirement.md). Portable capture remains excluded. Target-2.40 [durable host input](workflow_lisp_durable_host_input.md) is a separate evaluated contract using generic `HostReply[A]`; it does not reactivate the historical fixed reply or context capture. See the [preserved record](../reports/documentation-history/workflow_lisp_value_and_continuation_composition-history.md#increment-4-portable-provider-context-before-native-continuations).
 
 ## Compatibility, Proof, And Consequent Simplification
 

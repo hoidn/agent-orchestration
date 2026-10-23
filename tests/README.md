@@ -133,7 +133,35 @@ pytest tests/test_demo_provisioning.py tests/test_demo_nanobragg_provisioning.py
   use their explicit retained reader contracts. Do not parse agent prose.
 
 ## Examples
-- Current workflow E2E examples use the same `.orc`-only
-  frontend contract as production. Start new workflow fixtures from the
+- Current workflow E2E examples use admitted `.orc`, or bounded native Python
+  emitting retained `.orc` into the same checked compiler/runtime. Start new workflow fixtures from the
   [Workflow Lisp drafting guide](../docs/lisp_workflow_drafting_guide.md) and
   registry-approved `.orc` examples rather than historical YAML flows.
+
+## Target 2.40 Host Input And Native Python
+
+The [delivery plan](../docs/plans/2026-10-22-durable-host-input-plan.md) owns
+completion evidence and the final affected-suite command. These deterministic
+selectors use scripted providers/commands and recording notification delivery;
+they require no paid provider calls or live mail. Follow the [approval example](../workflows/examples/durable_host_input/README.md)
+for isolated public CLI execution and its local provider-shim prerequisites.
+
+Start narrowly with the changed owner, then run the broader modules in tmux:
+
+```bash
+pytest -q tests/test_workflow_lisp_host_input.py
+pytest -q tests/test_workflow_py_cli.py -k py_run_reuses_runtime_inputs_state_and_retained_source
+pytest -q -n 16 --dist=worksteal tests/test_workflow_evaluated_host_input.py tests/test_workflow_evaluated_host_input_recovery.py tests/test_workflow_evaluated_host_input_hosts.py tests/test_workflow_py_frontend.py tests/test_workflow_py_build.py tests/test_workflow_py_cli.py
+```
+
+The compiler owner covers full typed contracts, effects and transitive
+parallel/child refusals. Runtime/recovery owners cover request identity,
+start/suspend/commit/view fault boundaries, deadline races, strict settlement,
+evidence override, invalidation, source/input preflight and idempotency. Host
+checks cover CLI, report/dashboard and request-keyed monitor notifications.
+Python owners cover declarations, lazy branch isolation, symbolic-operation
+refusals, immutable generation, mapped diagnostics and resume without the
+original module/template. Assert typed outcomes, lineage, call counts and
+unchanged evidence on refusals; do not assert literal question or guide wording.
+Public Lisp/Python approval smoke is additionally required for integration;
+unit checks and compile-only evidence do not establish its qualification.

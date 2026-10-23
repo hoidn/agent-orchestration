@@ -9,7 +9,7 @@ own qualification and delivery, not a published package-version claim.
 
 Only evaluated entries at 2.35/2.36, bounded 2.37, bounded 2.38 (command-only
 confined run-ref and agent sessions), and target 2.39 procedure authoring and
-bounded phased provider delivery are executable, with their existing admission
+bounded phased provider delivery, plus target-2.40 durable host input are executable, with their existing admission
 and qualification limits
 ([versioning](versioning.md#version-gating-summary)).
 `compile`, `run` and `run --dry-run` reject entry targets through 2.34 with
@@ -64,6 +64,7 @@ failed. Changing `--state-dir` does not bypass this rule. Nested workflow
 calls belong to their root run; run-reference children own separate clone
 workspaces. `prompt resume` (including a provider launched with `--in-place`),
 `input get`, `report` and `dashboard` take no workspace execution lock.
+`input answer`/`cancel` take only the run writer lock and never continue execution.
 `invalidate` takes only the admitted run's writer lock
 ([Evaluated execution](#evaluated-execution-target-235)).
 
@@ -105,14 +106,14 @@ this locking rule does not retain workflow supervision or watchdog execution.
   - `orchestrate input get <run_id> [--state-dir <runs-root>]`
     - Prints the current root host-request record. It does not resume or
       mutate execution.
-  - `orchestrate input answer <run_id> <request_id> --text <text> [--state-dir <runs-root>]`
-    - Retired: exits 2 with `workflow_execution_profile_retired` before locks
-      or writes, including an otherwise valid target-2.32 request.
-  - `orchestrate input cancel <run_id> <request_id> [--state-dir <runs-root>]`
-    - Same no-write retirement refusal as `input answer`. Historical settlement
-      semantics are retained in [State](state.md#durable-host-input-state-and-recovery);
-      `input get` remains a read-only client, printing the recorded request as
-      JSON with exit 0, or exit 2 for a missing/invalid request.
+  - `orchestrate input answer <run_id> <request_id> --value <JSON> --by <principal> [--attestation <string>] [--accept-changed-evidence] [--state-dir <runs-root>]`
+    - Settles an evaluated target-2.40 request; see [host input](#evaluated-host-input-target-240). `--text` is retired.
+  - `orchestrate input cancel <run_id> <request_id> --by <principal> [--attestation <string>] [--accept-changed-evidence] [--state-dir <runs-root>]`
+    - Records a typed cancellation without continuing the workflow. Historical
+      profile answer/cancel still refuses `workflow_execution_profile_retired`
+      before locks/writes. [Historical state](state.md#durable-host-input-state-and-recovery)
+      remains unchanged. `input get` prints the pending evaluated request or
+      retained historical request as JSON (exit 0); absent/invalid request exits 2.
   - `orchestrate report [--run-id <id>] [--runs-root <dir>] [--format md|json] [--output <path>]`
     - Report output may include advisory lint warnings (`lint.warnings[]` in JSON or an appendix in Markdown); warnings remain informational only.
     - Report output may include active runtime fields derived from executor sessions, including `run.active_runtime_ms`, `run.active_runtime`, `run.executor_session_count`, and `run.excluded_suspended_ms`. These fields exclude suspended gaps between executor processes and are informational only.
@@ -246,8 +247,8 @@ the historical detail format and retained read-only boundary.
 
 This contract applies to evaluated entries at 2.35/2.36, the admitted
 bounded 2.37 surface, bounded 2.38 Agent Sessions and command-only confined
-run-ref children, and target-2.39 procedure authoring and bounded phased provider
-delivery. Procedure authoring itself changes no lifecycle or transport; the
+run-ref children, target-2.39 procedure authoring and bounded phased provider
+delivery, and target-2.40 serial typed host input. Procedure authoring itself changes no lifecycle or transport; the
 [phased provider contract](providers.md#evaluated-phased-provider-delivery-target-239)
 and [attempt-state contract](state.md#evaluated-phased-provider-attempts-target-239)
 own the additive phased coordinator, memo commit/settlement and exact-attempt
@@ -542,7 +543,7 @@ no code of its own; `invalidate` prints `[<code>] <detail>`.
 | `memo_inconsistent` | `resume` preflight (including stored authority without command transport); `invalidate`; readers; during execution when evidence is unsettled at a start or at `halt` | 2 (`report`: 1; during execution 1 without a terminal) | None; readers report no outputs |
 | `resume_request_missing` | `resume` | 2 | None |
 | `workflow_execution_target_retired` | `compile`, `run`, `run --dry-run` on an entry through 2.34; retired trial CLI/SDK; old path child before child publication; flat/staged child execution (`flat_execution_retired` / `staged_execution_retired`) | 2 at public admission; reached run-reference failure follows the evaluated parent's failure contract | No build/run/child publication at admission; a reached evaluated parent retains its own attempt evidence |
-| `workflow_execution_profile_retired` | `resume` including restart/repair, `invalidate` of a retired profile; `input answer`/`cancel` | 2 | None; before locks or writes |
+| `workflow_execution_profile_retired` | `resume` including restart/repair, `invalidate` of a retired profile; historical-profile `input answer`/`cancel` | 2 | None; before locks or writes |
 | `prompt_execution_retired` | Every `prompt run` and `prompt import` mode | 2 | None; before inputs, inference, scaffold/run/session writes or effects |
 | `workflow_explain_retired` | `explain`, independent of entry target or export flags | 2 | None; before source/build/export reads or writes |
 | `evaluated_execution_unavailable` | `resume --force-restart` on an admitted evaluated run | 2 | None |
@@ -576,7 +577,7 @@ no code of its own; `invalidate` prints `[<code>] <detail>`.
 
 <a id="workflow-lisp-repl-targets-235-and-236"></a>
 
-### Workflow Lisp REPL (targets 2.35–2.39)
+### Workflow Lisp REPL (targets 2.35–2.40)
 
 `repl` loads an evaluated Workflow Lisp module, inspects its declarations and
 expression types, attaches to a checked run and accepts pure expressions in
@@ -816,3 +817,106 @@ ORCHESTRATE_KEEP_RUNS=30
 ```
 
 Cross-platform note: Examples use POSIX shell utilities (`bash`, `find`, `mv`, `test`). On Windows, use WSL or adapt to PowerShell equivalents.
+
+## Evaluated Host Input (Target 2.40)
+
+```sh
+orchestrator input get RUN_ID [--state-dir RUNS_ROOT]
+orchestrator input answer RUN_ID REQUEST_ID --value '"APPROVED"' --by alice
+orchestrator input cancel RUN_ID REQUEST_ID --by alice
+orchestrator resume RUN_ID
+```
+
+Run commands from the owning workspace; `--state-dir` selects the existing
+runs root. Answer/cancel additionally accept `--attestation STRING` and
+`--accept-changed-evidence`. `--value` is strict JSON: duplicate object keys,
+non-finite numbers and non-finite constants refuse; enum tokens need their JSON
+string quotes. There is no untyped text coercion or caller-supplied reply wrapper.
+Both mutations require `--by`; `--text` refuses for evaluated requests and does
+not bypass historical retirement. Success prints the API's typed reply JSON
+and exits `0`; refusal exits `2`. No continuation runs until ordinary resume.
+
+`input get` delegates evaluated authority to read-only `pending`. That API
+returns a checked mapping or `None`; the CLI treats `None` as no active request
+and exits `2`. Historical reads retain their original reader. Malformed evaluated
+authority fails closed rather than falling back to historical state. Inspection
+never expires a request, repairs a torn tail or publishes a view.
+
+The public Python settlement interface is separate from Python authoring:
+
+```python
+from orchestrator.host_input import pending, answer, cancel
+
+request = pending(run_root)
+reply = answer(run_root, request_id, "APPROVED", by="alice",
+               attestation=None, accept_changed_evidence=False, workspace=None)
+reply = cancel(run_root, request_id, by="alice",
+               attestation=None, accept_changed_evidence=False, workspace=None)
+```
+
+`run_root` names the run directory. `workspace` defaults to the current directory;
+new settlements check the same immutable run-relative result-root binding and
+ordinary no-write resume preflight as resume. They never infer workspace by
+stripping a conventional state-directory suffix. A nonblocking run writer lock
+serializes settlement, expiration, resume and invalidation; no workspace
+execution lock or new host-input lock is taken. The [state contract](state.md#evaluated-durable-host-input-target-240)
+owns exact lifecycle, provenance and duplicate semantics; [IO](io.md#evaluated-host-input-io-target-240)
+owns the narrow presentation-evidence override.
+
+| Diagnostic | Meaning and mutation boundary |
+| --- | --- |
+| `host_input_answer_invalid` | Invalid JSON/type/shape or forged wrapper; no mutation |
+| `host_input_invalid_principal`, `host_input_invalid_attestation`, `host_input_invalid_evidence_override` | Invalid attribution or nonboolean API override; no mutation |
+| `host_input_invalid_timeout` | Reached timeout is not an exact positive integer or its deadline is not finite; no request is created |
+| `host_input_stale` | Unknown, cross-run or invalidated request ID; no mutation |
+| `host_input_not_suspended` | A durable start needs resume to finish recovery; no mutation |
+| `request_already_settled` | A different settlement conflicts with an active commit; no mutation |
+| `shown_evidence_changed` | Unaccepted changed/missing/unreadable evidence or evidence changing during validation; no mutation |
+| `host_input_unsafe_evidence` | Unsafe presentation path/object; never waived |
+| `host_input_deadline_elapsed` | Host acceptance is at/after deadline; no mutation, resume owns expiration |
+| `memo_busy` | Existing run writer holds the lock; no mutation |
+
+Ordinary source/program/input/prefix and malformed-authority diagnostics retain
+their precedence. Identical committed retries return recorded replies without
+requiring a new rebuild/evidence snapshot. Suspension itself is normal exit
+`0`, leaves no terminal, and publishes `suspended` before releasing the locks.
+Expiration is an ordinary runtime `EXPIRED` value committed by resume, not a
+CLI error or a host-authored settlement.
+
+## Python Authoring
+
+`py check`, `py build` and `py run` accept trusted `.py` files. They import the
+module once per invocation and select its decorated `--entry-workflow`; omission
+requires exactly one distinct exported workflow. The bounded declarations are
+defined in the [Python frontend contract](../docs/design/workflow_python_frontend.md)
+and [drafting guide](../docs/python_workflow_drafting_guide.md). All parameters
+require type annotations; a return annotation or `returns=` declares the result,
+and conflicting declarations refuse.
+
+```sh
+orchestrator py check workflow.py --entry-workflow approval
+orchestrator py build workflow.py --entry-workflow approval
+orchestrator py run workflow.py --entry-workflow approval --input-file inputs.json
+```
+
+These commands accept the ordinary `--source-root`, `--provider-externs-file`,
+`--prompt-externs-file` and `--command-boundaries-file` inputs. Supplied manifests
+are passed unchanged into the normal build request; Python supplies no provider
+bindings or defaults. Imported workflow-bundle manifests are outside this subset
+and refuse. `check` and `build` both trace, publish a complete retained generated
+bundle and invoke the ordinary checked compiler without starting a run. They
+print JSON keys `source_path`, `source_map_path`, `provider_externs_file`,
+`prompt_externs_file`, `command_boundaries_file`, `entry_workflow`, `build_key`
+and `program_digest`; success exits `0`, import/authoring/compiler refusal `2`.
+A compiler refusal may leave a complete generated bundle for diagnosis.
+
+`py run` adapts generated source, source roots, entry and supplied manifests into
+ordinary `run`, retaining its input, state-directory, provider, dry-run, lock and
+exit behavior. Ordinary `run workflow.py` still refuses `.orc required`.
+The rebuild recipe records generated `.orc`/manifest paths. Ordinary
+`resume RUN_ID` never imports Python, retraces decorators, rereads authoring
+prompt templates or chooses another generation. There is no `py resume`.
+Retained generated inputs must stay available and unmodified; normal program
+and runtime-input divergence rules apply. Python line/declaration attribution
+is supplementary `source_map.json` evidence and initial mapped compiler
+notes; runtime reports name generated `.orc` plus effect/request attribution.

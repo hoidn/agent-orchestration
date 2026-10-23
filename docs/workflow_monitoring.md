@@ -1,7 +1,7 @@
 # Workflow Monitoring
 
 `orchestrator monitor` watches one or more configured workspaces and sends
-headless email notifications when workflow runs complete, fail, crash, or stall.
+headless email notifications when workflow runs suspend for host input, complete, fail, crash, or stall.
 It is an external observer: it does not mutate run state, resume workflows, kill
 processes, or depend on workflow-authored finalization steps.
 
@@ -128,6 +128,13 @@ tmux -S /tmp/claude-tmux-sockets/claude.sock capture-pane -p -J -t orchestrator-
 
 ## Event Meanings
 
+- `SUSPENDED`: an evaluated checked view has an active target-2.40 host request.
+  The deliberate stop is never a crash just because its writer exited. Email
+  includes request ID, frozen deadline and inspect/answer/cancel/resume command
+  shapes, excluding question/evidence bodies, attestations and log previews.
+  Deduplication includes request ID: repeated scans notify once, while sequential
+  questions notify independently. Existing delivery settings and other event
+  keys retain their meaning.
 - `COMPLETED`: the persisted run status is `completed`.
 - `FAILED`: the persisted run status is `failed`.
 - `CRASHED`: for an evaluated run, the derived view reports `interrupted` (no
@@ -155,3 +162,21 @@ python -m orchestrator resume <run_id>
 
 Inspect `.orchestrate/runs/<run_id>/state.json` and run-local logs if the email
 reports `FAILED`, `CRASHED`, or `STALLED`.
+
+## After A Suspension Notification
+
+Use `input get` to inspect the exact request and full answer contract, then
+answer with strict JSON or cancel with a required principal. Run from the
+owning workspace and retain any custom state-directory selection. The
+[Lisp recipe](lisp_workflow_drafting_guide.md#durable-host-input),
+[Python guide](python_workflow_drafting_guide.md) and
+[complete approval example](../workflows/examples/durable_host_input/README.md)
+show setup and commands.
+
+Settlement only commits the typed reply; explicitly resume to continue. An
+elapsed deadline remains pending until resume commits `EXPIRED`. The monitor
+never answers, cancels, expires or resumes a request. Changed/missing show-only
+evidence requires an explicit recorded override; unsafe paths and semantic
+input changes always retain their checks. Dashboard/report are read-only views
+of checked authority; they expose no settlement endpoints. Notification testing
+uses a recording transport and does not establish live-email qualification.

@@ -27,6 +27,8 @@ use the capability matrix to determine what is implemented and qualified.
 | Understand the system | [Architecture overview](architecture_overview.md) and [orchestration model](orchestration_start_here.md) | Concepts, authority and component boundaries |
 | Check available behavior | [Capability matrix](capability_status_matrix.md) | Implemented, partial, library, designed, future and historical surfaces; implementation does not imply public qualification |
 | Author a workflow | [Workflow Lisp drafting guide](lisp_workflow_drafting_guide.md) and [2.39 procedure contracts](lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239) | Current `.orc` syntax, prerequisites and runnable shapes; inferred effects and optional restrictions at 2.39 |
+| Author in Python | [Python drafting guide](python_workflow_drafting_guide.md) | Bounded typed source emission to retained `.orc`; the evaluated runtime owns execution and resume |
+| Ask for a durable decision | [Host-input recipe](lisp_workflow_drafting_guide.md#durable-host-input) and [approval example](../workflows/examples/durable_host_input/README.md) | Target 2.40 typed settlement, evidence and explicit resume |
 | Choose a reusable helper | [Library reference](lisp_library_reference.md) | Typed inputs, outputs, composition and examples |
 | Copy a complete example | [Workflow catalog](../workflows/README.md#which-example-should-i-copy) | Route readiness and copy safety; a compile check alone is not live-provider qualification |
 | Compile, run, resume or invalidate | [Lifecycle](runtime_execution_lifecycle.md) and [CLI contract](../specs/cli.md) | Evaluated execution is the sole current workflow runtime; old profiles remain read-only |
@@ -51,7 +53,8 @@ use the capability matrix to determine what is implemented and qualified.
   execution and the selected 2.35 source/import/tooling floor. Historical
   YAML/flat contracts and frozen source do not supply current analysis,
   execution or recovery permission.
-- Targets 2.35–2.39 share the evaluated runtime. Target 2.39 adds [procedure authoring](lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239), finite source admission and [bounded phased delivery](lisp_workflow_drafting_guide.md#authoring-phased-contract-delivery-target-239); imported 2.35–2.38 definitions retain their original contracts.
+- Targets 2.35–2.40 share the evaluated runtime. Target 2.39 adds [procedure authoring](lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239), finite source admission and [bounded phased delivery](lisp_workflow_drafting_guide.md#authoring-phased-contract-delivery-target-239); imported 2.35–2.38 definitions retain their original contracts.
+- Target 2.40 adds [durable host input](design/workflow_lisp_durable_host_input.md); [Python authoring](python_workflow_drafting_guide.md) emits ordinary retained source and uses the same runtime. Older imported definitions keep their original contracts.
 - The 2.35 source floor covers transitive source and typed-program imports,
   REPL loading and LSP analysis. Historical report/dashboard data readers do
   not reopen those source doors; evaluated LSP F2 remains OPEN_NOT_WAIVED.
@@ -116,6 +119,7 @@ document owns the answer.
 
 ### When Authoring Workflows
 
+- For bounded native Python authoring, start with the [Python drafting guide](python_workflow_drafting_guide.md); use the same host settlement and resume commands.
 - Start with [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md).
 - Use [Workflow Lisp Library Reference](lisp_library_reference.md) to choose a
   reusable helper or complete candidate generation/evaluation/selection example.
@@ -254,6 +258,9 @@ reusing instructions. Plans can contain active obligations as well as history.
 | <a id="workflow-lisp-unified-design-for-unimplemented-surfaces"></a>[Workflow Lisp Unified Design for Unimplemented Surfaces](design/workflow_lisp_unified_frontend_design.md) | Component contract or target; check admitted scope |
 | <a id="workflow-lisp-repl-introspection"></a>[Workflow Lisp REPL Introspection](design/workflow_lisp_repl_introspection.md) | Component contract or target; check admitted scope |
 | <a id="workflow-lisp-repl"></a>[Workflow Lisp REPL](design/workflow_lisp_repl.md) | Component contract or target; check admitted scope |
+| [Python Workflow Drafting Guide](python_workflow_drafting_guide.md) | Current bounded authoring guide; emitted source uses the evaluated runtime |
+| [Durable Host Input](design/workflow_lisp_durable_host_input.md) | Target-2.40 component contract; current specs own runtime behavior |
+| [Python Frontend](design/workflow_python_frontend.md) | Bounded authoring architecture; no Python runtime |
 | <a id="workflow-lisp-frontend-specification"></a>[Workflow Lisp Frontend Specification](design/workflow_lisp_frontend_specification.md) | Component contract or target; check admitted scope |
 | <a id="workflow-lisp-refactor-architecture"></a>[Workflow Lisp Refactor Architecture](design/workflow_lisp_refactor_architecture.md) | Component contract or target; check admitted scope |
 | <a id="workflow-lisp-semantic-workflow-ir"></a>[Workflow Lisp Semantic Workflow IR](design/workflow_lisp_semantic_workflow_ir.md) | Retained typed-analysis and historical-reader contract |

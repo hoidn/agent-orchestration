@@ -2,7 +2,8 @@
 
 Status: accepted baseline / umbrella frontend contract
 Target substrate: checked closed-program execution at 2.35/2.36 and bounded
-2.37/2.38 extensions and target-2.39 procedure authoring/phased delivery; source/import/tooling
+2.37/2.38 extensions, target-2.39 procedure authoring/phased delivery and
+target-2.40 serial typed host input; source/import/tooling
 admission starts at 2.35; the flat emitter is retired
 Primary purpose: composable, typed, procedural authoring of deterministic workflows  
 Non-purpose: replacing the runtime, weakening validation, or generating brittle YAML-shaped code
@@ -60,8 +61,8 @@ native and cross-provider continuation are not admitted. Normative transport
 and atomic publication contracts are in [Providers](../../specs/providers.md)
 and [Step IO](../../specs/io.md).
 
-Historical target-2.32 syntax/type contract (`request-input` execution and
-answer/cancel mutation are retired): one host-mediated expression,
+Historical target-2.32 syntax/type contract (that `request-input` execution and
+answer/cancel mutation are retired; current 2.40 behavior is separate): one host-mediated expression,
 `(request-input question)`. Its question is exact `String`; its fixed ordinary
 result is `HumanReply = ANSWERED(text String) | CANCELLED`; and it infers the
 subject-free `host-input` effect. It lowers to the existing validated pipeline
@@ -70,6 +71,29 @@ continuation primitive. The root durably suspends for one request; answer or
 cancel only settles the request, and ordinary resume validates and consumes the
 same scoped leaf result. The normative durable-state and CLI contracts are in
 [State](../../specs/state.md) and [CLI](../../specs/cli.md).
+
+Current target-2.40 [durable host input](workflow_lisp_durable_host_input.md)
+uses `(request-input question :returns A [:timeout-sec duration] [:show (path ...)])`
+and the ordinary imported generic `std/host::HostReply[A]`: `ANSWERED(value A, by
+String)`, `CANCELLED(by String)`, `EXPIRED`. Brackets here mark optional operands,
+not literal source syntax. Answer `A` is `String`, an enum or a fully transportable
+closed union. The question is a string expression or applied typed `defprompt`;
+its declared answer contract must agree. Show operands are typed relpaths,
+not strings; timeout is an exact positive integer expression. The checker
+retains full instantiated answer/reply constraints through closed compilation,
+transport validation, replay and branch refinement.
+
+The inferred effect remains subject-free `(host-input)`. Definition origins
+2.39 and newer infer omitted restrictions; explicit restrictions still constrain
+transitive effects. Target 2.40 retains 2.39 composition, finite source and phased
+provider admission. Requests are serial within the same memo and refuse in pure
+contexts, transitive parallel workers and child `run-ref` programs. Earlier
+targets do not acquire evaluated host input by importing `HostReply`.
+Normative rules are in [DSL](../../specs/dsl.md#evaluated-durable-host-input-target-240),
+[state](../../specs/state.md#evaluated-durable-host-input-target-240) and
+[CLI](../../specs/cli.md#evaluated-host-input-target-240).
+The [bounded Python frontend](workflow_python_frontend.md) emits these same
+ordinary forms; it adds no runtime type/effect authority.
 
 Target 2.33 adds first-order generic unions (§8.5) and the `std/improve`
 library module (§87.1).
@@ -805,7 +829,7 @@ arguments. The macro does not create variant proof on its own.
 
 ### Target-2.39 source admission
 
-For source elaborated under target 2.39, `with-phase` and
+For source elaborated under target 2.39 or newer, `with-phase` and
 `finalize-selected-item` must resolve through their imported stdlib bindings;
 a residual bare compatibility head is refused instead of entering the old
 literal-name elaborator. The registry/editor projection must not advertise
@@ -1493,7 +1517,7 @@ for identity-free helpers, but the compiler-selected route is not a stable
 checkpoint, resume, state-path, or debug-identity promise. Every choice must
 preserve source maps and effect transparency.
 
-For definitions originating at target 2.39, the `:effects` clause is optional:
+For definitions originating at target 2.39 or newer, the `:effects` clause is optional:
 omission infers the transitive summary, explicit empty checks purity after
 specialization, and named restrictions require the inferred effects to fit
 resolved declared subjects. See the
@@ -4632,7 +4656,7 @@ review-evidenced internal state/resume/debug namespace need; the current slice
 adds no namespace source annotation. `auto` remains the compatible
 default for identity-free procedures but promises no stable persisted route.
 
-For definitions originating at target 2.39, `:lowering` is not admitted.
+For definitions originating at target 2.39 or newer, `:lowering` is not admitted.
 A `defproc` is caller-owned inline composition, including generated `let-proc`
 helpers and concrete specializations. Select the internal inline policy from
 definition origin; do not run AUTO/private-workflow strategy selection and then

@@ -319,3 +319,40 @@ Note: These safety checks apply to paths the orchestrator resolves (e.g., `input
   - Dashboard HTML routes set a restrictive Content Security Policy with `default-src 'none'`, `base-uri 'none'`, `object-src 'none'`, `frame-ancestors 'none'`, and `script-src 'none'`, plus only the minimal style/image allowances needed by the server-rendered UI.
   - Raw file responses default to `Content-Disposition: attachment` and `text/plain; charset=utf-8` for textual files or `application/octet-stream` for non-text files.
   - Dashboard routes must be read-only: they must not mutate workflow YAML, run state, logs, artifacts, backups, provider session files, or workspace source files, and must not execute operator commands.
+
+## Durable Host Input And Python Authoring (Target 2.40)
+
+Local run-writer access authorizes `orchestrator.host_input.answer`/`cancel`.
+`by` is required nonempty, non-whitespace, NUL-free text; `attestation` is an
+optional opaque string. Both are attribution, not independently verified
+identity or authentication. No remote approval service or dashboard write
+endpoint is introduced. Exact request IDs bind immutable run/header/program,
+dynamic effect and attempt authority; they do not establish separate tenancy
+for a copied complete run.
+
+Mutators acquire the existing run writer lock, reread checked authority and
+validate request lineage, full answer/reply contracts, finite JSON, deadline,
+ordinary resume preflight and safe evidence before writing. They use retained
+descriptor-relative `WorkspaceFiles`, not inferred workspace paths or a new
+host lock. Workspace defaults to the current directory and must match the
+header's run-relative result-root relationship; custom state directories do
+not grant implicit workspace authority.
+
+Evidence uses the ordinary no-follow safe workspace reader. An explicit
+changed-evidence override permits presentation changes, absence or read errors;
+it never permits traversal, forbidden symlinks, unsafe objects, changed semantic
+documents/producers or a failed typed path contract. Request/reply views are
+not authority. Notification email contains request identity, deadline and
+command shapes, with no evidence bodies, attestations or suspension log previews.
+
+Python source imported by `py check/build/run` is trusted build-time code.
+Importing and tracing can perform normal Python filesystem, network or process
+side effects; symbolic-value refusals are not a sandbox. Decorators retain
+bodies until explicit build; runtime effects must use the admitted builders.
+The emitted `.orc` is checked through the same compiler, manifests and runtime.
+Generated bundles are published beneath the workspace generation root through
+no-follow retained directories, synchronized temporary files/directories and
+atomic no-replace installation. Existing bundles must match exact expected
+files/bytes; divergent or symlinked destinations refuse. Keep generated source
+and its diagnostic map while runs reference them. Resume uses recorded generated
+source/manifests and never imports original Python or rereads authoring templates.

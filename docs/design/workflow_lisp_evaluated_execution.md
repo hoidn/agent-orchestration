@@ -13,7 +13,9 @@
   [phased provider contract](workflow_lisp_phased_contract_delivery.md#target-239-evaluated-migration)
   adds one coordinator class with inline commit proof, settlement and exact-attempt
   recovery; the [migration plan](../plans/2026-10-16-phased-execution-239-plan.md)
-  owns deterministic evidence and remaining verification.
+  owns deterministic evidence and remaining verification. Target 2.40 adds serial
+  typed host requests and ordinary inline host settlement (§9.5), without a new
+  runtime or coordinator.
 - **Current limits:** old executable entries and old-profile resume are retired
   before writes; source compilation/import/tooling requires every module to
   target 2.35 or newer; evaluated `resume --force-restart` refuses with
@@ -114,7 +116,9 @@ extern source kinds and the admitted `defprompt` slot kinds (§9.4).
 Since this decision, parallel map entered as bounded target 2.37 (§11),
 agent sessions as target 2.38 (§9.2), and fragment-backed phased delivery as
 target 2.39 under its [own contract](workflow_lisp_phased_contract_delivery.md#target-239-evaluated-migration).
-Trials and requests for human input were retired without a port (§9.2).
+Trials remain retired without a port (§9.2). Target 2.40 admits serial typed
+[host input](workflow_lisp_durable_host_input.md) through the same evaluator,
+identity and memo, with an ordinary commit rather than a coordinator settlement.
 
 The conditions of the gate report, section 6, bind the first release. Each
 is a rule of this design.
@@ -391,7 +395,7 @@ complete `TypedProgram`: native bodies/signatures, transitive definitions,
 type environments, externs, configuration, logical asset base and digests of
 the exact source bytes its producer consumed. Before publishing catalogs,
 validate the program's own target, each `module_type_envs` target and the
-transitive `imported_programs` closure against the supported 2.35–2.39 source
+transitive `imported_programs` closure against the supported 2.35–2.40 source
 range. A current outer target does not admit a pre-floor embedded module.
 Opaque dependencies supply no typed-body authority and fail the
 missing-snapshot precondition. No old-source analysis or emitter is retained.
@@ -996,15 +1000,15 @@ the ordinal rule's moves are measured against the alternative (gate report,
 | M2 | Each record is written and synchronized to disk before the evaluator proceeds. No record may be appended until the program artifact, header, empty journal and their directory entries have been durably published (§8.4) |
 | M3 | A final line without its newline was never written whole and is not a record. The next writer truncates it before appending |
 | M4 | A result exists only as a `committed` record that no later `invalidated` range covers (C8). A file at a path, however valid and however recent, is not one |
-| M5 | The `committed` record holds the validated value inline, beside the result file's path and digest. The value is the authority; the file is evidence |
+| M5 | The `committed` record holds the validated value inline, beside the result locator and digest. The value is the authority; a result file, when the class uses one, is evidence. Target-2.40 host replies use the canonical inline digest without a result file (§9.5) |
 | M6 | A command that writes to the memo from outside a run (the answer of a request for input, an invalidation) takes the writer's lock and appends under it |
 
 | Record | Written | Content |
 | --- | --- | --- |
-| `started` | Synchronized before exclusive creation of the attempt directory; reserves the ordinal, not proof of a launch | identity, attempt ordinal, digest of the resolved input and of each of its parts, declared implementation-file evidence (C2), result path, time |
-| `committed` | After the result passed its contract | identity, attempt ordinal, input digest and parts, the validated value, result path and digest, the digests of the declared files (C2), the identities its input read (C9), `effect_class` from the checked site and the coordinator's proof when required (K5), time |
-| `failed` | After an attempt ended without a valid result | identity, attempt ordinal, code, exit information, the contract violations if any |
-| `suspended` | When an effect waits for a person (a later release) | identity, attempt ordinal, the request |
+| `started` | Synchronized before attempt view/directory publication; reserves the ordinal, not proof of a launch | identity, attempt ordinal, digest of the resolved input and of each of its parts, declared implementation-file evidence (C2), result path, time; full immutable `host_request` only, and always, for target-2.40 `request_input` (§9.5) |
+| `committed` | After the result passed its contract | identity, attempt ordinal, input digest and parts, the validated value, result path and digest, the digests of the declared files (C2), the identities its input read (C9), `effect_class` from the checked site and the coordinator's proof when required (K5), time; `host_reply` provenance only, and always, for `request_input` (§9.5) |
+| `failed` | After an external attempt ended without a valid result; forbidden for `request_input`, which suspends, commits or is invalidated (§9.5) | identity, attempt ordinal, code, exit information, the contract violations if any |
+| `suspended` | Target-2.40 request waits for host input | identity, attempt ordinal and request ID bound to the complete immutable payload in `started`; no terminal |
 | `settled` | After a coordinator's final commit (`by: settle`), or its reconciliation on a memo hit (`by: reconcile`) | identity, attempt ordinal |
 | `invalidated` | Once for the whole suffix, by the explicit continuation (C8) | `from_commit`: byte offset of the chosen active `committed` record's first byte; time. No per-effect records; affected identities/attempts are reconstructed from the preceding journal prefix |
 | `terminal` | `completed` only after `halt`, every reached effect committed and every committed coordinator settled; `failed` after an attempt or evaluation fails, with no pending start or unsettled committed coordinator | no identity; `completed` with the value of `halt`, or `failed` with the code and message |
@@ -1517,7 +1521,7 @@ These name the memo-backed run contract; the independent closed-artifact
 schema remains `workflow-lisp/closed-program/1`, representation `table/1`.
 The closed artifact's top-level `target` records the entry source target, also
 recorded in the build manifest. It must be a string registered for evaluated
-execution, including `"2.35"`, `"2.36"`, bounded `"2.37"`/`"2.38"` and `"2.39"`;
+execution, including `"2.35"`, `"2.36"`, bounded `"2.37"`/`"2.38"`, `"2.39"` and `"2.40"`;
 it is not a representation version.
 The [versioning contract](../../specs/versioning.md) owns per-target admission.
 The separate internal path-mode run-reference target remains `2.35`. Target registration
@@ -2608,11 +2612,11 @@ coordinator (§9.3) is a performer with a ledger of its own.
 | Run reference, path mode | Yes | Reuse the run-ref runtime and ledger behind a changed caller adapter (K7) | The child run is a separate run in its own workspace |
 | Run reference, named-workflow confinement | No; command-only at 2.38 | Existing run-ref coordinator and ledger with the checked private child artifact and confined command performer | The [run-ref design](workflow_lisp_run_ref_expression_environments.md) owns the sibling profile and recovery amendments; public providers remain closed and Agent allocation/turns are excluded from the child |
 | Run reference, bundle mode | Later | The same runtime; the capsule is the child's closed program, built by the parent's build | |
-| Request for input | Later | New | `suspended`, then `committed` by the answer command (M6) |
+| Request for input | Target 2.40, serial same-run only | Typed question/answer and ordinary memo commit | One `suspended`, then inline `HostReply[A]` committed by host answer/cancel or resume expiration; no coordinator `settled` |
 | Resource transition | Later | `execute_transition` | Independent today. Its idempotency key stays |
 | Materialized view | Later | The existing step function | Reads its value from the environment |
 | Trial | Later | The trial runtime behind the coordinator protocol | Has the pair of commits today (K6) |
-| Provider, phased delivery | No; target 2.39 only | Retained phased coordinator behind the evaluated prepare/settle/reconcile binding | [Accepted phased contract](workflow_lisp_phased_contract_delivery.md#target-239-evaluated-migration); one effect, one identity, inline memo proof; [migration plan](../plans/2026-10-16-phased-execution-239-plan.md) owns deterministic evidence and remaining checks |
+| Provider, phased delivery | No at 2.35; defining target 2.39 or newer | Retained phased coordinator behind the evaluated prepare/settle/reconcile binding | [Accepted phased contract](workflow_lisp_phased_contract_delivery.md#target-239-evaluated-migration); one effect, one identity, inline memo proof; [migration plan](../plans/2026-10-16-phased-execution-239-plan.md) owns deterministic evidence and remaining checks |
 | Provider supervision; peer group; adjudication | Later | The existing coordinators, each changed to expose the pair of commits (K6) | One effect, one identity, its own ledger |
 | Run-local agent allocation and sequential native-session turns | No; implemented at 2.38 | Ordinary non-coordinator allocation with its own checked class; existing session/turn transports behind one bounded `agent_turn` coordinator | [Agent Sessions](workflow_lisp_agent_sessions.md) commits each typed turn separately; E3 reuses the prefix and pending-turn recovery uses the scoped K4 exception (§9.3). [PQ-1a](../reports/2026-10-14-agent-sessions-pq1a-qualification.md) owns deterministic proofs and bounded real-adapter smoke evidence; `prompt-queue` is superseded for first delivery, and the separate acceptance comparison remains pending |
 
@@ -2621,10 +2625,12 @@ at build (§1.1). Target 2.38 additionally admits the command-only confined
 named-workflow run-reference row and, independently, the bounded Agent allocation
 and turn row above; target 2.37 admits bounded `par-map` (§11); target 2.39
 admits fragment-backed phased delivery through its own checked coordinator.
-Confined providers remain closed and other exclusions remain target-aware. No port is selected for
-the other rows marked later: trials and requests for human input are retired, and
-the flat performers named for resource transitions and materialized views were
-removed with the flat route. Older executable
+Target 2.40 admits serial typed host input through an ordinary memo commit
+(§9.5); it does not admit progressive execution or parallel pending questions.
+Confined providers remain closed and other exclusions remain target-aware.
+Trials and historical fixed-reply/flat host input remain retired; no port is
+selected for the other rows marked later, and the flat performers named for
+resource transitions and materialized views were removed with the flat route. Older executable
 entries are retired; no old-route fallback is available.
 
 ### 9.3 Coordinators
@@ -2641,7 +2647,7 @@ through the evaluator memo and settle under the protocol below.
 | K3 | On a memo hit, `reconcile(node, resolved, identity, proof)` completes a pending final commit from the proof, and the evaluator appends `settled` (`by: reconcile`) when the memo lacks it |
 | K4 | The memo's `committed` record lies between the coordinator's two commits. Killed after the pending commit, resume discards the pending attempt and starts one more child; killed after the memo's commit, resume starts none. A coordinator that makes its final commit before the memo's is a defect: killed between the two, the run cannot continue (spike iteration 2, D1). Agent turns (target 2.38) are the scoped exception: a pending turn is reconciled from its receipt and native store; only an agent with no committed turn may be restarted, by explicit public `resume`, abandoning the old candidate first ([Agent Sessions](workflow_lisp_agent_sessions.md), Bootstrap retry policy); later turns refuse |
 | K5 | The proof is the coordinator's settled result record and its artifacts, stored inline in the `committed` record. It is what `settle` and `reconcile` need, and nothing else |
-| K6 | Which coordinators have the pair of commits today, and which must change, by the inventory of the execution facts, B.1, and the gate report, §7: run references reuse pending ledger record, final commit and reconcile call through the K7 adapter; trials (prepared and final parent settlement) need their own adapter; phased providers make one authoritative commit, supervision and peer groups finalize directly into parent state, adjudication's parent result is committed by the caller, and human input commits reply and result together into `state.json`. Each of these five must give that up and expose `prepare`, `settle` and `reconcile` before it enters a release. This is the original inventory; the target-2.39 [phased migration](workflow_lisp_phased_contract_delivery.md#evaluated-prepare-commit-and-settlement) replaces its parent-state publication with that protocol |
+| K6 | Which coordinators have the pair of commits today, and which must change, by the inventory of the execution facts, B.1, and the gate report, §7: run references reuse pending ledger record, final commit and reconcile call through the K7 adapter; trials (prepared and final parent settlement) need their own adapter; phased providers make one authoritative commit, supervision and peer groups finalize directly into parent state, adjudication's parent result is committed by the caller, and human input commits reply and result together into `state.json`. Each of these five must give that up and expose `prepare`, `settle` and `reconcile` before it enters a release. This is the original inventory; target-2.40 [host input](workflow_lisp_durable_host_input.md) instead uses ordinary inline commit without a coordinator because no external system remains to reconcile after publication. The target-2.39 [phased migration](workflow_lisp_phased_contract_delivery.md#evaluated-prepare-commit-and-settlement) replaces its parent-state publication with that protocol |
 | K7 | A run reference: its static configuration is built at build time, each input bound as the reference `inputs.<name>`; the name rule of the child's inputs is the reference rule, so no valid name is unsafe. The coordinator resolves the references against a parent state that holds only the resolved input values. The visit key is derived from the identity: parent run id the run root's name, execution frame `root`, no call frame, step id `root.<digest of the identity>`, visit count 1. The runtime's ledger, `run-ref-attempts.jsonl`, retains its wire contract; physical IO and child authority follow §9.3.1 |
 | K8 | A committed coordinator effect is never superseded in the first release: no new visit key or attempt for an identity that committed through a coordinator, and no rollback of the child's workspace delta (§3) |
 | K9 | Every coordinator in a release has evidence through the public run and resume entries: a compiled program killed from outside at each of its two gaps, resumed to the uninterrupted value, with no committed child started twice, and refused before any launch after a declared file changes |
@@ -2848,6 +2854,56 @@ the decisive program; every difference is one of R1, R2, R3, R5, R6 and R11,
 with the value its rule then gave (spike iteration 3, F). The spike observed
 R2 as then specified, which is now its command clause.
 
+### 9.5 Durable host requests at target 2.40
+
+The checked `request_input` performer uses ordinary site/activation/loop identity
+and memo attempts. It accepts a string or applied typed prompt, full closed answer
+and `std/host::HostReply[A]` descriptors, optional timeout and typed show paths.
+It does not call a provider. Same-memo serial procedures/workflow calls and loops
+may ask; transitive parallel workers, pure contexts and child `run-ref` programs
+refuse. The artifact checker independently enforces these limits.
+
+Before attempt views exist, `started` durably contains the complete immutable
+request: run/header/program/effect/ordinal-bound ID, rendered question, full
+contracts/digests, evidence snapshot, dependencies, creation time and fixed
+deadline. Semantic inputs exclude clock values and show-only file bytes. One
+`suspended` row refers to that payload; intentional suspension stops evaluation
+without terminal/failure and exits `0`. Recovering a start-to-suspension gap
+reuses the payload, ordinal and deadline instead of reissuing the request.
+
+Host answer/cancel uses the existing run writer lock and ordinary read-only
+resume/program/input/reached-prefix preflight. It validates complete typed
+reply/provenance against the checked node and commits inline. The validated
+inline reply is authoritative, with its canonical digest; an attempt result
+file supplies no authority. It never executes the
+continuation and has no coordinator `proof` or `settled` row. Identical active
+settlement retries return their recorded value, including an earlier request
+while a later request waits; conflicts/stale IDs refuse. Invalid attempts write
+nothing. Ordinary resume replays the reply with nominal/refinement provenance.
+
+Only resume commits runtime `EXPIRED`, after prefix checks and at/after the
+frozen deadline, then continues. Inspection may show an elapsed deadline but
+never expires or repairs. Host acceptance checks runtime time under the same
+lock immediately before append and refuses late answers; accepted pre-deadline
+commits cannot be overwritten by expiration. Existing suffix invalidation also
+retires pending request starts/suspensions and IDs without weakening coordinator
+or Agent guards.
+
+Question/`:doc`/producer inputs retain semantic replay validation. `:show` content
+is presentation evidence: safe settlement rehashes it and refuses drift unless
+explicitly accepted and recorded. After commit, replay checks the stored snapshot
+and does not require current show-only bytes; unsafe paths and independent
+semantic dependencies are never waived. All production readers validate stored
+contracts/value against the checked request site, not just reducer row shape.
+
+The normative [state](../../specs/state.md#evaluated-durable-host-input-target-240),
+[IO](../../specs/io.md#evaluated-host-input-io-target-240) and
+[CLI](../../specs/cli.md#evaluated-host-input-target-240) own exact fields,
+publication/recovery and refusal rules. The [component design](workflow_lisp_durable_host_input.md)
+explains the boundary choices. The bounded [Python frontend](workflow_python_frontend.md)
+emits ordinary source into this same checked compiler/runtime; its trace and
+source map are never execution or resume authority.
+
 ## 10. Views
 
 Readers of run state depend on rows named by step, on one current step and
@@ -2856,10 +2912,10 @@ on order. For this profile the runtime derives views by these rules.
 | Rule | Statement |
 | --- | --- |
 | V1 | A view is derived from the memo and the program. Rows come from the records. The run's position comes from evaluating the program against the memo without launching anything: a `halt` value leaves no record before the terminal record, so a projection of the memo alone cannot say where the run stands |
-| V2 | The run's status: `completed` or `failed` when the last record is `terminal`; otherwise `settling` when a writer holds the lock and every effect the program reaches is committed; otherwise `running` when a writer holds the lock; otherwise `interrupted`. `suspended` is not added: requests for human input are retired (§9.2) |
+| V2 | The run's status: `suspended` when the checked memo has an active host request, even while the publishing writer holds the lock; otherwise `completed` or `failed` when the last record is `terminal`; otherwise `settling` when a writer holds the lock and every effect the program reaches is committed; otherwise `running` when a writer holds the lock; otherwise `interrupted`. External host settlement only commits its typed reply and publishes `interrupted`; ordinary resume owns continuation (§9.5) |
 | V3 | A `terminal` record is checked against §7.1: every active coordinator commit, identified by its checked `effect_class`, must have a matching `settled` record for that identity and attempt before the terminal. A completed terminal additionally requires replay to reach the same `halt` with no missing commit; a failed terminal may have an uncommitted failure. Missing proof, class mismatch, missing settlement or adjacent terminals yield `memo_inconsistent`, with no completed outputs |
 | V4 | Liveness comes from the writer's lock, not from a heartbeat: a process that died released it, and the view says `interrupted` at once. The present report says `running` until a heartbeat is 300 seconds old |
-| V5 | `steps`: one row per effect identity, keyed by its canonical text, in order of first `started`. Status, result, error and timing come from the records: `running` from `started`, `completed` from `committed`, `settling` for a coordinator effect between `committed` and `settled`, `failed` from `failed`, `invalidated` for every commit covered by a range record (C8). `current_step` is the effect in flight; `next_effect` is the first uncommitted effect when nothing is in flight. `workflow_outputs` is the terminal record's value |
+| V5 | `steps`: one row per effect identity, keyed by its canonical text, in order of first `started`. Status, result, error and timing come from the records: `suspended` from an active host suspension, `running` from `started`, `completed` from `committed`, `settling` for a coordinator effect between `committed` and `settled`, `failed` from `failed`, `invalidated` for every commit covered by a range record (C8). `current_step` is the effect in flight; `next_effect` is the first uncommitted effect when nothing is in flight. `workflow_outputs` is the terminal record's value |
 | V6 | Per-attempt files live in the attempt's directory (§8.2): `result.json`, `stdout.txt`, `stderr.txt`, and `prompt.txt` for a provider. A row's output preview reads them. Nothing is named by step name; nothing is overwritten by a later attempt |
 | V7 | The memo does not carry, and the view does not report: `step_visits`, `transition_count`, `call_frames`, the prompt-context audit, judgment views, observability summaries, provider sessions and observation files, the heartbeat. The readers that need them (the resume planner, the projection integrity audit, the dashboard cursor's frame walk, the human-input guard, the prompt session lookup, the monitor email's log lookup by step name) are not used at the new target, or are adapted to V6 when their class enters. Sessions and observation files enter with the classes that need them, named by identity digest and attempt |
 | V8 | A view launches or reconciles nothing and may be taken while the writer holds the lock. Cost is the journal scan plus pure replay of the reached program; no linear bound in memo length covers unbounded pure work. The spike measured 0.17 seconds for its 5,000-effect specimen (gate report, §5) |

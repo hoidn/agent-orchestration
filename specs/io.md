@@ -824,3 +824,43 @@ or repair recipe for the current package.
 - If parent output validation fails after commit, the runtime rolls back files touched by the transaction using recorded backups or absent-destination tombstones. Unsafe rollback conflicts fail with `promotion_rollback_conflict`.
 - Resume interprets promotion manifests by state: `prepared` repeats preimage checks and commits, `committing` treats already-staged destinations as committed when hashes match, `rolling_back` completes rollback, `failed` returns the recorded failure without publishing, and `committed` revalidates parent outputs before publication.
 - Candidate and evaluator stdout/stderr are runtime-owned logs and sidecars. Adjudicated steps do not populate `output`, `lines`, `json`, `truncated`, or `debug.json_parse_error` from those streams.
+
+## Evaluated Host Input IO (Target 2.40)
+
+The [DSL](dsl.md#evaluated-durable-host-input-target-240) admits typed host
+questions independently of providers. Runtime rendering reuses typed prompts
+and document snapshots, then appends the answer contract without provider
+output-file instructions. The memo holds the complete frozen question and
+answer/reply descriptors; no provider adapter or result-file parser is involved.
+
+Question text, prompt source/`:doc` reads, answer/reply contracts, timeout
+duration, ordered evidence paths/contracts and ordinary operand dependencies
+are semantic inputs. Source/manifest changes obey normal rebuild refusal;
+changed runtime documents/producers obey `effect_input_diverged`. An evidence
+override cannot waive these rules, including `must-exist` workflow input
+preflight for a path also present in `:show`.
+
+`:show` bytes are presentation evidence. Creation safely snapshots regular
+readable files and records ordered `{path, contract, sha256}` rows in the start.
+Settlement safely rehashes the current files; changed, missing or unreadable
+presentation evidence refuses `shown_evidence_changed` by default. With explicit
+`accept_changed_evidence=True`, a host may accept those differences. Each
+`evidence_changes` row has exactly `index`, `path`, `original_sha256`, `observed`:
+`observed` is `{status: present, sha256}` or `{status: missing|unreadable, errno}`.
+The ordinal index distinguishes repeated paths in the authored list. Unsafe
+paths, forbidden links or non-file objects are unconditional refusals, never
+waived. The override boolean is stored even when there are no differences.
+The safe snapshot is repeated immediately before publication; the contract
+records bytes actually read, not protection against subsequent external writes.
+
+After commit, replay validates frozen request and accepted snapshot from memo;
+it does not require current show-only bytes to match. Independent `:doc`, input
+or producer checks still apply to the same file. The original request snapshot
+is never rewritten to pretend changed evidence was original.
+
+Under `effects/<sha256(identity)>/attempt-N/`, `request.prompt.txt`, `request.json`
+and `reply.json` are safely atomically published, rebuildable views. The memo's
+conventional `result_path` remains `.../result.json`; no result file is required
+or written for this inline-only effect. Both typed value and its canonical
+result digest live in the commit. Missing views do not authorize dispatch,
+settlement or recovery. Read-only pending/report/dashboard never repair files.

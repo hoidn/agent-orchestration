@@ -31,7 +31,7 @@ retains the following task and output contracts for explicit manual adaptation:
 | [implement_plan.md](../workflows/library/prompts/design_plan_impl_stack_v2_call/implement_plan.md), [review_implementation.md](../workflows/library/prompts/design_plan_impl_stack_v2_call/review_implementation.md), [fix_implementation.md](../workflows/library/prompts/design_plan_impl_stack_v2_call/fix_implementation.md) | Execute an approved plan, review the full target and apply required corrections. | [implementation phase](../workflows/library/design_plan_impl_implementation_phase.orc) |
 
 Those sources target 2.14 and are retired for both execution and typed imports;
-current source and typed-program graphs must use registered targets 2.35–2.39.
+current source and typed-program graphs must use registered targets 2.35–2.40.
 The prompt text remains available for explicit manual adaptation. Existing `design_plan_impl_stack.prompts.json` and
 `kiss_backlog_item/prompts.json` mappings do not establish current entry
 admission. Consumed Artifacts, output pointers, structured findings and

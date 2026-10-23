@@ -2,10 +2,12 @@
 
 ## Authored frontend and persisted compatibility boundary
 
-Fresh workflow execution accepts only Workflow Lisp source whose path suffix,
+Ordinary `run` accepts only Workflow Lisp source whose path suffix,
 compared case-insensitively, is `.orc`. `run` rejects YAML/YML and every other
 non-`.orc` path with a diagnostic containing `.orc required` before creating
-run state. The production YAML parser is retired.
+run state. The production YAML parser is retired. The bounded Python frontend
+is admitted through `py check/build/run`, which emits retained `.orc` into the
+ordinary checked compiler; see [Python authoring](cli.md#python-authoring).
 
 Execution admission follows the [CLI support boundary](cli.md#executable-support-boundary)
 and [versioning](versioning.md#executable-support-and-historical-version-gates).
@@ -15,7 +17,7 @@ there is no historical resume fallback. `report` and dashboard remain state-only
 observability for historical runs, without parsing authored YAML or compiling
 source to reconstruct semantics. Source compilation, transitive imports, retained
 typed-program capsules, REPL loading and LSP analysis admit only registered
-targets 2.35–2.39 throughout the dependency graph. Older headers are rejected;
+targets 2.35–2.40 throughout the dependency graph. Older headers are rejected;
 historical data readers do not reopen source admission. Direct syntax/import
 analysis uses `target_dsl_unsupported`; public CLI old-entry preflight keeps
 `workflow_execution_target_retired` precedence under
@@ -27,7 +29,7 @@ does not widen evaluated admission or select a port of an excluded effect.
 YAML-fenced snippets are structural notation, not authored workflow files.
 
 - Top-level workflow keys
-  - `version`: string. Current source admission is exactly `"2.35"`, `"2.36"`, `"2.37"`, `"2.38"`, and `"2.39"`, including every imported module and retained typed-program capsule. These targets select evaluated execution: public `compile`, `run`, `resume` and `invalidate` use the checked closed program and memo-backed run. Target 2.36 adds W3 local hooks and graph-selected `std/improve`; bounded 2.37 parallelism and 2.38 command-only confined run-ref/Agent Sessions retain their qualification limits. Target 2.39 adds inference-default procedure contracts and finite source admission; imported 2.35–2.38 definitions retain their defining contracts. See [versioning](versioning.md#version-gating-summary) for availability and historical feature-introduction gates. Strict gating: unknown fields at a given version -> validation error (exit 2).
+  - `version`: string. Current source admission is exactly `"2.35"`, `"2.36"`, `"2.37"`, `"2.38"`, `"2.39"`, and `"2.40"`, including every imported module and retained typed-program capsule. These targets select evaluated execution: public `compile`, `run`, `resume` and `invalidate` use the checked closed program and memo-backed run. Target 2.36 adds W3 local hooks and graph-selected `std/improve`; bounded 2.37 parallelism and 2.38 command-only confined run-ref/Agent Sessions retain their qualification limits. Target 2.39 adds inference-default procedure contracts and finite source admission; imported 2.35–2.38 definitions retain their defining contracts. See [versioning](versioning.md#version-gating-summary) for availability and historical feature-introduction gates. Strict gating: unknown fields at a given version -> validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -157,7 +159,7 @@ YAML-fenced snippets are structural notation, not authored workflow files.
       Targets through 2.28 retain their previous admission and emitted mappings.
       State schema remains `2.1`; end-to-end root-state/resume evidence is recorded
       in implementation-plan Task 4.
-  - Workflow Lisp host input (target 2.32):
+  - Historical Workflow Lisp host input (target 2.32; current 2.40 behavior is [separate](#evaluated-durable-host-input-target-240)):
     - `(request-input question)` accepts exactly one `String` expression and
       returns the closed builtin `HumanReply` union:
       `ANSWERED(text String) | CANCELLED`. It is one inferred `host-input`
@@ -559,7 +561,7 @@ YAML-fenced snippets are structural notation, not authored workflow files.
   - `goto` targets must reference an existing step name or `_end`. Unknown targets are a validation error (exit code 2) reported at workflow load time.
   - Deprecated `command_override` is not supported and must be rejected by the frontend/shared validator.
   - Historical feature-introduction gates (these do not override the current
-    2.35–2.39 source/import/tooling boundary or admit retired effects):
+    2.35–2.40 source/import/tooling boundary or admit retired effects):
     - `depends_on.inject` requires `version: "1.1.1"` or higher.
     - `artifacts`, `publishes`, `consumes`, `inject_consumes`, `consumes_injection_position`, and `prompt_consumes` require `version: "1.2"` or higher.
     - `output_bundle` and `consume_bundle` require `version: "1.3"` or higher.
@@ -1279,3 +1281,64 @@ Path safety: Absolute paths and any path containing `..` are rejected; symlinks 
 - `strict_flow: true` means any non-zero exit halts the run unless an `on.failure.goto` is defined for that step.
 - `_end` is a reserved `goto` target that terminates the run successfully.
 - Precedence: `on` handlers on the step (if present) are evaluated first; if none apply, `strict_flow` and the CLI `--on-error` setting govern whether to stop or continue.
+
+## Evaluated Durable Host Input (Target 2.40)
+
+Target 2.40 admits one serial evaluated `request_input` effect. Older targets
+continue refusing evaluated host-input execution; the target-2.32 `HumanReply`
+format above remains historical. Import the ordinary generic union from `std/host`:
+
+```lisp
+(import std/host :only (HostReply))
+(defenum Approval APPROVED DENIED)
+(defproc approval ((question String)) -> HostReply[Approval]
+  (request-input question :returns Approval :timeout-sec 86400))
+```
+
+`request-input` requires a question and one `:returns AnswerType`; optional
+`:timeout-sec` and `:show` occur at most once. The question is a `String`
+expression or a fully applied typed `defprompt`. A declared prompt return
+contract must agree with the answer type. Rendering uses the ordinary typed
+fills and content-bound `:doc` reads, then adds the answer contract without
+provider output-file instructions. Prompt applications at this position do
+not introduce general runtime prompt values.
+
+The answer type is `String`, an enum, or a closed union whose complete
+instantiated payload meets the existing structured transport rules. `Any`,
+open unions, unresolved generics, handles, procedure references and closures
+are refused. The host submits the JSON encoding of the answer, not a reply
+wrapper. The returned ordinary union is:
+
+```lisp
+(defunion HostReply :forall (A)
+  (ANSWERED (value A) (by String))
+  (CANCELLED (by String))
+  (EXPIRED))
+```
+
+`:timeout-sec` is an expression yielding an exact positive integer; booleans,
+floats, zero, negative values and non-finite resulting deadlines are refused.
+Omission means no deadline. `:show (path-expression ...)` is an ordered syntactic
+list of typed `relpath` expressions, not strings or JSON objects. Empty `:show ()`
+means no evidence. Initial snapshots require regular readable files under the
+ordinary safe workspace rules; the path type alone does not distinguish files
+from directories.
+
+The subject-free inferred effect is `(host-input)`. As at 2.39, omitted procedure
+restrictions infer effects; explicit `:effects ((host-input))` permits the
+request and `:effects ()` refuses it directly or transitively. Defining-module
+target rules remain in force for imports. Target 2.40 preserves the previously
+admitted 2.39 procedure and phased-provider contracts.
+
+One run has at most one outstanding request. Serial procedure/workflow calls
+and loop visits may ask sequential questions. Pure functions, transitive
+`par-map` workers and every child program invoked through `run-ref`, including
+confined children, refuse host input. Child admission refuses before child
+creation or launch. The checked-program validator independently enforces these
+bounds; same-memo calls do not create child suspension coordinators.
+
+The checked node carries `class: request_input`, its assigned site, question
+or typed prompt operands, optional timeout, ordered show operands, and full
+closed answer/reply descriptors. The [state contract](state.md#evaluated-durable-host-input-target-240)
+owns durable lifecycle and typed replay; [CLI](cli.md#evaluated-host-input-target-240)
+owns settlement. Native Python `ask` emits this same effect.

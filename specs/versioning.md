@@ -16,7 +16,8 @@ remain distinct above that floor. The owner-selected
 records implementation and delivery status.
 It admits evaluated entries/profiles at 2.35/2.36, the registered bounded
 2.37 surface, the bounded 2.38 command-only confined run-ref and agent-sessions
-surfaces, and the 2.39 procedure authoring and bounded phased-provider contracts
+surfaces, the 2.39 procedure authoring and bounded phased-provider contracts,
+and target-2.40 serial typed host input
 with their existing limits, not entries through 2.34. The
 [CLI support boundary](cli.md#executable-support-boundary) owns refusal
 codes/exits and precedence. Old entry builds/runs/dry-runs refuse before
@@ -1210,7 +1211,7 @@ import definitions from 2.35–2.38 unchanged; a module below 2.39 refuses new d
 Target 2.39 also admits fragment-backed `provider-result` with
 `:delivery :phased`, a positive `Int` literal `:timeout-sec` and phased-only
 literal `:materialization-attempts` in `1..3` (default `2`, total submissions).
-The defining source must target 2.39; older imported definitions retain refusal.
+The defining source must target 2.39 or newer; older imported definitions retain refusal.
 The selected provider must explicitly validate
 `interactive_terminal_turn_queue.v1`; there is no composed fallback. One new
 checked coordinator class `provider_phased` uses existing closed-program format
@@ -1237,7 +1238,7 @@ source admission use the existing frontend and evaluated runtime. The
 and [library reference](../docs/lisp_library_reference.md#target-239-local-hooks)
 provide current recipes; their bounded evidence does not qualify arbitrary
 composition or evaluated LSP. Both the main target registry and run-ref config
-admit 2.35–2.39 after the source-floor cut; their previous lower ranges are
+admit 2.35–2.40 after the source-floor cut; their previous lower ranges are
 retired. Run-ref still enforces its independent feature restrictions.
 
 | DSL version | Key features enabled | Notes |
@@ -1291,5 +1292,43 @@ retired. Run-ref still enforces its independent feature restrictions.
 | 2.38 (command path implemented; provider qualification pending) | Workflow Lisp run-ref confined workflow children | Command, recovery and export paths are implemented; public confined providers and native provider qualification remain pending. Agent allocation and turns are excluded from confined children. Named private child entry, `:commit` expression, closed confinement policy, `COMPLETED`/`FAILED` site union, `run_ref_static_config.v2` and `run_ref_confinement.v1`. See the 2.38 paragraph above. |
 | 2.38 | Workflow Lisp agent sessions: `agent` constructor, opaque `Agent`, `provider-result` on an agent as a coordinator `agent_turn` effect | Implemented and additive; 2.35/2.36/2.37 unchanged. Allocation/turn runtime, recovery, C8 guards and views are delivered by [Plan B](../docs/plans/2026-10-14-agent-sessions-implementation-plan-b.md); [PQ-1a evidence](../docs/reports/2026-10-14-agent-sessions-pq1a-qualification.md) records deterministic proofs and bounded adapter smokes, with the acceptance comparison pending. State schema `3.0`, profile `evaluated_execution.v1` unchanged (additive `effect_class` values and class-specific `proof`). |
 | 2.39 | Inferred effects with optional checked restrictions, caller-owned inline defproc composition, explicit workflow boundaries, finite private/compatibility-form admission and bounded fragment-backed phased provider delivery | Definition-origin compatibility; additive `provider_phased` coordinator and inline proof under unchanged closed-program/state/profile versions. Explicit interactive capability, total-submission cap and positive literal timeout required. Deterministic evidence is separate from paid-provider qualification; confinement, LSP and other qualification gates remain separate. See the 2.39 paragraph above. |
+| 2.40 | Typed serial durable host input and bounded native Python authoring | Generic `HostReply[A]`, one pending request, typed external settlement, resume-only expiration and retained generated `.orc` through the existing runtime; unchanged schema/profile. See [2.40 contract](#target-240-typed-host-input-and-bounded-python-authoring). |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |
+
+## Target 2.40: Typed Host Input And Bounded Python Authoring
+
+Registered source/import/typed-program/REPL/LSP admission is 2.35–2.40, subject
+to each effect's defining-target and independent qualification rules. Target
+2.40 retains the 2.39 inference-default optional effect restrictions,
+caller-owned procedure composition, finite source admission and bounded phased
+providers. Imported older definitions keep their original contracts; a newer
+caller does not reinterpret them. Earlier targets refuse the new evaluated
+host-input effect. Historical target-2.32 `HumanReply` is unchanged and does
+not authorize execution or settlement of retired runs.
+
+Target 2.40 admits typed `request-input`, full `std/host::HostReply[A]`, one
+serial pending request, external host answer/cancel and runtime-only expiration
+consumed through ordinary resume. The [DSL](dsl.md#evaluated-durable-host-input-target-240),
+[state](state.md#evaluated-durable-host-input-target-240),
+[IO](io.md#evaluated-host-input-io-target-240) and
+[CLI](cli.md#evaluated-host-input-target-240) own the contract. The additive
+`request_input` class and `suspended`/host payload fields use unchanged state
+schema `3.0`, profile `evaluated_execution.v1` and checked representation `table/1`.
+Requests in transitive parallel workers or child `run-ref` programs are refused;
+public provider, confinement, parallel and LSP qualification gates stay separate.
+
+The bounded `orchestrator.py` authoring package traces once at explicit build,
+emits ordinary target-2.40 source plus a diagnostic map, and supplies ordinary
+unchanged extern manifests to the checked compiler. It adds no executor,
+checkpoint format, provider adapter, Python resume or old-target bypass.
+Generated source remains a retained rebuild input. Python/module/template edits
+do not change existing runs; generated source/manifest changes and runtime
+Doc divergence follow their existing refusal rules. Supported declarations,
+exclusions and immutable publication are owned by the [frontend design](../docs/design/workflow_python_frontend.md)
+and [Python guide](../docs/python_workflow_drafting_guide.md).
+
+Implementation and deterministic public acceptance are distinct from paid
+provider or live-notification qualification. The [delivery plan](../docs/plans/2026-10-22-durable-host-input-plan.md)
+owns execution evidence and remaining verification; it does not redefine these
+contracts or authorize provider spend.

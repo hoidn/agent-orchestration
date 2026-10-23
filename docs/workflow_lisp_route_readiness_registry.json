@@ -358,6 +358,19 @@
     },
     {
       "copy_safety": "preferred_current_guidance",
+      "entry_workflow": "approval::recover",
+      "evidence": [
+        "tests/test_workflow_host_input_e2e.py::test_public_cli_workflows_recover_typed_outcomes_once"
+      ],
+      "notes": "Bounded target-2.40 serial typed host-input example. Copy only with the isolated-workspace setup in workflows/examples/durable_host_input/README.md, supplied provider/command manifests, action.py and the local recording provider stub; the provider binding must resolve to that stub, not a paid CLI. Diagnoses, verifies typed cause/evidence, asks once, and repairs only an approved answer; denied, cancelled and expired outcomes escalate. Host settlement does not continue execution: ordinary resume is required. Readiness and public deterministic acceptance remain scoped to the linked tests and docs/plans/2026-10-22-durable-host-input-plan.md gates; no live-provider, live-mail, parallel/child host-input or LSP qualification is implied.",
+      "path": "workflows/examples/durable_host_input/approval.orc",
+      "readiness_label": "leaf_runtime_candidate",
+      "route_label": "evaluated_execution",
+      "surface_id": "workflows.examples.durable_host_input.approval",
+      "surface_kind": "workflow_example"
+    },
+    {
+      "copy_safety": "preferred_current_guidance",
       "evidence": [
         "tests/test_workflow_evaluated_consumers.py::test_public_w3_improve_launcher_consumes_returned_proposal",
         "tests/test_workflow_lisp_improve_example_e2e.py::test_documented_command_dry_runs_the_example"
@@ -770,5 +783,5 @@
       "surface_kind": "test_fixture"
     }
   ],
-  "updated": "2026-10-15"
+  "updated": "2026-10-22"
 }

@@ -275,8 +275,9 @@ fixtures of `tests/test_workflow_evaluated_cli.py`,
 `tests/test_workflow_evaluated_run_ref_settlement.py` and
 `tests/test_workflow_evaluated_invalidate.py`.
 
-Targets 2.35/2.36, admitted bounded 2.37 and registered bounded 2.38 (agent
-sessions; see versioning) use this persistence contract.
+Targets 2.35/2.36, admitted bounded 2.37, registered bounded 2.38 (agent
+sessions; see versioning), 2.39 and 2.40 use this persistence contract, with
+their separately specified class-specific extensions.
 [Versioning](versioning.md#version-gating-summary) owns the 2.37 and 2.38
 qualification limits; W3 changes authoring and graph-selected helper source without changing
 this profile, journal or resume guards.
@@ -379,13 +380,15 @@ truncates it, after its preflight. Exactly these record kinds and keys:
 
 | `record` | Keys (required unless noted) | Meaning |
 | --- | --- | --- |
-| `started` | `identity`, `attempt`, `input_digest`, `input_parts`, `implementation_files`, `result_path`, `time` | Reserves ordinal `attempt`, the next for the identity counting failed and invalidated attempts, synchronized before the attempt directory exists; not proof of a launch |
-| `committed` | `identity`, `attempt`, `input_digest`, `input_parts`, `value`, `result_path`, `result_digest`, `implementation_files`, `depends_on`, `effect_class`, `time`; `proof` only, and always, when the class is a coordinator (`run_ref`: `{settled_result, artifacts}`; `agent_turn`: `{adapter, locator, position {turn_id, end_line}, predecessor, agent, config_digest}`, `agent` naming the active allocation commit, `predecessor` the previous active committed turn of that agent or `null`, `config_digest` equal to the allocation's pinned configuration) | The validated typed `value` is the result; `result_digest` is the sha256 of the attempt's result file; `input_digest`, `input_parts`, `implementation_files` and `result_path` equal the matching `started`; `depends_on` lists identities with active commits whose values the resolved input read (C9: computed per value, a superset of the parts actually read), plus, for an `agent_turn`, its predecessor turn even when the prompt does not consume its result; `effect_class` ∈ `command`, `provider`, `run_ref`, `agent`, `agent_turn` and must agree with the checked site |
-| `failed` | `identity`, `attempt`, `code`, `exit_info`; optional `violations` | Closes the pending attempt without a result. `exit_info` is `{exit_code, error}` for `command_exit_nonzero`, `provider_exit_nonzero` and `provider_timeout`, `{error}` for `provider_preparation_failed`, `{errno}` for `effect_attempt_path_exists` and `effect_attempt_allocation_failed`, otherwise `{}`; `violations` accompanies ordinary-provider `provider_result_invalid` and a command result that fails its contract (code `evaluated_execution_failed`). Agent invalid-result failures use `exit_info {}` and omit `violations` (including first-turn `provider_result_invalid`). No timestamp |
+| `started` | `identity`, `attempt`, `input_digest`, `input_parts`, `implementation_files`, `result_path`, `time`; `host_request` only, and always, for `request_input` | Reserves ordinal `attempt`, the next for the identity counting failed and invalidated attempts, synchronized before the attempt directory exists; not proof of a launch |
+| `committed` | `identity`, `attempt`, `input_digest`, `input_parts`, `value`, `result_path`, `result_digest`, `implementation_files`, `depends_on`, `effect_class`, `time`; `host_reply` only, and always, for `request_input`; `proof` only, and always, when the class is a coordinator (`run_ref`: `{settled_result, artifacts}`; `agent_turn`: `{adapter, locator, position {turn_id, end_line}, predecessor, agent, config_digest}`, `agent` naming the active allocation commit, `predecessor` the previous active committed turn of that agent or `null`, `config_digest` equal to the allocation's pinned configuration) | The validated typed `value` is the result; `result_digest` is the sha256 of the attempt's result file (for `request_input`, the canonical inline reply instead); `input_digest`, `input_parts`, `implementation_files` and `result_path` equal the matching `started`; `depends_on` lists identities with active commits whose values the resolved input read (C9: computed per value, a superset of the parts actually read), plus, for an `agent_turn`, its predecessor turn even when the prompt does not consume its result; `effect_class` ∈ `command`, `provider`, `run_ref`, `agent`, `agent_turn`, `request_input` and must agree with the checked site |
+| `failed` | `identity`, `attempt`, `code`, `exit_info`; optional `violations` | Closes the pending attempt without a result; forbidden for `request_input`, which only suspends, commits or is invalidated. `exit_info` is `{exit_code, error}` for `command_exit_nonzero`, `provider_exit_nonzero` and `provider_timeout`, `{error}` for `provider_preparation_failed`, `{errno}` for `effect_attempt_path_exists` and `effect_attempt_allocation_failed`, otherwise `{}`; `violations` accompanies ordinary-provider `provider_result_invalid` and a command result that fails its contract (code `evaluated_execution_failed`). Agent invalid-result failures use `exit_info {}` and omit `violations` (including first-turn `provider_result_invalid`). No timestamp |
 | `settled` | `identity`, `attempt`, `by` ∈ `settle`, `reconcile` | A coordinator's final commit, after its `committed` |
 | `invalidated` | `from_commit`, `time` | The byte offset of the first byte of an active `committed` record: cancels that commit and every later active commit in one record and reopens a terminal; no identity or dependent list |
 | `terminal` | `outcome: "completed"`, `value`; or `outcome: "failed"`, `code`, `message` | `completed` only after `halt` with every reached effect committed and every coordinator settled; `failed` only with no pending start and no unsettled coordinator |
-| `suspended` | — | Refused by this profile |
+| `suspended` | `identity`, `attempt`, `request_id` | Target-2.40 `request_input` only; one suspension referring to the matching start's immutable payload; see [host input](#evaluated-durable-host-input-target-240) |
+
+The [phased-provider extension](#evaluated-phased-provider-attempts-target-239) further defines its coordinator class and proof fields. The [host-input extension](#evaluated-durable-host-input-target-240) defines full conditional request/reply payloads and reducer rules.
 
 The additive classes `agent`/`agent_turn` appear only in journals of
 target-2.38 programs; the profile, schema and representation are unchanged,
@@ -416,8 +419,10 @@ turn attempt, or one closed `failed` with `agent_bootstrap_restarted`,
 `invalidate` write preflight and by resume, never by the reducer); a terminal must leave no pending attempt or unsettled coordinator,
 and adjacent terminals are refused. `input_digest`, `result_digest` and
 `depends_on` are checked for spelling, matching and active-commit membership,
-not recomputed from `input_parts` or from files: a committed result is never
-revalidated against the filesystem.
+not generally recomputed from `input_parts` or from files: a committed result is never
+revalidated against the filesystem. Target-2.40 request rows additionally validate
+their frozen payload, semantic parts, canonical inline reply and provenance
+under the [host-input rules](#evaluated-durable-host-input-target-240).
 
 An `invalidated` record also removes the pending obligation of each
 uncommitted `started` record whose byte offset is at or after `from_commit`
@@ -471,10 +476,14 @@ and an empty directory when it failed before its child; an agent allocation
 `prompt.txt`, `receipt.json` (`agent_turn_receipt.v1`, written before
 dispatch and updated monotonically), then `result.json` when the provider
 wrote one, `stdout.txt`, `stderr.txt`, and `abandoned.json` when a bootstrap
-resume abandoned the candidate. A result file
+resume abandoned the candidate. A host request instead has rebuildable
+`request.prompt.txt`, `request.json` and, after settlement, `reply.json`; no
+`result.json` is needed. Its writer may reopen/recreate the same checked
+attempt's view directory during recovery, never allocate that ordinal to a new
+request. A result file
 without a `committed` record is evidence, never a result, including a file
 left by an attempt that was killed before any outcome row. A directory whose
-exclusive creation collides records `failed` with `effect_attempt_path_exists`
+exclusive creation for an ordinary external attempt collides records `failed` with `effect_attempt_path_exists`
 and preserves the existing directory. The identity digest of attempt
 directories (`sha256(identity)`) differs from the coordinator step id
 `root.<canonical_sha256(identity)>`, which hashes the JSON-quoted text.
@@ -537,9 +546,10 @@ these keys:
 | --- | --- |
 | `schema_version`, `result_persistence_profile`, `run_id`, `workflow_file`, `workflow_checksum`, `started_at`, `bound_inputs` | Copied from the header; `resume_request`, `run_ref_root` and `result_root` are not copied |
 | `updated_at` | ISO timestamp of the last record that carries `time`, else `started_at` |
-| `status` | `completed` or `failed` from a terminal; otherwise `settling` (a writer holds the lock and replay reaches `halt`), `running` (a writer holds the lock) or `interrupted` (no writer). The writer publishes as itself active, so a stored view says `running`, `settling` or a terminal; `interrupted` appears only in a reader's reconstruction, from the `run.lock` probe, never from a heartbeat, PID or modification time |
+| `status` | `suspended` for an active durable host request before the writer-lock cases; `completed` or `failed` from a terminal; otherwise `settling` (a writer holds the lock and replay reaches `halt`), `running` (a writer holds the lock) or `interrupted` (no writer). Execution writers publish as active. Suspension publishes `suspended` even while its writer holds the lock; external host settlement publishes `interrupted` because it requires resume. Other `interrupted` projections use the reader's `run.lock` probe, never a heartbeat, PID or modification time |
 | `memo_offset` | Exclusive end byte offset of the complete journal prefix the view represents (`0` for an empty journal) |
-| `steps` | Object keyed by identity, one row per identity for its latest attempt, in order of first `started`. Row keys: `name` and `identity` (both the identity), `status`, `effect_class`, `attempt`, `result_path`, `started_at`; a committed attempt adds `value` and `output` (the same value), `completed_at`, `duration_ms` and `result_digest`, with status `completed`, `invalidated` (covered by a range record) or `settling` (a coordinator between `committed` and `settled`); a failed attempt adds `error: {type, code, exit_info}` with status `failed` (an `agent_turn` row's `exit_info` omits the journal's `locator`); a start without an outcome has status `running`; a committed `agent_turn` row adds `agent` (allocation identity), `predecessor` (turn identity or `null`), `continuation` (`initial` when `predecessor` is `null`, else `continued`) and `locator_present: true` from its proof; a committed `agent` row adds `agent` (its own identity); no locator, position, native path or tmux target ever enters the view |
+| `steps` | Object keyed by identity, one row per identity for its latest attempt, in order of first `started`. Row keys: `name` and `identity` (both the identity), `status`, `effect_class`, `attempt`, `result_path`, `started_at`; a committed attempt adds `value` and `output` (the same value), `completed_at`, `duration_ms` and `result_digest`, with status `completed`, `invalidated` (covered by a range record) or `settling` (a coordinator between `committed` and `settled`); a failed attempt adds `error: {type, code, exit_info}` with status `failed` (an `agent_turn` row's `exit_info` omits the journal's `locator`); a start without an outcome has status `running`, except an active host suspension is `suspended` and an invalidated host start is `invalidated`; a committed `agent_turn` row adds `agent` (allocation identity), `predecessor` (turn identity or `null`), `continuation` (`initial` when `predecessor` is `null`, else `continued`) and `locator_present: true` from its proof; a committed `agent` row adds `agent` (its own identity); no locator, position, native path or tmux target ever enters the view |
+| `pending_host_input` | Present only for an active host suspension; frozen request plus `identity`, `attempt`, `result_path` and observational `deadline_elapsed`; absent otherwise |
 | `current_step` | `{name, identity, attempt, result_path}` of the latest pending start or unsettled coordinator, else `null` |
 | `next_effect` | The identity of the first uncommitted effect replay reaches when nothing is in flight, else `null` |
 | `error` | `{type, code, message}` from a failed terminal, else `null` |
@@ -581,9 +591,11 @@ before any flat-route status or schema check.
    then continue to the next dispatch. If the view replacement fails
    (`view_write_failed`), the appended record remains authority, no `failed`
    row or terminal is fabricated, and execution stops with exit `1`.
-3. An attempt: `started` appended and synchronized, then exclusive creation
-   of the attempt directory, then launch; `committed` or `failed` afterwards;
-   a coordinator's `settled` after its `committed`.
+3. An external attempt: `started` appended and synchronized, then exclusive
+   creation of the attempt directory, then launch; `committed` or `failed`
+   afterwards; a coordinator's `settled` after its `committed`. A host request
+   instead publishes rebuildable views and one `suspended` row, with later
+   ordinary inline commit and no launch, `failed` closure or `settled` row.
 4. A completed terminal is appended only when no attempt is pending and no
    coordinator is unsettled; a failed terminal likewise, and an unchanged
    failed terminal is never duplicated.
@@ -603,7 +615,8 @@ admission in [Versioning](versioning.md).
 
 ## Durable Host Input State And Recovery
 
-Historical target-2.32 workflow contract: new request execution and
+Historical target-2.32 workflow contract (the current target-2.40
+[contract](#evaluated-durable-host-input-target-240) is separate): new request execution and
 `input answer`/`cancel` settlement are retired; those public commands refuse
 before locks or writes. `input get` remains a read-only reader of the stored
 request ([CLI](cli.md#executable-support-boundary)).
@@ -2080,3 +2093,121 @@ Schema boundary note:
   visit coordinates. Successful cleanup removes that guard before dispatch; a
   surviving guard proves cleanup was interrupted and blocks later provider
   dispatch or publication with `adjudication_state_integrity_error`.
+
+## Evaluated Durable Host Input (Target 2.40)
+
+This extends the existing schema `3.0`, profile `evaluated_execution.v1` and
+checked representation without changing historical `HumanReply` data. Runtime,
+read-only pending/report/dashboard and external mutations all bind request
+contracts and values to the checked site in `RunAuthority.program`; trusting
+only the memo's claimed nominal contract is insufficient. The memo reducer
+validates shape and transitions; checked request validation supplies type and
+program authority, including full instantiated constraints and provenance.
+
+### Request identity and frozen payload
+
+The dynamic effect identity is the ordinary owner/site, procedure activation
+and loop-index identity. `request_id` is a versioned canonical SHA-256 over
+`schema_version: 1`, `run_id`, the canonical complete immutable header digest,
+`program_digest`, dynamic `identity` and attempt ordinal. It remains stable on
+replay and differs for new attempts, activations, loop visits or separately
+created run authority. A complete copy of the same authority is the same run,
+not a separately authenticated tenant.
+
+The ordinary synchronized `started` row adds `host_request` and uses empty
+`implementation_files`. Its exact payload keys are:
+
+| Key | Contract |
+| --- | --- |
+| `schema_version`, `request_id` | Integer `1` and the run-bound request identity |
+| `question`, `question_digest` | Fully rendered question and SHA-256 of its UTF-8 bytes |
+| `answer_contract`, `reply_contract` | Full closed descriptors for `A` and canonical `std/host::HostReply[A]` |
+| `answer_contract_digest`, `reply_contract_digest` | Canonical descriptor SHA-256 values |
+| `show` | Authored-order rows `{path, contract, sha256}` for safely read workspace-relative presentation files |
+| `created_at`, `timeout_sec`, `deadline` | Finite runtime creation timestamp; exact positive integer duration or `null`; creation plus duration or `null` |
+| `depends_on` | Sorted unique active committed operand dependencies |
+| `payload_digest` | Canonical SHA-256 of all preceding payload keys, excluding itself |
+
+Semantic `input_parts` are exactly `question`, `answer_contract`, `reply_contract`,
+`timeout_sec`, `show` and `documents`, each a digest. They bind rendered question,
+full contracts, duration, ordered show paths/contracts and content-bound prompt
+documents. Show bytes, creation time and absolute deadline are frozen payload
+facts, not replay-varying semantic inputs. The start's `time` equals `created_at`;
+recovery never recomputes that attempt's ID, time or deadline.
+
+### Transitions and settlement
+
+After the durable start, publish request evidence views and append one
+`suspended` row with exactly `record`, `identity`, `attempt`, `request_id`.
+Only a matching target-2.40 request start may suspend, and only one request
+may be outstanding. Suspension is nonterminal: the evaluator stops before its
+continuation, exits `0`, and releases its locks. Repeated resume before an
+answer/deadline returns the same request without another start/suspension or
+upstream dispatch.
+
+Answer/cancel appends one ordinary `committed` row, including `effect_class:
+request_input`, normal identity/input/path/dependency fields, typed inline
+`value`, canonical inline `result_digest`, and `host_reply`. The input fields,
+implementation files and result locator match the start. The effect is not a
+coordinator: it carries no `proof` and needs no `settled` row. Both the full
+answer and wrapper are validated, then restored with their checked reply
+descriptor, dependencies and effect provenance so branch refinement survives.
+
+For host outcomes, `host_reply` has exactly `request_id`, `origin: host`,
+`attestation` (opaque string or `null`), explicit boolean
+`accept_changed_evidence`, and `evidence_changes`. The principal is the
+nonempty, non-whitespace, NUL-free `by` in the typed `ANSWERED`/`CANCELLED` value;
+the API constructs the wrapper. A host commit records runtime acceptance time
+strictly before the deadline. It does not run continuation or add a terminal;
+the post-settlement no-executor status is `interrupted`, requiring resume.
+
+For expiration, the value is `{"variant":"EXPIRED"}` and provenance has exactly
+`request_id`, `origin: runtime`, `reason: deadline`,
+`accept_changed_evidence: false`, `evidence_changes: []`; no principal or
+attestation is allowed. Resume alone commits expiration, at or after the frozen
+deadline and after ordinary prefix preflight, then immediately continues.
+Read-only inspection may expose `deadline_elapsed` without writing expiration.
+
+All settlement, resume, expiration and invalidation use the existing run writer
+lock. A held lock refuses `memo_busy`. New host settlements rebuild and validate
+the ordinary resume recipe, program, inputs and reached prefix before any
+mutation; semantic divergence refuses without repairing tails or writing views.
+Immediately before append, the writer samples runtime time: at/after deadline
+host settlement refuses `host_input_deadline_elapsed`. A host commit accepted
+before the deadline wins over subsequent expiration; caller timestamps have no
+authority.
+
+An identical answer/cancel retry against any still-active committed request
+returns the recorded value without a row, including after its deadline,
+completion, or while a later request waits. Equality binds outcome, canonical
+typed value, exact principal, attestation and override choice; it does not reread
+current evidence or require a changed source recipe to rebuild. Conflicting
+retries refuse `request_already_settled`; unknown, cross-run and invalidated IDs
+refuse `host_input_stale`.
+
+### Recovery, views and invalidation
+
+| Surviving boundary | Required behavior |
+| --- | --- |
+| No complete start | Normal evaluation may create the first request |
+| Complete start without suspension | Resume validates its reached effect, recreates views and appends the one suspension using the same ID/ordinal/deadline; host mutation refuses `host_input_not_suspended` until then |
+| Durable suspension with absent/stale views | Pending derives from memo; read-only consumers do not repair; the next successful writer may rebuild views |
+| Torn reply append | No complete commit exists; repair only the validated torn tail under the lock after successful preflight |
+| Durable reply with failed publication/process completion | Reply remains authoritative; identical retry returns it and resume consumes it without asking again |
+
+The attempt directory has rebuildable `request.prompt.txt`, `request.json` and
+`reply.json` views. The conventional memo `result_path` still locates
+`.../result.json`, but this inline effect writes no redundant result file.
+Readers never use those views to settle or restore a reply. The derived view
+adds `pending_host_input` (the frozen payload plus `identity`, `attempt`,
+`result_path`, `deadline_elapsed`) only while a request is suspended; the field
+is absent otherwise. Request effect rows may be `suspended`, and committed rows add `host_reply` and `host_settlement`
+(`request_id`, `variant`, `by` or `null`, `settled_at`).
+
+Existing suffix invalidation from an active commit also removes later pending
+starts/suspensions, making their request IDs stale. A committed request may
+anchor invalidation under existing coordinator/session guards; its new attempt
+gets a new ordinal and deadline. There is no direct pending-request invalidation
+door: cancel yields a typed outcome; changing a question requires invalidating
+an earlier active commit or starting a new run. See [IO](io.md#evaluated-host-input-io-target-240)
+for evidence drift and replay.

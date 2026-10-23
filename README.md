@@ -143,7 +143,7 @@ timeout policy; ordinary provider execution uses the trusted host workspace.
 - **The compiled artifact is a closed program.** Loops are bounded, there are
   no runtime closures, and the effect vocabulary is fixed, so every effect site
   and its contract is known before a run starts.
-- **Evaluated execution** (targets 2.35 to 2.39): values are computed in a
+- **Evaluated execution** (targets 2.35 to 2.40): values are computed in a
   lexical environment and have no stored copy. An effect is identified by its
   site and the path of activations that reached it, and nothing else. An
   effect runs only when the memo holds no committed result for that identity.
@@ -297,6 +297,7 @@ what each target admits.
 | Map of the documentation | [`docs/index.md`](docs/index.md) |
 | Whether a surface is implemented, partial, designed, or legacy | [`docs/capability_status_matrix.md`](docs/capability_status_matrix.md) |
 | The execution model in prose | [`docs/orchestration_start_here.md`](docs/orchestration_start_here.md) |
+| Author a bounded Python workflow | [`docs/python_workflow_drafting_guide.md`](docs/python_workflow_drafting_guide.md) |
 | Author a `.orc` workflow | [`docs/lisp_workflow_drafting_guide.md`](docs/lisp_workflow_drafting_guide.md) |
 | Which example to copy | [`workflows/README.md`](workflows/README.md#which-example-should-i-copy) |
 | Normative contracts | [`specs/index.md`](specs/index.md) |

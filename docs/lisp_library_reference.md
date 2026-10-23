@@ -1,6 +1,6 @@
 # Workflow Lisp Library Reference
 
-Status: informative reference for admitted compositions at evaluated targets 2.35–2.39.
+Status: informative reference for admitted compositions at evaluated targets 2.35–2.40.
 Use this page to choose a reusable API, an example workflow, or a composition
 pattern for generating, evaluating, selecting and improving candidates. The
 [drafting guide](lisp_workflow_drafting_guide.md) owns general authoring judgment;
@@ -15,6 +15,7 @@ historical data and cannot be imported or analyzed by the current frontend.
 
 | Task | Entry | Kind | Current availability |
 | --- | --- | --- | --- |
+| Ask for a durable typed decision | [Host replies with `std/host`](#host-replies-with-stdhost) | Generic union plus evaluated effect | Target 2.40 serial requests; external settlement and ordinary resume |
 | Generate independent code changes, then choose one | [Generate candidates and select](#generate-candidates-and-select) | Example workflow | Canonical 2.35 source; serial, bounded, manually prepared clones |
 | Review and revise one typed candidate | [Review and revise with `std/improve`](#review-and-revise-with-stdimprove) | Library API | 2.35 explicit-input API; 2.36–2.39 local-hook API, with a maintained 2.39 caller |
 | Score a candidate with a deterministic executable | [Evaluate with an external command](#evaluate-with-an-external-command) | Composition pattern | Typed `command-result` with a declared command boundary at 2.35 |
@@ -648,3 +649,31 @@ preceding generation/selection example for manually prepared code workspaces, or
 the [confined command-only recipe](lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only)
 for runtime-owned command workspaces. Confined providers and the complete
 generation/selection migration remain pending qualification.
+
+## Host replies with `std/host`
+
+**Kind:** ordinary first-order generic union, used by the target-2.40 evaluated
+`request-input` effect. Import `HostReply` from `std/host`; Python reexports the
+same descriptor rather than defining a second nominal union.
+
+`HostReply[A]` is `ANSWERED(value A, by String) | CANCELLED(by String) | EXPIRED`.
+The answer is a string, enum or transported closed union; the principal comes
+from validated host attribution. Match all three outcomes and use branch-local
+payload fields: only `ANSWERED` has `value`, and only host outcomes have `by`.
+This is separate from historical fixed `HumanReply`, whose old-profile execution
+and mutation remain retired.
+
+Use the [complete provider-free Lisp recipe](lisp_workflow_drafting_guide.md#durable-host-input)
+or [native Python recipe](python_workflow_drafting_guide.md). For provider
+analysis, command verification, evidence and conditional repair, use the
+[complete approval example](../workflows/examples/durable_host_input/README.md),
+including its manifests and isolated stub setup. Source-level extern references
+never supply provider defaults or waive command closure declarations.
+
+The effect supports serial same-memo calls and loops, with at most one pending
+request; it refuses in pure contexts, parallel workers and child programs.
+Answer/cancel commits the typed reply; ordinary resume alone continues or
+expires the frozen deadline. Presentation-evidence overrides cannot waive
+semantic replay or path safety. The [DSL](../specs/dsl.md#evaluated-durable-host-input-target-240),
+[state](../specs/state.md#evaluated-durable-host-input-target-240) and
+[CLI](../specs/cli.md#evaluated-host-input-target-240) own exact rules.

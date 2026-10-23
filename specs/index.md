@@ -1,10 +1,10 @@
-# Multi-Agent Orchestration — Master Spec (current targets 2.35–2.39)
+# Multi-Agent Orchestration — Master Spec (current targets 2.35–2.40)
 
 Status: Normative master. This index defines scope, versioning, conformance, and the module map with stable links to sub-specs. The DSL version and the state schema version are distinct by design.
 
 Current admission: source compilation, transitive source imports, retained
 typed-program capsules, REPL loading and LSP analysis accept only registered
-targets 2.35–2.39 throughout the dependency graph. All use evaluated execution;
+targets 2.35–2.40 throughout the dependency graph. All use evaluated execution;
 individual effects retain their own admission and qualification gates.
 Pre-2.35 source and old-profile resume/invalidation are retired. Historical
 report/dashboard data access does not compile old source. See
@@ -77,8 +77,9 @@ report/dashboard data access does not compile old source. See
     restrictions, caller-owned composition and finite source admission.
     Imported 2.35–2.38 definitions retain their original contracts; see the
     [procedure contract](../docs/design/workflow_lisp_effect_ledger_simplification.md).
+  - Target 2.40 adds typed serial durable host input and ordinary `std/host::HostReply[A]`; external answer/cancel settles the exact request and ordinary resume consumes it or expires it. The bounded [Python frontend](../docs/design/workflow_python_frontend.md) emits retained `.orc` and supplied manifests into the same checked compiler/runtime. See [DSL](dsl.md#evaluated-durable-host-input-target-240), [state](state.md#evaluated-durable-host-input-target-240) and [CLI](cli.md#python-authoring).
   - State schema: historical runs through 2.34 used `schema_version: "2.1"`;
-    admitted evaluated runs at 2.35–2.39 publish `"3.0"`
+    admitted evaluated runs at 2.35–2.40 publish `"3.0"`
     (see [state](state.md)).
 
   - Validation is strict: unknown fields are rejected at the declared DSL `version`.
@@ -119,6 +120,7 @@ report/dashboard data access does not compile old source. See
   - CLI safety rails: `cli.md#workspace-execution-ownership`
   - Orchestration concept model (informative): `../docs/orchestration_start_here.md`
   - Runtime execution lifecycle (informative): `../docs/runtime_execution_lifecycle.md`
+  - Python drafting guide (informative): `../docs/python_workflow_drafting_guide.md`
   - Workflow Lisp drafting guide (informative): `../docs/lisp_workflow_drafting_guide.md`
   - Historical YAML translation guide (informative): `../docs/workflow_drafting_guide.md`
   - Workflow Lisp provider supervision (informative design):

@@ -1,14 +1,18 @@
 # Durable Host Input On Evaluated Workflows
 
-- **Kind:** feature architecture and target contract
+- **Kind:** current feature architecture and component contract
 - **Authority:** evaluated execution, retained frontend types and the normative
   state, CLI, IO, security and observability specifications
 - **Target:** DSL 2.40 on the evaluated execution profile
 - **Companion:** [Python authoring frontend](workflow_python_frontend.md)
 
-Implementation selection, progress and verification results belong in the
-implementation plan. This document defines the behavior to implement; it does
-not qualify a release or select provider expenditure.
+This component contract is integrated with the [evaluated baseline](workflow_lisp_evaluated_execution.md#95-durable-host-requests-at-target-240)
+and normative [DSL](../../specs/dsl.md#evaluated-durable-host-input-target-240),
+[state](../../specs/state.md#evaluated-durable-host-input-target-240) and
+[CLI](../../specs/cli.md#evaluated-host-input-target-240). Implementation selection,
+progress and verification evidence belong in the [delivery plan](../plans/2026-10-22-durable-host-input-plan.md).
+This document defines durable behavior and boundaries; it does not qualify a
+release or select provider expenditure.
 
 ## Outcome And Scope
 
@@ -53,9 +57,9 @@ Historical `HumanReply` data does not admit an evaluated request.
 | Reports/dashboard | `workflow/evaluated/views.py`, `dashboard/*`, `cli/commands/report.py`; derive pending request and attribution from checked memo |
 | Monitor | `monitor/models.py`, `classifier.py`, `ledger.py`, `messages.py`; one suspension notification per request using existing delivery |
 
-The reducer already reserves `suspended` but refuses it unconditionally. An
-ordinary commit currently closes its pending start without a coordinator
-settlement. Host input uses that ordinary commit rule: there is no separate
+The reducer admits `suspended` only for checked target-2.40 host requests. An
+ordinary commit closes its pending start without a coordinator settlement.
+Host input uses that ordinary commit rule: there is no separate
 external system to reconcile after publishing the reply, and no `settled` row.
 The existing coordinator `proof` and `settled.by` fields retain their meaning.
 
@@ -439,13 +443,15 @@ contract or reinterpret its stored state. Old targets continue refusing new
 host-input execution. New generic `HostReply` belongs to `std/host`; Python
 reexports that same descriptor rather than emitting a second nominal type.
 
-The implementation must update DSL, state, CLI, IO, observability, security and
-versioning contracts; evaluated execution's admitted effects/memo rules;
-frontend effect/type rules; capability routing; the drafting/library guides;
-monitor/dashboard guidance; and the workflow catalog. Maintained docs explain
-current behavior and prerequisites. Implementation chronology and evidence
-belong in the plan/report. A maintained diagnose/recover example must identify
-its provider and command manifests and offer stub execution instructions.
+DSL, state, CLI, IO, observability, security and versioning specs own their
+respective normative rules; the evaluated and frontend baselines incorporate
+these effect/memo/type rules. Capability routing, the drafting/library guides,
+monitor/dashboard guidance and the workflow catalog describe current use and
+prerequisites. Implementation chronology and evidence belong in the plan/report.
+The [maintained diagnose/recover example](../../workflows/examples/durable_host_input/README.md)
+identifies its provider and command manifests and supplies stub setup; the
+[Lisp](../lisp_workflow_drafting_guide.md#durable-host-input) and
+[Python](../python_workflow_drafting_guide.md) guides provide provider-free recipes.
 
 ## Verification And Acceptance
 

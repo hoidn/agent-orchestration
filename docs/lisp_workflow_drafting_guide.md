@@ -281,7 +281,7 @@ Think in five layers.
 | Effects | What work occurs? | Admitted `provider-result`, `command-result`, calls and path-mode `run-ref` | Effect identity, validated results, memo commits |
 | Runtime substrate | How is it executed? | Usually not hand-authored | Core AST, semantic IR, snapshots, bundles, artifacts |
 
-For evaluated targets 2.35–2.39, within their admitted feature scope,
+For evaluated targets 2.35–2.40, within their admitted feature scope,
 the compiler elaborates and checks `.orc` source into a
 closed program; the evaluator computes its values and memoizes its effects.
 The checked `closed_program.json` is execution authority. The memo is effect
@@ -309,7 +309,7 @@ adapter.
 Use the [Capability Status Matrix](capability_status_matrix.md) to distinguish
 implemented, library-provided, designed, future and legacy surfaces. Compiler
 acceptance at an older target does not establish evaluated runtime admission.
-Use 2.39 for inference-default [procedure contracts](#procedure-contracts-at-target-239).
+Use 2.39 or newer for inference-default [procedure contracts](#procedure-contracts-at-target-239).
 The explicitly versioned 2.35/2.36 recipes retain their original procedure rules;
 2.38 introduces bounded [Agent Sessions](#agent-sessions-target-238) and
 [command-only confined children](#confined-workflow-children-target-238-command-only).
@@ -600,7 +600,7 @@ prints again what it re-evaluates, and readers that replay the program (views,
 
 ### Inspect a run with the Workflow Lisp REPL
 
-For admitted evaluated targets 2.35–2.39, `orchestrator repl` lets you discover a loaded
+For admitted evaluated targets 2.35–2.40, `orchestrator repl` lets you discover a loaded
 module's declarations, inspect their contracts/source, ask for expression types,
 and inspect captured run bindings. From the repository root, use the maintained
 [`plan_review_execute.orc`](../workflows/examples/plan_review_execute.orc) and
@@ -1571,10 +1571,79 @@ supersede `prompt-queue`, which is not implemented.
 
 ### Durable Host Input
 
-`request-input` is unavailable at targets 2.35/2.36 and refuses with
-`closed_program_gap`. The [human-input contract](../specs/dsl.md)
-preserves the historical host-input lifecycle; old-profile answer/cancel
-mutation is retired. No current executable host-input lane is available.
+Use target **2.40** to ask a typed question, exit suspended and consume its reply
+through ordinary resume. This complete provider-free example needs the installed
+project environment and runs from the repository root; no credentials or extern
+manifests are needed. Save and run this command sequence:
+
+```bash
+set -euo pipefail
+ANSWER='"APPROVED"'
+PRINCIPAL='alice'
+mkdir -p .orchestrate/host-guide
+EXAMPLE_DIR=$(mktemp -d .orchestrate/host-guide/approval.XXXXXX)
+STATE_DIR="$EXAMPLE_DIR/runs"
+cat > "$EXAMPLE_DIR/approval.orc" <<'ORC'
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.40")
+  (defmodule approval)
+  (import std/host :only (HostReply))
+  (export decide)
+  (defenum Approval APPROVED DENIED)
+  (defworkflow decide ((question String)) -> HostReply[Approval]
+    (request-input question :returns Approval :timeout-sec 3600)))
+ORC
+python -m orchestrator compile "$EXAMPLE_DIR/approval.orc" --entry-workflow approval::decide
+python -m orchestrator run "$EXAMPLE_DIR/approval.orc" --entry-workflow approval::decide --input 'question=Approve this operation?' --state-dir "$STATE_DIR"
+RUN_ID=$(python -c 'from pathlib import Path; import sys; print(next(Path(sys.argv[1]).iterdir()).name)' "$STATE_DIR")
+python -m orchestrator input get "$RUN_ID" --state-dir "$STATE_DIR" > "$EXAMPLE_DIR/request.json"
+REQUEST_ID=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["request_id"])' "$EXAMPLE_DIR/request.json")
+python -m orchestrator input answer "$RUN_ID" "$REQUEST_ID" --value "$ANSWER" --by "$PRINCIPAL" --state-dir "$STATE_DIR"
+python -m orchestrator resume "$RUN_ID" --state-dir "$STATE_DIR"
+python -m orchestrator report --run-id "$RUN_ID" --runs-root "$STATE_DIR" --format json
+```
+
+The first run exits `0` without continuing or appending a terminal. `input get`
+reads the frozen request; answer only commits `ANSWERED(value, by)`. Resume
+returns the typed union, whose variants are `ANSWERED`, `CANCELLED(by)` and
+`EXPIRED`. Match all three in workflows with a continuation; only an explicitly
+approved answer should select repair. The complete [diagnose/verify/repair
+example](../workflows/examples/durable_host_input/README.md) supplies real
+provider/command boundaries, unchanged manifests, a recording provider stub and
+all outcome paths; follow its workspace/setup instructions before executing it.
+The [Python guide](python_workflow_drafting_guide.md) authors the same request.
+
+Answer types are `String`, enum or fully transportable closed union. A typed
+`defprompt` application may supply the question; its return contract must agree
+with `:returns`. The runtime renders fills/`:doc` and adds the answer contract
+without provider delivery instructions. Optional `:timeout-sec` is an exact
+positive integer expression; omission means no deadline. `:show (evidence ...)`
+accepts ordered typed relpaths to readable regular files, not strings.
+
+Question/`:doc`/producer bytes remain semantic replay inputs. Show-only bytes
+are presentation snapshots: changed, missing or unreadable evidence refuses
+settlement unless the host explicitly supplies `--accept-changed-evidence`.
+The override records original/observed differences and never waives path safety,
+semantic replay or must-exist input checks. After settlement, current show-only
+bytes need not match. Inspect the exact ID, contract, evidence hashes and deadline
+before answering; enum `--value` is a JSON string, not raw text.
+
+Cancel uses `input cancel RUN_ID REQUEST_ID --by PRINCIPAL`, with the same
+state-directory and optional `--attestation`/evidence flags. Principal and opaque
+attestation provide attribution, not independently verified authentication. A late
+answer refuses; resume alone commits `EXPIRED` when it observes the frozen
+deadline. Inspection/monitoring never expires or settles a request. Identical
+settlement retries return the recorded reply; conflicting/stale IDs refuse.
+
+One serial request is pending per run. Procedures, same-run workflow calls and
+loop visits may ask sequentially; pure contexts, transitive parallel workers
+and child `run-ref` programs refuse. Omitted procedure effects infer at 2.40;
+explicit empty restrictions still reject host input. Older target execution and
+the fixed historical `HumanReply` remain unavailable. [State](../specs/state.md#evaluated-durable-host-input-target-240),
+[CLI](../specs/cli.md#evaluated-host-input-target-240), [IO](../specs/io.md#evaluated-host-input-io-target-240)
+and [monitoring](workflow_monitoring.md) own details and recovery.
+
 
 ### Explicit OMP Session Publication
 
@@ -1844,7 +1913,7 @@ tracks deterministic evidence separately from live-provider qualification.
      :effort "low")
    ```
 
-   The defining module must target exactly 2.39; importing an older definition
+   The defining module must target 2.39 or newer; importing an older definition
    from a 2.39 caller does not admit it. The prompt must be a fragment application
    with a generated nonempty result contract. Materialization attempts must be
    an integer literal from 1 through 3, defaulting to 2 when omitted. This counts

@@ -7,10 +7,12 @@ Normative behavior is defined by `specs/`. This file is explanatory.
 
 ## Frontend And Compatibility Boundary
 
-Fresh `run` accepts only a workflow path whose suffix compares
+Ordinary `run` accepts only a workflow path whose suffix compares
 case-insensitively as `.orc`. YAML/YML and every other non-`.orc` path fail
 with `.orc required` before a run root or `state.json` is created. There is no
-production YAML parser.
+production YAML parser. The [bounded Python frontend](python_workflow_drafting_guide.md)
+uses `py check/build/run` to publish retained `.orc` and invokes this same
+compiler/runtime. It introduces no Python executor or resume command.
 
 Executable entries through 2.34 are retired. `resume` admits only a supported
 evaluated header and refuses old profiles, including force-restart, before
@@ -28,7 +30,7 @@ states remain readable; nothing converts a run between profiles.
 | Profile | Targets | Authority on disk | Sections |
 | --- | --- | --- | --- |
 | Flat (historical, read-only) | through 2.34 | `state.json` (schema `2.1`, optionally `derived_pure_replay.v1`) | [Historical protocol](#execution-timeline); no creation, replay, repair or translation in this package |
-| Evaluated | 2.35/2.36, bounded 2.37, bounded 2.38 Agent Sessions and command-only confined run-ref children, and 2.39 procedure authoring/bounded phased providers | `run.json` + `closed_program.json` + `memo.jsonl` (schema `3.0`, `evaluated_execution.v1`); `state.json` is a derived view | [Evaluated Profile (Target 2.35)](#evaluated-profile-target-235); [Agent Sessions guide](lisp_workflow_drafting_guide.md#agent-sessions-target-238); [confined-command recipe](lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only) (public confined providers remain closed); [2.39 procedure contracts](lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239) (same profile); [2.39 phased delivery](lisp_workflow_drafting_guide.md#authoring-phased-contract-delivery-target-239) (commit/settlement and exact-attempt recovery; paid-provider qualification unselected) |
+| Evaluated | 2.35/2.36, bounded 2.37, bounded 2.38 Agent Sessions and command-only confined run-ref children, 2.39 procedure authoring/bounded phased providers, and 2.40 serial typed host input | `run.json` + `closed_program.json` + `memo.jsonl` (schema `3.0`, `evaluated_execution.v1`); `state.json` is a derived view | [Evaluated Profile (Target 2.35)](#evaluated-profile-target-235); [Agent Sessions guide](lisp_workflow_drafting_guide.md#agent-sessions-target-238); [confined-command recipe](lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only) (public confined providers remain closed); [2.39 procedure contracts](lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239) (same profile); [2.39 phased delivery](lisp_workflow_drafting_guide.md#authoring-phased-contract-delivery-target-239) (commit/settlement and exact-attempt recovery; paid-provider qualification unselected) |
 
 The linked flat record preserves the historical protocol for interpreting
 old state, not commands to execute with this package. Recovery requires an
@@ -87,11 +89,11 @@ and [CLI](../specs/cli.md#evaluated-execution-target-235).
    config and inputs for a run reference). An active commit in the memo for that identity
    is reused and nothing is dispatched. Otherwise: synchronized `started` row with the
    next attempt ordinal, exclusive creation of effects/<sha256(identity)>/attempt-N/,
-   one dispatch, validation of the result file against the declared type, rehash of the
+   one dispatch (or target-2.40 host request suspension), validation of the result against the declared type, rehash of the
    command's closure, then `committed` or `failed`; a path run reference adds `settled`
    after its child completes (or by reconciliation on the next resume). After every
    synchronized record, including `started`, state.json is atomically replaced
-4) Append the `terminal` record (`completed` with the value, or `failed` with the code),
+4) If deliberately suspended for host input, return exit 0 with no terminal and release locks. Otherwise append the `terminal` record (`completed` with the value, or `failed` with the code),
    replace the view, release the locks. Exit 0 or 1
 ```
 
@@ -100,7 +102,7 @@ and [CLI](../specs/cli.md#evaluated-execution-target-235).
 - `.orchestrate/runs/<run_id>/run.json`: immutable header (authority)
 - `closed_program.json`: the checked program (authority; digest in the header)
 - `memo.jsonl`: append-only journal of `started`, `committed`, `failed`, `settled`,
-  `invalidated` and `terminal` rows (authority)
+  `invalidated`, `suspended` and `terminal` rows (authority)
 - `effects/<sha256(identity)>/attempt-N/`: `result.json`, `stdout.txt`, `stderr.txt`,
   `prompt.txt` (provider), `inputs.json` (typed external document); a run-reference
   attempt holds only `result.json`
@@ -112,12 +114,14 @@ and [CLI](../specs/cli.md#evaluated-execution-target-235).
 
 Run `status` comes from the last record and the writer lock, not from a
 heartbeat ([derived view](../specs/state.md#evaluated-execution-persistence-profile-target-235)):
-`completed`/`failed` from the terminal; otherwise `settling` when a writer
+`suspended` for an active durable request even while its writer holds the lock;
+otherwise `completed`/`failed` from the terminal; otherwise `settling` when a writer
 holds the lock and replay reaches `halt`, `running` when a writer holds the
 lock, `interrupted` when none does. A stored `state.json`
-never says `interrupted`; only a reader's reconstruction can. Effect rows,
+can say `interrupted` after external host settlement, because settlement never
+executes continuation; otherwise readers reconstruct it from writer absence. Effect rows,
 keyed by identity in order of first `started`, are `running`, `completed`,
-`settling` (coordinator between `committed` and `settled`), `failed` or
+`settling` (coordinator between `committed` and `settled`), `suspended`, `failed` or
 `invalidated`; `current_step` is the effect in flight, `workflow_outputs` the
 terminal value. A failed attempt is retried on the next resume with the next
 ordinal, never by rewriting the old one.
@@ -179,3 +183,38 @@ For writing Workflow Lisp and prompt patterns, use:
 
 Use `docs/workflow_drafting_guide.md` only to translate or audit historical
 YAML/YML definitions.
+
+## Durable host request lifecycle (Target 2.40)
+
+1. Reaching `request-input` prepares a typed question without dispatching a
+   provider. A synchronized start freezes its ID, contracts, evidence, creation
+   time and deadline before attempt views. One suspension row stops evaluation
+   and returns exit `0`; no continuation or terminal runs.
+2. Read-only pending/report/dashboard validates checked memo authority. Missing
+   request view files do not change the request; elapsed wall-clock deadline
+   remains observational until resume. A start without a suspension needs resume
+   recovery, preserving its ordinal, ID and deadline, before host settlement.
+3. Host answer/cancel takes the run writer lock and ordinary read-only resume
+   preflight, then validates typed value, attribution, evidence and acceptance
+   time. It commits only the inline reply. The resulting `interrupted` state
+   means resume is needed. An identical retry reuses the commit without a row.
+4. Resume validates the prefix and consumes the reply with full generic/branch
+   provenance. Without a reply it exits suspended again, or commits runtime
+   `EXPIRED` at/after the frozen deadline and continues immediately. All writer
+   operations serialize with invalidation under the same lock.
+
+Question/doc/producer inputs remain content-bound. Show-only file bytes are
+presentation snapshots with an explicit recorded override for drift; the
+existing semantic/path checks cannot be waived. Earlier suffix invalidation
+retires later pending request IDs; no direct pending-request invalidation door
+exists. The [state](../specs/state.md#evaluated-durable-host-input-target-240),
+[IO](../specs/io.md#evaluated-host-input-io-target-240) and
+[CLI](../specs/cli.md#evaluated-host-input-target-240) contracts define exact
+publication, recovery and refusal behavior. Follow the [Lisp recipe](lisp_workflow_drafting_guide.md#durable-host-input)
+or [Python recipe](python_workflow_drafting_guide.md) for executable commands.
+
+Python-authored runs retain generated `.orc`/manifest rebuild paths. Resume
+never imports the author module or rereads a build-time prompt template;
+generated inputs must remain available and unmodified. Runtime document inputs
+keep their ordinary divergence checks. Source maps provide initial diagnostic
+attribution, while runtime reports name generated source and effect/request IDs.
