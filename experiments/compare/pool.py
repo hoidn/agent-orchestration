@@ -211,8 +211,10 @@ def natural_intake(criterion):
     return True
 
 
-def natural_attempt(records, receipt_path, expected_model):
+def natural_attempt(records, receipt_path, expected_model, expected_effort="high"):
     """Return an original mapping row and a read-only pooling view; never repair delivery artifacts."""
+    if expected_effort not in ("low", "high"):
+        raise SystemExit("task-difficulty intake requires an exact low or high effort")
     try:
         from .prepare import finished_memo, outcome_of, paired_calls
     except ImportError:
@@ -245,9 +247,9 @@ def natural_attempt(records, receipt_path, expected_model):
     header = native_rows[0] if native_rows else {}
     if (header.get("type") != "session_meta"
             or not Path(header.get("payload", {}).get("cwd", "/missing")).is_relative_to(record["tree"])
-            or not contexts or any(context.get("model") != expected_model or context.get("effort") != "high"
+            or not contexts or any(context.get("model") != expected_model or context.get("effort") != expected_effort
                                    for context in contexts)):
-        raise SystemExit("task-difficulty native receipt belongs to another attempt or model")
+        raise SystemExit("task-difficulty native receipt belongs to another attempt, model or effort")
     for usage in receipts[0]["usage"]:
         provenance, tokens = usage.get("provenance", {}), usage.get("charge_tokens", {})
         if (usage.get("model") != expected_model or provenance.get("model_source") != "turn_context.model"
@@ -259,6 +261,24 @@ def natural_attempt(records, receipt_path, expected_model):
     row["capture"] = {name: {"path": str(path), "sha256": sha256_file(path)} for name, path in (
         ("record", record_path), ("memo", memo.resolve()), ("patch", patch), ("receipt", receipt_path), ("native", native))}
     return row, record | {"patches": {"final": str(patch)}}
+
+
+def validate_natural_attempts(criterion, runs):
+    """Recheck each original capture against its frozen per-arm model and effort."""
+    efforts = criterion.get("arm_efforts", dict.fromkeys(criterion["arms"], "high"))
+    if (not isinstance(efforts, dict) or set(efforts) != set(criterion["arms"])
+            or any(effort not in ("low", "high") for effort in efforts.values())):
+        raise SystemExit("task-difficulty arm efforts must bind every declared arm to low or high")
+    if not (natural_intake(criterion) or "arm_efforts" in criterion):
+        return
+    for run, row in runs.items():
+        try:
+            captured, _ = natural_attempt(run, row["capture"]["receipt"]["path"],
+                                          criterion["arm_models"][row["arm"]], efforts[row["arm"]])
+            if captured != row:
+                raise ValueError("capture or original delivery outcome changed")
+        except (OSError, ValueError, KeyError, TypeError, SystemExit) as error:
+            raise SystemExit(f"task-difficulty capture proof invalid: {run}: {error}") from error
 
 
 def build_batches(out, task, ref, batches, rule, criterion=None, review_exclude=()):

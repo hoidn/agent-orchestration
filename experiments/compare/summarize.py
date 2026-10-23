@@ -31,11 +31,11 @@ from pathlib import Path
 from statistics import mean
 
 try:
-    from .pool import CONTROL_ROLES, control_means, natural_attempt, natural_intake, rubric, task_difficulty
+    from .pool import CONTROL_ROLES, control_means, natural_intake, rubric, task_difficulty, validate_natural_attempts
     from .prepare import paired_calls, read_memo  # imported as experiments.compare.summarize
     from .scan import model_policy
 except ImportError:  # run as a script
-    from pool import CONTROL_ROLES, control_means, natural_attempt, natural_intake, rubric, task_difficulty
+    from pool import CONTROL_ROLES, control_means, natural_intake, rubric, task_difficulty, validate_natural_attempts
     from prepare import paired_calls, read_memo
     from scan import model_policy
 
@@ -423,15 +423,7 @@ def validate_task_difficulty(criterion, mapping, excluded, ratings):
             or any(sum(row["arm"] == arm for row in runs.values()) != count for arm, count in counts.items())
             or any((not amended and row["outcome"] != "completed") or row.get("excluded") for row in runs.values())):
         raise SystemExit("task-difficulty requires every declared natural run, completed and unexcluded")
-    if amended:
-        for run, row in runs.items():
-            try:
-                captured, _ = natural_attempt(run, row["capture"]["receipt"]["path"],
-                                              criterion["arm_models"][row["arm"]])
-                if captured != row:
-                    raise ValueError("capture or original delivery outcome changed")
-            except (OSError, ValueError, KeyError, TypeError, SystemExit) as error:
-                raise SystemExit(f"task-difficulty capture proof invalid: {run}: {error}") from error
+    validate_natural_attempts(criterion, runs)
     total = sum(counts.values())
     if (len(mapping["batches"]) != 1 or len(mapping["batches"][0]) != total
             or len(set(mapping["batches"][0])) != total or set(mapping["batches"][0]) != set(clones)

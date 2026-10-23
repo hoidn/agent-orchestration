@@ -406,7 +406,7 @@ not grant structural quality authority.
 Use `purpose: "calibration"`, `calibration_kind: "task_difficulty"`, `anchors: []`,
 a reference-free rubric, declared `arms` and `runs_per_arm`. Generate fresh
 independent solutions with the same direct workflow and task inputs, varying only
-the frozen model binding. Use `prepare.run_arm` with the direct-task `ArmSpec`
+the frozen model or effort binding. Use `prepare.run_arm` with the direct-task `ArmSpec`
 for each arm; custom final-patch arms enter the ordinary pool. Per-run
 `COMPARE_CODEX_MODELS` binds the exact Luna or Terra model; unset policy retains
 Terra only. Native delegation remains disabled.
@@ -432,6 +432,15 @@ record, memo, patch, receipt and native transcript by path and hash; summarizati
 rechecks those sources. Original run IDs, delivery outcomes and failure reasons
 remain in the canonical results. This rule creates no result file, repair, retry,
 replacement or smaller denominator, and does not change other comparisons.
+
+For a same-model effort contrast, declare `arm_efforts` for every arm, for example
+`{direct_task: low, luna_high: high}`. Values admit exactly `low` or `high`;
+missing, extra or invalid bindings refuse. Pass each arm's declared effort as
+the fourth argument of `natural_attempt`; its default remains `high`.
+Summarization requires the capture proof for every explicitly bound arm and
+checks every native turn against its exact model and effort. Criteria without
+`arm_efforts` retain the previous high-effort behavior. The stronger-arm label
+is a hypothesis; the declared score gap still determines the outcome.
 
 ## Evaluator control checks from recorded patches
 

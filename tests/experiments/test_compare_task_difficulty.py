@@ -195,7 +195,7 @@ def test_shim_hands_off_codex_opt_in_and_nested_calls_keep_exact_policy(world, m
     assert 'nested-exit=2' in done.stdout
 
 
-def captured_run(tmp_path, arm='terra_high', outcome='failed', patch=b''):
+def captured_run(tmp_path, arm='terra_high', outcome='failed', patch=b'', effort='high', model=None):
     """Synthetic terminal attempt and native usage; no CLI or provider executes."""
     import hashlib
     run = tmp_path / arm / 'run-1'
@@ -214,10 +214,10 @@ def captured_run(tmp_path, arm='terra_high', outcome='failed', patch=b''):
     memo.write_text(json.dumps({'record': 'started', 'identity': 'direct', 'attempt': 1,
                                'input_parts': {'prompt': 'sha256:' + hashlib.sha256(b'task').hexdigest()}}) + '\n' +
                     json.dumps(terminal) + '\n')
-    model = LUNA if arm == 'direct_task' else TERRA
+    model = model or (LUNA if arm == 'direct_task' else TERRA)
     native = tmp_path / f'native-{arm}.jsonl'
     native.write_text(json.dumps({'type': 'session_meta', 'payload': {'cwd': str(tree / 'cand-1')}}) + '\n' +
-                      json.dumps({'type': 'turn_context', 'payload': {'model': model, 'effort': 'high'}}) + '\n')
+                      json.dumps({'type': 'turn_context', 'payload': {'model': model, 'effort': effort}}) + '\n')
     receipt = tmp_path / f'receipt-{arm}.json'
     receipt.write_text(json.dumps({'provider_calls': 1, 'native_session_paths': [str(native)], 'receipt_usage': [
         {'provider': 'codex', 'call_id': '1', 'status': 'complete', 'usage': [
@@ -302,4 +302,57 @@ def test_natural_intake_opt_in_is_not_a_generic_failed_row_override():
     rule['natural_attempt_intake'] = 'terminal-single-call-patch-v1'
     mapping['runs']['terra_high/run-2']['outcome'] = 'failed'
     with pytest.raises(SystemExit, match='task.difficulty'):
+        summarize.validate_task_difficulty(rule, mapping, {}, ratings)
+
+
+@pytest.mark.parametrize('expected,actual,accepted', [('low', 'low', True), ('low', 'high', False),
+                                                    ('high', 'low', False), ('high', 'high', True),
+                                                    ('medium', 'medium', False)])
+def test_natural_intake_requires_exact_supported_native_effort(tmp_path, expected, actual, accepted):
+    run, receipt, model = captured_run(tmp_path, effort=actual)
+    if accepted:
+        assert pool.natural_attempt(run, receipt, model, expected)[0]['outcome'] == 'failed'
+    else:
+        with pytest.raises(SystemExit):
+            pool.natural_attempt(run, receipt, model, expected)
+
+
+def effort_observations(tmp_path):
+    rule, mapping, ratings = observations()
+    rule['natural_attempt_intake'] = 'terminal-single-call-patch-v1'
+    rule['arm_efforts'] = {'direct_task': 'low', 'terra_high': 'high'}
+    renamed = {}
+    for index, (old, row) in enumerate(mapping['runs'].items()):
+        run, receipt, model = captured_run(tmp_path / str(index), row['arm'], 'completed',
+                                           effort=rule['arm_efforts'][row['arm']])
+        row.update(pool.natural_attempt(run, receipt, model, rule['arm_efforts'][row['arm']])[0])
+        renamed[old] = str(run)
+    mapping['runs'] = {renamed[old]: row for old, row in mapping['runs'].items()}
+    for clone in mapping['clones'].values():
+        clone['run'] = renamed[clone['run']]
+    return rule, mapping, ratings
+
+
+def test_summary_joins_declared_efforts_and_refuses_wrong_actual_effort(tmp_path):
+    rule, mapping, ratings = effort_observations(tmp_path)
+    summarize.validate_task_difficulty(rule, mapping, {}, ratings)
+    rule['arm_efforts']['direct_task'] = 'high'
+    with pytest.raises(SystemExit, match='capture proof invalid'):
+        summarize.validate_task_difficulty(rule, mapping, {}, ratings)
+
+
+@pytest.mark.parametrize('efforts', [{}, {'direct_task': 'low'}, {'direct_task': 'low', 'terra_high': 'medium'},
+                                   {'direct_task': '', 'terra_high': 'high'}, None, ['low', 'high'],
+                                   {'direct_task': 'low', 'terra_high': 'high', 'extra': 'high'}])
+def test_summary_refuses_partial_unknown_or_malformed_effort_binding(efforts):
+    rule, mapping, ratings = observations()
+    rule['arm_efforts'] = efforts
+    with pytest.raises(SystemExit, match='effort'):
+        summarize.validate_task_difficulty(rule, mapping, {}, ratings)
+
+
+def test_declared_efforts_require_proof_even_for_completed_only_intake():
+    rule, mapping, ratings = observations()
+    rule['arm_efforts'] = {'direct_task': 'low', 'terra_high': 'high'}
+    with pytest.raises(SystemExit, match='capture proof invalid'):
         summarize.validate_task_difficulty(rule, mapping, {}, ratings)

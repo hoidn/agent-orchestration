@@ -188,6 +188,8 @@ if model is None:
 allowed = os.environ.get("ORC_ALLOWED_CODEX_MODELS")
 if allowed != model:
     raise SystemExit(f"shim allowed {allowed!r}, expected only {model!r}")
+effort = next((arg.split("=", 1)[1].strip('"') for arg in sys.argv[1:]
+               if arg.startswith("model_reasoning_effort=")), None)
 plan = json.loads(Path(os.environ["TASK_DIFFICULTY_PLAN"]).read_text())
 events = Path(os.environ["TASK_DIFFICULTY_CALLS"])
 previous = [json.loads(line) for line in events.read_text().splitlines()] if events.exists() else []
@@ -205,7 +207,8 @@ if [model, attempt] not in plan.get("omit_delivery", []):
     result.parent.mkdir(parents=True, exist_ok=True)
     result.write_text("true", encoding="utf-8")
 with events.open("a", encoding="utf-8") as output:
-    output.write(json.dumps({"model": model, "allowed_models": allowed, "argv": sys.argv[1:]}) + chr(10))
+    output.write(json.dumps({"model": model, "effort": effort, "allowed_models": allowed,
+                             "argv": sys.argv[1:]}) + chr(10))
 ''', encoding="utf-8")
     codex.chmod(0o755)
     return codex
@@ -344,9 +347,10 @@ def test_control_means_runs_through_prepare_orchestrator_summary_and_c1(tmp_path
         shutil.rmtree(outside)
 
 
-@pytest.mark.parametrize('missing_delivery,review_environment', [(False, False), (True, False), (False, True)])
+@pytest.mark.parametrize('missing_delivery,review_environment,effort_contrast', [
+    (False, False, False), (True, False, False), (False, True, False), (False, True, True)])
 def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
-        world, monkeypatch, missing_delivery, review_environment):
+        world, monkeypatch, missing_delivery, review_environment, effort_contrast):
     """Four scripted, correct direct-task outputs reach the blind scorer and exact 2-point gate."""
     import hashlib
     from experiments.compare import prepare, pool as pooling
@@ -360,7 +364,9 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
         protected.write_text('protected archive must be absent from the review baseline\n')
     repo = Path(__file__).parents[1]
     judge = "gpt-5.6-terra"
-    models = {"direct_task": "gpt-5.6-luna", "terra_high": judge}
+    strong = 'luna_high' if effort_contrast else 'terra_high'
+    models = {"direct_task": "gpt-5.6-luna", strong: 'gpt-5.6-luna' if effort_contrast else judge}
+    efforts = {arm: 'low' if effort_contrast and arm == 'direct_task' else 'high' for arm in models}
     criterion = {
         "purpose": "calibration",
         "calibration_kind": "task_difficulty",
@@ -371,18 +377,20 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
         "judges": [judge],
         "rubric": {"workflow": "score_absolute.orc", "entry": "score_absolute::score",
                    "criteria": ["completeness", "correctness", "scope", "layering"], "reference": None},
-        "primary": [{"measure": "terra_high.minus_control", "op": ">=", "value": 2}],
+        "primary": [{"measure": f"{strong}.minus_control", "op": ">=", "value": 2}],
     }
     criterion_path = world.outside / "task-difficulty-criterion.json"
-    if missing_delivery:
+    if missing_delivery or effort_contrast:
         criterion['natural_attempt_intake'] = 'terminal-single-call-patch-v1'
+    if effort_contrast:
+        criterion['arm_efforts'] = efforts
     criterion_path.write_text(json.dumps(criterion), encoding="utf-8")
     root = world.outside / "task-difficulty-work"
     pool = root / "pool"
     plan = world.outside / "task-difficulty-plan.json"
     calls = world.outside / "task-difficulty-calls.jsonl"
     plan.write_text(json.dumps({"omit_delivery": [[judge, 1]] if missing_delivery else [], "solutions": {
-        "gpt-5.6-luna": ["2", "1 + 1"],
+        "gpt-5.6-luna": ["2", "1 + 1", "int(2)", "3 - 1"] if effort_contrast else ["2", "1 + 1"],
         "gpt-5.6-terra": ["int(2)", "3 - 1"],
     }}), encoding="utf-8")
     fakebin = world.outside / "task-difficulty-fakebin"
@@ -411,22 +419,21 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
     records, captured_rows, views = [], {}, {}
     for arm, model, number in (("direct_task", models["direct_task"], 1),
                                ("direct_task", models["direct_task"], 2),
-                               ("terra_high", models["terra_high"], 1),
-                               ("terra_high", models["terra_high"], 2)):
+                               (strong, models[strong], 1), (strong, models[strong], 2)):
         if arm == "direct_task":
             command = [sys.executable, str(repo / "experiments/compare/prepare.py"), "run",
                        "--task", str(world.task), "--arm", arm, "--root", str(root), "--runtime", str(world.runtime),
-                       "--set", f"model={model}", "--set", "effort=high"]
+                       "--set", f"model={model}", "--set", f"effort={efforts[arm]}"]
             prepared = subprocess.run(command, cwd=repo, capture_output=True, text=True, check=False)
             assert prepared.returncode == 0, prepared.stderr
             run = root / "records" / arm / f"run-{number}"
         else:
             run = prepare.run_arm(world.task, arm, root, world.runtime,
-                                  sets=(f"model={model}", "effort=high"),
+                                  sets=(f"model={model}", f"effort={efforts[arm]}"),
                                   spec=prepare.arm_spec("direct_task", world.runtime))
         metadata = json.loads((run / "record.json").read_text(encoding="utf-8"))
         inputs = json.loads((run / "inputs.json").read_text(encoding="utf-8"))
-        assert inputs["model"] == model and inputs["effort"] == "high"
+        assert inputs["model"] == model and inputs["effort"] == efforts[arm]
         assert f"COMPARE_CODEX_MODELS={model}" in metadata["command"]
         executed = subprocess.run(["bash", str(run / "command.sh")], cwd=metadata["cwd"], env=env,
                                   capture_output=True, text=True, timeout=120, check=False)
@@ -436,34 +443,39 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
         assert collected['outcome'] == ('failed' if omitted else 'completed') and collected['calls'] == 1
         assert (run / 'collected/final.diff').exists() is not omitted
         assert prepare.scan(run, world.solution, home=home) == []
-        if missing_delivery:
+        actual_event = json.loads(calls.read_text().splitlines()[-1])
+        assert (actual_event['model'], actual_event['effort']) == (model, efforts[arm])
+        if missing_delivery or effort_contrast:
             # Scripted native evidence is deliberately synthetic; this smoke never contacts a provider.
             native = world.outside / f'native-{arm}-{number}.jsonl'
             native.write_text(json.dumps({'type': 'session_meta', 'payload': {'cwd': metadata['cwd']}}) + '\n' +
-                              json.dumps({'type': 'turn_context', 'payload': {'model': model, 'effort': 'high'}}) + '\n')
+                              json.dumps({'type': 'turn_context', 'payload': {
+                                  'model': actual_event['model'], 'effort': actual_event['effort']}}) + '\n')
             receipt = world.outside / f'receipt-{arm}-{number}.json'
             receipt.write_text(json.dumps({'provider_calls': 1, 'native_session_paths': [str(native)],
                 'receipt_usage': [{'provider': 'codex', 'call_id': '1', 'status': 'complete', 'usage': [
                     {'model': model, 'charge_tokens': {'input': 1}, 'provenance': {
                         'model_source': 'turn_context.model', 'complete_native_transcript': True,
                         'session_sha256': 'sha256:' + hashlib.sha256(native.read_bytes()).hexdigest()}}]}]}))
-            captured_rows[str(run)], views[str(run)] = pooling.natural_attempt(run, receipt, model)
+            captured_rows[str(run)], views[str(run)] = pooling.natural_attempt(run, receipt, model, efforts[arm])
         records.append(run)
 
     events = [json.loads(line) for line in calls.read_text(encoding="utf-8").splitlines()]
     assert len(events) == 4
     assert {model: sum(row["model"] == model for row in events) for model in models.values()} == {
-        "gpt-5.6-luna": 2, "gpt-5.6-terra": 2}
+        model: 2 * list(models.values()).count(model) for model in models.values()}
+    if effort_contrast:
+        assert {effort: sum(row['effort'] == effort for row in events) for effort in ('low', 'high')} == {'low': 2, 'high': 2}
     assert all(row["allowed_models"] == row["model"] for row in events)
     assert len({(run / 'calls/1/patch-cand-1.diff').read_bytes() for run in records}) == 4
     assert not (world.task / "hidden").exists() and not (world.task / "anchors").exists()
 
     providers = world.outside / "codex-judge.providers.json"
     providers.write_text(json.dumps({"providers.judge": "codex_unrestricted_workspace"}), encoding="utf-8")
-    if missing_delivery:
+    if missing_delivery or effort_contrast:
         usable = {arm: [(run, view) for run, view in views.items() if view['arm'] == arm] for arm in models}
         pooling.write_pool(world.task, criterion_path, pool, [f'{judge}={providers}'], next(iter(views.values())),
-                           captured_rows, pooling.compose(usable))
+                           captured_rows, pooling.compose(usable), review_exclude=(archive,) if review_environment else ())
     elif review_environment:
         originals = {str(run): json.loads((run / 'record.json').read_text()) for run in records}
         rows, usable = pooling.pool_runs(originals)
@@ -554,8 +566,8 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
         assert json.loads((original / 'record.json').read_text())['patches'] == {}
         assert not list(Path(views[str(original)]['state_root']).rglob('result.json'))
     assert results["measures"]["direct_task.runs"] == 2
-    assert results["measures"]["terra_high.runs"] == 2
-    assert results["measures"]["terra_high.minus_control"] == 2
-    assert results["verdict"]["primary"] == [{"measure": "terra_high.minus_control", "op": ">=", "value": 2,
+    assert results["measures"][f"{strong}.runs"] == 2
+    assert results["measures"][f"{strong}.minus_control"] == 2
+    assert results["verdict"]["primary"] == [{"measure": f"{strong}.minus_control", "op": ">=", "value": 2,
                                                  "observed": 2, "met": True}]
     assert results["anchors"] == [] and "calibration" not in results
