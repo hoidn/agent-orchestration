@@ -22,13 +22,13 @@ from pathlib import Path
 try:
     from . import scan as contamination
     from .repos import (
-        HIDDEN_DIR, build_candidate, dump, git, guard,
+        HIDDEN_DIR, build_candidate, build_review_candidate, dump, git, guard, review_exclusions,
         load, main_checkout, patch_of, runtime_commit, sha256_file, shim_commands, visible_in_sandbox,
     )
 except ImportError:
     import scan as contamination
     from repos import (
-        HIDDEN_DIR, build_candidate, dump, git, guard,
+        HIDDEN_DIR, build_candidate, build_review_candidate, dump, git, guard, review_exclusions,
         load, main_checkout, patch_of, runtime_commit, sha256_file, shim_commands, visible_in_sandbox,
     )
 
@@ -149,16 +149,26 @@ def patch_bytes(records, record, label):
     return (Path(records or ".") / record["patches"][label]).read_bytes()
 
 
-def add_clone(out, task, ref, patch, entry):
+def add_clone(out, task, ref, patch, entry, review_exclude=()):
     """Build one applied-patch clone under a random id; record its patch; return (id, mapping entry)."""
     cid = secrets.token_hex(4)
     clone = out / "clones" / cid
-    if build_candidate(ref["runtime"], ref["base"], task / "seed", clone) != ref["compare_base"]:
-        raise SystemExit(f"{clone}: seeded commit differs from the runs' {ref['compare_base']}")
     kept, entry["stripped"] = strip(patch)
+    base = ref["compare_base"]
+    if review_exclude:
+        if kept != patch:
+            raise SystemExit("review environment requires the exact original patch, without D8 stripping")
+        base = build_review_candidate(ref["runtime"], ref["base"], task / "seed", clone,
+                                      base, review_exclude, patch)
+        entry["review_base"] = base
+    elif build_candidate(ref["runtime"], ref["base"], task / "seed", clone) != base:
+        raise SystemExit(f"{clone}: seeded commit differs from the runs' {base}")
     if kept:
         git(clone, "apply", "--binary", "-", stdin=kept)
-    (out / "records" / "patches" / f"{cid}.diff").write_bytes(patch_of(clone, ref["compare_base"]))
+    recorded = patch_of(clone, base)
+    if review_exclude and recorded != patch:
+        raise SystemExit("review diff differs from the exact original patch")
+    (out / "records" / "patches" / f"{cid}.diff").write_bytes(recorded)
     return cid, entry
 
 
@@ -251,20 +261,20 @@ def natural_attempt(records, receipt_path, expected_model):
     return row, record | {"patches": {"final": str(patch)}}
 
 
-def build_batches(out, task, ref, batches, rule, criterion=None):
+def build_batches(out, task, ref, batches, rule, criterion=None, review_exclude=()):
     clones, members, references = {}, [], []
     anchors = anchor_paths(task, criterion)
     for batch in batches:
         made = [add_clone(out, task, ref, patch_bytes(path, rec, labels[0]),
-                          {"run": path, "arm": rec["arm"], "labels": labels}) for path, rec, labels in batch]
-        made += [add_clone(out, task, ref, a.read_bytes(), {"run": None, "arm": "anchor", "labels": [a.stem]})
+                          {"run": path, "arm": rec["arm"], "labels": labels}, review_exclude) for path, rec, labels in batch]
+        made += [add_clone(out, task, ref, a.read_bytes(), {"run": None, "arm": "anchor", "labels": [a.stem]}, review_exclude)
                  for a in anchors]
         clones.update(made)
         members.append([cid for cid, _ in made])
         if rule["reference"]:
             patch = task / "anchors" / f"{task.name}-{rule['reference']}.diff"
             cid, entry = add_clone(out, task, ref, patch.read_bytes(),
-                                   {"run": None, "arm": "reference", "labels": ["reference"]})
+                                   {"run": None, "arm": "reference", "labels": ["reference"]}, review_exclude)
             clones[cid] = entry
             references.append(cid)
     return clones, members, references
@@ -284,9 +294,10 @@ def pool(task, criterion, out, judges, runs):
     return write_pool(task, criterion, out, judges, ref, rows, batches)
 
 
-def write_pool(task, criterion, out, judges, ref, rows, batches, *, qualification=None):
+def write_pool(task, criterion, out, judges, ref, rows, batches, *, qualification=None, review_exclude=()):
     """Write either caller's pool, preserving its verified structural proof when supplied."""
     task, out = Path(task).resolve(), Path(out).resolve()
+    review_exclude = review_exclusions(review_exclude)
     guard(Path(ref["main"]), out)
     visible_in_sandbox(out)
     commit, rule = runtime_commit(ref["runtime"]), rubric(criterion)
@@ -295,9 +306,15 @@ def write_pool(task, criterion, out, judges, ref, rows, batches, *, qualificatio
         raise SystemExit("a pool needs nonempty batches with at most ten repositories including anchors and reference")
     for directory in (out / "clones", out / "judges", out / "records" / "patches"):
         directory.mkdir(parents=True)
-    clones, members, references = build_batches(out, task, ref, batches, rule, criterion)
+    clones, members, references = build_batches(out, task, ref, batches, rule, criterion, review_exclude)
+    compare_base = ref["compare_base"]
+    if review_exclude:
+        bases = {entry.pop("review_base") for entry in clones.values()}
+        if len(bases) != 1:
+            raise SystemExit("review clones do not share one baseline")
+        compare_base = bases.pop()
     default = Path(ref["runtime"]) / "experiments/compare/score.providers.json"
-    mapping = {"task": str(task), "criterion_sha256": sha256_file(criterion), "compare_base": ref["compare_base"],
+    mapping = {"task": str(task), "criterion_sha256": sha256_file(criterion), "compare_base": compare_base,
                "main": ref["main"], "runtime": ref["runtime"], "runtime_commit": commit, "created_at": time.time(),
                "judges": {name: {"dir": secrets.token_hex(8), "providers": str(Path(providers or default).resolve())}
                           for name, _, providers in (spec.partition("=") for spec in judges)},
@@ -306,6 +323,8 @@ def write_pool(task, criterion, out, judges, ref, rows, batches, *, qualificatio
         mapping["references"] = references
     if qualification is not None:
         mapping["qualification"] = qualification
+    if review_exclude:
+        mapping["review"] = {"source_compare_base": ref["compare_base"], "excluded_paths": list(review_exclude)}
     dump(out / "records" / "mapping.json", mapping)
     write_score_inputs(out, mapping, (task / "intent.txt").read_text(), Path(ref["runtime"]))
     (out / "clones").chmod(HIDDEN_DIR)

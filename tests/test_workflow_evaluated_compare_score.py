@@ -139,7 +139,7 @@ def _local_rating_provider(fakebin: Path) -> Path:
     fakebin.mkdir(parents=True)
     codex = fakebin / "codex"
     codex.write_text(f"#!{sys.executable}\n" + '''
-import json, os, re, sys
+import hashlib, json, os, re, subprocess, sys
 from pathlib import Path
 prompt = sys.stdin.read()
 plan = json.loads(Path(os.environ["COMPARE_TEST_PLAN"]).read_text())
@@ -147,12 +147,24 @@ repos = sorted((path for path in plan["ratings"] if path in prompt), key=prompt.
 match = re.search(r"(?m)^- path: ([^\\n]+)$", prompt)
 if not repos or match is None:
     raise SystemExit("unrecognized scripted score request")
+git_checks = {}
+for repo, expected in plan.get("git_checks", {}).items():
+    diff = subprocess.check_output(["git", "-C", repo, "diff", "--binary", "--no-ext-diff", "--no-color",
+                                   "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", "HEAD"])
+    status = subprocess.check_output(["git", "-C", repo, "status", "--porcelain"]).decode()
+    masked = expected["masked"]
+    mounted = any(line.split()[4] == masked for line in Path("/proc/self/mountinfo").read_text().splitlines())
+    actual = {"diff_sha256": hashlib.sha256(diff).hexdigest(), "status": status, "masked": masked}
+    if actual != expected or not mounted or list(Path(masked).iterdir()):
+        raise SystemExit("scripted judge did not receive the exact patch under the actual empty mask")
+    git_checks[repo] = actual
 result = Path(match.group(1))
 result.parent.mkdir(parents=True, exist_ok=True)
 result.write_text(json.dumps([plan["ratings"][path] for path in repos]), encoding="utf-8")
 with Path(os.environ["COMPARE_TEST_CALLS"]).open("a", encoding="utf-8") as output:
     output.write(json.dumps({"argv": sys.argv[1:], "repos": repos,
-                             "allowed_models": os.environ.get("ORC_ALLOWED_CODEX_MODELS")}) + chr(10))
+                             "allowed_models": os.environ.get("ORC_ALLOWED_CODEX_MODELS"),
+                             "git_checks": git_checks}) + chr(10))
 ''', encoding="utf-8")
     codex.chmod(0o755)
     return codex
@@ -332,14 +344,20 @@ def test_control_means_runs_through_prepare_orchestrator_summary_and_c1(tmp_path
         shutil.rmtree(outside)
 
 
-@pytest.mark.parametrize('missing_delivery', [False, True])
-def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(world, monkeypatch, missing_delivery):
+@pytest.mark.parametrize('missing_delivery,review_environment', [(False, False), (True, False), (False, True)])
+def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
+        world, monkeypatch, missing_delivery, review_environment):
     """Four scripted, correct direct-task outputs reach the blind scorer and exact 2-point gate."""
     import hashlib
     from experiments.compare import prepare, pool as pooling
     from tests.experiments.compare_harness_support import skip_without_sandbox
 
     skip_without_sandbox()
+    archive = 'docs/plans/evidence'
+    if review_environment:
+        protected = world.task / 'seed' / archive / 'prior-result.txt'
+        protected.parent.mkdir(parents=True)
+        protected.write_text('protected archive must be absent from the review baseline\n')
     repo = Path(__file__).parents[1]
     judge = "gpt-5.6-terra"
     models = {"direct_task": "gpt-5.6-luna", "terra_high": judge}
@@ -446,6 +464,11 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(wo
         usable = {arm: [(run, view) for run, view in views.items() if view['arm'] == arm] for arm in models}
         pooling.write_pool(world.task, criterion_path, pool, [f'{judge}={providers}'], next(iter(views.values())),
                            captured_rows, pooling.compose(usable))
+    elif review_environment:
+        originals = {str(run): json.loads((run / 'record.json').read_text()) for run in records}
+        rows, usable = pooling.pool_runs(originals)
+        pooling.write_pool(world.task, criterion_path, pool, [f'{judge}={providers}'], next(iter(originals.values())),
+                           rows, pooling.compose(usable), review_exclude=(archive,))
     else:
         pooled = subprocess.run(
             [sys.executable, str(repo / "experiments/compare/prepare.py"), "pool", "--task", str(world.task),
@@ -469,7 +492,18 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(wo
             "clone": str(pool / "clones" / cid), "completeness": "S2", "correctness": "S2",
             "scope": score, "layering": score, "reason": "scripted offline rating"}
     rating_plan, rating_calls = pool / "records/rating-plan.json", pool / "records/rating-calls.jsonl"
-    rating_plan.write_text(json.dumps({"ratings": ratings}), encoding="utf-8")
+    git_checks = {}
+    if review_environment:
+        for cid, clone in mapping['clones'].items():
+            directory = pool / 'clones' / cid
+            (directory / archive).mkdir(parents=True, exist_ok=True)  # Empty, real bwrap mount target.
+            raw = (Path(clone['run']) / 'calls/1/patch-cand-1.diff').read_bytes()
+            source = json.loads((Path(clone['run']) / 'record.json').read_text())['cwd']
+            git_checks[str(directory)] = {'diff_sha256': hashlib.sha256(raw).hexdigest(),
+                'status': subprocess.check_output(['git', '-C', source, 'status', '--porcelain']).decode(),
+                'masked': str(directory / archive)}
+        monkeypatch.setenv('COMPARE_HIDE', ':'.join(row['masked'] for row in git_checks.values()))
+    rating_plan.write_text(json.dumps({"ratings": ratings, 'git_checks': git_checks}), encoding="utf-8")
     judge_bin = world.outside / "task-difficulty-judge-bin"
     _local_rating_provider(judge_bin)
     judge_home = pool / "judges" / mapping["judges"][judge]["dir"]
@@ -492,6 +526,7 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(wo
     assert scored.returncode == 0, scored.stderr
     judge_events = [json.loads(line) for line in rating_calls.read_text(encoding="utf-8").splitlines()]
     assert len(judge_events) == 1 and judge_events[0]["allowed_models"] == judge
+    assert judge_events[0]['git_checks'] == git_checks
     assert "--model" in judge_events[0]["argv"] and judge in judge_events[0]["argv"]
     assert f"COMPARE_CODEX_MODELS={judge}" in (pool / f"records/score-{judge}.sh").read_text(encoding="utf-8")
 

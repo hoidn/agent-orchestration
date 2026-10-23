@@ -94,6 +94,24 @@ trees and an ancestor's records. The scan counts any mention of another tree's n
 records live outside every tree. The orchestrator still writes `.orchestrate/` (workspace lock,
 guard and a build cache) into the working directory; this repository's `.gitignore` ignores it.
 
+When a review must exclude protected baseline files, use the explicit
+`write_pool(..., review_exclude=("docs/plans/evidence",))` opt-in for a fresh pool.
+It creates a new repository whose baseline omits those relative paths, then
+applies the exact original candidate patch. Both endpoints of excluded-path
+edits, additions, deletions and renames refuse; patches requiring D8 stripping
+also refuse. Nonexcluded baseline bytes, symlinks and executable modes are checked
+against the original seeded tree. The review repository has a new root commit
+and no copied Git history, object store or alternates. No Git visibility flags,
+overlays or filtered command output are used.
+
+For these pools, `mapping.compare_base` is the actual review baseline;
+`mapping.review.source_compare_base` and `excluded_paths` preserve its derivation.
+Original run/capture identities and qualification proofs remain unchanged.
+`verify-pool` checks and restores the exact recorded patch against that review
+baseline. The empty default retains the ordinary seeded baseline and D8 behavior.
+This removes the declared archive from this review repository, without claiming
+isolation from unrelated filesystem paths or arbitrary provider access.
+
 ## Recipe
 
 Placeholders: `MAIN` the main checkout, `C` the recorded commit, `RT` the frozen runtime checkout,

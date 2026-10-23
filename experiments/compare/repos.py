@@ -91,6 +91,54 @@ def build_candidate(source, base, seed, dest):
     return git(dest, "rev-parse", "HEAD")
 
 
+def review_exclusions(paths):
+    """Normalize explicit repository-relative exclusions; never exclude Git metadata or the root."""
+    if isinstance(paths, (str, bytes, Path)):
+        raise SystemExit("review exclusions must be a sequence of relative paths")
+    normalized = []
+    for value in paths:
+        path = Path(value)
+        if not value or path.is_absolute() or str(path) == "." or any(p in ("..", ".git") for p in path.parts):
+            raise SystemExit("review exclusions must be nonempty relative paths outside .git, without '..'")
+        normalized.append(path.as_posix())
+    return tuple(sorted(set(normalized)))
+
+
+def _excluded(path, exclusions):
+    return any(path == root or path.startswith(root + "/") for root in exclusions)
+
+
+def build_review_candidate(source, base, seed, dest, expected_base, exclusions, patch):
+    """Export the unchanged seeded baseline without excluded paths into a new root repository."""
+    with tempfile.TemporaryDirectory() as directory:
+        original = Path(directory) / "original"
+        if build_candidate(source, base, seed, original) != expected_base:
+            raise SystemExit("review source seeded commit differs from the original runs")
+        if patch:
+            git(original, "apply", "--cached", "--binary", "-", stdin=patch)
+            touched = git(original, "diff", "--cached", "--name-only", "--no-renames", "-z", expected_base, raw=True)
+            if any(_excluded(os.fsdecode(path), exclusions) for path in touched.split(b"\0") if path):
+                raise SystemExit("candidate patch changes an excluded review path")
+
+        def omit(directory, names):
+            relative = Path(directory).relative_to(original)
+            return [name for name in names if (relative == Path(".") and name == ".git")
+                    or _excluded((relative / name).as_posix(), exclusions)]
+
+        shutil.copytree(original, dest, symlinks=True, ignore=omit)
+        git(dest, "init", "-q", "--template=")
+        git(dest, "config", "core.autocrlf", "false")
+        git(dest, "add", "-A", "-f", ".")
+        git(dest, *SEED_COMMIT, env=SEED_DATES)
+        review_base = git(dest, "rev-parse", "HEAD")
+        source_tree = git(original, "ls-tree", "-r", "-z", expected_base, raw=True)
+        expected_tree = b"".join(row + b"\0" for row in source_tree.split(b"\0") if row
+                                 and not _excluded(os.fsdecode(row.split(b"\t", 1)[1]), exclusions))
+        if git(dest, "ls-tree", "-r", "-z", review_base, raw=True) != expected_tree:
+            raise SystemExit("review baseline changed nonexcluded source bytes or file modes")
+    return review_base
+
+
 def patch_of(repo, base):
     """The repository's changes against `base`, new files included, leaving new files intent-to-add."""
     git(repo, "add", "-A", "-N", ".")
