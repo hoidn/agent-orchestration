@@ -43,11 +43,14 @@ class ClaudeStreamJsonAccumulator:
         self,
         *,
         assistant_text_callback: Callable[[str], None] | None = None,
+        tool_activity_callback: Callable[[str], None] | None = None,
     ) -> None:
         self._callback = assistant_text_callback
+        self._tool_activity_callback = tool_activity_callback
         self._buffer = bytearray()
         self._session_ids: set[str] = set()
         self._text_parts: list[str] = []
+        self._tool_uses: dict[str, str] = {}
         self._terminal: dict[str, Any] | None = None
         self._event_count = 0
         self._line_number = 0
@@ -68,7 +71,7 @@ class ClaudeStreamJsonAccumulator:
     def feed(self, chunk: bytes) -> None:
         if not isinstance(chunk, bytes):
             raise TypeError("session transport chunks must be bytes")
-        emitted: list[str] = []
+        emitted: list[tuple[str, str]] = []
         with self._lock:
             if self._finalized:
                 raise RuntimeError("session transport accumulator is finalized")
@@ -81,8 +84,9 @@ class ClaudeStreamJsonAccumulator:
                     break
                 line = bytes(self._buffer[:offset])
                 del self._buffer[: offset + 1]
-                emitted.append(self._consume(line))
-        self._emit(emitted)
+                _text, events = self._consume(line)
+                emitted.extend(events)
+        self._emit_events(emitted)
 
     def snapshot(self) -> SessionIdentitySnapshot:
         with self._lock:
@@ -105,15 +109,16 @@ class ClaudeStreamJsonAccumulator:
         require_terminal: bool,
     ) -> tuple[Mapping[str, Any] | None, Mapping[str, Any] | None]:
         """Parse the EOF tail and return normalized metadata or an error."""
-        emitted: list[str] = []
+        emitted: list[tuple[str, str]] = []
         with self._lock:
             if not self._finalized:
                 self._finalized = True
                 tail = bytes(self._buffer)
                 self._buffer.clear()
                 if self._invalid is None and tail.strip():
-                    emitted.append(self._consume(tail))
-        self._emit(emitted)
+                    _text, events = self._consume(tail)
+                    emitted.extend(events)
+        self._emit_events(emitted)
         with self._lock:
             return self._settle(expected_session_id, require_terminal)
 
@@ -152,10 +157,10 @@ class ClaudeStreamJsonAccumulator:
             "is_error": bool(terminal.get("is_error", False)),
         }, None
 
-    def _consume(self, raw: bytes) -> str:
-        """Parse one line; return its assistant text ('' when it carries none)."""
+    def _consume(self, raw: bytes) -> tuple[str, list[tuple[str, str]]]:
+        """Parse one line; return normalized text and ordered display callbacks."""
         if not raw.strip():
-            return ""
+            return "", []
         self._line_number += 1
         try:
             event = json.loads(raw.decode("utf-8"))
@@ -164,38 +169,94 @@ class ClaudeStreamJsonAccumulator:
                 "Session transport is not valid stream-json",
                 {"line": self._line_number, "error": str(exc)},
             )
-            return ""
+            return "", []
         if not isinstance(event, dict) or not isinstance(event.get("type"), str):
             self._invalid = self._error(
                 "Session transport event must be a JSON object with a string type",
                 {"line": self._line_number},
             )
-            return ""
+            return "", []
         self._event_count += 1
         session_id = event.get("session_id")
         if isinstance(session_id, str) and session_id:
             self._session_ids.add(session_id)
         if event["type"] == _TERMINAL_TYPE:
             self._terminal = event
-            return ""
-        if event["type"] != "assistant":
-            return ""
-        text = _assistant_text(event)
+            self._tool_uses.clear()
+            return "", []
+        text = _assistant_text(event) if event["type"] == "assistant" else ""
         if text:
             self._text_parts.append(text)
-        return text
+        return text, self._stream_events(event, text)
 
-    def _emit(self, texts: list[str]) -> None:
-        if self._callback is None:
-            return
-        for text in texts:
-            if not text:
+    def _stream_events(
+        self, event: Mapping[str, Any], text: str
+    ) -> list[tuple[str, str]]:
+        events: list[tuple[str, str]] = []
+        message = event.get("message")
+        content = message.get("content") if isinstance(message, Mapping) else None
+        if not isinstance(content, list):
+            return [("text", text)] if text else []
+        if event.get("type") == "assistant":
+            text_parts: list[str] = []
+
+            def flush_text() -> None:
+                if text_parts:
+                    events.append(("text", "".join(text_parts)))
+                    text_parts.clear()
+
+            for block in content:
+                if not isinstance(block, Mapping):
+                    continue
+                if block.get("type") == "text" and isinstance(block.get("text"), str):
+                    text_parts.append(block["text"])
+                    continue
+                if block.get("type") != "tool_use":
+                    continue
+                flush_text()
+                tool_id, name = block.get("id"), block.get("name")
+                if (
+                    isinstance(tool_id, str)
+                    and tool_id
+                    and len(tool_id) <= 256
+                    and isinstance(name, str)
+                    and name
+                    and tool_id not in self._tool_uses
+                ):
+                    label = name[:64]
+                    self._tool_uses[tool_id] = label
+                    events.append(("activity", f"Tool started: {label}"))
+            flush_text()
+            return events
+        if event.get("type") == "user":
+            for block in content:
+                if not isinstance(block, Mapping) or block.get("type") != "tool_result":
+                    continue
+                tool_id = block.get("tool_use_id")
+                if not isinstance(tool_id, str):
+                    continue
+                is_error = block.get("is_error")
+                if "is_error" in block and not isinstance(is_error, bool):
+                    continue
+                name = self._tool_uses.pop(tool_id, None)
+                if name is not None:
+                    status = "failed" if is_error is True else "completed"
+                    events.append(("activity", f"Tool {status}: {name}"))
+        if text and not any(kind == "text" for kind, _ in events):
+            events.append(("text", text))
+        return events
+
+    def _emit_events(self, events: list[tuple[str, str]]) -> None:
+        for kind, text in events:
+            callback = (
+                self._callback if kind == "text" else self._tool_activity_callback
+            )
+            if callback is None or not text:
                 continue
             try:
-                self._callback(text)
+                callback(text)
             except Exception:
-                # Streaming display is best-effort (as in CodexExecJsonlAccumulator);
-                # parse state remains authoritative.
+                # Streaming display is best-effort; parse state remains authoritative.
                 pass
 
     def _conflict_error(self) -> dict[str, Any]:

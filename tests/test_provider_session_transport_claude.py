@@ -48,6 +48,167 @@ def test_finalize_binds_session_id_assistant_text_and_terminal() -> None:
     assert (metadata["result_subtype"], metadata["is_error"]) == ("success", False)
 
 
+def test_tool_only_turn_reports_tool_lifecycle_without_normalizing_payloads() -> None:
+    activity = []
+    acc = create_session_transport_accumulator(
+        "claude_stream_json_stdout", tool_activity_callback=activity.append
+    )
+    start = {
+        "type": "assistant",
+        "session_id": SID,
+        "message": {
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "tool-1",
+                    "name": "Bash",
+                    "input": {"command": "PRIVATE COMMAND"},
+                }
+            ]
+        },
+    }
+    result = {
+        "type": "user",
+        "session_id": SID,
+        "message": {
+            "content": [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": "tool-1",
+                    "content": "PRIVATE RESULT",
+                }
+            ]
+        },
+    }
+    stream = _events(_init(), start, result, _result())
+    acc.feed(stream[:37])
+    acc.feed(stream[37:])
+
+    metadata, error = acc.finalize(expected_session_id=None, require_terminal=True)
+
+    assert error is None
+    assert activity == ["Tool started: Bash", "Tool completed: Bash"]
+    assert metadata["normalized_stdout"] == ""
+    assert "PRIVATE" not in " ".join(activity)
+
+
+def test_unmatched_or_malformed_tool_blocks_are_ignored_and_callback_is_best_effort() -> None:
+    activity = []
+
+    def broken_callback(_notice):
+        raise RuntimeError("display failed")
+
+    acc = create_session_transport_accumulator(
+        "claude_stream_json_stdout", tool_activity_callback=broken_callback
+    )
+    acc.feed(
+        _events(
+            _init(),
+            {
+                "type": "assistant",
+                "session_id": SID,
+                "message": {
+                    "content": [
+                        {"type": "tool_use", "name": "missing-id"},
+                        {"type": "tool_use", "id": "tool-2", "name": "Read"},
+                    ]
+                },
+            },
+            {
+                "type": "user",
+                "session_id": SID,
+                "message": {
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": "unknown"},
+                        {"type": "tool_result", "tool_use_id": "tool-2", "is_error": True},
+                    ]
+                },
+            },
+            _result(),
+        )
+    )
+
+    metadata, error = acc.finalize(expected_session_id=None, require_terminal=True)
+
+    assert error is None
+    assert metadata["normalized_stdout"] == ""
+    assert acc.snapshot().status == "unique"
+
+
+def test_claude_callbacks_preserve_text_and_each_tool_order_in_one_event() -> None:
+    emissions = []
+    acc = create_session_transport_accumulator(
+        "claude_stream_json_stdout",
+        assistant_text_callback=lambda text: emissions.append(("text", text)),
+        tool_activity_callback=lambda text: emissions.append(("activity", text)),
+    )
+    acc.feed(
+        _events(
+            _init(),
+            {
+                "type": "assistant",
+                "session_id": SID,
+                "message": {
+                    "content": [
+                        {"type": "text", "text": "before"},
+                        {"type": "tool_use", "id": "tool-a", "name": "Bash", "input": {}},
+                        {"type": "text", "text": "between"},
+                        {"type": "tool_use", "id": "tool-b", "name": "Read", "input": {}},
+                        {"type": "text", "text": "after"},
+                    ]
+                },
+            },
+            {
+                "type": "user",
+                "session_id": SID,
+                "message": {
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": "tool-a"},
+                        {"type": "tool_result", "tool_use_id": "tool-b", "is_error": True},
+                    ]
+                },
+            },
+            _result(),
+        )
+    )
+
+    metadata, error = acc.finalize(expected_session_id=None, require_terminal=True)
+
+    assert error is None
+    assert metadata["normalized_stdout"] == "beforebetweenafter"
+    assert emissions == [
+        ("text", "before"),
+        ("activity", "Tool started: Bash"),
+        ("text", "between"),
+        ("activity", "Tool started: Read"),
+        ("text", "after"),
+        ("activity", "Tool completed: Bash"),
+        ("activity", "Tool failed: Read"),
+    ]
+
+
+def test_claude_malformed_error_flag_does_not_complete_or_consume_tool_use() -> None:
+    activity = []
+    acc = create_session_transport_accumulator(
+        "claude_stream_json_stdout", tool_activity_callback=activity.append
+    )
+    acc.feed(
+        _events(
+            _init(),
+            {"type": "assistant", "session_id": SID, "message": {"content": [{"type": "tool_use", "id": "tool-1", "name": "Bash"}]}},
+            {"type": "user", "session_id": SID, "message": {"content": [{"type": "tool_result", "tool_use_id": "tool-1", "is_error": []}]}},
+            {"type": "user", "session_id": SID, "message": {"content": [{"type": "tool_result", "tool_use_id": "tool-1", "is_error": True}]}},
+            _result(),
+        )
+    )
+
+    metadata, error = acc.finalize(expected_session_id=None, require_terminal=True)
+
+    assert error is None
+    assert metadata["normalized_stdout"] == ""
+    assert activity == ["Tool started: Bash", "Tool failed: Bash"]
+
+
 def test_missing_result_event_is_an_error_not_a_session() -> None:
     acc = create_session_transport_accumulator("claude_stream_json_stdout")
     acc.feed(_events(_init(), _assistant("partial")))

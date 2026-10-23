@@ -30,9 +30,17 @@
     post-directive mirror/teardown are best effort because they cannot change
     the already selected control path.
   - Session-aware panes mirror normalized assistant text, never raw session
-    JSONL. Pane bytes and transcripts are display evidence; parsers and result
-    validation continue to consume the authoritative provider transport and
-    declared output bundle.
+    JSONL. Claude and Codex session transports additionally display bounded
+    tool-activity notices (tool name/kind and started, completed or error status)
+    as events arrive. The same notices appear on the parent console when
+    `--stream-output` is enabled. Raw arguments, command bodies, tool results
+    and thinking/reasoning payloads are omitted. Notices use the same session
+    identity eligibility and terminal sanitization as assistant text; an
+    unknown/malformed activity payload or display callback failure does not
+    change transport validation. Activity is separate from normalized assistant
+    stdout and never enters a workflow result. Pane bytes and transcripts remain
+    display evidence; parsers and result validation continue to consume the
+    authoritative provider transport and declared output bundle.
   - Live tmux socket and target values are process-local. They may occur in the
     supervisor's composed prompt and debug prompt evidence but never enter
     workflow values, `state.json`, stable status records, checkpoints, or

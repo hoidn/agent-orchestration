@@ -97,6 +97,9 @@ path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
 log_request(session)
 emit({"type": "thread.started", "thread_id": session})
 emit({"type": "turn.started"})
+if step.get("tool_activity"):
+    emit({"type": "item.started", "item": {"type": "command_execution", "id": "shim-command", "command": "PRIVATE SHIM COMMAND"}})
+    emit({"type": "item.completed", "item": {"type": "command_execution", "id": "shim-command", "exit_code": 0, "aggregated_output": "PRIVATE SHIM RESULT"}})
 if mode == "interrupted":
     os._exit(137)
 if mode == "nonzero":
@@ -140,6 +143,9 @@ turn(prompt_id, prompt, mode not in {"interrupted", "nonzero"})
 path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
 log_request(session)
 emit({"type": "system", "subtype": "init", "session_id": session, "model": "fake"})
+if step.get("tool_activity"):
+    emit({"type": "assistant", "session_id": session, "message": {"content": [{"type": "tool_use", "id": "shim-tool", "name": "Bash", "input": {"command": "PRIVATE SHIM COMMAND"}}]}})
+    emit({"type": "user", "session_id": session, "message": {"content": [{"type": "tool_result", "tool_use_id": "shim-tool", "content": "PRIVATE SHIM RESULT"}]}})
 if mode == "interrupted":
     os._exit(137)
 if mode == "nonzero":

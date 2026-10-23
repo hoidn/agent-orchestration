@@ -37,6 +37,7 @@ from .observation import (
     ProviderObservationHandle,
     ProviderObservationManager,
     TerminalSafeWriter,
+    terminal_safe_line,
     terminal_safe_text,
 )
 from .session_transport import (
@@ -1699,6 +1700,19 @@ class ProviderExecutor:
                 assistant_text.encode("utf-8"),
             )
 
+        def _emit_tool_activity(activity: str) -> None:
+            if accumulator is None:
+                return
+            if not accumulator.snapshot().assistant_text_is_eligible(
+                expected_session_id=expected_session_id,
+            ):
+                return
+            self._emit_session_tool_activity(
+                activity,
+                stream_output=stream_output,
+                observation_handle=observation_handle,
+            )
+
         try:
             control.claim_spawn()
         except Exception as exc:
@@ -1723,6 +1737,11 @@ class ProviderExecutor:
                 invocation.metadata_mode,
                 assistant_text_callback=(
                     _emit_assistant_text
+                    if stream_output or observation_handle is not None
+                    else None
+                ),
+                tool_activity_callback=(
+                    _emit_tool_activity
                     if stream_output or observation_handle is not None
                     else None
                 ),
@@ -2063,6 +2082,7 @@ class ProviderExecutor:
                 stream_output=stream_output,
                 session_runtime=session_runtime,
                 accumulator=accumulator,
+                observation_handle=observation_handle,
                 identity_snapshot_callback=(
                     control.publish_session_snapshot if controlled else None
                 ),
@@ -3093,16 +3113,34 @@ class ProviderExecutor:
         stream_output: bool,
         session_runtime: Optional[Dict[str, Any]],
         accumulator: SessionTransportAccumulator | None = None,
+        observation_handle: Optional[ProviderObservationHandle] = None,
         identity_snapshot_callback: Optional[
             Callable[[SessionIdentitySnapshot], None]
         ] = None,
     ) -> Callable[[bytes], None]:
         """Build the session stdout handler used during live pipe capture."""
         if accumulator is None:
+            def _emit_tool_activity(activity: str) -> None:
+                active_accumulator = accumulator
+                if active_accumulator is None or not active_accumulator.snapshot().assistant_text_is_eligible(
+                    expected_session_id=self._expected_session_id(invocation),
+                ):
+                    return
+                self._emit_session_tool_activity(
+                    activity,
+                    stream_output=stream_output,
+                    observation_handle=observation_handle,
+                )
+
             accumulator = create_session_transport_accumulator(
                 invocation.metadata_mode,
                 assistant_text_callback=(
                     self._emit_session_assistant_text if stream_output else None
+                ),
+                tool_activity_callback=(
+                    _emit_tool_activity
+                    if stream_output or observation_handle is not None
+                    else None
                 ),
                 expectation=invocation.omp_transport_expectation,
             )
@@ -3449,3 +3487,20 @@ class ProviderExecutor:
         output = sys.stdout.buffer if hasattr(sys.stdout, "buffer") else sys.stdout
         output.write(terminal_safe_text(assistant_text).encode("utf-8"))
         output.flush()
+
+    def _emit_session_tool_activity(
+        self,
+        activity: str,
+        *,
+        stream_output: bool,
+        observation_handle: Optional[ProviderObservationHandle],
+    ) -> None:
+        if not isinstance(activity, str):
+            return
+        display = (terminal_safe_line(activity[:160]) + "\n").encode("utf-8")
+        if stream_output:
+            try:
+                self._emit_session_assistant_text(display.decode("utf-8"))
+            except Exception:
+                pass
+        self._append_observation_display(observation_handle, display)
