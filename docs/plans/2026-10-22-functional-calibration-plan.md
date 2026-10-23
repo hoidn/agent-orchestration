@@ -61,12 +61,16 @@ passed integrity review and canonical closure. RPI Luna/Sol means are 4/6
 strict Sol mean <5 target, so both are `too_easy` and the two-task set remains
 unqualified. The [LS5 report](../reports/2026-10-23-luna-sol-functional-calibration.md)
 preserves the functional scores and recovery lineage. The owner's instruction
-to iterate until the target is met now selects the
-[in-place failed-call calibration plan](2026-10-23-functional-calibration-inplace-failure-plan.md):
-offline preparation of two harder historical tasks under the same roles, rubric
-and thresholds, with eight fresh generations and two judges under prospective
-cap 53 (43 historical starts). Executable checkpoint feasibility, complete offline
-implementation/review and packet-bound budget declarations precede any new call.
+to iterate until the target is met selected the
+[in-place failed-call calibration plan](2026-10-23-functional-calibration-inplace-failure-plan.md).
+Its task packages and offline preflight passed, but LS6 stopped after seven starts
+(50 overall) when one Sol attempt launched three unapproved shell CLI sessions.
+No PRR generation or judge began. Task 9 now routes to the
+[single-call enforcement recovery plan](2026-10-23-functional-calibration-single-call-recovery-plan.md):
+correct the guard offline, then run eight fresh generations and two judges under
+prospective cap 60. Both arms must use the same corrected tools; valid original
+Luna attempts remain unscored historical evidence. Reviewed runtime/packets and
+concrete declarations precede any recovery call.
 
 Task 5 below records the approved LS3 recovery. The owner replied "yes" to the
 eight-session/cap-40 proposal and reaffirmed Sol 6.1 for the stronger arm. That
@@ -786,13 +790,14 @@ No next task package, iteration budget or campaign is frozen by this closure.
 ## Task 8: Increase natural difficulty through settled-failure recovery
 
 The [in-place failed-call calibration plan](2026-10-23-functional-calibration-inplace-failure-plan.md)
-owns the selected LS6 implementation and launch gates. Both new task packages
+records the LS6 implementation, launch gates and subsequent integrity stop. Both new task packages
 retain the original feature goals and add in-place recovery of a settled failed
 call with present, valid and restorable checkpoint authority. Unknown interrupted
 effects keep their existing barriers. PRR additionally requires the exact persisted
 profile in caller and callee at each boundary, with no historical profile upgrade
-or new zero-record exception. Conceptual design and independent plan review passed;
-real baseline checkpoint feasibility remains unproved and blocks provider spend.
+or new zero-record exception. Conceptual design, complete task/fixture reviews,
+real historical checkpoint feasibility, exact-package checks and the frozen
+generation packet passed before dispatch.
 
 All eight solutions must be fresh for the new task identities; no LS5 result is
 rescored or carried. The coordinator selects ten new starts and prospective total
@@ -802,3 +807,23 @@ launch packet. The controller runtime, rubric, roles, limits and three predicate
 remain unchanged. The two historical tasks share this recovery obligation and do
 not supply independent task-family evidence. No C1, V2, sealed-task or campaign
 selection is added.
+
+
+## Task 9: Enforce single-call dispatch and recover with equal tools
+
+LS6 spent seven starts: two complete Luna observations, two interrupted Sol roots
+and three undeclared nested Sol roots at effort `xhigh`. The guard disabled native
+multi-agent features but admitted same-model shell CLI reentry; the monitor stopped
+the batch. This is an integrity incident, not a difficulty result. Both Luna
+observations passed separate integrity review, including one natural delivery
+failure, and remain preserved without quality scores.
+
+The [single-call recovery plan](2026-10-23-functional-calibration-single-call-recovery-plan.md)
+owns the selected correction and prospective execution. It reuses cap-one policy
+to block inherited CLI reentry before dispatch, including nested metadata queries.
+That tool change requires both arms to be fresh: eight generations and two judges,
+ten new starts, 50 historical and cap 60. The earlier conditional cap-58 carryover
+proposal was superseded before any recovery call. No historical record/runtime
+identity is relabeled; no task byte, rubric, model, effort or threshold changes.
+Implementation, independent review, affected runtime tests, actual fake-provider
+sandbox checks and hash-bound declarations precede the next dispatch.
