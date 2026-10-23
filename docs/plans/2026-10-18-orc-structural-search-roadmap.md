@@ -557,7 +557,10 @@ Both LS3 Sol-low RPI attempts completed and were admitted. A host NVMe failure
 and reboots interrupted both Luna PRR attempts before terminal capture; spend is
 36 starts and no new score exists. The reviewed LS4 packet preserves the four completed RPI observations and
 prepares four fresh PRR generations plus two judges. The owner approved these
-six sessions under total cap 42; the two Luna PRR generations are running.
+six sessions under total cap 42. Both Luna PRR captures are admitted; one Sol
+PRR session ended with a provider-capacity error and the other remains active.
+Judgments are held pending incident closure; external truncation does not
+establish task difficulty.
 No historical score is changed, no stronger-arm success
 is guaranteed, and no ORC benefit or live `module` selection follows. The measurement gate precedes any
 live `module` arm

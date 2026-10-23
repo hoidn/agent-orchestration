@@ -49,8 +49,10 @@ prepared and reviewed. The owner approved its eight new sessions and total cap
 and subsequent reboots then interrupted both Luna PRR attempts before settlement.
 LS3 is stopped after four starts (36 overall); neither Sol PRR nor either judge
 started. No new quality score exists. Task 6 records the independently reviewed LS4 recovery packet. The owner
-approved six new sessions and total cap 42; the two Luna PRR generations are
-running. The same approval covers both later blind judges.
+approved six new sessions and total cap 42. Both Luna PRR captures are complete
+and admitted. One Sol PRR provider terminated with `server_overloaded`; the other
+is still running. Both judgments are held pending incident closure; the failed
+attempt is preserved and is not evidence of task difficulty.
 
 Task 5 below records the approved LS3 recovery. The owner replied "yes" to the
 eight-session/cap-40 proposal and reaffirmed Sol 6.1 for the stronger arm. That
@@ -640,3 +642,47 @@ rule from `AGENTS.md`. The maintained instruction now records experiment
 decisions and spending limits in the plan ledger; it no longer requires an
 automatic permission request for new or raised spend. This instruction change
 does not mutate the frozen LS4 packet, its declared cap or historical evidence.
+
+
+## Task 7: Close the provider-capacity incident and prepare a clean continuation
+
+At 2026-10-23 08:14:48.210 UTC, Sol PRR run
+`20261023T080607Z-wc6acr` ended with native error `server_overloaded` and workflow
+`failed/provider_exit_nonzero`. It left a raw patch. A complete failed terminal
+can pass the unchanged canonical intake; that mechanical admissibility does not
+make an externally truncated attempt a clean task-difficulty observation.
+Preserve its original terminal, raw patch, scan, native log and usage. Do not
+assign a low score from the error, silently omit it from LS4, or report LS4 as
+qualified. Let the other already-started Sol attempt settle and audit both.
+
+Hold both LS4 judges while this confound remains. The next comparison, if
+prepared, is prospective and separate from LS4. Retain every valid observation
+not externally aborted, without selecting by code quality, and generate fresh
+solutions only for the externally interrupted slots. Retain legitimate failed
+deliveries when their raw terminal captures qualify; do not require a successful
+workflow envelope as a proxy for functional quality. A native provider abort such
+as `server_overloaded` must stop scientific qualification even when the raw
+capture is mechanically admissible.
+
+If the second Sol PRR attempt is valid and not externally aborted, the minimal
+continuation is **seven carried observations, one fresh Sol PRR generation and
+two blind judges**. Forty historical starts plus three new starts require a
+**proposed total cap 43**. If the second attempt is also externally interrupted,
+resolve that evidence and budget before freezing; do not assume its outcome.
+The existing explicit cap 42 and no-retry LS4 freeze remain unchanged. Removing
+the general AGENTS approval rule does not rewrite that frozen authorization.
+
+Use a directly revised bounded operator and source-specific carryover manifest,
+preserving all original outcomes and pre-adjudication hash crosswalks. Tasks,
+models, tools, timeouts, functional rubric, eight-observation denominator and
+three primary predicates remain unchanged. No new runtime feature, retry loop,
+judge shortcut or altered historical score is selected.
+
+- [ ] Capture and independently audit both Sol attempts; record the external
+  failure and all four LS4 starts, without spending either judgment.
+- [ ] Freeze the prospective carryover selection and exact remaining generation
+  count; prepare and test fresh commands, masks and canonical intake offline.
+- [ ] Independently review the concrete packet and reconcile its required spend
+  with the explicit remaining budget before any new provider start.
+- [ ] Execute the eligible continuation and both blind judges, then close through
+  the canonical clone-id joins without attributing external aborts to difficulty.
