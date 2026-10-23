@@ -75,9 +75,10 @@ document owns the answer.
 - Read the relevant normative spec, usually [DSL](../specs/dsl.md),
   [Step IO](../specs/io.md), [State](../specs/state.md),
   [Providers](../specs/providers.md), or [Dependencies](../specs/dependencies.md).
-- Check [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md) for
-  current author-facing explanation and examples; use the historical YAML
-  guide only when interpreting retired source.
+- Check the [Workflow Lisp](lisp_workflow_drafting_guide.md) or
+  [typed Python](python_workflow_drafting_guide.md) drafting guide for the
+  affected authoring surface; use the historical YAML guide only when
+  interpreting retired source.
 - If docs and specs disagree, specs win; update explanatory docs afterward.
 
 ### When Writing Or Revising Design Docs

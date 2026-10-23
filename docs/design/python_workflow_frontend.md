@@ -100,8 +100,9 @@ paths and variant unions; supported `list[T]` and `T | None`
 map to their existing `.orc` types. Recursive, `Any`, arbitrary object and
 unsupported Python annotations fail at the author location. There is no new
 coercion or schema validator. Callable parameter and return annotations are
-required, with `returns=T` as an explicit return annotation alternative;
-conflicting alternatives are errors.
+required. `@workflow` and `@proc` also accept `returns=T` as an explicit
+return annotation alternative; conflicting alternatives are errors. `@pure`
+requires the Python `-> T` annotation and has no `returns=` keyword.
 
 Optional annotations cover inputs and produced values. Authored `None` literals
 are refused because the current source language has no null constructor; the
@@ -167,12 +168,21 @@ interpolating its markers. This is the same `Prompt` definition path, not a
 second template language. Template placeholders, escaping and completeness are
 checked by the existing prompt compiler.
 
-`Prompt.extern("prompts.review", returns=Review)` references the supplied
+`Prompt.extern("prompts.review", returns=Draft)` references the supplied
 prompt-externs manifest instead of declaring a body. A provider call emits the
 existing extern prompt, supplied `:inputs`, and declared `:returns` form, which
 the compiler checks. The manifest owns the prompt source; it does not declare
 the result type. Python cannot replace that source or silently supply a default
-binding.
+binding. Extern applications take positional typed inputs, rather than named
+fills; the existing compiler validates the extern binding and input expressions:
+
+```python
+review_prompt = Prompt.extern("prompts.review", returns=Draft)
+
+@workflow
+def review(task: str) -> Draft:
+    return author(review_prompt(task))
+```
 
 `Provider(name, model=None, effort=None, timeout_sec=None)` references an existing
 provider extern: `Provider("codex")` emits `providers.codex`, whose value must
@@ -224,8 +234,19 @@ Supported operator overloads map only to existing operators: numeric arithmetic
 and ordering, supported equality, and field projections admitted by the
 compiler. Generic list indexing is refused because it has no existing source
 operator. Explicit helpers cover boolean combination, list length and string
-construction: `all_of`, `any_of`, `not_`, `length`, and `concat`. Boolean helpers
-with potentially effectful operands take thunks to preserve short-circuiting.
+construction: `all_of`, `any_of`, `not_`, `length`, and `concat`.
+`all_of(*thunks)` and `any_of(*thunks)` always take zero-argument callbacks,
+including for pure operands, to preserve short-circuiting. `not_(value)` takes
+a symbolic Boolean value directly:
+
+```python
+from orchestrator.py import all_of, any_of, not_
+
+@pure
+def within_limit(count: int, limit: int) -> bool:
+    return all_of(lambda: count >= 0, lambda: not_(count >= limit))
+```
+
 No float equality, implicit mixed-number conversion or new pure operator is
 created.
 
@@ -349,7 +370,7 @@ result = run(
 orchestrator py build workflows/review.py --entry-workflow draft --provider-externs-file providers.json
 orchestrator py check workflows/review.py --entry-workflow draft --provider-externs-file providers.json
 orchestrator py run workflows/review.py --entry-workflow draft --provider-externs-file providers.json --input task="Describe the migration"
-orchestrator py run workflows/review.py --entry-workflow draft --provider-externs-file providers.json --frozen
+orchestrator py run workflows/review.py --entry-workflow draft --provider-externs-file providers.json --input task="Describe the migration" --frozen
 orchestrator resume RUN_ID
 ```
 
@@ -400,6 +421,8 @@ There is no implicit success when no prior build exists.
 Frozen comparison covers the captured local Python sources, prompt bytes,
 transitive `.orc` sources and manifests, in addition to the existing closed
 build key; Python edits that emit identical `.orc` are still source changes.
+Runtime `--input` values still have to be supplied for a frozen run. Frozen
+mode checks captured source/configuration, not those runtime input values.
 It does not freeze runtime command closures or workspace inputs: their existing
 runtime freshness and replay rules remain binding. The immutable snapshot also
 contains imported project-local `.orc` source and source-owned prompt assets

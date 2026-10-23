@@ -2,6 +2,7 @@
 
 Status: retired YAML authoring guide; historical translation/reference only
 New-author start: [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
+or [Typed Python Workflows](python_workflow_drafting_guide.md) (serial generation into `.orc`)
 
 This guide is informative. The normative contracts live under `specs/` (start at `specs/index.md`).
 The production YAML parser is retired. Fresh `run` accepts only a path whose
@@ -26,7 +27,7 @@ Companion docs:
 Goal: help you reconstruct the contracts of retired YAML workflows when
 prompts, deterministic artifacts, and control flow all interacted, then map
 those contracts to `.orc`. For all runnable authoring, begin with the Workflow
-Lisp guide and a registry-approved `.orc` example.
+Lisp or typed Python guide and its admitted example.
 
 ## 1) Mental Model: Four Authoring Surfaces
 

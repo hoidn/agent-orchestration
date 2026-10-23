@@ -9,7 +9,8 @@ Normative behavior lives in `specs/`. This file is explanatory.
 
 1. `docs/orchestration_start_here.md` (this file)
 2. `docs/runtime_execution_lifecycle.md` (what happens at runtime)
-3. `docs/lisp_workflow_drafting_guide.md` (how to author `.orc` workflows)
+3. [Workflow Lisp guide](lisp_workflow_drafting_guide.md) (direct `.orc` authoring)
+   or [typed Python guide](python_workflow_drafting_guide.md) (serial generation into `.orc`)
 4. `specs/index.md` (normative contracts)
 
 ## One-Screen Model
@@ -17,7 +18,8 @@ Normative behavior lives in `specs/`. This file is explanatory.
 ```text
 Design time (authoring)                              Runtime (execution)
 -----------------------------------------------------------------------------
-Write Workflow Lisp (.orc) ------------------------> Parse and typecheck source
+Typed Python -> generated Workflow Lisp (.orc) --+
+Write Workflow Lisp (.orc) ---------------------+--> Parse and typecheck source
 Write provider prompt files -----------------------> Elaborate to typed surface AST
 Define typed values/contracts ---------------------> Compile to a checked closed program
 Configure queue conventions in workflow -----------> Evaluate effects against the memo / enforce contracts
@@ -68,8 +70,10 @@ Short version:
 - Human operations guidance for launch/monitor/resume/recovery; does not define executable logic by itself.
 
 `authoring`
-- Editing Workflow Lisp `.orc`, prompt files, extern manifests, and related
-  contracts before a run.
+- Editing Workflow Lisp `.orc` directly or generating it from typed Python,
+  plus prompt files, extern manifests and related contracts before a run.
+  Python imports and tracing run during generation; runtime execution consumes
+  the checked `.orc` program, never Python callbacks.
 
 `runtime`
 - Executing a workflow (`run`/`resume`) and producing state/log artifacts under `.orchestrate/runs/<run_id>/`.
@@ -123,10 +127,12 @@ Short version:
 
 ## What Belongs Where
 
-Change Workflow Lisp source when you need to change:
-- control flow (`if`/`cond`/`match`, loops, retries)
-- artifact lineage semantics (`artifacts`, `publishes`, `consumes`)
-- deterministic output/consume contract behavior
+Change Workflow Lisp source or the typed Python source that generates it when
+you need to change:
+
+- typed branch, loop and call control
+- input, result and path contracts
+- explicit provider/command effects and prompt bindings
 
 Change prompt files when you need to change:
 - provider step instructions
@@ -178,7 +184,8 @@ Confusion: "Informative docs are normative."
 ## Companion Docs
 
 - Runtime sequence details: `docs/runtime_execution_lifecycle.md`
-- Workflow authoring guidance: `docs/lisp_workflow_drafting_guide.md`
+- Workflow authoring guidance: [Workflow Lisp](lisp_workflow_drafting_guide.md)
+  or [typed Python](python_workflow_drafting_guide.md)
 - Historical YAML translation reference: `docs/workflow_drafting_guide.md`
 - DSL reference (normative): `specs/dsl.md`
 - State schema (normative): `specs/state.md`
