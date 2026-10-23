@@ -55,7 +55,8 @@ completed and passed independent integrity review. LS4 is closed as scientifical
 inconclusive after four starts (40 overall), without either judgment. Task 7
 selects LS5: seven carried observations, one fresh Sol PRR generation and two
 blind judges, with coordinator-declared total cap 43 under the updated owner
-spending policy. No new quality score exists.
+spending policy. The reviewed LS5 generation is now running; both judges remain
+pending its integrity check. No new quality score exists.
 
 Task 5 below records the approved LS3 recovery. The owner replied "yes" to the
 eight-session/cap-40 proposal and reaffirmed Sol 6.1 for the stronger arm. That
@@ -692,9 +693,9 @@ judge shortcut or altered historical score is selected.
 
 - [x] Capture and independently audit both Sol attempts; record the external
   failure and all four LS4 starts, without spending either judgment.
-- [ ] Freeze the prospective carryover selection and exact remaining generation
+- [x] Freeze the prospective carryover selection and exact remaining generation
   count; prepare and test fresh commands, masks and canonical intake offline.
-- [ ] Independently review the concrete packet and bind its declared minimum
+- [x] Independently review the concrete packet and bind its declared minimum
   budget under the updated owner policy before any new provider start.
 - [ ] Execute the eligible continuation and both blind judges, then close through
   the canonical clone-id joins without attributing external aborts to difficulty.
@@ -708,3 +709,28 @@ sessions, positive receipts and raw patches preserved. The failed first Sol
 attempt remains scientifically confounded by `server_overloaded`; the second
 is eligible. No LS4 pool or judge was launched, and no quality-based selection
 was used for the seven carried observations.
+
+
+### LS5 concrete continuation (declared; generation running)
+
+Freeze: `/home/ollie/sc-evidence/freeze-functional-capacity-recovery-20261023`.
+Criterion `bd3a82099bb9645a1beab9f5efeb94ebbb6d483d7c9385528c5f76ffe46cd3ae`,
+carryover `0a9b1e101a5d9ecf6b00e12679d851bb5737689a84f9525329628acd967e2871`,
+and generation packet `874aa0aa4510ea475750f2ca531ce235c47d6a0f7b86d80a28144df19798a952`
+bind the unchanged protocol, seven original canonical intakes and one fresh
+Sol-low PRR command. Verification passed 58 narrow checks, 44 collected tests,
+one public dry run and one actual fake-provider sandbox check. The packet binds
+818 files and 81 carryover references; 4,967 surviving historical files remain
+verified with the same nine explicit historical absences.
+
+Independent review `LS5-20261023/generation-independent-review.json`
+(`986bc1975f776e4179fe15b689051f28e106b4d080d6d7d51a0245b4e1aa0758`)
+passed. Root separately verified the packet, carryover and report references and
+preflight: zero fresh starts, 40 historical, no extra roots or forbidden actions.
+The coordinator's `budget-declaration-generation.json`
+(`057699a5bfcd6feab6ca28d4f5ce8dcca4133672a2f2803f608c8ee18d932dfe`)
+binds one fresh generation plus both later judges to total cap 43 under the
+owner's delegated spending policy. It is not a claim of numeric owner approval.
+The operator runs in tmux `ls5-generation-20261023`; no automatic retry is enabled.
+Fresh-capture integrity and external-abort review precede pooling, and concrete
+judge-pool sandbox checks precede the two sequential blind judgments.
