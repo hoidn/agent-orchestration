@@ -21,6 +21,7 @@ _COMMIT_GATE = '''\
 import os
 import signal
 import sys
+import time
 from pathlib import Path
 
 from orchestrator.workflow.evaluated import runtime
@@ -33,7 +34,11 @@ def gate(*args, **kwargs):
     record = args[1] if len(args) > 1 else kwargs["record"]
     if record.get("record") == "committed" and not marker.exists():
         marker.parent.mkdir(parents=True, exist_ok=True)
-        marker.write_text(record["identity"], encoding="utf-8")
+        temporary_marker = marker.with_name(marker.name + ".tmp")
+        with temporary_marker.open("w", encoding="utf-8") as stream:
+            time.sleep(0.25)  # Widen the marker visibility window for this regression.
+            stream.write(record["identity"])
+        temporary_marker.replace(marker)
         signal.pause()
     return entry
 

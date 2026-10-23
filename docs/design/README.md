@@ -30,6 +30,7 @@ profile or qualification gate.
 | [workflow_language_design_principles.md](workflow_language_design_principles.md) | Cross-frontend semantic authority principles | Current contract | Yes |
 | [workflow_command_adapter_contract.md](workflow_command_adapter_contract.md) | Command adapter and inline glue policy | Partial; the command closure declaration (C1–C5) is enforced at run time at target 2.35 | Yes |
 | [workflow_lisp_frontend_specification.md](workflow_lisp_frontend_specification.md) | Accepted Workflow Lisp frontend baseline | Current contract | Yes |
+| [python_workflow_frontend.md](python_workflow_frontend.md) | Typed Python generation into ordinary checked `.orc` | Accepted serial frontend contract; scoped implementation evidence in its linked plan | Yes, within its supported subset; [guide](../python_workflow_drafting_guide.md) |
 | [workflow_lisp_repl.md](workflow_lisp_repl.md) | Pure interactive inspection of admitted 2.35–2.39 source and evaluated runs | Current contract | No |
 | [workflow_lisp_provider_prompt_dependencies.md](workflow_lisp_provider_prompt_dependencies.md) | Workflow Lisp provider prompt dependencies | Implemented functional contract | Yes |
 | [workflow_lisp_provider_call_policy.md](workflow_lisp_provider_call_policy.md) | Explicit provider policy and registry binding | Implemented contract for admitted evaluated calls | Yes |

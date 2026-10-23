@@ -4,14 +4,14 @@ Status: informative conceptual front door
 Normative authority: `specs/`
 Fuller model: [Orchestration Start Here](orchestration_start_here.md)
 
-`agent-orchestration` is a deterministic workflow runtime plus a Workflow Lisp
-frontend for agent-driven work. It treats workflows as typed contracts over
-state, artifacts, provider calls, command calls, and control flow.
+`agent-orchestration` is a deterministic workflow runtime with Workflow Lisp
+and typed Python authoring for agent-driven work. It treats workflows as typed
+contracts over state, artifacts, provider calls, command calls, and control flow.
 
 ## One-Screen Model
 
 ```text
-authored Workflow Lisp source (.orc)
+Workflow Lisp source (.orc) <- typed Python source generation
         |
         v
 typed frontend / checked closed-program validation
@@ -94,10 +94,13 @@ the [flat-route retrospective](reports/2026-10-13-flat-route-retirement-retrospe
 records the retired predecessor. The [capability matrix](capability_status_matrix.md)
 owns current availability, copy-safety and remaining gates for each surface.
 
-Workflow Lisp is the only fresh authoring frontend. If the required form is not
-implemented, record a capability gap rather than creating a lower-level or YAML
-workaround. Historical YAML/YML sources remain translation and evidence inputs,
-not executable workflows.
+The [Python frontend](design/python_workflow_frontend.md) generates inspectable
+ordinary `.orc` for a serial subset, using the same compiler and runtime.
+Its imports and tracing execute trusted Python; the build worker is not a
+sandbox. Retained snapshots let ordinary resume work without importing Python.
+If neither frontend supports the required form, record a capability gap rather
+than creating a lower-level or YAML workaround. Historical YAML/YML sources
+remain translation and evidence inputs, not executable workflows.
 
 ## Next Reading
 
@@ -108,6 +111,8 @@ not executable workflows.
   historical YAML workflows.
 - [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md): author `.orc`
   workflows.
+- [Typed Python Workflows](python_workflow_drafting_guide.md): generate `.orc`
+  and run a provider-free serial example.
 - [Design Documentation Index](design/README.md): route to architecture and
   migration designs.
 - [Documentation Conventions](documentation_conventions.md): keep future docs

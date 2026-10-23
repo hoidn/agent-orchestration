@@ -52,6 +52,47 @@ requires the exact complete release/environment qualified for the particular
 family; preserved source or a package pin alone is no universal recovery
 guarantee ([retirement policy](../docs/design/workflow_lisp_executor_retirement.md#7-recovery-policy-and-one-deletion-gate)).
 
+## Python authoring frontend
+
+`orchestrator py build <workflow.py>`, `orchestrator py check <workflow.py>`
+and `orchestrator py run <workflow.py>` generate ordinary Workflow Lisp source
+and use its existing compiler and evaluated runtime. Ordinary `run` continues
+to require `.orc`; authored YAML and retired execution profiles remain refused.
+The [Python frontend design](../docs/design/python_workflow_frontend.md) owns
+typed declaration, tracing and generation rules; the
+[authoring guide](../docs/python_workflow_drafting_guide.md) provides a local
+command-only recipe.
+
+All three commands accept `--entry-workflow`, repeatable `--source-root`,
+`--provider-externs-file`, `--prompt-externs-file`,
+`--command-boundaries-file`, `--imported-workflow-bundles-file`, and `--frozen`.
+An explicit entry selects an exported workflow; a single exported workflow may
+be selected implicitly. There are no implicit extern bindings. Python modules
+select an admitted generated target 2.35–2.39 with `TARGET`, defaulting to 2.39.
+Python source cannot widen target-specific admission or qualification.
+
+Build/check print JSON containing the retained generated `source_path`,
+`source_root`, `source_map_path`, `snapshot_path`, selected `entry_workflow`,
+`build_key`, `program_digest` and closed-program artifact path. They do not
+execute runtime effects or create a workflow run. Successful build and run
+may update the entry's pin after compilation; check never updates it.
+Frozen mode requires a prior pin and refuses changed captured sources or
+configuration without replacing it. Failed generation/compilation cannot
+replace a successful pin or overwrite a retained snapshot.
+
+Python import and tracing execute trusted local code with the caller's
+permissions, including in check/frozen mode. Runtime-effect suppression does
+not suppress build-time Python IO; this is neither a sandbox nor a hermetic
+dependency lock. Generated snapshots retain captured source and binding inputs;
+runtime command closures and workspace inputs retain existing freshness rules.
+
+`py run` accepts ordinary run inputs/options and forwards the retained `.orc`
+entry, ordered roots and manifests to `run_workflow`. The ordinary workspace
+lock, input/result validation, output contract and exit 0/1/2 semantics apply.
+Authoring, compilation and frozen refusal exit 2. Saved run recipes refer to
+retained generated source. Ordinary `resume <run_id>` does not import Python;
+existing checked-program drift and memo-reuse contracts remain authoritative.
+
 ## Workspace execution ownership
 
 Only one admitted evaluated run may execute in a workspace at a time.

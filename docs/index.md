@@ -26,7 +26,7 @@ use the capability matrix to determine what is implemented and qualified.
 | --- | --- | --- |
 | Understand the system | [Architecture overview](architecture_overview.md) and [orchestration model](orchestration_start_here.md) | Concepts, authority and component boundaries |
 | Check available behavior | [Capability matrix](capability_status_matrix.md) | Implemented, partial, library, designed, future and historical surfaces; implementation does not imply public qualification |
-| Author a workflow | [Workflow Lisp drafting guide](lisp_workflow_drafting_guide.md) and [2.39 procedure contracts](lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239) | Current `.orc` syntax, prerequisites and runnable shapes; inferred effects and optional restrictions at 2.39 |
+| Author a workflow | [Workflow Lisp drafting guide](lisp_workflow_drafting_guide.md) or [typed Python guide](python_workflow_drafting_guide.md) | Direct `.orc` authoring or serial Python generation into the same compiler/runtime; prerequisites and admitted shapes at each destination |
 | Choose a reusable helper | [Library reference](lisp_library_reference.md) | Typed inputs, outputs, composition and examples |
 | Copy a complete example | [Workflow catalog](../workflows/README.md#which-example-should-i-copy) | Route readiness and copy safety; a compile check alone is not live-provider qualification |
 | Compile, run, resume or invalidate | [Lifecycle](runtime_execution_lifecycle.md) and [CLI contract](../specs/cli.md) | Evaluated execution is the sole current workflow runtime; old profiles remain read-only |
@@ -116,7 +116,9 @@ document owns the answer.
 
 ### When Authoring Workflows
 
-- Start with [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md).
+- Choose [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md) for
+  direct `.orc` source or [Typed Python Workflows](python_workflow_drafting_guide.md)
+  for typed serial source generation. Both use the same compiler and runtime.
 - Use [Workflow Lisp Library Reference](lisp_library_reference.md) to choose a
   reusable helper or complete candidate generation/evaluation/selection example.
 - Read [Designing `.orc` Workflows That Beat A Single Call](orc_workflow_design_lessons.md)
@@ -155,8 +157,9 @@ reusing instructions. Plans can contain active obligations as well as history.
 | <a id="orchestration-start-here"></a>[Orchestration Start Here](orchestration_start_here.md) | Guide or reference; prerequisites and limits at destination |
 | <a id="runtime-execution-lifecycle"></a>[Runtime Execution Lifecycle](runtime_execution_lifecycle.md) | Guide or reference; prerequisites and limits at destination |
 | <a id="workflow-monitoring"></a>[Workflow Monitoring](workflow_monitoring.md) | Guide or reference; prerequisites and limits at destination |
-| <a id="workflow-drafting-guide"></a>[Workflow Drafting Guide](workflow_drafting_guide.md) | Historical YAML interpretation; current authoring uses the Lisp guide |
+| <a id="workflow-drafting-guide"></a>[Workflow Drafting Guide](workflow_drafting_guide.md) | Historical YAML interpretation; current authoring uses the Lisp or Python guide |
 | <a id="workflow-lisp-drafting-guide"></a>[Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md) | Guide or reference; prerequisites and limits at destination |
+| [Typed Python Workflows](python_workflow_drafting_guide.md) | Current guide; provider-free build/check/run recipe and serial frontend limits |
 | <a id="workflow-lisp-library-reference"></a>[Workflow Lisp Library Reference](lisp_library_reference.md) | Guide or reference; prerequisites and limits at destination |
 | <a id="work-definition-model"></a>[Work Definition Model](work_definition_model.md) | Guide or reference; prerequisites and limits at destination |
 | <a id="procedure-first-roadmap-execution-sequence"></a>[Procedure-First Roadmap Execution Sequence](plans/2026-07-09-procedure-first-roadmap-execution-sequence.md) | Plan or decision record; check current selection |
@@ -321,7 +324,7 @@ reusing instructions. Plans can contain active obligations as well as history.
 | <a id="master-spec"></a>[Master Spec](../specs/index.md) | Normative contract within its stated profile/version scope |
 | <a id="orchestration-start-here-1"></a>[Orchestration Start Here](orchestration_start_here.md) | Guide or reference; prerequisites and limits at destination |
 | <a id="runtime-execution-lifecycle-1"></a>[Runtime Execution Lifecycle](runtime_execution_lifecycle.md) | Guide or reference; prerequisites and limits at destination |
-| <a id="workflow-drafting-guide-1"></a>[Workflow Drafting Guide](workflow_drafting_guide.md) | Historical YAML interpretation; current authoring uses the Lisp guide |
+| <a id="workflow-drafting-guide-1"></a>[Workflow Drafting Guide](workflow_drafting_guide.md) | Historical YAML interpretation; current authoring uses the Lisp or Python guide |
 | <a id="local-workflow-steering-1"></a>[Local Workflow Steering](steering.md) | Optional local input; empty content selects no work |
 | <a id="master-spec-index"></a>[Master Spec Index](../specs/index.md) | Normative contract within its stated profile/version scope |
 | <a id="workflow-dsl-and-control-flow"></a>[Workflow DSL and Control Flow](../specs/dsl.md) | Normative contract within its stated profile/version scope |
