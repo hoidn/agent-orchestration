@@ -12,6 +12,8 @@ from orchestrator.host_input import answer, cancel, pending
 from orchestrator.workflow.human_input import get_human_input
 from orchestrator.workflow.evaluated.views import has_evaluated_authority
 from orchestrator.workflow.evaluated.host_input import HostInputError
+from orchestrator.workflow.evaluated.effect_inputs import _PreflightRefusal
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
 
 
 def _run_root(run_id: str, state_dir: str | None) -> Path:
@@ -71,6 +73,13 @@ def human_input_command(args: Any) -> int:
                 )
         else:
             raise ValueError("human input command is invalid")
+    except LispFrontendCompileError as exc:
+        for diagnostic in exc.diagnostics:
+            print(render_diagnostic(diagnostic), file=sys.stderr)
+        return 2
+    except _PreflightRefusal as exc:
+        print(f"input: [{exc.code}] {exc}", file=sys.stderr)
+        return 2
     except (
         FileNotFoundError,
         OSError,

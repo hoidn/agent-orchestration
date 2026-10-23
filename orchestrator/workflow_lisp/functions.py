@@ -67,6 +67,7 @@ from .spans import SourceSpan
 from .syntax import ExpansionStack, HelperExpansionFrame, ProcedureExpansionFrame, SyntaxList, SyntaxNode, WorkflowLispSyntaxModule, syntax_head, syntax_identifier, syntax_node_datum, syntax_resolved_name, target_dsl_supports_effect_ceilings
 from .type_env import (
     FrontendTypeEnvironment,
+    PrimitiveTypeRef,
     ProcRefTypeRef,
     TypeRef,
     WorkflowRefTypeRef,
@@ -1021,7 +1022,6 @@ def normalize_resolved_inline_procedure_calls(
 
         if isinstance(expr, IfExpr):
             from .conditionals import LiteralBoolCondition, classify_condition_expr
-            from .type_env import PrimitiveTypeRef
             condition = rewrite(expr.condition_expr, proc_ref_bindings=proc_ref_bindings,
                 workflow_ref_bindings=workflow_ref_bindings)
             literal = (classify_condition_expr(condition, type_ref=PrimitiveTypeRef("Bool"))
@@ -1115,6 +1115,11 @@ def normalize_resolved_inline_procedure_calls(
                     and isinstance(
                         rewritten_binding,
                         WorkflowRefLiteralExpr | NameExpr | EnumMemberExpr,
+                    )
+                    and not (
+                        isinstance(rewritten_binding, EnumMemberExpr)
+                        and isinstance(rewritten_binding.resolved_type, PrimitiveTypeRef)
+                        and rewritten_binding.resolved_type.allowed_values
                     )
                 ):
                     resolved_workflow_ref = (

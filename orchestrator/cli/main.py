@@ -103,20 +103,8 @@ def _add_frontend_flags(
         )
 
 
-def create_parser() -> argparse.ArgumentParser:
-    """Create the argument parser for the orchestrator CLI."""
-    parser = argparse.ArgumentParser(
-        prog='orchestrate',
-        description='Multi-Agent Orchestration System'
-    )
-
-    subparsers = parser.add_subparsers(dest='command', help='Commands')
-
-    # Run command
-    run_parser = subparsers.add_parser(
-        'run',
-        help='Run a workflow',
-    )
+def _add_run_flags(run_parser: argparse.ArgumentParser) -> None:
+    """One runtime flag surface for ordinary and Python-authored runs."""
     run_parser.add_argument(
         'workflow',
         type=str,
@@ -281,6 +269,33 @@ def create_parser() -> argparse.ArgumentParser:
         help='Maximum provider transport tail chars passed to live note provider'
     )
     _add_frontend_flags(run_parser)
+
+
+def create_parser() -> argparse.ArgumentParser:
+    """Create the argument parser for the orchestrator CLI."""
+    parser = argparse.ArgumentParser(
+        prog='orchestrate',
+        description='Multi-Agent Orchestration System'
+    )
+
+    subparsers = parser.add_subparsers(dest='command', help='Commands')
+
+    # Run command
+    run_parser = subparsers.add_parser(
+        'run',
+        help='Run a workflow',
+    )
+    _add_run_flags(run_parser)
+
+    py_parser = subparsers.add_parser("py", help="Author evaluated workflows in Python")
+    py_commands = py_parser.add_subparsers(dest="py_command", required=True)
+    for operation in ("check", "build", "run"):
+        command = py_commands.add_parser(operation)
+        if operation == "run":
+            _add_run_flags(command)
+        else:
+            command.add_argument("workflow", help="Path to trusted Python workflow source")
+            _add_frontend_flags(command)
     prompt_parser = subparsers.add_parser(
         'prompt',
         help='Deterministic OMP prompt scaffolds and ordinary runs',
@@ -741,7 +756,10 @@ def main(args: Optional[list] = None) -> int:
         parser.print_help()
         return 1
 
-    if parsed_args.command == 'run':
+    if parsed_args.command == 'py':
+        from .commands.python import python_workflow
+        return python_workflow(parsed_args)
+    elif parsed_args.command == 'run':
         from .commands import run_workflow
         return run_workflow(parsed_args).exit_code
     elif parsed_args.command == 'repl':

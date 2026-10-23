@@ -2799,3 +2799,15 @@ def test_old_typed_producer_import_never_emits_flat_workflows(
     ))
     assert closed.typed_program.imported_programs["dep"].producer_lowering_schema == 2
     assert ClosedProgram.from_artifact(closed.program.artifact()).digest == closed.program.digest
+
+
+def test_typed_enum_let_binding_is_not_a_workflow_reference(tmp_path):
+    from orchestrator.workflow_lisp.build import FrontendBuildRequest
+    from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
+    source = tmp_path / 'entry.orc'
+    source.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+      (defmodule entry) (export run)
+      (defenum Choice yes no)
+      (defworkflow run () -> Choice (let* ((value Choice.yes)) value)))''')
+    result = build_closed_program_bundle(FrontendBuildRequest(source_path=source, workspace_root=tmp_path))
+    assert result.program.tree['result']['allowed'] == ['yes', 'no']
