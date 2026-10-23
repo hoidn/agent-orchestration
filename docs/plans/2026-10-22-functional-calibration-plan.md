@@ -51,8 +51,11 @@ LS3 is stopped after four starts (36 overall); neither Sol PRR nor either judge
 started. No new quality score exists. Task 6 records the independently reviewed LS4 recovery packet. The owner
 approved six new sessions and total cap 42. Both Luna PRR captures are complete
 and admitted. One Sol PRR provider terminated with `server_overloaded`; the other
-is still running. Both judgments are held pending incident closure; the failed
-attempt is preserved and is not evidence of task difficulty.
+completed and passed independent integrity review. LS4 is closed as scientifically
+inconclusive after four starts (40 overall), without either judgment. Task 7
+selects LS5: seven carried observations, one fresh Sol PRR generation and two
+blind judges, with coordinator-declared total cap 43 under the updated owner
+spending policy. No new quality score exists.
 
 Task 5 below records the approved LS3 recovery. The owner replied "yes" to the
 eight-session/cap-40 proposal and reaffirmed Sol 6.1 for the stronger arm. That
@@ -594,7 +597,7 @@ files and 4,560 surviving historical hashes. It records the nine missing `/tmp`
 files and limits the interrupted PRR access audit to 284 surviving actions.
 No complete interrupted-session receipt or quality score is inferred.
 
-### LS4 concrete recovery packet (authorized; running)
+### LS4 concrete recovery packet (closed; external provider interruption)
 
 Freeze: `/home/ollie/sc-evidence/freeze-functional-host-recovery-20261023`.
 
@@ -653,7 +656,8 @@ can pass the unchanged canonical intake; that mechanical admissibility does not
 make an externally truncated attempt a clean task-difficulty observation.
 Preserve its original terminal, raw patch, scan, native log and usage. Do not
 assign a low score from the error, silently omit it from LS4, or report LS4 as
-qualified. Let the other already-started Sol attempt settle and audit both.
+qualified. Both Sol attempts have now settled and passed capture-integrity review;
+only the second is free of external interruption.
 
 Hold both LS4 judges while this confound remains. The next comparison, if
 prepared, is prospective and separate from LS4. Retain every valid observation
@@ -664,12 +668,10 @@ workflow envelope as a proxy for functional quality. A native provider abort suc
 as `server_overloaded` must stop scientific qualification even when the raw
 capture is mechanically admissible.
 
-If the second Sol PRR attempt is valid and not externally aborted, the minimal
+The second Sol PRR attempt is valid and not externally aborted. The selected
 continuation is **seven carried observations, one fresh Sol PRR generation and
-two blind judges**. Forty historical starts plus three new starts require a
-**prospective total cap 43**, selected conditionally on that valid capture.
-If the second attempt is also externally interrupted, resolve that evidence and
-budget before freezing; do not assume its outcome. The existing cap 42 and
+two blind judges**. Forty historical starts plus three new starts have a
+**prospective total cap 43**. The existing cap 42 and
 no-retry LS4 freeze remain unchanged. The owner's later removal of the general
 spend-approval rule delegates prospective spending decisions to the coordinator,
 with exact limits recorded in the ledger. This selects only the minimum recovery
@@ -688,7 +690,7 @@ models, tools, timeouts, functional rubric, eight-observation denominator and
 three primary predicates remain unchanged. No new runtime feature, retry loop,
 judge shortcut or altered historical score is selected.
 
-- [ ] Capture and independently audit both Sol attempts; record the external
+- [x] Capture and independently audit both Sol attempts; record the external
   failure and all four LS4 starts, without spending either judgment.
 - [ ] Freeze the prospective carryover selection and exact remaining generation
   count; prepare and test fresh commands, masks and canonical intake offline.
@@ -696,3 +698,13 @@ judge shortcut or altered historical score is selected.
   budget under the updated owner policy before any new provider start.
 - [ ] Execute the eligible continuation and both blind judges, then close through
   the canonical clone-id joins without attributing external aborts to difficulty.
+
+LS4 closure evidence is `LS4-20261023/incident-accounting.json`, SHA-256
+`6109000ff9f1f223d7dd8f2b58ddf2ca6953819ad92d10a20c639137d46ef976`.
+Sol review `80b9a00d` audited 118 structured actions and all 20 scan hits;
+public adjudication `2accda64` changes only scan verdicts. Both original failed
+and completed captures pass canonical intake, with original outcomes, native
+sessions, positive receipts and raw patches preserved. The failed first Sol
+attempt remains scientifically confounded by `server_overloaded`; the second
+is eligible. No LS4 pool or judge was launched, and no quality-based selection
+was used for the seven carried observations.
