@@ -1258,6 +1258,140 @@ def test_codex_jsonl_nested_agent_item_contributes_text_without_terminal():
     assert "did not expose" in error["message"]
 
 
+def test_codex_tool_activity_uses_item_kind_and_explicit_completion_status_only():
+    activity: list[str] = []
+    accumulator = _new_accumulator(tool_activity_callback=activity.append)
+    events = b"\n".join(
+        (
+            _jsonl_event(type="thread.started", thread_id="tool-thread"),
+            _jsonl_event(type="turn.started"),
+            _jsonl_event(
+                type="item.started",
+                item={"type": "command_execution", "id": "cmd-1", "command": "PRIVATE COMMAND"},
+            ),
+            _jsonl_event(
+                type="item.updated",
+                item={"type": "command_execution", "id": "cmd-1", "aggregated_output": "PRIVATE UPDATE"},
+            ),
+            _jsonl_event(
+                type="item.completed",
+                item={"type": "command_execution", "id": "cmd-1", "exit_code": 9, "aggregated_output": "PRIVATE RESULT"},
+            ),
+            _jsonl_event(
+                type="item.started",
+                item={"type": "mcp_tool_call", "id": "mcp-1", "name": "private_tool", "arguments": {"secret": "PRIVATE ARGUMENT"}},
+            ),
+            _jsonl_event(
+                type="item.completed",
+                item={"type": "mcp_tool_call", "id": "mcp-1"},
+            ),
+            _jsonl_event(type="turn.completed"),
+        )
+    )
+    accumulator.feed(events[:111])
+    accumulator.feed(events[111:])
+
+    metadata, error = accumulator.finalize(expected_session_id=None, require_terminal=True)
+
+    assert error is None
+    assert activity == [
+        "Tool started: command execution",
+        "Tool failed: command execution",
+        "Tool started: MCP tool",
+        "Tool finished: MCP tool",
+    ]
+    assert metadata["normalized_stdout"] == ""
+    assert "PRIVATE" not in " ".join(activity)
+
+
+def test_codex_activity_ignores_unknown_or_malformed_items_and_callback_errors():
+    def broken_callback(_notice):
+        raise RuntimeError("display failed")
+
+    accumulator = _new_accumulator(tool_activity_callback=broken_callback)
+    accumulator.feed(
+        b"\n".join(
+            (
+                _jsonl_event(type="thread.started", thread_id="tool-thread"),
+                _jsonl_event(type="turn.started"),
+                _jsonl_event(type="item.started", item={"type": "unknown_tool", "id": "u-1"}),
+                _jsonl_event(type="item.started", item={"type": "command_execution"}),
+                _jsonl_event(type="item.completed", item={"type": "command_execution", "id": "missing-start"}),
+                _jsonl_event(type="item.started", item={"type": "command_execution", "id": "malformed-status"}),
+                _jsonl_event(type="item.completed", item={"type": "command_execution", "id": "malformed-status", "status": []}),
+                _jsonl_event(type=[], item={"type": "command_execution", "id": "bad-event-type"}),
+                _jsonl_event(type="turn.completed"),
+            )
+        )
+    )
+
+    metadata, error = accumulator.finalize(expected_session_id=None, require_terminal=True)
+
+    assert error is None
+    assert metadata["normalized_stdout"] == ""
+    assert accumulator.snapshot().status == "unique"
+
+
+def test_codex_callbacks_keep_transport_order_within_one_chunk():
+    emissions: list[tuple[str, str]] = []
+    accumulator = _new_accumulator(
+        assistant_text_callback=lambda text: emissions.append(("text", text)),
+        tool_activity_callback=lambda text: emissions.append(("activity", text)),
+    )
+    accumulator.feed(
+        b"\n".join(
+            (
+                _jsonl_event(type="thread.started", thread_id="ordered-thread"),
+                _jsonl_event(type="turn.started"),
+                _jsonl_event(type="item.completed", item={"type": "agent_message", "text": "before"}),
+                _jsonl_event(type="item.started", item={"type": "command_execution", "id": "cmd-1"}),
+                _jsonl_event(type="item.completed", item={"type": "agent_message", "text": "after"}),
+                _jsonl_event(type="turn.completed"),
+            )
+        )
+    )
+
+    assert emissions == [
+        ("text", "before"),
+        ("activity", "Tool started: command execution"),
+        ("text", "after"),
+    ]
+
+
+def test_codex_explicit_failure_status_and_malformed_completion_correlation():
+    activity: list[str] = []
+    accumulator = _new_accumulator(tool_activity_callback=activity.append)
+    accumulator.feed(
+        b"\n".join(
+            (
+                _jsonl_event(type="thread.started", thread_id="tool-thread"),
+                _jsonl_event(type="turn.started"),
+                _jsonl_event(type="item.started", item={"type": "command_execution", "id": "cmd-1"}),
+                _jsonl_event(type="item.completed", item={"type": "mcp_tool_call", "id": "cmd-1"}),
+                _jsonl_event(type="item.completed", item={"type": "command_execution", "id": "cmd-1", "exit_code": 0}),
+                _jsonl_event(type="item.started", item={"type": "web_search", "id": "search-1"}),
+                _jsonl_event(type="item.completed", item={"type": "web_search", "id": "search-1", "status": "failed"}),
+                _jsonl_event(type="item.started", item={"type": "collab_tool_call", "id": "collab-1"}),
+                _jsonl_event(type="item.completed", item={"type": "collab_tool_call", "id": "collab-1", "status": "failed"}),
+                _jsonl_event(type="turn.completed"),
+            )
+        )
+    )
+
+    metadata, error = accumulator.finalize(expected_session_id=None, require_terminal=True)
+
+    assert error is None
+    assert metadata["normalized_stdout"] == ""
+    assert activity == [
+        "Tool started: command execution",
+        "Tool completed: command execution",
+        "Tool started: web search",
+        "Tool failed: web search",
+        "Tool started: collaboration tool",
+        "Tool failed: collaboration tool",
+    ]
+
+
 def test_codex_jsonl_rejects_lone_surrogate_assistant_text():
     accumulator = _new_accumulator()
     accumulator.feed(

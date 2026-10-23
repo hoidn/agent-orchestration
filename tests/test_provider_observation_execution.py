@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import threading
 from pathlib import Path
@@ -157,6 +158,37 @@ def _session_invocation() -> tuple[ProviderInvocation, bytes]:
     return invocation, raw
 
 
+def _tool_invocation(
+    raw: bytes,
+    *,
+    session_request=None,
+    metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
+) -> ProviderInvocation:
+    return ProviderInvocation(
+        command=[
+            sys.executable,
+            "-c",
+            f"import sys; sys.stdout.buffer.write({raw!r}); sys.stdout.flush()",
+        ],
+        input_mode=InputMode.STDIN,
+        command_variant="fresh_command",
+        metadata_mode=metadata_mode,
+        session_request=session_request
+        or ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+    )
+
+
+def _codex_tool_events(*, thread_id="tool-thread", command="PRIVATE COMMAND") -> bytes:
+    rows = (
+        {"type": "thread.started", "thread_id": thread_id},
+        {"type": "turn.started"},
+        {"type": "item.started", "item": {"type": "command_execution", "id": "tool-1", "command": command}},
+        {"type": "item.completed", "item": {"type": "command_execution", "id": "tool-1", "exit_code": 0, "aggregated_output": "PRIVATE RESULT"}},
+        {"type": "turn.completed"},
+    )
+    return b"".join(json.dumps(row).encode() + b"\n" for row in rows)
+
+
 def test_provider_executor_enables_ordinary_observation_by_default(
     tmp_path: Path,
 ) -> None:
@@ -272,6 +304,155 @@ def test_observation_preserves_controlled_session_transport_and_normalization(
     assert result.classification == "normal"
     assert manager.handle.display_chunks == ([b"hello"] if enabled else [])
     assert raw not in manager.handle.display_chunks
+
+
+def test_tool_activity_reaches_observation_before_the_child_exits(
+    tmp_path: Path,
+) -> None:
+    marker = tmp_path / "activity-seen"
+    exited = tmp_path / "child-exited"
+    prefix = b"\n".join(
+        (
+            json.dumps({"type": "thread.started", "thread_id": "tool-thread"}).encode(),
+            json.dumps({"type": "turn.started"}).encode(),
+            json.dumps({"type": "item.started", "item": {"type": "command_execution", "id": "tool-1", "command": "PRIVATE COMMAND"}}).encode(),
+            b"",
+        )
+    )
+    suffix = b"\n".join(
+        (
+            json.dumps({"type": "item.completed", "item": {"type": "command_execution", "id": "tool-1", "exit_code": 0, "aggregated_output": "PRIVATE RESULT"}}).encode(),
+            json.dumps({"type": "turn.completed"}).encode(),
+            b"",
+        )
+    )
+
+    class _SignalHandle(_RecordingHandle):
+        def append_display(self, data: bytes) -> None:
+            super().append_display(data)
+            if data.startswith(b"Tool started:"):
+                marker.write_text("seen", encoding="utf-8")
+
+    script = (
+        "from pathlib import Path\nimport sys, time\n"
+        f"marker = Path({str(marker)!r})\n"
+        f"sys.stdout.buffer.write({prefix!r}); sys.stdout.buffer.flush()\n"
+        "deadline = time.monotonic() + 2\n"
+        "while time.monotonic() < deadline and not marker.exists(): time.sleep(0.01)\n"
+        f"Path({str(exited)!r}).write_text('before-exit' if marker.exists() else 'missing', encoding='utf-8')\n"
+        "if not marker.exists(): sys.exit(23)\n"
+        f"sys.stdout.buffer.write({suffix!r}); sys.stdout.buffer.flush()\n"
+    )
+    manager = _RecordingManager(handle=_SignalHandle())
+    stdout = _BinaryRecorder()
+    invocation = ProviderInvocation(
+        command=[sys.executable, "-c", script],
+        input_mode=InputMode.STDIN,
+        command_variant="fresh_command",
+        metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
+        session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+    )
+
+    with patch("sys.stdout", stdout):
+        result = _executor(tmp_path, enabled=True, manager=manager).execute(
+            invocation, stream_output=True
+        )
+
+    assert result.exit_code == 0
+    assert exited.read_text(encoding="utf-8") == "before-exit"
+    assert b"Tool started: command execution\n" in manager.handle.display_chunks[0]
+    assert b"Tool completed: command execution\n" in manager.handle.display_chunks[-1]
+    assert b"PRIVATE" not in b"".join(manager.handle.display_chunks)
+    assert b"Tool started: command execution\n" in stdout.getvalue()
+    assert result.normalized_stdout == b""
+
+
+@pytest.mark.parametrize("failed_sink", ["console", "observation"])
+def test_tool_activity_sinks_fail_independently(
+    tmp_path: Path, failed_sink: str
+) -> None:
+    manager = _RecordingManager(
+        handle=_RecordingHandle(
+            append_failure=RuntimeError("observation failed")
+            if failed_sink == "observation"
+            else None
+        )
+    )
+
+    class _FailingConsole:
+        buffer = None
+
+        def __init__(self) -> None:
+            self.buffer = self
+
+        def write(self, _data):
+            raise RuntimeError("console failed")
+
+        def flush(self):
+            return None
+
+    stdout = _BinaryRecorder() if failed_sink == "observation" else _FailingConsole()
+    with patch("sys.stdout", stdout):
+        result = _executor(tmp_path, enabled=True, manager=manager).execute(
+            _tool_invocation(_codex_tool_events()), stream_output=True
+        )
+
+    assert result.exit_code == 0
+    if failed_sink == "console":
+        assert b"Tool started: command execution" in b"".join(manager.handle.display_chunks)
+    else:
+        assert b"Tool started: command execution" in stdout.getvalue()
+
+
+def test_identity_mismatch_blocks_tool_activity_from_both_sinks(tmp_path: Path) -> None:
+    manager = _RecordingManager()
+    stdout = _BinaryRecorder()
+    invocation = _tool_invocation(
+        _codex_tool_events(thread_id="actual-thread"),
+        session_request=ProviderSessionRequest(
+            mode=ProviderSessionMode.RESUME, session_id="expected-thread"
+        ),
+    )
+
+    with patch("sys.stdout", stdout):
+        _executor(tmp_path, enabled=True, manager=manager).execute(
+            invocation, stream_output=True
+        )
+
+    assert manager.handle.display_chunks == []
+    assert stdout.getvalue() == b""
+
+
+def test_claude_activity_is_single_line_bounded_and_terminal_safe(tmp_path: Path) -> None:
+    manager = _RecordingManager()
+    stdout = _BinaryRecorder()
+    sid = "1930ae6b-5267-4eec-b1e1-b430dad86844"
+    name = "\x1b[31mBash\nINJECTED" + "\ud800" + "x" * 300
+    raw = b"".join(
+        json.dumps(row, ensure_ascii=True).encode() + b"\n"
+        for row in (
+            {"type": "system", "subtype": "init", "session_id": sid},
+            {"type": "assistant", "session_id": sid, "message": {"content": [{"type": "tool_use", "id": "t1", "name": name, "input": {"command": "PRIVATE ARGUMENT"}}]}},
+            {"type": "user", "session_id": sid, "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": "PRIVATE RESULT"}]}},
+            {"type": "result", "session_id": sid, "subtype": "success", "is_error": False},
+        )
+    )
+
+    with patch("sys.stdout", stdout):
+        result = _executor(tmp_path, enabled=True, manager=manager).execute(
+            _tool_invocation(
+                raw,
+                metadata_mode=ProviderSessionMetadataMode.CLAUDE_STREAM_JSON_STDOUT.value,
+            ),
+            stream_output=True,
+        )
+
+    display = b"".join(manager.handle.display_chunks)
+    assert result.exit_code == 0 and result.normalized_stdout == b""
+    assert b"\x1b" not in display and display.count(b"\n") == 2
+    assert b"\\nINJECTED" in display and b"\\ud800" in display
+    assert len(max(display.splitlines(), key=len)) < 200
+    assert b"PRIVATE" not in display and display == stdout.getvalue()
 
 
 @pytest.mark.parametrize("enabled", [False, True])

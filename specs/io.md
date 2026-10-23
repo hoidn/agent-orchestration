@@ -801,7 +801,7 @@ run-reference IO above is unchanged. Authority:
 - `lines`: up to 10,000 lines retained in state; full stdout goes to `logs/<StepName>.stdout` when truncated.
 - `json`: buffer up to 1 MiB for parsing; on overflow or invalid JSON, exit 2 unless `allow_parse_error: true`. The `output_file` always receives the full stream.
 - Stderr is captured separately and written to `logs/<StepName>.stderr` when non-empty.
-- For v2.10 session-enabled provider steps, `--stream-output` and `--debug` stream only normalized assistant text to console stdout; raw session metadata transport never goes directly to the parent console.
+- For session-enabled provider steps, console streaming displays normalized assistant text and, for Claude and Codex sessions, bounded tool-activity notices described in [Observability](observability.md). Raw session metadata transport never goes directly to the parent console. Tool notices are display-only; step-visible stdout used by `output_capture` and `output_file` remains normalized assistant text.
 
 ## Line splitting and normalization
 

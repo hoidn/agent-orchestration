@@ -117,6 +117,27 @@ def test_each_agent_has_one_view_across_its_turns_and_ordinary_calls_keep_one_pa
     assert "orc-observe-" in run.stderr                     # transient attach coordinates logged, never persisted
 
 
+def test_evaluated_agent_views_show_safe_tool_activity_without_payloads(tmp_path, monkeypatch) -> None:
+    plan = {name: [dict(step) for step in steps] for name, steps in PLAN.items()}
+    plan["claude"][0]["tool_activity"] = True
+    plan["codex"][0]["tool_activity"] = True
+    _install(tmp_path, monkeypatch, plan)
+
+    run = _observed(tmp_path, "fake", "run", *fixture(tmp_path))
+
+    assert run.returncode == 0, run.stderr
+    run_root, _authority, classes, memo = memo_of(tmp_path)
+    display = b"".join(_views(run_root).values())
+    assert b"Tool started: Bash" in display
+    assert b"Tool completed: Bash" in display
+    assert b"Tool started: command execution" in display
+    assert b"Tool completed: command execution" in display
+    assert b"PRIVATE SHIM" not in display
+    assert [row["value"] for row in turns(memo, classes).values()] == [
+        {"text": "d1"}, {"notes": ["n"]}, {"text": "d2"}, {"notes": ["done"]}
+    ]
+
+
 def test_agent_free_evaluated_run_keeps_observation_disabled(tmp_path, monkeypatch) -> None:
     """R2: a program without agents constructs no manager (2.35-2.37 behaviour unchanged)."""
     from tests.test_workflow_evaluated_providers import SOURCE as PLAIN_SOURCE, _fixture

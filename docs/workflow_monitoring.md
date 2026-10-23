@@ -35,6 +35,15 @@ output bundles, and live tmux targets do not enter persisted workflow state.
 Use `orchestrator report` and the run's derived `state.json` view for workflow
 state. Do not use raw tmux `send-keys` to steer provider panes.
 
+Claude and Codex session panes show assistant text plus short tool-activity
+notices when tools start and finish or report an error. With `--stream-output`,
+the same notices reach the workflow console. They identify the tool and status;
+arguments, command bodies, full results and thinking/reasoning content are not
+displayed. Tool-only work can therefore be visible without an assistant
+narration. Other event types can still be silent, so a quiet pane alone does not
+establish a stalled run. These notices do not change the provider's returned
+text or typed output. See the [display contract](../specs/observability.md).
+
 ## Configuration
 
 Create a monitor config outside the repository, for example:

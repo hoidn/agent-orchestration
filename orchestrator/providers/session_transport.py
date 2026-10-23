@@ -17,6 +17,12 @@ _IDENTITY_KEYS = ("thread_id", "session_id")
 _TERMINAL_EVENT_TYPES = frozenset({"turn.completed", "response.completed"})
 _RESUME_BOUNDARY_EVENT_TYPE = "turn.started"
 _FAILED_TERMINAL_EVENT_TYPE = "turn.failed"
+_TOOL_ITEM_LABELS = {
+    "command_execution": "command execution",
+    "mcp_tool_call": "MCP tool",
+    "collab_tool_call": "collaboration tool",
+    "web_search": "web search",
+}
 
 
 def _freeze_snapshot_value(value: Any) -> Any:
@@ -326,8 +332,10 @@ class CodexExecJsonlAccumulator:
         self,
         *,
         assistant_text_callback: Callable[[str], None] | None = None,
+        tool_activity_callback: Callable[[str], None] | None = None,
     ) -> None:
         self._assistant_text_callback = assistant_text_callback
+        self._tool_activity_callback = tool_activity_callback
         self._buffer = bytearray()
         self._session_ids: set[str] = set()
         self._text_parts: list[str] = []
@@ -336,6 +344,7 @@ class CodexExecJsonlAccumulator:
         self._event_count = 0
         self._turns_completed = 0
         self._line_number = 0
+        self._tool_items: dict[str, str] = {}
         self._invalid_error: dict[str, Any] | None = None
         self._finalized = False
         self._lock = threading.RLock()
@@ -347,7 +356,7 @@ class CodexExecJsonlAccumulator:
         if not chunk:
             return
 
-        emitted: list[str] = []
+        emitted: list[tuple[str, str]] = []
         with self._lock:
             if self._finalized:
                 raise RuntimeError("session transport accumulator is finalized")
@@ -361,11 +370,13 @@ class CodexExecJsonlAccumulator:
                 raw_line = bytes(self._buffer[:newline_offset])
                 del self._buffer[: newline_offset + 1]
                 self._line_number += 1
-                assistant_text = self._consume_line(raw_line)
+                assistant_text, tool_activity = self._consume_line(raw_line)
                 if assistant_text is not None:
-                    emitted.append(assistant_text)
+                    emitted.append(("text", assistant_text))
+                if tool_activity is not None:
+                    emitted.append(("activity", tool_activity))
 
-        self._emit_assistant_text(emitted)
+        self._emit_events(emitted)
 
     def snapshot(self) -> SessionIdentitySnapshot:
         """Return the current provisional identity and exact-terminal state."""
@@ -404,7 +415,7 @@ class CodexExecJsonlAccumulator:
         require_terminal: bool,
     ) -> tuple[Mapping[str, Any] | None, Mapping[str, Any] | None]:
         """Parse the one EOF tail and return normalized metadata or an error."""
-        emitted: list[str] = []
+        emitted: list[tuple[str, str]] = []
         with self._lock:
             if not self._finalized:
                 self._finalized = True
@@ -412,11 +423,13 @@ class CodexExecJsonlAccumulator:
                 self._buffer.clear()
                 if self._invalid_error is None and raw_tail.strip():
                     self._line_number += 1
-                    assistant_text = self._consume_line(raw_tail)
+                    assistant_text, tool_activity = self._consume_line(raw_tail)
                     if assistant_text is not None:
-                        emitted.append(assistant_text)
+                        emitted.append(("text", assistant_text))
+                    if tool_activity is not None:
+                        emitted.append(("activity", tool_activity))
 
-        self._emit_assistant_text(emitted)
+        self._emit_events(emitted)
 
         snapshot = self.snapshot()
         if snapshot.status == "invalid":
@@ -470,9 +483,9 @@ class CodexExecJsonlAccumulator:
         with self._lock:
             return "".join(self._text_parts)
 
-    def _consume_line(self, raw_line: bytes) -> str | None:
+    def _consume_line(self, raw_line: bytes) -> tuple[str | None, str | None]:
         if not raw_line.strip():
-            return None
+            return None, None
 
         self._event_count += 1
         try:
@@ -482,7 +495,7 @@ class CodexExecJsonlAccumulator:
                 "Session transport is not valid UTF-8",
                 {"line": self._line_number, "error": str(exc)},
             )
-            return None
+            return None, None
 
         try:
             event = json.loads(decoded_line)
@@ -491,14 +504,14 @@ class CodexExecJsonlAccumulator:
                 "Session transport is not valid JSONL",
                 {"line": self._line_number, "error": str(exc)},
             )
-            return None
+            return None, None
 
         if not isinstance(event, dict):
             self._invalidate(
                 "Session transport event must be a JSON object",
                 {"line": self._line_number},
             )
-            return None
+            return None, None
 
         event_session_ids: list[str] = []
         for key in _IDENTITY_KEYS:
@@ -510,12 +523,12 @@ class CodexExecJsonlAccumulator:
                     "Session transport exposed a malformed session identifier",
                     {"line": self._line_number, "key": key},
                 )
-                return None
+                return None, None
             event_session_ids.append(value)
 
         self._session_ids.update(event_session_ids)
         if len(self._session_ids) > 1:
-            return None
+            return None, None
 
         event_type = event.get("type")
         if event_type == _FAILED_TERMINAL_EVENT_TYPE:
@@ -524,13 +537,15 @@ class CodexExecJsonlAccumulator:
                 "Session transport reported a failed provider turn",
                 {"line": self._line_number},
             )
-            return None
+            self._tool_items.clear()
+            return None, None
         if (
             isinstance(event_type, str)
             and event_type in _TERMINAL_EVENT_TYPES
         ):
             self._terminal_seen = True
             self._turns_completed += event_type == "turn.completed"
+            self._tool_items.clear()
         elif (
             event_type == _RESUME_BOUNDARY_EVENT_TYPE
             and len(self._session_ids) == 1
@@ -547,9 +562,44 @@ class CodexExecJsonlAccumulator:
                     "Session transport assistant text is not valid Unicode",
                     {"line": self._line_number, "error": str(exc)},
                 )
-                return None
+                return None, None
             self._text_parts.append(assistant_text)
-        return assistant_text
+        return assistant_text, self._tool_activity(event)
+
+    def _tool_activity(self, event: Mapping[str, Any]) -> str | None:
+        event_type = event.get("type")
+        item = event.get("item")
+        if not isinstance(event_type, str) or event_type not in {
+            "item.started",
+            "item.completed",
+        } or not isinstance(item, Mapping):
+            return None
+        item_type = item.get("type")
+        item_id = item.get("id")
+        label = _TOOL_ITEM_LABELS.get(item_type) if isinstance(item_type, str) else None
+        if label is None or not isinstance(item_id, str) or not item_id:
+            return None
+        if event_type == "item.started":
+            if item_id in self._tool_items:
+                return None
+            self._tool_items[item_id] = item_type
+            return f"Tool started: {label}"
+        if self._tool_items.get(item_id) != item_type:
+            return None
+        status = item.get("status")
+        exit_code = item.get("exit_code")
+        if (status is not None and not isinstance(status, str)) or (
+            exit_code is not None and type(exit_code) is not int
+        ):
+            return None
+        del self._tool_items[item_id]
+        if (status in {"failed", "error"}) or (
+            type(exit_code) is int and exit_code != 0
+        ):
+            return f"Tool failed: {label}"
+        if status in {"success", "succeeded"} or type(exit_code) is int:
+            return f"Tool completed: {label}"
+        return f"Tool finished: {label}"
 
     def _invalidate(self, message: str, context: Mapping[str, Any]) -> None:
         if self._invalid_error is None:
@@ -561,11 +611,15 @@ class CodexExecJsonlAccumulator:
             {"session_ids": sorted(self._session_ids)},
         )
 
-    def _emit_assistant_text(self, text_parts: list[str]) -> None:
-        callback = self._assistant_text_callback
-        if callback is None:
-            return
-        for text in text_parts:
+    def _emit_events(self, events: list[tuple[str, str]]) -> None:
+        for kind, text in events:
+            callback = (
+                self._assistant_text_callback
+                if kind == "text"
+                else self._tool_activity_callback
+            )
+            if callback is None:
+                continue
             try:
                 callback(text)
             except Exception:
@@ -588,16 +642,21 @@ def create_session_transport_accumulator(
     metadata_mode: str | ProviderSessionMetadataMode | None,
     *,
     assistant_text_callback: Callable[[str], None] | None = None,
+    tool_activity_callback: Callable[[str], None] | None = None,
     expectation: OmpTransportExpectation | None = None,
 ) -> SessionTransportAccumulator | None:
     """Select a session codec structurally from the declared metadata mode."""
     if metadata_mode == ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value:
         return CodexExecJsonlAccumulator(
             assistant_text_callback=assistant_text_callback,
+            tool_activity_callback=tool_activity_callback,
         )
     if metadata_mode == ProviderSessionMetadataMode.CLAUDE_STREAM_JSON_STDOUT.value:
         from .session_transport_claude import ClaudeStreamJsonAccumulator
-        return ClaudeStreamJsonAccumulator(assistant_text_callback=assistant_text_callback)
+        return ClaudeStreamJsonAccumulator(
+            assistant_text_callback=assistant_text_callback,
+            tool_activity_callback=tool_activity_callback,
+        )
     if metadata_mode == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value:
         if expectation is None:
             raise TypeError(
