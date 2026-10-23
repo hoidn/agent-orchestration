@@ -60,7 +60,9 @@ def test_qualified_episode_masks_external_truth_and_scans_read_attempts(sandboxe
     world.criterion = q.criterion
     rule = Path(__file__).resolve().parents[2] / 'experiments/compare/criteria/calibration.json'
     score = rule.parent.parent / 'score.orc'
-    env = fake_claude(world, f'#!/bin/sh\ncat {q.receipt} {q.calibration} {rule} {score} 2>/dev/null\n'
+    env = fake_claude(world, f'#!/bin/sh\nfor denied in {q.receipt} {q.calibration} {rule} {score}; do\n'
+                             '  if test -r "$denied"; then exit 91; fi\ndone\n'
+                             'cat direct.orc ../py/orchestrator/__init__.py\n'
                              f'echo "cat {q.receipt}"\nexit 0\n')
     check_brief = f'assert {str(q.receipt)!r} not in Path("EPISODE.md").read_text()\n'
     mutator = MUTATOR_ONE_CALL.replace('subprocess.run(', check_brief + 'subprocess.run(', 1)
@@ -70,7 +72,8 @@ def test_qualified_episode_masks_external_truth_and_scans_read_attempts(sandboxe
     assert row['outcome'] == 'accepted' and row['scan_hits'] > 0
     assert str(q.receipt.parent) in row['hidden_roots']
     assert 'orc-structural-qualification-v1' not in output and 'calibration_kind' not in output
-    assert 'owner_rule' in output and 'workflow-lisp' in output
+    assert (world.candidate / 'direct.orc').read_text() in output and '__version__' in output
+    assert row['agent_exit'] == 0
     import json
     scan = json.loads((records / 'record.json').read_text())['scan']
     assert any(hit['pattern'] == 'qualification' for hit in scan['hits'])
@@ -91,7 +94,8 @@ def test_qualified_evaluation_and_resume_keep_truth_masked_and_rescan_history(sa
     script(world, [HANG])
     first, env = run(world, timeout_sec=KILL_AFTER_SEC)
     metadata = json.loads((first.records_dir / 'record.json').read_text())
-    assert first.outcome == 'incident' and metadata['qualification_scan']['hits']
+    assert first.outcome == 'incident' and metadata['qualification_scan']['error']
+    assert metadata['qualification_scan']['hits'] == 'unavailable'
     assert str(q.receipt.parent) in metadata['qualification_private_roots']
     inputs = (first.records_dir / 'inputs.json').read_text()
     assert str(q.receipt) not in inputs and 'orc-structural-qualification-v1' not in inputs
@@ -100,9 +104,14 @@ def test_qualified_evaluation_and_resume_keep_truth_masked_and_rescan_history(sa
     script(world, [CHANGE])
     final = resume(first, env=env, timeout_sec=600, criterion=q.criterion)
     metadata = json.loads((final.records_dir / 'record.json').read_text())
-    assert final.outcome == 'completed' and final.resume_count == 1
+    from experiments.orc_structural_search.evaluation import _classify
+    assert _classify(final.state_dir, generic=False)[1] == 'completed'
+    assert final.outcome == 'incident' and final.resume_count == 1
     assert final.qualification['qualification_sha256'] == first.qualification['qualification_sha256']
-    assert metadata['qualification_scan']['calls'] == 2 and metadata['qualification_scan']['hits']
+    assert metadata['qualification_scan']['calls'] == 2 and metadata['qualification_scan']['error']
+    from experiments.compare import prepare
+    with pytest.raises(SystemExit, match='publication'):
+        prepare.collect(final.records_dir)
     assert 'scan' not in metadata
     outputs = ''.join(path.read_text() for path in (final.records_dir / 'calls').glob('*/stdout.txt'))
     assert 'orc-structural-qualification-v1' not in outputs

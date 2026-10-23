@@ -9,7 +9,9 @@ from pathlib import Path
 import pytest
 
 from experiments.compare import scan
-from tests.experiments.compare_harness_support import REPO, call, skip_without_sandbox, start, world  # noqa: F401
+from tests.experiments.compare_harness_support import (
+    REPO, call, configure_test_sandbox, skip_without_sandbox, start, world,
+)  # noqa: F401
 
 SONNET = "claude-sonnet-5-5"
 TERRA = "gpt-5.6-terra"
@@ -179,18 +181,22 @@ def test_scan_ignores_printed_high_model_names_and_unrelated_codex_sessions(tmp_
 
 @pytest.mark.parametrize("model,succeeds", [(TERRA, True), ("gpt-6.1-sol", False)])
 @pytest.mark.parametrize("no_claude", [False, True])
-def test_public_orchestrator_cli_runs_scripted_provider_through_cap(world, model, succeeds, no_claude):
+def test_public_orchestrator_cli_runs_scripted_provider_through_cap(world, monkeypatch, model, succeeds, no_claude):
     skip_without_sandbox()
     import sys
     from tests.experiments.compare_harness_support import SHIM
     from tests.experiments.orc_structural_search_support import SCRIPTED
 
-    records, record = start(world, "direct_task")
-    (world.fakebin / "codex").write_text(SCRIPTED)
     results = world.outside / "results.json"
     results.write_text(json.dumps([{"match": "", "result": True}]))
     inputs = world.outside / "inputs.json"
     inputs.write_text(json.dumps({"task": "Return true.", "model": model, "effort": "high"}))
+    (world.fakebin / "codex").write_text(SCRIPTED)
+    configure_test_sandbox(world, monkeypatch, readonly_files=(results,),
+                           environment_names=("SCRIPTED_RESULTS_FILE",))
+    if no_claude:
+        monkeypatch.setenv("COMPARE_CLAUDE_MODELS", "")
+    records, record = start(world, "direct_task")
     h = REPO / "experiments/compare"
     done = subprocess.run([
         sys.executable, "-P", "-m", "orchestrator", "run", str(h / "control/direct_task.orc"),
@@ -200,7 +206,8 @@ def test_public_orchestrator_cli_runs_scripted_provider_through_cap(world, model
         env={**os.environ, "PYTHONPATH": str(REPO), "PATH": f"{SHIM}:{world.fakebin}:{os.environ['PATH']}",
              **({"COMPARE_CLAUDE_MODELS": ""} if no_claude else {}),
              "SCRIPTED_RESULTS_FILE": str(results), "COMPARE_ROOT": str(records),
-             "COMPARE_TREE": record["tree"], "COMPARE_BASE": record["compare_base"]})
+             "COMPARE_TREE": record["tree"], "COMPARE_BASE": record["compare_base"],
+             "COMPARE_SANDBOX": record["sandbox"]["declaration"]})
     assert (done.returncode == 0) is succeeds, done.stdout + done.stderr
     captured = records / "calls/1"
     assert (captured / "prompt.txt").is_file()

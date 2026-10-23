@@ -43,12 +43,13 @@ def test_historical_description_pools_and_summarizes_with_historical_criteria(wo
         repos.dump(out / "records/mapping.json", mapping)
         for judge, info in mapping["judges"].items():
             (out / "judges" / info["dir"] / "tmp").rmdir()
+            (out / "records/judges" / judge / "sandbox.json").unlink()
             (out / "records/judges" / judge).rmdir()
         pooling.write_score_inputs(out, mapping, "add returns the sum", world.runtime)
     for judge in mapping["judges"]:
         inputs = repos.load(out / "records" / f"score-inputs-{judge}.json")
         assert all("reference" not in batch for batch in inputs["batches"])
-        score(out, judge, mapping, world.tmp / "home")
+        score(out, judge, mapping)
     results = summarize.summarize(out, world.criterion)
     assert set(results["agreement"]) == set(pooling.DEFAULT_RUBRIC["criteria"])
     assert results["runs"][0]["value"] == 4.5

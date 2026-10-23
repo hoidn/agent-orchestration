@@ -17,7 +17,7 @@ criteria and captured recipes confer no fresh permission.
 | --- | --- |
 | `prepare.py` | command line: `run`, `collect`, `scan` (hits, then a verdict), `pool`, `calibrate`, `verify-pool` |
 | `repos.py`, `scan.py`, `pool.py` | candidate builds and patches; the contamination scan; the blind pool and its check |
-| `shim/claude`, `shim/codex` | first on `PATH` during a run and a judge's scoring; run the real CLI under bubblewrap (private `/tmp`, `/dev/shm` and process list; empty `/var/tmp`) with the bookkeeping variables stripped; record `calls/<n>/` |
+| `sandbox.py`; `shim/claude`, `shim/codex` | prepare a persistent private native home and concrete tool declaration; run guarded CLIs under an empty-root Bubblewrap boundary and record `calls/<n>/` |
 | `control/direct_task.orc` | the control: the library `direct_task` plus `:timeout-sec 14400`; module `control/direct_task` |
 | `control/review_once.orc` | one review of a given patch (historical blocker-based difficulty recipe): `reviewed_change`'s `review-prompt`, `Review` and `ReviewReport`, copied, and its reviewer's binding; module `control/review_once` |
 | `control/direct_task.providers.json`, `control/review_once.providers.json`, `providers/design_review_execute.json` | bindings for the control, the review-only arm and the E-B treatment |
@@ -48,18 +48,45 @@ changes to tracked files, and record its `HEAD` as `runtime_commit` in `record.j
 [recorded runtime/work roots](../../docs/reports/documentation-history/experiments-compare-README-history.md#recorded-runtime-and-work-roots) are evidence.
 `run` refuses a task base whose candidates do not ignore `.orchestrate/`, where run state lives.
 
-What the sandbox isolates:
-- each agent and judge CLI runs under `bwrap --dev-bind / / --bind <tree>/tmp /tmp --tmpfs /dev/shm --tmpfs /var/tmp
-  --unshare-pid --proc /proc --die-with-parent`;
+The native CLI starts from an empty Bubblewrap root. Its mounts are:
+
+- declared read-only operating-system files and tool installations, resolved by
+  named tool roles and installation metadata; searching `PATH` never grants its directories;
+- the current unit's writable tree and persistent private home, mounted as
+  `/home/compare`, with `/tmp` backed by that unit's `tmp/`;
+- private minimal `/dev`, `/proc`, IPC and PID namespaces, and empty `/var/tmp`;
+- for a judge, only the exact read-only clone paths in its finalized score-input
+  batches and explicit rubric references. Synthetic ancestors expose no pool
+  mapping, controller records, other clone contents or other units' homes.
+
+`COMPARE_SANDBOX` names the controller-owned concrete declaration. Preparation
+records `sandbox: {home, home_path, declaration}`: `home` is the durable backing
+outside candidate/public records trees, and `home_path` is `/home/compare` inside
+the native process. Commands and resumes bind the same declaration. Missing or
+inconsistent new lineage refuses; records without this metadata retain their
+historical home interpretation. Scans and native receipt joins read the recorded
+backing, without searching other homes.
+
+Preparation copies only the required credential file into mode-0600 writable
+private storage, once. Resume preserves native atomic credential refreshes.
+Configuration uses the public native catalog, file credential storage and the
+declared public tmux skill plus native system skills; host plugins, hooks,
+memories, startup files and identity-bearing model caches are not copied.
+No-Claude preparation excludes Claude credentials and executables; tightening a
+generic unit later also hides its private Claude projection. Tightening is allowed
+only while the unit is idle, with no active or concurrent launches; the caller
+owns that precondition. A controller-only `claude-denied` marker makes the
+restriction permanent for subsequent launches/resumes. It does not revoke an
+already running call; enabling Claude again requires a fresh unit. Authentication
+failure stops with original evidence; live refresh and concurrent copied-token
+behavior need their own qualification.
+
+Temporary files and call limits retain these rules:
+
 - hard-coded `/tmp` paths land in the tree's `tmp/` (a judge's own `tmp/` for judges), so they are
   private, and so are `/tmp` tmux sockets;
 - `/dev/shm` is private, and the process list shows only the agent's own processes;
 - `/var/tmp` is empty, because other sessions keep repository worktrees there.
-- with `COMPARE_HIDE` set (colon-separated absolute directories; the structural search driver sets it for its
-  mutator), each of them that exists is masked by an empty tmpfs after `--dev-bind / /`, and then
-  `--bind <tree> <tree>` binds the tree back, so masking a parent of the tree leaves the tree reachable. Without
-  the variable the `bwrap` command line is unchanged. The agent never sees it, like the other `COMPARE_*`
-  variables.
 - when the controller supplies `COMPARE_MAX_CALLS`, the shim atomically allocates
   its recorded call directory, then refuses an index beyond that nonnegative cap
   before invoking the real provider (exit 75). Zero and concurrent/resumed attempts
@@ -77,16 +104,31 @@ What the sandbox isolates:
 - the PID namespace ends with the call, so any server or tmux session an agent starts dies when
   its call ends.
 
-What it does not isolate:
-- the rest of the filesystem (except the `COMPARE_HIDE` directories), home and the network stay shared;
-- other sessions' transcripts (`~/.claude/projects`, `~/.codex/sessions`) stay readable;
-- the scan only detects reads there, it does not prevent them.
+Network access remains available. The scan still audits recorded actions and
+native model usage; it does not establish coverage for direct API requests.
+
+Native cwd always stays inside its prepared tree. Results written there retain
+ordinary filesystem semantics. A prepared external state root admits only the
+exact `result.json` destination: a fresh private staging directory is mounted at
+that guest parent pathname, with no controller siblings. Native temporary files
+and atomic rename work normally. After the call, pinned descriptors publish only
+a regular result file, byte for byte, exclusively and atomically into the still
+authorized, absent host destination. Missing output remains absent; empty or
+malformed output remains unchanged. Nonzero native exit is preserved.
+
+An external delivery keeps `calls/<n>/publication-error.json` pending until
+publication or legitimate absence finishes. A settled marker of any form is an
+apparatus refusal, never an adjudicable natural failure; collect and all scans
+reject it. Publication errors retain the native status in `native-exit.json`,
+preserve their marker and return apparatus status 70. Active pending calls are
+not completed observations.
 
 | Path | Holds |
 | --- | --- |
 | `W/records/<arm>/run-<k>/` (`R`) | `record.json`, `inputs.json`, `command.sh`, `resume.sh`, `calls/<n>/`, `collected/`, `run.log` |
 | `<cwd>/.orchestrate/runs/<run_id>/` | the run's orchestrator state (memo, `run.json`, attempt files), in the working directory; `record.json` names it as `state_root`. For `best_of_n` it is `<tree>/.orchestrate/best-of-n-runs/<run_id>/`, linked from every `cand-k/.orchestrate/` |
 | `W/agents/<16 hex>/` | the agents' tree: `cand-1` ... `cand-N`, `tmp/` (TMPDIR, and `/tmp` inside the sandbox) and `.model-guard/{claude,codex}` (first on the agent's `PATH`); `record.json` names the tree |
+| `W/.private-homes/<random>/`, `P/.private-homes/<random>/` | unit-private native credentials, configuration and sessions; excluded from public captures and packet inventories |
 | `P/clones/<id>/` | applied-patch clones, what judges read |
 | `P/judges/<16 hex>/` | one judge's working directory, with its `state/` and `tmp/` (its `/tmp` inside the sandbox) |
 | `P/records/judges/<judge>/` | the judge's shim call records (`calls/<n>/`) and `scan.json` |
@@ -95,8 +137,9 @@ What it does not isolate:
 `P/clones` is mode 0311 (traversable, not listable: judges get absolute paths); `chmod u+r` it
 before deleting the pool. `W/agents`, `P` and `P/judges` must stay listable. The runtime opens every
 ancestor of a workspace or state directory one component at a time with `O_RDONLY`, and a 0311
-parent fails the run with `cannot open directory root component`. So an agent can list sibling
-trees and an ancestor's records. The scan counts any mention of another tree's name as a hit, and
+parent fails the controller run with `cannot open directory root component`.
+The native mount boundary supplies synthetic ancestors instead of these host
+directories. The scan counts mentions of another tree's name as hits, and
 records live outside every tree. The orchestrator still writes `.orchestrate/` (workspace lock,
 guard and a build cache) into the working directory; this repository's `.gitignore` ignores it.
 
@@ -115,8 +158,8 @@ For these pools, `mapping.compare_base` is the actual review baseline;
 Original run/capture identities and qualification proofs remain unchanged.
 `verify-pool` checks and restores the exact recorded patch against that review
 baseline. The empty default retains the ordinary seeded baseline and D8 behavior.
-This removes the declared archive from this review repository, without claiming
-isolation from unrelated filesystem paths or arbitrary provider access.
+This removes the declared archive from the review repository. The mount boundary
+above separately governs access to other filesystem paths.
 
 ## Recipe
 
@@ -141,7 +184,7 @@ model IDs remain forbidden even if placed in an allowlist. Frozen criteria and
 historical evidence keep their original policy until explicitly amended.
 Changing a model does not authorize spend or establish calibration for a new model pair.
 
-Agents share `$HOME`, so the harness guards instrumented CLI routes and checks recorded usage:
+Each unit has its own native home; the harness also guards instrumented CLI routes and checks recorded usage:
 
 - **Guard.** The shims install the same `shim/model-guard` under both `<tree>/.model-guard/claude`
   and `codex`, first on the sandboxed agent's `PATH`, for top-level and nested CLI calls. Parallel
@@ -219,10 +262,11 @@ Agents share `$HOME`, so the harness guards instrumented CLI routes and checks r
 
    The command runs `python -P`, so a candidate's own `orchestrator/` cannot shadow `PYTHONPATH=$RT`.
    It puts `$H/shim` first on `PATH` and sets `COMPARE_ROOT=R`, `COMPARE_TREE` (the tree),
-   `COMPARE_BASE` (the seeded commit) and `TMPDIR` (the tree's `tmp/`). Except for `best_of_n` it
-   passes no `--state-dir`, so the state goes to the runtime's default `<cwd>/.orchestrate/runs` and
-   every provider prompt names a result path inside the agent's workspace. Result paths must resolve inside the provider's workspace; see the
-   [recorded incident](../../docs/reports/documentation-history/experiments-compare-README-history.md#provider-result-path-incident).
+   `COMPARE_BASE` (the seeded commit), `COMPARE_SANDBOX` (the unit declaration)
+   and `TMPDIR` (the tree's `tmp/`). Fixed arms except `best_of_n` use the default
+   `<cwd>/.orchestrate/runs`, inside the unit tree. A custom arm may select an
+   external state root, whose exact result destination uses the staging delivery
+   described above; it grants no controller state or sibling files.
    `best_of_n`'s workspace is the tree, but its implementers work in `cand-k` and resolve the
    tree-relative result path there; its state goes to `<tree>/.orchestrate/best-of-n-runs`, and each
    candidate's `.orchestrate/best-of-n-runs` links to it, so the path resolves from either location. An

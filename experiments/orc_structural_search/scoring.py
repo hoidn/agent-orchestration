@@ -81,7 +81,7 @@ def policy(record: Mapping) -> str:
     return record["seed"] if record["mode"] == "catalog" else f"{record['mode']}:{record['candidate_id']}"
 
 def pool_evaluations(evidence_root: Path, task_package: Path, *, out: Path, judges: Sequence[str],
-                     criterion: Path, include: Callable[[Mapping], bool] = lambda row: True) -> Path:
+                     criterion: Path, include: Callable[[Mapping], bool] = lambda row: True, environment=None) -> Path:
     """Collect every completed evaluation of `task_package` in the log that `include` keeps (mode 2: one
     generation's, or the validation split's) and build the blind pool at `out` (batches of at most ten clones,
     anchors repeated); return the pool directory. Judges are MODEL[=PROVIDERS_JSON] as for `prepare.py pool` and
@@ -105,7 +105,7 @@ def pool_evaluations(evidence_root: Path, task_package: Path, *, out: Path, judg
         path = Path(row["records_dir"]).resolve()
         prepare.collect(path)
         records[str(path)], policies[str(path)] = load(path / "record.json"), policy(row)
-    build_pool(task, Path(criterion), out, judges, records, key=lambda final: policies[final[0]])
+    build_pool(task, Path(criterion), out, judges, records, key=lambda final: policies[final[0]], environment=environment)
     return out
 
 def split_batches(finals: Sequence, key: Callable, size: int = BATCH_CLONES - ANCHORS_PER_BATCH) -> list[list]:
@@ -127,7 +127,7 @@ def fillers_per_batch(task: Path, rubric: Mapping, criterion=None) -> int:
 
 
 def build_pool(task: Path, criterion: Path, out: Path, judges: Sequence[str], records: dict[str, dict], *,
-               key: Callable) -> None:
+               key: Callable, environment=None) -> None:
     """Validate structural quality authority before sending usable runs to the shared pool writer."""
     ref = next(iter(records.values()))
     checked = qualification.validate(criterion, tasks=[task], runtime=Path(ref['runtime']), judges=judges,
@@ -139,7 +139,7 @@ def build_pool(task: Path, criterion: Path, out: Path, judges: Sequence[str], re
     if not finals:
         raise SystemExit("no completed, uncontaminated evaluation to pool")
     batches = split_batches(finals, key, size=fillers_per_batch(task, pooling.rubric(criterion), criterion))
-    pooling.write_pool(task, criterion, out, judges, ref, rows, batches, qualification=checked)
+    pooling.write_pool(task, criterion, out, judges, ref, rows, batches, qualification=checked, environment=environment)
 
 def latest_evaluations(rows: Sequence[Mapping]) -> list[dict]:
     """The evaluation rows among log `rows`, one per job (quota.job_key: candidate, task, replicate, split,

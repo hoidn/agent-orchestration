@@ -64,7 +64,11 @@ def test_four_arms_share_parent_replicates_and_read_all_harness_joined_children(
     frozen['anchors'] = {world.task.name: {'stub': f'{world.task.name}-stub', 'upstream': f'{world.task.name}-upstream'}}
     frozen['subset'].update(replicates=2, per_arm=1)
     write(q.criterion, frozen)
-    (world.fakebin / 'module.py').write_text(MODULE_EDIT)
+    module = world.fakebin / 'module.py'
+    module.write_text(MODULE_EDIT)
+    dependencies = json.loads(world.sandbox_config.read_text())
+    dependencies['readonly'][str(module)] = str(module)
+    world.sandbox_config.write_text(json.dumps(dependencies))
     codex = world.fakebin / 'codex'
     codex.write_text(codex.read_text().replace('runpy.run_path(str(here / ("i2.py"',
         'runpy.run_path(str(here / ("module.py" if "condition module" in brief else "i2.py"'))

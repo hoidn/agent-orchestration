@@ -127,6 +127,7 @@ def test_C1_programmatic_judging_blocks_Claude_before_the_fake_backend(study, sa
     import os
     import subprocess
     from experiments.orc_structural_search import judging
+    from experiments.compare import sandbox
     from tests.experiments.compare_harness_support import OUTSIDE_SANDBOX_MOUNTS, REPO
     s = study
     results = validation_pool(s)
@@ -140,17 +141,27 @@ def test_C1_programmatic_judging_blocks_Claude_before_the_fake_backend(study, sa
         root = Path(directory)
         (root / 'tree/tmp').mkdir(parents=True)
         (root / 'bin').mkdir()
-        marker = root / 'backend-executed'
+        marker = root / 'tree/backend-executed'
         backend = root / 'bin/claude'
         backend.write_text('#!/bin/sh\ntouch "$CLAUDE_TEST_MARKER"\nexit 17\n')
         backend.chmod(0o755)
+        controller = {'PATH': f'{root / "bin"}:{os.defpath}', 'HOME': str(root / 'empty-host-home'),
+                      'CODEX_HOME': str(root / 'empty-host-home/.codex')}
+        declaration = sandbox.dependencies(controller)
+        declaration['environment'].append('CLAUDE_TEST_MARKER')
+        pointer = root / 'dependencies.json'
+        pointer.write_text(json.dumps(declaration))
+        (root / 'records').mkdir()
+        native = sandbox.prepare_unit(root / 'tree', root / 'records', homes=root / 'private-homes',
+                                      environment={**controller, 'COMPARE_SANDBOX': str(pointer)})
         statuses = []
         def fake_scorer(pool, name, script='score', *, env=None):
             done = subprocess.run([str(REPO / 'experiments/compare/shim/claude'), '-p'],
-                input='synthetic prompt', text=True, capture_output=True,
+                input='synthetic prompt', text=True, capture_output=True, cwd=root / 'tree',
                 env={**(env or os.environ), 'PATH': f'{root / "bin"}:{os.defpath}',
                      'COMPARE_ROOT': str(root / 'records'), 'COMPARE_TREE': str(root / 'tree'),
-                     'COMPARE_BASE': 'synthetic-unused', 'CLAUDE_TEST_MARKER': str(marker)})
+                     'COMPARE_BASE': 'synthetic-unused', 'CLAUDE_TEST_MARKER': str(marker),
+                     'COMPARE_SANDBOX': native['declaration']})
             statuses.append(done.returncode)
             raise subprocess.CalledProcessError(done.returncode, 'synthetic scorer')
         monkeypatch.setattr(judging, 'run_judge', fake_scorer)

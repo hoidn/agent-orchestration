@@ -150,6 +150,8 @@ def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Pa
     private = qualification.private_roots(criterion, public_roots=[runtime, task_package],
                                           workspace_roots=[candidate_root, work_root])
     env = qualification.hidden_env(env, private)
+    if config.models is not None:
+        env["COMPARE_CLAUDE_MODELS"] = ",".join(model for model in config.models if model.startswith("claude"))
     candidate_root, work_root = candidate_root.resolve(), work_root.resolve()
     orchestrator_commit = runtime_commit(runtime)
     candidate = candidate_id(candidate_root, orchestrator_commit=orchestrator_commit)
@@ -175,7 +177,7 @@ def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Pa
         state_dir=None if python else work_root / "runs" / eid,
         command_boundaries=config.command_boundaries_file and candidate_root / config.command_boundaries_file,
         command=(sys.executable, "-P", str(source)) if python else None)
-    records = run_arm(task_package, eid, work_root, runtime, spec=spec)
+    records = run_arm(task_package, eid, work_root, runtime, spec=spec, environment=env)
     arm = load(records / "record.json")
     arm.update(qualification=checked, qualification_private_roots=list(map(str, private)))
     dump(records / "record.json", arm)
@@ -183,7 +185,7 @@ def evaluate(candidate_root: Path, config: ExperimentConfig, *, task_package: Pa
         arm["planned_maximum"] = env["COMPARE_MAX_CALLS"]
         dump(records / "record.json", arm)
     if config.models is not None:
-        arm["allowed_claude_models"] = list(config.models)
+        arm["allowed_claude_models"] = [model for model in config.models if model.startswith("claude")]
         dump(records / "record.json", arm)
     state_dir, clone = Path(arm["state_root"]), Path(arm["candidates"][0])
     shutil.copyfile(candidate_root / DEV_CHECK, clone / DEV_CHECK)
@@ -258,7 +260,15 @@ def _launch(record: EvaluationRecord, argv: list[str], env: Mapping[str, str],
         incidents += (f"launch {record.resume_count}: no terminal row in run {run_id} "
                       f"(launcher exit {status}; see {log})",)
     if metadata.get('qualification_private_roots'):
-        qualification.scan_evidence(records, metadata)
+        try:
+            qualification.scan_evidence(records, metadata)
+        except (SystemExit, json.JSONDecodeError, OSError, ValueError) as error:
+            diagnostic = f'qualification_scan_incomplete: {type(error).__name__}: {error}'
+            metadata.pop('scan', None)
+            metadata['qualification_scan'] = {'hits': UNAVAILABLE, 'calls': len(list((records / 'calls').glob('*'))),
+                                               'error': diagnostic}
+            dump(records / 'record.json', metadata)
+            outcome, incidents = 'incident', incidents + (diagnostic,)
     return replace(record, run_id=run_id, outcome=outcome, value=value, incidents=incidents,
                    wall_clock_sec=record.wall_clock_sec + elapsed,
                    provider_calls=len(list((records / "calls").glob("*"))),

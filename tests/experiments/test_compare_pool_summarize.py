@@ -32,7 +32,7 @@ def rating(path, clone, judge):
     return dict(zip(("root_cause", "scope", "generality", "layering"), tokens), clone=path, reason="r")
 
 
-def score(out, judge, mapping, home, *, tamper=None, sha=None, run_id="r1", scanned=True, prompts=()):
+def score(out, judge, mapping, *, tamper=None, sha=None, run_id="r1", scanned=True, prompts=()):
     """Write a completed scoring run, with a provider start per prompt, where the judge's own --state-dir
     puts it, then scan the judge."""
     inputs = json.loads((out / "records" / f"score-inputs-{judge}.json").read_text())
@@ -46,7 +46,7 @@ def score(out, judge, mapping, home, *, tamper=None, sha=None, run_id="r1", scan
     (state / run_id / "run.json").write_text(json.dumps({"bound_inputs": inputs}))
     write_memo({"state_root": state}, prompts, value, run_id=run_id)
     if scanned:
-        pooling.scan_judge(out, judge, "f" * 40, home=home)
+        pooling.scan_judge(out, judge, "f" * 40)
 
 
 def test_pool_composes_batches_per_d4(pooled):  # each reviewed_change stage is drawn at random: two valid shapes
@@ -148,8 +148,8 @@ def test_pool_excludes_a_run_whose_sessions_answered_with_fable(world):
     call(world, record, "true")
     write_memo(record, ["true"], True)
     prepare.collect(records)
-    fable_session(world.tmp / "home", record["tree"])
-    prepare.scan(records, world.solution, home=world.tmp / "home")
+    fable_session(Path(record["sandbox"]["home"]), record["tree"])
+    prepare.scan(records, world.solution)
     clean, _ = drive(world, "direct_task", ["true"], True)
     mapping = pooling.pool(world.task, world.criterion, world.outside / "pool", ["j"], [records, clean])
     assert (mapping["runs"][str(records)]["excluded"].startswith("Fable model"),
@@ -173,7 +173,8 @@ def test_judges_run_behind_the_shims_from_their_own_directory_and_state(pooled, 
 def judge_session(pooled, world, judge, command):
     """A Claude CLI session file of the judge's working directory holding one shell action."""
     home = str(pooled.out / "judges" / pooled.mapping["judges"][judge]["dir"])
-    project = world.tmp / "home" / ".claude" / "projects" / "".join(c if c.isalnum() else "-" for c in home)
+    session_home = Path(pooled.mapping["judges"][judge]["sandbox"]["home"])
+    project = session_home / ".claude" / "projects" / "".join(c if c.isalnum() else "-" for c in home)
     project.mkdir(parents=True)
     (project / "s.jsonl").write_text(json.dumps({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "input": {"command": command}}]}}) + "\n")
@@ -182,21 +183,21 @@ def judge_session(pooled, world, judge, command):
 def test_judge_scan_finds_the_pool_records_and_other_judges(pooled, world):
     other = pooled.mapping["judges"]["judge-b"]["dir"]
     judge_session(pooled, world, "judge-a", f"cat {pooled.out}/records/mapping.json ../{other}/state")
-    hits = pooling.scan_judge(pooled.out, "judge-a", "f" * 40, home=world.tmp / "home")
+    hits = pooling.scan_judge(pooled.out, "judge-a", "f" * 40)
     assert sorted(h["pattern"] for h in hits) == ["other tree or judge", "pool record files", "this pool's records"]
 
 
 def test_judge_scan_finds_the_agents_trees(pooled, world):
     agents = Path(next(iter(pooled.mapping["runs"]))).parents[2] / "agents"
     judge_session(pooled, world, "judge-a", f"ls {agents}")
-    hits = pooling.scan_judge(pooled.out, "judge-a", "f" * 40, home=world.tmp / "home")
+    hits = pooling.scan_judge(pooled.out, "judge-a", "f" * 40)
     assert [h["pattern"] for h in hits] == ["agents' trees"]
 
 
 def test_summarize_refuses_judge_hits_without_a_verdict_and_leaves_out_a_contaminated_judge(pooled, world):
     judge_session(pooled, world, "judge-a", f"cat {pooled.out}/records/mapping.json")
     for judge in ("judge-a", "judge-b"):
-        score(pooled.out, judge, pooled.mapping, world.tmp / "home")
+        score(pooled.out, judge, pooled.mapping)
     with pytest.raises(SystemExit, match="judge judge-a has 2 scan hits and no verdict: prepare.py scan --pool"):
         summarize.summarize(pooled.out, world.criterion)
     pooling.adjudicate_judge(pooled.out, "judge-a", "contaminated", "read the mapping")
@@ -206,9 +207,10 @@ def test_summarize_refuses_judge_hits_without_a_verdict_and_leaves_out_a_contami
 
 
 def test_summarize_leaves_out_a_judge_whose_sessions_answered_with_fable(pooled, world):
-    fable_session(world.tmp / "home", pooled.out / "judges" / pooled.mapping["judges"]["judge-a"]["dir"])
+    fable_session(Path(pooled.mapping["judges"]["judge-a"]["sandbox"]["home"]),
+                  pooled.out / "judges" / pooled.mapping["judges"]["judge-a"]["dir"])
     for judge in ("judge-a", "judge-b"):
-        score(pooled.out, judge, pooled.mapping, world.tmp / "home")
+        score(pooled.out, judge, pooled.mapping)
     with pytest.raises(SystemExit, match="Fable model"):
         pooling.adjudicate_judge(pooled.out, "judge-a", "cleared", "a probe")
     results = summarize.summarize(pooled.out, world.criterion)
@@ -219,27 +221,28 @@ def judge_call(pooled, world, judge, script):
     """One call of the judge's CLI through the shims, recorded where its scoring command records them."""
     home = str(pooled.out / "judges" / pooled.mapping["judges"][judge]["dir"])
     record = {"records": str(pooled.out / "records" / "judges" / judge), "tree": home,
-              "compare_base": pooled.mapping["compare_base"], "cwd": home}
+              "compare_base": pooled.mapping["compare_base"], "cwd": home,
+              "sandbox": pooled.mapping["judges"][judge]["sandbox"]}
     assert call(world, record, script).returncode == 0
 
 
 def test_summarize_pairs_a_judges_provider_starts_with_its_shim_call_records(pooled, world):
     judge_call(pooled, world, "judge-a", "true")
-    score(pooled.out, "judge-a", pooled.mapping, world.tmp / "home", prompts=["true"])
-    score(pooled.out, "judge-b", pooled.mapping, world.tmp / "home")
+    score(pooled.out, "judge-a", pooled.mapping, prompts=["true"])
+    score(pooled.out, "judge-b", pooled.mapping)
     assert summarize.summarize(pooled.out, world.criterion)["judges"] == ["judge-a", "judge-b"]
 
 
 def test_summarize_refuses_a_judge_whose_provider_starts_have_no_shim_call_records(pooled, world):
-    score(pooled.out, "judge-a", pooled.mapping, world.tmp / "home", prompts=["true"])
-    score(pooled.out, "judge-b", pooled.mapping, world.tmp / "home")
+    score(pooled.out, "judge-a", pooled.mapping, prompts=["true"])
+    score(pooled.out, "judge-b", pooled.mapping)
     with pytest.raises(SystemExit, match="1 provider starts in the memo but 0 call directories"):
         summarize.summarize(pooled.out, world.criterion)
 
 
 def test_summarize_refuses_an_unscanned_judge(pooled, world):
-    score(pooled.out, "judge-a", pooled.mapping, world.tmp / "home")
-    score(pooled.out, "judge-b", pooled.mapping, world.tmp / "home", scanned=False)
+    score(pooled.out, "judge-a", pooled.mapping)
+    score(pooled.out, "judge-b", pooled.mapping, scanned=False)
     with pytest.raises(SystemExit, match="judge judge-b has not been scanned"):
         summarize.summarize(pooled.out, world.criterion)
 
@@ -269,7 +272,7 @@ def test_verify_pool_restores_a_clone_a_judge_changed(pooled, capsys):
 @pytest.fixture
 def results(pooled, world):
     for judge in ("judge-a", "judge-b"):
-        score(pooled.out, judge, pooled.mapping, world.tmp / "home")
+        score(pooled.out, judge, pooled.mapping)
     return summarize.summarize(pooled.out, world.criterion)
 
 
@@ -349,8 +352,8 @@ def test_results_md_holds_what_results_json_reports(results, pooled):
 
 
 def test_summarize_refuses_a_batch_with_a_missing_rating(pooled, world):
-    score(pooled.out, "judge-a", pooled.mapping, world.tmp / "home", tamper=lambda value: value[1].pop())
-    score(pooled.out, "judge-b", pooled.mapping, world.tmp / "home")
+    score(pooled.out, "judge-a", pooled.mapping, tamper=lambda value: value[1].pop())
+    score(pooled.out, "judge-b", pooled.mapping)
     with pytest.raises(SystemExit, match="batch 1"):
         summarize.summarize(pooled.out, world.criterion)
 
@@ -358,15 +361,15 @@ def test_summarize_refuses_a_batch_with_a_missing_rating(pooled, world):
 def test_summarize_refuses_a_copied_back_id_that_disagrees_with_its_position(pooled, world):
     def swap(value):
         value[0][0]["clone"], value[0][1]["clone"] = value[0][1]["clone"], value[0][0]["clone"]
-    score(pooled.out, "judge-a", pooled.mapping, world.tmp / "home", tamper=swap)
-    score(pooled.out, "judge-b", pooled.mapping, world.tmp / "home")
+    score(pooled.out, "judge-a", pooled.mapping, tamper=swap)
+    score(pooled.out, "judge-b", pooled.mapping)
     with pytest.raises(SystemExit, match="batch 0 position 0"):
         summarize.summarize(pooled.out, world.criterion)
 
 
 def test_summarize_refuses_a_scoring_run_bound_to_another_criterion(pooled, world):
-    score(pooled.out, "judge-a", pooled.mapping, world.tmp / "home", sha="0" * 64)
-    score(pooled.out, "judge-b", pooled.mapping, world.tmp / "home")
+    score(pooled.out, "judge-a", pooled.mapping, sha="0" * 64)
+    score(pooled.out, "judge-b", pooled.mapping)
     with pytest.raises(SystemExit, match=f"{'0' * 64}.*{repos.sha256_file(world.criterion)}"):
         summarize.summarize(pooled.out, world.criterion)
 
@@ -379,12 +382,12 @@ def test_summarize_refuses_a_criterion_naming_other_judges(pooled, world):
 
 
 def test_summarize_refuses_unless_every_judge_has_exactly_one_scoring_run(pooled, world):
-    score(pooled.out, "judge-a", pooled.mapping, world.tmp / "home")
-    pooling.scan_judge(pooled.out, "judge-b", "f" * 40, home=world.tmp / "home")
+    score(pooled.out, "judge-a", pooled.mapping)
+    pooling.scan_judge(pooled.out, "judge-b", "f" * 40)
     with pytest.raises(SystemExit, match="judge judge-b: expected one scoring run.*found 0"):
         summarize.summarize(pooled.out, world.criterion)
-    score(pooled.out, "judge-b", pooled.mapping, world.tmp / "home")
-    score(pooled.out, "judge-b", pooled.mapping, world.tmp / "home", run_id="r2")
+    score(pooled.out, "judge-b", pooled.mapping)
+    score(pooled.out, "judge-b", pooled.mapping, run_id="r2")
     with pytest.raises(SystemExit, match="judge judge-b: expected one scoring run.*found 2"):
         summarize.summarize(pooled.out, world.criterion)
 
@@ -397,7 +400,7 @@ def test_summarize_runs_hidden_acceptance_in_an_untouched_copy_without_git_and_l
     out, criterion = world.outside / "pool-hidden", world.tmp / "criterion-one-judge.json"
     criterion.write_text(json.dumps({**json.loads(world.criterion.read_text()), "judges": ["judge-a"]}))
     mapping = pooling.pool(task, criterion, out, ["judge-a"], [records])
-    score(out, "judge-a", mapping, world.tmp / "home")
+    score(out, "judge-a", mapping)
     results = summarize.summarize(out, criterion)
     pooling.verify_pool(out)
     failed = [clone["hidden_failed"] for clone in results["clones"].values()]
@@ -434,7 +437,7 @@ def reference_scores(out, mapping, world):
                 row["completeness"] = row.pop("root_cause")
                 row["correctness"] = row.pop("generality")
     for judge in mapping["judges"]:
-        score(out, judge, mapping, world.tmp / "home", tamper=rename)
+        score(out, judge, mapping, tamper=rename)
 
 
 def test_pool_with_a_reference_rubric_adds_one_reference_clone_per_batch_outside_the_blind_list(reference_pool):
@@ -486,7 +489,7 @@ def test_summarize_reads_a_mapping_without_rubric_as_the_historical_rubric(poole
     pooled.mapping.pop("rubric", None)
     repos.dump(pooled.out / "records/mapping.json", pooled.mapping)
     for judge in pooled.mapping["judges"]:
-        score(pooled.out, judge, pooled.mapping, world.tmp / "home")
+        score(pooled.out, judge, pooled.mapping)
     assert set(summarize.summarize(pooled.out, world.criterion)["agreement"]) == set(summarize.CRITERIA)
 
 

@@ -46,10 +46,9 @@ index = int(re.match(r"# Episode (\\d+)", Path("EPISODE.md").read_text()).group(
 Path("direct.py").write_text(Path("direct.py").read_text() + f"# episode {index}\\n")
 """
 # The scripted `codex`: in an episode's workspace (EPISODE.md present) the mutator for its arm (I2: the brief names a
-# site; I3: direct.py; else I1), the I1 and I2 edits cycling over the global episode index; with quota-once beside
-# it, the next I2 episode prints a quota line and exits 1 instead (once), with quota-always every episode prints one
-# without a reset time; with print-once beside it, the next episode prints that file's text first (once). Elsewhere
-# the scripted provider.
+# site; I3: direct.py; else I1), the I1 and I2 edits cycling over the global episode index. Synthetic quota
+# and scan events are tied to their original episode indices, so resuming the first I2 slot at the next index
+# clears its one quota event without shared writable host state. Elsewhere it is the scripted provider.
 CODEX = """#!{python} -I
 import re, runpy, sys
 from pathlib import Path
@@ -59,14 +58,13 @@ if not Path("EPISODE.md").exists():
     sys.exit(0)
 brief = Path("EPISODE.md").read_text()
 site = re.search(r"^Site: ", brief, re.M)
-if (here / "print-once").exists():
-    print((here / "print-once").read_text(), flush=True)
-    (here / "print-once").unlink()
-if (here / "quota-always").exists():
+index = int(brief.splitlines()[0].split()[-1])
+if {print_once!r} is not None and index == 0:
+    print({print_once!r}, flush=True)
+if {quota_always!r}:
     print({plain!r}, flush=True)
     sys.exit(1)
-if site and (here / "quota-once").exists():
-    (here / "quota-once").unlink()
+if site and {quota_once!r} and index == 1:
     print({quota!r}, flush=True)
     sys.exit(1)
 runpy.run_path(str(here / ("i2.py" if site else "i3.py" if Path("direct.py").exists() else "i1.py")))
@@ -78,15 +76,13 @@ def install(world, quota_once=False, print_once=None, quota_always=False):
     for name, source in {"provider.py": SCRIPTED, "i1.py": MUTATOR.replace("][index]", "][index % 3]"),
                          "i2.py": MUTATOR_I2.replace("][index]", "][index % 4]"), "i3.py": I3_EDIT,
                          "codex": CODEX.format(python=sys.executable, here=str(world.fakebin), quota=QUOTA,
-                                              plain=QUOTA_PLAIN)}.items():
+                                              plain=QUOTA_PLAIN, quota_once=quota_once,
+                                              print_once=print_once, quota_always=quota_always)}.items():
         (world.fakebin / name).write_text(source)
     (world.fakebin / "codex").chmod(0o755)
-    if quota_once:
-        (world.fakebin / "quota-once").write_text("")
-    if quota_always:
-        (world.fakebin / "quota-always").write_text("")
-    if print_once:
-        (world.fakebin / "print-once").write_text(print_once)
+    from tests.experiments.compare_harness_support import write_test_sandbox_config
+    write_test_sandbox_config(world.fakebin, world.sandbox_config, readonly_files=(world.results,
+        *(world.fakebin / name for name in ("provider.py", "i1.py", "i2.py", "i3.py"))))
     script(world, [{"match": "Implement this change", "result": CHANGE}])
     for name in ("orc", "python"):
         if not (world.tmp / "parents" / name).exists():

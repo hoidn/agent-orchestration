@@ -179,9 +179,10 @@ def settle_scan(records: Path, scan: Callable[[], list[dict]]) -> tuple[list[dic
 
 
 def evaluation_receipts(record) -> dict:
+    from experiments.compare import sandbox
     metadata = json.loads((record.records_dir / "record.json").read_text())
     receipt = metering.receipts(record.records_dir, tree=Path(metadata["tree"]),
-                               since=metadata["created_at"], home=Path.home())
+                               since=metadata["created_at"], home=sandbox.session_home(metadata))
     return {key: receipt[key] for key in ("consumption", "receipt_usage")}
 
 
@@ -283,9 +284,8 @@ def check_hide(hide: Sequence[Path]) -> None:
 
 
 def hidden_roots(work_root: Path, evidence_root: Path, hide: Sequence[Path] = ()) -> list[Path]:
-    """The directories the shims mask from an episode's CLI calls (COMPARE_HIDE): the evidence root, every episode
-    tree but the call's own (the shims bind it back), the work root's evaluation directories, each created so
-    bubblewrap finds a mount point, and the operator's `hide` (other runs' roots), which must exist (check_hide)."""
+    """Private scan/provenance roots: evidence, episode/evaluation stores and explicit operator roots.
+    Native mount grants independently exclude these; no directory denylist supplies isolation."""
     check_hide(hide)
     roots = [root.resolve() for root in (
         evidence_root, *(work_root / name for name in ("episodes", "records", "runs", "agents", "env-manifests")))]
@@ -297,7 +297,7 @@ def hidden_roots(work_root: Path, evidence_root: Path, hide: Sequence[Path] = ()
 def run_agent(agent_cmd: Sequence[str], cwd: Path, log: Path, env: Mapping[str, str], wall_clock_sec: float, *,
               runtime: Path, shim_env: Mapping[str, object]) -> tuple[str | None, int | str]:
     """Run the command from `cwd` behind the shim prefix (`shim_env`: COMPARE_ROOT, COMPARE_TREE, COMPARE_BASE,
-    COMPARE_HIDE, TMPDIR) with <cwd>/EPISODE.md on stdin: (None when it exited 0, else "incident"; or "exhausted"
+    COMPARE_SANDBOX, TMPDIR) with <cwd>/EPISODE.md on stdin: (None when it exited 0, else "incident"; or "exhausted"
     after the wall clock), exit status."""
     env = {key: value for key, value in env.items() if key != "COMPARE_MAX_CALLS"}
     log.parent.mkdir(parents=True, exist_ok=True)
@@ -327,8 +327,11 @@ def scan_episode(records: Path, tree: Path, *, runtime: Path, work_root: Path, e
     """`prepare.scan` over the episode's shim records, once per distinct solution hash until one scan hits; its
     record.json then holds the scan that hit (or the last one). The work root's evaluation directories are archive
     roots; the work root itself is none (the episode's own tree lies under it)."""
-    dump(records / "record.json", {"tree": str(tree), "main": str(main_checkout(runtime)), "runtime": str(runtime),
-                                   "created_at": created_at})
+    path = records / 'record.json'
+    metadata = json.loads(path.read_text()) if path.exists() else {}
+    metadata.update(tree=str(tree), records=str(records), main=str(main_checkout(runtime)),
+                    runtime=str(runtime), created_at=created_at)
+    dump(path, metadata)
     roots = [("archive", evidence_root), ("lineage", evidence_root / "log.jsonl"),
              *(("archive", work_root / name) for name in ("records", "runs", "agents", "env-manifests")),
              *(("holdout", holdout) for holdout in holdouts), *(("qualification", path) for path in private),
@@ -413,7 +416,13 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
     shim_env = {"COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": base, "TMPDIR": tree / "tmp",
                 "COMPARE_HIDE": os.pathsep.join(map(str, hidden))}
     if config.models is not None:
-        shim_env["COMPARE_CLAUDE_MODELS"] = ",".join(config.models)
+        shim_env["COMPARE_CLAUDE_MODELS"] = ",".join(model for model in config.models if model.startswith('claude'))
+    from experiments.compare import sandbox
+    native = sandbox.prepare_unit(tree, records, homes=work_root / '.private-homes',
+                                  environment={**env, **{key: str(value) for key, value in shim_env.items()}})
+    shim_env['COMPARE_SANDBOX'] = native['declaration']
+    dump(records / 'record.json', {'tree': str(tree), 'records': str(records), 'sandbox': native,
+                                   'main': str(main_checkout(runtime)), 'runtime': str(runtime), 'created_at': created_at})
     stopped, status = run_agent(agent_cmd, copy, evidence_root / "episodes" / f"episode-{episode_index}.log",
                                 {**env, **LAUNCH_ENV, **EPISODE_ENV}, config.episode_wall_clock_sec, runtime=runtime,
                                 shim_env=shim_env)
@@ -441,7 +450,8 @@ def run_episode(parent_root: Path, config: ExperimentConfig, *, interface: str, 
            "scan_error": scan_error,
            "workspace_intact": intact, "incidents": incidents, "hidden_roots": [str(root) for root in hidden],
            "criterion_sha256": config.criterion_sha256, "qualification": checked,
-           **metering.receipts(records, tree=tree, since=created_at, home=Path.home()),
+           **metering.receipts(records, tree=tree, since=created_at, home=sandbox.session_home(
+               json.loads((records / 'record.json').read_text()))),
            "model_revision": UNAVAILABLE,
            "hypothesis": verdict["receipt"]["hypothesis"] if verdict["receipt"] else UNAVAILABLE,
            "refusal_code": None, "diagnostics_class": None, "skeleton": None,

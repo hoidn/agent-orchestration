@@ -135,17 +135,18 @@ instructions, skills, context management, LSP). An interface narrows the edit
 scope validation accepts, never the agent's facilities; `--no-tools`,
 compiler-only feedback or a source-only prompt is a disclosed ablation.
 
-Isolation is by masking, not an allowlist: every shimmed CLI call of an
-episode runs with `COMPARE_HIDE` naming the evidence root, the work root's
-`episodes`, `records`, `runs`, `agents` and `env-manifests` directories and
-the operator's `--hide` roots (other runs' roots); bubblewrap mounts an empty
-tmpfs over each and binds the episode's own tree back
-(`driver.hidden_roots`). A mutator therefore reads its own copy, its private
-`/tmp` and the runtime copy for the compile line, but no sibling episode,
-evaluation, archive candidate or log row. Home, the runtime and every other
-directory stay readable; the contamination scan, not the mask, reports reads
-there. Only the agent CLIs a mutator command starts through `PATH` run in the
-sandbox: a wrapper command itself runs unsandboxed.
+Every shimmed native call uses the comparison harness's positive mount boundary:
+declared read-only OS/tool dependencies, its own writable tree and persistent
+private home/temp. Judges additionally receive exact read-only batch/reference
+clone roots. The runtime/controller checkout, archive, peer homes, evaluation
+records and other episodes have no native mount. Recorded home lineage selects
+native receipts consistently for initial execution, resume and recovery;
+historical records without that lineage retain their original semantics.
+`driver.hidden_roots` and the operator's `--hide` roots identify private scan and
+provenance paths; they grant no mounts. Controller compilation remains outside
+the native boundary. Only agent CLIs a wrapper starts through the shims receive
+this boundary; the wrapper command itself runs unsandboxed. Network access and
+uninstrumented direct APIs remain separate audit limits.
 
 ## Proposal Interfaces
 

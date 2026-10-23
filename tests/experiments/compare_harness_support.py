@@ -16,7 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from experiments.compare import pool as pooling, prepare
+from experiments.compare import pool as pooling, prepare, sandbox
 
 REPO = Path(__file__).resolve().parents[2]
 SHIM = REPO / "experiments" / "compare" / "shim"
@@ -62,6 +62,48 @@ def commit(repo, files, message):
     return git(repo, "rev-parse", "HEAD")
 
 
+def write_test_sandbox_config(fakebin, path, *, readonly_files=(), environment_names=()):
+    """Start from discovered OS/catalog/skill dependencies, then admit exact test fakes and inputs."""
+    declaration = sandbox.dependencies({"PATH": "", "HOME": str(Path.home())})
+    declaration["readonly"] = dict(declaration["readonly"])
+    for name in ("codex", "claude"):
+        exact = Path(fakebin / name).resolve(strict=True)
+        declaration[name] = str(exact)
+    declaration["environment"] = sorted(set(declaration["environment"]) | {
+        "CLAUDE_ARGV_LOG", "SCRIPTED_RESULTS_FILE", "TASK_DIFFICULTY_PLAN", "TASK_DIFFICULTY_CALLS",
+        "TASK_DIFFICULTY_ATTEMPT", "FAKE_SCORE_PLAN", "FAKE_SCORE_CALLS", *environment_names})
+    for value in readonly_files:
+        exact = Path(value).resolve(strict=True)
+        declaration["readonly"][str(exact)] = str(exact)
+    path = Path(path)
+    path.write_text(json.dumps(declaration, indent=2) + "\n")
+    return path
+
+
+def configure_test_sandbox(world, monkeypatch, *, readonly_files=(), environment_names=(),
+                           path_entries=(), codex=None, claude=None):
+    """Add exact fake inputs/dependencies to this fixture's controller-owned declaration."""
+    declaration = json.loads(world.sandbox_config.read_text())
+    declaration["readonly"] = dict(declaration["readonly"])
+    declaration["path"] = list(declaration["path"])
+    declaration["environment"] = sorted(set(declaration["environment"]) | set(environment_names))
+    declaration["path"] = [str(Path(path).resolve()) for path in path_entries] + [
+        value for value in declaration["path"] if value not in {str(Path(path).resolve()) for path in path_entries}]
+    for path in readonly_files:
+        exact = Path(path).resolve(strict=True)
+        declaration["readonly"][str(exact)] = str(exact)
+    for name, path in (("codex", codex), ("claude", claude)):
+        if path is None:
+            continue
+        exact = Path(path).resolve(strict=True)
+        declaration[name] = str(exact)
+        declaration["path"] = [str(exact.parent), *[item for item in declaration["path"]
+                                                      if item != str(exact.parent)]]
+    world.sandbox_config.write_text(json.dumps(declaration, indent=2) + "\n")
+    monkeypatch.setenv("COMPARE_SANDBOX", str(world.sandbox_config))
+    return declaration
+
+
 def write_task(task, base, *, anchors=True, hidden=False):
     files = {"task.txt": "Make add correct.\n", "intent.txt": "add returns the sum.\n", "base_commit": base,
              "seed/bugs/report.md": "add(2, 3) returns -1\n"}
@@ -82,7 +124,7 @@ def open_up(directory):
 
 
 @pytest.fixture
-def world(tmp_path):
+def world(tmp_path, monkeypatch):
     main = tmp_path / "main"
     main.mkdir()
     git(main, "init", "-q")
@@ -109,9 +151,20 @@ def world(tmp_path):
     for name in ("claude", "codex"):
         (fakebin / name).write_text('#!/bin/sh\necho "PYTHONPATH=${PYTHONPATH-unset}"\nexec bash -c "$(cat)"\n')
         (fakebin / name).chmod(0o755)
+    sandbox_config = outside / "sandbox-dependencies.json"
+    write_test_sandbox_config(fakebin, sandbox_config)
+    empty_home = tmp_path / "empty-host-home"
+    empty_home.mkdir()
+    monkeypatch.setenv("COMPARE_SANDBOX", str(sandbox_config))
+    monkeypatch.setenv("HOME", str(empty_home))
+    monkeypatch.setenv("CODEX_HOME", str(empty_home / ".codex"))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(empty_home / ".claude"))
+    for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
+                "CLAUDE_CODE_OAUTH_TOKEN_FILE"):
+        monkeypatch.delenv(key, raising=False)
     yield SimpleNamespace(tmp=tmp_path, main=main, old=old, base=base, solution=solution, runtime=runtime,
                           task=tmp_path / "task", criterion=criterion, fakebin=fakebin, root=outside / "work",
-                          outside=outside)
+                          outside=outside, sandbox_config=sandbox_config, empty_home=empty_home)
     open_up(tmp_path)
     open_up(outside)
     shutil.rmtree(outside)
@@ -129,7 +182,7 @@ def call(world, record, script, binary="claude", args=None):
     args = args if args is not None else (("exec",) if binary == "codex" else ("-p",))
     env = {**os.environ, "PATH": f"{SHIM}:{world.fakebin}:{os.environ['PATH']}", "COMPARE_ROOT": record["records"],
            "COMPARE_TREE": record["tree"], "COMPARE_BASE": record["compare_base"], "PYTHONPATH": str(world.runtime),
-           "OLDPWD": str(world.runtime)}
+           "OLDPWD": str(world.runtime), "COMPARE_SANDBOX": record["sandbox"]["declaration"]}
     return subprocess.run([str(SHIM / binary), *args], input=script, text=True, capture_output=True,
                           cwd=record["cwd"], env=env)
 
@@ -157,7 +210,7 @@ def drive(world, arm, scripts, value, candidates=None, task=None, outcome="compl
         assert call(world, record, script).returncode == 0
     write_memo(record, scripts, value(record) if callable(value) else value, outcome)
     collected = prepare.collect(records)
-    prepare.scan(records, world.solution, home=world.tmp / "home")
+    prepare.scan(records, world.solution)
     if verdict:
         prepare.adjudicate(records, *verdict)
     return records, collected

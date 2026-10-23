@@ -73,6 +73,9 @@ def setup(world, monkeypatch, synthetic_receipts, request):
     mutator = world.outside / 'mutator.py'
     from tests.experiments.orc_structural_search_support import MUTATOR_STEPPING_STONE
     mutator.write_text(MUTATOR_STEPPING_STONE)
+    from tests.experiments.compare_harness_support import configure_test_sandbox
+    configure_test_sandbox(world, monkeypatch, readonly_files=(mutator,),
+                           environment_names=('SCRIPTED_MUTATOR_FILE',))
     agent = ['codex', '--model', TERRA]
     executable = world.fakebin / 'codex'
     executable.write_text(executable.read_text().replace('prompt = sys.stdin.read()',

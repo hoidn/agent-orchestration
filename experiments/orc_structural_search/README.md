@@ -235,8 +235,10 @@ owns calibration preparation and its later live budget gates.
 ## Limits
 
 Native receipts can be absent or incomplete; hosted server revisions remain unavailable.
-A wrapper mutator runs outside the CLI sandbox; home/network remain shared and scans
-are pattern based. Process-group kills cannot stop children that start new sessions.
+A wrapper mutator runs outside the CLI sandbox. Native calls use the comparison
+harness's positive mounts and recorded persistent private home; network remains
+available and scans are pattern based. Process-group kills cannot stop wrapper
+children that start new sessions.
 The ledger serializes one driver process, not separate drivers sharing evidence.
 The development check runs in the working clone. See the driver design for remaining
 scope and live-qualification limits.

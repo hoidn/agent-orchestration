@@ -104,7 +104,7 @@ def test_episode_reservation_recovery_keeps_the_original_draw(sandboxed, setup, 
     result = s.run('recovery', continue_run=True)
     rows = episodes(s, 'recovery')
     assert rows[0]['episode_id'] == captured[0]
-    assert rows[0]['outcome'] == ('accepted' if phase == 'pre-reserve' else 'incident')
+    assert rows[0]['outcome'] == ('accepted' if phase == 'pre-reserve' else 'incident'), rows[0]
     assert len({r['episode_id'] for r in rows}) == len(rows)
     reservations = [r for r in ledger._read(evidence / ledger.LEDGER) if r['kind'] == 'episode']
     assert len({r['key'] for r in reservations}) == len(reservations)

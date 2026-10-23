@@ -14,7 +14,7 @@ skip_without_sandbox()
 
 
 def scripted_backends(world):
-    log = world.outside / "backend-starts.jsonl"
+    log = "/tmp/backend-starts.jsonl"
     program = f'''#!{sys.executable}
 import json, os, subprocess, sys
 with open({str(log)!r}, "a") as stream:
@@ -27,16 +27,17 @@ sys.exit(subprocess.run(["/bin/bash", "-c", script]).returncode if script else 0
     for name in ("codex", "claude"):
         (world.fakebin / name).write_text(program)
         (world.fakebin / name).chmod(0o755)
-    return log
+    return Path(log).name
 
 
 @pytest.mark.parametrize("cap", ["1", "01"])
 @pytest.mark.parametrize("model,effort", [("gpt-5.6-luna", "high"), (SOL, "low"), (SOL, "high")])
 def test_cap_one_refuses_same_model_shell_reentry_before_backend(world, monkeypatch, cap, model, effort):
-    log = scripted_backends(world)
+    scripted_backends(world)
     monkeypatch.setenv("COMPARE_MAX_CALLS", cap)
     monkeypatch.setenv("COMPARE_CODEX_MODELS", model)
     _, record = start(world, "direct_task")
+    log = Path(record["tree"]) / "tmp/backend-starts.jsonl"
     nested = (["codex", "--model", model, "exec", "-c", f"model_reasoning_effort={effort}", "-"],
               ["claude", "--model", SONNET, "-p"],
               ["codex", "--model", model, "--help"], ["codex", "--model", model, "--version"],
@@ -56,13 +57,14 @@ def test_cap_one_refuses_same_model_shell_reentry_before_backend(world, monkeypa
 
 @pytest.mark.parametrize("cap", [None, "2"])
 def test_non_one_cap_preserves_generic_nested_claude(world, monkeypatch, cap):
-    log = scripted_backends(world)
+    scripted_backends(world)
     monkeypatch.setenv("ORC_SINGLE_CALL_CLI_STATE", "dispatched")
     if cap is None:
         monkeypatch.delenv("COMPARE_MAX_CALLS", raising=False)
     else:
         monkeypatch.setenv("COMPARE_MAX_CALLS", cap)
     _, record = start(world, "direct_task")
+    log = Path(record["tree"]) / "tmp/backend-starts.jsonl"
     done = call(world, record, f"claude --model {SONNET} -p </dev/null", binary="codex")
     assert done.returncode == 0, done.stderr
     starts = [json.loads(line) for line in log.read_text().splitlines()]
@@ -71,38 +73,39 @@ def test_non_one_cap_preserves_generic_nested_claude(world, monkeypatch, cap):
 
 
 def test_independent_recorded_outer_calls_reset_inherited_state(world, monkeypatch):
-    log = scripted_backends(world)
+    scripted_backends(world)
     monkeypatch.setenv("COMPARE_MAX_CALLS", "1")
     monkeypatch.setenv("ORC_SINGLE_CALL_CLI_STATE", "dispatched")
+    event_logs = []
     for name in ("first", "second"):
         _, record = start(world, "direct_task", root=world.outside / name)
+        log = Path(record["tree"]) / "tmp/backend-starts.jsonl"
+        event_logs.append(log)
         done = call(world, record, "true", binary="codex")
         assert done.returncode == 0, done.stderr
         assert [p.name for p in (Path(record["records"]) / "calls").iterdir()] == ["1"]
-    starts = [json.loads(line) for line in log.read_text().splitlines()]
+    starts = [json.loads(line) for log in event_logs for line in log.read_text().splitlines()]
     assert len(starts) == 2 and all(row["state"] == "dispatched" for row in starts)
 
 
 @pytest.mark.parametrize("cap", ["1", "01"])
 @pytest.mark.parametrize("shell_mode", ["-ic", "-lic"])
 def test_cap_one_survives_real_tmux_and_interactive_shells(world, monkeypatch, cap, shell_mode):
-    log = scripted_backends(world)
+    scripted_backends(world)
     monkeypatch.setenv("COMPARE_MAX_CALLS", cap)
     monkeypatch.setenv("COMPARE_CODEX_MODELS", SOL)
     monkeypatch.setenv("COMPARE_CLAUDE_MODELS", "")
-    home = world.outside / "home"
-    home.mkdir()
-    # Reproduce rc files that would otherwise remove the guard-first PATH.
-    (home / ".bashrc").write_text(f"export PATH={shlex.quote(str(world.fakebin))}:/usr/bin:/bin\n")
-    (home / ".bash_profile").write_text('. "$HOME/.bashrc"\n')
-    monkeypatch.setenv("HOME", str(home))
     hidden = world.outside / "private-evidence"
     hidden.mkdir()
     (hidden / "secret").write_text("private")
-    monkeypatch.setenv("COMPARE_HIDE", str(hidden))
-    outputs = world.outside / "tmux-outputs"
-    outputs.mkdir()
     _, record = start(world, "direct_task")
+    log = Path(record["tree"]) / "tmp/backend-starts.jsonl"
+    home = Path(record["sandbox"]["home"])
+    # A persisted controller startup file stays outside the prepared unit and cannot drop the guard.
+    (home / ".bashrc").write_text(f"export PATH={shlex.quote(str(world.fakebin))}:/usr/bin:/bin\n")
+    (home / ".bash_profile").write_text('. "$HOME/.bashrc"\n')
+    outputs = Path(record["tree"]) / "tmp/tmux-outputs"
+    outputs.mkdir()
     socket = "/tmp/single-call.sock"
     tmux = f"tmux -S {socket}"
     nested = (["codex", "-m", SOL, "exec", "--dangerously-bypass-approvals-and-sandbox", "-"],

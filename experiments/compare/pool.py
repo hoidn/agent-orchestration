@@ -314,7 +314,7 @@ def pool(task, criterion, out, judges, runs):
     return write_pool(task, criterion, out, judges, ref, rows, batches)
 
 
-def write_pool(task, criterion, out, judges, ref, rows, batches, *, qualification=None, review_exclude=()):
+def write_pool(task, criterion, out, judges, ref, rows, batches, *, qualification=None, review_exclude=(), environment=None):
     """Write either caller's pool, preserving its verified structural proof when supplied."""
     task, out = Path(task).resolve(), Path(out).resolve()
     review_exclude = review_exclusions(review_exclude)
@@ -346,7 +346,7 @@ def write_pool(task, criterion, out, judges, ref, rows, batches, *, qualificatio
     if review_exclude:
         mapping["review"] = {"source_compare_base": ref["compare_base"], "excluded_paths": list(review_exclude)}
     dump(out / "records" / "mapping.json", mapping)
-    write_score_inputs(out, mapping, (task / "intent.txt").read_text(), Path(ref["runtime"]))
+    write_score_inputs(out, mapping, (task / "intent.txt").read_text(), Path(ref["runtime"]), environment=environment)
     (out / "clones").chmod(HIDDEN_DIR)
     print(f"# {len(clones)} clones in {len(members)} batches; run the judges one after another, "
           f"each followed by: prepare.py verify-pool --pool {out}")
@@ -399,10 +399,14 @@ def diff_batches(fillers, batches, per_batch, minimum, seed):
             for batch in dealt]
 
 
-def write_score_inputs(out, mapping, intent, runtime):
+def write_score_inputs(out, mapping, intent, runtime, *, environment=None):
     """Per judge: score.orc inputs with that judge's random clone order, a working and state directory of
     its own, and the command and resume script behind the shims (records/score-<judge>.sh, resume-<judge>.sh)."""
     rng, rule = random.SystemRandom(), rubric(mapping)
+    try:
+        from . import sandbox
+    except ImportError:
+        import sandbox
     for judge, info in mapping["judges"].items():
         inputs, home = out / "records" / f"score-inputs-{judge}.json", out / "judges" / info["dir"]
         batches = [{"clones": [str(out / "clones" / cid) for cid in rng.sample(ids, len(ids))]}
@@ -413,8 +417,13 @@ def write_score_inputs(out, mapping, intent, runtime):
                       "criterion_sha256": mapping["criterion_sha256"], "judge_model": judge})
         (home / "tmp").mkdir(parents=True)  # the judge's /tmp inside the shims' sandbox
         (out / "records" / "judges" / judge).mkdir(parents=True)
+        clones = sorted({path for batch in batches for path in [*batch['clones'],
+                         *([batch['reference']] if 'reference' in batch else [])]})
+        info['sandbox'] = sandbox.prepare_unit(home, out / 'records/judges' / judge,
+            homes=out / '.private-homes', clones=clones, providers=Path(info['providers']), result_root=home / 'state',
+            environment=environment)
         env = {"COMPARE_ROOT": out / "records" / "judges" / judge, "COMPARE_TREE": home,
-               "COMPARE_BASE": mapping["compare_base"]}
+               "COMPARE_BASE": mapping["compare_base"], 'COMPARE_SANDBOX': info['sandbox']['declaration']}
         if judge in contamination.CODEX_MODELS:
             env["COMPARE_CODEX_MODELS"] = judge
         command, resume = shim_commands(
@@ -425,13 +434,22 @@ def write_score_inputs(out, mapping, intent, runtime):
         (out / "records" / f"score-{judge}.sh").write_text(command + "\n")
         (out / "records" / f"resume-{judge}.sh").write_text(resume + "\n")
         print(command)
+    dump(out / 'records/mapping.json', mapping)
 
 
 def scan_judge(out, judge, solution, home=None):
     """Record every contamination hit of a judge's calls and sessions in records/judges/<judge>/scan.json."""
-    out, home = out.resolve(), home or Path.home()
+    try:
+        from . import sandbox
+    except ImportError:
+        import sandbox
+    out = out.resolve()
     mapping = load(out / "records" / "mapping.json")
     workdir, calls_root = out / "judges" / mapping["judges"][judge]["dir"], out / "records" / "judges" / judge
+    metadata = {'tree': str(workdir), 'records': str(calls_root)}
+    if 'sandbox' in mapping['judges'][judge]:
+        metadata['sandbox'] = mapping['judges'][judge]['sandbox']
+    home = sandbox.session_home(metadata, home)
     run_roots = sorted({str(Path(run).parents[1]) for run in mapping["runs"]})
     agent_roots = sorted({str(Path(run).parents[2] / "agents") for run in mapping["runs"]})
     compiled = contamination.patterns(

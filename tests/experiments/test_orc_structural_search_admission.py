@@ -22,6 +22,7 @@ def test_unsupported_parent_refuses_before_reservation_or_launch(tmp_path, monke
     monkeypatch.setattr(evaluation, "run_arm", lambda *a, **k: pytest.fail("unsupported parent reached run_arm"))
     monkeypatch.setattr(driver, "run_agent", lambda *a, **k: pytest.fail("unsupported parent reached mutator"))
     monkeypatch.setattr(driver, "runtime_commit", lambda runtime: "frozen")
+    monkeypatch.setattr(evaluation, "runtime_commit", lambda runtime: "frozen")
     common = dict(runtime=REPO, env={}, work_root=tmp_path / "work", criterion=criterion)
     with pytest.raises(ValueError, match="unsupported_effect_shape"):
         if boundary == "direct_evaluation":

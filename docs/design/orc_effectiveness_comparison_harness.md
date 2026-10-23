@@ -216,7 +216,7 @@ The original apparatus deletion decision is completed history; preserved evidenc
   records layout (a run's state lies in its working directory, so no records
   path is legitimate); another run's tree name; other sessions' transcripts
   and tmux sockets (`.claude/projects`, `.codex/sessions`, `.codex/history`,
-  `claude-tmux-sockets`), which stay readable; `github.com`, `gh ` and
+  `claude-tmux-sockets`); `github.com`, `gh ` and
   `git fetch`; the solution commit's hash; and, in the Claude sessions, an
   assistant message answered by a Fable model (model policy, below).
   A path also matches when written under `~`, `$HOME` or `${HOME}`; a bare
@@ -226,12 +226,11 @@ The original apparatus deletion decision is completed history; preserved evidenc
   or `cleared`, with a reason. `pool` refuses an unscanned run and a run with
   hits and no verdict, and excludes contaminated runs; the report lists every
   hit, verdict and reason. Judges are scanned and adjudicated the same way
-  (§Flow of one run). Some exposure is detection-only: an agent can list
-  sibling tree names and the records root (§Layout), and can read its own
-  run's state under its working directory, whose `run.json` names the frozen
-  workflow file, and home, other sessions' transcripts and the network, which
-  the sandbox leaves reachable (§The shim); the scan flags any use. This is
-  detection, not prevention, and is stated as a limit in every report. Whether the
+  (§Flow of one run). The positive mount boundary excludes host checkouts,
+  records and peer sessions. Its writable own-tree state and private native
+  home remain readable; network activity and model usage still require recorded
+  action/receipt audits. Historical records without private-home lineage retain
+  their original shared-home interpretation. Whether the
   commits must postdate the models' training data, and from which date, is
   the owner's call (Q5).
 - **D6. The frozen criterion distinguishes task difficulty from evaluator controls.**
@@ -325,6 +324,7 @@ experiments/compare/
   README.md                 operator contract: layout, recipe, measures
   prepare.py                command line: run, collect, scan, pool, verify-pool
   repos.py, scan.py, pool.py  candidate builds and patches; contamination scan; blind pool and its check
+  sandbox.py                positive mounts, concrete dependency declarations and private native homes
   shim/claude, shim/codex   transparent wrappers; record prompt, stdout, stderr, patches per call
   score.orc                 blind side-by-side ratings per batch
   score.providers.json      judge binding (Claude); providers/score_codex.json for an OpenAI judge
@@ -346,11 +346,10 @@ records directory holds the command, the inputs, the call records, the
 collected patches and the log; the agents' tree, under a random name, holds
 the candidates and the run's `TMPDIR` (its `/tmp` inside the sandbox), so
 nothing an agent works in names the arm, the run or the records. The
-orchestrator's state stays at the runtime's default, `.orchestrate/runs/`
-under the run's working directory, so every result path a provider prompt
-names lies inside the agent's workspace, the condition the maintained
-workflows were written for; a state root outside the workspace induced
-misplaced and missing result files. `best_of_n` is the exception: its
+fixed-arm state uses the runtime's default, `.orchestrate/runs/`, under the
+run's working directory. Custom arms can use an external state root through
+the exact result delivery below; native cwd remains inside the unit tree.
+`best_of_n` uses another owned-tree location: its
 workspace is the tree while its implementers work in `cand-k` and resolve
 the workspace-relative result path there, so its state goes to
 `<tree>/.orchestrate/best-of-n-runs/` (`--state-dir`) and every candidate's
@@ -365,7 +364,8 @@ the judges' call records.
 Only the pool's `clones/` is mode 0311 (traversable, not listable; judges
 receive absolute paths): the runtime opens every ancestor of a workspace or
 state directory with `O_RDONLY`, so no ancestor of an agents' tree or a judge
-directory can be unlistable, and D5 detects what an agent can list. The work
+directory can be unlistable on the controller. Native processes see synthetic
+ancestors and exact grants, rather than the controller's host directories. The work
 root and the frozen runtime lie outside the main checkout's path prefix, and
 the runtime outside the work root; work roots and pools do not lie under
 `/tmp` or `/dev/shm`, which the sandbox replaces; `prepare.py` refuses
@@ -404,7 +404,7 @@ otherwise.
 6. Run the criterion-selected scoring workflow (`score.orc` by default) once
    per judge, one judge after another, behind the shims, from the judge's own working directory
    with its state directory inside it, with the batches, the intent, the
-   judge model and `criterion_sha256` as inputs. Judges run unrestricted on the same clones,
+   judge model and `criterion_sha256` as inputs. Judges receive read-only grants to their exact clones,
    so `prepare.py verify-pool` runs before each judge and after the last:
    every clone's diff must equal its pooled patch, and a clone that differs
    is restored and reported. A judge's provider failure (missing or invalid
@@ -423,24 +423,46 @@ otherwise.
 
 ### The shim
 
-Named after the agent CLI it replaces, it forwards all arguments and stdin to
-the real binary found by skipping its own directory on `PATH`, tees stdout,
-and records patches. It does not touch the result file: the evaluated route
-hands providers the absolute path of their pinned result file, and a missing
-file fails the effect with `provider_result_missing`, so the September
-wrapper's deletion of stale result files is obsolete. The shim is the only
-part of the harness in the treatment's path, and it changes two things the
-agent sees. Before the real CLI starts it removes `PYTHONPATH`, `OLDPWD`, the
-`COMPARE_*` variables and its own directory from `PATH`, because they name the
-frozen runtime, the launch directory and the records. It then runs the real
-CLI under bubblewrap with a private `/tmp` (the agents' tree's `tmp/`, shared
-by the run's candidates; a judge's own `tmp/`), a private `/dev/shm` and its
-own PID namespace, so hard-coded `/tmp` paths, tmux sockets and the process
-list do not cross runs or sessions, and any server or tmux session an agent
-starts ends with its call. The sandbox does not isolate the rest of the
-filesystem, home, other sessions' transcripts or the network; D5 detects
-reads there. The same shims run in front of every judge; the sandbox's mounts
-are in [`experiments/compare/README.md`](../../experiments/compare/README.md).
+Named after the agent CLI it replaces, the shim records arguments, prompt,
+streams and patches, and invokes the compare-owned empty-root builder. One
+concrete declaration supplies read-only OS/tool dependencies, explicit PATH and
+required environment names. Named executable/installation discovery does not
+grant PATH directories. Native processes receive their own writable tree,
+persistent private home at `/home/compare`, private `/tmp` and minimal device,
+process and IPC namespaces. Judges additionally receive exactly their finalized
+batch/reference clone paths read-only, with optional Git locks disabled.
+
+The controller prepares required private credential files once in writable
+mode-0600 storage, outside candidates and public captures. Native atomic refreshes
+survive resume; launching never recopies host credentials. Minimal public config,
+the native-version catalog and declared public tmux resources replace ambient
+host config, plugins, hooks, memory and startup files. `COMPARE_SANDBOX` stays
+controller-private; native HOME, PATH, model policy and credential environment
+are launcher-controlled. Host roots, peer homes and controller/pool records are
+absent. Tightening a mixed-provider unit to no-Claude requires an idle unit with
+no active or concurrent launches, a caller-owned precondition. A permanent
+controller marker prevents subsequent launches/resumes from reopening Claude;
+it does not revoke an active native process. Network and uninstrumented direct
+APIs remain separate audit limits.
+
+Owned-tree result writes retain their normal missing/invalid and atomic-write
+semantics. For a prepared external state root, the builder pins the authorized
+parent and mounts a fresh private staging directory at its exact guest pathname.
+The real controller parent and its siblings stay absent. After native exit it
+publishes only a regular `result.json`, with no repair, through fixed descriptors
+and exclusive atomic publication into an unchanged parent and absent target.
+Missing output remains missing; malformed or empty output stays byte-identical.
+Native exit is retained even when publication fails. External delivery keeps a
+pending call marker until publication or legitimate absence completes; a settled
+marker is an apparatus refusal in collection and scanning, never an adjudicable
+natural failure. An external result destination never grants an external cwd.
+
+Each unit records `sandbox: {home, home_path, declaration}`. Native cwd remains
+unremapped; scanners and metering use `home`, the durable backing, rather than
+the guest `home_path`. New incomplete/inconsistent lineage refuses, while
+historical records keep their original home semantics. The same builder serves
+agents and judges; the concrete mounts and remaining limits are in the
+[`harness README`](../../experiments/compare/README.md).
 
 ### `score.orc`
 
@@ -569,9 +591,10 @@ Completed E-A/E-B preregistrations retain their original task/model/budget and s
   the tree's `tmp/`, because task texts may name it.
 - Shim environment: `COMPARE_ROOT` (the run's records directory),
   `COMPARE_TREE` (the agents' tree), `COMPARE_BASE` (the seeded commit). The
-  shims remove these, `PYTHONPATH`, `OLDPWD` and their own `PATH` entry before
-  the real CLI starts; everything else is the provider's own environment,
-  including the user's CLI credentials.
+  `COMPARE_SANDBOX` names its prepared concrete declaration. Native execution
+  receives only required named environment values and launcher-owned HOME,
+  PATH, model policy and prepared credential projection; bookkeeping,
+  `PYTHONPATH`, `OLDPWD`, host startup and socket variables are excluded.
 - `criterion.json`: `experiment`, `task`, `base_commit`, `arms`, `comparator`
   per arm, `primary` and `secondary` measures with thresholds, `judges`,
   `runs_per_arm`, `anchors` by name, `written_before_scoring: true`. Its
@@ -627,9 +650,9 @@ work root.
   is resumed with the same working directory and state instead. Runs are
   never excluded to improve a mean; the only exclusion is a run adjudicated
   contaminated under D5, listed with its hits and reason.
-- A result path outside the agent's workspace, or one the agent cannot
-  resolve from where it works, is a harness defect, not an outcome: it changes the condition the maintained workflows were written for
-  and induces misplaced and missing result files. So is an environment shared
+- A result path that cannot resolve through its owned tree or exact prepared
+  external delivery is a harness defect, not an outcome. A publication marker
+  rejects intake even when native usage is complete. So is an environment shared
   across runs or sessions (`/tmp`, `/dev/shm`, tmux servers, the process
   list). Runs made under either are discarded and rerun (§Experiments).
 - A judge's provider failure (missing or invalid result) is an instrument
@@ -646,8 +669,9 @@ work root.
 Unrestricted-workspace providers work in candidate repositories in an
 agents' tree apart from the records (§Layout), under the shims' sandbox
 (§The shim), with no remote and no history past the base commit; they run
-with the user's CLI credentials and network access, which is why D5 scans
-rather than promises. Runs use a detached worktree of the recorded commit so
+with a minimal private projection of required credentials and network access.
+The filesystem boundary prevents ambient host reads; D5 also audits native
+actions and usage. Runs use a detached worktree of the recorded commit so
 edits to `main` cannot leak in (design lesson 5), outside the main checkout's
 path prefix and outside the work root. `list/map-effect` is
 serial: four candidates take four times one call. Judge calls read one batch

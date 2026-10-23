@@ -116,7 +116,7 @@ def test_bookkeeping_lives_in_the_records_directory_not_in_the_agents_tree(world
     assert (records.parent, sorted(p.name for p in Path(record["tree"]).iterdir()),
             sorted(p.name for p in records.iterdir())) == (
         world.root.resolve() / "records" / "direct_task", [".model-guard", "cand-1", "tmp"],
-        ["calls", "collected", "command.sh", "inputs.json", "record.json", "resume.sh"])
+        ["calls", "collected", "command.sh", "inputs.json", "record.json", "resume.sh", "sandbox.json"])
 
 
 def execute(command):
@@ -191,21 +191,33 @@ ATTEMPT = ("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", "ORCHESTRATOR_PROVIDER_ATTEMPT_SIT
 
 def test_shim_hides_an_ordinary_attempts_result_variables_from_the_agent(world, monkeypatch):
     # an orchestrator task repository's own tests read these, so an agent running them overwrote its result
-    for name in ATTEMPT[:2]:  # an ordinary attempt: no workspace root; the prompt's `- path:` line names the file
-        monkeypatch.setenv(name, "set-by-the-provider-executor")
-    monkeypatch.delenv(ATTEMPT[2], raising=False)
     _, record = start(world, "direct_task")
-    env = call(world, record, "env").stdout
+    output = Path(record["state_root"]) / "attempt-1/result.json"
+    output.parent.mkdir(parents=True)
+    monkeypatch.setenv(ATTEMPT[0], str(output))
+    monkeypatch.setenv(ATTEMPT[1], "fixture-site-key")
+    monkeypatch.delenv(ATTEMPT[2], raising=False)
+    done = call(world, record, "env")
+    assert done.returncode == 0, done.stderr
+    env = done.stdout
     assert [name for name in ATTEMPT if f"{name}=" in env] == []
 
 
 def test_shim_keeps_a_launch_workspace_attempts_result_variables(world, monkeypatch):
     # a launch-workspace attempt's prompt tells the agent to resolve paths and write its result through them
-    for name in ATTEMPT:
-        monkeypatch.setenv(name, "set-by-the-provider-executor")
     _, record = start(world, "direct_task")
-    env = call(world, record, "env").stdout
-    assert [name for name in ATTEMPT if f"{name}=set-by-the-provider-executor" in env] == list(ATTEMPT)
+    attempt_values = {
+        ATTEMPT[0]: str(Path(record["state_root"]) / "attempt-1/result.json"),
+        ATTEMPT[1]: "fixture-site-key",
+        ATTEMPT[2]: record["tree"],
+    }
+    Path(attempt_values[ATTEMPT[0]]).parent.mkdir(parents=True)
+    for name, value in attempt_values.items():
+        monkeypatch.setenv(name, value)
+    done = call(world, record, "env")
+    assert done.returncode == 0, done.stderr
+    env = done.stdout
+    assert [name for name in ATTEMPT if f"{name}={attempt_values[name]}" in env] == list(ATTEMPT)
 
 
 def test_shim_gives_the_agent_a_private_tmp_and_process_list(world):
@@ -216,16 +228,14 @@ def test_shim_gives_the_agent_a_private_tmp_and_process_list(world):
         "probe\n", True, 0)
 
 
-def test_compare_hide_masks_directories_and_keeps_the_tree(world, monkeypatch):
+def test_positive_mounts_hide_sibling_data_and_keep_the_tree(world):
     _, record = start(world, "direct_task")
     masked = Path(record["tree"]).parent  # the tree's own parent: the tree must stay reachable
     (masked / "secret").write_text("hidden-value\n")
     script = f"ls {masked}; cat {masked}/secret; echo cat-exit=$?; ls {record['tree']}/cand-1"
-    shown = call(world, record, script).stdout
-    monkeypatch.setenv("COMPARE_HIDE", f"{world.outside / 'missing'}:{masked}")  # a missing directory is skipped
-    hidden = call(world, record, script).stdout
-    assert ("hidden-value" in shown, "secret" in hidden, "cat-exit=0" in hidden, "README.md" in hidden) == (
-        True, False, False, True)
+    isolated = call(world, record, script).stdout
+    assert ("hidden-value" in isolated, "cat-exit=0" in isolated, "README.md" in isolated) == (
+        False, False, True)
 
 
 def test_the_agent_never_sees_compare_hide(world, monkeypatch):
@@ -321,7 +331,7 @@ def test_scan_records_each_hit_with_file_line_and_excerpt(world):
     records, record = start(world, "direct_task")
     cand = record["candidates"][0]
     call(world, record, "echo fine; echo 'pushed through gh pr view 3'; echo github.com/x")
-    home = world.tmp / "home"
+    home = Path(record["sandbox"]["home"])
     slug = "".join(c if c.isalnum() else "-" for c in cand)
     jsonl(home / ".claude/projects" / slug / "s.jsonl", [
         {"type": "user", "message": {"content": [{"type": "tool_result", "content": str(world.main)}]}},
@@ -337,7 +347,7 @@ def test_scan_records_each_hit_with_file_line_and_excerpt(world):
         {"type": "session_meta", "payload": {"cwd": str(world.tmp)}},
         {"type": "response_item", "payload": {"type": "function_call", "arguments": "git fetch"}},
     ])
-    hits = prepare.scan(records, world.solution, home=home)
+    hits = prepare.scan(records, world.solution)
     assert sorted((Path(h["file"]).name, h["line"], h["pattern"], "gh pr" in h["text"]) for h in hits) == [
         ("rollout-a.jsonl", 2, "solution hash", False), ("rollout-a.jsonl", 3, "frozen checkout", False),
         ("s.jsonl", 2, "main checkout prefix", False), ("stdout.txt", 3, "gh", True),
@@ -347,7 +357,7 @@ def test_scan_records_each_hit_with_file_line_and_excerpt(world):
 def test_scan_counts_sibling_checkouts_of_main_as_hits_but_not_its_own_tree(world):
     records, record = start(world, "direct_task")
     call(world, record, f"echo {record['candidates'][0]}; echo going through; echo {world.main}-repl/orchestrator")
-    assert [(h["line"], h["pattern"]) for h in prepare.scan(records, world.solution, home=world.tmp / "home")] == [
+    assert [(h["line"], h["pattern"]) for h in prepare.scan(records, world.solution)] == [
         (4, "main checkout prefix")]
 
 
@@ -355,7 +365,7 @@ def test_scan_counts_another_runs_agents_tree_as_a_hit(world):
     records, record = start(world, "direct_task")
     _, other = start(world, "direct_task")
     call(world, record, f"ls {Path(other['tree']).name}")
-    assert [h["pattern"] for h in prepare.scan(records, world.solution, home=world.tmp / "home")] == [
+    assert [h["pattern"] for h in prepare.scan(records, world.solution)] == [
         "other tree or judge"]
 
 
@@ -366,7 +376,7 @@ def test_scan_counts_other_runs_records_and_pool_records_but_not_its_own_state(w
              f"cat {w}/records/best_of_n/run-1/collected/cand-1.diff", "cat ../../../records/direct_task/run-2/state/x",
              f"cat {records}/record.json", "cat /elsewhere/pools/p1/records/mapping.json", f"ls {w}/records"]
     call(world, record, "".join(f"echo '{line}'\n" for line in lines))
-    hits = prepare.scan(records, world.solution, home=world.tmp / "home")
+    hits = prepare.scan(records, world.solution)
     assert sorted((h["line"], h["pattern"]) for h in hits) == [
         (4, "records layout"), (4, "records root"), (5, "records layout"), (6, "records layout"), (6, "records root"),
         (7, "pool record files"), (8, "records root")]
@@ -375,24 +385,25 @@ def test_scan_counts_other_runs_records_and_pool_records_but_not_its_own_state(w
 def test_scan_counts_reads_of_other_sessions_transcripts(world):
     records, record = start(world, "direct_task")
     call(world, record, "echo 'cat ~/.claude/projects/-x/s.jsonl'")
-    assert [h["pattern"] for h in prepare.scan(records, world.solution, home=world.tmp / "home")] == [
+    assert [h["pattern"] for h in prepare.scan(records, world.solution)] == [
         "other sessions' files"]
 
 
-def test_scan_matches_paths_written_under_the_home_directory(world):
-    records, record = start(world, "direct_task")
+def test_scan_patterns_match_home_aliases_without_overriding_a_unit_home(world):
+    home = world.tmp / "home"
+    main, runtime = home / "main", home / "runtime"
     lines = ["~/main/specs", "$HOME/main-repl/x", "${HOME}/runtime/orchestrator", "main/specs"]
-    call(world, record, "".join(f"echo '{line}'\n" for line in lines))
-    hits = prepare.scan(records, world.solution, home=world.tmp)
-    assert sorted((h["line"], h["pattern"]) for h in hits) == [
-        (2, "main checkout prefix"), (3, "main checkout prefix"), (4, "frozen checkout")]
+    compiled = scan.patterns(main=main, runtime=runtime, solution=world.solution, home=home)
+    assert [name for line in lines for name, pattern in compiled.items() if re.search(pattern, line)] == [
+        "main checkout prefix", "main checkout prefix", "frozen checkout"]
 
 
-def test_scan_matches_the_records_root_written_under_the_home_directory(world):
-    records, record = start(world, "direct_task")
-    call(world, record, f"echo '~/{world.root.relative_to(world.outside)}/records'")
-    hits = prepare.scan(records, world.solution, home=world.outside)
-    assert [h["pattern"] for h in hits] == ["records root"]
+def test_scan_patterns_match_a_records_root_written_under_home(world):
+    home = world.tmp / "home"
+    records_root = home / "work" / "records"
+    compiled = scan.patterns(main=world.main, runtime=world.runtime, solution=world.solution, home=home,
+                             roots=[("records root", records_root)])
+    assert re.search(compiled["records root"], "~/work/records/direct_task/run-1/record.json")
 
 
 def test_run_refuses_a_base_that_does_not_ignore_run_state(world):
@@ -405,23 +416,25 @@ def test_run_refuses_a_base_that_does_not_ignore_run_state(world):
 
 def log_claude_argv(world, monkeypatch):
     """Make the stand-in claude CLI log its arguments, one call per line, before running its prompt."""
-    log = world.outside / "claude-argv.log"
+    log = "/tmp/claude-argv.log"
     (world.fakebin / "claude").write_text('#!/bin/sh\necho "$*" >> "$CLAUDE_ARGV_LOG"\nexec bash -c "$(cat)"\n')
     monkeypatch.setenv("CLAUDE_ARGV_LOG", str(log))
-    return log
+    return Path("claude-argv.log")
 
 
 def test_claude_without_a_model_runs_sonnet_at_the_top_and_when_nested(world, monkeypatch):
-    log = log_claude_argv(world, monkeypatch)
+    log_claude_argv(world, monkeypatch)
     _, record = start(world, "direct_task")
+    log = Path(record["tree"]) / "tmp/claude-argv.log"
     assert call(world, record, "claude -p nested </dev/null").returncode == 0
     assert log.read_text().splitlines() == ["--model claude-sonnet-5-5 -p", "--model claude-sonnet-5-5 -p nested"]
 
 
 @pytest.mark.parametrize("model", ["--model fable", "--model=claude-fable-5-1"])
 def test_nested_claude_asking_for_fable_is_refused_before_the_cli_runs(world, monkeypatch, model):
-    log = log_claude_argv(world, monkeypatch)
+    log_claude_argv(world, monkeypatch)
     _, record = start(world, "direct_task")
+    log = Path(record["tree"]) / "tmp/claude-argv.log"
     done = call(world, record, f"claude {model} -p nested </dev/null; echo nested-exit=$?")
     assert (log.read_text().splitlines(), "nested-exit=2" in done.stdout) == (["--model claude-sonnet-5-5 -p"], True)
 
@@ -429,55 +442,63 @@ def test_nested_claude_asking_for_fable_is_refused_before_the_cli_runs(world, mo
 @pytest.mark.parametrize("fallback", ["--model opus --fallback-model fable",
                                       "--fallback-model=claude-sonnet-5-5,claude-fable-5-1"])
 def test_nested_claude_with_a_fable_fallback_is_refused_before_the_cli_runs(world, monkeypatch, fallback):
-    log = log_claude_argv(world, monkeypatch)
+    log_claude_argv(world, monkeypatch)
     _, record = start(world, "direct_task")
+    log = Path(record["tree"]) / "tmp/claude-argv.log"
     done = call(world, record, f"claude {fallback} -p nested </dev/null; echo nested-exit=$?")
     assert (log.read_text().splitlines(), "nested-exit=2" in done.stdout) == (["--model claude-sonnet-5-5 -p"], True)
 
 
 def test_a_fallback_model_alone_still_gets_sonnet_as_the_model(world, monkeypatch):
-    log = log_claude_argv(world, monkeypatch)
+    log_claude_argv(world, monkeypatch)
     _, record = start(world, "direct_task")
+    log = Path(record["tree"]) / "tmp/claude-argv.log"
     call(world, record, "claude --fallback-model claude-sonnet-5-5 -p nested </dev/null")
     assert log.read_text().splitlines()[1] == "--model claude-sonnet-5-5 --fallback-model claude-sonnet-5-5 -p nested"
 
 
 def test_a_top_level_fable_call_is_refused_and_still_recorded(world, monkeypatch):
-    log = log_claude_argv(world, monkeypatch)
+    log_claude_argv(world, monkeypatch)
     records, record = start(world, "direct_task")
+    log = Path(record["tree"]) / "tmp/claude-argv.log"
     done = call(world, record, "echo agent-ran", args=("--model", "claude-fable-5-1", "-p"))
     assert (done.returncode, "agent-ran" in done.stdout, log.exists(), (records / "calls/1/prompt.txt").is_file()) == (
         2, False, False, True)
 
 
 def test_nested_claude_keeps_an_explicit_other_model(world, monkeypatch):
-    log = log_claude_argv(world, monkeypatch)
+    log_claude_argv(world, monkeypatch)
     _, record = start(world, "direct_task")
+    log = Path(record["tree"]) / "tmp/claude-argv.log"
     call(world, record, "claude --model claude-sonnet-5-5 -p nested </dev/null")
     assert log.read_text().splitlines()[1] == "--model claude-sonnet-5-5 -p nested"
 
 
 def test_claude_started_by_a_codex_agent_runs_sonnet(world, monkeypatch):
-    log = log_claude_argv(world, monkeypatch)
+    log_claude_argv(world, monkeypatch)
     _, record = start(world, "direct_task")
+    log = Path(record["tree"]) / "tmp/claude-argv.log"
     assert call(world, record, "claude -p nested </dev/null", binary="codex").returncode == 0
     assert log.read_text().splitlines() == ["--model claude-sonnet-5-5 -p nested"]
 
 
 @pytest.mark.parametrize("binary", ["claude", "codex"])
 def test_parallel_calls_in_one_tree_all_run_through_the_guard(world, monkeypatch, binary):
-    log = log_claude_argv(world, monkeypatch)
+    log_claude_argv(world, monkeypatch)
     _, record = start(world, "direct_task")
+    log = Path(record["tree"]) / "tmp/claude-argv.log"
     with ThreadPoolExecutor(8) as pool:
         done = list(pool.map(lambda k: call(world, record, f"claude -p nested-{k} </dev/null", binary=binary), range(16)))
     nested = sorted(line for line in log.read_text().splitlines() if "nested" in line)
     assert ([d.returncode for d in done], nested, sorted(p.name for p in (Path(record["tree"]) / ".model-guard").iterdir())) == (
-        [0] * 16, sorted(f"--model claude-sonnet-5-5 -p nested-{k}" for k in range(16)), ["claude", "codex"])
+        [0] * 16, sorted(f"--model claude-sonnet-5-5 -p nested-{k}" for k in range(16)), ["claude", "codex"]), \
+        [(done.returncode, done.stderr) for done in done if done.returncode]
 
 
 def test_an_edited_guard_is_restored_by_the_next_call(world, monkeypatch):
-    log = log_claude_argv(world, monkeypatch)
+    log_claude_argv(world, monkeypatch)
     _, record = start(world, "direct_task")
+    log = Path(record["tree"]) / "tmp/claude-argv.log"
     call(world, record, "true")
     edited = Path(record["tree"]) / ".model-guard" / "claude"
     edited.write_text(f'#!/bin/sh\nexec {world.fakebin}/claude "$@"\n')
@@ -495,25 +516,25 @@ def model_session(home, directory, model):
 def test_scan_flags_fable_answers_in_a_nested_session_of_the_tree(world):
     records, record = start(world, "direct_task")
     call(world, record, "true")
-    home = world.tmp / "home"
+    home = Path(record["sandbox"]["home"])
     nested = Path(record["tree"]) / "tmp/pytest-of-u/pytest-0/probe0"
     model_session(home, nested, "claude-fable-5-1")
     model_session(home, nested, "claude-sonnet-5-5")
-    assert [(Path(h["file"]).name, h["pattern"]) for h in prepare.scan(records, world.solution, home=home)] == [
+    assert [(Path(h["file"]).name, h["pattern"]) for h in prepare.scan(records, world.solution)] == [
         ("claude-fable-5-1.jsonl", "Fable model")]
 
 
 def test_printed_text_naming_a_fable_model_is_not_a_fable_answer(world):
     records, record = start(world, "direct_task")
     call(world, record, "echo 'assistant model: claude-fable-5-1'")
-    assert prepare.scan(records, world.solution, home=world.tmp / "home") == []
+    assert prepare.scan(records, world.solution) == []
 
 
 def test_fable_model_use_cannot_be_cleared(world):
     records, record = start(world, "direct_task")
     call(world, record, "true")
-    model_session(world.tmp / "home", record["tree"], "claude-fable-5-1")
-    prepare.scan(records, world.solution, home=world.tmp / "home")
+    model_session(Path(record["sandbox"]["home"]), record["tree"], "claude-fable-5-1")
+    prepare.scan(records, world.solution)
     with pytest.raises(SystemExit, match="Fable model"):
         prepare.adjudicate(records, "cleared", "a probe")
 
@@ -540,13 +561,14 @@ def test_existing_arms_layout_unchanged(world):
     wf = rt / "experiments/orc_vs_single_call/workflows"
     prefix = (f"cd {cand} && env PYTHONPATH={rt} COMPARE_ROOT={records} COMPARE_TREE={tree} "
               f"COMPARE_BASE={record['compare_base']} TMPDIR={tree / 'tmp'} "
+              f"COMPARE_SANDBOX={records / 'sandbox.json'} "
               f'PATH={rt / "experiments/compare/shim"}:"$PATH" {sys.executable} -P -m orchestrator ')
     assert ((records / "command.sh").read_text(), (records / "resume.sh").read_text(), record["arm_kind"],
             sorted(p.name for p in records.iterdir())) == (
         prefix + f"run {wf / 'reviewed_change.orc'} --entry-workflow reviewed_change::reviewed-change "
         f"--source-root {wf} --provider-externs-file {wf / 'reviewed_change.providers.json'} "
         f"--input-file {records / 'inputs.json'}\n", prefix + 'resume "$1"\n', "orc",
-        ["command.sh", "inputs.json", "record.json", "resume.sh"])
+        ["command.sh", "inputs.json", "record.json", "resume.sh", "sandbox.json"])
 
 
 def candidate_root(world):
@@ -554,6 +576,7 @@ def candidate_root(world):
     for name in ("main.orc", "providers.json", "commands.json"):
         (root / name).parent.mkdir(parents=True, exist_ok=True)
         (root / name).write_text("{}\n")
+    (root / "providers.json").write_text('{"providers.claude":"claude_unrestricted_workspace"}\n')
     return root
 
 
@@ -585,18 +608,27 @@ def test_candidate_root_spec_refuses_a_root_where_the_runtime_is_refused(world, 
         prepare.run_arm(world.task, "candidate", world.root, world.runtime, spec=candidate_spec(world, root))
 
 
-def test_generic_command_arm_runs_behind_shims_and_records_arm_kind(world, capsys):
+@pytest.mark.parametrize("bindings", [{}, {"providers.claude": "claude_unrestricted_workspace"}])
+def test_generic_command_arm_runs_behind_shims_and_records_arm_kind(world, capsys, bindings):
     script = 'printf "%s\\n" "$PWD" "$0" "$COMPARE_BASE" "$TMPDIR"; echo "echo agent-called" | claude -p'
-    spec = candidate_spec(world, candidate_root(world), command=("bash", "-c", script))
+    root = candidate_root(world)
+    (root / "providers.json").write_text(json.dumps(bindings))
+    spec = candidate_spec(world, root, command=("bash", "-c", script))
     records = prepare.run_arm(world.task, "control", world.root, world.runtime, spec=spec)
     record = json.loads((records / "record.json").read_text())
-    shutil.copytree(REPO / "experiments/compare/shim", world.runtime / "experiments/compare/shim")  # untracked
+    runtime_compare = world.runtime / "experiments/compare"
+    shutil.copytree(REPO / "experiments/compare/shim", runtime_compare / "shim")  # untracked
+    shutil.copy2(REPO / "experiments/compare/sandbox.py", runtime_compare / "sandbox.py")
+    shutil.copy2(REPO / "experiments/compare/codex-models-0.163.0.json",
+                 runtime_compare / "codex-models-0.163.0.json")
     done = subprocess.run(["bash", "-c", capsys.readouterr().out], capture_output=True, text=True,
                           env={**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}"})
-    assert (done.stdout.splitlines()[:4], (records / "calls/1/stdout.txt").read_text().splitlines()[-1],
-            record["arm_kind"]) == (
+    assert done.returncode == 0, done.stderr
+    assert (done.returncode, done.stderr, done.stdout.splitlines()[:4], record["arm_kind"]) == (
+        0, "",
         [record["candidates"][0], str(records / "inputs.json"), record["compare_base"],
-         str(Path(record["tree"]) / "tmp")], "agent-called", "generic-command")
+         str(Path(record["tree"]) / "tmp")], "generic-command")
+    assert (records / 'calls/1/stdout.txt').read_text().splitlines()[-1] == 'agent-called'
 
 
 def test_scan_flags_archive_lineage_and_holdout_roots(world, monkeypatch):
@@ -605,7 +637,6 @@ def test_scan_flags_archive_lineage_and_holdout_roots(world, monkeypatch):
     holdouts = [world.outside / "holdout-a", world.outside / "holdout-b"]
     lines = [f"ls {archive}/c1", f"cat {lineage}", f"ls {holdouts[0]}", f"ls {holdouts[1]}/t", "ls elsewhere"]
     call(world, record, "".join(f"echo '{line}'\n" for line in lines))
-    monkeypatch.setenv("HOME", str(world.tmp / "home"))
     prepare.main(["scan", "--run", str(records), "--hash", world.solution, "--root", f"archive={archive}",
                   "--root", f"lineage={lineage}", *(f"--root=holdout={h}" for h in holdouts)])
     hits = json.loads((records / "record.json").read_text())["scan"]["hits"]
@@ -620,8 +651,8 @@ def test_scan_counts_another_evaluations_state_dir_outside_the_tree_as_a_hit(wor
     (runs / "e1").mkdir(parents=True)
     (runs / "e2").mkdir()
     call(world, json.loads((records / "record.json").read_text()), "echo 'ls ../e1'; echo 'ls ../e2'")
-    assert [(h["line"], h["pattern"]) for h in prepare.scan(records, world.solution, home=world.tmp / "home")] == [
-        (3, "other tree or judge")]
+    hits = prepare.scan(records, world.solution)
+    assert [(h["line"], h["pattern"]) for h in hits] == [(3, "other tree or judge")]
 
 
 def test_scan_root_patterns_stop_at_a_path_boundary(world):

@@ -25,7 +25,9 @@ import pytest
 
 from experiments.orc_structural_search.config import ExperimentConfig
 from tests.experiments.qualification_support import measure_free, sha
-from tests.experiments.compare_harness_support import OUTSIDE_SANDBOX_MOUNTS, commit, git, open_up
+from tests.experiments.compare_harness_support import (
+    OUTSIDE_SANDBOX_MOUNTS, commit, git, open_up, write_test_sandbox_config,
+)
 
 REPO = Path(__file__).resolve().parents[2]
 SEEDS = REPO / "experiments" / "orc_structural_search" / "seeds"
@@ -203,7 +205,7 @@ def capped_copy(source, destination):
 
 
 @pytest.fixture
-def world(tmp_path):
+def world(tmp_path, monkeypatch):
     """A clean runtime clone holding a tiny task repository's base commit, its task package, the seed catalog
     as a candidate root, an evidence root and the scripted providers (all but the runtime, task and candidate
     outside the shims' sandbox mounts)."""
@@ -217,6 +219,18 @@ def world(tmp_path):
     git(REPO, "clone", "-q", "--shared", "--no-checkout", str(REPO), str(main))
     git(main, "fetch", "-q", str(task_repo), solution)  # and its parent, the base
     git(main, "worktree", "add", "-q", "--detach", str(runtime), "HEAD")
+    changed = []
+    for relative in ('experiments/compare/shim/claude', 'experiments/compare/shim/model-guard',
+                     'experiments/compare/sandbox.py', 'experiments/compare/codex-models-0.163.0.json'):
+        source, destination = REPO / relative, runtime / relative
+        if not destination.exists() or destination.read_bytes() != source.read_bytes():
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, destination)
+            changed.append(relative)
+    if changed:
+        git(runtime, 'add', *changed)
+        git(runtime, '-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid',
+            'commit', '-qm', 'fixture current comparison sandbox')
     task = tmp_path / "task-1"
     for name, text in {"task.txt": "Set VALUE to 2.\n", "intent.txt": "VALUE is 2.\n", "base_commit": base + "\n",
                        "seed/dev-check.json": json.dumps(DEV_CHECK)}.items():
@@ -231,11 +245,28 @@ def world(tmp_path):
     for name in ("claude", "codex"):
         (fakebin / name).write_text(SCRIPTED)
         (fakebin / name).chmod(0o755)
+    results = outside / "results.json"
+    results.write_text("[]\n")
+    sandbox_config = write_test_sandbox_config(fakebin, outside / "sandbox-dependencies.json",
+                                                readonly_files=(results,),
+                                                environment_names=("SCRIPTED_RESULTS_FILE",))
+    empty_home = tmp_path / "empty-host-home"
+    empty_home.mkdir()
+    monkeypatch.setenv("COMPARE_SANDBOX", str(sandbox_config))
+    monkeypatch.setenv("HOME", str(empty_home))
+    monkeypatch.setenv("CODEX_HOME", str(empty_home / ".codex"))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(empty_home / ".claude"))
+    for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
+                "CLAUDE_CODE_OAUTH_TOKEN_FILE"):
+        monkeypatch.delenv(key, raising=False)
     criterion = measure_free(tmp_path, tasks=[task])
     yield SimpleNamespace(criterion=criterion, tmp=tmp_path, runtime=runtime, task=task, candidate=candidate, fakebin=fakebin, solution=solution,
-                          results=outside / "results.json", evidence=outside / "evidence", outside=outside)
+                          results=results, evidence=outside / "evidence", outside=outside,
+                          sandbox_config=sandbox_config, empty_home=empty_home)
     open_up(tmp_path)
     open_up(outside)
+    shutil.rmtree(runtime)
+    shutil.rmtree(main)
     shutil.rmtree(outside)
 
 

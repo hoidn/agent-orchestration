@@ -1,33 +1,11 @@
 #!/usr/bin/env bash
-# Stand-in for the agent CLI it is named after (shim/codex links here): runs the next real one on
-# PATH with the same arguments and stdin, tees stdout and stderr live, records the call in
-# $COMPARE_ROOT/calls/<n>/ with each $COMPARE_TREE/cand-* patch against $COMPARE_BASE, taken through a
-# copy of the candidate's index so what the agent staged stays staged. The agent loses PYTHONPATH,
-# OLDPWD, COMPARE_* and this directory on PATH (they name the runtime, main checkout and records), and,
-# for an ordinary attempt (ORCHESTRATOR_WORKSPACE_ROOT unset), its ORCHESTRATOR_OUTPUT_BUNDLE_PATH and
-# ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY (an orchestrator task repository's own code and tests read them, so its
-# test runs overwrote the result; the prompt's `- path:` line names the result file relative to the working
-# directory). A launch-workspace attempt keeps all three: its prompt tells the agent to use them, so the
-# overwrite risk remains there (disclosed in experiments/compare/README.md). It
-# runs under bubblewrap with a private /tmp ($COMPARE_TREE/tmp), an empty /var/tmp (other sessions keep
-# worktrees there), a private /dev/shm and process list;
-# the rest of the filesystem, home and network stay shared: reads there are only detected (R35). Each existing
-# directory of the optional colon-separated $COMPARE_HIDE is masked by an empty tmpfs, and the tree is then bound
-# back over itself, so a masked parent of the tree leaves the tree reachable.
-# The shared model guard is installed under both CLI names and stays first on PATH for nested calls.
-# Identical installed copies are left alone; missing copies use atomic hard links, edited ones rename.
-# Claude native agents are forced to Sonnet; the guard disables Codex native multiagent features.
+# Recording entry for both CLI names. The compare-owned builder exposes only the
+# prepared unit, its persistent private home/temp, declared tools and exact judge
+# clones. Controller records and bookkeeping variables never enter that root.
 : "${COMPARE_ROOT:?the run's records directory}" "${COMPARE_TREE:?the agents' tree}" "${COMPARE_BASE:?the seeded commit}"
 sandbox=$(command -v bwrap) || { echo "shim: bubblewrap (bwrap) is required on PATH" >&2; exit 127; }
 [ -d "$COMPARE_TREE/tmp" ] || { echo "shim: $COMPARE_TREE/tmp is missing (the agent's /tmp)" >&2; exit 70; }
-here=$(cd "$(dirname "$0")" && pwd -P); name=$(basename "$0"); real=; path=
-IFS=: read -ra dirs <<< "$PATH"
-for d in "${dirs[@]}"; do
-  [ "$(cd "$d" 2>/dev/null && pwd -P)" = "$here" ] && continue
-  path="${path:+$path:}$d"
-  [ -z "$real" ] && [ -x "$d/$name" ] && real="$d/$name"
-done
-[ -n "$real" ] || { echo "shim: no real $name on PATH outside $here" >&2; exit 127; }
+here=$(cd "$(dirname "$0")" && pwd -P); name=$(basename "$0")
 mkdir -p "$COMPARE_ROOT/calls"; n=1
 until mkdir "$COMPARE_ROOT/calls/$n" 2>/dev/null; do
   [ -d "$COMPARE_ROOT/calls/$n" ] || { echo "shim: cannot create $COMPARE_ROOT/calls/$n" >&2; exit 70; }
@@ -45,8 +23,6 @@ if [ -n "${COMPARE_MAX_CALLS+set}" ]; then
     exit 75
   fi
 fi
-attempt=(-u ORCHESTRATOR_OUTPUT_BUNDLE_PATH -u ORCHESTRATOR_PROVIDER_ATTEMPT_SITE_KEY)
-[ -n "${ORCHESTRATOR_WORKSPACE_ROOT+set}" ] && attempt=()
 guard="$COMPARE_TREE/.model-guard"; staged=
 for guarded in claude codex; do
   cmp -s "$here/model-guard" "$guard/$guarded" || {
@@ -56,41 +32,6 @@ for guarded in claude codex; do
       rm -f "$staged"
   } || { [ -n "$staged" ] && rm -f "$staged"; echo "shim: cannot install the model guard in $guard" >&2; exit 70; }
 done
-real="$guard/$name"
-hide=()
-if [ -n "${COMPARE_HIDE-}" ]; then
-  IFS=: read -ra masked <<< "$COMPARE_HIDE"
-  for d in "${masked[@]}"; do [ -d "$d" ] && hide+=(--tmpfs "$d"); done
-  hide+=(--bind "$COMPARE_TREE" "$COMPARE_TREE")
-fi
-isolation=(); isolation_env=()
-if [ "${COMPARE_CLAUDE_MODELS-unset}" = "" ]; then
-  # Filesystem mounts survive descendant PATH/env resets; cover every installed native version.
-  declare -A denied_files=()
-  for d in "${dirs[@]}"; do
-    [ "$(cd "$d" 2>/dev/null && pwd -P)" = "$here" ] && continue
-    for cli in claude claude-code; do
-      if [ -f "$d/$cli" ]; then
-        resolved=$(readlink -f -- "$d/$cli") || exit 70
-        denied_files["$resolved"]=1
-      fi
-    done
-  done
-  # Interactive shells (including tmux) must keep the launcher's guard-first PATH.
-  for file in "$HOME/.claude.json" "${CLAUDE_CODE_OAUTH_TOKEN_FILE-}" /etc/profile /etc/bash.bashrc \
-              "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile" "$HOME/.bashrc"; do
-    if [ -f "$file" ]; then
-      resolved=$(readlink -f -- "$file") || exit 70
-      denied_files["$resolved"]=1
-    fi
-  done
-  for file in "${!denied_files[@]}"; do isolation+=(--ro-bind /dev/null "$file"); done
-  for directory in "$HOME/.local/share/claude" "$HOME/.claude" "${CLAUDE_CONFIG_DIR-}"; do
-    [ ! -d "$directory" ] || isolation+=(--tmpfs "$(readlink -f -- "$directory")")
-  done
-  isolation_env=(-u BASH_ENV -u ENV -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN
-                 -u CLAUDE_CODE_OAUTH_TOKEN -u CLAUDE_CODE_OAUTH_TOKEN_FILE)
-fi
 cat > "$call/prompt.txt"
 exec 3> >(tee "$call/stderr.txt" >&2); errors=$!
 model_env=(-u ORC_ALLOWED_CLAUDE_MODELS -u ORC_ALLOWED_CODEX_MODELS -u ORC_SINGLE_CALL_CLI_STATE)
@@ -104,10 +45,8 @@ fi
 if [ -n "${COMPARE_CODEX_MODELS+set}" ]; then
   model_env+=("ORC_ALLOWED_CODEX_MODELS=$COMPARE_CODEX_MODELS")
 fi
-env -u PYTHONPATH -u OLDPWD -u COMPARE_ROOT -u COMPARE_TREE -u COMPARE_BASE -u COMPARE_HIDE -u COMPARE_CLAUDE_MODELS -u COMPARE_CODEX_MODELS -u COMPARE_MAX_CALLS "${attempt[@]}" "${isolation_env[@]}" "${model_env[@]}" \
-  PATH="$guard:$path" CLAUDE_CODE_SUBAGENT_MODEL=claude-sonnet-5-5 CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 "$sandbox" \
-  --dev-bind / / "${hide[@]}" "${isolation[@]}" --bind "$COMPARE_TREE/tmp" /tmp --tmpfs /dev/shm --tmpfs /var/tmp --unshare-pid --proc /proc --die-with-parent \
-  "$real" "$@" < "$call/prompt.txt" 2>&3 3>&- | tee "$call/stdout.txt" 3>&-
+env "${model_env[@]}" CLAUDE_CODE_SUBAGENT_MODEL=claude-sonnet-5-5 CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 \
+  python3 -I "$here/../sandbox.py" "$call" "$name" "$@" < "$call/prompt.txt" 2>&3 3>&- | tee "$call/stdout.txt" 3>&-
 status=${PIPESTATUS[0]}
 exec 3>&-; wait "$errors"
 shopt -s nullglob

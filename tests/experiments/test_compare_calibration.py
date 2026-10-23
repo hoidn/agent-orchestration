@@ -201,12 +201,13 @@ def test_judge_scan_reports_test_runs_and_requires_existing_adjudication(world, 
     mapping = make_pool(world, diffs)
     out = world.outside / "calibration"
     home = out / "judges" / mapping["judges"]["judge-a"]["dir"]
+    session_home = Path(mapping["judges"]["judge-a"]["sandbox"]["home"])
     slug = "".join(char if char.isalnum() else "-" for char in str(home))
-    project = world.tmp / "home/.claude/projects" / slug
+    project = session_home / ".claude/projects" / slug
     project.mkdir(parents=True)
     (project / "s.jsonl").write_text(json.dumps({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "input": {"command": "python -m pytest tests/ && python dev_check.py"}}]}}) + "\n")
-    hits = pooling.scan_judge(out, "judge-a", world.solution, home=world.tmp / "home")
+    hits = pooling.scan_judge(out, "judge-a", world.solution)
     assert any(hit["pattern"] == "judge ran tests" for hit in hits)
     with pytest.raises(SystemExit, match="no verdict"):
         summarize.judge_exclusion(out, "judge-a")
@@ -233,7 +234,7 @@ def test_summarize_writes_calibration_without_rerunning_hidden_acceptance(world,
         state.mkdir(parents=True)
         repos.dump(state / "run.json", {"bound_inputs": inputs})
         write_memo({"state_root": state.parent}, [], value)
-        pooling.scan_judge(out, judge, world.solution, home=world.tmp / "home")
+        pooling.scan_judge(out, judge, world.solution)
 
     def reject_hidden_run(*args, **kwargs):
         raise AssertionError("calibration summaries must use retained hidden diagnostics")
@@ -284,7 +285,7 @@ def test_absolute_calibration_pools_only_blind_clones_and_preserves_the_full_den
         state.mkdir(parents=True)
         repos.dump(state / "run.json", {"bound_inputs": inputs})
         write_memo({"state_root": state.parent}, [], value)
-        pooling.scan_judge(out, judge, world.solution, home=world.tmp / "home")
+        pooling.scan_judge(out, judge, world.solution)
     result = summarize.summarize(out, world.criterion)
     assert result["calibration"]["passed"] is True
     assert {(pair["judge"], pair["batch"]) for pair in result["calibration"]["pairs"]} == set(

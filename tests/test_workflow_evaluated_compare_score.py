@@ -143,13 +143,13 @@ def _new_file_patch(name: str) -> str:
 
 
 def _local_rating_provider(fakebin: Path) -> Path:
-    fakebin.mkdir(parents=True)
+    fakebin.mkdir(parents=True, exist_ok=True)
     codex = fakebin / "codex"
     codex.write_text(f"#!{sys.executable}\n" + '''
 import hashlib, json, os, re, subprocess, sys
 from pathlib import Path
 prompt = sys.stdin.read()
-plan = json.loads(Path(os.environ["COMPARE_TEST_PLAN"]).read_text())
+plan = json.loads(Path(os.environ["FAKE_SCORE_PLAN"]).read_text())
 repos = sorted((path for path in plan["ratings"] if path in prompt), key=prompt.index)
 match = re.search(r"(?m)^- path: ([^\\n]+)$", prompt)
 if not repos or match is None:
@@ -160,15 +160,14 @@ for repo, expected in plan.get("git_checks", {}).items():
                                    "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", "HEAD"])
     status = subprocess.check_output(["git", "-C", repo, "status", "--porcelain"]).decode()
     masked = expected["masked"]
-    mounted = any(line.split()[4] == masked for line in Path("/proc/self/mountinfo").read_text().splitlines())
     actual = {"diff_sha256": hashlib.sha256(diff).hexdigest(), "status": status, "masked": masked}
-    if actual != expected or not mounted or list(Path(masked).iterdir()):
-        raise SystemExit("scripted judge did not receive the exact patch under the actual empty mask")
+    if actual != expected or Path(masked).exists():
+        raise SystemExit("scripted judge did not receive the exact patch with the excluded path absent")
     git_checks[repo] = actual
 result = Path(match.group(1))
 result.parent.mkdir(parents=True, exist_ok=True)
 result.write_text(json.dumps([plan["ratings"][path] for path in repos]), encoding="utf-8")
-with Path(os.environ["COMPARE_TEST_CALLS"]).open("a", encoding="utf-8") as output:
+with Path(os.environ["FAKE_SCORE_CALLS"]).open("a", encoding="utf-8") as output:
     output.write(json.dumps({"argv": sys.argv[1:], "repos": repos,
                              "allowed_models": os.environ.get("ORC_ALLOWED_CODEX_MODELS"),
                              "effort": next((arg.split("=", 1)[1].strip('"') for arg in sys.argv[1:]
@@ -179,9 +178,9 @@ with Path(os.environ["COMPARE_TEST_CALLS"]).open("a", encoding="utf-8") as outpu
     return codex
 
 
-def _local_task_provider(fakebin: Path, plan: Path, calls: Path) -> Path:
+def _local_task_provider(fakebin: Path, plan: Path) -> Path:
     """Write a correct, textually distinct solution and record the model actually allowed by the shim."""
-    fakebin.mkdir(parents=True)
+    fakebin.mkdir(parents=True, exist_ok=True)
     codex = fakebin / "codex"
     codex.write_text(f"#!{sys.executable} -I\n" + '''
 import json, os, re, sys
@@ -201,8 +200,7 @@ effort = next((arg.split("=", 1)[1].strip('"') for arg in sys.argv[1:]
                if arg.startswith("model_reasoning_effort=")), None)
 plan = json.loads(Path(os.environ["TASK_DIFFICULTY_PLAN"]).read_text())
 events = Path(os.environ["TASK_DIFFICULTY_CALLS"])
-previous = [json.loads(line) for line in events.read_text().splitlines()] if events.exists() else []
-attempt = sum(row["model"] == model for row in previous)
+attempt = int(os.environ["TASK_DIFFICULTY_ATTEMPT"])
 expressions = plan["solutions"].get(model)
 if expressions is None or attempt >= len(expressions):
     raise SystemExit("scripted task provider has no answer for this model attempt")
@@ -261,6 +259,24 @@ def test_control_means_runs_through_prepare_orchestrator_summary_and_c1(tmp_path
     OUTSIDE_SANDBOX_MOUNTS.mkdir(parents=True, exist_ok=True)
     outside = Path(tempfile.mkdtemp(dir=OUTSIDE_SANDBOX_MOUNTS))
     try:
+        from experiments.compare import sandbox
+        fakebin = outside / "fakebin"
+        _local_rating_provider(fakebin)
+        dependencies = sandbox.dependencies({"PATH": "", "HOME": str(outside)})
+        dependencies["codex"] = str((fakebin / "codex").resolve())
+        dependencies["environment"] = sorted(set(dependencies["environment"]) |
+                                               {"FAKE_SCORE_PLAN", "FAKE_SCORE_CALLS"})
+        sandbox_config = outside / "sandbox-dependencies.json"
+        sandbox_config.write_text(json.dumps(dependencies), encoding="utf-8")
+        monkeypatch.setenv("COMPARE_SANDBOX", str(sandbox_config))
+        empty_home = outside / "empty-host-home"
+        empty_home.mkdir()
+        for name, value in (("HOME", empty_home), ("CODEX_HOME", empty_home / ".codex"),
+                            ("CLAUDE_CONFIG_DIR", empty_home / ".claude")):
+            monkeypatch.setenv(name, str(value))
+        for name in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
+                     "CLAUDE_CODE_OAUTH_TOKEN_FILE"):
+            monkeypatch.delenv(name, raising=False)
         pool = outside / "pool"
         fillers = [outside / "filler-1.diff", outside / "filler-2.diff"]
         for index, path in enumerate(fillers, 1):
@@ -295,21 +311,19 @@ def test_control_means_runs_through_prepare_orchestrator_summary_and_c1(tmp_path
                 rating_by_path[str(pool / "clones" / cid)] = {
                     "clone": str(pool / "clones" / cid), "completeness": scores[0], "correctness": scores[1],
                     "scope": scores[2], "layering": scores[3], "reason": "scripted fixture rating"}
-        plan, calls = pool / "records/local-rating-plan.json", pool / "records/local-provider-calls.jsonl"
-        (pool / "records").mkdir(exist_ok=True)
-        plan.write_text(json.dumps({"ratings": rating_by_path}), encoding="utf-8")
-        fakebin = outside / "fakebin"
-        _local_rating_provider(fakebin)
-
         judge_home = pool / "judges" / mapping["judges"][judge]["dir"]
+        plan = judge_home / "local-rating-plan.json"
+        calls = judge_home / "tmp/local-provider-calls.jsonl"
+        plan.write_text(json.dumps({"ratings": rating_by_path}), encoding="utf-8")
         inputs = json.loads((pool / f"records/score-inputs-{judge}.json").read_text(encoding="utf-8"))
         (judge_home / "inputs.json").write_text(json.dumps(inputs), encoding="utf-8")
-        monkeypatch.setenv("PATH", f"{Path(__file__).parents[1] / 'experiments/compare/shim'}:{fakebin}:{os.environ['PATH']}")
-        monkeypatch.setenv("COMPARE_TEST_PLAN", str(plan))
-        monkeypatch.setenv("COMPARE_TEST_CALLS", str(calls))
+        monkeypatch.setenv("PATH", f"{Path(__file__).parents[1] / 'experiments/compare/shim'}:{os.environ['PATH']}")
+        monkeypatch.setenv("FAKE_SCORE_PLAN", str(plan))
+        monkeypatch.setenv("FAKE_SCORE_CALLS", "/tmp/local-provider-calls.jsonl")
         monkeypatch.setenv("COMPARE_ROOT", str(pool / "records/judges" / judge))
         monkeypatch.setenv("COMPARE_TREE", str(judge_home))
         monkeypatch.setenv("COMPARE_BASE", mapping["compare_base"])
+        monkeypatch.setenv("COMPARE_SANDBOX", mapping["judges"][judge]["sandbox"]["declaration"])
         source = runtime / "experiments/compare/score_absolute.orc"
         provider_args = ["--entry-workflow", "score_absolute::score", "--source-root",
                          str(runtime / "experiments/compare"), "--provider-externs-file",
@@ -410,18 +424,20 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
     root = world.outside / "task-difficulty-work"
     pool = root / "pool"
     plan = world.outside / "task-difficulty-plan.json"
-    calls = world.outside / "task-difficulty-calls.jsonl"
     solutions = {"gpt-5.6-luna": ["2", "1 + 1", "int(2)", "3 - 1"] if effort_contrast else ["2", "1 + 1"]}
     if strong_model != "gpt-5.6-luna":
         solutions[strong_model] = ["int(2)", "3 - 1"]
     plan.write_text(json.dumps({"omit_delivery": [[judge, 1]] if missing_delivery else [], "solutions": solutions}),
                     encoding="utf-8")
-    fakebin = world.outside / "task-difficulty-fakebin"
-    _local_task_provider(fakebin, plan, calls)
+    from tests.experiments.compare_harness_support import configure_test_sandbox
+    _local_task_provider(world.fakebin, plan)
+    configure_test_sandbox(world, monkeypatch, readonly_files=(plan,))
 
     # Freeze the current provider guard and scoring workflow into the committed fixture runtime.
     changed = []
-    runtime_sources = ["experiments/compare/shim/claude", "experiments/compare/shim/model-guard"]
+    runtime_sources = ["experiments/compare/shim/claude", "experiments/compare/shim/codex",
+                      "experiments/compare/shim/model-guard", "experiments/compare/sandbox.py",
+                      "experiments/compare/codex-models-0.163.0.json"]
     if functional:
         runtime_sources.append("experiments/compare/score_functional.orc")
     for relative in runtime_sources:
@@ -436,13 +452,10 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
                         "user.email=fixture@example.invalid", "commit", "-qm", "fixture functional scoring workflow"],
                        check=True)
 
-    home = world.tmp / "empty-home"
-    home.mkdir()
-    monkeypatch.setenv("HOME", str(home))
     env = {**os.environ,
-           "PATH": f"{world.runtime / 'experiments/compare/shim'}:{fakebin}:{os.environ['PATH']}",
-           "TASK_DIFFICULTY_PLAN": str(plan), "TASK_DIFFICULTY_CALLS": str(calls)}
-    records, captured_rows, views = [], {}, {}
+           "PATH": f"{world.runtime / 'experiments/compare/shim'}:{world.fakebin}:{os.environ['PATH']}",
+           "TASK_DIFFICULTY_PLAN": str(plan), "TASK_DIFFICULTY_CALLS": "/tmp/task-difficulty-calls.jsonl"}
+    records, captured_rows, views, events, attempts = [], {}, {}, [], {}
     for arm, model, number in (("direct_task", models["direct_task"], 1),
                                ("direct_task", models["direct_task"], 2),
                                (strong, models[strong], 1), (strong, models[strong], 2)):
@@ -461,15 +474,21 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
         inputs = json.loads((run / "inputs.json").read_text(encoding="utf-8"))
         assert inputs["model"] == model and inputs["effort"] == efforts[arm]
         assert f"COMPARE_CODEX_MODELS={model}" in metadata["command"]
-        executed = subprocess.run(["bash", str(run / "command.sh")], cwd=metadata["cwd"], env=env,
+        attempt = attempts.get(model, 0)
+        attempts[model] = attempt + 1
+        run_env = {**env, "TASK_DIFFICULTY_ATTEMPT": str(attempt)}
+        executed = subprocess.run(["bash", str(run / "command.sh")], cwd=metadata["cwd"], env=run_env,
                                   capture_output=True, text=True, timeout=120, check=False)
         omitted = missing_delivery and arm == strong and number == 2
         assert bool(executed.returncode) == omitted, executed.stderr
         collected = prepare.collect(run)
         assert collected['outcome'] == ('failed' if omitted else 'completed') and collected['calls'] == 1
         assert (run / 'collected/final.diff').exists() is not omitted
-        assert prepare.scan(run, world.solution, home=home) == []
-        actual_event = json.loads(calls.read_text().splitlines()[-1])
+        assert prepare.scan(run, world.solution) == []
+        event_log = Path(metadata["tree"]) / "tmp/task-difficulty-calls.jsonl"
+        assert len(event_log.read_text(encoding="utf-8").splitlines()) == 1
+        actual_event = json.loads(event_log.read_text(encoding="utf-8").splitlines()[0])
+        events.append(actual_event)
         assert (actual_event['model'], actual_event['effort']) == (model, efforts[arm])
         if functional or missing_delivery or effort_contrast:
             # Scripted native evidence is deliberately synthetic; this smoke never contacts a provider.
@@ -486,7 +505,6 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
             captured_rows[str(run)], views[str(run)] = pooling.natural_attempt(run, receipt, model, efforts[arm])
         records.append(run)
 
-    events = [json.loads(line) for line in calls.read_text(encoding="utf-8").splitlines()]
     assert len(events) == 4
     assert {model: sum(row["model"] == model for row in events) for model in models.values()} == {
         model: 2 * list(models.values()).count(model) for model in models.values()}
@@ -533,31 +551,29 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
                 "scope": "S1" if clone["arm"] == "direct_task" else "S2",
                 "layering": "S1" if clone["arm"] == "direct_task" else "S2",
                 "reason": "scripted offline rating"})
-    rating_plan, rating_calls = pool / "records/rating-plan.json", pool / "records/rating-calls.jsonl"
+    judge_home = pool / "judges" / mapping["judges"][judge]["dir"]
+    rating_plan, rating_calls = judge_home / "rating-plan.json", judge_home / "tmp/rating-calls.jsonl"
     git_checks = {}
     if review_environment:
         for cid, clone in mapping['clones'].items():
             directory = pool / 'clones' / cid
-            (directory / archive).mkdir(parents=True, exist_ok=True)  # Empty, real bwrap mount target.
             raw = (Path(clone['run']) / 'calls/1/patch-cand-1.diff').read_bytes()
             source = json.loads((Path(clone['run']) / 'record.json').read_text())['cwd']
             git_checks[str(directory)] = {'diff_sha256': hashlib.sha256(raw).hexdigest(),
                 'status': subprocess.check_output(['git', '-C', source, 'status', '--porcelain']).decode(),
                 'masked': str(directory / archive)}
-        monkeypatch.setenv('COMPARE_HIDE', ':'.join(row['masked'] for row in git_checks.values()))
     rating_plan.write_text(json.dumps({"ratings": ratings, 'git_checks': git_checks}), encoding="utf-8")
-    judge_bin = world.outside / "task-difficulty-judge-bin"
-    _local_rating_provider(judge_bin)
-    judge_home = pool / "judges" / mapping["judges"][judge]["dir"]
+    _local_rating_provider(world.fakebin)
     score_inputs = json.loads((pool / f"records/score-inputs-{judge}.json").read_text(encoding="utf-8"))
     (judge_home / "inputs.json").write_text(json.dumps(score_inputs), encoding="utf-8")
-    monkeypatch.setenv("PATH", f"{world.runtime / 'experiments/compare/shim'}:{judge_bin}:{os.environ['PATH']}")
-    monkeypatch.setenv("COMPARE_TEST_PLAN", str(rating_plan))
-    monkeypatch.setenv("COMPARE_TEST_CALLS", str(rating_calls))
+    monkeypatch.setenv("PATH", f"{world.runtime / 'experiments/compare/shim'}:{world.fakebin}:{os.environ['PATH']}")
+    monkeypatch.setenv("FAKE_SCORE_PLAN", str(rating_plan))
+    monkeypatch.setenv("FAKE_SCORE_CALLS", "/tmp/rating-calls.jsonl")
     monkeypatch.setenv("COMPARE_ROOT", str(pool / "records/judges" / judge))
     monkeypatch.setenv("COMPARE_TREE", str(judge_home))
     monkeypatch.setenv("COMPARE_BASE", mapping["compare_base"])
     monkeypatch.setenv("COMPARE_CODEX_MODELS", judge)
+    monkeypatch.setenv("COMPARE_SANDBOX", mapping["judges"][judge]["sandbox"]["declaration"])
     workflow = "score_functional" if functional else "score_absolute"
     source = world.runtime / f"experiments/compare/{workflow}.orc"
     provider_args = ["--entry-workflow", f"{workflow}::score", "--source-root",

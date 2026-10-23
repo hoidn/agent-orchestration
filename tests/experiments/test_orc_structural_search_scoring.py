@@ -43,7 +43,7 @@ def evaluation(world, eid, body):
     script = edit("$PWD", body)
     assert call(world, record, script).returncode == 0
     write_memo(record, [script], {"variant": "DONE"})
-    prepare.scan(records, world.solution, home=world.tmp / "home")
+    prepare.scan(records, world.solution)
     return records
 
 
@@ -89,7 +89,8 @@ def score(out, mapping, judge, home):
     (state / "r1").mkdir(parents=True)
     (state / "r1" / "run.json").write_text(json.dumps({"bound_inputs": inputs}))
     write_memo({"state_root": state}, [], value)
-    pooling.scan_judge(out, judge, "f" * 40, home=home)
+    native = mapping['judges'][judge].get('sandbox')
+    pooling.scan_judge(out, judge, "f" * 40, home=Path(native['home']) if native else home)
 
 
 def test_read_pool_joins_summarized_runs_to_their_evaluation_records(evaluations, world):

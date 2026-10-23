@@ -16,7 +16,8 @@ records layout `records/<arm>/run-<k>` and a pool's record files, wherever they 
 state is under its tree's .orchestrate/, so no records path is legitimate); the name of any other tree or judge
 directory beside this one; github.com, the gh command, git fetch and the solution commit's first
 seven characters; any mention of other sessions' transcripts or tmux sockets (.claude/projects,
-.codex/sessions, .codex/history, claude-tmux-sockets), which stay readable on disk (R35). Paths
+.codex/sessions, .codex/history, claude-tmux-sockets). New prepared units supply
+their recorded private-home backing; historical callers retain their original home. Paths
 match as typed: absolute, or under ~, $HOME or ${HOME} (R23).
 
 Model policy: Sonnet/Terra remain the defaults; an explicitly bound Codex run may use Luna or Sol 6.1. Read actual
@@ -154,7 +155,16 @@ def siblings(tree):
     return sorted(p.name for p in Path(tree).parent.iterdir() if p.name != Path(tree).name)
 
 
+def refuse_publication_errors(calls_root):
+    """A pending or failed apparatus delivery is never an adjudicable natural outcome."""
+    for call in Path(calls_root).glob('calls/*'):
+        marker = call / 'publication-error.json'
+        if marker.exists() or marker.is_symlink():
+            raise SystemExit(f'{marker}: incomplete or failed sandbox result publication')
+
+
 def find_hits(calls_root, tree, since, home, compiled, *, expected_codex_model="gpt-5.6-terra"):
+    refuse_publication_errors(calls_root)
     if expected_codex_model not in CODEX_MODELS:
         raise SystemExit("expected Codex model must be an exact known Codex ID")
     hits = []

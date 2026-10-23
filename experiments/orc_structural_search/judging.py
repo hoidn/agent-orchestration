@@ -149,13 +149,16 @@ def judge_complete(pool, name, mapping):
 
 
 def save_judge_receipts(records, pool, name, mapping, calls, started):
+    from experiments.compare import sandbox
     path = records / 'record.json'
     previous = json.loads(path.read_text()) if path.exists() else {}
     tree = pool / 'judges' / mapping['judges'][name]['dir']
-    row = {'kind': 'judge', 'pool': str(pool), 'judge': name, 'records_dir': str(records),
+    native = {'sandbox': mapping['judges'][name]['sandbox']} if 'sandbox' in mapping['judges'][name] else {}
+    metadata = {'tree': str(tree), 'records': str(records), **native}
+    row = {'kind': 'judge', 'pool': str(pool), 'judge': name, 'records_dir': str(records), **native,
            'tree': str(tree), 'created_at': mapping['created_at'],
            'provider_calls': calls, 'wall_clock_sec': previous.get('wall_clock_sec', 0) + time.time() - started,
-           **metering.receipts(records, tree=tree, since=mapping['created_at'], home=Path.home())}
+           **metering.receipts(records, tree=tree, since=mapping['created_at'], home=sandbox.session_home(metadata))}
     temporary = path.with_suffix('.tmp')
     temporary.write_text(json.dumps(row) + '\n')
     os.replace(temporary, path)
@@ -223,8 +226,6 @@ def judge_generation(evidence_root: Path, generation: int, tasks: Sequence[Path]
     each task from the log (scoring.outcome_rows; once per evaluation id). A task without a completed,
     uncontaminated evaluation has no pool, only those rows and an unvalued row per contaminated one."""
     log = evidence_root / 'log.jsonl'
-    scorer = scorer or (lambda pool, name, script: run_judge(
-        pool, name, script, env=judge_environment(criterion, env)))
     include = include or (lambda row: row.get("generation") == generation)
     joined = []
     for task in tasks:
@@ -236,8 +237,11 @@ def judge_generation(evidence_root: Path, generation: int, tasks: Sequence[Path]
         if all([excluded(run_scan(r)) for r in completed]):  # a list: wait for every verdict
             joined += [unvalued_row(r) for r in completed] + failures
             continue
+        environment = judge_environment(criterion, env)
+        dispatch = scorer or (lambda pool, name, script: run_judge(pool, name, script, env=environment))
         row = judge_task(log, generation, task, criterion=criterion, judges=judges, solutions=solutions,
-            call_cap=call_cap, pool_root=pool_root, scorer=scorer, include=include, resume=resume, settled=settled)
+            call_cap=call_cap, pool_root=pool_root, scorer=dispatch, include=include, resume=resume, settled=settled,
+            environment=environment)
         joined += join_scores(Path(row['results']), log) + failures
         append_record(log, row)
         if settled:
@@ -250,11 +254,13 @@ def logged_judging(log, generation, task):
             and (row.get('generation'), row['task']) == (generation, task.name)]
 
 
-def judge_task(log, generation, task, *, criterion, judges, solutions, call_cap, pool_root, scorer, include, resume, settled):
+def judge_task(log, generation, task, *, criterion, judges, solutions, call_cap, pool_root, scorer, include, resume, settled,
+               environment=None):
     label = f"gen-{generation}" if generation >= 0 else VALIDATION
     pool = pool_root / label / task.name
     if not (resume and (pool / 'records/mapping.json').exists()):
-        pool = pool_evaluations(log.parent, task, out=pool, judges=judges, criterion=criterion, include=include)
+        pool = pool_evaluations(log.parent, task, out=pool, judges=judges, criterion=criterion, include=include,
+                                environment=environment)
         if resume:
             append_record(log, {'kind': 'judge_pool', 'generation': generation, 'task': task.name, 'pool': str(pool)})
     names = [spec.partition('=')[0] for spec in judges]

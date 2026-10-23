@@ -37,7 +37,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 try:
-    from . import pool as pooling, scan as contamination  # imported as experiments.compare.prepare
+    from . import pool as pooling, scan as contamination, sandbox  # imported as experiments.compare.prepare
     from .repos import (
         build_candidate, dump, git, guard, load, isolated_patch,
         main_checkout, random_child, runtime_commit, sha256_file, shim_commands, shim_prefix, visible_in_sandbox,
@@ -45,6 +45,7 @@ try:
 except ImportError:  # run as a script
     import pool as pooling
     import scan as contamination
+    import sandbox
     from repos import (
         build_candidate, dump, git, guard, load, isolated_patch,
         main_checkout, random_child, runtime_commit, sha256_file, shim_commands, shim_prefix, visible_in_sandbox,
@@ -211,7 +212,7 @@ def write_commands(records, cwd, state, runtime, env, spec):
     return command
 
 
-def run_arm(task, arm, root, runtime, candidates=None, sets=(), apply=None, spec=None):
+def run_arm(task, arm, root, runtime, candidates=None, sets=(), apply=None, spec=None, *, environment=None):
     """Build the run's agents' tree and records directory, print the command; return the records directory.
     `spec` replaces the ARMS lookup (`arm` then only names W/records/<arm>/); its paths face the runtime's
     guards. A spec takes a name outside ARMS, whose special cases (best_of_n, review_once) it would meet."""
@@ -236,7 +237,11 @@ def run_arm(task, arm, root, runtime, candidates=None, sets=(), apply=None, spec
     inputs = arm_inputs(task, arm, cands, sets, spec.inputs)
     dump(records / "inputs.json", inputs)
     cwd, state = (tree, link_best_of_n_state(tree, cands)) if arm == "best_of_n" else (cands[0], spec.state_dir)
+    native = sandbox.prepare_unit(tree, records, homes=root / '.private-homes',
+                                  providers=None if spec.command else spec.providers,
+                                  result_root=state or cwd / '.orchestrate/runs', environment=environment)
     env = {"COMPARE_ROOT": records, "COMPARE_TREE": tree, "COMPARE_BASE": compare_base, "TMPDIR": tree / "tmp"}
+    env['COMPARE_SANDBOX'] = native['declaration']
     if inputs.get("model") in contamination.CODEX_MODELS:
         env["COMPARE_CODEX_MODELS"] = inputs["model"]
     command = write_commands(records, cwd, state, runtime, env, spec)
@@ -245,6 +250,7 @@ def run_arm(task, arm, root, runtime, candidates=None, sets=(), apply=None, spec
         "task": str(task), "runtime": str(runtime), "runtime_commit": commit, "main": str(main),
         "base": base, "compare_base": compare_base, "records": str(records), "tree": str(tree),
         "candidates": [str(c) for c in cands], "cwd": str(cwd),
+        "sandbox": native,
         "state_root": str(state or cwd / ".orchestrate" / "runs"), "command": command, "created_at": time.time(),
         **applied,
     })
@@ -258,6 +264,7 @@ def read_memo(memo):
 
 def paired_calls(records, rows):
     """Map (identity, attempt) of each provider start to calls/<n>/, the n-th start to the n-th call."""
+    contamination.refuse_publication_errors(records)
     starts = [r for r in rows if r["record"] == "started" and "prompt" in r["input_parts"]]
     calls = sorted((records / "calls").glob("*"), key=lambda p: int(p.name))
     if len(starts) != len(calls):
@@ -352,6 +359,7 @@ def collect(records):
     """Pair the memo's provider effects with call directories and copy the comparator's patches; a generic-command
     run is read from its terminal.json instead."""
     records = records.resolve()
+    contamination.refuse_publication_errors(records)
     record = load(records / "record.json")
     if record.get("arm_kind") == "generic-command":
         record.update(command_outcome(records, record))
@@ -394,8 +402,9 @@ def scan(records, solution, home=None, roots=(), others=()):
     archive, lineage log and holdout roots. A state root outside the run's tree (a spec's state directory)
     adds its siblings, other runs' state, to the other trees; `others` names further other trees (directory
     names), such as other runs' state directories when this run keeps its state in its tree."""
-    records, home = records.resolve(), home or Path.home()
+    records = records.resolve()
     record = load(records / "record.json")
+    home = sandbox.session_home(record, home)
     others = [*contamination.siblings(record["tree"]), *others]
     state_root = Path(record.get("state_root", record["tree"]))
     if not state_root.is_relative_to(record["tree"]) and state_root.parent.is_dir():
@@ -403,7 +412,7 @@ def scan(records, solution, home=None, roots=(), others=()):
     compiled = contamination.patterns(
         main=record["main"], runtime=record["runtime"], solution=solution, home=home, others=others,
         roots=[("records root", records.parents[1]), *((name, Path(path).resolve()) for name, path in roots)])
-    model = load(records / "inputs.json").get("model")
+    model = load(records / "inputs.json").get("model") if 'arm' in record else None
     expected = model if model in contamination.CODEX_MODELS else "gpt-5.6-terra"
     hits = contamination.find_hits(records, record["tree"], record["created_at"], home, compiled,
                                    expected_codex_model=expected)

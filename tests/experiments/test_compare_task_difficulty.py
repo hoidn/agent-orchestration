@@ -193,22 +193,24 @@ def test_generation_commands_and_scans_bind_the_input_codex_model(world, monkeyp
     for records, model in ((weak, LUNA), (strong, TERRA)):
         assert f'COMPARE_CODEX_MODELS={model}' in (records / 'command.sh').read_text()
         assert f'COMPARE_CODEX_MODELS={model}' in (records / 'resume.sh').read_text()
-        prepare.scan(records, 'f' * 40, home=world.tmp / 'home')
+        prepare.scan(records, 'f' * 40)
     assert observed == [{'expected_codex_model': LUNA}, {'expected_codex_model': TERRA}]
 
 
 @pytest.mark.parametrize('judge', [TERRA, SOL])
-def test_judge_command_and_scan_bind_the_exact_judge_model(tmp_path, monkeypatch, judge):
-    out = tmp_path / 'pool'; (out / 'records').mkdir(parents=True)
-    mapping = {'judges': {judge: {'dir': 'judge', 'providers': 'codex.json'}}, 'batches': [['a', 'b']],
+def test_judge_command_and_scan_bind_the_exact_judge_model(world, monkeypatch, judge):
+    out = world.outside / 'pool'; (out / 'records').mkdir(parents=True)
+    bindings = world.outside / 'score-codex.json'
+    bindings.write_text(json.dumps({'providers.judge': 'codex_unrestricted_workspace'}))
+    mapping = {'judges': {judge: {'dir': 'judge', 'providers': str(bindings)}}, 'batches': [['a', 'b']],
                'criterion_sha256': 'frozen', 'compare_base': 'base', 'runs': {}, 'main': '/main',
                'runtime': '/runtime', 'created_at': 0, 'rubric': criterion()['rubric']}
     (out / 'records/mapping.json').write_text(json.dumps(mapping))
-    pool.write_score_inputs(out, mapping, 'intent', tmp_path / 'runtime')
+    pool.write_score_inputs(out, mapping, 'intent', world.runtime)
     assert f'COMPARE_CODEX_MODELS={judge}' in (out / 'records' / f'score-{judge}.sh').read_text()
     observed = []
     monkeypatch.setattr(scan, 'find_hits', lambda *args, **kwargs: observed.append(kwargs) or [])
-    pool.scan_judge(out, judge, 'f' * 40, home=tmp_path / 'home')
+    pool.scan_judge(out, judge, 'f' * 40)
     assert observed == [{'expected_codex_model': judge}]
 
 

@@ -221,7 +221,7 @@ def original_roots(record):
 
 
 def hidden_env(env, roots):
-    """Extend the shims' existing path mask; controller data stays out of agent inputs."""
+    """Retain controller-private provenance roots; the positive mount boundary grants none of them."""
     result = dict(env)
     current = [p for p in result.get('COMPARE_HIDE', '').split(os.pathsep) if p]
     if roots:
@@ -231,9 +231,9 @@ def hidden_env(env, roots):
 
 def scan_evidence(records, metadata):
     """Scan direct/resumed evaluation histories for private qualification paths."""
-    from experiments.compare import scan
+    from experiments.compare import scan, sandbox
     from experiments.compare.repos import dump
-    home = Path.home()
+    home = sandbox.session_home(metadata)
     patterns = {'qualification': '|'.join(scan.spelled(Path(p), home) + scan.BOUNDARY
                                          for p in metadata['qualification_private_roots'])}
     hits = scan.find_hits(Path(records), Path(metadata['tree']), metadata['created_at'], home, patterns)

@@ -93,15 +93,16 @@ def require_campaign_models(row, allowed):
 
 def require_campaign_scan(row, allowed):
     """Enforce C1's narrower policy on the canonical scan before any quality ingestion."""
-    from experiments.compare import scan
+    from experiments.compare import scan, sandbox
     records = Path(row['records_dir'])
     path = records / ('scan.json' if row['kind'] == 'judge' else 'record.json')
     document = json.loads(path.read_text())
     metadata = json.loads((records / 'record.json').read_text())
     tree, since = Path(metadata['tree']), metadata['created_at']
-    claude = scan.claude_sessions(tree, Path.home())
+    home = sandbox.session_home(metadata)
+    claude = scan.claude_sessions(tree, home)
     hits = list(scan.model_hits(claude, None))
-    codex = list(scan.codex_sessions(tree, since, Path.home()))
+    codex = list(scan.codex_sessions(tree, since, home))
     hits += list(scan.model_hits(codex, 'gpt-5.6-terra'))
     if row.get('provider_calls') == 0 and codex:
         hits.append({'file': str(codex[0]), 'line': 0, 'pattern': scan.FORBIDDEN_MODEL,

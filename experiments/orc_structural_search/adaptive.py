@@ -284,12 +284,14 @@ def killed_episode(subject, chosen, state, launch, slot):
         evidence_root=evidence, solutions=launch['solutions'], holdouts=launch['holdouts'],
         created_at=chosen['created_at'], hide=launch['hide'])
     from experiments.orc_structural_search import metering
+    from experiments.compare import sandbox
     row = {'kind': 'episode', 'outcome': 'incident', 'mode': 'campaign', 'interface': 'I1', 'generation': state['generation'],
         'draw': chosen['draw'], 'episode_index': index, 'episode_id': slot['key'], 'candidate_id': subject['candidate_id'],
         'parent_candidate_id': subject['candidate_id'], 'parent_source': chosen['parent_source'], 'campaign_id': state['campaign_id'],
         'records_dir': str(records), 'provider_calls': slot['calls'], 'wall_clock_sec': time.time() - chosen['created_at'],
         'incidents': ['interrupted unlogged episode'], 'criterion_sha256': launch['frozen']['criterion_sha256'],
-        **metering.receipts(records, tree=tree, since=chosen['created_at'], home=Path.home())}
+        **metering.receipts(records, tree=tree, since=chosen['created_at'],
+            home=sandbox.session_home(json.loads((records / 'record.json').read_text())))}
     append_record(evidence / 'log.jsonl', row)
     return row
 
