@@ -34,9 +34,12 @@ SCORE_REF = Program("experiments/compare/score_ref.orc", "score_ref::score", "ex
 
 SCORE_ABSOLUTE = Program("experiments/compare/score_absolute.orc", "score_absolute::score", "experiments/compare",
                          {"providers": "experiments/compare/score.providers.json"})
+SCORE_FUNCTIONAL = Program("experiments/compare/score_functional.orc", "score_functional::score",
+                           "experiments/compare", {"providers": "experiments/compare/score.providers.json"})
 
 
-@pytest.fixture(params=[SCORE, SCORE_REF, SCORE_ABSOLUTE], ids=["historical", "reference", "absolute"])
+@pytest.fixture(params=[SCORE, SCORE_REF, SCORE_ABSOLUTE, SCORE_FUNCTIONAL],
+                ids=["historical", "reference", "absolute", "functional"])
 def program(request):
     return request.param
 
@@ -56,6 +59,9 @@ def _inputs(tmp_path, program, *batches: tuple[str, ...]) -> dict:
 
 def _ratings(program: Program, batch: dict, *scores: str) -> list[dict]:
     """One deterministic `Rating` per clone of `batch`, in its order; `scores` cycle over the criteria."""
+    if program == SCORE_FUNCTIONAL:
+        return [{"clone": clone, "quality": scores[index % len(scores)], "reason": f"reason {index}"}
+                for index, clone in enumerate(batch["clones"])]
     rows = [{"clone": clone, "root_cause": scores[index % len(scores)], "scope": "S2",
              "generality": scores[(index + 1) % len(scores)], "layering": "S1", "reason": f"reason {index}"}
             for index, clone in enumerate(batch["clones"])]
@@ -102,7 +108,8 @@ def test_score_returns_one_rating_per_clone_per_batch_in_order(tmp_path, monkeyp
 def test_out_of_range_score_fails_the_effect(tmp_path, monkeypatch, program):
     inputs = _inputs(tmp_path, program, ("k7q2", "m3x9"), ("r8n1",))
     bad = _ratings(program, inputs["batches"][0], "S2")
-    bad[1]["scope"] = "S3"
+    score_field, invalid_score = ("quality", "S9") if program == SCORE_FUNCTIONAL else ("scope", "S3")
+    bad[1][score_field] = invalid_score
     install_shims(tmp_path / "bin", monkeypatch, _plan(inputs, bad, _ratings(program, inputs["batches"][1], "S2")))
     root = tmp_path / "workspace"
     frontend = install(root, program, inputs)
@@ -115,7 +122,7 @@ def test_out_of_range_score_fails_the_effect(tmp_path, monkeypatch, program):
     assert (snapshot.terminal.data["outcome"], snapshot.terminal.data["code"]) == ("failed", "provider_result_invalid")
     assert [(violation["type"], violation["context"]["error"].split()[0])
             for record in failed for violation in record["violations"]] == [
-        ("invalid_transportable_value", "$/1/scope")]
+        ("invalid_transportable_value", f"$/1/{score_field}")]
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -349,12 +356,17 @@ def test_control_means_runs_through_prepare_orchestrator_summary_and_c1(tmp_path
         shutil.rmtree(outside)
 
 
-@pytest.mark.parametrize('missing_delivery,review_environment,effort_contrast,sol_judge', [
-    (False, False, False, False), (True, False, False, False), (False, True, False, False),
-    (False, True, True, False), (False, True, True, True)])
+@pytest.mark.parametrize('functional,missing_delivery,review_environment,effort_contrast,sol_judge', [
+    (False, False, False, False, False), (False, True, False, False, False),
+    (False, False, True, False, False), (False, False, True, True, False),
+    (False, False, True, True, True),
+    (True, False, False, False, False), (True, True, False, False, False),
+    (True, False, True, False, False), (True, True, True, False, False)],
+    ids=['legacy-terra', 'legacy-missing', 'legacy-review', 'legacy-effort', 'legacy-sol-judge',
+         'functional', 'functional-missing', 'functional-review', 'functional-missing-review'])
 def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
-        world, monkeypatch, missing_delivery, review_environment, effort_contrast, sol_judge):
-    """Four scripted, correct direct-task outputs reach the blind scorer and exact 2-point gate."""
+        world, monkeypatch, functional, missing_delivery, review_environment, effort_contrast, sol_judge):
+    """Historical and functional rubrics reach their public score paths with four natural runs."""
     import hashlib
     from experiments.compare import prepare, pool as pooling
     from tests.experiments.compare_harness_support import skip_without_sandbox
@@ -366,10 +378,12 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
         protected.parent.mkdir(parents=True)
         protected.write_text('protected archive must be absent from the review baseline\n')
     repo = Path(__file__).parents[1]
-    judge = 'gpt-6.1-sol' if sol_judge else 'gpt-5.6-terra'
-    strong = 'luna_high' if effort_contrast else 'terra_high'
-    models = {"direct_task": "gpt-5.6-luna", strong: 'gpt-5.6-luna' if effort_contrast else judge}
-    efforts = {arm: 'low' if effort_contrast and arm == 'direct_task' else 'high' for arm in models}
+    judge = 'gpt-6.1-sol' if functional or sol_judge else 'gpt-5.6-terra'
+    strong = 'sol_low' if functional else 'luna_high' if effort_contrast else 'terra_high'
+    strong_model = judge if functional else 'gpt-5.6-luna' if effort_contrast else judge
+    models = {"direct_task": "gpt-5.6-luna", strong: strong_model}
+    efforts = ({"direct_task": "high", strong: "low"} if functional else
+               {arm: 'low' if effort_contrast and arm == 'direct_task' else 'high' for arm in models})
     criterion = {
         "purpose": "calibration",
         "calibration_kind": "task_difficulty",
@@ -378,39 +392,48 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
         "runs_per_arm": {arm: 2 for arm in models},
         "arm_models": models,
         "judges": [judge],
-        "rubric": {"workflow": "score_absolute.orc", "entry": "score_absolute::score",
-                   "criteria": ["completeness", "correctness", "scope", "layering"], "reference": None},
-        "primary": [{"measure": f"{strong}.minus_control", "op": ">=", "value": 2}],
+        "rubric": ({"workflow": "score_functional.orc", "entry": "score_functional::score",
+                    "criteria": ["quality"], "reference": None} if functional else
+                   {"workflow": "score_absolute.orc", "entry": "score_absolute::score",
+                    "criteria": ["completeness", "correctness", "scope", "layering"], "reference": None}),
+        "primary": ([{"measure": f"{strong}.minus_control", "op": ">=", "value": 2},
+                     {"measure": f"{strong}.mean", "op": ">", "value": 3},
+                     {"measure": f"{strong}.mean", "op": "<", "value": 5}] if functional else
+                    [{"measure": f"{strong}.minus_control", "op": ">=", "value": 2}]),
     }
     criterion_path = world.outside / "task-difficulty-criterion.json"
-    if missing_delivery or effort_contrast:
+    if missing_delivery or effort_contrast or functional:
         criterion['natural_attempt_intake'] = 'terminal-single-call-patch-v1'
-    if effort_contrast:
+    if functional or effort_contrast:
         criterion['arm_efforts'] = efforts
     criterion_path.write_text(json.dumps(criterion), encoding="utf-8")
     root = world.outside / "task-difficulty-work"
     pool = root / "pool"
     plan = world.outside / "task-difficulty-plan.json"
     calls = world.outside / "task-difficulty-calls.jsonl"
-    plan.write_text(json.dumps({"omit_delivery": [[judge, 1]] if missing_delivery else [], "solutions": {
-        "gpt-5.6-luna": ["2", "1 + 1", "int(2)", "3 - 1"] if effort_contrast else ["2", "1 + 1"],
-        "gpt-5.6-terra": ["int(2)", "3 - 1"],
-    }}), encoding="utf-8")
+    solutions = {"gpt-5.6-luna": ["2", "1 + 1", "int(2)", "3 - 1"] if effort_contrast else ["2", "1 + 1"]}
+    if strong_model != "gpt-5.6-luna":
+        solutions[strong_model] = ["int(2)", "3 - 1"]
+    plan.write_text(json.dumps({"omit_delivery": [[judge, 1]] if missing_delivery else [], "solutions": solutions}),
+                    encoding="utf-8")
     fakebin = world.outside / "task-difficulty-fakebin"
     _local_task_provider(fakebin, plan, calls)
 
-    # The shared fixture starts from committed HEAD, while this branch's provider guard is being changed.
-    # Freeze those two current runtime files into the fixture checkout so the launch tests the new binding.
+    # Freeze the current provider guard and scoring workflow into the committed fixture runtime.
     changed = []
-    for relative in ("experiments/compare/shim/claude", "experiments/compare/shim/model-guard"):
+    runtime_sources = ["experiments/compare/shim/claude", "experiments/compare/shim/model-guard"]
+    if functional:
+        runtime_sources.append("experiments/compare/score_functional.orc")
+    for relative in runtime_sources:
         source, target = repo / relative, world.runtime / relative
-        if source.read_bytes() != target.read_bytes():
+        if not target.is_file() or source.read_bytes() != target.read_bytes():
+            target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
             changed.append(relative)
     if changed:
         _git(world.runtime, "add", *changed)
         subprocess.run(["git", "-C", str(world.runtime), "-c", "user.name=fixture", "-c",
-                        "user.email=fixture@example.invalid", "commit", "-qm", "fixture Codex model binding"],
+                        "user.email=fixture@example.invalid", "commit", "-qm", "fixture functional scoring workflow"],
                        check=True)
 
     home = world.tmp / "empty-home"
@@ -440,7 +463,7 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
         assert f"COMPARE_CODEX_MODELS={model}" in metadata["command"]
         executed = subprocess.run(["bash", str(run / "command.sh")], cwd=metadata["cwd"], env=env,
                                   capture_output=True, text=True, timeout=120, check=False)
-        omitted = missing_delivery and arm == 'terra_high' and number == 2
+        omitted = missing_delivery and arm == strong and number == 2
         assert bool(executed.returncode) == omitted, executed.stderr
         collected = prepare.collect(run)
         assert collected['outcome'] == ('failed' if omitted else 'completed') and collected['calls'] == 1
@@ -448,7 +471,7 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
         assert prepare.scan(run, world.solution, home=home) == []
         actual_event = json.loads(calls.read_text().splitlines()[-1])
         assert (actual_event['model'], actual_event['effort']) == (model, efforts[arm])
-        if missing_delivery or effort_contrast:
+        if functional or missing_delivery or effort_contrast:
             # Scripted native evidence is deliberately synthetic; this smoke never contacts a provider.
             native = world.outside / f'native-{arm}-{number}.jsonl'
             native.write_text(json.dumps({'type': 'session_meta', 'payload': {'cwd': metadata['cwd']}}) + '\n' +
@@ -467,7 +490,7 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
     assert len(events) == 4
     assert {model: sum(row["model"] == model for row in events) for model in models.values()} == {
         model: 2 * list(models.values()).count(model) for model in models.values()}
-    if effort_contrast:
+    if functional or effort_contrast:
         assert {effort: sum(row['effort'] == effort for row in events) for effort in ('low', 'high')} == {'low': 2, 'high': 2}
     assert all(row["allowed_models"] == row["model"] for row in events)
     assert len({(run / 'calls/1/patch-cand-1.diff').read_bytes() for run in records}) == 4
@@ -475,7 +498,7 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
 
     providers = world.outside / "codex-judge.providers.json"
     providers.write_text(json.dumps({"providers.judge": "codex_unrestricted_workspace"}), encoding="utf-8")
-    if missing_delivery or effort_contrast:
+    if functional or missing_delivery or effort_contrast:
         usable = {arm: [(run, view) for run, view in views.items() if view['arm'] == arm] for arm in models}
         pooling.write_pool(world.task, criterion_path, pool, [f'{judge}={providers}'], next(iter(views.values())),
                            captured_rows, pooling.compose(usable), review_exclude=(archive,) if review_environment else ())
@@ -502,10 +525,14 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
 
     ratings = {}
     for cid, clone in mapping["clones"].items():
-        score = "S1" if clone["arm"] == "direct_task" else "S2"
-        ratings[str(pool / "clones" / cid)] = {
-            "clone": str(pool / "clones" / cid), "completeness": "S2", "correctness": "S2",
-            "scope": score, "layering": score, "reason": "scripted offline rating"}
+        score = "S2" if clone["arm"] == "direct_task" else "S4"
+        ratings[str(pool / "clones" / cid)] = ({
+            "clone": str(pool / "clones" / cid), "quality": score, "reason": "scripted offline rating"}
+            if functional else {
+                "clone": str(pool / "clones" / cid), "completeness": "S2", "correctness": "S2",
+                "scope": "S1" if clone["arm"] == "direct_task" else "S2",
+                "layering": "S1" if clone["arm"] == "direct_task" else "S2",
+                "reason": "scripted offline rating"})
     rating_plan, rating_calls = pool / "records/rating-plan.json", pool / "records/rating-calls.jsonl"
     git_checks = {}
     if review_environment:
@@ -531,8 +558,9 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
     monkeypatch.setenv("COMPARE_TREE", str(judge_home))
     monkeypatch.setenv("COMPARE_BASE", mapping["compare_base"])
     monkeypatch.setenv("COMPARE_CODEX_MODELS", judge)
-    source = world.runtime / "experiments/compare/score_absolute.orc"
-    provider_args = ["--entry-workflow", "score_absolute::score", "--source-root",
+    workflow = "score_functional" if functional else "score_absolute"
+    source = world.runtime / f"experiments/compare/{workflow}.orc"
+    provider_args = ["--entry-workflow", f"{workflow}::score", "--source-root",
                      str(world.runtime / "experiments/compare"), "--provider-externs-file", str(providers)]
     compiled = _cli(judge_home, "compile", str(source), *provider_args)
     assert compiled.returncode == 0, compiled.stderr
@@ -565,13 +593,20 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
     failed = [row for row in results['runs'] if row['outcome'] == 'failed']
     assert len(failed) == int(missing_delivery)
     if missing_delivery:
-        assert failed[0]['failure']['code'] == 'provider_result_missing' and failed[0]['value'] == 8
+        assert failed[0]['failure']['code'] == 'provider_result_missing'
+        assert failed[0]['value'] == (4 if functional else 8)
         original = records[-1]
         assert json.loads((original / 'record.json').read_text())['patches'] == {}
         assert not list(Path(views[str(original)]['state_root']).rglob('result.json'))
     assert results["measures"]["direct_task.runs"] == 2
     assert results["measures"][f"{strong}.runs"] == 2
     assert results["measures"][f"{strong}.minus_control"] == 2
-    assert results["verdict"]["primary"] == [{"measure": f"{strong}.minus_control", "op": ">=", "value": 2,
-                                                 "observed": 2, "met": True}]
+    assert results["verdict"]["primary"] == ([
+        {"measure": f"{strong}.minus_control", "op": ">=", "value": 2, "observed": 2, "met": True},
+        {"measure": f"{strong}.mean", "op": ">", "value": 3, "observed": 4, "met": True},
+        {"measure": f"{strong}.mean", "op": "<", "value": 5, "observed": 4, "met": True},
+    ] if functional else [
+        {"measure": f"{strong}.minus_control", "op": ">=", "value": 2, "observed": 2, "met": True}])
+    if functional:
+        assert results["measures"][f"{strong}.mean"] == 4
     assert results["anchors"] == [] and "calibration" not in results

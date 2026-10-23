@@ -281,6 +281,48 @@ def test_summarize_joins_ratings_by_position_and_computes_measures(results):
         8, 4, 2, 3.5, 4, 0, True)
 
 
+@pytest.mark.parametrize(("token", "expected"), [("S0", 0), ("S3", 3), ("S8", 8)])
+def test_quality_rubric_joins_its_single_functional_score(token, expected, tmp_path):
+    clone = str(tmp_path / "pool/clones/a1b2c3d4")
+    mapping = {"rubric": {"criteria": ["quality"]}}
+    ratings = [[{"clone": clone, "quality": token, "reason": "functional behavior"}]]
+
+    joined = summarize.join(tmp_path, [{"clones": [clone]}], ratings, [["a1b2c3d4"]],
+                            criteria=summarize.criteria_of(mapping))
+
+    assert joined["a1b2c3d4"]["quality"] == expected
+
+
+@pytest.mark.parametrize("token", ["S9", "unknown", 8])
+def test_quality_rubric_rejects_unknown_or_out_of_range_tokens(token, tmp_path):
+    clone = str(tmp_path / "pool/clones/a1b2c3d4")
+    ratings = [[{"clone": clone, "quality": token, "reason": "invalid"}]]
+
+    with pytest.raises(SystemExit, match="quality"):
+        summarize.join(tmp_path, [{"clones": [clone]}], ratings, [["a1b2c3d4"]], criteria=("quality",))
+
+
+def test_quality_rubric_must_not_mix_with_component_criteria():
+    with pytest.raises(SystemExit, match="quality.*only"):
+        summarize.criteria_of({"rubric": {"criteria": ["quality", "scope"]}})
+
+
+def test_historical_component_rubric_still_rejects_s3(tmp_path):
+    clone = str(tmp_path / "pool/clones/a1b2c3d4")
+    ratings = [[{"clone": clone, "completeness": "S3", "reason": "invalid"}]]
+
+    with pytest.raises(SystemExit, match="completeness.*S3"):
+        summarize.join(tmp_path, [{"clones": [clone]}], ratings, [["a1b2c3d4"]], criteria=("completeness",))
+
+
+def test_quality_rubric_keeps_the_clone_id_position_check(tmp_path):
+    clone = str(tmp_path / "pool/clones/a1b2c3d4")
+    ratings = [[{"clone": "other-clone", "quality": "S8", "reason": "complete"}]]
+
+    with pytest.raises(SystemExit, match="batch 0 position 0"):
+        summarize.join(tmp_path, [{"clones": [clone]}], ratings, [["a1b2c3d4"]], criteria=("quality",))
+
+
 def test_summarize_counts_exact_agreement_per_criterion(results, pooled):
     n = len(pooled.mapping["clones"])
     assert results["agreement"] == {"root_cause": {"agree": n - 1, "of": n}, "scope": {"agree": n, "of": n},

@@ -75,6 +75,35 @@ def test_task_difficulty_preserves_four_scores_and_reuses_canonical_gap():
     assert summarize.calibration({}, mapping, rule) is None
 
 
+def test_task_difficulty_accepts_functional_quality_eight_and_keeps_denominator():
+    rule, mapping, ratings = observations()
+    rubric = {'workflow': 'score_functional.orc', 'entry': 'score_functional::score',
+              'criteria': ['quality'], 'reference': None}
+    rule['rubric'] = mapping['rubric'] = rubric
+    ratings[TERRA] = {cid: {'quality': 8} for cid in mapping['clones']}
+
+    summarize.validate_task_difficulty(rule, mapping, {}, ratings)
+    _, values = summarize.score_values(mapping, ratings)
+    assert set(values.values()) == {8}
+
+    ratings[TERRA].pop(next(iter(mapping['clones'])))
+    with pytest.raises(SystemExit, match='task.difficulty'):
+        summarize.validate_task_difficulty(rule, mapping, {}, ratings)
+
+
+@pytest.mark.parametrize('value', [True, 8.0, 9, -1])
+def test_task_difficulty_rejects_noncanonical_or_out_of_range_functional_scores(value):
+    rule, mapping, ratings = observations()
+    rule['rubric'] = mapping['rubric'] = {
+        'workflow': 'score_functional.orc', 'entry': 'score_functional::score',
+        'criteria': ['quality'], 'reference': None}
+    ratings[TERRA] = {cid: {'quality': 4} for cid in mapping['clones']}
+    ratings[TERRA][next(iter(mapping['clones']))]['quality'] = value
+
+    with pytest.raises(SystemExit, match='task.difficulty'):
+        summarize.validate_task_difficulty(rule, mapping, {}, ratings)
+
+
 @pytest.mark.parametrize('damage', ['missing_run', 'extra_run', 'failed', 'excluded_run', 'missing_clone',
                                   'duplicate_clone', 'duplicate_run', 'missing_judge', 'excluded_judge',
                                   'missing_rating', 'invalid_rating', 'wrong_arm', 'wrong_counts'])

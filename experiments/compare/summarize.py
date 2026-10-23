@@ -1,20 +1,9 @@
-"""Summarize a scored pool: ratings joined by position, per-run values, measures, agreement, anchors, verdict.
+"""Summarize criterion-selected blind ratings into canonical comparison results.
 
-  summarize.py --pool P --criterion C [--python PY]
-
-Reads P/records/mapping.json (prepare.py pool) and, for every judge it lists, the judge's scan
-(P/records/judges/<judge>/scan.json) and its one scoring run of experiments/compare/score.orc in its
-state directory P/judges/<dir>/state/<run_id>/ (run.json and memo.jsonl). Refuses a criterion whose
-`judges` differ from the pool's. Refuses a judge that is not
-scanned, whose scan predates calls, or whose hits have no verdict; leaves out a judge found
-contaminated. Refuses unless every other judge has exactly one completed scoring run that bound the
-criterion file's SHA-256 and the judge's model, whose provider starts pair one to one with the judge's
-shim call records (prepare.paired_calls), and every batch's ratings line up with its clones.
-For non-calibration criteria, when the task package has hidden/ and hidden_tests.txt, runs each listed node id in a
-copy of every clone without .git, with hidden/ copied over it and PYTHONPATH at the copy; results.json gives each
-clone's pass fraction (`hidden`) and failing node ids (`hidden_failed`). Calibration reports omit these reruns;
-their hidden-control construction diagnostics come from their separately retained evidence.
-Writes P/records/results.json and P/records/results.md and prints the latter. Standard library only.
+Verifies judge scans, criterion and model bindings, provider-call pairing, and ordered clone joins.
+Task-difficulty results retain complete declared run, clone, and judge denominators.
+Optional hidden-test acceptance runs only for non-calibration criteria with both package inputs present.
+Writes P/records/results.json and results.md using the standard library and local harness modules.
 """
 
 import argparse
@@ -40,13 +29,17 @@ except ImportError:  # run as a script
     from scan import model_policy
 
 SCORES = {"S0": 0, "S1": 1, "S2": 2}  # score.orc's Score enumeration
+QUALITY_SCORES = {f"S{n}": n for n in range(9)}
 CRITERIA = ("root_cause", "scope", "generality", "layering")
 OPS = {">=": operator.ge, "<=": operator.le, ">": operator.gt, "<": operator.lt}
 NODE_TIMEOUT_SEC = 1800  # a hidden test that hangs counts as failed
 
 
 def criteria_of(mapping):
-    return tuple(rubric(mapping)["criteria"])
+    criteria = tuple(rubric(mapping)["criteria"])
+    if "quality" in criteria and criteria != ("quality",):
+        raise SystemExit("the quality rubric must select quality only")
+    return criteria
 
 
 def judge_exclusion(pool, judge):
@@ -89,6 +82,7 @@ def scoring_run(pool, judge, info, sha):
 
 def join(run, batches, value, members, criteria=CRITERIA, references=()):
     """clone id -> rating with integer scores, joined by position; refuse any batch that does not line up."""
+    scores = QUALITY_SCORES if criteria == ("quality",) else SCORES
     if len(batches) != len(members) or len(value) != len(members):
         raise SystemExit(f"{run}: {len(batches)} batches bound, {len(value)} rated, {len(members)} pooled")
     joined = {}
@@ -104,7 +98,13 @@ def join(run, batches, value, members, criteria=CRITERIA, references=()):
             if rating["clone"] not in (path, Path(path).name):
                 raise SystemExit(f"{run}: batch {index} position {position} copies back {rating['clone']!r} "
                                  f"but lists {path}")
-            joined[Path(path).name] = {c: SCORES[rating[c]] for c in criteria} | {"reason": rating["reason"]}
+            decoded = {}
+            for c in criteria:
+                token = rating.get(c)
+                if not isinstance(token, str) or token not in scores:
+                    raise SystemExit(f"{run}: batch {index} position {position} has invalid {c} score {token!r}")
+                decoded[c] = scores[token]
+            joined[Path(path).name] = decoded | {"reason": rating["reason"]}
     return joined
 
 
@@ -435,10 +435,12 @@ def validate_task_difficulty(criterion, mapping, excluded, ratings):
                    for clone in clones.values())):
         raise SystemExit("task-difficulty requires exactly one final clone per declared run, without controls")
     judges = criterion["judges"]
+    criteria = criteria_of(mapping)
+    maximum = 8 if criteria == ("quality",) else 2
     if (not judges or len(set(judges)) != len(judges) or excluded or set(ratings) != set(judges)
             or any(set(rated) != set(clones) for rated in ratings.values())
-            or any(type(rating.get(key)) is not int or not 0 <= rating[key] <= 2
-                   for rated in ratings.values() for rating in rated.values() for key in criteria_of(mapping))):
+            or any(type(rating.get(key)) is not int or not 0 <= rating[key] <= maximum
+                   for rated in ratings.values() for rating in rated.values() for key in criteria)):
         raise SystemExit("task-difficulty requires valid scores for every solution from every declared judge")
 
 
