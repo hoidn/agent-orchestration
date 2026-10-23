@@ -4,8 +4,10 @@ from enum import Enum
 
 from orchestrator.py import (
     Command, Doc, HostReply, Prompt, Provider, RelPath, Text, Value,
-    ask, match, proc, record, workflow,
+    ask, match, proc, record, when, workflow,
 )
+
+TARGET = "2.40"
 
 
 class Evidence(RelPath, under="artifacts", must_exist=True):
@@ -83,12 +85,12 @@ def recover(problem: str, report: Evidence, guide: Guide):
     reply = approval(checked.cause, checked.summary, checked.evidence, guide)
     return match(
         reply,
-        ANSWERED=lambda answer: match(
-            answer.value,
-            APPROVED=lambda _: action(
+        ANSWERED=lambda answer: when(
+            answer.value == Approval.APPROVED,
+            then=lambda: action(
                 "python", "action.py", "repair", checked.cause, checked.summary
             ),
-            DENIED=lambda _: action(
+            else_=lambda: action(
                 "python", "action.py", "escalate", "denied", checked.cause, checked.summary
             ),
         ),

@@ -376,7 +376,7 @@ def test_module_target_is_admitted_by_existing_compiler(tmp_path, target):
     assert built.program.tree["target"] == target
 
 
-@pytest.mark.parametrize("target", ["2.34", "2.40"])
+@pytest.mark.parametrize("target", ["2.34", "2.41"])
 def test_module_target_outside_admission_refuses(tmp_path, target):
     with pytest.raises(LispFrontendCompileError):
         compile_source(tmp_path, f'TARGET = "{target}"\n@workflow\ndef run() -> int:\n    return 1\n')

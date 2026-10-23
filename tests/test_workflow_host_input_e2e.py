@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import ast
 import os
 from pathlib import Path
 import signal
@@ -321,10 +322,17 @@ def test_public_cli_workflows_recover_typed_outcomes_once(tmp_path, frontend, ou
     assert header["workflow_file"].endswith(".orc")
     assert (workspace / header["workflow_file"]).is_file()
     if frontend == "python":
-        assert ".orchestrate/generated/" in header["workflow_file"]
-        source_map = json.loads((workspace / header["workflow_file"]).with_name("source_map.json").read_text())
-        assert source_map["sources"]["approval.py"] == hashlib.sha256((workspace / "approval.py").read_bytes()).hexdigest()
-        assert any(row["definition"] == "recover" and row["file"] == "approval.py" for row in source_map["entries"])
+        assert ".orchestrate/python/" in header["workflow_file"]
+        generated = workspace / header["workflow_file"]
+        source_map = json.loads((generated.parents[2] / "source-map.json").read_text())
+        assert source_map["source_hashes"][str(workspace / "approval.py")] == "sha256:" + hashlib.sha256((workspace / "approval.py").read_bytes()).hexdigest()
+        recover = next(node for node in ast.parse((workspace / "approval.py").read_text()).body
+                       if isinstance(node, ast.FunctionDef) and node.name == "recover")
+        recover_line = min(recover.lineno, *(decorator.lineno for decorator in recover.decorator_list))
+        assert any(row["kind"] == "definition" and row["python"]["path"] == str(workspace / "approval.py")
+                   and row["python"]["line"] == recover_line
+                   and row["generated"]["path"] == generated.relative_to(generated.parents[2]).as_posix()
+                   for row in source_map["entries"])
 
 
 def test_loop_visits_and_procedure_activations_keep_separate_request_ids(tmp_path):

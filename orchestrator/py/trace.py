@@ -395,11 +395,14 @@ def when(condition, *, then, else_):
 def match(value, **cases):
     trace = active_trace()
     trace.validate_value(value)
-    if not isinstance(value, Expr) or not _closed_union(value._annotation):
+    annotation = value._annotation if isinstance(value, Expr) else None
+    if trace.generator.graph is not None:
+        annotation = trace.generator.graph.resolve_annotation(annotation, trace.generator)
+    if not isinstance(value, Expr) or not _closed_union(annotation):
         raise PythonFrontendError("python_match_requires_union", "match requires a value annotated with a closed variant union", site=author_site())
     from .imports import CompilerType
-    variants = (value._annotation._cases() if isinstance(value._annotation, CompilerType)
-                else get_args(value._annotation))
+    variants = (annotation._cases() if isinstance(annotation, CompilerType)
+                else get_args(annotation))
     names = [variant.__name__ for variant in variants]
     if len(set(names)) != len(names) or set(cases) != set(names):
         raise PythonFrontendError("python_match_cases", "match requires exactly one arm for every named union case", site=author_site())
@@ -410,6 +413,20 @@ def match(value, **cases):
     annotation = _branch_annotation(trace.generator, [result for _, _, _, result in arms])
     expression = trace.expression("match", (value, tuple(arms)), annotation)
     return expression if _contains_loop_control(expression) else trace.bind(expression)
+
+
+def _require_host_input_target(generator, *, site=None):
+    if str(getattr(generator.module, "TARGET", "2.39")) != "2.40":
+        raise PythonFrontendError("python_host_input_target", "ask and HostReply require explicit TARGET = '2.40'", site=site)
+
+
+def ask(question, *, returns, timeout_sec=None, show=()):
+    from .declarations import HostReply, PromptApplication
+    trace = active_trace()
+    _require_host_input_target(trace.generator)
+    if isinstance(question, PromptApplication) and question.prompt.extern_name is not None:
+        raise PythonFrontendError("python_host_prompt_extern", "Host questions require a declared prompt application, not Prompt.extern")
+    return trace.bind(trace.expression("ask", (question, returns, timeout_sec, tuple(show)), HostReply[returns]))
 
 
 def _boolean_thunks(kind, thunks):

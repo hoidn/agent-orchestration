@@ -16,7 +16,7 @@ from typing import Union, get_args, get_origin
 from .declarations import Definition, Fill, MISSING, Prompt, fields_of, validate_field_names
 from .diagnostics import (PythonFrontendError, PythonSite, PythonSourceMap,
                           SourceMapEntry, definition_site, python_span, remap_compiler_error)
-from .trace import Expr, Trace
+from .trace import Expr, Trace, _require_host_input_target
 from .imports import (CompilerCase, CompilerType, ImportedCallable, ImportedPrompt,
                       OrcMember, OrcModule, _GENERATOR)
 
@@ -163,11 +163,15 @@ class ModuleGenerator:
     def type_ref(self, annotation, *, site=None, signature=False):
         site = site or self.fallback
         if isinstance(annotation, OrcMember):
+            if annotation._module._name == "std/host" and annotation._name == "HostReply":
+                _require_host_input_target(self, site=site)
             name = self.import_name(annotation._module._name, annotation._name)
             if annotation._arguments:
                 name += "[" + " ".join(self.type_ref(arg, site=site) for arg in annotation._arguments) + "]"
             return name
         if isinstance(annotation, CompilerType):
+            if annotation._owner == "std/host" and annotation._name == "HostReply":
+                _require_host_input_target(self, site=site)
             name = self.import_name(annotation._owner, annotation._name)
             if annotation._arguments:
                 name += "[" + " ".join(self.type_ref(arg, site=site) for arg in annotation._arguments) + "]"
@@ -387,9 +391,10 @@ class ModuleGenerator:
                 w.write(")")
             w.write(") -> " + self.type_ref(returns))
             if definition.kind == "proc":
+                from orchestrator.workflow_lisp.syntax import target_dsl_supports_effect_ceilings
                 target = str(getattr(self.module, "TARGET", "2.39"))
                 effects = definition.effects
-                if target == "2.39":
+                if target_dsl_supports_effect_ceilings(target):
                     if effects is not MISSING:
                         self.emit_effects(effects)
                 else:
@@ -416,7 +421,10 @@ class ModuleGenerator:
                     "proc effects must use the declared effect descriptors",
                 )
             subject = effect.subject
-            if effect.kind == "uses-command":
+            if effect.kind == "host-input":
+                self.writer.write("(host-input)")
+                continue
+            elif effect.kind == "uses-command":
                 name = subject.name
             elif effect.kind == "uses-provider":
                 name = subject.name
@@ -490,13 +498,20 @@ class ModuleGenerator:
                     command, argv, inputs, _inputs_present = value._args
                     for argument in argv: collect(argument, None, loop_state_type)
                     for argument in inputs.values(): collect(argument, None, loop_state_type)
-                elif value._kind == "provider":
+                elif value._kind in {"provider", "ask"}:
                     from .declarations import PromptApplication
-                    _provider, application, _options = value._args
+                    if value._kind == "provider":
+                        _provider, application, _options = value._args
+                    else:
+                        application, _returns, timeout, shown = value._args
+                        collect(timeout, int, loop_state_type)
+                        for argument in shown: collect(argument, None, loop_state_type)
                     if isinstance(application, PromptApplication) and not isinstance(application.values, tuple):
                         fills = application.prompt.signature()
                         for name, argument in application.values.items():
                             collect(argument, fills[name].annotation, loop_state_type)
+                    elif value._kind == "ask":
+                        collect(application, str, loop_state_type)
                 elif value._kind == "op":
                     operator = value._args[0]
                     operand_type = bool if operator == "not" else str if operator == "string/concat" else None
@@ -546,7 +561,7 @@ class ModuleGenerator:
     def expression(self, value, *, expected=None):
         w = self.writer
         site = value._site if isinstance(value, Expr) else self.fallback
-        kind = "call" if isinstance(value, Expr) and value._kind in {"call", "provider", "command"} else "expression"
+        kind = "call" if isinstance(value, Expr) and value._kind in {"call", "provider", "command", "ask"} else "expression"
         with w.mark(site, kind):
             if isinstance(value, Expr):
                 self._expression(value, expected=expected)
@@ -646,6 +661,25 @@ class ModuleGenerator:
                 w.write(")")
             w.write(" :returns " + self.type_ref(command.returns) + ")")
         elif value._kind == "provider": self.emit_provider(value)
+        elif value._kind == "ask":
+            from .declarations import PromptApplication
+            question, returns, timeout, shown = value._args
+            w.write("(request-input ")
+            if isinstance(question, PromptApplication):
+                self.emit_prompt_application(question)
+            else:
+                self.expression(question, expected=str)
+            w.write(" :returns " + self.type_ref(returns))
+            if timeout is not None:
+                w.write(" :timeout-sec ")
+                self.expression(timeout, expected=int)
+            if shown:
+                w.write(" :show (")
+                for index, argument in enumerate(shown):
+                    if index: w.write(" ")
+                    self.expression(argument)
+                w.write(")")
+            w.write(")")
         elif value._kind == "when":
             condition, then_region, else_region = value._args
             w.write("(if ")
@@ -770,21 +804,25 @@ class ModuleGenerator:
                 self.expression(argument)
             w.write(") :returns " + self.type_ref(prompt.returns))
         else:
-            if isinstance(prompt, ImportedPrompt):
-                name = self.import_name(prompt.module_name, prompt.name)
-            elif self.graph is not None and prompt.owner != self.module.__name__:
-                name = self.graph.prompt_ref(prompt, self)
-            elif id(prompt) not in self.prompt_names:
-                raise PythonFrontendError("python_prompt_owner", "Prompt must be a module-owned declaration", site=application.site)
-            else:
-                name, _ = self.prompt_names[id(prompt)]
-            w.write("(" + name)
-            for key, argument in application.values.items():
-                fill = prompt.signature()[key]
-                w.write(f" :{key} ")
-                self.expression(argument, expected=fill.annotation)
-            w.write(")")
+            self.emit_prompt_application(application)
         w.write(")")
+
+    def emit_prompt_application(self, application):
+        prompt = application.prompt
+        if isinstance(prompt, ImportedPrompt):
+            name = self.import_name(prompt.module_name, prompt.name)
+        elif self.graph is not None and prompt.owner != self.module.__name__:
+            name = self.graph.prompt_ref(prompt, self)
+        elif id(prompt) not in self.prompt_names:
+            raise PythonFrontendError("python_prompt_owner", "Prompt must be a module-owned declaration", site=application.site)
+        else:
+            name, _ = self.prompt_names[id(prompt)]
+        self.writer.write("(" + name)
+        for key, argument in application.values.items():
+            fill = prompt.signature()[key]
+            self.writer.write(f" :{key} ")
+            self.expression(argument, expected=fill.annotation)
+        self.writer.write(")")
 
 
 def generate_module(module: ModuleType, output_root: Path, *, module_name: str | None = None) -> GeneratedModule:
@@ -1075,6 +1113,8 @@ class ModuleGraph:
         self.skeleton_source_map = PythonSourceMap()
         # Skeleton paths are read once and never overwritten with final source.
         for generator in self.generators.values():
+            if str(getattr(generator.module, "TARGET", "2.39")) == "2.40":
+                generator.import_name("std/host", "HostReply")
             declarations = {id(value): value for value in vars(generator.module).values()
                             if isinstance(value, Definition) and value.__module__ == generator.module.__name__}
             for definition in declarations.values():

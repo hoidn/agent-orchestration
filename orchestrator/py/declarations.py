@@ -229,6 +229,15 @@ class Effect:
     subject: object
 
 
+host_input = Effect("host-input", None)
+
+
+class HostReply:
+    def __class_getitem__(cls, answer):
+        from .imports import import_orc
+        return import_orc("std/host").HostReply[answer]
+
+
 def uses_command(command):
     if not isinstance(command, Command):
         raise PythonFrontendError("python_proc_effect_invalid", "uses_command requires a Command")
@@ -295,7 +304,7 @@ def proc(function=None, *, returns=MISSING, effects=MISSING):
     def decorate(value):
         if effects is not MISSING and (not isinstance(effects, (tuple, list)) or
                                        any(not isinstance(effect, Effect) for effect in effects)):
-            raise PythonFrontendError("python_proc_effect_invalid", "proc effects must be a sequence of uses_command, uses_provider, or calls_workflow descriptors", site=definition_site(value))
+            raise PythonFrontendError("python_proc_effect_invalid", "proc effects must be a sequence of effect descriptors", site=definition_site(value))
         return Definition(value, returns=returns, kind="proc", effects=effects)
     return decorate if function is None else decorate(function)
 
