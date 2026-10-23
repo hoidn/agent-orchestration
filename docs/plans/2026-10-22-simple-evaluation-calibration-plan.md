@@ -1,12 +1,119 @@
-# Task-difficulty calibration: smaller agent versus Terra
+# Task-difficulty calibration: Luna low versus Luna high
 
-Role: selected implementation and execution plan. Owner correction (2026-10-22):
-calibration establishes that a task is difficult enough for a weaker agent to
-perform noticeably worse than a stronger agent, without deliberately introduced
-flaws. The owner instructed “fix the calibration plan, then reexecute it” and
-selected a smaller model against Terra high.
+Role: selected implementation plan; new execution budget pending. Calibration
+tests whether natural solutions from a weaker agent score noticeably below those
+from a stronger agent, without deliberately introduced flaws. The owner's latest
+instruction offered “either luna low and luna high or luna and sol6.1”. The
+coordinator selected **the same Luna model at low versus high effort**. Sol 6.1
+is not selected. Higher effort is an experimental treatment, not a guarantee of
+better output; the fixed qualification rule may still fail.
 
-## Objective and frozen design
+Current status: all sixteen previously authorized sessions are consumed. TD2 captured all
+eight natural solutions, but PRR's judge used apparent deletions created by the
+archive masks and is excluded. RPI's retained, explicitly uncertain readout has
+Luna mean 6 and Terra mean 4.5, failing the required advantage. The two-task set
+is not calibrated. The [recovery report](../reports/2026-10-22-natural-task-difficulty-recovery.md)
+records that unchanged history. The environment correction is integrated in
+`629c3b9c`; per-arm effort support and fresh preparation remain offline work.
+The new contrast does not authorize provider spend.
+
+## Selected prospective contrast (budget pending)
+
+For each of `resume-projection-integrity` (RPI) and `pure-result-replay` (PRR),
+generate two fresh independent attempts per arm:
+
+| Arm | Exact model | Effort | Attempts per task |
+| --- | --- | --- | --- |
+| `direct_task` (weak) | `gpt-5.6-luna` | `low` | 2 |
+| `luna_high` (strong hypothesis) | `gpt-5.6-luna` | `high` | 2 |
+
+Freeze `arm_models` with the same exact Luna ID for both arms and
+`arm_efforts: {direct_task: low, luna_high: high}`. Both use
+`control/direct_task.orc`, entry `control/direct_task::direct-task`, identical
+task packages, tools and seeded bases, and a 14,400-second timeout per attempt.
+Effort is the sole treatment difference. Use fresh repositories and independent
+runs: none of TD/TD2's known Luna-high outputs or scores becomes a new sample.
+Keep those outputs as descriptive history, without relabeling their arms.
+
+One **Terra-high** blind judge per task still scores its four randomly ordered
+clones in one batch. Both experimental coder arms are Luna; Terra is not a coder
+arm in this contrast. Conceal arm/model/effort provenance and use the existing
+independent completeness, correctness, scope and layering rubric, 0–2 each and
+0–8 total, without a reference or artificial controls. The sole primary rule is:
+
+`luna_high.minus_control >= 2`
+
+That is `mean(Luna high) - mean(Luna low) >= 2` on **each** task. Retain exactly
+two original observations per arm and all individual scores. Missing, invalid
+or excluded evidence cannot shrink the denominator or produce PASS. Both tasks
+must pass to qualify the set; neither expected model strength nor observed
+scores justify changing the threshold, excluding a task or correcting a rating.
+No hidden tests, synthetic defects, retained fillers, retries, replacements or
+orchestrated improvement loops enter this pilot. Coders may use their visible
+development tests; judges may neither execute tests nor use test results.
+
+Apply the declared terminal-single-call natural-output intake uniformly: retain
+the final raw snapshot, terminal status and failure, complete actual-model and
+effort receipt, and contamination decision for every original attempt. Do not
+fabricate a result envelope or repair a failed attempt. The earlier amendment
+and TD/TD2 outcomes remain historical; a new criterion must declare this intake
+prospectively before any new call.
+
+### Minimal offline work before preparation or spend
+
+- [x] Finish, verify and independently review the clean review-environment
+  correction below before preparing this pilot. The judge's real Git baseline
+  must exclude the protected archive; do not use index flags, filtered Git
+  output or instructions to ignore apparent deletions. Preserve raw patches.
+  Integrated `629c3b9c`: 432 affected tests, real Bubblewrap/fake-provider smoke,
+  independent review and exact reconstruction of all eight TD2 raw patches passed.
+- [ ] Add only the needed effort binding to the existing natural intake:
+  `expected_effort` defaults to `high` for historical callers. The new criterion
+  declares `arm_efforts`; launch preparation and summary validate each arm's
+  declared effort against complete native receipt metadata, alongside the exact
+  model. Omitted effort declarations retain existing high-effort semantics;
+  old freezes, V1 receipts and C1 callers keep their behavior.
+- [ ] Verify low/high receipt admission and wrong-effort refusal with offline
+  fake providers, plus legacy high-effort behavior and complete-denominator
+  joins. Run focused checks, collection for changed tests and a public
+  generation/collection/pool/judge/readout smoke before the affected parallel
+  suite. No real provider is needed for these checks.
+- [ ] Integrate a reviewed clean runtime, then freeze a new criterion, operator,
+  model/effort bindings, eight fresh generation inputs and commands, review-base
+  derivation and exact raw-patch provenance. Run all preparation/dry runs
+  offline; preserve TD/TD2 criteria, sources, outputs, ratings and costs.
+- [ ] Prepare a concrete ten-session packet for owner budget approval before
+  any launch. After approval, supervise eight generations (at most two at once)
+  and two sequential blind judges, one physical call per unit. Count every root,
+  child and failed start; refuse Claude/Fable, native delegation and unexpected
+  models/efforts. No automatic retries or replacements.
+- [ ] Audit integrity before canonical joins and report each task's actual
+  outcome, original delivery failures and metered consumption. A Terra judge
+  does not establish an unbiased measure; two samples per arm remain a pilot,
+  and higher Luna effort need not earn a higher score. Unknown Luna prices stay
+  unavailable, not zero. No ORC-benefit or quality–cost Pareto claim follows.
+
+### Proposed budget and decision ledger
+
+The new contrast requires **ten new sessions**: eight fresh generations and two
+Terra-high judges. The previous sixteen starts remain spent. An overall cap of
+**twenty-six is a proposal only**, pending a separate owner approval bound to
+the new packet; the model-choice instruction and previous cap-sixteen answer
+do not authorize these ten sessions. No new dispatch is currently authorized.
+
+| Decision | Consequence |
+| --- | --- |
+| Owner offered Luna low/high or Luna/Sol 6.1; coordinator selects Luna low/high | Same exact `gpt-5.6-luna` model, different declared efforts, weak `direct_task` and strong-hypothesis `luna_high`; Terra-high judging stays unchanged. Better performance remains empirical, not guaranteed |
+| Change the treatment prospectively | Generate all eight outputs afresh; do not reuse known TD2 Luna-high scores or relabel Luna/Terra records. Freeze `luna_high.minus_control >= 2` for each task before calls |
+| Preserve the apparatus findings and spent budget | Finish the offline environment/effort corrections first. Keep TD/TD2 protocols, raw results and partial readout unchanged; ten additional sessions and overall cap twenty-six remain pending owner approval. No campaign or Phase 2 work is selected |
+
+## Historical TD/TD2 model contrast and frozen design
+
+The protocol and execution sections below preserve the previously selected
+Luna-high versus Terra-high experiment. Their launch instructions, checkboxes
+and budgets do not select or authorize the new low/high experiment above; its
+fresh criterion must not amend old freezes. The separately titled correction to
+the review environment remains selected offline work shared by the new contrast.
 
 Produce fresh, natural solutions to `resume-projection-integrity` (RPI) and
 `pure-result-replay` (PRR). For each task run two independent `gpt-5.6-luna` high
@@ -241,6 +348,57 @@ it retains the same owner answer and original generation commands. All four
 PRR attempts completed, leaving eight original natural captures and fourteen
 total starts including the incident. The two blind judges remain within the
 authorized sixteen-session cap. No quality scores exist at this checkpoint.
+
+## Correct the review environment (offline; no replacement calls selected)
+
+The owner instructed: “make the requisite env fixes; no hacks / workarounds”.
+The masks concealed tracked archive files from the filesystem while leaving
+them in Git's baseline. PRR's judge treated those apparent deletions as candidate
+scope; none of the eight actual patches touches `docs/plans/evidence`.
+Preserve the contaminated judgment and original pools. Do not suppress Git
+changes with index flags, filtered output or instructions to ignore them.
+
+Build fresh review repositories whose baseline itself excludes the explicitly
+protected archive, then apply the original candidate patch unchanged. Record
+both original seeded base and derived review base; use fresh Git object storage
+so archived contents are absent from the review history as well as its files.
+This leaves historical packages and candidate outputs unchanged, but makes
+direct comparison of review HEAD IDs with the original seeded HEAD inappropriate:
+the recorded derivation and exact patch identity must establish that relationship.
+
+- [x] Add an explicit, backwards-compatible review exclusion to the existing
+  pool writer. Default pools, V1 qualification receipts and C1 callers retain
+  their current behavior. Reject invalid paths and any genuine candidate edit
+  to an excluded path. Reject this exact-patch mode if legacy stripping would
+  alter the raw patch; do not silently filter a candidate's changes.
+- [x] Derive a clean deterministic review baseline without original Git history,
+  apply the unchanged patch, and require the resulting Git diff to match it.
+  Keep normal pool verification/restoration working against the real review base.
+- [x] Verify file bytes/modes, add/delete/rename exclusions, archive absence from
+  Git objects, clone integrity and a real Bubblewrap/fake-provider smoke. Run
+  narrow checks before the affected parallel suite and obtain independent review.
+- [x] Integrate the environment correction and record its verification.
+  Prepare fresh review views of existing outputs offline; do not replace or
+  reinterpret old ratings. No additional provider session is authorized by this
+  correction: the sixteen-session cap is exhausted.
+
+Environment implementation `629c3b9c` passed 69 narrow checks, collection of 30
+tests in the changed modules, the public real-Bubblewrap/fake-provider smoke,
+and 432 affected checks with `pytest -q -n 16 --dist=worksteal` in tmux.
+Independent source review passed. Logs are
+`/tmp/compare-review-env-verify-dtds7cdv/pytest.log` (exit zero) and
+`/tmp/compare-review-environment-public-smoke.log` (exit zero).
+`TD2-20261022/review-environment-check.json` additionally verifies all eight
+actual raw patches in fresh review repositories and all 40 capture-source hashes
+unchanged, without a provider call. Those views are apparatus checks, not new
+samples or judgments for the selected effort contrast.
+
+The unchanged partial readout is
+`/home/ollie/sc-evidence/TD2-20261022/natural-partial-readout.json`.
+RPI's original ratings remain analysis with explicit exposure uncertainty, not
+a clean-environment replication. PRR's canonical summary refuses its excluded
+judge. Neither this repair nor a future PRR score can retrospectively turn the
+captured RPI result into a passing task.
 
 ## Superseded evaluator-control exercise (AS)
 

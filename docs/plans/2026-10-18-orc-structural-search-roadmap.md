@@ -530,10 +530,23 @@ pending-only recovery completed two new sessions without native children;
 have no pending effects and do not transfer. B/B2/C remain unrun and separately
 gated; no A3 is selected. I_A2/F2 and the AT freeze remain unchanged. The
 [completion report](../reports/2026-10-20-orc-structural-search-measurement-at-completion.md)
-records that historical result and incomplete total cost. The corrected pilot
-selects eight fresh direct-task generations (Luna high versus Terra high), then
-two blind Terra-high judges; cap ten, no Claude or hidden tests. Its two-task
-mean-gap criterion is frozen before execution. No ORC benefit or live
+records that historical result and incomplete total cost. The corrected natural
+pilot captured eight direct-task solutions (Luna high versus Terra high) and two
+blind Terra-high judgments. Its expanded cap of sixteen starts, including six
+earlier incident starts, is exhausted. RPI's retained analysis fails the frozen
+mean-gap rule and carries review-environment uncertainty; PRR's judgment is
+excluded for treating sandbox-induced archive deletions as candidate changes.
+The two-task set is not calibrated. The [recovery report](../reports/2026-10-22-natural-task-difficulty-recovery.md)
+records that unchanged outcome. The next selected contrast uses the same exact
+Luna model at low versus high effort, with eight fresh direct-task solutions and
+two unchanged Terra-high blind judges; high effort is not guaranteed to score
+better. The [current plan](2026-10-22-simple-evaluation-calibration-plan.md)
+requires a two-point high-effort mean advantage on each task and explicit
+model/effort receipt checks. The proper review-environment fix is integrated and
+verified in `629c3b9c`; effort support and fresh preparation remain offline work.
+Ten new sessions and an overall cap of twenty-six, including
+the sixteen spent starts, are proposals pending owner budget approval. No old
+output is relabeled or reused as a fresh sample; no additional call, ORC benefit or live
 `module` selection follows. The measurement gate precedes any
 live `module` arm
 ([module condition](2026-10-19-orc-structural-search-module-rewrite-plan.md#gate-for-a-live-module-arm)).
