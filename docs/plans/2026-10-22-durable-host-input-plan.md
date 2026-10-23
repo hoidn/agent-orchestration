@@ -13,9 +13,9 @@
 ## Role, authority and selection
 
 **Status: COMPLETE. All seven tasks and final integration gates are complete.**
-The implementation is committed on `feat/durable-host-input` in its worktree.
-After verification the owner additionally requested staging, committing and
-merging into main; that integration follows the completed implementation gates.
+The implementation is committed on `feat/durable-host-input` and merged into
+main. After verification the owner additionally requested staging, committing
+and merging; that integration also completed with local user changes preserved.
 Final verification and limitations are recorded in the evidence ledger below.
 
 The owner noted that `main` now contains a separately merged native Python
@@ -832,6 +832,35 @@ questions return to Design rather than being resolved with another frontend.
   environment, confirmed clean `git diff --check`, and retained the branch and
   worktree. This gate precedes the owner's subsequent request to merge into
   current main; the completion-ledger change itself does not alter execution.
+- Owner-authorized main integration completed after the full gate. Closure
+  commit `a282bc7d` was merged with current main `3aabdd21` as `73b590b7`.
+  The only conflict was the Python guide's artifact-location paragraph; the
+  resolution retains main's direct API recipe, source-map diagnostic role and
+  the complete host-input section. Three current target ranges introduced by
+  main were corrected to include 2.40, retaining Python's default 2.39.
+  Independent documentation SPEC/QUALITY and code/evidence review approved
+  the integration. Host/compiler/runtime/Python production code is identical
+  to the full-suite-tested implementation; new main production changes are
+  confined to the existing experiment scanner/model guard.
+  Fresh collection found 172 tests in the three changed main test modules;
+  their narrow run passed **172 tests in 129.55s**, exit 0. The canonical
+  Python/host/public integration selector plus four documentation contract
+  modules passed **542 tests in 73.52s**, exit 0, using 16 workers and
+  `--dist=worksteal`. Both ran in tmux with worktree `PYTHONPATH`; exact commands
+  and outputs are `/tmp/durable-input-merge-tests.sh`,
+  `/tmp/durable-input-merge-collect.log`,
+  `/tmp/durable-input-merge-narrow.log`/`.exit` and
+  `/tmp/durable-input-merge-gate.log`/`.exit`. The unchanged full-suite evidence
+  was reused rather than repeating unrelated checks.
+  Main was fast-forwarded to the verified merge commit. Seven overlapping
+  tracked local files were temporarily stashed and restored; all 21 preexisting
+  dirty tracked files matched the exact expected full-file hashes after applying
+  their original patch to the merged tree. The index remained empty, all 6807
+  preexisting untracked paths remained present, and only this task's own stash
+  was dropped after verification. Backup, original patch, expected files and
+  verification are retained at `/tmp/durable-input-main-local-dx_v45ov`.
+  This final ledger update is the only subsequent change; the feature worktree
+  remains available for inspection.
 - No provider-quality result, paid live-provider qualification or live-email
   delivery check is claimed. Local deterministic stubs cover both frontends,
   four host outcomes and crash/replay boundaries. One serial pending request
