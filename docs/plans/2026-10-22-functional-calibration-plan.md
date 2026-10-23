@@ -1,5 +1,7 @@
 # Functional task-difficulty calibration implementation plan
 
+**Current continuation:** this record retains the functional rubric and model hypotheses. LS8 execution closed with failed recorded predicates and a confirmed judge-brief contradiction; the [shared-contract rejudging plan](2026-10-23-functional-calibration-shared-contract-rejudging-plan.md) owns the selected two-judge correction using the same eight captures. See the [LS8 report](../reports/2026-10-23-luna-sol-filesystem-isolation-calibration.md) for unchanged historical ratings and limits.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task.
 
 **Goal:** Calibrate natural task difficulty with Luna high as the weaker hypothesis,
