@@ -35,6 +35,13 @@ sessions, increasing the total cap from 26 to 36. That reply authorizes this
 concrete packet: eight generations and two judges, with no retries. It does not
 authorize other experiments or further budget increases.
 
+**Current status:** LS1 stopped after four starts because its command detector
+mistook `codex --help` for nested model dispatch. Two Luna RPI captures are
+complete; two Sol RPI attempts were interrupted before terminal capture. No judge
+ran and no new quality score exists. Thirty starts are spent overall; the approved
+cap remains 36. The prospective LS2 recovery below is selected for offline
+preparation only and needs a concrete eight-session/cap-38 approval before launch.
+
 ## Single functional score
 
 Add `experiments/compare/score_functional.orc`, entry `score_functional::score`,
@@ -153,8 +160,8 @@ task/seed and bounded spend before further observations. Do not force an orderin
 - [x] Independently review the concrete packet; all 815 frozen hashes and the
   zero-start preflight passed review.
 - [x] Obtain the ten-session authorization: the owner replied "continue" to the
-  explicit proposal; overall cap 36 includes 26 historical starts. Execution is
-  in progress using the reviewed packet.
+  explicit proposal; overall cap 36 includes 26 historical starts. LS1 later
+  stopped after four starts due to the apparatus incident recorded below.
 
 ## Decision ledger
 
@@ -193,7 +200,7 @@ smoke passed in 22.30 seconds (`/tmp/sc-functional-exact-runtime-smoke.log`, exi
 The selected workflow SHA-256 is
 `297e629ebc5579b8889fd4629a3a4400d2024dcbc7a88e83034b4608e53ae0e7`.
 
-## LS1 concrete launch packet (authorized; execution in progress)
+## LS1 concrete launch packet (historical; interrupted)
 
 The fresh protocol is frozen at
 `/home/ollie/sc-evidence/freeze-functional-calibration-20261022/criterion.json`
@@ -239,6 +246,88 @@ The criterion and generation packet remain unchanged. A fresh preflight passed
 before dispatch; the operator started the two RPI Luna-high attempts in tmux
 `ls1-generation-20261022` on `/tmp/claude-tmux-sockets/sc-difficulty.sock`.
 Initial run IDs are `20261023T024142Z-gswhyi` and `20261023T024142Z-4zxhpi`.
-The operator owns the remaining ordered waves and enforces two concurrent
-generations, one physical call per unit and no retry. No new quality scores are
-available before blind judging; actual results will be recorded on closure.
+The operator stopped both Sol RPI processes on a false-positive command alert.
+The remaining four generations and both judges never started. The original
+packet, approval, persistent alert, interrupted records and usage remain intact;
+LS1 is incomplete and cannot qualify either task.
+
+## Task 4: Prospective LS2 apparatus recovery
+
+The frozen detector classified any shell command named `codex` as a possible
+dispatch. Sol's actual structured action invoked `codex --help | head -45`; the
+installed guard refused that informational request before backend dispatch.
+Independent inventory found four native roots and no children, additional roots,
+Claude/Fable calls or delegation. Neither interrupted Sol attempt has a terminal
+capture, so neither is an observation of poor task performance.
+
+Correct the classifier in a new source version: a top-level CLI with only a
+known help/version flag is informational. Continue detecting interactive calls,
+execution/resume/review, ambiguous extra arguments and later commands in a pipe
+or command list. Keep the existing guards and inventory. This bounded shell
+screen is not a universal defense against encoded commands or direct APIs.
+Preserve the old operator and its non-clearable incident record unchanged.
+
+LS2 retains the exact runtime, tasks, seeds, models, efforts, tools, timeouts,
+functional rubric, review exclusions and all three qualification rules above.
+Before any new generation or score, declare exactly these observations:
+
+| Task/arm | Original LS1 captures carried forward | Fresh LS2 generations |
+| --- | --- | --- |
+| RPI / Luna high | Both completed attempts, unchanged | 0 |
+| RPI / Sol low | 0 | 2 |
+| PRR / Luna high | 0 | 2 |
+| PRR / Sol low | 0 | 2 |
+
+One fresh Sol-high judge per task still rates all four anonymous clones. The
+two carried samples are selected for complete, uncontaminated terminal capture
+before any quality score; no LS1 generation has been judged. Bind their original
+record, completion, raw patch, receipt, native session and independent audit by
+digest. The two existing scans need their normal public adjudication: first save
+the complete pre-adjudication records, then change only scan-verdict metadata
+using `prepare.adjudicate` and bind both versions. Original completion references
+retain their historical pre-adjudication digests. Preserve identities and
+delivery outcomes; use the existing
+`pool.natural_attempt` intake and `pool.write_pool`, with the same task path and
+seeded compare base. Do not rewrite delivery artifacts, fabricate a new terminal record,
+silently relabel them as fresh or repair the interrupted Sol deliveries.
+
+Accounting and evaluation have different denominators: LS2 launches only six
+new generation units and two judges, while its evaluation contains all eight
+declared natural observations (two carried plus six new). The historical 30
+starts already include both carried Luna and both interrupted Sol calls. Thus
+the recovery proposes **eight new starts, overall cap 38**, with no retries,
+replacement samples or other spend. The existing cap 36 leaves six unused starts
+but does not authorize this new eight-session protocol or a higher cap. All new
+units use fresh paths; the original unused LS1 units remain unused.
+
+- [x] Preserve the incident inventory, captured usage and independent capture
+  audit; report incomplete Sol task delivery separately from metering status.
+- [x] Verify the classifier fix against the exact recorded action and genuine
+  dispatch/pipeline/wrapper cases without invoking providers.
+- [ ] Prepare the six fresh commands and explicit two-capture manifest; verify
+  unchanged task/baseline/model/effort provenance and no double-counted starts.
+- [ ] Qualify actual sandbox/CLI forwarding with fake providers, freeze all
+  dependencies and proof, and obtain independent concrete-packet review.
+- [ ] Obtain owner approval for eight fresh starts and total cap 38, binding the
+  concrete criterion/packet. Do not infer this from LS1's approval.
+- [ ] Execute the six generations then two blind judgments; preserve every
+  declared observation, audit integrity, and compute the canonical complete
+  readout. A new interruption stops without automatic retry.
+
+This amendment adds explicit carryover provenance to avoid repeating valid
+generations. It does not change difficulty to obtain a preferred model ordering,
+retroactively qualify LS1, rescore older iterations or select a campaign.
+
+The independent audit at `/home/ollie/sc-evidence/LS1-20261022/incident-audit.json`
+(SHA-256 `c618b7283ea86d7e7f11842b36044d490d42779a0b6118fc662374144b9bd68d`)
+reviewed 442 structured actions across the four roots. `incident-accounting.json`
+(SHA-256 `d16eed0a728e8b45216a1ef9f39cfc55ba209ab8d5c55d16f88afdb4e3f7c4a5`)
+preserves captured usage, the original false-positive inventory and 30-start
+accounting; complete final prices remain unavailable. `carryover-adjudication.json`
+(SHA-256 `d3684336c9c87121f6fba7a8d8f83cc080a6615debb58e7c93bd1745aca87e62`)
+records the public scan adjudications, exact before/after versions and both
+canonical `natural_attempt` admissions. Only scan-verdict metadata changed;
+all original delivery artifacts and the persistent detector alert remain intact.
+Seven offline classifier checks pass, including the exact incident action and
+genuine later/wrapped dispatches; independent code and recovery-plan review pass.
+These are apparatus checks, not quality scores or provider-spend authorization.

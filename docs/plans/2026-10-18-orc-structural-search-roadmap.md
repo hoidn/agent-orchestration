@@ -542,13 +542,15 @@ RPI low/high means were 6/5 (gap −1), and PRR 4.5/4 (gap −0.5).
 Both Sol-high judge-integrity reviews passed. The additive rubric's coarse
 functional components and independent scope/layering points limit interpretation;
 the [LH report](../reports/2026-10-22-luna-effort-task-difficulty-calibration.md)
-preserves all scores, receipts and target failures. Twenty-six starts are spent.
-The owner's next [functional calibration plan](2026-10-22-functional-calibration-plan.md)
-selects offline preparation with Luna high as the weaker hypothesis, Sol 6.1 low
-as the stronger hypothesis, and a single functional score out of eight, judged
-blind by Sol high. Ten fresh sessions and overall cap thirty-six are proposed;
-a concrete reviewed packet and owner budget approval are still required before
-fresh dispatch. No old output is relabeled or rescored, no stronger-arm success
+preserves all scores, receipts and target failures. The
+[functional calibration plan](2026-10-22-functional-calibration-plan.md) uses Luna
+high versus Sol 6.1 low and one functional score out of eight, judged blind by Sol
+high. Authorized LS1 stopped after four starts on an apparatus false positive:
+two Luna captures completed, two Sol attempts were interrupted, and no judge ran.
+Thirty starts are spent; the approved cap remains 36. Prospective LS2 offline
+recovery retains the two complete, unjudged Luna captures and proposes six new
+generations plus two judges, with cap 38 pending concrete owner approval.
+No historical score is changed, no stronger-arm success
 is guaranteed, and no ORC benefit or live `module` selection follows. The measurement gate precedes any
 live `module` arm
 ([module condition](2026-10-19-orc-structural-search-module-rewrite-plan.md#gate-for-a-live-module-arm)).
