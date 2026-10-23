@@ -312,7 +312,7 @@ by a Python executor. First prove the small composition before expanding API.
 **Test files:** New `tests/test_workflow_py_frontend.py`,
 `tests/test_workflow_py_build.py`, `tests/test_workflow_py_cli.py`.
 
-- [ ] Start with an executable feasibility test: native `@workflow` calls a
+- [x] Start with an executable feasibility test: native `@workflow` calls a
   later-declared `@proc` returning `HostReply[Approval]`; a provider diagnosis
   feeds `ask`, and lazy `match` branches contain repair/escalation commands.
   Trace to real `.orc`, compile with `build_closed_program_bundle` and run via
@@ -320,7 +320,7 @@ by a Python executor. First prove the small composition before expanding API.
   classes/types and no provider/command execution during declaration/build.
   If this requires semantics beyond the two accepted designs, return the
   architectural decision to Design before expanding the emitter.
-- [ ] Implement finite authoring types in `types.py`: annotated `@record`,
+- [x] Implement finite authoring types in `types.py`: annotated `@record`,
   string-valued Enum, per-class `@variant` plus named `A | B`/`typing.Union`
   aliases, ordinary primitive/list annotations, `RelPath` subclasses, and a
   descriptor reexport for the same imported
@@ -330,7 +330,7 @@ by a Python executor. First prove the small composition before expanding API.
   Reject ambiguous variant membership. Map Enum member names to distinct
   string wire values explicitly, including match branches; reject aliases by
   inspecting `__members__`, not only ordinary Enum iteration.
-- [ ] Implement declarations and deterministic symbolic tracing in `trace.py`.
+- [x] Implement declarations and deterministic symbolic tracing in `trace.py`.
   Decorators retain bodies without execution until explicit build. Discover
   reachable procedures, trace each once, emit calls instead of inlining
   decorated procedure bodies, and detect recursion without Python recursion.
@@ -343,7 +343,7 @@ by a Python executor. First prove the small composition before expanding API.
   `@proc(returns=T, effects=...)`, omitted inferred effects, explicit empty
   ceilings and `host_input`/`uses_provider(name)`/`uses_command(name)` effect
   descriptors. Conflicting decorator and return annotation contracts refuse.
-- [ ] Implement all advertised prompt/binding builders:
+- [x] Implement all advertised prompt/binding builders:
   `Prompt(text=... | file=..., fills=..., returns=...)`, `Text`, `Doc[T]`,
   `Value[T]`, `PathOf[T]` and `Out[T]`; `Provider(name)` and
   `Command(name, returns=T)` refer only to supplied manifest externs. Provider
@@ -356,14 +356,14 @@ by a Python executor. First prove the small composition before expanding API.
   template bytes at build; runtime `Doc` retains normal replay checks. Never
   interpolate symbolic values with Python formatting or auto-read path-like
   strings. Test full fill application and wrong/missing fill errors.
-- [ ] Implement deterministic emission and source mapping in `emit.py`.
+- [x] Implement deterministic emission and source mapping in `emit.py`.
   Stable declaration/operation order selects names and labels; Python object
   IDs, clocks and unordered traversal do not. Preserve nested branch/procedure
   attribution using generated spans plus original Python line/definition;
   do not invent exact columns. Assert checked structures and behavior, not
   full source text. Keep unsupported loops/agents/run-ref/parallel/direct-IR
   APIs absent, rather than exporting nonworking placeholders.
-- [ ] Implement build publication in `build.py` beneath
+- [x] Implement build publication in `build.py` beneath
   `.orchestrate/generated/<module>/<digest>/`, covering emitted source,
   canonical source-map bytes, emitter version and authoring template bytes in
   deterministic identity. Use workspace-relative original source filenames;
@@ -374,7 +374,7 @@ by a Python executor. First prove the small composition before expanding API.
   symlinks and generation-root escapes without overwriting evidence. Hand
   `FrontendBuildRequest` to the existing closed-program builder. Compiler
   rejection may retain diagnostic source but must create no run or dispatch.
-- [ ] Implement `py check`, `py build`, `py run` for `file.py
+- [x] Implement `py check`, `py build`, `py run` for `file.py
   --entry-workflow NAME` in the
   thin CLI adapter; reuse existing runtime input/state/provider configuration.
   Without a selector require exactly one exported workflow. Implement
@@ -384,7 +384,7 @@ by a Python executor. First prove the small composition before expanding API.
   the generated `.orc`/manifest recipe through the ordinary run entrypoint.
   There is no `py resume`: ordinary resume must not import Python, retrace,
   run decorators or select a newly generated bundle.
-- [ ] Test repeated-build determinism, module/helper declaration order,
+- [x] Test repeated-build determinism, module/helper declaration order,
   symbolic errors, type/branch failures, exact bundle reuse/corruption refusal,
   safe failure during atomic publication and source-mapped diagnostics.
   Explicitly test procedure effect ceilings/subjects, named union membership,
@@ -394,7 +394,7 @@ by a Python executor. First prove the small composition before expanding API.
   template, settle and resume successfully. Tampering with retained generated
   input must fail normal rebuild/program checks; changing a runtime Doc must
   still fail semantic replay. No assertion may rely on provider prompt prose.
-- [ ] Collect all new modules, run the narrow feasibility selector, then in
+- [x] Collect all new modules, run the narrow feasibility selector, then in
   tmux run:
 
   ```bash
@@ -404,7 +404,7 @@ by a Python executor. First prove the small composition before expanding API.
 
   Expected: native Python uses the real compiler/runtime/host protocol and
   remains independent of original Python sources during resume.
-- [ ] Obtain independent review, apply corrections, record evidence, and
+- [x] Obtain independent review, apply corrections, record evidence, and
   commit owned files with `feat: author durable workflows through native Python`.
 
 ## Task 5: Public parity smoke, adversarial lineage and crash recovery
@@ -544,6 +544,9 @@ owns final diff and verification. New architecture decisions return to Design.
 | 2026-10-22 | Evidence override does not waive a workflow input's must-exist contract. | Exact shared preflight remains authoritative. Missing presentation-only evidence is overrideable only when it has no independent input, Doc or producer obligation. Tests distinguish these cases rather than weakening ordinary input validation. |
 | 2026-10-22 | Preserve the watchdog health-result enum for suspended evaluated runs. | Map intentional waits to existing RUNNING_OK/NONE with no repair; report/dashboard/monitor retain the explicit suspended state. No historical watchdog workflow is re-admitted or extended. |
 | 2026-10-22 | Reconstruct configured capsule signatures only in modules that reference those workflow bindings. | Real HostReply enum/union capsule fixtures exposed reconstruction in unrelated stdlib/type/utility environments. Design review selected an extra existing expression-elaboration pass with a recording workflow resolver, only for explicit-import builds. This preserves lexical binding semantics at additional compile-time cost; no separate syntax scanner, native-signature fallback or lazy catalog is introduced. All supplied snapshots retain admission, conflict and closure checks. Known nominal return hints still require complete boundary-contract equality; erased imports retain their existing matching policy. |
+| 2026-10-22 | Repair typed enum let normalization in its shared compiler owner. | Native Value fills require ordinary let bindings; a handwritten Lisp reproducer confirms that inline-procedure normalization wrongly resolves a known enum constant as a WorkflowRef. Exclude resolved enum types at that call site and retain existing reference handling, rather than emitting a synthetic conditional workaround. |
+| 2026-10-22 | Present existing preflight/compiler refusals through the host CLI's controlled error path. | Native runtime Doc mutation exposed an uncaught domain refusal. Catch the specific existing domain exceptions and retain their diagnostic codes; do not change preflight, the public API's replay behavior or memo mutation ordering. |
+| 2026-10-22 | Keep Python source and name hygiene explicit and finite. | Independent executable review exposed parameter capture by generated bindings and conflation of distinct same-named types. Reserve author names for generated bindings/prompts and refuse conflicting type owners. Normalize lexical source paths before checking workspace-relative attribution, so `..` cannot bypass the selected source boundary. This is not an import sandbox. |
 
 ## Evidence and current status
 
@@ -589,7 +592,17 @@ owns final diff and verification. New architecture decisions return to Design.
   `/tmp/task3-revision-pytest.log` (111 collected). Root inspected the code,
   actual logs and clean diff before commit. Suspension emails contain only
   metadata/commands: rendered questions can contain runtime Doc bodies.
-- Task 4 native Python authoring is active. Public paired examples and
-  real-process crash checks remain Task 5; earlier runtime/adapter evidence
-  does not establish native Python parity.
+- Task 4 completed in `e4f90d02` after independent spec and quality approval.
+  The required gate plus shared compiler/reference regressions passed **553
+  tests in 43.31s**, exit 0, `/tmp/host-py-gate.log`. Final Python hygiene
+  corrections passed **79 tests in 13.85s**, `/tmp/host-py-final.log` (79
+  collected). The subsequent source containment correction passed **26 tests
+  in 12.36s**, `/tmp/host-py-path.log` (26 collected); unaffected evidence was
+  retained. Review reproduced and corrected generated-name capture, conflated
+  same-named types and lexical `..` source escape. Root inspected the package,
+  CLI/shared-owner diffs, fresh logs and clean diff before committing. Native
+  feasibility includes actual provider/command stand-ins, HostReply through a
+  forward procedure, settlement and repeated resume with exact dispatch counts.
+- Task 5 public paired examples and real-process crash/race checks are active;
+  the initial Python feasibility check does not replace that full campaign.
 - No provider-quality result or live-provider qualification is claimed.
