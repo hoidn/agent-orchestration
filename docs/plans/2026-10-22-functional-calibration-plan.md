@@ -40,7 +40,8 @@ mistook `codex --help` for nested model dispatch. Two Luna RPI captures are
 complete; two Sol RPI attempts were interrupted before terminal capture. No judge
 ran and no new quality score exists. Thirty starts are spent overall; the approved
 cap remains 36. The prospective LS2 recovery below is selected for offline
-preparation only and needs a concrete eight-session/cap-38 approval before launch.
+preparation only; its six-command packet is prepared and frozen, and needs a
+concrete eight-session/cap-38 approval before launch.
 
 ## Single functional score
 
@@ -304,9 +305,9 @@ units use fresh paths; the original unused LS1 units remain unused.
   audit; report incomplete Sol task delivery separately from metering status.
 - [x] Verify the classifier fix against the exact recorded action and genuine
   dispatch/pipeline/wrapper cases without invoking providers.
-- [ ] Prepare the six fresh commands and explicit two-capture manifest; verify
+- [x] Prepare the six fresh commands and explicit two-capture manifest; verify
   unchanged task/baseline/model/effort provenance and no double-counted starts.
-- [ ] Qualify actual sandbox/CLI forwarding with fake providers, freeze all
+- [x] Qualify actual sandbox/CLI forwarding with fake providers, freeze all
   dependencies and proof, and obtain independent concrete-packet review.
 - [ ] Obtain owner approval for eight fresh starts and total cap 38, binding the
   concrete criterion/packet. Do not infer this from LS1's approval.
@@ -331,3 +332,47 @@ all original delivery artifacts and the persistent detector alert remain intact.
 Seven offline classifier checks pass, including the exact incident action and
 genuine later/wrapped dispatches; independent code and recovery-plan review pass.
 These are apparatus checks, not quality scores or provider-spend authorization.
+
+## LS2 concrete recovery packet (reviewed; approval pending)
+
+Freeze directory: `/home/ollie/sc-evidence/freeze-functional-recovery-20261022`.
+The immutable `criterion.json` has SHA-256
+`d4fd467d49c9cbebabf76dc073c2bb981e0ccf1135bddf368cd6030d7494a588`;
+`carryover.json` has SHA-256
+`61cd99f2f35d246c569b47e4981443e540cae3c5ed665f047b2e5f44ed1b75d6`.
+The 825-file `generation-packet.json` has SHA-256
+`31f27b72a762054f559f3508c913062150094b8774e0750077f6cadba84e658a`.
+It binds the new operator, classifier regression and carryover/accounting checks,
+generation and future judge qualification helpers, runtime dependencies, all six
+prepared commands/inputs, preservation snapshot and copied verification evidence.
+The operator SHA-256 is
+`7cf4686ae727e4a0086829f13f026588150403581d737f883ca208c7dc14c8ed`.
+
+Evidence lives under `/home/ollie/sc-evidence/LS2-20261022`. The six actual public
+dry runs and six Bubblewrap/fake-CLI checks passed with zero providers; the latter
+checked 143 protected paths per unit and preserved all 36 record/index files.
+`generation-mask-smoke.json` has SHA-256
+`9d2c3ec212ef680afaef5db3a73bd11c43a2af3f0754fc45daf5bbbdec7ee157`.
+The operator passed 38 checks and collected all 38, its inlined classifier passed
+the seven regression checks, and all 4,378 pinned historical files verified.
+The unchanged runtime's earlier 479-test suite and exact public functional smoke
+remain applicable; they were not rerun for external-operator-only changes.
+
+The root independently verified every packet hash and reran the exact preflight:
+**zero fresh starts, 30 historical**, with no native children, extra roots,
+Claude calls or forbidden actions. No LS2 approval file exists. The original
+LS1 alert, packet, captures, incomplete Sol attempts and usage remain preserved.
+Judge helpers exist and passed source review; actual judge-pool sandbox checks
+must run after the six new captures create their concrete anonymous pools and
+before either paid judge call. The eight-session authorization, if granted,
+covers both generations and judges; binding that same answer to the later
+judging packet does not require a second budget request.
+
+Independent review passed the concrete 825-file packet and every source binding,
+all six exact commands/inputs, both canonical carryover admissions, full analysis
+denominator and zero-start inventory. Its new report is
+`/home/ollie/sc-evidence/LS2-20261022/generation-independent-review.json`
+(SHA-256 `6b0fb9e6b2f52721e749e7d0dd9fce61523121a33abbe8f7abdd1e596f9592f2`).
+All offline launch prerequisites are complete. The remaining prerequisite is
+owner approval for **eight new sessions, overall cap 38**, including the 30
+already spent; no paid LS2 dispatch is authorized yet.
