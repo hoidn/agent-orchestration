@@ -549,11 +549,11 @@ high. Authorized LS1 stopped after four starts on an apparatus false positive:
 two Luna captures completed, two Sol attempts were interrupted, and no judge ran.
 The owner authorized LS2 with total cap 38. Two new Sol attempts were then
 interrupted by a remaining subcommand-help false positive, before terminal
-capture or any judge call. Spend is 32 starts; both valid Luna captures remain
+capture or any judge call. Before LS3, spend was 32 starts; both valid Luna captures remain
 preserved. The semantic detector repair and LS3 recovery packet passed offline
-verification and independent review. Six fresh generations plus two judges are
-prepared; their proposed total cap 40 needs owner approval, with cap 38 still
-operative. No LS3 call or new score exists.
+verification and independent review. The owner approved six fresh generations
+plus two judges under total cap 40, reaffirming Sol 6.1 for the stronger arm.
+LS3 has started with two Sol-low RPI attempts; no new score exists.
 No historical score is changed, no stronger-arm success
 is guaranteed, and no ORC benefit or live `module` selection follows. The measurement gate precedes any
 live `module` arm

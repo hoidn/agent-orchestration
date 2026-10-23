@@ -42,13 +42,14 @@ ran and no new quality score exists. The owner explicitly approved LS2 with
 eight sessions and total cap 38, including 30 historical starts. LS2 then stopped
 after two new Sol starts because the detector still mistook subcommand help
 (`codex exec --help`) for model dispatch. Both attempts lack terminal captures;
-no judge ran. Overall spend is 32 starts, with six unused under cap 38. The
+no judge ran. LS2 left 32 starts spent, with six unused under its cap 38. The
 semantic detector repair is implemented and independently reviewed. LS3 is
-prepared and reviewed offline; no new paid retry is selected.
+prepared and reviewed. The owner approved its eight new sessions and total cap
+40; execution has started with the two Sol 6.1 low RPI attempts.
 
-Task 5 below records the prepared prospective LS3 recovery. Its
-eight new sessions and proposed total cap 40 require concrete owner approval;
-cap 38 remains operative until then.
+Task 5 below records the approved LS3 recovery. The owner replied "yes" to the
+eight-session/cap-40 proposal and reaffirmed Sol 6.1 for the stronger arm. That
+model was already frozen as `gpt-6.1-sol` low; the scientific protocol is unchanged.
 
 ## Single functional score
 
@@ -463,7 +464,7 @@ operators, freezes, alerts, interrupted records and usage remain unchanged.
   historical accounting and verify unchanged natural-capture provenance.
 - [x] Run public dry runs, fake-provider sandbox checks and complete inventory;
   freeze the dependencies/proof and independently review the concrete packet.
-- [ ] Obtain concrete owner approval for eight fresh sessions and total cap 40.
+- [x] Obtain concrete owner approval for eight fresh sessions and total cap 40.
 - [ ] Execute the generations and, after concrete pool/sandbox checks, the two
   blind judges; report all scores and the canonical complete readout. Stop on a
   new interruption without automatic retry.
@@ -483,7 +484,7 @@ No command from those inputs was executed and no model session was started.
 These checks preserve the original incident alerts and establish only the
 bounded command-classification repair, not new quality scores or live readiness.
 
-## LS3 concrete recovery packet (ready; approval pending)
+## LS3 concrete recovery packet (authorized; running)
 
 Freeze directory:
 `/home/ollie/sc-evidence/freeze-functional-semantic-recovery-20261022`.
@@ -515,8 +516,16 @@ The unchanged runtime's 479-test suite and public functional smoke remain
 applicable. Actual judge-pool sandbox checks remain due after new captures
 produce the anonymous pools and before either paid judgment.
 
-All offline launch prerequisites are complete. The only launch prerequisite is
-new owner approval for eight sessions, total cap 40; current cap 38 remains
-operative. This proposal includes both later judge calls, requires no repeat
-permission for them once approved, and authorizes no retries or other spend.
-No LS3 generation or judge has run and no new quality score exists.
+All offline launch prerequisites passed. Owner approval is recorded at
+`LS3-20261022/owner-approval-generation.json`, SHA-256
+`b106756edf227ef8fd1fea4fafccbe933a8a213cfd14ed08513122c6801401ff`.
+The exact reply "yes" authorizes eight sessions, total cap 40 including 32
+historical starts. It covers all six generations and both later judge calls,
+with no retries or other spend. The follow-up "use sol 6.1 for smart" reaffirms
+the frozen stronger model; its low effort and the Sol-high judge remain unchanged.
+A fresh approved preflight passed before dispatch. The first Sol RPI run IDs
+are `20261023T060305Z-dltv9j` and `20261023T060305Z-ov723i`, supervised by
+the bounded operator in tmux `ls3-generation-20261022` on
+`/tmp/claude-tmux-sockets/sc-difficulty.sock`. No new quality score exists.
+The frozen criterion retains its original pending snapshot; this separate
+approval is operative.
