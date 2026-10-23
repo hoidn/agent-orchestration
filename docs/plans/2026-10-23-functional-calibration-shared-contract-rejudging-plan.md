@@ -56,11 +56,11 @@ Files:
 
 ## Task 2: Prepare two fresh blind pools without changing captures
 
-- [ ] Create the new freeze with scoring task views: task/base/seed bytes equal LS8, while `intent.txt` equals the full task text. Bind every source and the original LS8 generation packet, admission reports and capture receipts.
-- [ ] Reuse `pool.natural_attempt(records, receipt, model, effort)` for each of the eight original records. Keep returned mapping rows and read-only views intact; do not rewrite their task paths, outcomes, result values, receipts or patches.
-- [ ] Use the existing `pool.write_pool` interface, as LS8 does, with each new scoring task view, new criterion, original rows/views and four natural final clones. The scoring-view path differs from the original generation-task path; prove identical full task/base/seed bytes explicitly. This is not permission to admit different tasks through the public CLI's same-task check or to forge capture identity.
-- [ ] Preserve the existing `docs/plans/evidence` review exclusion, exact raw patches, seeded Git baseline join, anonymous clone IDs and one batch per task. No controls or references.
-- [ ] Before any dispatch, assert for each judge:
+- [x] Create the new freeze with scoring task views: task/base/seed bytes equal LS8, while `intent.txt` equals the full task text. Bind every source and the original LS8 generation packet, admission reports and capture receipts.
+- [x] Reuse `pool.natural_attempt(records, receipt, model, effort)` for each of the eight original records. Keep returned mapping rows and read-only views intact; do not rewrite their task paths, outcomes, result values, receipts or patches.
+- [x] Use the existing `pool.write_pool` interface, as LS8 does, with each new scoring task view, new criterion, original rows/views and four natural final clones. The scoring-view path differs from the original generation-task path; prove identical full task/base/seed bytes explicitly. This is not permission to admit different tasks through the public CLI's same-task check or to forge capture identity.
+- [x] Preserve the existing `docs/plans/evidence` review exclusion, exact raw patches, seeded Git baseline join, anonymous clone IDs and one batch per task. No controls or references.
+- [x] Before any dispatch, assert for each judge:
 
   ```python
   assert score_inputs["intent"].encode() == original_solver_task.read_bytes()
@@ -68,15 +68,15 @@ Files:
   assert scoring_task.joinpath("intent.txt").read_bytes() == original_solver_task.read_bytes()
   ```
 
-- [ ] Prepare distinct private judge homes and exact read-only clone grants with the accepted sandbox APIs; preserve one-call/no-Claude guards and exact Sol-high commands. Pass both public dry runs and both actual sandbox checks with inert backends. Check original records, patch files and clone indexes before/after; no real auth enters public evidence.
-- [ ] Reuse accepted RT8/native/tool verification unchanged. Only changed input dataflow and actual new pool preparation need new checks; do not rerun the accepted broad suite or invent new environment gates.
+- [x] Prepare distinct private judge homes and exact read-only clone grants with the accepted sandbox APIs; preserve one-call/no-Claude guards and exact Sol-high commands. Pass both public dry runs and both actual sandbox checks with inert backends. Check original records, patch files and clone indexes before/after; no real auth enters public evidence.
+- [x] Reuse accepted RT8/native/tool verification unchanged. Only changed input dataflow and actual new pool preparation need new checks; do not rerun the accepted broad suite or invent new environment gates.
 
 ## Task 3: Freeze, review and declare the two-call execution
 
-- [ ] Freeze the concrete criterion, corrected solver-to-judge text equality proof, source/tool bindings, pools, commands, qualifications and original-capture joins before launch. Retain proposed and final packet identities separately.
-- [ ] Independently review this concrete packet once. Verify contract equality, all eight source joins, model/effort/call limits, clone grants, original outcome preservation and no hidden/reference/control inputs. Reuse accepted immutable history and runtime evidence with its stated scope.
-- [ ] Record the criterion/packet-bound coordinator declaration: two fresh planned, 66 historical, cap 68. It must bind the original LS8 readout/captures and the independent packet review. No numeric owner approval is invented.
-- [ ] Inventory all ten LS8 units plus the two fresh judge units using the accepted native metadata/classifier logic. Its historical floor remains 56: ten LS8 starts + zero LS9 starts means 66 before launch, and ten LS8 + two LS9 means 68 on completion. Give new judge units distinct keys and homes; do not reset or obscure the historical counter.
+- [x] Freeze the concrete criterion, corrected solver-to-judge text equality proof, source/tool bindings, pools, commands, qualifications and original-capture joins before launch. Retain proposed and final packet identities separately.
+- [x] Independently review this concrete packet once. Verify contract equality, all eight source joins, model/effort/call limits, clone grants, original outcome preservation and no hidden/reference/control inputs. Reuse accepted immutable history and runtime evidence with its stated scope.
+- [x] Record the criterion/packet-bound coordinator declaration: two fresh planned, 66 historical, cap 68. It must bind the original LS8 readout/captures and the independent packet review. No numeric owner approval is invented.
+- [x] Inventory all ten LS8 units plus the two fresh judge units using the accepted native metadata/classifier logic. Its historical floor remains 56: ten LS8 starts + zero LS9 starts means 66 before launch, and ten LS8 + two LS9 means 68 on completion. Give new judge units distinct keys and homes; do not reset or obscure the historical counter.
 
 ## Task 4: Execute and close canonically
 
@@ -95,3 +95,5 @@ Files:
 | Two fresh judgments, cap 68 | Coordinator selection under the existing owner direction; exact criterion/packet declaration follows offline preparation and independent review. No new generations, automatic retry or other spend selected. |
 | No apparatus expansion | Accepted runtime, sandbox, native receipts, metering and scoring interfaces stay unchanged. Use existing library functions and bounded study glue; no qualification V2, campaign/store or sealed-split work. |
 | Independent plan review accepted | `/root/review_plan_filesystem_isolation` reviewed plan SHA256 `875af6c9dc1a82c9809dae23fb24b30ed1d2bf02db8f02d2905f50be77283aa8` against the mismatch and RT8 intake/pooling/summary contracts: PASS, no concrete blockers. This records plan review only; the new concrete packet and declaration still precede dispatch. |
+| Concrete LS9 packet and declaration accepted | Final packet `/home/ollie/sc-evidence/freeze-functional-shared-contract-20261023/judging-packet-complete.json`, SHA256 `4db541a949118a93d43198d68f291d6fdccc75bf9ec4b6f13c10b33aa82f67be`; independent review `/home/ollie/sc-evidence/LS9-20261023/judging-packet-independent-review.json`, SHA256 `89ba68945988833c093f5f7c194a4d07e44b6074f73f6c377f2e3b87bde9ebdd`: PASS, 532 references verified. Declaration `/home/ollie/sc-evidence/LS9-20261023/budget-declaration-judging.json`, SHA256 `07c6d82fc14ae0e928686689c72600c1410b0fe020b2bb17527fcfc6f85d09ca`, selects exactly two fresh starts, 66 historical, cap 68. Preflight exited zero; sequential judging launched. No outcome is inferred before canonical close. |
+| Bounded interruption-preservation correction | Review found that polling/signal aborts could skip receipt/scan/terminal capture. The handler now attempts each independently and preserves the original incident; its negative check passed. Initial proposal, packet and source before-image remain unchanged. Two dry runs, two actual inert qualifiers, eight original solver-input proofs and 28 unchanged record/index hashes remain valid; accepted runtime and broad-suite evidence were reused. Handoff `/home/ollie/sc-evidence/preparation/LS9-preparation-verification/offline-preparation-handoff.json`, SHA256 `337ed14cca84103781bfeb951802b985e546129f270cccffd9c945d98d0fb643`. |
