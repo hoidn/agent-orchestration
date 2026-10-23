@@ -141,17 +141,20 @@ task/seed and bounded spend before further observations. Do not force an orderin
 
 ### Task 3: Freeze and qualify the next launch offline
 
-- [ ] Freeze a clean runtime after verified integration; declare the exact model
+- [x] Freeze a clean runtime after verified integration; declare the exact model
   and effort per arm, Sol-high judge, one functional rubric and all three rules.
-- [ ] Prepare eight fresh attempts and commands using existing public entry points;
+- [x] Prepare eight fresh attempts and commands using existing public entry points;
   preserve the prior 26 starts, full LH/TD/TD2 evidence and native receipts.
-- [ ] Use a bounded experiment operator with complete inventory, no automatic
+- [x] Use a bounded experiment operator with complete inventory, no automatic
   retry and explicit owner budget binding. Reuse proven helpers without mutating
   previously frozen operators or introducing a campaign abstraction.
-- [ ] Validate commands, model policy, private masks and honest review baseline
+- [x] Validate commands, model policy, private masks and honest review baseline
   with zero-provider dry runs/fake CLI; freeze source, tests, inputs and proof.
-- [ ] Independently review the concrete packet, then request only the missing
-  ten-session authorization (proposed overall cap 36). Do not launch beforehand.
+- [x] Independently review the concrete packet; all 815 frozen hashes and the
+  zero-start preflight passed review.
+- [ ] Obtain the missing ten-session authorization (proposed overall cap 36).
+  Implementation, preparation and independent review are complete; do not launch
+  before that bounded approval.
 
 ## Decision ledger
 
@@ -171,10 +174,54 @@ the final revision restores all five historical cases alongside four functional
 cases and shortens the stale module description without compressing code. The
 final nine-case public Bubblewrap/orchestrator smoke passed in 18.03 seconds
 (`/tmp/functional-calibration-revision-20261022/public-smoke-final.log`). Changed
-modules collected 139 tests; the focused reader/difficulty/workflow checks passed
-9/5/3 respectively. Historical scoring workflows remain byte-identical.
+modules collected 139 tests; the final focused quality/difficulty/workflow checks
+passed 8/5/7 respectively. Historical scoring workflows remain byte-identical.
 
 These checks use scripted providers and synthetic receipts; they establish
 software mechanics, not task difficulty, judge validity or model superiority.
 The LS1 operator has 32 passing offline checks and preserves 3,425 pinned
-historical files. Concrete runtime/command/mask qualification remains Task 3.
+historical files. Concrete runtime/command/mask qualification is recorded below.
+
+Integration is committed on main at `b56e8cd6a381ab91b40b750edcd0ae4ec0468f15`.
+The affected suite on that integration passed **479 tests in 39.51 seconds**
+(`/tmp/compare-functional-main-verify/pytest.log`, exit 0); all 21 pre-existing
+dirty main files were preserved byte-identically. The isolated experiment runtime
+`/home/ollie/sc-runtime-functional-calibration` is clean at
+`b2d217acfbead475080847f16c82b1fae901aec5`, retaining the previously qualified
+runtime plus the bounded functional-scoring commit. Its public functional review
+smoke passed in 22.30 seconds (`/tmp/sc-functional-exact-runtime-smoke.log`, exit 0).
+The selected workflow SHA-256 is
+`297e629ebc5579b8889fd4629a3a4400d2024dcbc7a88e83034b4608e53ae0e7`.
+
+## LS1 concrete launch packet (budget pending)
+
+The fresh protocol is frozen at
+`/home/ollie/sc-evidence/freeze-functional-calibration-20261022/criterion.json`
+(SHA-256 `464a0247e950939ee8eaa0d5e9eda42bca02ea4dcd4cfe0298b92a01f9fbecc2`).
+The generation packet in the same directory, `generation-packet.json`, binds
+815 files (SHA-256 `49e2fdd631cd4a698e8445135827458f1ac8536a66d60026b80740097e9b33d5`).
+It includes exact runtime/operator/helper/test sources, all eight prepared
+commands and inputs, invariants, the actual sandbox proof and copied verification
+logs. The initial proposed manifest remains unchanged. The empty per-unit dry-run
+logs and raw sandbox diagnostic directories remain outside this manifest; the
+preparation exit proof and self-contained eight-unit sandbox proof are bound.
+
+All eight public dry runs passed. The actual Bubblewrap check invoked eight fake
+CLIs and zero providers, checked 142 protected paths per attempt, exact Luna-high
+and Sol-low forwarding, disabled native delegation and hidden Claude/auth paths,
+and preserved all 48 generation records/index files. Its proof is
+`/home/ollie/sc-evidence/LS1-20261022/generation-mask-smoke.json`
+(SHA-256 `eb480a2fa46fb80e8c672a2d5ee9b14a4aced5fb9470a9dabc46160ea0f7d2e3`).
+The final operator preflight passed with **zero fresh starts, 26 historical
+starts**, no native children, extra roots or forbidden calls; see
+`/home/ollie/sc-evidence/LS1-20261022/generation-preflight.log` and `.exit`.
+No new owner approval exists and the operator refuses dispatch without it.
+
+The proposal remains exactly ten new sessions (eight generations plus two
+judges), overall cap 36, no retries. This offline readiness is not a new quality
+result, a task-family qualification, or authorization for any paid experiment.
+
+Independent review passed the exact 815-file packet and its concrete commands,
+inputs, source bindings, mask proof and complete zero-start inventory. The root
+integrator separately verified every packet hash and the same preflight. The only
+remaining launch prerequisite is the owner's new bounded budget approval.
