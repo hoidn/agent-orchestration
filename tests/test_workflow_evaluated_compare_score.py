@@ -164,6 +164,8 @@ result.write_text(json.dumps([plan["ratings"][path] for path in repos]), encodin
 with Path(os.environ["COMPARE_TEST_CALLS"]).open("a", encoding="utf-8") as output:
     output.write(json.dumps({"argv": sys.argv[1:], "repos": repos,
                              "allowed_models": os.environ.get("ORC_ALLOWED_CODEX_MODELS"),
+                             "effort": next((arg.split("=", 1)[1].strip('"') for arg in sys.argv[1:]
+                                             if arg.startswith("model_reasoning_effort=")), None),
                              "git_checks": git_checks}) + chr(10))
 ''', encoding="utf-8")
     codex.chmod(0o755)
@@ -347,10 +349,11 @@ def test_control_means_runs_through_prepare_orchestrator_summary_and_c1(tmp_path
         shutil.rmtree(outside)
 
 
-@pytest.mark.parametrize('missing_delivery,review_environment,effort_contrast', [
-    (False, False, False), (True, False, False), (False, True, False), (False, True, True)])
+@pytest.mark.parametrize('missing_delivery,review_environment,effort_contrast,sol_judge', [
+    (False, False, False, False), (True, False, False, False), (False, True, False, False),
+    (False, True, True, False), (False, True, True, True)])
 def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
-        world, monkeypatch, missing_delivery, review_environment, effort_contrast):
+        world, monkeypatch, missing_delivery, review_environment, effort_contrast, sol_judge):
     """Four scripted, correct direct-task outputs reach the blind scorer and exact 2-point gate."""
     import hashlib
     from experiments.compare import prepare, pool as pooling
@@ -363,7 +366,7 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
         protected.parent.mkdir(parents=True)
         protected.write_text('protected archive must be absent from the review baseline\n')
     repo = Path(__file__).parents[1]
-    judge = "gpt-5.6-terra"
+    judge = 'gpt-6.1-sol' if sol_judge else 'gpt-5.6-terra'
     strong = 'luna_high' if effort_contrast else 'terra_high'
     models = {"direct_task": "gpt-5.6-luna", strong: 'gpt-5.6-luna' if effort_contrast else judge}
     efforts = {arm: 'low' if effort_contrast and arm == 'direct_task' else 'high' for arm in models}
@@ -538,6 +541,7 @@ def test_task_difficulty_calibration_uses_four_natural_runs_and_canonical_gap(
     assert scored.returncode == 0, scored.stderr
     judge_events = [json.loads(line) for line in rating_calls.read_text(encoding="utf-8").splitlines()]
     assert len(judge_events) == 1 and judge_events[0]["allowed_models"] == judge
+    assert judge_events[0]['effort'] == 'high'
     assert judge_events[0]['git_checks'] == git_checks
     assert "--model" in judge_events[0]["argv"] and judge in judge_events[0]["argv"]
     assert f"COMPARE_CODEX_MODELS={judge}" in (pool / f"records/score-{judge}.sh").read_text(encoding="utf-8")
