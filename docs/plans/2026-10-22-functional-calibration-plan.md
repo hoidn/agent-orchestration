@@ -1,6 +1,6 @@
 # Functional task-difficulty calibration implementation plan
 
-**Current continuation:** this record retains the functional rubric and model hypotheses. LS8 execution closed with failed recorded predicates and a confirmed judge-brief contradiction; the [shared-contract rejudging plan](2026-10-23-functional-calibration-shared-contract-rejudging-plan.md) owns the selected two-judge correction using the same eight captures. See the [LS8 report](../reports/2026-10-23-luna-sol-filesystem-isolation-calibration.md) for unchanged historical ratings and limits.
+**Current continuation:** this record retains the functional rubric and model hypotheses. [LS9](../reports/2026-10-23-luna-sol-shared-contract-calibration.md) completed two corrected full-contract judgments, reaching 68 historical starts; neither task qualified. The [command-recovery plan](2026-10-23-functional-calibration-command-recovery-plan.md) selects a smaller PRR task with four fresh natural solutions and one judge under prospective cap73. Public fixture/package verification and concrete declarations precede dispatch. Historical scores remain unchanged.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task.
 

@@ -2,6 +2,8 @@
 
 > **For agentic workers:** Use `superpowers:subagent-driven-development` for the bounded preparation and review tasks. The coordinator retains selection, integration and final verification.
 
+**Status:** Closed: both judgments and canonical close completed; neither task qualified. See [the LS9 result](../reports/2026-10-23-luna-sol-shared-contract-calibration.md). The [command-recovery plan](2026-10-23-functional-calibration-command-recovery-plan.md) owns the next prospective task adjustment.
+
 **Goal:** Reassess the eight unchanged LS8 solutions against the same full task contract their authors received, using two fresh blind judgments.
 
 **Architecture:** Keep the accepted RT8 runtime, natural-capture intake, positive filesystem grants and functional rubric. Correct the two maintained `intent.txt` inputs to equal their `task.txt`, and prepare fresh scoring views through existing `pool.natural_attempt`, `pool.write_pool`, sandbox, scan, metering and canonical summary interfaces. Original captures, declarations, packets and scores remain immutable.
@@ -80,11 +82,11 @@ Files:
 
 ## Task 4: Execute and close canonically
 
-- [ ] Launch the two exact scoring commands sequentially in tmux, with no retry. Use the accepted positive sandbox, model environment, one-call guard and native metadata checks. Stop further dispatch on an apparatus/model/delegation/contamination incident; preserve original outcomes and complete metering even on failure.
-- [ ] For each judge, retain original terminal/result/native/receipt/scan bytes. Independently review integrity alongside execution. Adjudicate only justified scan hits; zero-hit scans need no mutation.
-- [ ] Verify pools through the existing public harness and close via `experiments.compare.summarize.summarize`, retaining canonical clone-ID joins and all eight original observations. Report all corrected ratings and predicates without replacing LS8's recorded ratings.
-- [ ] Record usage and unavailable model prices honestly. Verify the exact two-new/68-overall denominator and no extra roots/children/forbidden models.
-- [ ] Record the corrected result and update routing. Only then select an actual task-difficulty adjustment if needed; changing tasks requires a fresh prospective protocol and natural solutions under equal conditions. No C1 or evaluator qualification is inferred from this correction.
+- [x] Launch the two exact scoring commands sequentially in tmux, with no retry. Use the accepted positive sandbox, model environment, one-call guard and native metadata checks. Stop further dispatch on an apparatus/model/delegation/contamination incident; preserve original outcomes and complete metering even on failure.
+- [x] For each judge, retain original terminal/result/native/receipt/scan bytes. Independently review integrity alongside execution. Adjudicate only justified scan hits; zero-hit scans need no mutation.
+- [x] Verify pools through the existing public harness and close via `experiments.compare.summarize.summarize`, retaining canonical clone-ID joins and all eight original observations. Report all corrected ratings and predicates without replacing LS8's recorded ratings.
+- [x] Record usage and unavailable model prices honestly. Verify the exact two-new/68-overall denominator and no extra roots/children/forbidden models.
+- [x] Record the corrected result and update routing. Only then select an actual task-difficulty adjustment if needed; changing tasks requires a fresh prospective protocol and natural solutions under equal conditions. No C1 or evaluator qualification is inferred from this correction.
 
 ## Decision ledger
 
@@ -97,3 +99,4 @@ Files:
 | Independent plan review accepted | `/root/review_plan_filesystem_isolation` reviewed plan SHA256 `875af6c9dc1a82c9809dae23fb24b30ed1d2bf02db8f02d2905f50be77283aa8` against the mismatch and RT8 intake/pooling/summary contracts: PASS, no concrete blockers. This records plan review only; the new concrete packet and declaration still precede dispatch. |
 | Concrete LS9 packet and declaration accepted | Final packet `/home/ollie/sc-evidence/freeze-functional-shared-contract-20261023/judging-packet-complete.json`, SHA256 `4db541a949118a93d43198d68f291d6fdccc75bf9ec4b6f13c10b33aa82f67be`; independent review `/home/ollie/sc-evidence/LS9-20261023/judging-packet-independent-review.json`, SHA256 `89ba68945988833c093f5f7c194a4d07e44b6074f73f6c377f2e3b87bde9ebdd`: PASS, 532 references verified. Declaration `/home/ollie/sc-evidence/LS9-20261023/budget-declaration-judging.json`, SHA256 `07c6d82fc14ae0e928686689c72600c1410b0fe020b2bb17527fcfc6f85d09ca`, selects exactly two fresh starts, 66 historical, cap 68. Preflight exited zero; sequential judging launched. No outcome is inferred before canonical close. |
 | Bounded interruption-preservation correction | Review found that polling/signal aborts could skip receipt/scan/terminal capture. The handler now attempts each independently and preserves the original incident; its negative check passed. Initial proposal, packet and source before-image remain unchanged. Two dry runs, two actual inert qualifiers, eight original solver-input proofs and 28 unchanged record/index hashes remain valid; accepted runtime and broad-suite evidence were reused. Handoff `/home/ollie/sc-evidence/preparation/LS9-preparation-verification/offline-preparation-handoff.json`, SHA256 `337ed14cca84103781bfeb951802b985e546129f270cccffd9c945d98d0fb643`. |
+| LS9 closed without qualification | Canonical readout `/home/ollie/sc-evidence/LS9-20261023/combined-readout.json`, SHA256 `d85986050ae087d8625cc63c660c3d1a1af3d8638160ef0104d758e3969f4de2`: RPI Luna4/Sol5.5, gap1.5; PRR Luna3.5/Sol2, gap−1.5. Two new starts/68 overall, both judgments and close exit0. Original captures and LS8 ratings remain unchanged. See the linked report for every score, predicate, admission and limitation. |

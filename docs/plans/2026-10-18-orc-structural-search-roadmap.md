@@ -515,8 +515,14 @@ records an inconclusive pilot: the upstream anchor scored at or below every
 candidate, and one anchor pair was inverted. Phase 2 is not selected, and a
 better-targeted experiment needs a new owner selection. The
 [measurement calibration plan](2026-10-19-orc-structural-search-measurement-plan.md)
-preserves evaluator-control and natural weak/strong calibration history; current
-offline selection follows the [functional calibration plan](2026-10-22-functional-calibration-plan.md).
+preserves evaluator-control and natural weak/strong calibration history. The
+[LS9 report](../reports/2026-10-23-luna-sol-shared-contract-calibration.md) records
+corrected full-contract means Luna/Sol 4/5.5 on RPI and 3.5/2 on PRR; neither
+task qualifies, with 68 historical starts. Current preparation follows the
+[command-recovery plan](2026-10-23-functional-calibration-command-recovery-plan.md): a smaller
+PRR task, four fresh natural solutions and one judge under prospective cap73.
+Its public fixture, exact package and concrete review/declaration precede spend.
+The following chronology preserves earlier selections and results.
 Artificial defects and visible-check failure bands do not select this pilot.
 Generic scoring and exact model guards are implemented, and the real
 controller matrix has passed. Offline preparation and final verification are complete;
@@ -567,7 +573,7 @@ and PRR 3.5/6 (gap 2.5) pass separation but fail strict Sol mean <5; both tasks
 are `too_easy` and the set remains unqualified. The
 [LS5 report](../reports/2026-10-23-luna-sol-functional-calibration.md) preserves
 these functional scores without rescoring history or treating external aborts
-as low-quality observations. The owner's iteration direction selects offline
+as low-quality observations. The next historical selection was offline
 preparation under the [in-place failed-call plan](2026-10-23-functional-calibration-inplace-failure-plan.md),
 with unchanged roles/rubric/thresholds and eight fresh generations plus two judges
 under prospective cap 53. Real baseline checkpoint feasibility, completed offline
