@@ -1,6 +1,6 @@
 # Task-difficulty calibration: Luna low versus Luna high
 
-Role: selected implementation plan; new execution budget pending. Calibration
+Role: selected implementation and authorized execution plan; generation underway. Calibration
 tests whether natural solutions from a weaker agent score noticeably below those
 from a stronger agent, without deliberately introduced flaws. The owner's latest
 instruction offered “either luna low and luna high or luna and sol6.1”. The
@@ -15,11 +15,11 @@ Luna mean 6 and Terra mean 4.5, failing the required advantage. The two-task set
 is not calibrated. The [recovery report](../reports/2026-10-22-natural-task-difficulty-recovery.md)
 records that unchanged history. The environment correction is integrated in
 `629c3b9c`, and exact per-arm effort support in `dd308a03`. Fresh LH preparation,
-mask checks and generation preflight are complete with zero provider starts;
-the frozen generation packet is ready for owner budget approval. No new spend
-is authorized.
+mask checks and generation preflight passed before dispatch. The owner then
+answered “i authorize” to ten additional sessions, total cap twenty-six.
+Generation is underway; no LH calibration outcome is reported at this checkpoint.
 
-## Selected prospective contrast (budget pending)
+## Selected contrast (authorized; generation underway)
 
 For each of `resume-projection-integrity` (RPI) and `pure-result-replay` (PRR),
 generate two fresh independent attempts per arm:
@@ -91,8 +91,8 @@ prospectively before any new call.
   provider starts; TD/TD2 evidence remains preserved.
 - [x] Prepare the concrete generation packet for the proposed ten-session
   experiment. Independent review of its 850 bound files and generation
-  preflight passed; this does not supply the pending owner budget approval.
-- [ ] After explicit bound approval, supervise eight generations (at most two at once)
+  preflight passed. The later owner approval below supplies execution authority.
+- [ ] Supervise the authorized eight generations (at most two at once)
   and two sequential blind judges, one physical call per unit. Count every root,
   child and failed start; refuse Claude/Fable, native delegation and unexpected
   models/efforts. No automatic retries or replacements.
@@ -107,7 +107,7 @@ prospectively before any new call.
 | Artifact | Exact identity |
 | --- | --- |
 | Clean runtime `/home/ollie/sc-runtime-luna-effort` | commit `fa057b597564be68ea94d8ffd77fa32d3cdc4eea` |
-| `/home/ollie/sc-evidence/freeze-luna-effort-20261022/criterion.json` | SHA256 `ffde67d90a2aee30030a28e1f99f1f4ffd27215d67f042589b10a088f81e9b36`; authorization remains pending |
+| `/home/ollie/sc-evidence/freeze-luna-effort-20261022/criterion.json` | SHA256 `ffde67d90a2aee30030a28e1f99f1f4ffd27215d67f042589b10a088f81e9b36`; immutable pre-approval snapshot, operative approval recorded separately below |
 | `/home/ollie/sc-evidence/preparation/luna_effort_operator.py` | SHA256 `dd4f8ece0b6aa6c351a0320c34ed28e3a93119a9cd9f930fdc7d8cb5bd9831fe` |
 | `/home/ollie/sc-evidence/freeze-luna-effort-20261022/generation-packet.json` | SHA256 `7126fe64554381db209d700d99c35bf7a80ba196afe4a5ae2295156978be4e9a`; 850 bound files |
 
@@ -118,17 +118,22 @@ Evidence is under `/home/ollie/sc-evidence/LH-20261022`:
 `offline-prepare.log`/`.exit` and `offline-mask-smoke.log`/`.exit` all report
 exit zero. `generation-preflight.log`/`.exit` report exit zero, no new provider
 starts, sixteen historical starts and no Claude, native children or extra roots.
-No generation or judging outcome exists for LH. Raw outputs, clean review-base
-derivations and the later judging packet will be bound after approved generation;
+That preflight checkpoint precedes the live start recorded below. Raw outputs,
+clean review-base derivations and the later judging packet will be bound after generation;
 the original runtime, criterion and prior evidence remain immutable.
 
-### Proposed budget and decision ledger
+### Authorized budget and chronological decision ledger
 
-The new contrast requires **ten new sessions**: eight fresh generations and two
-Terra-high judges. The previous sixteen starts remain spent. An overall cap of
-**twenty-six is a proposal only**, pending a separate owner approval bound to
-the new packet; the model-choice instruction and previous cap-sixteen answer
-do not authorize these ten sessions. No new dispatch is currently authorized.
+The owner approved **ten new sessions**: eight fresh generations and two
+Terra-high judges, within an overall cap of **twenty-six** including the sixteen
+spent historical starts. The verbatim reply “i authorize” is recorded in
+`/home/ollie/sc-evidence/LH-20261022/owner-approval-generation.json`, SHA256
+`1db714f1b92c34f252618c95215843ee2ca53457d5c90fa8a2c5453ce5a48c01`.
+It binds the unchanged criterion and generation packet. The same answer covers
+the later derived judging packet; no further permission question is required
+for those two judges. The criterion's frozen pending-status field preserves its
+pre-approval snapshot; this separate approved record is operative. Earlier
+pending decisions below remain the preparation chronology.
 
 | Decision | Consequence |
 | --- | --- |
@@ -136,6 +141,7 @@ do not authorize these ten sessions. No new dispatch is currently authorized.
 | Change the treatment prospectively | Generate all eight outputs afresh; do not reuse known TD2 Luna-high scores or relabel Luna/Terra records. Freeze `luna_high.minus_control >= 2` for each task before calls |
 | Preserve the apparatus findings and spent budget | Finish the offline environment/effort corrections first. Keep TD/TD2 protocols, raw results and partial readout unchanged; ten additional sessions and overall cap twenty-six remain pending owner approval. No campaign or Phase 2 work is selected |
 | LH offline preparation and independent packet review completed | Freeze runtime `fa057b59`, criterion `ffde67d9`, operator `dd4f8ece` and 850-file generation packet `7126fe64`; eight public dry runs, eight sandbox/fake-CLI checks, 28 self-checks and zero-start preflight passed. Budget approval and all provider execution remain pending |
+| Owner replied “i authorize” on 2026-10-23 UTC | The bound approval above authorizes all eight fresh generations and two sequential Terra-high judges, cap twenty-six including sixteen historical starts. Generation launched in `sc-lh-generation`; the initial RPI Luna-low runs are `20261023T004805Z-5xwueb` and `20261023T004805Z-lbgr1g`. Execution and integrity/readout checkboxes remain open; no completion or quality result is claimed |
 
 ## Historical TD/TD2 model contrast and frozen design
 
