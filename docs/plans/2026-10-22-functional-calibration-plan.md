@@ -667,10 +667,20 @@ capture is mechanically admissible.
 If the second Sol PRR attempt is valid and not externally aborted, the minimal
 continuation is **seven carried observations, one fresh Sol PRR generation and
 two blind judges**. Forty historical starts plus three new starts require a
-**proposed total cap 43**. If the second attempt is also externally interrupted,
-resolve that evidence and budget before freezing; do not assume its outcome.
-The existing explicit cap 42 and no-retry LS4 freeze remain unchanged. Removing
-the general AGENTS approval rule does not rewrite that frozen authorization.
+**prospective total cap 43**, selected conditionally on that valid capture.
+If the second attempt is also externally interrupted, resolve that evidence and
+budget before freezing; do not assume its outcome. The existing cap 42 and
+no-retry LS4 freeze remain unchanged. The owner's later removal of the general
+spend-approval rule delegates prospective spending decisions to the coordinator,
+with exact limits recorded in the ledger. This selects only the minimum recovery
+needed for the already requested calibration; it opens no unrelated experiment.
+
+The new operator must bind a **budget declaration**, recording that owner policy
+and the coordinator-selected cap, to each frozen packet. Do not fabricate an
+owner approval of the new numeric cap or alter the old approval receipt. Keep
+hard per-unit/overall budget enforcement and one original session per fresh unit;
+the same declaration covers both later judges. This prospective policy change
+removes the obsolete approval-request gate while preserving the spending bound.
 
 Use a directly revised bounded operator and source-specific carryover manifest,
 preserving all original outcomes and pre-adjudication hash crosswalks. Tasks,
@@ -682,7 +692,7 @@ judge shortcut or altered historical score is selected.
   failure and all four LS4 starts, without spending either judgment.
 - [ ] Freeze the prospective carryover selection and exact remaining generation
   count; prepare and test fresh commands, masks and canonical intake offline.
-- [ ] Independently review the concrete packet and reconcile its required spend
-  with the explicit remaining budget before any new provider start.
+- [ ] Independently review the concrete packet and bind its declared minimum
+  budget under the updated owner policy before any new provider start.
 - [ ] Execute the eligible continuation and both blind judges, then close through
   the canonical clone-id joins without attributing external aborts to difficulty.
