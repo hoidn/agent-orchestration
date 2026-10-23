@@ -61,9 +61,12 @@ passed integrity review and canonical closure. RPI Luna/Sol means are 4/6
 strict Sol mean <5 target, so both are `too_easy` and the two-task set remains
 unqualified. The [LS5 report](../reports/2026-10-23-luna-sol-functional-calibration.md)
 preserves the functional scores and recovery lineage. The owner's instruction
-to iterate until the target is met now calls for naturally harder tasks with
-the same exact roles, rubric and thresholds; the next concrete task design,
-prospective freeze and bounded budget are not yet fixed.
+to iterate until the target is met now selects the
+[in-place failed-call calibration plan](2026-10-23-functional-calibration-inplace-failure-plan.md):
+offline preparation of two harder historical tasks under the same roles, rubric
+and thresholds, with eight fresh generations and two judges under prospective
+cap 53 (43 historical starts). Executable checkpoint feasibility, complete offline
+implementation/review and packet-bound budget declarations precede any new call.
 
 Task 5 below records the approved LS3 recovery. The owner replied "yes" to the
 eight-session/cap-40 proposal and reaffirmed Sol 6.1 for the stronger arm. That
@@ -778,3 +781,24 @@ cost remains unavailable. Further iteration means designing naturally harder
 tasks under the unchanged roles, functional rubric and three predicates, then
 separately recording concrete prospective task/seed inputs and bounded spend.
 No next task package, iteration budget or campaign is frozen by this closure.
+
+
+## Task 8: Increase natural difficulty through settled-failure recovery
+
+The [in-place failed-call calibration plan](2026-10-23-functional-calibration-inplace-failure-plan.md)
+owns the selected LS6 implementation and launch gates. Both new task packages
+retain the original feature goals and add in-place recovery of a settled failed
+call with present, valid and restorable checkpoint authority. Unknown interrupted
+effects keep their existing barriers. PRR additionally requires the exact persisted
+profile in caller and callee at each boundary, with no historical profile upgrade
+or new zero-record exception. Conceptual design and independent plan review passed;
+real baseline checkpoint feasibility remains unproved and blocks provider spend.
+
+All eight solutions must be fresh for the new task identities; no LS5 result is
+rescored or carried. The coordinator selects ten new starts and prospective total
+cap 53 under the owner's delegated spending policy. This selects offline work and
+a bounded continuation, not an assertion of numeric owner approval or a frozen
+launch packet. The controller runtime, rubric, roles, limits and three predicates
+remain unchanged. The two historical tasks share this recovery obligation and do
+not supply independent task-family evidence. No C1, V2, sealed-task or campaign
+selection is added.

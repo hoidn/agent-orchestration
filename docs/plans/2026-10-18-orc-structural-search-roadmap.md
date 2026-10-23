@@ -567,9 +567,11 @@ and PRR 3.5/6 (gap 2.5) pass separation but fail strict Sol mean <5; both tasks
 are `too_easy` and the set remains unqualified. The
 [LS5 report](../reports/2026-10-23-luna-sol-functional-calibration.md) preserves
 these functional scores without rescoring history or treating external aborts
-as low-quality observations. The owner's iteration direction calls for naturally
-harder tasks with the same exact roles, rubric and thresholds; the next concrete
-prospective design, task/seed freeze and bounded budget remain unset.
+as low-quality observations. The owner's iteration direction selects offline
+preparation under the [in-place failed-call plan](2026-10-23-functional-calibration-inplace-failure-plan.md),
+with unchanged roles/rubric/thresholds and eight fresh generations plus two judges
+under prospective cap 53. Real baseline checkpoint feasibility, completed offline
+implementation/review and concrete packet-bound declarations precede any new call.
 No historical score is changed, no stronger-arm success
 is guaranteed, and no ORC benefit or live `module` selection follows. The measurement gate precedes any
 live `module` arm

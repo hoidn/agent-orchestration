@@ -1,0 +1,130 @@
+# Functional calibration: in-place failed-call recovery implementation plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. The coordinator owns integration, freeze, budget declarations, live execution and closure.
+
+**Goal:** Run one bounded, fresh natural-difficulty iteration with harder RPI and PRR tasks, retaining the functional rubric and requiring both tasks to satisfy gap ≥2 and `3 < Sol mean < 5`.
+
+**Architecture:** Extend both historical benchmark task packages with recovery of a settled failed call in its existing frame, preserving their original feature obligations. Reuse the frozen comparison runtime and directly revise the existing bounded external operator; no product-runtime change or new experiment framework is selected.
+
+**Tech stack:** Existing Python comparison harness, Workflow Lisp, public orchestrator CLI, pytest, Bubblewrap, recording/model guards and external frozen evidence.
+
+**Tradeoff:** Both tasks now share a recovery obligation and are not independent task families. This natural difficulty increase may still miss the target; neither its feasibility nor its model separation follows from the conceptual design.
+
+## Authority, selection and evidence
+
+The [functional calibration plan](2026-10-22-functional-calibration-plan.md) owns the unchanged protocol; the [comparison contract](../design/orc_effectiveness_comparison_harness.md) owns canonical intake and joins. The [structural-search design](../design/orc_structural_search_driver.md#task-family-and-evaluator) keeps task qualification separate from evaluator qualification and later quality studies. The [capability matrix](../capability_status_matrix.md) marks these old execution profiles retired: this work changes benchmark packages evaluated against historical bases, not current runtime contracts.
+
+The owner requires iteration until both tasks meet the target and removed the routine ask-before-new-spend rule. The coordinator selects this bounded continuation: **eight fresh generations plus two judges, ten new starts, prospective total cap 53 including 43 historical starts**. This is a coordinator selection under that policy, not a numeric owner approval. Concrete reviewed packets and their budget declarations remain prerequisites to dispatch.
+
+LS5 is closed and unqualified. The [LS5 report](../reports/2026-10-23-luna-sol-functional-calibration.md) records RPI Luna 4,4 / Sol 6,6 and PRR Luna 3,4 / Sol 6,6: gaps 2 and 2.5 pass; both Sol means 6 are `too_easy`. Preserve:
+
+- `/home/ollie/sc-evidence/LS5-20261023/combined-readout.json`, SHA256 `2ba7325deb023dd254071348efef6bb3baee7d44738ab1a9f1bed0929e503486`.
+- `/home/ollie/sc-evidence/LS5-20261023/closure-independent-review.json`, SHA256 `12741dc301f195526eb43c00beb17e163cfbb4c0c3f94028f82c19fd8c730ad1`.
+
+No LS5 sample, score, patch or solution is carried into the changed tasks. Historical freezes, approvals, outcomes, interrupted sessions and missing-file tombstones retain their original bytes and accounting.
+
+## Prospective scientific contract
+
+| Item | Selection |
+| --- | --- |
+| New task IDs | `resume-projection-integrity-inplace-failure`, `pure-result-replay-inplace-failure` |
+| Historical bases | RPI `1cd607673c89170dc96c74a0b5eb4aef204da82d`; PRR `f80e551a6cdeca6a2913ce640326495be1ae1cc5` |
+| Controller runtime | `/home/ollie/sc-runtime-functional-calibration`, commit `b2d217acfbead475080847f16c82b1fae901aec5` |
+| Weaker hypothesis | `direct_task`: exact `gpt-5.6-luna`, high |
+| Stronger hypothesis | `sol_low`: exact `gpt-6.1-sol`, low |
+| Denominators | Two fresh observations per arm per task; eight total |
+| Judge | One independent exact `gpt-6.1-sol`, high, per task; four anonymous clones per batch |
+| Score | Unchanged `score_functional.orc`, one `quality` S0–S8; reference null; no independent style points |
+| Primary predicates, each task | `sol_low.minus_control >= 2`, `sol_low.mean > 3`, `sol_low.mean < 5` |
+| Limits | Generation 14,400 seconds, judgment 3,600 seconds; at most two generations concurrently; sequential judges; one physical call per unit |
+| Exclusions | No Claude/Fable, native delegation, hidden tests, reference solutions, artificial defects, control clones, automatic retries or replacement samples |
+
+Within each task, both arms receive identical task text, intent, seeded commit, tools and limits; only the declared model/effort differs. Genuine failed natural deliveries remain eligible when complete terminal-single-call capture and integrity evidence qualify them. An external abort remains spent but scientifically confounded; do not assign it a poor score, replace it automatically or declare the denominator complete. Any later recovery needs a separate prospective selection and bounded declaration.
+
+## Task-package contract
+
+Keep each original feature goal. Add the following observable requirement to both task text and intent, without supplying implementation patches:
+
+1. A settled failed ordinary command with policy `reuse_validated_structured_output`, or a selected Workflow Lisp call, may resume only from its **present, integral, matching node-local checkpoint** with valid/restorable `restore_payload`. The checkpoint must match the exact current failed row's identity and visit against `step_visits` and frame identity; a later cursor or completed result cannot substitute. The failure must be terminal, not an unknown/interrupted attempt.
+2. Restore the caller environment and retry the command or re-enter the call through `CallExecutor`. The selector never directly executes a callee. Call entry prefers the validated running lineage member; otherwise it resumes the latest validated failed member in the same frame, preserving already committed inner effects. It does not allocate a fresh retry for this qualified case.
+3. Preserve checksum, authored/managed/runtime/resume-bound input validation, projection/lineage audits and failed-predecessor diagnostic precedence. Missing, invalid or non-restorable checkpoint authority and unknown interruption fail closed under the existing barriers. Other policy/effect categories, provider recovery, certified adapters, groups and transitions are unchanged.
+4. PRR adds this behavior **only when both caller and selected callee already persist exactly `derived_pure_replay.v1`, at every nested boundary**. Never upgrade an existing unprofiled root/frame to qualify it. Absent-profile historical frame selection and restoration remain unchanged. New-frame profile selection continues to follow the original typed-provenance rules.
+5. PRR still persists exact value-free eligible-pure shells and reconstructs values only in its overlay. `VALIDATED_FRAME_ENTRY_REPLAY` remains the sole zero-record exception from the original task; settled-failure recovery never uses it and never makes an absent/invalid/non-restorable checkpoint acceptable.
+
+RPI §4 must replace the old unconditional fresh-retry obligation only for the qualified recovery case, retaining deterministic allocation for other applicable cases and all identity/lineage checks. PRR §1's fresh-retry sentence, §4 resume behavior, §5 durable surfaces, intent and Constraints must agree on the exact-profile exception. Do not leave contradictory unconditional fresh-retry wording. Historical commits `2572a475`, `bbe81988` and `f4378f60` provide design context, not code or reference artifacts for agents or judges.
+
+## Files and ownership
+
+Task sources are reviewable repository files; dispatch uses byte-identical external frozen copies. Existing task packages under `/home/ollie/sc-runtime-functional-calibration/experiments/compare/tasks/` remain immutable.
+
+| Artifact | Exact destination / action |
+| --- | --- |
+| New package sources | `experiments/compare/tasks/resume-projection-integrity-inplace-failure/` and `experiments/compare/tasks/pure-result-replay-inplace-failure/`: create `task.txt`, `intent.txt`, `base_commit`, and `seed/` from the corresponding original public files only |
+| Public fixture in each package | `seed/tests/test_settled_failed_call_resume.py`; retain other compatibility seed bytes; add this selector to `seed/dev-check.json` |
+| Direct operator revision | Create `/home/ollie/sc-evidence/preparation/luna_sol_inplace_failure_operator.py` from the existing `luna_sol_capacity_recovery_operator.py`; preserve the old file |
+| Operator tests | Create `/home/ollie/sc-evidence/preparation/test_luna_sol_inplace_failure_operator.py`; reuse unchanged classifier tests and common helpers |
+| Minimal preparation/proof support | New direct revisions of the existing preparation, launch-mask, judge-mask and packet-freeze scripts only where their LS5 constants/one-generation assumptions require changes; use the `luna_sol_inplace_failure` name consistently and freeze every invoked source |
+| New immutable freeze | `/home/ollie/sc-evidence/freeze-functional-inplace-failure-20261023/`: task-package copies, `criterion.json`, generation/judging packets |
+| Evidence and fresh candidates | `/home/ollie/sc-evidence/LS6-20261023/` and `/home/ollie/sc-luna-sol-inplace-failure-work/`; require fresh roots |
+
+`prepare.run_arm` already resolves an arbitrary task path, reads its `base_commit` and copies `seed/`; the LS5 operator combines `RT / package_path`, which also accepts an absolute path. Keep the controller runtime unchanged. Do not add a new runtime option, generic task registry, wrapper hierarchy, store, V2 receipt path, sealed rung-1 work, C1/cumulative changes or roadmap Phase 2 work.
+
+### Task 1: Prove the public recovery fixture offline
+
+**Delegation:** Implementation (code/public fixture), `impl_code_inplace_fixture`, Luna 6 xhigh; independent code review, Sol 6.1 high. Escalate a bounded implementation that does not converge to Sol 6.1 high; unresolved recovery semantics return to Design, Astra 6 xhigh.
+
+- [ ] Materialize each actual historical base plus its unchanged compatibility seed in a disposable candidate with the existing `repos.build_candidate`; run from that candidate root. Do not use current runtime semantics as a substitute for either baseline.
+- [ ] Author a real typed compile/run/resume fixture containing a caller and a two-command callee. The first command commits a counter/output. The second fails because an external marker is unavailable **before doing its work**. Keep a durable previous value live across that failed boundary so a real restore payload exists. Enable the marker, then invoke the ordinary public resume path.
+- [ ] Capture the actual failed row, visit, frame ID, node-local checkpoint, restore bindings and command counts before resuming. Establish that the persisted checkpoint is integral and restorable; read-only source inspection of `OutcomeRecorder.post_persist_hook` and the executor's checkpoint emission is not this proof.
+- [ ] Separate baseline feasibility from target assertions. PRR's original baseline has no `derived_pure_replay.v1` profile or shells: collect checkpoint authority through its real historical behavior first, without importing future-only modules or inserting profile/state. Missing new profile/shell behavior is an expected target failure, not an environment failure. Keep the earlier live value sourced from a durable effect so it still supports restoration after pure values are elided. Record checkpoint feasibility and target outcomes separately; neither a missing target profile nor an expected recovery failure substitutes for a genuine restorable checkpoint.
+- [ ] Assert the target contract: same call frame, first committed effect count exactly one, second effect executes once after the marker is enabled, final output includes the earlier durable value. For PRR, include a pure transform and check both persisted profiles, exact eligible-pure shells and absence of derived value/bundle/checkpoint persistence.
+- [ ] Add negative checks for absent/invalid/non-restorable checkpoint and unknown interruption within the existing barriers. Start from real public executions; negative corruption may alter/remove the actual recorded authority in isolated copies, but never fabricate a valid checkpoint or mock a resume decision. Produce the unknown-interruption state by actually interrupting an unsettled attempt.
+- [ ] Run `python -m pytest --collect-only -q tests/test_settled_failed_call_resume.py`, then `python -m pytest -q tests/test_settled_failed_call_resume.py --basetemp=<retained-evidence-dir>` on each baseline. Preserve logs and real run artifacts. Expect a demonstrated semantic limitation in target recovery, not a green target baseline. Record precisely which target assertion fails after setup and checkpoint preconditions succeed; imports, compilation/setup errors or absent required authority do not count as the expected task failure.
+- [ ] Resolve fixture feasibility before freezing or spending. If no genuine restorable failed checkpoint is produced, stop this packet's progression and return the concrete evidence to design. Do not manufacture state, weaken the contract or buy exploratory model calls.
+
+### Task 2: Finalize the public task packages
+
+**Delegation:** Revision (task specification text), `revise_design_inplace_tasks`, Sol 6.1 high; independent specification review, Astra 6 xhigh. The fixture worker owns seed/test changes.
+
+- [ ] Copy only the original public `task.txt`, `intent.txt`, `base_commit` and compatibility seed, then apply the contract above. Do not open or copy hidden/anchor/reference directories or old model patches.
+- [ ] Check every original required behavior remains except the explicitly replaced fresh-retry obligation. Cross-check PRR §1/§4/§5/Constraints/intent and RPI §4/intent; preserve their diagnostic ordering and public import contracts.
+- [ ] Record the reviewed repository source commit and file hashes; copy the complete public packages byte-identically into the external freeze. Bind new task IDs, original base IDs, frozen package hashes and deterministic seeded commits. Both arms of a task must derive exactly the same seeded commit; no historical sample belongs to either new task identity. The controller runtime remains at its older frozen commit.
+- [ ] Review the complete task/intent/fixture combination for observable requirements and natural difficulty. Public tests are requirements/examples, not synthetic difficulty evidence or a substitute for fresh solutions.
+
+### Task 3: Prepare the bounded operator and verify mechanics
+
+**Delegation:** Implementation (external operator and tests), `impl_code_inplace_operator`, Luna 6 xhigh; distinct code reviewer, Sol 6.1 high. This can proceed after task IDs/paths are fixed, but preparation waits for the reviewed fixture/package.
+
+- [ ] Directly revise the existing operator: new experiment/paths/IDs; all eight generation keys fresh; remove LS5 carryover selection/intake from the new analysis path; retain historical accounting separately. Bind exactly 43 historical starts, 10 planned new starts and cap 53 at declaration, inventory, reservation, dispatch and closure boundaries.
+- [ ] Reuse model guards, semantic nested-CLI classifier, metering, scans, terminal intake, canonical clone-id joins, honest review-baseline construction and protected masks. Preserve original failed outcomes and scan/adjudication crosswalks; require complete receipts and no external-abort confound for qualification. No retry loop or successful-envelope-only filter.
+- [ ] Extend preservation through LS5's final packets/readout/audit and their referenced evidence, retaining existing missing-history tombstones exactly. Do not replace old bytes or pretend absent historical files have been restored.
+- [ ] Bind new external task paths and public hashes in criterion/packets. Remove carried observations from analysis and keep rubric reference clones absent. Preserve the existing private known-source/solution identities (`SOLUTIONS`/`solution_hashes`) used by contamination scans and every protected root; bind them privately without treating historical sources as verified golden solutions for the new requirements. Do not read hidden artifacts. Freeze the unchanged functional workflow and exact treatment/time/concurrency rules.
+- [ ] Add behavioral tests for eight fresh units, no carryover, same seeded base per task, changed/missing packet binding refusal, cap/one-call limits, exact model/effort, preserved historical outcomes/tombstones and failed natural versus externally aborted intake. Do not assert prompt phrasing.
+- [ ] Collect the new test module and run its narrow tests, then the unchanged semantic classifier checks. Use `python -m pytest --collect-only -q /home/ollie/sc-evidence/preparation/test_luna_sol_inplace_failure_operator.py` and the corresponding `python -m pytest -q` selector from the repo root. Record exact commands and outputs in LS6 verification evidence.
+- [ ] Run a public fake-provider end-to-end comparison through generation capture, blind pool, functional judging and canonical readout for the new task identities, with zero real provider calls. Assert clone joins, exact denominators and all three predicates; synthetic ratings prove mechanics only.
+- [ ] Prepare all eight actual generation commands with public dry runs. Perform real Bubblewrap/fake-CLI checks for every candidate, exact model/effort forwarding, private/old-work/auth masks, disabled native agents and unchanged initial records/indexes. Verify that external package placement does not expose other evidence or solutions.
+- [ ] Reuse the valid unchanged-runtime 437-test and nine-public-smoke evidence recorded under LS3 host reverification. New task/operator behavior still requires the checks above. If shared runtime code changes become necessary, obtain coordinator scope review, collect affected tests, run narrow checks and the affected suite with `pytest -q -n 16 --dist=worksteal` in tmux; repeat the affected public integration checks.
+
+### Task 4: Freeze, execute and close under coordinator control
+
+All implementation, review and offline checks above finish before **any** provider start. Agents do not independently launch providers.
+
+- [ ] Coordinator inspects final diffs and fresh verification evidence, freezes immutable task copies/criterion/commands/source/proofs and obtains independent packet review. Preflight proves zero fresh starts, 43 historical starts, all eight fresh generation slots and no foreign/native child sessions.
+- [ ] Write `LS6-20261023/budget-declaration-generation.json` binding the reviewed criterion and generation packet hashes, delegated owner policy, truthful coordinator selection, ten new starts and cap 53. Freeze review is not itself authorization; dispatch must validate this concrete declaration. Record it in this ledger before calls.
+- [ ] Launch the bounded operator in tmux using the tmux and launching-workflows skills. Run at most two generations concurrently; capture all original terminal results and receipts. Independently adjudicate integrity only, preserving original outcomes/raw scans. Stop on an external abort or integrity failure; do not silently replace the observation.
+- [ ] Prepare four anonymous clones per task from the fresh canonical intake. Verify honest clean seeded review baselines and masks with actual Bubblewrap/fake-CLI checks for both judges. Freeze/review the judging packet and bind `budget-declaration-judging.json` to the same original declaration and cap before sequential judge calls. No code correction after generation starts; a required apparatus correction stops this iteration for a prospective refreeze.
+- [ ] Independently review judge integrity and close through the harness clone-id joins, retaining every original score/reason. Record individual scores, means/gaps, all three predicates per task, total starts, elapsed time and metered usage. Unknown model prices remain unavailable, never zero.
+- [ ] Preserve a failed iteration without rescoring. Sol mean ≥5 means harder next; mean ≤3 means easier next; in-range without gap ≥2 means insufficient separation. Further iteration follows the owner's direction through a new prospective package/budget, not an unbounded loop in this runner.
+- [ ] Root updates current routing/measurement ledgers and writes the captured result report. Task-difficulty success does not qualify the separate evaluator, open a campaign, establish ORC benefit, or justify future quality/cost claims.
+
+## Decision ledger
+
+| Decision | Owner / consequence |
+| --- | --- |
+| Iterate until both strict targets and gaps pass | Owner direction; unchanged exact roles, functional score and predicates |
+| Add settled-failure in-place recovery to both tasks | Accepted conceptual design; concrete text review and executable checkpoint feasibility remain prerequisites |
+| Ten fresh calls; 43 historical; cap 53 | Coordinator-selected bounded continuation under delegated spending policy; no invented numeric owner approval |
+| Fresh task IDs and eight fresh observations | No LS5 score/sample carryover across changed requirements |
+| Reuse controller/runtime and valid unchanged checks | Existing external task-path support confirmed by source inspection; new fixture/operator/public sandbox checks still required |
+| Generation packet/declaration | Pending concrete implementation, offline evidence, immutable hashes and independent review; no provider start yet |
+| Judging packet/declaration and canonical closure | Pending fresh complete captures and integrity review; no result or qualification claimed |
