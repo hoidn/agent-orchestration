@@ -516,12 +516,14 @@ candidate, and one anchor pair was inverted. Phase 2 is not selected, and a
 better-targeted experiment needs a new owner selection. The
 [measurement calibration plan](2026-10-19-orc-structural-search-measurement-plan.md)
 preserves evaluator-control and natural weak/strong calibration history. The
-[LS9 report](../reports/2026-10-23-luna-sol-shared-contract-calibration.md) records
-corrected full-contract means Luna/Sol 4/5.5 on RPI and 3.5/2 on PRR; neither
-task qualifies, with 68 historical starts. Current preparation follows the
-[command-recovery plan](2026-10-23-functional-calibration-command-recovery-plan.md): a smaller
-PRR task, four fresh natural solutions and one judge under prospective cap73.
-Its public fixture, exact package and concrete review/declaration precede spend.
+[LS10 report](../reports/2026-10-23-luna-sol-command-recovery-calibration.md) records
+command-only PRR means Luna4/Sol low2, gap −2, no qualification, and five
+new/73 overall starts. Current selection follows the
+[Sol-high successor plan](2026-10-23-functional-calibration-sol-high-plan.md):
+reuse both exact Luna captures, two fresh Sol-high generations and one fresh
+Sol-high judgment, three-new/cap76. Its owner-confirmed prospective rule is
+Sol mean >=4 and gap >0, with no upper bound; concrete review/declarations
+precede calls. Historical criteria and later scientific gates remain unchanged.
 The following chronology preserves earlier selections and results.
 Artificial defects and visible-check failure bands do not select this pilot.
 Generic scoring and exact model guards are implemented, and the real

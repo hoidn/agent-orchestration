@@ -1,6 +1,6 @@
 # Functional task-difficulty calibration implementation plan
 
-**Current continuation:** this record retains the functional rubric and model hypotheses. [LS9](../reports/2026-10-23-luna-sol-shared-contract-calibration.md) completed two corrected full-contract judgments, reaching 68 historical starts; neither task qualified. The [command-recovery plan](2026-10-23-functional-calibration-command-recovery-plan.md) selects a smaller PRR task with four fresh natural solutions and one judge under prospective cap73. Public fixture/package verification and concrete declarations precede dispatch. Historical scores remain unchanged.
+**Current continuation:** this record retains the historical functional rubric and model hypotheses. The [LS10 report](../reports/2026-10-23-luna-sol-command-recovery-calibration.md) closes command-only PRR at Luna 4/4 versus Sol low 2/2, gap −2, not qualified, with five new/73 overall starts. The [Sol-high successor plan](2026-10-23-functional-calibration-sol-high-plan.md) selects LS11: reuse both exact Luna captures, two fresh Sol-high generations and one fresh Sol-high judge, three-new/cap76. Its owner-confirmed prospective rule is Sol mean >=4 and gap >0, without an upper bound; all earlier criteria and scores remain unchanged. RPI and evaluator/sealed/C1 gates remain separate.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task.
 
