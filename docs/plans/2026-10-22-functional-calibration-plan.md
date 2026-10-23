@@ -45,6 +45,10 @@ after two new Sol starts because the detector still mistook subcommand help
 no judge ran. Overall spend is 32 starts, with six unused under cap 38. The
 semantic detector repair is selected offline; no new paid retry is selected.
 
+Task 5 below selects offline preparation of a prospective LS3 recovery. Its
+eight new sessions and proposed total cap 40 require concrete owner approval;
+cap 38 remains operative until then.
+
 ## Single functional score
 
 Add `experiments/compare/score_functional.orc`, entry `score_functional::score`,
@@ -415,3 +419,50 @@ to an allowlist. Keep model guards unchanged and actual dispatch detection
 intact; preserve both frozen operators and alerts. Any further prospective
 recovery must retain the full analysis denominator, all spent starts and its own
 concrete approval before paid dispatch. No automatic retry is authorized.
+
+## Task 5: Prospective LS3 semantic-detector recovery
+
+The installed CLI was probed without network or credentials and with an invalid
+configuration that stops non-informational commands before session creation.
+The 62-case proof at
+`/home/ollie/sc-evidence/LS2-20261022/offline-cli-help-semantics-v2.json`
+binds the exact installed binary and source. It distinguishes actual help/version
+requests from option values, prompts and arguments after `--`; all probes created
+zero model sessions. This is parser evidence, not classifier or model qualification.
+
+In a new source version, classify informational commands using those semantics:
+account for the command route, options with values, the option terminator and
+simple shell redirections/wrappers. Continue inspecting subsequent commands in
+lists and pipelines. Unknown options/routes or shell expansions gain no help
+exemption. Preserve the existing model guard, native inventory and its explicit
+limits; do not introduce a general shell parser or alter the experiment runtime.
+Both exact incident actions and genuine dispatch shapes must have behavioral
+regressions, including dispatch after an informational command.
+
+The prospective recovery retains the same runtime, task packages and seeded
+bases, models, efforts, tools, timeouts, functional rubric and all three primary
+rules. Its analysis contains exactly the two originally declared, complete LS1
+Luna RPI captures and six fresh generations: two Sol RPI, two Luna PRR and two
+Sol PRR. One fresh Sol-high blind judge per task rates the four anonymous clones.
+Use the existing carryover proof and canonical natural-capture intake; do not
+rescore history, repair interrupted deliveries or omit an observation.
+
+All 32 spent starts remain in accounting, including the two incomplete LS2 Sol
+attempts. Completing the full comparison needs **eight new starts, proposed
+overall cap 40**. Only six starts remain under the current approved cap 38.
+Offline preparation is selected; a new concrete approval must bind the repaired
+packet and the eight-session budget before any LS3 dispatch. That approval would
+cover all six generations and both later judges, with no retries or other spend.
+All new units use fresh paths. Unused LS1/LS2 units remain unused; original
+operators, freezes, alerts, interrupted records and usage remain unchanged.
+
+- [ ] Implement and independently review the semantic classifier against the
+  offline CLI evidence, both incident actions and real dispatch boundaries.
+- [ ] Prepare six fresh commands and the exact two-capture manifest; bind all
+  historical accounting and verify unchanged natural-capture provenance.
+- [ ] Run public dry runs, fake-provider sandbox checks and complete inventory;
+  freeze the dependencies/proof and independently review the concrete packet.
+- [ ] Obtain concrete owner approval for eight fresh sessions and total cap 40.
+- [ ] Execute the generations and, after concrete pool/sandbox checks, the two
+  blind judges; report all scores and the canonical complete readout. Stop on a
+  new interruption without automatic retry.
