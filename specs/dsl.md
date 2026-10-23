@@ -9,6 +9,12 @@ run state. The production YAML parser is retired. The bounded Python frontend
 is admitted through `py check/build/run`, which emits retained `.orc` into the
 ordinary checked compiler; see [Python authoring](cli.md#python-authoring).
 
+The [Python authoring frontend](../docs/design/python_workflow_frontend.md)
+generates ordinary `.orc` source before this boundary. Its `py build/check/run`
+commands reuse the existing compiler and evaluated runtime; Python is not an
+additional runtime or a YAML admission route. See the
+[CLI generation contract](cli.md#python-authoring-frontend).
+
 Execution admission follows the [CLI support boundary](cli.md#executable-support-boundary)
 and [versioning](versioning.md#executable-support-and-historical-version-gates).
 Retired workflow profiles refuse before locks, source loading or mutation,

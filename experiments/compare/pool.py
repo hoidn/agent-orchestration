@@ -10,6 +10,7 @@ agents. verify_pool(out) restores any clone a judge changed; scan_judge and adju
 judge-side contamination scan and verdict. Standard library only.
 """
 
+import json
 import random
 import re
 import secrets
@@ -21,13 +22,13 @@ from pathlib import Path
 try:
     from . import scan as contamination
     from .repos import (
-        HIDDEN_DIR, build_candidate, dump, git, guard,
+        HIDDEN_DIR, build_candidate, build_review_candidate, dump, git, guard, review_exclusions,
         load, main_checkout, patch_of, runtime_commit, sha256_file, shim_commands, visible_in_sandbox,
     )
 except ImportError:
     import scan as contamination
     from repos import (
-        HIDDEN_DIR, build_candidate, dump, git, guard,
+        HIDDEN_DIR, build_candidate, build_review_candidate, dump, git, guard, review_exclusions,
         load, main_checkout, patch_of, runtime_commit, sha256_file, shim_commands, visible_in_sandbox,
     )
 
@@ -148,16 +149,26 @@ def patch_bytes(records, record, label):
     return (Path(records or ".") / record["patches"][label]).read_bytes()
 
 
-def add_clone(out, task, ref, patch, entry):
+def add_clone(out, task, ref, patch, entry, review_exclude=()):
     """Build one applied-patch clone under a random id; record its patch; return (id, mapping entry)."""
     cid = secrets.token_hex(4)
     clone = out / "clones" / cid
-    if build_candidate(ref["runtime"], ref["base"], task / "seed", clone) != ref["compare_base"]:
-        raise SystemExit(f"{clone}: seeded commit differs from the runs' {ref['compare_base']}")
     kept, entry["stripped"] = strip(patch)
+    base = ref["compare_base"]
+    if review_exclude:
+        if kept != patch:
+            raise SystemExit("review environment requires the exact original patch, without D8 stripping")
+        base = build_review_candidate(ref["runtime"], ref["base"], task / "seed", clone,
+                                      base, review_exclude, patch)
+        entry["review_base"] = base
+    elif build_candidate(ref["runtime"], ref["base"], task / "seed", clone) != base:
+        raise SystemExit(f"{clone}: seeded commit differs from the runs' {base}")
     if kept:
         git(clone, "apply", "--binary", "-", stdin=kept)
-    (out / "records" / "patches" / f"{cid}.diff").write_bytes(patch_of(clone, ref["compare_base"]))
+    recorded = patch_of(clone, base)
+    if review_exclude and recorded != patch:
+        raise SystemExit("review diff differs from the exact original patch")
+    (out / "records" / "patches" / f"{cid}.diff").write_bytes(recorded)
     return cid, entry
 
 
@@ -189,20 +200,101 @@ def pool_runs(records):
     return rows, usable
 
 
-def build_batches(out, task, ref, batches, rule, criterion=None):
+def natural_intake(criterion):
+    """A frozen amendment selects raw terminal snapshots uniformly, including delivery failures."""
+    value = criterion if isinstance(criterion, Mapping) else load(criterion)
+    rule = value.get("natural_attempt_intake")
+    if rule is None:
+        return False
+    if rule != "terminal-single-call-patch-v1" or not task_difficulty(value):
+        raise SystemExit("task-difficulty natural intake requires terminal-single-call-patch-v1")
+    return True
+
+
+def natural_attempt(records, receipt_path, expected_model, expected_effort="high"):
+    """Return an original mapping row and a read-only pooling view; never repair delivery artifacts."""
+    if expected_effort not in ("low", "high"):
+        raise SystemExit("task-difficulty intake requires an exact low or high effort")
+    try:
+        from .prepare import finished_memo, outcome_of, paired_calls
+    except ImportError:
+        from prepare import finished_memo, outcome_of, paired_calls
+    records, receipt_path = Path(records).resolve(), Path(receipt_path).resolve()
+    record_path = records / "record.json"
+    record = load(record_path)
+    memo, rows = finished_memo(record["state_root"])
+    terminal = rows[-1]
+    if (terminal["outcome"] not in ("completed", "failed") or record.get("calls") != 1
+            or len(record["candidates"]) != 1 or len(paired_calls(records, rows)) != 1
+            or any(record.get(key) != value for key, value in outcome_of(record, terminal, []).items())):
+        raise SystemExit("task-difficulty intake needs one original terminal attempt and one captured candidate")
+    patch = records / "calls/1" / f"patch-{Path(record['candidates'][0]).name}.diff"
+    if not patch.is_file():
+        raise SystemExit("task-difficulty terminal attempt has no captured raw patch")
+    mapped, _ = pool_runs({str(records): record})
+    row = mapped[str(records)]
+    if row["excluded"]:
+        raise SystemExit("task-difficulty terminal attempt is excluded")
+    receipt = load(receipt_path)
+    receipts, natives = receipt.get("receipt_usage", []), receipt.get("native_session_paths", [])
+    if (receipt.get("provider_calls") != 1 or len(receipts) != 1 or len(natives) != 1
+            or receipts[0].get("provider") != "codex" or receipts[0].get("call_id") != "1"
+            or receipts[0].get("status") != "complete" or not receipts[0].get("usage")):
+        raise SystemExit("task-difficulty intake needs exactly one positive native Codex receipt")
+    native = Path(natives[0]).resolve()
+    native_rows = [json.loads(line) for line in native.read_text().splitlines()]
+    contexts = [item["payload"] for item in native_rows if item.get("type") == "turn_context"]
+    header = native_rows[0] if native_rows else {}
+    if (header.get("type") != "session_meta"
+            or not Path(header.get("payload", {}).get("cwd", "/missing")).is_relative_to(record["tree"])
+            or not contexts or any(context.get("model") != expected_model or context.get("effort") != expected_effort
+                                   for context in contexts)):
+        raise SystemExit("task-difficulty native receipt belongs to another attempt, model or effort")
+    for usage in receipts[0]["usage"]:
+        provenance, tokens = usage.get("provenance", {}), usage.get("charge_tokens", {})
+        if (usage.get("model") != expected_model or provenance.get("model_source") != "turn_context.model"
+                or provenance.get("complete_native_transcript") is not True
+                or provenance.get("session_sha256") != "sha256:" + sha256_file(native)
+                or not isinstance(tokens, dict) or not tokens
+                or any(type(n) is not int or n < 0 for n in tokens.values()) or sum(tokens.values()) <= 0):
+            raise SystemExit("task-difficulty intake has no positive exact-model receipt for this native snapshot")
+    row["capture"] = {name: {"path": str(path), "sha256": sha256_file(path)} for name, path in (
+        ("record", record_path), ("memo", memo.resolve()), ("patch", patch), ("receipt", receipt_path), ("native", native))}
+    return row, record | {"patches": {"final": str(patch)}}
+
+
+def validate_natural_attempts(criterion, runs):
+    """Recheck each original capture against its frozen per-arm model and effort."""
+    efforts = criterion.get("arm_efforts", dict.fromkeys(criterion["arms"], "high"))
+    if (not isinstance(efforts, dict) or set(efforts) != set(criterion["arms"])
+            or any(effort not in ("low", "high") for effort in efforts.values())):
+        raise SystemExit("task-difficulty arm efforts must bind every declared arm to low or high")
+    if not (natural_intake(criterion) or "arm_efforts" in criterion):
+        return
+    for run, row in runs.items():
+        try:
+            captured, _ = natural_attempt(run, row["capture"]["receipt"]["path"],
+                                          criterion["arm_models"][row["arm"]], efforts[row["arm"]])
+            if captured != row:
+                raise ValueError("capture or original delivery outcome changed")
+        except (OSError, ValueError, KeyError, TypeError, SystemExit) as error:
+            raise SystemExit(f"task-difficulty capture proof invalid: {run}: {error}") from error
+
+
+def build_batches(out, task, ref, batches, rule, criterion=None, review_exclude=()):
     clones, members, references = {}, [], []
     anchors = anchor_paths(task, criterion)
     for batch in batches:
         made = [add_clone(out, task, ref, patch_bytes(path, rec, labels[0]),
-                          {"run": path, "arm": rec["arm"], "labels": labels}) for path, rec, labels in batch]
-        made += [add_clone(out, task, ref, a.read_bytes(), {"run": None, "arm": "anchor", "labels": [a.stem]})
+                          {"run": path, "arm": rec["arm"], "labels": labels}, review_exclude) for path, rec, labels in batch]
+        made += [add_clone(out, task, ref, a.read_bytes(), {"run": None, "arm": "anchor", "labels": [a.stem]}, review_exclude)
                  for a in anchors]
         clones.update(made)
         members.append([cid for cid, _ in made])
         if rule["reference"]:
             patch = task / "anchors" / f"{task.name}-{rule['reference']}.diff"
             cid, entry = add_clone(out, task, ref, patch.read_bytes(),
-                                   {"run": None, "arm": "reference", "labels": ["reference"]})
+                                   {"run": None, "arm": "reference", "labels": ["reference"]}, review_exclude)
             clones[cid] = entry
             references.append(cid)
     return clones, members, references
@@ -222,9 +314,10 @@ def pool(task, criterion, out, judges, runs):
     return write_pool(task, criterion, out, judges, ref, rows, batches)
 
 
-def write_pool(task, criterion, out, judges, ref, rows, batches, *, qualification=None):
+def write_pool(task, criterion, out, judges, ref, rows, batches, *, qualification=None, review_exclude=()):
     """Write either caller's pool, preserving its verified structural proof when supplied."""
     task, out = Path(task).resolve(), Path(out).resolve()
+    review_exclude = review_exclusions(review_exclude)
     guard(Path(ref["main"]), out)
     visible_in_sandbox(out)
     commit, rule = runtime_commit(ref["runtime"]), rubric(criterion)
@@ -233,9 +326,15 @@ def write_pool(task, criterion, out, judges, ref, rows, batches, *, qualificatio
         raise SystemExit("a pool needs nonempty batches with at most ten repositories including anchors and reference")
     for directory in (out / "clones", out / "judges", out / "records" / "patches"):
         directory.mkdir(parents=True)
-    clones, members, references = build_batches(out, task, ref, batches, rule, criterion)
+    clones, members, references = build_batches(out, task, ref, batches, rule, criterion, review_exclude)
+    compare_base = ref["compare_base"]
+    if review_exclude:
+        bases = {entry.pop("review_base") for entry in clones.values()}
+        if len(bases) != 1:
+            raise SystemExit("review clones do not share one baseline")
+        compare_base = bases.pop()
     default = Path(ref["runtime"]) / "experiments/compare/score.providers.json"
-    mapping = {"task": str(task), "criterion_sha256": sha256_file(criterion), "compare_base": ref["compare_base"],
+    mapping = {"task": str(task), "criterion_sha256": sha256_file(criterion), "compare_base": compare_base,
                "main": ref["main"], "runtime": ref["runtime"], "runtime_commit": commit, "created_at": time.time(),
                "judges": {name: {"dir": secrets.token_hex(8), "providers": str(Path(providers or default).resolve())}
                           for name, _, providers in (spec.partition("=") for spec in judges)},
@@ -244,6 +343,8 @@ def write_pool(task, criterion, out, judges, ref, rows, batches, *, qualificatio
         mapping["references"] = references
     if qualification is not None:
         mapping["qualification"] = qualification
+    if review_exclude:
+        mapping["review"] = {"source_compare_base": ref["compare_base"], "excluded_paths": list(review_exclude)}
     dump(out / "records" / "mapping.json", mapping)
     write_score_inputs(out, mapping, (task / "intent.txt").read_text(), Path(ref["runtime"]))
     (out / "clones").chmod(HIDDEN_DIR)

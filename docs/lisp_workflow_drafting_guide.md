@@ -12,6 +12,10 @@ This guide explains how to author deterministic workflows using the Workflow
 Lisp frontend. It is about authoring choices, not runtime implementation.
 Normative DSL and runtime contracts live under `specs/`.
 
+For typed Python source generation into the same compiler/runtime, use
+[Typed Python Workflows](python_workflow_drafting_guide.md). Its serial subset
+does not expose every Lisp feature.
+
 Before choosing a review, revise, or select pattern, use the
 [Workflow Lisp Library Reference](lisp_library_reference.md) for the task chooser,
 complete examples and operating limits, and read
@@ -61,9 +65,10 @@ Use the retired [Workflow Drafting Guide](workflow_drafting_guide.md) only to
 translate or audit historical YAML/YML definitions and evidence. It is not an
 authoring or runtime route.
 
-Fresh workflow execution is ORC-only. `run` accepts a path whose suffix
+Ordinary `run` accepts a path whose suffix
 compares case-insensitively as `.orc` and rejects every other source with
-`.orc required` before creating state. The production YAML parser and PyYAML
+`.orc required` before creating state. Python authoring uses `py build/check/run`
+to generate and validate ordinary `.orc` first. The production YAML parser and PyYAML
 runtime dependency are removed. Persisted legacy runs retain state-only
 report/dashboard compatibility without source parsing. Old workflow profiles
 refuse `resume`, force-restart and invalidation with

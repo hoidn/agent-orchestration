@@ -1,141 +1,90 @@
-# Python Workflows With Durable Decisions
+# Typed Python Workflows
 
-Current guide for bounded native Python authoring. Build a typed workflow, stop
-for a host decision, settle it and resume through the ordinary evaluated runtime.
+Build inspectable Workflow Lisp from typed Python, then run a local command
+loop through the existing evaluated runtime.
 
-The [Python frontend contract](design/workflow_python_frontend.md),
-[host-input contract](design/workflow_lisp_durable_host_input.md) and
-[normative CLI](../specs/cli.md#python-authoring) own the behavior. The complete
-script below is copyable from the repository root with the development package
-installed (Python 3.11+, `python -m pip install -e '.[dev]'`). It needs no
-credentials, provider CLI or external service. For diagnosis, command verification
-and conditional repair with a recording provider stub, use the complete
-[Lisp/Python approval example](../workflows/examples/durable_host_input/README.md)
-and its supplied manifests/setup.
+Status: informative current-authoring guide. The [Python frontend
+design](design/python_workflow_frontend.md) owns generation; [CLI](../specs/cli.md)
+and [evaluated execution](design/workflow_lisp_evaluated_execution.md) own execution
+and recovery.
 
 ## What It Is
 
-Python declarations emit ordinary target-2.40 `.orc` and a diagnostic source
-map. The existing compiler checks types/effects; the existing evaluator,
-append-only memo and host API own execution, settlement and resume. This is a
-bounded authoring language, with trusted Python import/tracing at build time.
-It does not serialize a Python stack or promise arbitrary Python replay.
+Python authoring registers typed declarations and traces symbolic expressions
+into ordinary `.orc` files. It adds no interpreter or scheduler. The compiler
+checks generated source, and the evaluated runtime owns commands, provider calls,
+validated results and memo reuse. Ordinary `run` still requires `.orc`; Python
+source enters through `py build`, `py check` or `py run`. YAML remains retired.
+Python imports and tracing execute trusted code with your permissions, including
+during checking and frozen builds. They are not sandboxed or hermetic.
 
-| Supported names | Use |
-| --- | --- |
-| `workflow`, `proc` | Decorators with annotated parameters and explicit result; optional procedure effects infer or restrict |
-| `record`, `variant`, `HostReply` | Closed typed values; named variant unions use `A \| B` or `typing.Union`; host reply imports the existing generic union |
-| `RelPath` | Direct subclasses with `under=` and optional `must_exist=` |
-| `Prompt`, `Text`, `Doc`, `Value`, `PathOf`, `Out` | Typed templates and fills |
-| `Provider`, `Command` | Explicit extern names backed by supplied manifests |
-| `host_input`, `uses_provider`, `uses_command` | Explicit procedure effect restrictions |
-| `ask`, `match`, `when`, `build` | Requests, lazy branches and explicit checked build |
+## Run The Local Example
 
-Use standard-library `Enum`; it is not reexported. Supported annotations include
-`str`, `int`, `float`, `bool`, `list[T]`, closed records/enums/unions and typed
-paths. Every parameter must be annotated and required: no defaults, positional-only
-parameters, `*args` or `**kwargs`. Use `returns=` or a return
-annotation, with no disagreement between them.
+1. Obtain this repository, use Python 3.11 or newer, and install its dependencies
+   using the [repository setup](../README.md#try-it). Run from the repository
+   root. Open [the workflow](../workflows/examples/python_command_loop.py),
+   [command manifest](../workflows/examples/python_command_loop.commands.json)
+   and [output-bundle tool](../workflows/examples/python_command_loop_tool.py).
+   These checked-in inputs require no provider account, external dataset or
+   network service.
+2. Run this complete command sequence. The entry and manifest are explicit;
+   the named input `limit` controls the iteration budget.
 
-## Run An Approval
-
-1. Save this one shell script at the repository root and run it. Its first
-   steps create the complete input source and a unique local run directory.
-   Set the named constants to choose answer and attribution; enum answers are
-   JSON strings. The example reaches completion in seconds and spends no
-   provider calls.
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-ANSWER='"APPROVED"'
-PRINCIPAL='alice'
-ENTRY='approval'
-mkdir -p .orchestrate/python-guide
-GUIDE_DIR=$(mktemp -d .orchestrate/python-guide/approval.XXXXXX)
-STATE_DIR="$GUIDE_DIR/runs"
-cat > "$GUIDE_DIR/approval.py" <<'PY'
-from enum import Enum
-from orchestrator.py import workflow, record, ask, match
-
-class Approval(Enum):
-    APPROVED = "APPROVED"
-    DENIED = "DENIED"
-
-@record
-class Outcome:
-    status: str
-
-@workflow(returns=Outcome)
-def approval():
-    reply = ask("Approve this operation?", returns=Approval, timeout_sec=3600)
-    return match(
-        reply,
-        ANSWERED=lambda answer: match(
-            answer.value,
-            APPROVED=lambda _: Outcome(status="approved"),
-            DENIED=lambda _: Outcome(status="denied"),
-        ),
-        CANCELLED=lambda _: Outcome(status="cancelled"),
-        EXPIRED=lambda _: Outcome(status="expired"),
-    )
-PY
-python -m orchestrator py check "$GUIDE_DIR/approval.py" --entry-workflow "$ENTRY"
-python -m orchestrator py build "$GUIDE_DIR/approval.py" --entry-workflow "$ENTRY"
-python -m orchestrator py run "$GUIDE_DIR/approval.py" --entry-workflow "$ENTRY" --state-dir "$STATE_DIR"
-RUN_ID=$(python -c 'from pathlib import Path; import sys; print(next(Path(sys.argv[1]).iterdir()).name)' "$STATE_DIR")
-python -m orchestrator input get "$RUN_ID" --state-dir "$STATE_DIR" > "$GUIDE_DIR/request.json"
-REQUEST_ID=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["request_id"])' "$GUIDE_DIR/request.json")
-python -m orchestrator input answer "$RUN_ID" "$REQUEST_ID" --value "$ANSWER" --by "$PRINCIPAL" --state-dir "$STATE_DIR"
-python -m orchestrator resume "$RUN_ID" --state-dir "$STATE_DIR"
-python -m orchestrator resume "$RUN_ID" --state-dir "$STATE_DIR"
-python -m orchestrator report --run-id "$RUN_ID" --runs-root "$STATE_DIR" --format json
+```sh
+python -m orchestrator py build workflows/examples/python_command_loop.py --entry-workflow run --command-boundaries-file workflows/examples/python_command_loop.commands.json
+python -m orchestrator py check workflows/examples/python_command_loop.py --entry-workflow run --command-boundaries-file workflows/examples/python_command_loop.commands.json
+python -m orchestrator py run workflows/examples/python_command_loop.py --entry-workflow run --command-boundaries-file workflows/examples/python_command_loop.commands.json --input limit=3
+python -m orchestrator py run workflows/examples/python_command_loop.py --entry-workflow run --command-boundaries-file workflows/examples/python_command_loop.commands.json --input limit=0
+python -m orchestrator py check workflows/examples/python_command_loop.py --entry-workflow run --command-boundaries-file workflows/examples/python_command_loop.commands.json --frozen
 ```
 
-2. Read the report: the final typed outcome is `approved` (or `denied` with the
-   other enum token). The first run exits successfully while suspended;
-   settlement records a reply and requires resume. Repeated resume reuses the
-   committed outcome. For default `.orchestrate/runs` storage, [monitoring](workflow_monitoring.md)
-   can notify once per request without settling it. For cancellation, follow the complete example's alternate path; deadline
-   and evidence-change rules are in the [host settlement contract](../specs/cli.md#evaluated-host-input-target-240).
+3. Inspect the generated entry at `source_path` in the build/check JSON, and its
+   `source_map_path`. Retained sources, configuration and closed artifacts live
+   below `.orchestrate/python/`. Find each run directory under
+   `.orchestrate/runs/`; its `state.json` view shows `bound_inputs`,
+   `workflow_outputs` and completed `steps`. With `limit=3`, the integer result
+   is 2 after two work commands; with `limit=0`, exhaustion returns 0 without a
+   work command. The tool writes its validated integer through the runtime's
+   output bundle. The run command itself can be silent.
 
 ## What Happens
 
-- Decorators retain bodies until explicit build; later-declared helpers work.
-  Procedures trace once with symbolic parameters. `build(workflow_object, ...)`
-  accepts workspace, source roots and ordinary manifest paths; CLI selects a
-  decorated workflow by name, or requires exactly one export when omitted.
-- `match` takes exhaustive one-parameter callbacks; `when` takes zero-parameter
-  `then`/`otherwise` callbacks. Their branch effects stay lazy at runtime.
-  Ordinary undecorated helpers run during tracing; use `proc` for emitted calls.
-- Bundles live at `.orchestrate/generated/<entry>/<digest>/<entry>.orc` and
-  `source_map.json`. Keep them while runs refer to them. Compiler diagnostics
-  can include original Python lines; runtime reports name generated source and
-  ordinary effect/request attribution. The map is supplementary evidence.
-- Resume rebuilds recorded generated source/manifests without importing the
-  author module. `Prompt(file=...)` snapshots UTF-8 templates at build; edits or
-  removal cannot change an existing run. Runtime `Doc` contents remain semantic
-  replay inputs and changed bytes can refuse resume.
+- Build imports captured local source in a fresh worker, traces reachable
+  definitions, emits source and a Python source map, and invokes ordinary closed
+  compilation. Successful build/run updates an entry-specific frozen pin.
+- Check validates through the same path without runtime effects or pin updates.
+  Frozen mode requires an existing pin and refuses changed captured Python,
+  prompt, imported `.orc` or manifest inputs, even if generated source is equal.
+  Installed dependencies and hidden environmental IO are not frozen inputs.
+- Run delegates the retained source roots, manifests and inputs to ordinary
+  execution. Resume uses that saved `.orc` recipe without importing Python;
+  use `python -m orchestrator resume RUN_ID`, replacing `RUN_ID` with the run
+  directory's name. Existing closure freshness,
+  compiler drift and memo rules still apply.
 
-## Boundaries And Additional Inputs
+## Author Your Own Workflow
 
-Importing/tracing trusted Python can perform normal file, network and process
-operations; symbolic refusals are not a sandbox. Symbolic truth, iteration,
-string conversion, formatting, equality, ordering and arithmetic refuse. Express
-runtime branches with `match`/`when`; native loops, comprehensions, async,
-generators, exception control, generic user records/unions, agents, child runs,
-parallel maps and direct IR APIs are outside this subset. No placeholder exports
-or standalone Python `run`/`resume` exist.
+Import declarations from orchestrator.py. Required parameter/return annotations
+cover primitives, string-valued enums, records, closed variant unions, paths,
+supported lists and optional types. Decorators register workflows, procedures
+and pure helpers; source-backed local modules are required. Native Python
+conditionals, iteration and coercions cannot consume symbolic runtime values.
 
-For provider/command workflows, supply the example's unchanged
-`--provider-externs-file`, `--prompt-externs-file` when required and
-`--command-boundaries-file`. Extern references supply no default binding/model;
-commands include their full argv and declared explicit closure. `Provider`
-accepts `model`, `effort`, `timeout_sec` call policy. `Prompt` requires exactly
-one text/file source and exactly its declared named fills.
+Use lazy when branches, exhaustive match arms and bounded loop with explicit
+continuation, completion and exhaustion. Branch callbacks are traced at build
+time; only the selected generated branch performs runtime effects. The example
+shows these controls without provider spend.
 
-`ask` accepts a string/symbolic string or applied prompt, with `returns`, optional
-positive-integer `timeout_sec`, and typed-path `show`. `None` timeout means no
-deadline. One serial request is pending per run. [Host settlement](../specs/cli.md#evaluated-host-input-target-240)
-requires a principal, accepts optional opaque attestation and explicit evidence
-override, and cannot waive semantic document/provenance or path safety checks.
+The module's `TARGET` defaults to 2.39; admitted targets are 2.35–2.39.
+Procedures infer effects at 2.39. Older targets require explicit effect
+descriptors and emit inline lowering; imported definitions keep their own rules.
+Supply repeatable `--source-root` paths for additional source libraries, select
+an exported entry with `--entry-workflow`, and supply the relevant provider,
+prompt, command or imported-bundle manifests. There are no default extern
+bindings. The [design](design/python_workflow_frontend.md#public-authoring-surface)
+documents the declaration API and concrete `.orc` imports.
+
+Agent sessions, parallel mapping, macro authoring and Python runtime callbacks
+or ProcRef construction are outside this serial frontend. Existing Lisp library
+features do not automatically become Python APIs. Local command and compile
+checks establish mechanics, not live-provider qualification or editor proof.

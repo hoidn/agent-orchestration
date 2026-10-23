@@ -26,9 +26,7 @@ use the capability matrix to determine what is implemented and qualified.
 | --- | --- | --- |
 | Understand the system | [Architecture overview](architecture_overview.md) and [orchestration model](orchestration_start_here.md) | Concepts, authority and component boundaries |
 | Check available behavior | [Capability matrix](capability_status_matrix.md) | Implemented, partial, library, designed, future and historical surfaces; implementation does not imply public qualification |
-| Author a workflow | [Workflow Lisp drafting guide](lisp_workflow_drafting_guide.md) and [2.39 procedure contracts](lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239) | Current `.orc` syntax, prerequisites and runnable shapes; inferred effects and optional restrictions at 2.39 |
-| Author in Python | [Python drafting guide](python_workflow_drafting_guide.md) | Bounded typed source emission to retained `.orc`; the evaluated runtime owns execution and resume |
-| Ask for a durable decision | [Host-input recipe](lisp_workflow_drafting_guide.md#durable-host-input) and [approval example](../workflows/examples/durable_host_input/README.md) | Target 2.40 typed settlement, evidence and explicit resume |
+| Author a workflow | [Workflow Lisp drafting guide](lisp_workflow_drafting_guide.md) or [typed Python guide](python_workflow_drafting_guide.md) | Direct `.orc` authoring or serial Python generation into the same compiler/runtime; prerequisites and admitted shapes at each destination |
 | Choose a reusable helper | [Library reference](lisp_library_reference.md) | Typed inputs, outputs, composition and examples |
 | Copy a complete example | [Workflow catalog](../workflows/README.md#which-example-should-i-copy) | Route readiness and copy safety; a compile check alone is not live-provider qualification |
 | Compile, run, resume or invalidate | [Lifecycle](runtime_execution_lifecycle.md) and [CLI contract](../specs/cli.md) | Evaluated execution is the sole current workflow runtime; old profiles remain read-only |
@@ -53,8 +51,7 @@ use the capability matrix to determine what is implemented and qualified.
   execution and the selected 2.35 source/import/tooling floor. Historical
   YAML/flat contracts and frozen source do not supply current analysis,
   execution or recovery permission.
-- Targets 2.35–2.40 share the evaluated runtime. Target 2.39 adds [procedure authoring](lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239), finite source admission and [bounded phased delivery](lisp_workflow_drafting_guide.md#authoring-phased-contract-delivery-target-239); imported 2.35–2.38 definitions retain their original contracts.
-- Target 2.40 adds [durable host input](design/workflow_lisp_durable_host_input.md); [Python authoring](python_workflow_drafting_guide.md) emits ordinary retained source and uses the same runtime. Older imported definitions keep their original contracts.
+- Targets 2.35–2.39 share the evaluated runtime. Target 2.39 adds [procedure authoring](lisp_workflow_drafting_guide.md#procedure-contracts-at-target-239), finite source admission and [bounded phased delivery](lisp_workflow_drafting_guide.md#authoring-phased-contract-delivery-target-239); imported 2.35–2.38 definitions retain their original contracts.
 - The 2.35 source floor covers transitive source and typed-program imports,
   REPL loading and LSP analysis. Historical report/dashboard data readers do
   not reopen those source doors; evaluated LSP F2 remains OPEN_NOT_WAIVED.
@@ -119,8 +116,9 @@ document owns the answer.
 
 ### When Authoring Workflows
 
-- For bounded native Python authoring, start with the [Python drafting guide](python_workflow_drafting_guide.md); use the same host settlement and resume commands.
-- Start with [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md).
+- Choose [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md) for
+  direct `.orc` source or [Typed Python Workflows](python_workflow_drafting_guide.md)
+  for typed serial source generation. Both use the same compiler and runtime.
 - Use [Workflow Lisp Library Reference](lisp_library_reference.md) to choose a
   reusable helper or complete candidate generation/evaluation/selection example.
 - Read [Designing `.orc` Workflows That Beat A Single Call](orc_workflow_design_lessons.md)
@@ -159,8 +157,9 @@ reusing instructions. Plans can contain active obligations as well as history.
 | <a id="orchestration-start-here"></a>[Orchestration Start Here](orchestration_start_here.md) | Guide or reference; prerequisites and limits at destination |
 | <a id="runtime-execution-lifecycle"></a>[Runtime Execution Lifecycle](runtime_execution_lifecycle.md) | Guide or reference; prerequisites and limits at destination |
 | <a id="workflow-monitoring"></a>[Workflow Monitoring](workflow_monitoring.md) | Guide or reference; prerequisites and limits at destination |
-| <a id="workflow-drafting-guide"></a>[Workflow Drafting Guide](workflow_drafting_guide.md) | Historical YAML interpretation; current authoring uses the Lisp guide |
+| <a id="workflow-drafting-guide"></a>[Workflow Drafting Guide](workflow_drafting_guide.md) | Historical YAML interpretation; current authoring uses the Lisp or Python guide |
 | <a id="workflow-lisp-drafting-guide"></a>[Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md) | Guide or reference; prerequisites and limits at destination |
+| [Typed Python Workflows](python_workflow_drafting_guide.md) | Current guide; provider-free build/check/run recipe and serial frontend limits |
 | <a id="workflow-lisp-library-reference"></a>[Workflow Lisp Library Reference](lisp_library_reference.md) | Guide or reference; prerequisites and limits at destination |
 | <a id="work-definition-model"></a>[Work Definition Model](work_definition_model.md) | Guide or reference; prerequisites and limits at destination |
 | <a id="procedure-first-roadmap-execution-sequence"></a>[Procedure-First Roadmap Execution Sequence](plans/2026-07-09-procedure-first-roadmap-execution-sequence.md) | Plan or decision record; check current selection |
@@ -185,7 +184,7 @@ reusing instructions. Plans can contain active obligations as well as history.
 | <a id="e-b3-orc-versus-single-call-rung1"></a>[E-B3: Workflows Versus A Single Call On Calibration Rung 1 (claims not evaluated)](reports/2026-10-16-eb3-orc-versus-single-call-rung1.md) | Captured evidence; not a behavioral contract |
 | <a id="effectiveness-harness-and-experiments-plan"></a>[Effectiveness Harness And Experiments Plan](plans/2026-10-14-effectiveness-harness-and-experiments-plan.md) | Plan or decision record; check current selection |
 | <a id="orc-research-charter"></a>[ORC Research Charter](plans/2026-09-08-orc-research-charter.md) | Plan or decision record; check current selection |
-| <a id="orc-structural-search-roadmap"></a>[ORC Structural Search Roadmap (R3 Implementation Sequence)](plans/2026-10-18-orc-structural-search-roadmap.md) | Plan or decision record; Phases 0–1 ran with measure-free readout; Phase 2 remains unselected; measurement AT completed all four pairs and failed frozen PRR P2 calibration; gate 2 FAIL_NOT_QUALIFIED, gate 3 unmeasured; B/B2/C remain unrun and separately gated |
+| <a id="orc-structural-search-roadmap"></a>[ORC Structural Search Roadmap (R3 Implementation Sequence)](plans/2026-10-18-orc-structural-search-roadmap.md) | Plan/decision record; Phases 0–1 have measure-free readouts, Phase 2 remains unselected; natural task difficulty is not qualified, Luna low/high calibration authorized and underway; B/B2/C remain separately gated |
 | [ORC Structural Search Phase 0 Offline Apparatus Implementation Plan](plans/2026-10-18-orc-structural-search-phase0-offline-plan.md) | Implementation plan; executed (offline, scripted providers) |
 | [ORC Structural Search Live Phase 0 Gates And Phase 1 Implementation Plan](plans/2026-10-18-orc-structural-search-live-phase1-plan.md) | Implementation plan; live Phase 0 gates and Phase 1; run ([report](reports/2026-10-18-orc-structural-search-phase1.md)) |
 | [ORC Structural Search Phase 2 (I2 And Adaptive Search) Implementation Plan](plans/2026-10-18-orc-structural-search-phase2-plan.md) | Implementation plan; mode 2, I2 episodes and validation split built offline (scripted providers); not selected by the Phase 1 decision; live runs need a new owner selection and budget approval |
@@ -193,10 +192,11 @@ reusing instructions. Plans can contain active obligations as well as history.
 | [ORC Structural Search Stage C1: Cumulative Whole-Program Campaign Pilot Implementation Plan](plans/2026-10-19-orc-structural-search-cumulative-pilot-plan.md) | Implementation plan; offline Tasks 1–7 implemented and verified; live Tasks 8–13 retain separate owner gates; the [natural task-difficulty plan](plans/2026-10-22-simple-evaluation-calibration-plan.md) owns the selected weak/strong pilot; artificial-control checks do not establish task difficulty |
 | [ORC Structural Search: The `module` Condition (Rewrite, Compile, Repair)](plans/2026-10-19-orc-structural-search-module-rewrite-plan.md) | Maintained module decision and live-selection gates; revised apparatus delivered offline, with fresh evidence in the active implementation plan; no live study or budget selected |
 | [ORC Structural Search `module` Condition Implementation Plan](plans/2026-10-19-orc-structural-search-module-condition-implementation-plan.md) | Offline delivery/verification record including reviewed main-integration policy-set/five-class and cache-write corrections; scripted providers only, no live arm |
-| [ORC Structural Search Measurement Calibration Implementation Plan](plans/2026-10-19-orc-structural-search-measurement-plan.md) | Measurement plan; offline preparation complete; historical Step A failed; Terra-only AT completed and FAIL_NOT_QUALIFIED (RPI passes, PRR P2 fails); qualified continuation used two new sessions without children, total 12/20; unused recovery margin does not transfer; B/B2/C unrun, no A3 selected |
+| [ORC Structural Search Measurement Calibration Implementation Plan](plans/2026-10-19-orc-structural-search-measurement-plan.md) | Measurement selection and coordination ledger; A/AT/AS are historical evaluator checks; TD2 did not qualify task difficulty; fresh Luna low/high calibration authorized and underway; B/B2/C and campaigns retain separate gates |
 | [Simple Evaluation Implementation Plan](plans/2026-10-22-simple-evaluation-plan.md) | Offline evaluator delivery and verification: independent rubric components and three-control mean separation; historical AT failure unchanged; artificial-control checks do not qualify task difficulty |
-| [Natural Task-Difficulty Calibration](plans/2026-10-22-simple-evaluation-calibration-plan.md) | Natural Luna-high versus Terra-high pilot; first attempt invalidated by a model-policy incident, no difficulty verdict; corrected repetition awaits additional budget |
+| [Natural Task-Difficulty Calibration](plans/2026-10-22-simple-evaluation-calibration-plan.md) | Current plan: fresh Luna low versus Luna high, same tasks and blind rubric; review-environment and exact-effort fixes integrated and verified; fresh packet frozen and checked offline; 10 additional sessions authorized, total cap 26 including 16 spent starts |
 | [Natural Task-Difficulty Pilot: Isolation Incident](reports/2026-10-22-natural-task-difficulty-calibration.md) | Captured evidence: two interrupted Luna roots and four forbidden Claude/Fable probes; six starts count against the original ten-session cap; no accepted quality observations |
+| [Natural Task-Difficulty Recovery: RPI Gap Fails, PRR Judge Excluded](reports/2026-10-22-natural-task-difficulty-recovery.md) | Captured TD2 evidence: RPI gap −1.5 with environment uncertainty; PRR judge excluded for sandbox-induced deletions; all 16 authorized starts spent, no two-task qualification; proper environment fix verified offline |
 | [ORC Structural Search Measurement Calibration: Step A](reports/2026-10-19-orc-structural-search-measurement-calibration.md) | Captured calibration evidence; A failed the frozen RPI spread rule, PRR passed; 8 calls with complete receipts; no ORC benefit claim |
 | [ORC Structural Search Measurement Calibration: Interrupted Terra-Only AT](reports/2026-10-20-orc-structural-search-measurement-at.md) | Captured interrupted calibration evidence; RPI passed both frozen batches, PRR committed none after two native-agent control incidents; four CLI plus six native child sessions exhausted cap10, all Terra high; combined calibration OPEN and total cost unavailable; no ORC benefit claim |
 | [ORC Structural Search Measurement Calibration: Completed Terra-Only AT](reports/2026-10-20-orc-structural-search-measurement-at-completion.md) | Captured final evidence; all four pairs complete, RPI passes and PRR fails P2 in one batch; 12/20 sessions, all Terra high; two continuation sessions without new children; observed list-price cost ≥USD4.3461492, complete total unavailable; no ORC benefit claim |
@@ -258,9 +258,6 @@ reusing instructions. Plans can contain active obligations as well as history.
 | <a id="workflow-lisp-unified-design-for-unimplemented-surfaces"></a>[Workflow Lisp Unified Design for Unimplemented Surfaces](design/workflow_lisp_unified_frontend_design.md) | Component contract or target; check admitted scope |
 | <a id="workflow-lisp-repl-introspection"></a>[Workflow Lisp REPL Introspection](design/workflow_lisp_repl_introspection.md) | Component contract or target; check admitted scope |
 | <a id="workflow-lisp-repl"></a>[Workflow Lisp REPL](design/workflow_lisp_repl.md) | Component contract or target; check admitted scope |
-| [Python Workflow Drafting Guide](python_workflow_drafting_guide.md) | Current bounded authoring guide; emitted source uses the evaluated runtime |
-| [Durable Host Input](design/workflow_lisp_durable_host_input.md) | Target-2.40 component contract; current specs own runtime behavior |
-| [Python Frontend](design/workflow_python_frontend.md) | Bounded authoring architecture; no Python runtime |
 | <a id="workflow-lisp-frontend-specification"></a>[Workflow Lisp Frontend Specification](design/workflow_lisp_frontend_specification.md) | Component contract or target; check admitted scope |
 | <a id="workflow-lisp-refactor-architecture"></a>[Workflow Lisp Refactor Architecture](design/workflow_lisp_refactor_architecture.md) | Component contract or target; check admitted scope |
 | <a id="workflow-lisp-semantic-workflow-ir"></a>[Workflow Lisp Semantic Workflow IR](design/workflow_lisp_semantic_workflow_ir.md) | Retained typed-analysis and historical-reader contract |
@@ -327,7 +324,7 @@ reusing instructions. Plans can contain active obligations as well as history.
 | <a id="master-spec"></a>[Master Spec](../specs/index.md) | Normative contract within its stated profile/version scope |
 | <a id="orchestration-start-here-1"></a>[Orchestration Start Here](orchestration_start_here.md) | Guide or reference; prerequisites and limits at destination |
 | <a id="runtime-execution-lifecycle-1"></a>[Runtime Execution Lifecycle](runtime_execution_lifecycle.md) | Guide or reference; prerequisites and limits at destination |
-| <a id="workflow-drafting-guide-1"></a>[Workflow Drafting Guide](workflow_drafting_guide.md) | Historical YAML interpretation; current authoring uses the Lisp guide |
+| <a id="workflow-drafting-guide-1"></a>[Workflow Drafting Guide](workflow_drafting_guide.md) | Historical YAML interpretation; current authoring uses the Lisp or Python guide |
 | <a id="local-workflow-steering-1"></a>[Local Workflow Steering](steering.md) | Optional local input; empty content selects no work |
 | <a id="master-spec-index"></a>[Master Spec Index](../specs/index.md) | Normative contract within its stated profile/version scope |
 | <a id="workflow-dsl-and-control-flow"></a>[Workflow DSL and Control Flow](../specs/dsl.md) | Normative contract within its stated profile/version scope |

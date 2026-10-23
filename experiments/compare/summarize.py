@@ -31,11 +31,11 @@ from pathlib import Path
 from statistics import mean
 
 try:
-    from .pool import CONTROL_ROLES, control_means, rubric, task_difficulty
+    from .pool import CONTROL_ROLES, control_means, natural_intake, rubric, task_difficulty, validate_natural_attempts
     from .prepare import paired_calls, read_memo  # imported as experiments.compare.summarize
     from .scan import model_policy
 except ImportError:  # run as a script
-    from pool import CONTROL_ROLES, control_means, rubric, task_difficulty
+    from pool import CONTROL_ROLES, control_means, natural_intake, rubric, task_difficulty, validate_natural_attempts
     from prepare import paired_calls, read_memo
     from scan import model_policy
 
@@ -411,7 +411,9 @@ def score_values(mapping, ratings):
 def validate_task_difficulty(criterion, mapping, excluded, ratings):
     """An incomplete natural comparison cannot qualify by dropping failed observations."""
     if not task_difficulty(criterion):
+        natural_intake(criterion)  # A task-difficulty amendment cannot loosen generic comparisons.
         return
+    amended = natural_intake(criterion)
     counts, arms = criterion.get("runs_per_arm", {}), criterion.get("arms", [])
     if (not arms or len(set(arms)) != len(arms) or set(counts) != set(arms)
             or any(type(n) is not int or n <= 0 for n in counts.values())):
@@ -419,8 +421,9 @@ def validate_task_difficulty(criterion, mapping, excluded, ratings):
     runs, clones = mapping["runs"], mapping["clones"]
     if (set(row["arm"] for row in runs.values()) != set(arms)
             or any(sum(row["arm"] == arm for row in runs.values()) != count for arm, count in counts.items())
-            or any(row["outcome"] != "completed" or row.get("excluded") for row in runs.values())):
+            or any((not amended and row["outcome"] != "completed") or row.get("excluded") for row in runs.values())):
         raise SystemExit("task-difficulty requires every declared natural run, completed and unexcluded")
+    validate_natural_attempts(criterion, runs)
     total = sum(counts.values())
     if (len(mapping["batches"]) != 1 or len(mapping["batches"][0]) != total
             or len(set(mapping["batches"][0])) != total or set(mapping["batches"][0]) != set(clones)

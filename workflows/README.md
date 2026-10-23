@@ -1,10 +1,15 @@
 # Workflow Index
 
-This file is an informative catalog of Workflow Lisp `.orc` examples under
-`workflows/`, plus the bounded [native Python approval example](examples/durable_host_input/README.md). Python uses `py check/build/run` to emit retained `.orc`; ordinary `run` is ORC-only: `run` accepts a
+This file is an informative catalog of workflow examples under
+`workflows/`. Ordinary `run` accepts a
 case-insensitive `.orc` suffix and rejects every other source path with
 `.orc required` before creating state. The former authored YAML/YML estate and
 its production parser are retired.
+
+Typed Python authoring generates ordinary `.orc` through `py build/check/run`.
+Use the [Python guide](../docs/python_workflow_drafting_guide.md) for its serial
+subset and the local command example; execution and recovery still belong to
+the same evaluated runtime.
 
 Compile or dry-run a catalogued `.orc` entry from the repository root, supplying
 the entry's declared externs and inputs:
@@ -21,7 +26,7 @@ python -m orchestrator run workflows/examples/<workflow>.orc \
 The [executor retirement](../docs/design/workflow_lisp_executor_retirement.md)
 ends executable entries through 2.34. The Design Delta drain and generic run
 watchdog are retired launch surfaces; their sources/reports remain historical.
-Current source and typed-program imports require registered targets 2.35–2.40
+Current source and typed-program imports require registered targets 2.35–2.39
 throughout their dependency graph. Pre-2.35 library source is historical and
 cannot be imported. The shared watchdog probe may
 still read a run; it does not launch a watchdog or provide repair execution.
@@ -47,7 +52,7 @@ python -m orchestrator run workflows/library/verified_iteration_drain/drain.orc 
 
 | Goal | Starting point | Route status |
 | --- | --- | --- |
-| Ask for a typed host decision | [Lisp/Python approval example](examples/durable_host_input/README.md), [Lisp recipe](../docs/lisp_workflow_drafting_guide.md#durable-host-input) and [Python guide](../docs/python_workflow_drafting_guide.md) | Target 2.40; explicit manifests and deterministic stub provider; answer/cancel then ordinary resume. No paid-provider qualification follows. |
+| Author a serial workflow in typed Python | [Python guide](../docs/python_workflow_drafting_guide.md) and [`python_command_loop.py`](examples/python_command_loop.py) | Local command loop, explicit [command manifest](examples/python_command_loop.commands.json) and [output-bundle tool](examples/python_command_loop_tool.py); no provider setup. Generates retained `.orc`; no live-provider qualification. |
 | Generate several candidates and select one | [Best-of-N reference](../docs/lisp_library_reference.md#generate-candidates-and-select) and [`best_of_n.orc`](../experiments/orc_vs_single_call/workflows/best_of_n.orc) | Evaluated 2.35; bounded serial generation, pre-created independent clones, judge selection without merging. |
 | Review and improve one candidate | [`std/improve` reference](../docs/lisp_library_reference.md#review-and-revise-with-stdimprove) and [`improve_experiment_proposal.orc`](examples/improve_experiment_proposal.orc) | Maintained proposal at 2.39; provider/prompt manifests and workspace-owned launcher required. The reference also covers the 2.35 API. |
 | Keep each role's native conversation across sequential turns | [Agent Sessions guide](../docs/lisp_workflow_drafting_guide.md#agent-sessions-target-238) and [`design_review_execute_agents.orc`](examples/design_review_execute_agents.orc) | Opt-in bounded 2.38 example, with deterministic consumer evidence and bounded adapter smokes. Real-provider consumer comparison has not run and requires separate owner authorization. |

@@ -94,6 +94,24 @@ trees and an ancestor's records. The scan counts any mention of another tree's n
 records live outside every tree. The orchestrator still writes `.orchestrate/` (workspace lock,
 guard and a build cache) into the working directory; this repository's `.gitignore` ignores it.
 
+When a review must exclude protected baseline files, use the explicit
+`write_pool(..., review_exclude=("docs/plans/evidence",))` opt-in for a fresh pool.
+It creates a new repository whose baseline omits those relative paths, then
+applies the exact original candidate patch. Both endpoints of excluded-path
+edits, additions, deletions and renames refuse; patches requiring D8 stripping
+also refuse. Nonexcluded baseline bytes, symlinks and executable modes are checked
+against the original seeded tree. The review repository has a new root commit
+and no copied Git history, object store or alternates. No Git visibility flags,
+overlays or filtered command output are used.
+
+For these pools, `mapping.compare_base` is the actual review baseline;
+`mapping.review.source_compare_base` and `excluded_paths` preserve its derivation.
+Original run/capture identities and qualification proofs remain unchanged.
+`verify-pool` checks and restores the exact recorded patch against that review
+baseline. The empty default retains the ordinary seeded baseline and D8 behavior.
+This removes the declared archive from this review repository, without claiming
+isolation from unrelated filesystem paths or arbitrary provider access.
+
 ## Recipe
 
 Placeholders: `MAIN` the main checkout, `C` the recorded commit, `RT` the frozen runtime checkout,
@@ -388,7 +406,7 @@ not grant structural quality authority.
 Use `purpose: "calibration"`, `calibration_kind: "task_difficulty"`, `anchors: []`,
 a reference-free rubric, declared `arms` and `runs_per_arm`. Generate fresh
 independent solutions with the same direct workflow and task inputs, varying only
-the frozen model binding. Use `prepare.run_arm` with the direct-task `ArmSpec`
+the frozen model or effort binding. Use `prepare.run_arm` with the direct-task `ArmSpec`
 for each arm; custom final-patch arms enter the ordinary pool. Per-run
 `COMPARE_CODEX_MODELS` binds the exact Luna or Terra model; unset policy retains
 Terra only. Native delegation remains disabled.
@@ -401,6 +419,28 @@ controls, references or hidden-test runs. The selected
 [task-difficulty plan](../../docs/plans/2026-10-22-simple-evaluation-calibration-plan.md)
 freezes the models, sample counts, threshold and authorized spend. Apparatus tests
 alone establish no task-difficulty result or campaign permission.
+
+The default intake requires completed delivery. A frozen task-difficulty criterion
+may explicitly select `natural_attempt_intake: "terminal-single-call-patch-v1"`:
+`pool.natural_attempt(records, receipt_path, expected_model)` then returns an original
+mapping row and a temporary pooling view of that attempt's raw shim snapshot.
+Use it uniformly for every declared attempt, including completed deliveries, and
+pass the rows and composed views to `write_pool`. Each attempt must be terminal,
+unexcluded, have exactly one captured candidate patch (which may be empty), and
+have one positive native receipt for its exact model. The helper binds the original
+record, memo, patch, receipt and native transcript by path and hash; summarization
+rechecks those sources. Original run IDs, delivery outcomes and failure reasons
+remain in the canonical results. This rule creates no result file, repair, retry,
+replacement or smaller denominator, and does not change other comparisons.
+
+For a same-model effort contrast, declare `arm_efforts` for every arm, for example
+`{direct_task: low, luna_high: high}`. Values admit exactly `low` or `high`;
+missing, extra or invalid bindings refuse. Pass each arm's declared effort as
+the fourth argument of `natural_attempt`; its default remains `high`.
+Summarization requires the capture proof for every explicitly bound arm and
+checks every native turn against its exact model and effort. Criteria without
+`arm_efforts` retain the previous high-effort behavior. The stronger-arm label
+is a hypothesis; the declared score gap still determines the outcome.
 
 ## Evaluator control checks from recorded patches
 

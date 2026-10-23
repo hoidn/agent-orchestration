@@ -62,8 +62,10 @@ without an assistant response. Offline verification passed 202 affected tests wi
 `-q -n 16 --dist=worksteal` in tmux and
 four public CLI smoke checks, using fake providers. The original runtime and
 criterion remain unchanged. The correction is integrated in `bda0f693`; the
-[proposed recovery](../plans/2026-10-22-simple-evaluation-calibration-plan.md#proposed-recovery-td2-budget-approval-pending)
-uses a new snapshot and packet, with additional budget approval still pending.
+[authorized recovery](../plans/2026-10-22-simple-evaluation-calibration-plan.md#recovery-td2-budget-approved)
+uses a new snapshot and packet. The owner subsequently authorized ten new
+sessions within a total cap of sixteen, including these six incident starts; TD2
+is running and has no quality verdict yet.
 
 ## Evidence and limits
 
