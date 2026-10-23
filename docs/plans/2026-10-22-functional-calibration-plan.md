@@ -48,8 +48,8 @@ prepared and reviewed. The owner approved its eight new sessions and total cap
 40. Both Sol RPI attempts completed and were admitted. A host NVMe failure
 and subsequent reboots then interrupted both Luna PRR attempts before settlement.
 LS3 is stopped after four starts (36 overall); neither Sol PRR nor either judge
-started. No new quality score exists. Task 6 selects offline recovery preparation;
-cap 40 remains operative.
+started. No new quality score exists. Task 6 records the ready, independently reviewed LS4 recovery packet. Six new
+sessions and total cap 42 await approval; cap 40 remains operative.
 
 Task 5 below records the approved LS3 recovery. The owner replied "yes" to the
 eight-session/cap-40 proposal and reaffirmed Sol 6.1 for the stronger arm. That
@@ -534,7 +534,7 @@ the bounded operator in tmux `ls3-generation-20261022` on
 The frozen criterion retains its original pending snapshot; this separate
 approval is operative.
 
-## Task 6: Recover from the host storage failure (offline preparation selected)
+## Task 6: Recover from the host storage failure (ready; approval pending)
 
 The host journal records the NVMe controller at PCI address `0000:05:00.0`
 disappearing at 2026-10-23 06:47:17 UTC, failed reset, I/O errors, an aborted
@@ -575,9 +575,9 @@ packet. Do not relax candidate capture, lineage, model, scan or denominator chec
 
 - [x] Record the host incident, exact physical starts, interrupted evidence and
   historical missing-file inventory; verify the completed captures independently.
-- [ ] Prepare the four fresh PRR units and four-capture carryover manifest; verify
+- [x] Prepare the four fresh PRR units and four-capture carryover manifest; verify
   source-specific receipts, original outcomes and identical task baselines.
-- [ ] Run offline checks, public dry runs and actual fake-provider sandbox checks
+- [x] Run offline checks, public dry runs and actual fake-provider sandbox checks
   on the current boot; freeze and independently review the concrete packet.
 - [ ] Obtain approval for six fresh sessions and overall cap 42.
 - [ ] Execute, admit terminal captures, prepare both anonymous pools, verify the
@@ -591,3 +591,39 @@ verifies all four RPI canonical intakes, 824 packet files, 22 earlier carryover
 files and 4,560 surviving historical hashes. It records the nine missing `/tmp`
 files and limits the interrupted PRR access audit to 284 surviving actions.
 No complete interrupted-session receipt or quality score is inferred.
+
+### LS4 concrete recovery packet (ready; approval pending)
+
+Freeze: `/home/ollie/sc-evidence/freeze-functional-host-recovery-20261023`.
+
+- `criterion.json`: `b5378a44b3d60fd8c4e823255090baa8a6c68d74c1d8d669bcf53ede332982b9`.
+- `carryover.json`: `4df46ae3e08040e36d8a50ee87e5e19dfb5dc236a66081077d5c4ac8e91ad6fb`.
+- `generation-packet.json`: `abaddaa769209d442d5eda72859cb0b9244c64af763f33250ece9144dee3d2ba`.
+
+The packet binds 824 files, four fresh PRR commands and all 48 carryover
+references. All four RPI observations pass canonical intake; the eight-observation
+analysis keeps two samples per arm and task. The directly revised operator
+preserves 28 core functions exactly, including inventory, classification, guards
+and execution. Historical preservation verifies 4,780 surviving files and the
+explicit nine-file absence manifest; missing files are not claimed verified.
+
+Evidence under `/home/ollie/sc-evidence/LS4-20261023` includes four successful
+public dry runs, four actual Bubblewrap/fake-CLI checks (145 protected paths per
+unit, 24 record/index hashes unchanged), 60 passing offline checks and 46 collected
+operator/contract tests. Fresh current-boot runtime evidence under
+`LS3-20261022/host-reverification` records nine public smoke cases, 437 comparison
+tests and 42 historical analysis/target checks passing, with zero providers.
+The initial console-entry collection failure is retained; invoking pytest as a
+Python module from the same checkout passed without runtime or test changes.
+
+Independent review `LS4-20261023/generation-independent-review.json`, SHA-256
+`60b42afe3af1c67fdc4362d5058390d018ab85c6af721ccbc99a2256d8bbe1bc`,
+found no blocking issue. Root separately verified packet/carryover hashes and
+reran preflight: zero new starts, 36 historical, no extra roots or forbidden
+actions. Actual judge-pool sandbox checks remain due after PRR captures complete.
+
+**Approval requested:** six new sessions, raising the total cap from 40 to 42
+(36 already spent; four PRR generations and two Sol-high judgments), no retries
+or other spend. Exact roles remain Luna high weak, Sol 6.1 low strong and Sol
+6.1 high judge. No launch or new quality score exists. Present host operability
+and offline checks do not establish lasting storage stability.
