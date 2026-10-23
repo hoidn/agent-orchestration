@@ -561,8 +561,9 @@ six sessions under total cap 42. Both Luna PRR captures and the second Sol PRR
 capture are admitted. The first Sol PRR session ended with a provider-capacity
 error; LS4 is closed as inconclusive at 40 overall starts without judgments.
 Task 7 selects LS5: seven carried observations, one fresh Sol PRR generation
-and two judges under coordinator-declared total cap 43. The reviewed generation
-is running; judges await its integrity check. External truncation does not
+and two judges under coordinator-declared total cap 43. The fresh generation
+completed and passed integrity review; both anonymous pools are verified and
+two Sol-high judges are running sequentially. External truncation does not
 establish task difficulty.
 No historical score is changed, no stronger-arm success
 is guaranteed, and no ORC benefit or live `module` selection follows. The measurement gate precedes any

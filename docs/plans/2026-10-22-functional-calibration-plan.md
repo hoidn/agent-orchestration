@@ -55,8 +55,9 @@ completed and passed independent integrity review. LS4 is closed as scientifical
 inconclusive after four starts (40 overall), without either judgment. Task 7
 selects LS5: seven carried observations, one fresh Sol PRR generation and two
 blind judges, with coordinator-declared total cap 43 under the updated owner
-spending policy. The reviewed LS5 generation is now running; both judges remain
-pending its integrity check. No new quality score exists.
+spending policy. The LS5 generation completed and passed integrity review. Both
+anonymous pools are verified; the two Sol-high judges are running sequentially.
+No new quality score is admitted yet.
 
 Task 5 below records the approved LS3 recovery. The owner replied "yes" to the
 eight-session/cap-40 proposal and reaffirmed Sol 6.1 for the stronger arm. That
@@ -711,7 +712,7 @@ is eligible. No LS4 pool or judge was launched, and no quality-based selection
 was used for the seven carried observations.
 
 
-### LS5 concrete continuation (declared; generation running)
+### LS5 concrete continuation (declared; judging running)
 
 Freeze: `/home/ollie/sc-evidence/freeze-functional-capacity-recovery-20261023`.
 Criterion `bd3a82099bb9645a1beab9f5efeb94ebbb6d483d7c9385528c5f76ffe46cd3ae`,
@@ -734,3 +735,21 @@ owner's delegated spending policy. It is not a claim of numeric owner approval.
 The operator runs in tmux `ls5-generation-20261023`; no automatic retry is enabled.
 Fresh-capture integrity and external-abort review precede pooling, and concrete
 judge-pool sandbox checks precede the two sequential blind judgments.
+
+
+Fresh Sol PRR run `20261023T091047Z-en0mm6` completed without provider or capture
+error. Integrity review `8409be95` audited 87 structured actions and all 15 scan
+hits; public adjudication `6780fa9e` preserves the original record snapshot and
+changes only `scan.verdict`. No external abort was observed. All eight natural
+observations now pass canonical intake.
+
+The judging packet is
+`f9ecf9db12e0f51052910cf91b1f8437666dd7aebb835aa37315457cb0621b25` (860 files).
+Independent review `3bb7d099` verified four anonymous clones per task, exact raw
+patch joins, honest Git views without synthetic archive deletions, two public
+dry runs and two actual fake-provider sandbox checks. Root verified its 42
+references and preflight at one new/41 overall starts. Judgment declaration
+`d84375db735d5bc6fb465e951305a1b6365114df9d77e9e6ddcb7cb6ea8c4745`
+binds the same original cap-43 declaration to this packet. Both Sol-high judges
+run sequentially in tmux `ls5-judging-20261023`; final integrity, canonical
+clone-id joins and the frozen qualification verdict remain pending.
