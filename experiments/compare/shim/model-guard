@@ -8,6 +8,8 @@ case $name in
   *) echo "model guard: unsupported CLI '$name'" >&2; exit 2 ;;
 esac
 refuse() { echo "model guard: $*" >&2; exit 2; }
+[ "${ORC_SINGLE_CALL_CLI_STATE-}" != dispatched ] ||
+  refuse "nested provider CLI is forbidden by the single-call limit (including help/version)"
 check_model() {
   if [ "$name" = codex ]; then
     case $1 in
@@ -97,4 +99,6 @@ for d in "${dirs[@]}"; do
   [ -x "$d/$name" ] && { real="$d/$name"; break; }
 done
 [ -n "$real" ] || { echo "model guard: no real $name on PATH outside $here" >&2; exit 127; }
+# Only a validated outer dispatch consumes the launcher's ready state.
+[ "${ORC_SINGLE_CALL_CLI_STATE-}" != ready ] || export ORC_SINGLE_CALL_CLI_STATE=dispatched
 exec "$real" "$@"

@@ -93,7 +93,11 @@ if [ "${COMPARE_CLAUDE_MODELS-unset}" = "" ]; then
 fi
 cat > "$call/prompt.txt"
 exec 3> >(tee "$call/stderr.txt" >&2); errors=$!
-model_env=(-u ORC_ALLOWED_CLAUDE_MODELS -u ORC_ALLOWED_CODEX_MODELS)
+model_env=(-u ORC_ALLOWED_CLAUDE_MODELS -u ORC_ALLOWED_CODEX_MODELS -u ORC_SINGLE_CALL_CLI_STATE)
+if [ -n "${COMPARE_MAX_CALLS+set}" ] && [ "$cap" = 1 ]; then
+  # Each recorded outer launch starts fresh; its descendants retain the guard's dispatched state.
+  model_env+=(ORC_SINGLE_CALL_CLI_STATE=ready)
+fi
 if [ -n "${COMPARE_CLAUDE_MODELS+set}" ]; then
   model_env+=("ORC_ALLOWED_CLAUDE_MODELS=$COMPARE_CLAUDE_MODELS")
 fi

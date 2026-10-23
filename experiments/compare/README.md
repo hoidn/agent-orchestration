@@ -67,6 +67,12 @@ What the sandbox isolates:
   counts in ledger settlement; it is not successful usage. The cap is stripped
   from agent/tool environments. Without it, generic shim callers retain their
   existing behavior.
+- A normalized cap of one also forbids recursive provider CLI launches: the recorded
+  outer launch resets an internal inherited guard state, and the guard marks it
+  dispatched only after validation. Descendant `codex` and `claude` invocations
+  refuse before the backend, including help/version queries. Separate recorded outer
+  calls remain independent. Uncapped and larger-cap calls retain generic nested
+  behavior; this does not add metering for their nested CLI calls.
 - `/tmp` is private per run, not per agent: `best_of_n`'s implementers share the tree's `tmp/`;
 - the PID namespace ends with the call, so any server or tmux session an agent starts dies when
   its call ends.
