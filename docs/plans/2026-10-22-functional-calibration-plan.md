@@ -45,7 +45,11 @@ after two new Sol starts because the detector still mistook subcommand help
 no judge ran. LS2 left 32 starts spent, with six unused under its cap 38. The
 semantic detector repair is implemented and independently reviewed. LS3 is
 prepared and reviewed. The owner approved its eight new sessions and total cap
-40; execution has started with the two Sol 6.1 low RPI attempts.
+40. Both Sol RPI attempts completed and were admitted. A host NVMe failure
+and subsequent reboots then interrupted both Luna PRR attempts before settlement.
+LS3 is stopped after four starts (36 overall); neither Sol PRR nor either judge
+started. No new quality score exists. Task 6 selects offline recovery preparation;
+cap 40 remains operative.
 
 Task 5 below records the approved LS3 recovery. The owner replied "yes" to the
 eight-session/cap-40 proposal and reaffirmed Sol 6.1 for the stronger arm. That
@@ -484,7 +488,7 @@ No command from those inputs was executed and no model session was started.
 These checks preserve the original incident alerts and establish only the
 bounded command-classification repair, not new quality scores or live readiness.
 
-## LS3 concrete recovery packet (authorized; running)
+## LS3 concrete recovery packet (authorized; interrupted)
 
 Freeze directory:
 `/home/ollie/sc-evidence/freeze-functional-semantic-recovery-20261022`.
@@ -529,3 +533,61 @@ the bounded operator in tmux `ls3-generation-20261022` on
 `/tmp/claude-tmux-sockets/sc-difficulty.sock`. No new quality score exists.
 The frozen criterion retains its original pending snapshot; this separate
 approval is operative.
+
+## Task 6: Recover from the host storage failure (offline preparation selected)
+
+The host journal records the NVMe controller at PCI address `0000:05:00.0`
+disappearing at 2026-10-23 06:47:17 UTC, failed reset, I/O errors, an aborted
+EXT4 journal and `/home` becoming read-only. Reboots followed. The two live
+Luna PRR sessions have NUL-tailed native logs and no terminal capture. Preserve
+them as infrastructure-interrupted starts, never low-quality observations.
+The current boot already disables NVMe/PCIe power saving; this is an observed
+host change, not proof that hardware cannot fail again.
+
+Preserve all four completed RPI observations, subject to exact-byte and canonical
+intake verification: the two original LS1 Luna captures and two admitted LS3 Sol
+captures. Prepare four fresh PRR generations (two Luna high, two Sol 6.1 low)
+and two Sol 6.1 high judges in fresh paths. Keep tasks, runtime, tools, timeouts,
+functional rubric, eight-observation analysis denominator and all three primary
+rules unchanged. The cost of preserving the single-call protocol is that an
+incomplete session cannot be resumed into a qualifying observation.
+
+The four LS3 starts bring historical spend to **36**. Six new sessions require
+**proposed total cap 42**, pending concrete owner approval; cap 40 remains
+operative. Approval must cover both new generations and the later judges, with
+no automatic retries or other spend. Neither the old unused units nor a new
+provider process may be launched before that approval.
+
+Reuse the bounded operator and existing helpers in a directly revised source,
+without wrapper chains, new runtime machinery or changed guards. Bind each
+carried capture to its actual source receipt/completion and original
+pre-adjudication record snapshot. Preserve original records and hash crosswalks.
+Keep interrupted raw logs byte-identical; any diagnostic reading of their valid
+JSON prefixes must explicitly report the missing tail and must not fabricate a
+complete native receipt or permit their intake as observations.
+
+After the incident/reboots, nine historical `/tmp` verification logs/scripts
+named by the LS3 preservation manifest are missing. Record their exact paths and old hashes as missing,
+without recreating them or claiming their hashes verified. Verify every surviving
+historical file, keep original manifests unchanged and rerun the affected offline
+checks with durable evidence if their checks are prerequisites for the new
+packet. Do not relax candidate capture, lineage, model, scan or denominator checks.
+
+- [x] Record the host incident, exact physical starts, interrupted evidence and
+  historical missing-file inventory; verify the completed captures independently.
+- [ ] Prepare the four fresh PRR units and four-capture carryover manifest; verify
+  source-specific receipts, original outcomes and identical task baselines.
+- [ ] Run offline checks, public dry runs and actual fake-provider sandbox checks
+  on the current boot; freeze and independently review the concrete packet.
+- [ ] Obtain approval for six fresh sessions and overall cap 42.
+- [ ] Execute, admit terminal captures, prepare both anonymous pools, verify the
+  concrete judge sandboxes, run the two approved judges and close canonically.
+
+Incident accounting is preserved under `LS3-20261022/host-incident-accounting.json`
+(SHA-256 `411315d4e9152ea60e562b0a3f073429d7dca1ec1f0c16c60c4a3c638b70b255`).
+Independent review `host-reboot-independent-review.json`
+(`17828524da64aa83a7ba5bb176aff5a710975c8982e62157b50bda1f065515dd`)
+verifies all four RPI canonical intakes, 824 packet files, 22 earlier carryover
+files and 4,560 surviving historical hashes. It records the nine missing `/tmp`
+files and limits the interrupted PRR access audit to 284 surviving actions.
+No complete interrupted-session receipt or quality score is inferred.

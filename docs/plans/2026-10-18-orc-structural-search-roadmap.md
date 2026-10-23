@@ -553,7 +553,11 @@ capture or any judge call. Before LS3, spend was 32 starts; both valid Luna capt
 preserved. The semantic detector repair and LS3 recovery packet passed offline
 verification and independent review. The owner approved six fresh generations
 plus two judges under total cap 40, reaffirming Sol 6.1 for the stronger arm.
-LS3 has started with two Sol-low RPI attempts; no new score exists.
+Both LS3 Sol-low RPI attempts completed and were admitted. A host NVMe failure
+and reboots interrupted both Luna PRR attempts before terminal capture; spend is
+36 starts and no new score exists. Offline recovery preparation preserves the four
+completed RPI observations and proposes four fresh PRR generations plus two judges
+under cap 42, pending concrete approval; approved cap 40 remains operative.
 No historical score is changed, no stronger-arm success
 is guaranteed, and no ORC benefit or live `module` selection follows. The measurement gate precedes any
 live `module` arm
