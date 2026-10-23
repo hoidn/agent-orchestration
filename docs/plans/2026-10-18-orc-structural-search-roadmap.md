@@ -547,9 +547,10 @@ preserves all scores, receipts and target failures. The
 high versus Sol 6.1 low and one functional score out of eight, judged blind by Sol
 high. Authorized LS1 stopped after four starts on an apparatus false positive:
 two Luna captures completed, two Sol attempts were interrupted, and no judge ran.
-The owner has authorized LS2 recovery: six new generations plus two judges,
-retaining both complete, unjudged Luna captures, with total cap 38 including
-all 30 historical starts. The reviewed frozen packet is now executing.
+The owner authorized LS2 with total cap 38. Two new Sol attempts were then
+interrupted by a remaining subcommand-help false positive, before terminal
+capture or any judge call. Spend is 32 starts; both valid Luna captures remain
+preserved. Semantic detector repair is selected offline before another protocol.
 No historical score is changed, no stronger-arm success
 is guaranteed, and no ORC benefit or live `module` selection follows. The measurement gate precedes any
 live `module` arm

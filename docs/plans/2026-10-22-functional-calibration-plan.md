@@ -38,10 +38,12 @@ authorize other experiments or further budget increases.
 **Current status:** LS1 stopped after four starts because its command detector
 mistook `codex --help` for nested model dispatch. Two Luna RPI captures are
 complete; two Sol RPI attempts were interrupted before terminal capture. No judge
-ran and no new quality score exists. LS2 is now authorized and executing under
-the owner's explicit **"yes"** to eight sessions and total cap 38, including all
-30 historical starts. Its six-command packet and two carried captures are frozen
-and independently reviewed. The same answer covers both later blind judges.
+ran and no new quality score exists. The owner explicitly approved LS2 with
+eight sessions and total cap 38, including 30 historical starts. LS2 then stopped
+after two new Sol starts because the detector still mistook subcommand help
+(`codex exec --help`) for model dispatch. Both attempts lack terminal captures;
+no judge ran. Overall spend is 32 starts, with six unused under cap 38. The
+semantic detector repair is selected offline; no new paid retry is selected.
 
 ## Single functional score
 
@@ -334,7 +336,7 @@ Seven offline classifier checks pass, including the exact incident action and
 genuine later/wrapped dispatches; independent code and recovery-plan review pass.
 These are apparatus checks, not quality scores or provider-spend authorization.
 
-## LS2 concrete recovery packet (reviewed; authorized)
+## LS2 concrete recovery packet (historical; authorized then interrupted)
 
 Freeze directory: `/home/ollie/sc-evidence/freeze-functional-recovery-20261022`.
 The immutable `criterion.json` has SHA-256
@@ -384,3 +386,32 @@ first two RPI Sol-low runs are `20261023T052532Z-1dkqnp` and
 `ls2-generation-20261022` on `/tmp/claude-tmux-sockets/sc-difficulty.sock`.
 No retry or other experiment is authorized. The original pending-status snapshot
 inside the frozen criterion remains unchanged; the separate approval is operative.
+
+## LS2 subcommand-help interruption
+
+The original LS2 operator stopped both Sol RPI processes after 32 seconds.
+The flagged structured action was `codex exec --help | head -55`; another
+attempt used top-level help. Both were refused by the unchanged model guard
+before backend dispatch. The prior correction exempted only a CLI followed by
+one informational flag, leaving this second false positive. That correction was
+too narrow; stopped task delivery is not evidence of weak Sol performance.
+
+The independent `LS2-20261022/incident-audit.json` has SHA-256
+`9e78a6e6e3c296cfb94e58d48adc2fd03549920c0f9c10852151e4ae80699322`.
+It reviewed all 12 structured actions across two exact Sol-low roots, with no
+Claude, children, extra roots or actual delegation. Both attempts lack terminal
+memos, raw captured patches and completion receipts. Four PRR attempts and both
+judges never started. The 825 frozen files and 21 carried-capture files remain
+intact. `incident-accounting.json` has SHA-256
+`8ee1ca6c64b9e671c8d83bedffb9e79bc8ea623fee204686641366921deb5ba0`;
+it preserves both captured usage counters, original alert and 32-start ledger.
+No quality scores or task qualification follow.
+
+Before another launch, verify informational CLI semantics against the installed
+binary in a network-disabled, credential-free diagnostic environment, including
+subcommands, flags, option values and the `--` terminator. Correct the whole
+informational-versus-dispatch distinction rather than adding one command string
+to an allowlist. Keep model guards unchanged and actual dispatch detection
+intact; preserve both frozen operators and alerts. Any further prospective
+recovery must retain the full analysis denominator, all spent starts and its own
+concrete approval before paid dispatch. No automatic retry is authorized.
