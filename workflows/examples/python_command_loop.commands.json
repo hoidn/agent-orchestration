@@ -1,0 +1,11 @@
+{
+  "work": {
+    "stable_command": [
+      "python",
+      "workflows/examples/python_command_loop_tool.py"
+    ],
+    "closure": [
+      "workflows/examples/python_command_loop_tool.py"
+    ]
+  }
+}

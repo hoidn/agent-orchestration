@@ -103,6 +103,167 @@ def _add_frontend_flags(
         )
 
 
+def _add_run_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        '--context',
+        action='append',
+        metavar='KEY=VALUE',
+        help='Context variables (can be specified multiple times)'
+    )
+    parser.add_argument(
+        '--context-file',
+        type=str,
+        help='Path to JSON file containing context variables'
+    )
+    parser.add_argument(
+        '--input',
+        action='append',
+        metavar='NAME=VALUE',
+        help='Workflow signature inputs (can be specified multiple times)'
+    )
+    parser.add_argument(
+        '--input-file',
+        type=str,
+        help='Path to JSON file containing workflow signature inputs'
+    )
+    parser.add_argument(
+        '--clean-processed',
+        action='store_true',
+        help='Empty processed directory before run'
+    )
+    parser.add_argument(
+        '--archive-processed',
+        type=str,
+        metavar='DEST',
+        help='Archive processed directory to destination on success'
+    )
+    parser.add_argument(
+        '--debug',
+        action='store_true',
+        help='Enable debug logging'
+    )
+    parser.add_argument(
+        '--stream-output',
+        action='store_true',
+        help='Stream provider stdout/stderr live without enabling full debug mode'
+    )
+    parser.add_argument(
+        '--dry-run',
+        action='store_true',
+        help='Validate without execution'
+    )
+    parser.add_argument(
+        '--backup-state',
+        action='store_true',
+        help='Backup state before each step'
+    )
+    parser.add_argument(
+        '--state-dir',
+        type=str,
+        help='Override default state directory'
+    )
+    parser.add_argument(
+        '--run-ref-root',
+        type=str,
+        help='Canonical absolute runtime root for run-ref child workspaces'
+    )
+    parser.add_argument(
+        '--on-error',
+        choices=['stop', 'continue'],
+        default='stop',
+        help='Error handling strategy'
+    )
+    parser.add_argument(
+        '--max-retries',
+        type=int,
+        default=1,
+        help='Maximum retry attempts'
+    )
+    parser.add_argument(
+        '--retry-delay',
+        type=int,
+        default=1000,
+        help='Retry delay in milliseconds'
+    )
+    parser.add_argument(
+        '--quiet',
+        action='store_true',
+        help='Suppress non-error output'
+    )
+    parser.add_argument(
+        '--verbose',
+        action='store_true',
+        help='Enable verbose output'
+    )
+    parser.add_argument(
+        '--log-level',
+        choices=['debug', 'info', 'warn', 'error'],
+        default='info',
+        help='Set log level'
+    )
+    parser.add_argument(
+        '--step-summaries',
+        action='store_true',
+        help='Enable per-step summaries (advisory only)'
+    )
+    parser.add_argument(
+        '--summary-mode',
+        choices=['async', 'sync'],
+        help='Summary mode (default: async when summaries are enabled)'
+    )
+    parser.add_argument(
+        '--summary-provider',
+        type=str,
+        default='claude_sonnet_summary',
+        help='Provider template name for summaries'
+    )
+    parser.add_argument(
+        '--summary-timeout-sec',
+        type=int,
+        default=DEFAULT_SUMMARY_TIMEOUT_SEC,
+        help='Timeout for a single summary request'
+    )
+    parser.add_argument(
+        '--summary-max-input-chars',
+        type=int,
+        default=12000,
+        help='Maximum snapshot chars passed to summarizer'
+    )
+    parser.add_argument(
+        '--summary-profile',
+        choices=['basic', 'phase-performance'],
+        help='Summary prompt/snapshot profile'
+    )
+    parser.add_argument(
+        '--live-agent-notes',
+        action='store_true',
+        help='Generate live current-step notes from provider transport tails'
+    )
+    parser.add_argument(
+        '--live-agent-note-provider',
+        type=str,
+        help='Provider template name for live current-step notes'
+    )
+    parser.add_argument(
+        '--live-agent-note-interval-sec',
+        type=float,
+        default=15.0,
+        help='Minimum interval between live note refreshes'
+    )
+    parser.add_argument(
+        '--live-agent-note-timeout-sec',
+        type=int,
+        default=30,
+        help='Timeout for a single live note request'
+    )
+    parser.add_argument(
+        '--live-agent-note-max-tail-chars',
+        type=int,
+        default=6000,
+        help='Maximum provider transport tail chars passed to live note provider'
+    )
+
+
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser for the orchestrator CLI."""
     parser = argparse.ArgumentParser(
@@ -122,165 +283,23 @@ def create_parser() -> argparse.ArgumentParser:
         type=str,
         help='Path to a Workflow Lisp .orc source file'
     )
-    run_parser.add_argument(
-        '--context',
-        action='append',
-        metavar='KEY=VALUE',
-        help='Context variables (can be specified multiple times)'
-    )
-    run_parser.add_argument(
-        '--context-file',
-        type=str,
-        help='Path to JSON file containing context variables'
-    )
-    run_parser.add_argument(
-        '--input',
-        action='append',
-        metavar='NAME=VALUE',
-        help='Workflow signature inputs (can be specified multiple times)'
-    )
-    run_parser.add_argument(
-        '--input-file',
-        type=str,
-        help='Path to JSON file containing workflow signature inputs'
-    )
-    run_parser.add_argument(
-        '--clean-processed',
-        action='store_true',
-        help='Empty processed directory before run'
-    )
-    run_parser.add_argument(
-        '--archive-processed',
-        type=str,
-        metavar='DEST',
-        help='Archive processed directory to destination on success'
-    )
-    run_parser.add_argument(
-        '--debug',
-        action='store_true',
-        help='Enable debug logging'
-    )
-    run_parser.add_argument(
-        '--stream-output',
-        action='store_true',
-        help='Stream provider stdout/stderr live without enabling full debug mode'
-    )
-    run_parser.add_argument(
-        '--dry-run',
-        action='store_true',
-        help='Validate without execution'
-    )
-    run_parser.add_argument(
-        '--backup-state',
-        action='store_true',
-        help='Backup state before each step'
-    )
-    run_parser.add_argument(
-        '--state-dir',
-        type=str,
-        help='Override default state directory'
-    )
-    run_parser.add_argument(
-        '--run-ref-root',
-        type=str,
-        help='Canonical absolute runtime root for run-ref child workspaces'
-    )
-    run_parser.add_argument(
-        '--on-error',
-        choices=['stop', 'continue'],
-        default='stop',
-        help='Error handling strategy'
-    )
-    run_parser.add_argument(
-        '--max-retries',
-        type=int,
-        default=1,
-        help='Maximum retry attempts'
-    )
-    run_parser.add_argument(
-        '--retry-delay',
-        type=int,
-        default=1000,
-        help='Retry delay in milliseconds'
-    )
-    run_parser.add_argument(
-        '--quiet',
-        action='store_true',
-        help='Suppress non-error output'
-    )
-    run_parser.add_argument(
-        '--verbose',
-        action='store_true',
-        help='Enable verbose output'
-    )
-    run_parser.add_argument(
-        '--log-level',
-        choices=['debug', 'info', 'warn', 'error'],
-        default='info',
-        help='Set log level'
-    )
-    run_parser.add_argument(
-        '--step-summaries',
-        action='store_true',
-        help='Enable per-step summaries (advisory only)'
-    )
-    run_parser.add_argument(
-        '--summary-mode',
-        choices=['async', 'sync'],
-        help='Summary mode (default: async when summaries are enabled)'
-    )
-    run_parser.add_argument(
-        '--summary-provider',
-        type=str,
-        default='claude_sonnet_summary',
-        help='Provider template name for summaries'
-    )
-    run_parser.add_argument(
-        '--summary-timeout-sec',
-        type=int,
-        default=DEFAULT_SUMMARY_TIMEOUT_SEC,
-        help='Timeout for a single summary request'
-    )
-    run_parser.add_argument(
-        '--summary-max-input-chars',
-        type=int,
-        default=12000,
-        help='Maximum snapshot chars passed to summarizer'
-    )
-    run_parser.add_argument(
-        '--summary-profile',
-        choices=['basic', 'phase-performance'],
-        help='Summary prompt/snapshot profile'
-    )
-    run_parser.add_argument(
-        '--live-agent-notes',
-        action='store_true',
-        help='Generate live current-step notes from provider transport tails'
-    )
-    run_parser.add_argument(
-        '--live-agent-note-provider',
-        type=str,
-        help='Provider template name for live current-step notes'
-    )
-    run_parser.add_argument(
-        '--live-agent-note-interval-sec',
-        type=float,
-        default=15.0,
-        help='Minimum interval between live note refreshes'
-    )
-    run_parser.add_argument(
-        '--live-agent-note-timeout-sec',
-        type=int,
-        default=30,
-        help='Timeout for a single live note request'
-    )
-    run_parser.add_argument(
-        '--live-agent-note-max-tail-chars',
-        type=int,
-        default=6000,
-        help='Maximum provider transport tail chars passed to live note provider'
-    )
+    _add_run_options(run_parser)
     _add_frontend_flags(run_parser)
+
+    python_parser = subparsers.add_parser('py', help='Build and run Python-authored workflows', allow_abbrev=False)
+    python_subparsers = python_parser.add_subparsers(dest='py_command', required=True)
+    for name in ('build', 'check'):
+        command_parser = python_subparsers.add_parser(name, allow_abbrev=False)
+        command_parser.add_argument('workflow', type=str, help='Path to a Python workflow source file')
+        _add_frontend_flags(command_parser)
+        command_parser.add_argument('--frozen', action='store_true', help='Require the pinned authoring snapshot')
+
+    python_run_parser = python_subparsers.add_parser('run', allow_abbrev=False)
+    python_run_parser.add_argument('workflow', type=str, help='Path to a Python workflow source file')
+    _add_run_options(python_run_parser)
+    _add_frontend_flags(python_run_parser)
+    python_run_parser.add_argument('--frozen', action='store_true', help='Require the pinned authoring snapshot')
+
     prompt_parser = subparsers.add_parser(
         'prompt',
         help='Deterministic OMP prompt scaffolds and ordinary runs',
@@ -737,6 +756,9 @@ def main(args: Optional[list] = None) -> int:
     if parsed_args.command == 'run':
         from .commands import run_workflow
         return run_workflow(parsed_args).exit_code
+    elif parsed_args.command == 'py':
+        from .commands.python import python_workflow
+        return python_workflow(parsed_args)
     elif parsed_args.command == 'repl':
         from .commands import repl_workflow
         return repl_workflow(parsed_args)

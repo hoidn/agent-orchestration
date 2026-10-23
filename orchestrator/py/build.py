@@ -1,6 +1,7 @@
 """Capture Python authoring inputs and retain an ordinary closed-build recipe."""
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, fields, replace
 from hashlib import sha256
 import json
@@ -9,6 +10,7 @@ from pathlib import Path
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
+from typing import TYPE_CHECKING, Any
 
 from orchestrator._common.io_atomic import atomic_write_text_at, rename_noreplace_at
 from orchestrator._common.safe_tree import (
@@ -26,6 +28,9 @@ from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 
 from .diagnostics import (PythonFrontendError, PythonSite, PythonSourceMap,
                           SourceMapEntry, remap_compiler_error)
+
+if TYPE_CHECKING:
+    from orchestrator.cli.commands.run import RunWorkflowResult
 
 
 FORMAT = "workflow-python/build/1"
@@ -391,3 +396,88 @@ def build(source_file, **kwargs):
 def check(source_file, **kwargs):
     """Trace and compile without executing effects or changing the entry pin."""
     return _build(source_file, update_pin=False, **kwargs)
+
+
+def _cli_input_items(inputs: Mapping[str, Any] | None) -> list[str]:
+    if inputs is None:
+        return []
+    if not isinstance(inputs, Mapping):
+        raise TypeError("inputs must be a mapping of workflow input names to values")
+
+    items = []
+    for name, value in inputs.items():
+        if not isinstance(name, str) or not name or "=" in name:
+            raise ValueError("workflow input names must be non-empty strings without '='")
+        if isinstance(value, str):
+            encoded = value
+        else:
+            try:
+                encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+            except (TypeError, ValueError) as exc:
+                raise TypeError(f"workflow input {name!r} is not a JSON value") from exc
+        items.append(f"{name}={encoded}")
+    return items
+
+
+def run(
+    source_file,
+    *,
+    entry_workflow=None,
+    inputs: Mapping[str, Any] | None = None,
+    source_roots=(),
+    provider_externs_file=None,
+    prompt_externs_file=None,
+    command_boundaries_file=None,
+    imported_workflow_bundles_file=None,
+    frozen=False,
+    **runtime_options,
+) -> "RunWorkflowResult":
+    """Build and run a Python-authored workflow through the ordinary runtime.
+
+    Runtime keyword options are the ordinary ``run`` CLI options written with
+    underscores (for example ``debug=True`` or ``max_retries=2``). Runtime
+    workspace is the current working directory, matching ``run_workflow``.
+    """
+    from orchestrator.cli.main import create_parser
+
+    runtime_args = create_parser().parse_args(["run", str(source_file)])
+    frontend_fields = {
+        "command", "workflow", "entry_workflow", "source_root",
+        "provider_externs_file", "prompt_externs_file",
+        "command_boundaries_file", "imported_workflow_bundles_file",
+        "input",
+    }
+    supported_runtime_options = set(vars(runtime_args)) - frontend_fields
+    unsupported = set(runtime_options) - supported_runtime_options
+    if unsupported:
+        names = ", ".join(sorted(unsupported))
+        raise TypeError(f"run() got unsupported runtime option(s): {names}")
+    input_file = runtime_options.get("input_file")
+    if input_file is not None:
+        if isinstance(input_file, os.PathLike):
+            input_file = os.fspath(input_file)
+        if not isinstance(input_file, str):
+            raise TypeError("input_file must be a string or path-like value")
+        runtime_options["input_file"] = input_file
+
+    input_items = _cli_input_items(inputs)
+    for name, value in runtime_options.items():
+        setattr(runtime_args, name, value)
+    runtime_args.input = input_items
+
+    result = build(
+        source_file,
+        entry_workflow=entry_workflow,
+        source_roots=source_roots,
+        workspace_root=Path.cwd(),
+        provider_externs_file=provider_externs_file,
+        prompt_externs_file=prompt_externs_file,
+        command_boundaries_file=command_boundaries_file,
+        imported_workflow_bundles_file=imported_workflow_bundles_file,
+        frozen=frozen,
+    )
+    from orchestrator.cli.commands.python import _runtime_args, _show_run_compile_warnings
+    from orchestrator.cli.commands.run import run_workflow
+
+    _show_run_compile_warnings(result.compile_diagnostics, runtime_args)
+    return run_workflow(_runtime_args(runtime_args, result))

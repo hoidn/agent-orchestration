@@ -7,8 +7,8 @@ semantic IR, executable IR
 These principles define the semantic direction for workflow authoring surfaces.
 They are not all normative runtime requirements today. Some describe guarantees
 introduced at v2.14, while others describe requirements on the Workflow Lisp
-frontend, the only authored frontend since the YAML DSL's retirement
-(`specs/dsl.md`).
+frontend and [typed Python source generation](python_workflow_frontend.md)
+through its compiler. The YAML DSL remains retired (`specs/dsl.md`).
 
 Use these labels:
 
@@ -16,8 +16,8 @@ Use these labels:
   the YAML DSL, now retired).
 - `v2.14 invariant`: introduced or sharpened by the v2.14 materialization,
   snapshot, and variant-output work.
-- `frontend requirement`: required for the Workflow Lisp frontend, or any
-  future frontend, to be acceptable.
+- `frontend requirement`: required for current and future authoring frontends
+  to be acceptable.
 - `future direction`: desired higher-level language behavior that still needs a
   concrete lowering or runtime substrate.
 
@@ -87,9 +87,9 @@ designs:
 
 Status: `frontend requirement`
 
-Surface syntax is not the language's source of truth. Workflow Lisp, the
-retired YAML DSL before it, or any future frontend are authoring surfaces over
-the same validated workflow semantics.
+Surface syntax is not the language's source of truth. Workflow Lisp and typed
+Python generation are authoring surfaces over the same validated workflow
+semantics; future frontends must preserve that authority.
 
 A frontend is acceptable only if it preserves or strengthens the core semantics.
 

@@ -3,7 +3,7 @@
 ## Metadata
 
 - **Kind:** frontend architecture and authoring contract
-- **Status:** proposed
+- **Status:** accepted; serial subset implemented
 - **Implementation target:** Python 3.11+, generated Workflow Lisp targets
   2.35–2.39; default 2.39
 - **Authority:** this document owns Python authoring and generation only. The
@@ -62,7 +62,7 @@ from orchestrator.py import (
     record, variant, RelPath, Text, Doc, PathOf, Value, Out,
     Prompt, prompt, Provider, Command,
     workflow, proc, pure, match, when, loop, cont, done,
-    build, run, import_orc,
+    build, check, run, import_orc,
 )
 
 class Verdict(Enum):
@@ -311,6 +311,10 @@ def apply_review(text: str) -> str:
     return library.revise(text)
 ```
 
+A relative `import_orc(source_root=...)` resolves from the Python file that
+declares it. CLI `--source-root` and build/run `source_roots` paths resolve from
+the current working directory.
+
 `import_orc` registers a lazy module reference. At build, discover exports and
 checked signatures using `compile_stage3_entrypoint` and its
 `ModuleExportSurface`, procedure/workflow catalogs and type environment. Do not
@@ -367,6 +371,10 @@ process performs existing closed compilation. Build is not a
 hermetic Python environment; environmental IO and hidden dynamic inputs are
 unsupported reproducibility inputs, not a sandbox guarantee.
 
+The Python API uses `source_roots=(...)` for ordered additional roots and
+`workspace_root=...` for build/check publication. Public run executes in the
+current working directory, following the ordinary run owner's workspace rule.
+
 Generation captures Python inputs and prompt files, emits source, preserves
 copies of supplied binding manifests, and calls `build_closed_program_bundle` with an
 ordinary `FrontendBuildRequest`. `build` returns the entry `.orc` path, generated
@@ -377,6 +385,8 @@ defaults or broaden command/provider authority.
 `check` performs the same trace and compiler validation without effects or
 updating the frozen pin. CLI exit 2 denotes authoring/compile/frozen refusal;
 `run` retains existing exit 0/1/2 semantics and `RunWorkflowResult`.
+Python API calls propagate named frontend/compile exceptions for build failures;
+`run` returns `RunWorkflowResult` after delegation to the ordinary runtime.
 
 Keep each successful generated source/configuration snapshot in an immutable
 directory under `.orchestrate/python/`, keyed by a digest of captured inputs
@@ -485,7 +495,16 @@ Required checks are behavioral and contractual, never literal prompt text:
 Compilation and command-only evidence do not qualify live providers. No paid
 provider invocation is required for this frontend's implementation checks.
 
-## Feasibility Evidence And Limits
+## Implementation Evidence And Limits
+
+The serial implementation is exercised by the declaration, control, procedure,
+import, build and public CLI/recovery checks named in the
+[implementation plan](../plans/2026-10-22-python-workflow-frontend-plan.md).
+The plan owns scoped verification results for the acceptance checks. The [authoring guide](../python_workflow_drafting_guide.md)
+provides the maintained local command recipe. Evidence is limited to compilation
+and local deterministic commands, without live-provider or editor qualification.
+
+### Original Feasibility Probes
 
 The existing compiler was exercised directly with temporary ordinary source,
 without production implementation or provider calls:
@@ -499,11 +518,12 @@ without production implementation or provider calls:
 - A `defprompt` owning its return type and a `provider-result` application
   compiled to one ordinary provider site with an existing provider extern.
 
-The probes establish target-lowering and catalog feasibility, not an implemented
-Python tracer, source map or freeze mechanism. Existing owner tests include
+These preimplementation probes established target-lowering and catalog
+feasibility only; they were not implementation evidence for the Python tracer,
+source map or freeze mechanism. Existing owner tests include
 `test_workflow_evaluated_loops.py`, `test_workflow_evaluated_providers.py`,
 `test_workflow_lisp_closed_program_names.py`, and the public CLI/resume suites.
-Implementation must add the public cross-boundary checks above.
+The implementation plan tracks the public cross-boundary checks above.
 
 `parallel_map` is deferred because the runtime's bounded parallel admission and
 qualification do not justify a broad Python parallel API. `Agent` is deferred
@@ -516,7 +536,7 @@ permissions, including during `check` and `--frozen`. These commands do not
 sandbox code or certify the absence of build-time side effects. Durable
 effects belong in `Provider`/`Command` so the existing runtime can own them.
 
-Update `docs/index.md`, `docs/design/README.md`, the capability matrix, the
-authoring/CLI guidance and relevant `specs/cli.md` routing when the frontend is
-implemented. Preserve ordinary `.orc` entrypoints and existing run data; there
-is no migration or deletion of the Lisp frontend.
+The documentation hub, design index, capability matrix and
+[CLI contract](../../specs/cli.md#python-authoring-frontend) route to the
+implemented subset. Preserve ordinary `.orc` entrypoints and existing run data;
+there is no migration or deletion of the Lisp frontend.
