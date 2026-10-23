@@ -53,11 +53,17 @@ approved six new sessions and total cap 42. Both Luna PRR captures are complete
 and admitted. One Sol PRR provider terminated with `server_overloaded`; the other
 completed and passed independent integrity review. LS4 is closed as scientifically
 inconclusive after four starts (40 overall), without either judgment. Task 7
-selects LS5: seven carried observations, one fresh Sol PRR generation and two
+selected LS5: seven carried observations, one fresh Sol PRR generation and two
 blind judges, with coordinator-declared total cap 43 under the updated owner
-spending policy. The LS5 generation completed and passed integrity review. Both
-anonymous pools are verified; the two Sol-high judges are running sequentially.
-No new quality score is admitted yet.
+spending policy. LS5 is complete at 43 overall starts. Both blind judgments
+passed integrity review and canonical closure. RPI Luna/Sol means are 4/6
+(gap 2); PRR means are 3.5/6 (gap 2.5). Both satisfy separation but fail the
+strict Sol mean <5 target, so both are `too_easy` and the two-task set remains
+unqualified. The [LS5 report](../reports/2026-10-23-luna-sol-functional-calibration.md)
+preserves the functional scores and recovery lineage. The owner's instruction
+to iterate until the target is met now calls for naturally harder tasks with
+the same exact roles, rubric and thresholds; the next concrete task design,
+prospective freeze and bounded budget are not yet fixed.
 
 Task 5 below records the approved LS3 recovery. The owner replied "yes" to the
 eight-session/cap-40 proposal and reaffirmed Sol 6.1 for the stronger arm. That
@@ -192,6 +198,7 @@ task/seed and bounded spend before further observations. Do not force an orderin
 | Owner requests simpler rubric | One functional 0–8 score; no independent style/scope credit |
 | Existing strict target and gap retained | Apply to `sol_low`; both tasks and full denominators required |
 | Owner replies "continue" to the reviewed ten-session proposal | Authorize LS1 eight generations and two judges, total cap 36 including 26 historical starts; no retries or other spend |
+| LS5 canonical closure completes the experiment without qualifying the task set | Readout `2ba7325d` retains all eight observations and two blind judgments. RPI Luna/Sol means 4/6 (gap 2); PRR 3.5/6 (gap 2.5). Both fail strict Sol mean <5, so `two_task_qualification` is false and both tasks are `too_easy`. Three LS5 calls plus 40 historical starts exhaust declared cap 43. Preserve every original score and external-abort record. The owner's iteration direction requires naturally harder tasks under unchanged roles/rubric/thresholds; the next concrete design, freeze and budget remain prospective |
 
 ## Offline implementation evidence
 
@@ -698,8 +705,9 @@ judge shortcut or altered historical score is selected.
   count; prepare and test fresh commands, masks and canonical intake offline.
 - [x] Independently review the concrete packet and bind its declared minimum
   budget under the updated owner policy before any new provider start.
-- [ ] Execute the eligible continuation and both blind judges, then close through
+- [x] Execute the eligible continuation and both blind judges, then close through
   the canonical clone-id joins without attributing external aborts to difficulty.
+  Execution is finished; scientific task-difficulty qualification failed.
 
 LS4 closure evidence is `LS4-20261023/incident-accounting.json`, SHA-256
 `6109000ff9f1f223d7dd8f2b58ddf2ca6953819ad92d10a20c639137d46ef976`.
@@ -712,7 +720,7 @@ is eligible. No LS4 pool or judge was launched, and no quality-based selection
 was used for the seven carried observations.
 
 
-### LS5 concrete continuation (declared; judging running)
+### LS5 concrete continuation (completed; not qualified)
 
 Freeze: `/home/ollie/sc-evidence/freeze-functional-capacity-recovery-20261023`.
 Criterion `bd3a82099bb9645a1beab9f5efeb94ebbb6d483d7c9385528c5f76ffe46cd3ae`,
@@ -732,9 +740,9 @@ The coordinator's `budget-declaration-generation.json`
 (`057699a5bfcd6feab6ca28d4f5ce8dcca4133672a2f2803f608c8ee18d932dfe`)
 binds one fresh generation plus both later judges to total cap 43 under the
 owner's delegated spending policy. It is not a claim of numeric owner approval.
-The operator runs in tmux `ls5-generation-20261023`; no automatic retry is enabled.
-Fresh-capture integrity and external-abort review precede pooling, and concrete
-judge-pool sandbox checks precede the two sequential blind judgments.
+Generation ran in tmux `ls5-generation-20261023` without automatic retry.
+Fresh-capture integrity and external-abort review passed before pooling; concrete
+judge-pool sandbox checks passed before the two sequential blind judgments.
 
 
 Fresh Sol PRR run `20261023T091047Z-en0mm6` completed without provider or capture
@@ -751,5 +759,22 @@ dry runs and two actual fake-provider sandbox checks. Root verified its 42
 references and preflight at one new/41 overall starts. Judgment declaration
 `d84375db735d5bc6fb465e951305a1b6365114df9d77e9e6ddcb7cb6ea8c4745`
 binds the same original cap-43 declaration to this packet. Both Sol-high judges
-run sequentially in tmux `ls5-judging-20261023`; final integrity, canonical
-clone-id joins and the frozen qualification verdict remain pending.
+completed sequentially in tmux `ls5-judging-20261023`. RPI integrity review
+`760b4346` and PRR review `6d000a8d` passed; public adjudications `21bd9591`
+and `10e92ea7` cleared only scan verdicts, preserving all ratings and raw hits.
+Canonical close exited zero and wrote `LS5-20261023/combined-readout.json`,
+SHA-256 `2ba7325deb023dd254071348efef6bb3baee7d44738ab1a9f1bed0929e503486`.
+Independent closure review `LS5-20261023/closure-independent-review.json`,
+SHA-256 `12741dc301f195526eb43c00beb17e163cfbb4c0c3f94028f82c19fd8c730ad1`,
+passed 67 reference checks, all eight original rating/patch/index joins, three
+scan crosswalks and ten complete receipts, without rescoring.
+RPI scores are Luna 4,4 and Sol 6,6; PRR scores are Luna 3,4 and Sol 6,6.
+The gaps pass (2 and 2.5), but both Sol means of 6 fail the strict <5 target.
+`two_task_qualification` is false and both adjustment directions are `too_easy`.
+The [LS5 report](../reports/2026-10-23-luna-sol-functional-calibration.md) records
+methods, exact evidence identities, consumption and limitations. Three new
+physical calls plus 40 historical starts equal the declared cap 43; monetary
+cost remains unavailable. Further iteration means designing naturally harder
+tasks under the unchanged roles, functional rubric and three predicates, then
+separately recording concrete prospective task/seed inputs and bounded spend.
+No next task package, iteration budget or campaign is frozen by this closure.
