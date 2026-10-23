@@ -12,18 +12,23 @@
 
 ## Role, authority and selection
 
-**Current selection: the remaining Task 6 verification and closeout gates; Task 7 is complete.**
+**Status: COMPLETE. All seven tasks and final integration gates are complete.**
+The implementation is committed on `feat/durable-host-input` in its worktree.
+After verification the owner additionally requested staging, committing and
+merging into main; that integration follows the completed implementation gates.
+Final verification and limitations are recorded in the evidence ledger below.
+
 The owner noted that `main` now contains a separately merged native Python
 frontend (`67744139`, observed committed main `27bcc7e3`, after this branch's
-base `88bcfbd7`). Merge that committed revision into this feature worktree,
-retain main's Python implementation/API, and add native `ask` there. Do not
-copy or merge the root worktree's unrelated dirty files. Tasks 1–5 and the
+base `88bcfbd7`). That committed revision was merged into this feature worktree,
+retaining main's Python implementation/API and adding native `ask` there. The
+root worktree's unrelated dirty files were not copied or changed. Tasks 1–5 and the
 Task 6 documentation checkpoint retain their captured evidence; Task 4's
 Python implementation and the Python portions of Tasks 5–6's old evidence are
 superseded for final acceptance by Task 7. Lisp/runtime evidence remains valid
 unless the merge or a correction changes its tested boundary. The old broad
-run is diagnostic evidence only; triage its failures before acceptance and
-run the final selector again after integration. No green final gate is claimed.
+run remains diagnostic evidence only; its failures were triaged before the
+complete final selector passed after integration.
 
 The selected approach preserves main's single authoring implementation rather
 than maintaining two Python APIs. It makes supporting callers of the discarded
@@ -31,9 +36,9 @@ Task 4-only build signature, paths and unsupported-surface restrictions harder:
 those callers/examples/tests must migrate to the canonical main API; no
 compatibility wrapper or second emitter is selected.
 
-This is the selected implementation plan and decision/evidence ledger. It is
-not current runnable guidance until its implementation and verification steps
-are complete. The behavioral owners are
+This completed plan preserves implementation decisions and verification
+evidence. Current runnable guidance lives in the linked guides and contracts;
+this ledger does not select additional work. The behavioral owners are
 [durable host input](../design/workflow_lisp_durable_host_input.md) and
 [Python authoring](../design/python_workflow_frontend.md), read with
 [evaluated execution](../design/workflow_lisp_evaluated_execution.md),
@@ -48,8 +53,8 @@ on `feat/durable-host-input`. The root worktree has independent user work.
 Run commands from this worktree root. Do not modify historical `HumanReply`
 records or turn historical input settlement into an evaluated execution path.
 
-Tasks 1–5 are complete and Task 6 has a reviewed documentation checkpoint.
-Execute Task 7 before resuming Task 6's final verification/review/closeout.
+Tasks 1–5 completed before Task 6's documentation checkpoint. Task 7 then
+integrated main's Python frontend before Task 6's final verification and closeout.
 The original sequence was Tasks 1–6: Task 1 produces the compiler fixture used
 by Task 2; Task 3 consumes Task 2's public API; Task 4 emits Task 1's source and
 uses Tasks 2–3 for native Python execution; Task 5 verifies their composition.
@@ -512,7 +517,7 @@ recovery/host/Python test modules and fixture helper from prior tasks.
 owns final diff and verification. New architecture decisions return to Design.
 **Dependencies:** Working Tasks 1–5 and Task 7, their reviews and fresh smoke evidence.
 The completed documentation steps below record checkpoint `4745f8ba`; Task 7
-must reconcile their Python claims before final closeout.
+reconciled their Python claims before final closeout.
 Stable contract/guide revision may proceed alongside Task 5 after Tasks 1–4
 are reviewed; final example validation, status claims and closeout still wait
 for Task 5's completed smoke and independent review. Documentation and example
@@ -549,10 +554,10 @@ writers have disjoint ownership; the coordinator reconciles their final output.
   `invalidate --from` spelling, provider polling or dashboard mutation appears
   in current guidance. Record any documentation test constraints honestly;
   add no tests asserting prompt/document wording.
-- [ ] Triage the old pre-integration broad run at the actual failing boundaries;
+- [x] Triage the old pre-integration broad run at the actual failing boundaries;
   record the command/log, baseline comparison and disposition of each failure.
   Do not call the old run green or silently weaken the selector.
-- [ ] After Task 7 and its fresh narrow/public smoke gates pass, run final broad
+- [x] After Task 7 and its fresh narrow/public smoke gates pass, run final broad
   affected-suite verification in tmux:
 
   ```bash
@@ -563,12 +568,12 @@ writers have disjoint ownership; the coordinator reconciles their final output.
   changed since a relevant green selector, rerun that selector first. Broader
   unrelated tests are required only if a failure/change reveals another
   affected boundary; do not silently reduce this affected-suite obligation.
-- [ ] Use @superpowers:requesting-code-review for final independent review of
+- [x] Use @superpowers:requesting-code-review for final independent review of
   the integrated compiler, runtime, Python and crash evidence. The coordinator
   inspects `git diff --check`, full change summary and actual verification
   output. Apply accepted findings to the existing author, rerun affected
   checks, then commit docs with `docs: describe durable host input and Python authoring`.
-- [ ] Mark completed steps and record remaining limitations/evidence below.
+- [x] Mark completed steps and record remaining limitations/evidence below.
   Summarize delivered behavior, tests and material constraints to the owner.
   Do not merge/publish or claim paid live qualification merely because local
   deterministic checks passed.
@@ -576,7 +581,7 @@ writers have disjoint ownership; the coordinator reconciles their final output.
 ## Task 7: Integrate host input into the native Python frontend on main
 
 **Role/artifact:** Revision / canonical Python implementation, tests, examples
-and current Python contracts/guides. **Status:** COMPLETE; final Task 6 verification remains open.
+and current Python contracts/guides. **Status:** COMPLETE; final Task 6 verification also passed.
 **Dependencies:** Completed Tasks 1–5 and Task 6 checkpoint `4745f8ba`;
 architectural integration decision accepted. Must complete before final Task 6.
 Use distinct implementation and code/spec/plan reviewers. Preserve all main
@@ -757,7 +762,8 @@ questions return to Design rather than being resolved with another frontend.
   links** across 28 owned Markdown files resolved, and the two route-readiness
   registry validation selectors passed (**2 tests in 2.57s**). The registry
   retains local-stub prerequisites and does not imply paid or LSP qualification.
-  Final broad affected-suite verification and integrated review remain pending.
+  Final broad affected-suite verification and integrated review were pending
+  at that checkpoint; both completed after Task 7 as recorded below.
 - Task 7 completed after independent plan, code SPEC/QUALITY and documentation
   SPEC/QUALITY approval. Main `27bcc7e3` was merged
   into this branch as `e3cbdc47`, retaining main's Python/CLI owners and adding
@@ -775,7 +781,7 @@ questions return to Design rather than being resolved with another frontend.
   expectation that 2.40 is unsupported. That negative now uses 2.41 and passed
   in the targeted correction above; the 426 unchanged successes were reused.
   All **26 public e2e cases**, including current original-source AST attribution,
-  passed that gate. The final Task 6 broad run will independently verify the
+  passed that gate. The final Task 6 broad run independently verified the
   entire corrected tree. Root read the production diff, complete new host tests,
   actual outputs and clean diff before committing.
 - Canonical documentation reconciliation passed independent SPEC and QUALITY
@@ -807,4 +813,28 @@ questions return to Design rather than being resolved with another frontend.
   environment variable and record it with their evidence. No machine queue or
   tranche manifest selects this plan; its checkboxes/current-selection section
   own routing, and existing hub/design links already discover the same file.
-- No provider-quality result or live-provider qualification is claimed.
+- Task 6 final integration gate passed on immutable implementation/docs commit
+  `c8c784e2fd73d6bfce2343d95b90b264465cba4d`: **9219 passed, 1 skipped,
+  1 xfailed in 1222.13s (20m22s)**, exit **0**. The exact broad selector above
+  ran in tmux `durable-integrated`, from this worktree root, with Python 3.13.9,
+  pytest 8.4.1, 16 workers and `--dist=worksteal`. The explicit
+  `PYTHONPATH="$PWD"` selected this worktree for subprocesses. Evidence:
+  `/tmp/durable-host-input-integrated-tests.sh`,
+  `/tmp/durable-host-input-integrated-tests.log`,
+  `/tmp/durable-host-input-integrated-tests.exit` and
+  `/tmp/durable-host-input-integrated-env.log`.
+  The skip preserves the explicit one-time authorization gate for
+  `test_tracked_plan_phase_authorized_interrupted_run_recovery`; the existing
+  strict F39 xfail covers omitted measured size/cap in a transport refusal
+  diagnostic. Neither exclusion was introduced or relaxed for this change.
+  Final independent integrated SPEC/QUALITY review found no remaining material
+  acceptance gap. The coordinator inspected the full diff, actual logs and
+  environment, confirmed clean `git diff --check`, and retained the branch and
+  worktree. This gate precedes the owner's subsequent request to merge into
+  current main; the completion-ledger change itself does not alter execution.
+- No provider-quality result, paid live-provider qualification or live-email
+  delivery check is claimed. Local deterministic stubs cover both frontends,
+  four host outcomes and crash/replay boundaries. One serial pending request
+  per run remains the admitted scope; historical HumanReply mutation and
+  dashboard settlement remain unavailable. The global editable installation
+  was left untouched, so local commands must select this worktree explicitly.
