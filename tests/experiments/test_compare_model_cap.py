@@ -13,6 +13,7 @@ from tests.experiments.compare_harness_support import REPO, call, skip_without_s
 
 SONNET = "claude-sonnet-5-5"
 TERRA = "gpt-5.6-terra"
+SOL = "gpt-6.1-sol"
 DISABLED = ["--disable", "multi_agent", "--disable", "multi_agent_v2",
             "--disable", "multi_agent_v2_dynamic_tools", "-c", "agents.enabled=false"]
 
@@ -90,6 +91,25 @@ def test_codex_guard_keeps_explicit_model_and_effort_binding(guarded, args):
     assert done.returncode == 3, done.stderr
     expected = ["exec", *DISABLED, *args[1:]] if args[0] == "exec" else [*DISABLED, *args]
     assert json.loads(done.stdout)["args"] == expected
+
+
+def test_exact_sol_opt_in_preserves_native_agent_and_claude_bans(guarded):
+    env = {'ORC_ALLOWED_CODEX_MODELS': SOL, 'ORC_ALLOWED_CLAUDE_MODELS': ''}
+    selected = guarded('codex', ['exec', '--model', SOL, '--config', 'model_reasoning_effort=high'], **env)
+    assert selected.returncode == 3, selected.stderr
+    assert json.loads(selected.stdout)['args'] == ['exec', *DISABLED, '--model', SOL, '--config',
+                                                   'model_reasoning_effort=high']
+    assert guarded('codex', ['--model', TERRA], **env).returncode == 2
+    assert guarded('claude', ['--model', SONNET], **env).returncode == 2
+    for args in (['--model', SOL, '--enable', 'multi_agent'],
+                 ['--model', SOL, '--config', 'agents.enabled=true'],
+                 ['--model', SOL, '--model-provider', 'other']):
+        assert guarded('codex', args, **env).returncode == 2
+
+
+@pytest.mark.parametrize('model', ['gpt-6-sol', 'gpt-6.1-sol-preview', 'gpt-6.2-sol', 'unknown'])
+def test_sol_opt_in_does_not_admit_unknown_or_other_higher_models(guarded, model):
+    assert guarded('codex', ['--model', model], ORC_ALLOWED_CODEX_MODELS=model).returncode == 2
 
 
 @pytest.mark.parametrize("forced", ["claude-opus-5-5", "fable", "unknown"])

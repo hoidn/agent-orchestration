@@ -123,12 +123,15 @@ git -C $MAIN worktree add --detach $RT $C        # 0. frozen runtime outside MAI
 PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
 ```
 
-Model policy (owner, 2026-10-19): all experiment workflows use mid/low-tier models at or below
-Sonnet/Terra, including judges, reviewers and coders. The selected natural-difficulty pilot
-binds `gpt-5.6-luna` and `gpt-5.6-terra` high, and prohibits Claude and native delegation.
+Model policy: experiment workflows default to the owner's Sonnet/Terra ceiling.
 The generic guard retains Sonnet for legacy Claude callers and Terra by default for Codex;
-explicit per-run Codex bindings may select Luna. Fable remains forbidden. Frozen high-model arms and
-criteria preserve historical evidence and refuse new guarded launches until separately amended.
+explicit per-run Codex bindings may select exactly `gpt-5.6-luna` or `gpt-6.1-sol`.
+The owner-approved Luna low/high comparison selects Sol 6.1 high judging and
+prohibits Claude and native delegation. `COMPARE_CODEX_MODELS=gpt-6.1-sol`
+forwards the exact `ORC_ALLOWED_CODEX_MODELS` binding inside the sandbox;
+scans require the actual native model to match that run. Other higher or unknown
+model IDs remain forbidden even if placed in an allowlist. Frozen criteria and
+historical evidence keep their original policy until explicitly amended.
 Changing a model does not authorize spend or establish calibration for a new model pair.
 
 Agents share `$HOME`, so the harness guards instrumented CLI routes and checks recorded usage:
@@ -408,7 +411,7 @@ a reference-free rubric, declared `arms` and `runs_per_arm`. Generate fresh
 independent solutions with the same direct workflow and task inputs, varying only
 the frozen model or effort binding. Use `prepare.run_arm` with the direct-task `ArmSpec`
 for each arm; custom final-patch arms enter the ordinary pool. Per-run
-`COMPARE_CODEX_MODELS` binds the exact Luna or Terra model; unset policy retains
+`COMPARE_CODEX_MODELS` binds the exact Luna, Terra or Sol 6.1 model; unset policy retains
 Terra only. Native delegation remains disabled.
 
 Pool every declared natural output under blind clone IDs, then use the ordinary
