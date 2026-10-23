@@ -550,7 +550,10 @@ two Luna captures completed, two Sol attempts were interrupted, and no judge ran
 The owner authorized LS2 with total cap 38. Two new Sol attempts were then
 interrupted by a remaining subcommand-help false positive, before terminal
 capture or any judge call. Spend is 32 starts; both valid Luna captures remain
-preserved. Semantic detector repair is selected offline before another protocol.
+preserved. The semantic detector repair and LS3 recovery packet passed offline
+verification and independent review. Six fresh generations plus two judges are
+prepared; their proposed total cap 40 needs owner approval, with cap 38 still
+operative. No LS3 call or new score exists.
 No historical score is changed, no stronger-arm success
 is guaranteed, and no ORC benefit or live `module` selection follows. The measurement gate precedes any
 live `module` arm

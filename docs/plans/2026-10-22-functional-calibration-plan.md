@@ -43,9 +43,10 @@ eight sessions and total cap 38, including 30 historical starts. LS2 then stoppe
 after two new Sol starts because the detector still mistook subcommand help
 (`codex exec --help`) for model dispatch. Both attempts lack terminal captures;
 no judge ran. Overall spend is 32 starts, with six unused under cap 38. The
-semantic detector repair is selected offline; no new paid retry is selected.
+semantic detector repair is implemented and independently reviewed. LS3 is
+prepared and reviewed offline; no new paid retry is selected.
 
-Task 5 below selects offline preparation of a prospective LS3 recovery. Its
+Task 5 below records the prepared prospective LS3 recovery. Its
 eight new sessions and proposed total cap 40 require concrete owner approval;
 cap 38 remains operative until then.
 
@@ -258,7 +259,7 @@ The remaining four generations and both judges never started. The original
 packet, approval, persistent alert, interrupted records and usage remain intact;
 LS1 is incomplete and cannot qualify either task.
 
-## Task 4: Prospective LS2 apparatus recovery
+## Task 4: LS2 apparatus recovery (historical; interrupted)
 
 The frozen detector classified any shell command named `codex` as a possible
 dispatch. Sol's actual structured action invoked `codex --help | head -45`; the
@@ -456,13 +457,66 @@ cover all six generations and both later judges, with no retries or other spend.
 All new units use fresh paths. Unused LS1/LS2 units remain unused; original
 operators, freezes, alerts, interrupted records and usage remain unchanged.
 
-- [ ] Implement and independently review the semantic classifier against the
+- [x] Implement and independently review the semantic classifier against the
   offline CLI evidence, both incident actions and real dispatch boundaries.
-- [ ] Prepare six fresh commands and the exact two-capture manifest; bind all
+- [x] Prepare six fresh commands and the exact two-capture manifest; bind all
   historical accounting and verify unchanged natural-capture provenance.
-- [ ] Run public dry runs, fake-provider sandbox checks and complete inventory;
+- [x] Run public dry runs, fake-provider sandbox checks and complete inventory;
   freeze the dependencies/proof and independently review the concrete packet.
 - [ ] Obtain concrete owner approval for eight fresh sessions and total cap 40.
 - [ ] Execute the generations and, after concrete pool/sandbox checks, the two
   blind judges; report all scores and the canonical complete readout. Stop on a
   new interruption without automatic retry.
+
+The semantic classifier passed 14 offline checks and all 62 installed-parser
+cases. Its new source has SHA-256
+`25edb527c870b2550d58eb2f0d7a3eeecabe90798348a494cb4b4b12f95d5641`;
+the evidence under `LS2-20261022/classifier-semantic-qualification.json` has
+SHA-256 `f7cbb5ca0265e437db5b7a6e13a398829b70247c082ed00805862aa807cb802d`.
+Independent review is `classifier-independent-review.json`, SHA-256
+`1af2211a3a37bab48e99ff4473f7d2843d700858915feed4f85d5557b06a5abf`.
+Both the root and reviewer replayed all 454 previously audited LS1/LS2 action
+inputs through the new classifier, with zero alerts. The replay proof is
+`classifier-historical-replay.json`, SHA-256
+`0a1fcecc92570bd5a400f3a2b756c6db73c2c0c75cadcf6d0e304347bb3cea57`.
+No command from those inputs was executed and no model session was started.
+These checks preserve the original incident alerts and establish only the
+bounded command-classification repair, not new quality scores or live readiness.
+
+## LS3 concrete recovery packet (ready; approval pending)
+
+Freeze directory:
+`/home/ollie/sc-evidence/freeze-functional-semantic-recovery-20261022`.
+The `criterion.json` SHA-256 is
+`e0db31a661d4b006416b74c9a65e4070cfc767b4910045d92e1c35014485f41a`;
+`carryover.json` is
+`2c524b6ba75f61407f015480f559e9d57c5e5911a5c21727602df28a8fa733d1`.
+The 824-file `generation-packet.json` has SHA-256
+`fceaa951ed7167a3a71c0ce26f5ebe64b72d3155ce58e41401ba4e9cfeae5cac`.
+It binds the new operator, helpers, tests, prepared inputs/commands and proofs.
+
+Evidence lives under `/home/ollie/sc-evidence/LS3-20261022`. Forty operator
+checks and 14 semantic regressions against its actual inlined classifier passed;
+all 40 operator tests collected and 4,569 historical files verified. Six public
+dry runs and six actual Bubblewrap/fake-CLI checks passed with zero providers,
+144 protected paths per attempt and all 36 record/index files unchanged.
+`generation-mask-smoke.json` has SHA-256
+`ed6c7396cd4371cb84568482e6e81ce96fa443b85c72922cc51fce06269f39a6`.
+Both carried samples passed canonical intake with their 22 manifest files intact,
+including the original LS2 carryover manifest. The analysis denominator remains
+eight observations; physical new spend remains eight sessions including judges.
+
+Independent concrete-packet review is `generation-independent-review.json`,
+SHA-256 `15a14ca0aa88524fbe303f9f056e12d4e05404f3ae44ecb9aa473204e08f5f27`.
+The root separately verified all 824 hashes and reran preflight: zero fresh
+starts, 32 historical, no children, extra roots, forbidden actions or Claude.
+Its evidence is `root-generation-preflight.log` and `.exit` (exit 0).
+The unchanged runtime's 479-test suite and public functional smoke remain
+applicable. Actual judge-pool sandbox checks remain due after new captures
+produce the anonymous pools and before either paid judgment.
+
+All offline launch prerequisites are complete. The only launch prerequisite is
+new owner approval for eight sessions, total cap 40; current cap 38 remains
+operative. This proposal includes both later judge calls, requires no repeat
+permission for them once approved, and authorizes no retries or other spend.
+No LS3 generation or judge has run and no new quality score exists.
