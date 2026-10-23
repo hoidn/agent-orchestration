@@ -539,10 +539,12 @@ excluded for treating sandbox-induced archive deletions as candidate changes.
 The two-task set is not calibrated. The [recovery report](../reports/2026-10-22-natural-task-difficulty-recovery.md)
 records that unchanged outcome. The next selected contrast uses the same exact
 Luna model at low versus high effort, with eight fresh direct-task solutions and
-two unchanged Terra-high blind judges; high effort is not guaranteed to score
-better. The [current plan](2026-10-22-simple-evaluation-calibration-plan.md)
-requires a two-point high-effort mean advantage on each task and explicit
-model/effort receipt checks. The proper review-environment fix is integrated and
+two owner-selected Sol 6.1 high blind judges; high effort is not guaranteed to
+score better. The [current plan](2026-10-22-simple-evaluation-calibration-plan.md)
+requires a two-point high-effort mean advantage and a high-effort mean strictly
+between three and five out of eight on each task, with explicit model/effort
+receipt checks. The owner added both amendments before judging; a separate
+analysis freeze preserves the original generation protocol and observations. The proper review-environment fix is integrated and
 verified in `629c3b9c`; exact effort support follows in `dd308a03`, with 447
 affected checks passed. Fresh preparation and the frozen packet passed offline
 checks. The owner authorized ten new sessions within an overall cap of twenty-six,
