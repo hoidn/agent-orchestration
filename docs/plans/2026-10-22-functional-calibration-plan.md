@@ -48,8 +48,9 @@ prepared and reviewed. The owner approved its eight new sessions and total cap
 40. Both Sol RPI attempts completed and were admitted. A host NVMe failure
 and subsequent reboots then interrupted both Luna PRR attempts before settlement.
 LS3 is stopped after four starts (36 overall); neither Sol PRR nor either judge
-started. No new quality score exists. Task 6 records the ready, independently reviewed LS4 recovery packet. Six new
-sessions and total cap 42 await approval; cap 40 remains operative.
+started. No new quality score exists. Task 6 records the independently reviewed LS4 recovery packet. The owner
+approved six new sessions and total cap 42; the two Luna PRR generations are
+running. The same approval covers both later blind judges.
 
 Task 5 below records the approved LS3 recovery. The owner replied "yes" to the
 eight-session/cap-40 proposal and reaffirmed Sol 6.1 for the stronger arm. That
@@ -534,7 +535,7 @@ the bounded operator in tmux `ls3-generation-20261022` on
 The frozen criterion retains its original pending snapshot; this separate
 approval is operative.
 
-## Task 6: Recover from the host storage failure (ready; approval pending)
+## Task 6: Recover from the host storage failure (authorized; running)
 
 The host journal records the NVMe controller at PCI address `0000:05:00.0`
 disappearing at 2026-10-23 06:47:17 UTC, failed reset, I/O errors, an aborted
@@ -552,11 +553,10 @@ functional rubric, eight-observation analysis denominator and all three primary
 rules unchanged. The cost of preserving the single-call protocol is that an
 incomplete session cannot be resumed into a qualifying observation.
 
-The four LS3 starts bring historical spend to **36**. Six new sessions require
-**proposed total cap 42**, pending concrete owner approval; cap 40 remains
-operative. Approval must cover both new generations and the later judges, with
-no automatic retries or other spend. Neither the old unused units nor a new
-provider process may be launched before that approval.
+The four LS3 starts bring historical spend to **36**. The owner approved
+**six new sessions and total cap 42**: four PRR generations and two blind judges.
+The same approval covers both phases, with no automatic retries or other spend.
+Unused units from previous interrupted protocols remain unused.
 
 Reuse the bounded operator and existing helpers in a directly revised source,
 without wrapper chains, new runtime machinery or changed guards. Bind each
@@ -579,7 +579,7 @@ packet. Do not relax candidate capture, lineage, model, scan or denominator chec
   source-specific receipts, original outcomes and identical task baselines.
 - [x] Run offline checks, public dry runs and actual fake-provider sandbox checks
   on the current boot; freeze and independently review the concrete packet.
-- [ ] Obtain approval for six fresh sessions and overall cap 42.
+- [x] Obtain approval for six fresh sessions and overall cap 42.
 - [ ] Execute, admit terminal captures, prepare both anonymous pools, verify the
   concrete judge sandboxes, run the two approved judges and close canonically.
 
@@ -592,7 +592,7 @@ files and 4,560 surviving historical hashes. It records the nine missing `/tmp`
 files and limits the interrupted PRR access audit to 284 surviving actions.
 No complete interrupted-session receipt or quality score is inferred.
 
-### LS4 concrete recovery packet (ready; approval pending)
+### LS4 concrete recovery packet (authorized; running)
 
 Freeze: `/home/ollie/sc-evidence/freeze-functional-host-recovery-20261023`.
 
@@ -622,8 +622,21 @@ found no blocking issue. Root separately verified packet/carryover hashes and
 reran preflight: zero new starts, 36 historical, no extra roots or forbidden
 actions. Actual judge-pool sandbox checks remain due after PRR captures complete.
 
-**Approval requested:** six new sessions, raising the total cap from 40 to 42
-(36 already spent; four PRR generations and two Sol-high judgments), no retries
-or other spend. Exact roles remain Luna high weak, Sol 6.1 low strong and Sol
-6.1 high judge. No launch or new quality score exists. Present host operability
-and offline checks do not establish lasting storage stability.
+**Owner approval:** the reply "yes" authorizes six new sessions, raising the
+total cap from 40 to 42 (36 already spent; four PRR generations and two Sol-high
+judgments), no retries or other spend. Exact roles remain Luna high weak, Sol
+6.1 low strong and Sol 6.1 high judge. Approval is recorded in
+`LS4-20261023/owner-approval-generation.json`, SHA-256
+`65bddc7c2adc630b7fdb178ee998fa7e10e70f721e156e40438df2852b5880c7`.
+A fresh approved preflight passed. Luna PRR runs
+`20261023T074303Z-w11lzt` and `20261023T074303Z-ctvb66` are supervised by the
+frozen operator in tmux `ls4-generation-20261023`. No new quality score exists.
+Present host operability and offline checks do not establish lasting storage
+stability. The frozen criterion retains its pre-approval pending snapshot; the
+separate approval record is operative.
+
+The owner subsequently requested removal of the general provider-spend approval
+rule from `AGENTS.md`. The maintained instruction now records experiment
+decisions and spending limits in the plan ledger; it no longer requires an
+automatic permission request for new or raised spend. This instruction change
+does not mutate the frozen LS4 packet, its declared cap or historical evidence.
