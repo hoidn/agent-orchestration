@@ -10,6 +10,7 @@ from tests.experiments.compare_harness_support import world  # noqa: F401
 
 LUNA = 'gpt-5.6-luna'
 TERRA = 'gpt-5.6-terra'
+SOL = 'gpt-6.1-sol'
 
 
 def criterion():
@@ -134,13 +135,14 @@ def test_codex_luna_is_explicit_and_each_run_allowlist_is_exact(guarded):
     assert '--disable' in json.loads(selected.stdout)['args']
     assert guarded('codex', ['--model', TERRA], ORC_ALLOWED_CODEX_MODELS=LUNA).returncode == 2
     assert guarded('codex', ['--model', LUNA], ORC_ALLOWED_CODEX_MODELS=TERRA).returncode == 2
-    assert guarded('codex', ['--model', 'gpt-6.1-sol'], ORC_ALLOWED_CODEX_MODELS='gpt-6.1-sol').returncode == 2
+    assert guarded('codex', ['--model', SOL]).returncode == 2
     assert guarded('codex', ['--model', LUNA, '--enable', 'multi_agent'],
                    ORC_ALLOWED_CODEX_MODELS=LUNA).returncode == 2
 
 
 @pytest.mark.parametrize('expected,actual,forbidden', [(LUNA, LUNA, False), (LUNA, TERRA, True),
-                                                     (TERRA, LUNA, True), (TERRA, TERRA, False)])
+                                                     (TERRA, LUNA, True), (TERRA, TERRA, False),
+                                                     (SOL, SOL, False), (SOL, TERRA, True), (TERRA, SOL, True)])
 def test_scan_audits_the_exact_frozen_codex_model(tmp_path, expected, actual, forbidden):
     tree = tmp_path / 'tree'; tree.mkdir()
     home = tmp_path / 'home'
@@ -166,18 +168,19 @@ def test_generation_commands_and_scans_bind_the_input_codex_model(world, monkeyp
     assert observed == [{'expected_codex_model': LUNA}, {'expected_codex_model': TERRA}]
 
 
-def test_judge_command_and_scan_bind_the_exact_judge_model(tmp_path, monkeypatch):
+@pytest.mark.parametrize('judge', [TERRA, SOL])
+def test_judge_command_and_scan_bind_the_exact_judge_model(tmp_path, monkeypatch, judge):
     out = tmp_path / 'pool'; (out / 'records').mkdir(parents=True)
-    mapping = {'judges': {TERRA: {'dir': 'judge', 'providers': 'codex.json'}}, 'batches': [['a', 'b']],
+    mapping = {'judges': {judge: {'dir': 'judge', 'providers': 'codex.json'}}, 'batches': [['a', 'b']],
                'criterion_sha256': 'frozen', 'compare_base': 'base', 'runs': {}, 'main': '/main',
                'runtime': '/runtime', 'created_at': 0, 'rubric': criterion()['rubric']}
     (out / 'records/mapping.json').write_text(json.dumps(mapping))
     pool.write_score_inputs(out, mapping, 'intent', tmp_path / 'runtime')
-    assert f'COMPARE_CODEX_MODELS={TERRA}' in (out / 'records' / f'score-{TERRA}.sh').read_text()
+    assert f'COMPARE_CODEX_MODELS={judge}' in (out / 'records' / f'score-{judge}.sh').read_text()
     observed = []
     monkeypatch.setattr(scan, 'find_hits', lambda *args, **kwargs: observed.append(kwargs) or [])
-    pool.scan_judge(out, TERRA, 'f' * 40, home=tmp_path / 'home')
-    assert observed == [{'expected_codex_model': TERRA}]
+    pool.scan_judge(out, judge, 'f' * 40, home=tmp_path / 'home')
+    assert observed == [{'expected_codex_model': judge}]
 
 
 def test_shim_hands_off_codex_opt_in_and_nested_calls_keep_exact_policy(world, monkeypatch):
@@ -238,6 +241,14 @@ def test_natural_intake_uses_original_raw_snapshot_and_keeps_delivery(tmp_path, 
     assert pool.patch_bytes(run, view, 'final') == b''  # An actually captured empty patch is natural.
     assert all(p.read_bytes() == data for p, data in before.items())
     assert not list(tmp_path.rglob('result.json'))
+
+
+def test_natural_intake_verifies_actual_sol_native_model_in_positive_receipt(tmp_path):
+    run, receipt, _ = captured_run(tmp_path, model=SOL, outcome='completed')
+    row, _ = pool.natural_attempt(run, receipt, SOL)
+    assert row['outcome'] == 'completed'
+    with pytest.raises(SystemExit, match='model or effort'):
+        pool.natural_attempt(run, receipt, TERRA)
 
 
 @pytest.mark.parametrize('damage', ['no_patch', 'nonterminal', 'record_status', 'extra_call', 'no_receipt',

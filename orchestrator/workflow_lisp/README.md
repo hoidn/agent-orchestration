@@ -11,10 +11,12 @@ targets through 2.34) was retired on 2026-10-13 and executable entries
 through 2.34 are refused. `LoweringRoute` (`wcc/route.py`) still records the
 legacy schema-1 and WCC schema-2 compile routes for typed analysis and
 persisted-run metadata; neither selects an executable backend. Evaluated
-targets are 2.35 and 2.36, with bounded 2.37 (parallel map) and 2.38 (agent
-sessions, confined run references) extensions. At 2.36, source-graph
-selection supplies one W3 `std/improve` API and existing generated local
-procedures. The [Phase 4c plan](../../docs/plans/2026-10-07-evaluated-execution-phase-4c-w3-plan.md)
+targets are 2.35–2.40. The 2.37 parallel-map and 2.38 agent-session/command-only
+confined-run-reference extensions retain their bounded qualification; public
+confined providers remain closed. Target 2.39 adds inference-default procedure
+authoring and bounded phased delivery; paid-provider qualification for phased
+delivery remains unselected. At 2.36, source-graph selection supplies one W3
+`std/improve` API and existing generated local procedures. The [Phase 4c plan](../../docs/plans/2026-10-07-evaluated-execution-phase-4c-w3-plan.md)
 records qualification and delivery evidence.
 
 
@@ -27,6 +29,12 @@ Start with the [frontend baseline](../../docs/design/workflow_lisp_frontend_spec
 The [capability matrix](../../docs/capability_status_matrix.md) distinguishes
 implementation from qualification; the [design index](../../docs/design/README.md)
 routes focused current versus proposed/historical contracts.
+
+The [typed Python source generator](../py/) is upstream of this package: it
+emits ordinary `.orc` at registered targets 2.35–2.40, defaulting to 2.39, then
+uses the same compiler and runtime. See the [Python guide](../../docs/python_workflow_drafting_guide.md)
+and [generation contract](../../docs/design/python_workflow_frontend.md) for its
+serial subset and trusted import/trace boundary.
 
 ## Pipeline
 

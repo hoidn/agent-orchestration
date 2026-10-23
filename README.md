@@ -3,10 +3,11 @@
 A compiler and runtime that turns LLM-agent workflows into typed, checked,
 replayable programs.
 
-A workflow is a program in Workflow Lisp (`.orc`). Its steps invoke coding
-agents and shell commands. The compiler checks, before anything runs, what
-each step must produce, which provider and command effects it can invoke, and
-how its outcome routes the rest of the program. The runtime validates what
+A workflow is a program in Workflow Lisp (`.orc`), authored directly or generated
+from the [typed Python serial frontend](docs/python_workflow_drafting_guide.md).
+Its steps invoke coding agents and shell commands. The compiler checks, before
+anything runs, what each step must produce, which provider and command effects
+it can invoke, and how its outcome routes the rest of the program. The runtime validates what
 the agents produce, commits no result that fails its contract, and can resume
 a run from its last committed effect. There is no service: a run is a directory
 under `.orchestrate/runs/<run_id>/` holding state, composed prompts, logs,
@@ -127,6 +128,7 @@ timeout policy; ordinary provider execution uses the trusted host workspace.
 ## Execution model
 
 ```text
+typed Python source -> generated .orc source (optional authoring route)
 .orc source
   -> frontend AST
   -> macro and import expansion, compile-time procedure specialization
@@ -222,6 +224,10 @@ pip install -e ".[dev]"
 python -m orchestrator --help
 ```
 
+For a provider-free Python check and local command run, follow the
+[typed Python guide](docs/python_workflow_drafting_guide.md#run-the-local-example).
+Both authoring routes use the same compiler and evaluated runtime.
+
 ### First compile check
 
 Compile a workflow without running any provider:
@@ -279,6 +285,9 @@ Releases are tagged. A workflow names its target in its header
 | `v0.2.0` | Targets 2.35 and 2.36; 2.37 adds parallel `list/map-effect` and 2.38 adds agent sessions and command-only confined child workflows |
 | `v0.1.0` (2026-10-13) | Targets 2.14 through 2.34 on the earlier flat runtime, and 2.35 through 2.37 |
 
+The current checkout registers targets 2.35–2.40 and defaults Python generation
+to 2.39; the table above records release history.
+
 Compiling a workflow checks it against the installed release without running
 anything. A target the release no longer executes is refused at its header
 with `workflow_execution_target_retired`; check out the release that executes
@@ -299,6 +308,7 @@ what each target admits.
 | The execution model in prose | [`docs/orchestration_start_here.md`](docs/orchestration_start_here.md) |
 | Author a bounded Python workflow | [`docs/python_workflow_drafting_guide.md`](docs/python_workflow_drafting_guide.md) |
 | Author a `.orc` workflow | [`docs/lisp_workflow_drafting_guide.md`](docs/lisp_workflow_drafting_guide.md) |
+| Generate a serial workflow from typed Python | [`docs/python_workflow_drafting_guide.md`](docs/python_workflow_drafting_guide.md) |
 | Which example to copy | [`workflows/README.md`](workflows/README.md#which-example-should-i-copy) |
 | Normative contracts | [`specs/index.md`](specs/index.md) |
 | Design principles behind the language | [`docs/design/workflow_language_design_principles.md`](docs/design/workflow_language_design_principles.md) |
@@ -307,7 +317,7 @@ what each target admits.
 
 | Path | Purpose |
 | --- | --- |
-| [`orchestrator/`](orchestrator/) | Workflow Lisp frontend and compiler, the `std/` library modules, validator, evaluator, providers, CLI, dashboard, language server |
+| [`orchestrator/`](orchestrator/) | Typed Python source generator, Workflow Lisp frontend and compiler, the `std/` library modules, validator, evaluator, providers, CLI, dashboard, language server |
 | [`specs/`](specs/) | Normative DSL, CLI, state, provider, IO, security, and versioning contracts |
 | [`docs/`](docs/) | Guides, design docs, plans, and reports |
 | [`workflows/`](workflows/) | Runnable examples, library workflows, templates, and prompt assets |

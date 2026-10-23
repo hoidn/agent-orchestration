@@ -11,7 +11,7 @@ refuse() { echo "model guard: $*" >&2; exit 2; }
 check_model() {
   if [ "$name" = codex ]; then
     case $1 in
-      gpt-5.6-terra|gpt-5.6-luna) ;;
+      gpt-5.6-terra|gpt-5.6-luna|gpt-6.1-sol) ;;
       *) refuse "'$1' is outside the owner's known Codex model cap" ;;
     esac
     case ,${ORC_ALLOWED_CODEX_MODELS-gpt-5.6-terra}, in

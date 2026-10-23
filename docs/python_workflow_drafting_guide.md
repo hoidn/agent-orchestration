@@ -38,13 +38,38 @@ python -m orchestrator py check workflows/examples/python_command_loop.py --entr
 3. Inspect the generated entry at `source_path` in the build/check JSON, and its
    `source_map_path`. The map supplements diagnostics; generated source and the
    checked program retain runtime identity. Retained sources, configuration and
-   the map live below `.orchestrate/python/`; the compiled artifact is at
-   `artifact_paths.closed_program` below `.orchestrate/build/`. Find each run directory under
-   `.orchestrate/runs/`; its `state.json` view shows `bound_inputs`,
+   the map live below `.orchestrate/python/`; the compiler artifact lives at
+   `.orchestrate/build/<build_key>/closed_program.json`. Use
+   `artifact_paths.closed_program` from the build/check JSON to locate it. Find
+   each run directory under `.orchestrate/runs/`; its `state.json` view shows
+   `bound_inputs`,
    `workflow_outputs` and completed `steps`. With `limit=3`, the integer result
    is 2 after two work commands; with `limit=0`, exhaustion returns 0 without a
    work command. The tool writes its validated integer through the runtime's
    output bundle. The run command itself can be silent.
+
+## Run Through The Python API
+
+From the repository root, the public API runs the same local example and
+returns the ordinary structured runtime result:
+
+```sh
+python - <<'PYTHON'
+from orchestrator.py import run
+
+result = run(
+    "workflows/examples/python_command_loop.py",
+    entry_workflow="run",
+    command_boundaries_file="workflows/examples/python_command_loop.commands.json",
+    inputs={"limit": 3},
+)
+assert result.exit_code == 0
+print(result.run_id)
+print(dict(result.workflow_outputs))
+PYTHON
+```
+
+The runtime workspace is the current working directory, as with ordinary `run`.
 
 ## What Happens
 

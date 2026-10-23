@@ -14,6 +14,13 @@ production YAML parser. The [bounded Python frontend](python_workflow_drafting_g
 uses `py check/build/run` to publish retained `.orc` and invokes this same
 compiler/runtime. It introduces no Python executor or resume command.
 
+The [typed Python frontend](python_workflow_drafting_guide.md) is an upstream
+source generator: `py build` and `py check` import and trace trusted Python into
+retained ordinary `.orc`; `py run` delegates that source to the runtime below.
+Python callbacks never execute in the runtime. Ordinary `resume RUN_ID` uses the
+saved generated source/configuration snapshots without importing Python, under
+the same program, input and closure freshness checks.
+
 Executable entries through 2.34 are retired. `resume` admits only a supported
 evaluated header and refuses old profiles, including force-restart, before
 changing their run contents. Invalidation has the same old-profile boundary;
@@ -177,9 +184,10 @@ route is retired; keeping its probe does not preserve that runtime.
 ## Runtime vs Authoring Boundary
 
 This file describes runtime behavior.
-For writing Workflow Lisp and prompt patterns, use:
+For writing workflows and prompt patterns, use:
 - `docs/orchestration_start_here.md`
-- `docs/lisp_workflow_drafting_guide.md`
+- [Workflow Lisp guide](lisp_workflow_drafting_guide.md)
+- [Typed Python guide](python_workflow_drafting_guide.md)
 
 Use `docs/workflow_drafting_guide.md` only to translate or audit historical
 YAML/YML definitions.

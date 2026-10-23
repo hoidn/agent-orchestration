@@ -19,7 +19,7 @@ seven characters; any mention of other sessions' transcripts or tmux sockets (.c
 .codex/sessions, .codex/history, claude-tmux-sockets), which stay readable on disk (R35). Paths
 match as typed: absolute, or under ~, $HOME or ${HOME} (R23).
 
-Model policy: Sonnet/Terra remain the defaults; an explicitly bound Codex run may use Luna. Read actual
+Model policy: Sonnet/Terra remain the defaults; an explicitly bound Codex run may use Luna or Sol 6.1. Read actual
 Claude assistant message.model and Codex turn_context.model metadata, never printed model names.
 Fable and every other forbidden/unknown model are non-clearable policy hits. Standard library only.
 """
@@ -31,7 +31,7 @@ from pathlib import Path
 ARMS = "best_of_n|reviewed_change|design_review_execute|direct_task"
 FABLE = "Fable model"
 FORBIDDEN_MODEL = "Forbidden model"
-CODEX_MODELS = ("gpt-5.6-terra", "gpt-5.6-luna")
+CODEX_MODELS = ("gpt-5.6-terra", "gpt-5.6-luna", "gpt-6.1-sol")
 JUDGE_TESTS = r"\bpytest\b|\bdev_check(?:\.py)?\b"
 BOUNDARY = r"(?![\w.-])"  # a path ends here: what follows is not part of its last component
 POOL_FILES = r"records/(?:mapping\.json|patches/|score-inputs-|(?:score|resume)-\S*\.sh|results\.(?:json|md)|judges/)"
@@ -156,7 +156,7 @@ def siblings(tree):
 
 def find_hits(calls_root, tree, since, home, compiled, *, expected_codex_model="gpt-5.6-terra"):
     if expected_codex_model not in CODEX_MODELS:
-        raise SystemExit("expected Codex model must be an exact known Terra/Luna ID")
+        raise SystemExit("expected Codex model must be an exact known Codex ID")
     hits = []
     for path, number, text in sources(Path(calls_root), Path(tree), since, Path(home)):
         for name, pattern in compiled.items():
