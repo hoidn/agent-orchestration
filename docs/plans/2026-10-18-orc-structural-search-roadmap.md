@@ -544,11 +544,11 @@ better. The [current plan](2026-10-22-simple-evaluation-calibration-plan.md)
 requires a two-point high-effort mean advantage on each task and explicit
 model/effort receipt checks. The proper review-environment fix is integrated and
 verified in `629c3b9c`; exact effort support follows in `dd308a03`, with 447
-affected checks passed. Fresh preparation remains offline work.
-Ten new sessions and an overall cap of twenty-six, including
-the sixteen spent starts, are proposals pending owner budget approval. No old
-output is relabeled or reused as a fresh sample; no additional call, ORC benefit or live
-`module` selection follows. The measurement gate precedes any
+affected checks passed. Fresh preparation and the frozen packet passed offline
+checks. The owner authorized ten new sessions within an overall cap of twenty-six,
+including the sixteen historical starts; generation is underway. The same approval
+covers the eight fresh generations and two blind judges. No old output is relabeled
+or reused as a fresh sample; no ORC benefit or live `module` selection follows. The measurement gate precedes any
 live `module` arm
 ([module condition](2026-10-19-orc-structural-search-module-rewrite-plan.md#gate-for-a-live-module-arm)).
 Amended 2026-10-19: the cumulative workflow evolution extension redefines
