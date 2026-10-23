@@ -14,9 +14,10 @@ archive masks and is excluded. RPI's retained, explicitly uncertain readout has
 Luna mean 6 and Terra mean 4.5, failing the required advantage. The two-task set
 is not calibrated. The [recovery report](../reports/2026-10-22-natural-task-difficulty-recovery.md)
 records that unchanged history. The environment correction is integrated in
-`629c3b9c`, and exact per-arm effort support in `dd308a03`; fresh preparation
-remains offline work.
-The new contrast does not authorize provider spend.
+`629c3b9c`, and exact per-arm effort support in `dd308a03`. Fresh LH preparation,
+mask checks and generation preflight are complete with zero provider starts;
+the frozen generation packet is ready for owner budget approval. No new spend
+is authorized.
 
 ## Selected prospective contrast (budget pending)
 
@@ -83,12 +84,15 @@ prospectively before any new call.
   of 71 changed-module cases, the public same-model low/high fake-provider smoke
   and 447 affected tests passed. The broad log and exit zero are
   `/tmp/compare-arm-effort-verify-wfffy2v9/pytest.log` and `pytest.exit`.
-- [ ] Integrate a reviewed clean runtime, then freeze a new criterion, operator,
-  model/effort bindings, eight fresh generation inputs and commands, review-base
-  derivation and exact raw-patch provenance. Run all preparation/dry runs
-  offline; preserve TD/TD2 criteria, sources, outputs, ratings and costs.
-- [ ] Prepare a concrete ten-session packet for owner budget approval before
-  any launch. After approval, supervise eight generations (at most two at once)
+- [x] Integrate a reviewed clean runtime and freeze a new criterion, operator,
+  model/effort bindings, eight fresh generation inputs and commands, and the
+  declared clean-review and raw-patch intake policy. All eight actual public
+  dry runs and eight real Bubblewrap/fake-CLI mask checks passed with zero
+  provider starts; TD/TD2 evidence remains preserved.
+- [x] Prepare the concrete generation packet for the proposed ten-session
+  experiment. Independent review of its 850 bound files and generation
+  preflight passed; this does not supply the pending owner budget approval.
+- [ ] After explicit bound approval, supervise eight generations (at most two at once)
   and two sequential blind judges, one physical call per unit. Count every root,
   child and failed start; refuse Claude/Fable, native delegation and unexpected
   models/efforts. No automatic retries or replacements.
@@ -97,6 +101,26 @@ prospectively before any new call.
   does not establish an unbiased measure; two samples per arm remain a pilot,
   and higher Luna effort need not earn a higher score. Unknown Luna prices stay
   unavailable, not zero. No ORC-benefit or quality–cost Pareto claim follows.
+
+### Frozen offline preparation (no provider starts)
+
+| Artifact | Exact identity |
+| --- | --- |
+| Clean runtime `/home/ollie/sc-runtime-luna-effort` | commit `fa057b597564be68ea94d8ffd77fa32d3cdc4eea` |
+| `/home/ollie/sc-evidence/freeze-luna-effort-20261022/criterion.json` | SHA256 `ffde67d90a2aee30030a28e1f99f1f4ffd27215d67f042589b10a088f81e9b36`; authorization remains pending |
+| `/home/ollie/sc-evidence/preparation/luna_effort_operator.py` | SHA256 `dd4f8ece0b6aa6c351a0320c34ed28e3a93119a9cd9f930fdc7d8cb5bd9831fe` |
+| `/home/ollie/sc-evidence/freeze-luna-effort-20261022/generation-packet.json` | SHA256 `7126fe64554381db209d700d99c35bf7a80ba196afe4a5ae2295156978be4e9a`; 850 bound files |
+
+Evidence is under `/home/ollie/sc-evidence/LH-20261022`:
+`generation-prepare.json` records all eight fresh units, and
+`generation-mask-smoke.json` records the eight actual sandbox/fake-CLI checks.
+`operator-selfcheck.log` and `.exit` retain 28 passing offline checks;
+`offline-prepare.log`/`.exit` and `offline-mask-smoke.log`/`.exit` all report
+exit zero. `generation-preflight.log`/`.exit` report exit zero, no new provider
+starts, sixteen historical starts and no Claude, native children or extra roots.
+No generation or judging outcome exists for LH. Raw outputs, clean review-base
+derivations and the later judging packet will be bound after approved generation;
+the original runtime, criterion and prior evidence remain immutable.
 
 ### Proposed budget and decision ledger
 
@@ -111,6 +135,7 @@ do not authorize these ten sessions. No new dispatch is currently authorized.
 | Owner offered Luna low/high or Luna/Sol 6.1; coordinator selects Luna low/high | Same exact `gpt-5.6-luna` model, different declared efforts, weak `direct_task` and strong-hypothesis `luna_high`; Terra-high judging stays unchanged. Better performance remains empirical, not guaranteed |
 | Change the treatment prospectively | Generate all eight outputs afresh; do not reuse known TD2 Luna-high scores or relabel Luna/Terra records. Freeze `luna_high.minus_control >= 2` for each task before calls |
 | Preserve the apparatus findings and spent budget | Finish the offline environment/effort corrections first. Keep TD/TD2 protocols, raw results and partial readout unchanged; ten additional sessions and overall cap twenty-six remain pending owner approval. No campaign or Phase 2 work is selected |
+| LH offline preparation and independent packet review completed | Freeze runtime `fa057b59`, criterion `ffde67d9`, operator `dd4f8ece` and 850-file generation packet `7126fe64`; eight public dry runs, eight sandbox/fake-CLI checks, 28 self-checks and zero-start preflight passed. Budget approval and all provider execution remain pending |
 
 ## Historical TD/TD2 model contrast and frozen design
 
