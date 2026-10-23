@@ -1,26 +1,28 @@
 # Task-difficulty calibration: Luna low versus Luna high
 
-Role: selected implementation and authorized execution plan; generation underway. Calibration
-tests whether natural solutions from a weaker agent score noticeably below those
-from a stronger agent, without deliberately introduced flaws. The owner's latest
-instruction offered “either luna low and luna high or luna and sol6.1”. The
-coordinator selected **the same Luna model at low versus high effort**. The owner
-subsequently selected **`gpt-6.1-sol` high as the blind judge**, before any
-judging; Sol is not a coder arm. Higher effort is an experimental treatment, not a guarantee of
-better output; the fixed qualification rule may still fail.
+Role: completed LH execution record, **not qualified**. This page preserves
+its captured method and chronological ledger; it grants no further dispatch.
+Current offline selection is the [functional calibration plan](2026-10-22-functional-calibration-plan.md):
+Luna high as the weaker hypothesis, Sol 6.1 low as the stronger hypothesis,
+and one functional score out of eight. Twenty-six starts are spent; ten fresh
+sessions and overall cap thirty-six are proposed, with budget approval pending.
 
-Current status: all sixteen previously authorized sessions are consumed. TD2 captured all
-eight natural solutions, but PRR's judge used apparent deletions created by the
-archive masks and is excluded. RPI's retained, explicitly uncertain readout has
-Luna mean 6 and Terra mean 4.5, failing the required advantage. The two-task set
-is not calibrated. The [recovery report](../reports/2026-10-22-natural-task-difficulty-recovery.md)
-records that unchanged history. The environment correction is integrated in
-`629c3b9c`, and exact per-arm effort support in `dd308a03`. Fresh LH preparation,
-mask checks and generation preflight passed before dispatch. The owner then
-answered “i authorize” to ten additional sessions, total cap twenty-six.
-Generation is underway; no LH calibration outcome is reported at this checkpoint.
+LH completed all eight generations and both Sol-high blind judges. RPI low/high
+means were 6/5 (gap −1), failing separation and the strict upper bound; PRR means
+were 4.5/4 (gap −0.5), in range but without separation. Both integrity reviews
+passed; no score, label or original observation changed. The
+[LH report](../reports/2026-10-22-luna-effort-task-difficulty-calibration.md)
+records the component-granularity limit, metered usage and unavailable full cost.
+Under `/home/ollie/sc-evidence/LH-20261022`, final evidence is:
 
-## Selected contrast (authorized; generation underway)
+- `combined-readout.json` SHA256 `3b20f182cdc972c290de1b9aa6d065629f612a390335c8f255c6db12c5f30def`;
+- `difficulty-target-readout.json` SHA256 `0e436ee53d017ec572c64b97de41e6a7b1a1202b1072a39fd861aaddc6f44bf4`;
+- `judging-independent-audit.json` SHA256 `308a3c5c2c0ec2d4dfaa8ef28c65c3e6d8b4cadfa8d485cf31b225af73e9e87f`.
+
+The LH instructions below preserve that experiment's prospective method, not
+a reusable launch authorization. TD/TD2 history and frozen protocols remain unchanged.
+
+## Captured LH contrast (completed; not qualified)
 
 For each of `resume-projection-integrity` (RPI) and `pure-result-replay` (PRR),
 generate two fresh independent attempts per arm:
@@ -137,11 +139,11 @@ any needed subsequent iteration must first have a concrete bounded budget.
 - [x] Prepare the concrete generation packet for the proposed ten-session
   experiment. Independent review of its 850 bound files and generation
   preflight passed. The later owner approval below supplies execution authority.
-- [ ] Supervise the authorized eight generations (at most two at once)
+- [x] Supervise the authorized eight generations (at most two at once)
   and two sequential blind judges, one physical call per unit. Count every root,
   child and failed start; refuse Claude/Fable, native delegation and unexpected
   models/efforts. No automatic retries or replacements.
-- [ ] Audit integrity before canonical joins and report each task's actual
+- [x] Audit integrity before canonical joins and report each task's actual
   outcome, original delivery failures and metered consumption. A Sol judge
   does not establish an unbiased measure; two samples per arm remain a pilot,
   and higher Luna effort need not earn a higher score. Unknown Luna and Sol prices
@@ -193,6 +195,8 @@ pending decisions below remain the preparation chronology.
 | Owner replied “i authorize” on 2026-10-23 UTC | The bound approval above authorizes all eight fresh generations and two sequential Terra-high judges, cap twenty-six including sixteen historical starts. Generation launched in `sc-lh-generation`; the initial RPI Luna-low runs are `20261023T004805Z-5xwueb` and `20261023T004805Z-lbgr1g`. Execution and integrity/readout checkboxes remain open; no completion or quality result is claimed |
 | Owner adds a strict high-score target before any judging | Freeze a supplementary receipt with `3 < luna_high.mean < 5` and the unchanged gap ≥2 for both tasks; bind receipt/helper/tests to the judging packet. Preserve the running freeze and original gap-only report, then derive final qualification without rescoring. Adjust natural difficulty and iterate until success; later iterations need their own concrete bounded spend, not an inferred cap increase |
 | Owner: “change it to sol 6.1 high” before any judge starts | Select exact `gpt-6.1-sol` at high effort for both blind judges. Preserve the Luna generation freeze and treatment; separately review and freeze the Sol-enabled analysis runtime/criterion/operator, supplementary target and judging packet. The same two judge calls remain within cap twenty-six; no further spend is inferred |
+| LH closure and supplementary target completed | Ten fresh physical calls plus sixteen historical starts consumed cap twenty-six; no Claude/Fable, children or extra roots. Both judge-integrity reviews passed. RPI means 6/5 and gap −1 fail separation and high <5; PRR means 4.5/4 and gap −0.5 fail separation. Final combined `3b20f182`, target `0e436ee5` and independent audit `308a3c5c` above preserve all scores and observations; the set is not qualified |
+| Owner selects Luna high versus Sol 6.1 low and a simpler functional rubric | Route new offline work to the [functional calibration plan](2026-10-22-functional-calibration-plan.md); the failed LH additive rubric and historical records remain unchanged. Ten new sessions, proposed overall cap thirty-six including twenty-six spent starts, await approval of a concrete packet; no campaign or Phase 2 selection follows |
 
 ## Historical TD/TD2 model contrast and frozen design
 

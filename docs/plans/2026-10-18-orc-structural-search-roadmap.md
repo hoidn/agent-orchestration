@@ -515,8 +515,8 @@ records an inconclusive pilot: the upstream anchor scored at or below every
 candidate, and one anchor pair was inverted. Phase 2 is not selected, and a
 better-targeted experiment needs a new owner selection. The
 [measurement calibration plan](2026-10-19-orc-structural-search-measurement-plan.md)
-preserves evaluator-control exercises and now selects natural weak/strong
-task-difficulty calibration under the [corrected plan](2026-10-22-simple-evaluation-calibration-plan.md).
+preserves evaluator-control and natural weak/strong calibration history; current
+offline selection follows the [functional calibration plan](2026-10-22-functional-calibration-plan.md).
 Artificial defects and visible-check failure bands do not select this pilot.
 Generic scoring and exact model guards are implemented, and the real
 controller matrix has passed. Offline preparation and final verification are complete;
@@ -537,20 +537,19 @@ earlier incident starts, is exhausted. RPI's retained analysis fails the frozen
 mean-gap rule and carries review-environment uncertainty; PRR's judgment is
 excluded for treating sandbox-induced archive deletions as candidate changes.
 The two-task set is not calibrated. The [recovery report](../reports/2026-10-22-natural-task-difficulty-recovery.md)
-records that unchanged outcome. The next selected contrast uses the same exact
-Luna model at low versus high effort, with eight fresh direct-task solutions and
-two owner-selected Sol 6.1 high blind judges; high effort is not guaranteed to
-score better. The [current plan](2026-10-22-simple-evaluation-calibration-plan.md)
-requires a two-point high-effort mean advantage and a high-effort mean strictly
-between three and five out of eight on each task, with explicit model/effort
-receipt checks. The owner added both amendments before judging; a separate
-analysis freeze preserves the original generation protocol and observations. The proper review-environment fix is integrated and
-verified in `629c3b9c`; exact effort support follows in `dd308a03`, with 447
-affected checks passed. Fresh preparation and the frozen packet passed offline
-checks. The owner authorized ten new sessions within an overall cap of twenty-six,
-including the sixteen historical starts; generation is underway. The same approval
-covers the eight fresh generations and two blind judges. No old output is relabeled
-or reused as a fresh sample; no ORC benefit or live `module` selection follows. The measurement gate precedes any
+records that unchanged outcome. The Luna low/high follow-up also completed and failed qualification:
+RPI low/high means were 6/5 (gap −1), and PRR 4.5/4 (gap −0.5).
+Both Sol-high judge-integrity reviews passed. The additive rubric's coarse
+functional components and independent scope/layering points limit interpretation;
+the [LH report](../reports/2026-10-22-luna-effort-task-difficulty-calibration.md)
+preserves all scores, receipts and target failures. Twenty-six starts are spent.
+The owner's next [functional calibration plan](2026-10-22-functional-calibration-plan.md)
+selects offline preparation with Luna high as the weaker hypothesis, Sol 6.1 low
+as the stronger hypothesis, and a single functional score out of eight, judged
+blind by Sol high. Ten fresh sessions and overall cap thirty-six are proposed;
+a concrete reviewed packet and owner budget approval are still required before
+fresh dispatch. No old output is relabeled or rescored, no stronger-arm success
+is guaranteed, and no ORC benefit or live `module` selection follows. The measurement gate precedes any
 live `module` arm
 ([module condition](2026-10-19-orc-structural-search-module-rewrite-plan.md#gate-for-a-live-module-arm)).
 Amended 2026-10-19: the cumulative workflow evolution extension redefines
