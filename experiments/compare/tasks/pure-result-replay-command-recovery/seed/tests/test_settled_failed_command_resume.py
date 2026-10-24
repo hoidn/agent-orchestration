@@ -276,6 +276,8 @@ def _pure_rows_are_shells(
     *,
     completed: bool,
 ) -> bool:
+    from orchestrator.state import StepResult
+
     pure_nodes = [
         node for node in bundle.runtime_plan.nodes.values() if node.kind == "pure_projection"
     ]
@@ -320,7 +322,29 @@ def _pure_rows_are_shells(
             "outcome": OUTCOME,
             "result_storage": PROFILE,
         }
-        if row != expected or state.get("step_visits", {}).get(node.presentation_key) != 1:
+        visit = state.get("step_visits", {}).get(node.presentation_key)
+        if row.get("status") == "completed":
+            if row != expected or visit != 1:
+                return False
+        elif row.get("status") in {"failed", "skipped"}:
+            try:
+                full = StepResult(**row)
+            except TypeError:
+                return False
+            if (full.to_dict() != row or full.name != node.presentation_key or full.step_id != node.step_id
+                    or type(full.truncated) is not bool or type(full.skipped) is not bool
+                    or full.skipped != (full.status == "skipped")):
+                return False
+            if full.outcome is not None and (
+                not isinstance(full.outcome, dict) or full.outcome.get("status") != full.status
+            ):
+                return False
+            if full.visit_count is None:
+                if full.status != "skipped" or node.presentation_key in state.get("step_visits", {}):
+                    return False
+            elif type(full.visit_count) is not int or full.visit_count != 1 or visit != 1:
+                return False
+        else:
             return False
     if completed:
         if state.get("status") != "completed":

@@ -9,7 +9,7 @@ case $name in
 esac
 refuse() { echo "model guard: $*" >&2; exit 2; }
 [ "${ORC_SINGLE_CALL_CLI_STATE-}" != dispatched ] ||
-  refuse "nested provider CLI is forbidden by the single-call limit (including help/version)"
+  refuse "nested provider CLI is forbidden: one provider CLI per recorded call (including help/version)"
 check_model() {
   if [ "$name" = codex ]; then
     case $1 in

@@ -1,4 +1,4 @@
-"""Cap-one calls cannot dispatch another provider CLI; every backend here is scripted."""
+"""Capped calls cannot dispatch descendants; every backend here is scripted."""
 
 import json
 import shlex
@@ -55,14 +55,10 @@ def test_cap_one_refuses_same_model_shell_reentry_before_backend(world, monkeypa
     assert [p.name for p in (Path(record["records"]) / "calls").iterdir()] == ["1"]
 
 
-@pytest.mark.parametrize("cap", [None, "2"])
-def test_non_one_cap_preserves_generic_nested_claude(world, monkeypatch, cap):
+def test_uncapped_preserves_generic_nested_claude(world, monkeypatch):
     scripted_backends(world)
     monkeypatch.setenv("ORC_SINGLE_CALL_CLI_STATE", "dispatched")
-    if cap is None:
-        monkeypatch.delenv("COMPARE_MAX_CALLS", raising=False)
-    else:
-        monkeypatch.setenv("COMPARE_MAX_CALLS", cap)
+    monkeypatch.delenv("COMPARE_MAX_CALLS", raising=False)
     _, record = start(world, "direct_task")
     log = Path(record["tree"]) / "tmp/backend-starts.jsonl"
     done = call(world, record, f"claude --model {SONNET} -p </dev/null", binary="codex")
@@ -70,6 +66,36 @@ def test_non_one_cap_preserves_generic_nested_claude(world, monkeypatch, cap):
     starts = [json.loads(line) for line in log.read_text().splitlines()]
     assert [row["name"] for row in starts] == ["codex", "claude"]
     assert all(row["state"] is None and row["cap"] is None for row in starts)
+
+
+def test_cap_three_allows_three_outer_calls_and_blocks_descendants_and_fourth(world, monkeypatch):
+    scripted_backends(world)
+    monkeypatch.setenv("COMPARE_MAX_CALLS", "3")
+    monkeypatch.setenv("COMPARE_CODEX_MODELS", SOL)
+    _, record = start(world, "direct_task")
+    log = Path(record["tree"]) / "tmp/backend-starts.jsonl"
+    nested = (["codex", "--model", SOL, "exec", "-c", "model_reasoning_effort=high", "-"],
+              ["claude", "--model", SONNET, "-p"],
+              ["codex", "--model", SOL, "--help"], ["codex", "--model", SOL, "--version"],
+              ["claude", "--model", SONNET, "--help"], ["claude", "--model", SONNET, "--version"])
+    script = "\n".join(f"{shlex.join(argv)} </dev/null; echo nested-{index}-exit=$?"
+                        for index, argv in enumerate(nested))
+    args = ["--model", SOL, "exec", "-c", "model_reasoning_effort=high", "-"]
+    for outer in range(1, 4):
+        done = call(world, record, script, binary="codex", args=args)
+        assert done.returncode == 0, done.stderr
+        assert done.stdout.splitlines() == [f"nested-{index}-exit=2" for index in range(len(nested))]
+        assert done.stderr.count("nested provider CLI is forbidden") == len(nested)
+        assert (Path(record["records"]) / f"calls/{outer}/provider.txt").read_text() == "codex\n"
+
+    fourth = call(world, record, "echo should-not-run", binary="codex", args=args)
+    assert fourth.returncode == 75
+    assert "should-not-run" not in fourth.stdout
+    assert "COMPARE_MAX_CALLS=3" in fourth.stderr
+    starts = [json.loads(line) for line in log.read_text().splitlines()]
+    assert len(starts) == 3
+    assert all(row["state"] == "dispatched" and row["cap"] is None for row in starts)
+    assert (Path(record["records"]) / "calls/4/stderr.txt").read_text() == fourth.stderr
 
 
 def test_independent_recorded_outer_calls_reset_inherited_state(world, monkeypatch):
@@ -88,9 +114,9 @@ def test_independent_recorded_outer_calls_reset_inherited_state(world, monkeypat
     assert len(starts) == 2 and all(row["state"] == "dispatched" for row in starts)
 
 
-@pytest.mark.parametrize("cap", ["1", "01"])
+@pytest.mark.parametrize("cap", ["1", "01", "3"])
 @pytest.mark.parametrize("shell_mode", ["-ic", "-lic"])
-def test_cap_one_survives_real_tmux_and_interactive_shells(world, monkeypatch, cap, shell_mode):
+def test_positive_cap_survives_real_tmux_and_interactive_shells(world, monkeypatch, cap, shell_mode):
     scripted_backends(world)
     monkeypatch.setenv("COMPARE_MAX_CALLS", cap)
     monkeypatch.setenv("COMPARE_CODEX_MODELS", SOL)
