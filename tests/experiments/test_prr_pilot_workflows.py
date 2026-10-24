@@ -326,6 +326,10 @@ def test_rendered_sources_preserve_seed_shapes_and_compile_current_runtime(tmp_p
         assert commands[name]["stable_command"] == [str(Path(sys.executable).resolve()), trusted, mode]
         assert commands[name]["closure"] == sorted([trusted, helper])
 
+    # Compare the current typed prompt and its input dataflow across the two arms;
+    # the study may clarify public evaluation inputs without freezing seed prose.
+    assert _render(_form(_forms(rendered["direct"]), "defprompt")) == _render(
+        _form(_forms(rendered["orc"]), "defprompt"))
     direct = _first_implementation_call(rendered["direct"])
     orc = _first_implementation_call(rendered["orc"])
     assert direct == orc == (
