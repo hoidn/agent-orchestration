@@ -29,7 +29,8 @@
     ((task String)
      (intent String)
      (repo String)
-     (context String))
+     (context String)
+     (model String))
     -> Outcome
     (let* ((change (provider-result providers.coder
                      :prompt (implement-prompt :task task :repo repo)

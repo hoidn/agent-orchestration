@@ -11,6 +11,7 @@ import signal
 import subprocess
 import sys
 import time
+import tomllib
 
 STUDY = "PRR-P2-20261024"
 SLUG = "pure-result-replay-command-recovery"
@@ -36,6 +37,7 @@ FAMILY = Path("/home/ollie/sc-evidence/LS11-20261023/combined-readout.json")
 FAMILY_SHA = "cc8e98be793e4444636416fc9d37423c061aaa1290fd17cfc8fc37b39c85f6c3"
 AUTHOR, JUDGE = "gpt-5.6-luna", "gpt-6.1-sol"
 ARMS = ("direct", "implement_check_diagnose_repair")
+AUTHOR_INPUTS = ("task", "intent", "repo", "context", "model")
 RUBRIC = {"workflow": "score_functional.orc", "entry": "score_functional::score", "criteria": ["quality"], "reference": None}
 EXCLUDE = ("docs/plans/evidence",)
 PRICE_TABLE = {"currency": "USD", "tokens_per_unit": 1000000, "date": "2026-10-24",
@@ -221,6 +223,18 @@ def dry_run(unit):
     require(result.returncode == 0, "public dry run failed")
 
 
+def trust_author_project(record, sandbox):
+    home = Path(sandbox.session_home(record)); config = home / ".codex/config.toml"
+    cwd = Path(record["cwd"]).resolve()
+    require(cwd.is_relative_to(Path(record["tree"]).resolve()) and config.is_file() and not config.is_symlink(),
+        "author trust must name its own candidate and private configuration")
+    require(not list((Path(record["records"]) / "calls").glob("*"))
+        and not list((home / ".codex/sessions").rglob("*.jsonl")), "trust preparation requires an unstarted unit")
+    original = config.read_text()
+    require("projects" not in tomllib.loads(original), "fresh author configuration already contains project trust")
+    config.write_text(original + f'\n[projects.{json.dumps(str(cwd))}]\ntrust_level = "trusted"\n')
+
+
 def prepare(source_commit):
     tools = bindings(); prepare_api, pooling, summary, sandbox, repos, metering, pricing = api()
     require(all(not path.exists() for path in (E, F, WORK, POOLS)), "fresh PRR-P2 roots required")
@@ -276,10 +290,11 @@ def prepare(source_commit):
         for arm in ARMS:
             key = f"{arm}-{ordinal}"; context = E / "contexts" / f"{key}.json"
             spec = prepare_api.ArmSpec(Path(rendered["direct" if arm == "direct" else "orc"]), f"{arm}::run",
-                Path(rendered["source_root"]), Path(rendered["providers"]), ("task", "intent", "repo", "context"),
+                Path(rendered["source_root"]), Path(rendered["providers"]), AUTHOR_INPUTS,
                 command_boundaries=Path(rendered["commands"]))
-            records = prepare_api.run_arm(TASK, arm, WORK, RUNTIME, spec=spec, sets=(f"context={context}",), environment=environment(AUTHOR, 1 if arm == "direct" else 3))
+            records = prepare_api.run_arm(TASK, arm, WORK, RUNTIME, spec=spec, sets=(f"context={context}", f"model={AUTHOR}"), environment=environment(AUTHOR, 1 if arm == "direct" else 3))
             record = read(records / "record.json")
+            trust_author_project(record, sandbox)
             require(record["compare_base"] == COMPARE_BASE, "corrected seeded baseline changed")
             write_new(records / "initial-record.json", record)
             names = {"dev-check.json", *[arg for arg in read(TASK / "seed/dev-check.json")["argv"] if arg.startswith("tests/")]}

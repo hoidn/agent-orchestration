@@ -152,3 +152,30 @@ def test_public_execute_refuses_any_started_unit_without_launch(monkeypatch, tmp
     with pytest.raises(runner.StudyError, match="no retry"):
         runner.execute("evaluator")
     assert not (evidence / "evaluator-before.json").exists()
+
+
+@pytest.mark.parametrize("started", [None, "call", "native"])
+def test_author_trust_is_prepared_only_in_a_fresh_own_home(monkeypatch, tmp_path, started):
+    from types import SimpleNamespace
+    import tomllib
+    home = tmp_path / "private-home"; native = home / ".codex"; native.mkdir(parents=True)
+    config = native / "config.toml"; original = 'cli_auth_credentials_store = "file"\n'
+    config.write_text(original)
+    tree = tmp_path / "tree"; candidate = tree / "cand-1"; candidate.mkdir(parents=True)
+    records = tmp_path / "records"; records.mkdir()
+    record = {"tree": str(tree), "cwd": str(candidate), "records": str(records)}
+    sandbox = SimpleNamespace(session_home=lambda metadata: home)
+    if started == "call": (records / "calls/1").mkdir(parents=True)
+    if started == "native": (native / "sessions").mkdir(); (native / "sessions/rollout-test.jsonl").write_text("{}\n")
+    if started:
+        with pytest.raises(runner.StudyError): runner.trust_author_project(record, sandbox)
+        assert config.read_text() == original
+    else:
+        runner.trust_author_project(record, sandbox)
+        config_before_dispatch = runner.ref(config)
+        parsed = tomllib.loads(config.read_text())
+        assert parsed["projects"] == {str(candidate): {"trust_level": "trusted"}}
+        assert parsed["cli_auth_credentials_store"] == "file"
+        config.write_text(config.read_text() + '\nmodel = "gpt-6.1-sol"\n')
+        with pytest.raises(runner.StudyError, match="changed bound source"):
+            runner.verify_refs([config_before_dispatch])

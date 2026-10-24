@@ -16,7 +16,7 @@ import pytest
 
 from experiments.compare import prepare, sandbox
 from experiments.compare.prepare import ArmSpec
-from experiments.compare.studies.prr_direct_orc import sources, trusted_check
+from experiments.compare.studies.prr_direct_orc import runner, sources, trusted_check
 from orchestrator.workflow_lisp.reader import read_sexpr_text
 from orchestrator.workflow_lisp.sexpr import ListExpr
 
@@ -386,7 +386,10 @@ def _fake_codex(path):
         import os
         from pathlib import Path
         import sys
+        import tomllib
 
+        configuration = tomllib.loads((Path(os.environ["CODEX_HOME"]) / "config.toml").read_text())
+        assert configuration["projects"][str(Path.cwd())]["trust_level"] == "trusted"
         marker = Path.cwd() / ".orchestrate" / "prr-smoke-call-count"
         marker.parent.mkdir(parents=True, exist_ok=True)
         count = int(marker.read_text()) + 1 if marker.exists() else 1
@@ -462,15 +465,18 @@ def _run_inert_smoke(root, runtime, monkeypatch, mode, arm):
     module = "direct" if arm == "direct" else "implement_check_diagnose_repair"
     spec = ArmSpec(
         source=source, entry=f"{module}::run", source_root=rendered["source_root"],
-        providers=rendered["providers"], inputs=("task", "intent", "repo", "context"),
+        providers=rendered["providers"], inputs=runner.AUTHOR_INPUTS,
         command_boundaries=rendered["commands"],
     )
     context_path = sources_dir / "context.json"
     records = prepare.run_arm(
-        task, f"prr_{mode}", run_root, runtime, sets=(f"context={context_path}",),
+        task, f"prr_{mode}", run_root, runtime, sets=(f"context={context_path}", f"model={runner.AUTHOR}"),
         spec=spec, environment=environment,
     )
     record = json.loads((records / "record.json").read_text())
+    runner.trust_author_project(record, sandbox)
+    config = Path(sandbox.session_home(record)) / ".codex/config.toml"
+    config_before_dispatch = digest(config)
     candidate = Path(record["candidates"][0])
     protected_names = {"dev-check.json", "tests/test_prr_smoke.py"}
     tracked = subprocess.run(["git", "-C", str(candidate), "ls-files", "--cached"],
@@ -499,6 +505,7 @@ def _run_inert_smoke(root, runtime, monkeypatch, mode, arm):
         assert command.returncode != 0, f"expected integrity halt; smoke artifacts: {root}"
     else:
         assert command.returncode == 0, f"{command.stdout}{command.stderr}smoke artifacts: {root}"
+    assert digest(config) == config_before_dispatch
     collected = prepare.collect(records)
     calls = sorted((records / "calls").iterdir(), key=lambda path: int(path.name))
     return records, record, collected, calls
@@ -549,3 +556,29 @@ def test_approved_runtime_inert_orchestrator_smoke(
         if passed:
             _open_tree(root)
             shutil.rmtree(root)
+
+
+@pytest.mark.skipif(not os.environ.get("PRR_RUNTIME"), reason="set PRR_RUNTIME to the approved derived runtime")
+def test_author_preparation_keeps_config_frozen_and_scan_model_explicit(monkeypatch):
+    outside = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "compare-harness-tests"
+    outside.mkdir(parents=True, exist_ok=True)
+    root = Path(tempfile.mkdtemp(prefix="prr-config-model-", dir=outside))
+    passed = False
+    try:
+        records, record, collected, calls = _run_inert_smoke(root, RUNTIME, monkeypatch, "fail", "orc")
+        assert collected["outcome"] == "completed" and len(calls) == 3
+        assert json.loads((records / "inputs.json").read_text())["model"] == "gpt-5.6-luna"
+        home = Path(sandbox.session_home(record))
+        native = home / ".codex/sessions/2026/10/24/rollout-synthetic-model.jsonl"
+        native.parent.mkdir(parents=True, exist_ok=True)
+        def session(model):
+            native.write_text(json.dumps({"type": "session_meta", "payload": {"cwd": record["cwd"]}}) + "\n" +
+                json.dumps({"type": "turn_context", "payload": {"model": model}}) + "\n")
+        session("gpt-5.6-luna")
+        assert not any(hit["pattern"] == "Forbidden model" for hit in prepare.scan(records, "0" * 40, home=home))
+        session("gpt-6.1-sol")
+        assert any(hit["pattern"] == "Forbidden model" for hit in prepare.scan(records, "0" * 40, home=home))
+        passed = True
+    finally:
+        if passed:
+            _open_tree(root); shutil.rmtree(root)
