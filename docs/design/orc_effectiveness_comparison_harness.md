@@ -267,7 +267,24 @@ The original apparatus deletion decision is completed history; preserved evidenc
   gates for this rule; report spread descriptively. One point is a frozen
   prospective choice, not an estimated error probability or reliability claim.
 
-  For control checks, absence of `calibration.rule` preserves the historical algorithm exactly:
+  The explicitly owner-approved PRR-P2 study instead owns a frozen local
+  evaluator predicate over ordinary anonymous pools and canonical original
+  ratings/clone-ID joins. Its evaluator criterion uses `purpose: "calibration"`,
+  `calibration_kind: "measure"` and **no `calibration` block**; generic summarization
+  omits the `calibration` key (`results.get("calibration")` is `None`) and supplies
+  no generic verdict. This does not select the historical no-rule control
+  algorithm, add a generic rule or produce a structural V1/C1 V2 qualification
+  receipt. The approved [PRR-P2 plan](../plans/2026-10-23-prr-direct-orc-pilot-plan.md#study-local-evaluator-gate)
+  owns its baseline/natural-partial identities, two complete independent
+  repetitions, margin/error predicate, exact model binding, approval and budget.
+  Its local consumer must recompute the gate from original scores and verified
+  source → pooled-patch → clone-ID joins; a copied passing flag is insufficient.
+  Missing, invalid, excluded or duplicate observations cannot shrink the declared
+  denominator. This scoped approval does not authorize other studies or relax
+  task-family qualification, provenance or owner-approved spend.
+
+  For harness control checks with a `calibration` block, absence of
+  `calibration.rule` preserves the historical algorithm exactly:
   four declared roles upstream/stub/partial/mutant, P1 upstream−stub ≥margin,
   P2 stub < partial < upstream, P3 upstream−mutant ≥mutant_margin, the declared
   failing-pair error rate and anchor spread gate. Unknown rules refuse. New-rule
@@ -509,10 +526,13 @@ The criterion names which measure is primary.
 ### Experiment Model Policy
 
 **Current policy.** Experiment roles default to the owner's Sonnet/Terra cap.
-The owner-selected functional calibration binds exact `gpt-5.6-luna` high and
-`gpt-6.1-sol` low coders, with `gpt-6.1-sol` high judges, and forbids Claude and
-native delegation. That exception is scoped to the selected protocol, not a
-general increase or spend approval. The generic guard retains
+The completed [LS11 functional calibration](../plans/2026-10-23-functional-calibration-sol-high-plan.md)
+bound exact `gpt-5.6-luna` high and `gpt-6.1-sol` high coders, with `gpt-6.1-sol`
+high judges, and forbade Claude and native delegation. That exception is scoped to its frozen protocol, not a
+general increase or spend approval. The separately approved
+[PRR-P2 plan](../plans/2026-10-23-prr-direct-orc-pilot-plan.md) binds Luna 5.6 high
+for both author arms and Sol 6.1 high for its evaluator and final judges, within
+that plan's gates and maximum eleven-new/87-overall starts. The generic guard retains
 `claude-sonnet-5-5` for legacy callers, defaults Codex to Terra, and admits exact
 Luna or Sol 6.1 only through an explicit per-run binding. Fable, other higher
 models and unknown IDs refuse.

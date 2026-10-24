@@ -1,0 +1,10 @@
+{
+  "dev-check": {
+    "stable_command": ["__PYTHON__", "__TRUSTED_CHECK__", "check"],
+    "closure": ["__DEV_CHECK__", "__TRUSTED_CHECK__"]
+  },
+  "audit-diagnosis": {
+    "stable_command": ["__PYTHON__", "__TRUSTED_CHECK__", "audit-diagnosis"],
+    "closure": ["__DEV_CHECK__", "__TRUSTED_CHECK__"]
+  }
+}

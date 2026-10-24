@@ -572,11 +572,11 @@ controls and its family is qualified under its own frozen rule (family (a):
 the harness
 [difficulty-calibration rule](../plans/2026-10-14-effectiveness-harness-and-experiments-plan.md#task-8-task-difficulty-calibration);
 family (b): the oracle qualification below). A judge measure uses its frozen
-criterion-selected rule. Prospective `control-means-v1` declares exactly
+criterion-selected rule, or the explicitly approved PRR-P2 local predicate below. Prospective `control-means-v1` declares exactly
 upstream/stub/mutant, margin 1 and error_rate 0: for each task and each judge,
 `mean(upstream) − max(mean(stub), mean(mutant)) ≥ 1` over every declared batch.
 Every judge must pass; absent/excluded judges or missing/invalid controls fail.
-Spread is descriptive and there is no partial-order gate. Criteria without a
+Spread is descriptive and there is no partial-order gate. Criteria with a `calibration` block but without a
 rule retain their historical control/predicate/error/spread contract unchanged;
 unknown rules refuse. The [harness contract](orc_effectiveness_comparison_harness.md#decision)
 owns the exact rule, independent rubric components and control selection.
@@ -644,6 +644,21 @@ qualification. The measurement-specific Step-C seed is an external frozen copy w
 Sonnet-medium coder and Terra-high diagnosis; historical source retains its Sol
 policy and is not the current launch input. Model-cap enforcement and preparation
 do not establish family qualification, calibration or quality improvement.
+
+The separately approved [PRR-P2 protocol](../plans/2026-10-23-prr-direct-orc-pilot-plan.md)
+uses the owner's explicit transfer of LS11 difficulty evidence to its declared
+corrected public fixture and a study-local evaluator predicate, as admitted by
+the [harness contract](orc_effectiveness_comparison_harness.md#decision). Its
+`purpose: "calibration"`, `calibration_kind: "measure"` criterion omits the
+`calibration` block, so generic results omit the `calibration` key
+(`results.get("calibration")` is `None`) and supply no generic verdict. Only the
+study-local consumer recomputes its two-repetition, margin-one, zero-error gate
+from canonical original scores and verified control/clone joins. This is no
+unknown or new generic calibration rule, no structural-search receipt and no
+C1/V2 admission. The transfer is a bounded owner assumption, not new difficulty
+proof; the plan owns exact controls, models, complete denominators, budget and
+conditional pilot dispatch. Existing structural-search receipt gates below are
+unchanged, and a local passing result cannot satisfy them.
 
 ### External Qualification Receipt
 
