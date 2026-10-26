@@ -273,6 +273,7 @@ reusing instructions. Plans can contain active obligations as well as history.
 | <a id="design-gap-architecture-template"></a>[Design Gap Architecture Template](templates/design_gap_implementation_architecture_template.md) | Guide or reference; prerequisites and limits at destination |
 | <a id="workflow-language-design-principles"></a>[Workflow Language Design Principles](design/workflow_language_design_principles.md) | Component contract or target; check admitted scope |
 | <a id="workflow-command-adapter-contract"></a>[Workflow Command Adapter Contract](design/workflow_command_adapter_contract.md) | Component contract or target; check admitted scope |
+| [Workflow Lisp Frontend Deduplication](design/workflow_lisp_frontend_deduplication.md) and [implementation plan](plans/2026-10-26-frontend-deduplication-plan.md) | Proposed authoring simplifications; not implemented or selected for execution |
 | <a id="workflow-lisp-mvp-comparison"></a>[Workflow Lisp MVP Comparison](workflow_lisp_mvp_comparison.md) | Guide or reference; prerequisites and limits at destination |
 | <a id="workflow-lisp-unified-design-for-unimplemented-surfaces"></a>[Workflow Lisp Unified Design for Unimplemented Surfaces](design/workflow_lisp_unified_frontend_design.md) | Component contract or target; check admitted scope |
 | <a id="workflow-lisp-repl-introspection"></a>[Workflow Lisp REPL Introspection](design/workflow_lisp_repl_introspection.md) | Component contract or target; check admitted scope |

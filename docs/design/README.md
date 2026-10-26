@@ -68,6 +68,12 @@ profile or qualification gate. Target 2.40 adds [durable host input](workflow_li
 
 ## Frontend Design Direction
 
+[Frontend deduplication](workflow_lisp_frontend_deduplication.md) proposes
+omitted static command argv, inferred typed host answers and one shared command
+closure declaration. Its [implementation plan](../plans/2026-10-26-frontend-deduplication-plan.md)
+is for review; admission and implementation remain unselected. Use the current
+explicit forms until the owning contracts and verification establish support.
+
 | Document | Purpose | Scope | Authoring use |
 | --- | --- | --- | --- |
 | [workflow_lisp_run_ref_expression_environments.md](workflow_lisp_run_ref_expression_environments.md) | Static named-workflow children, prepared clones and a Bubblewrap confinement profile | Partial at 2.38: command/recovery/export delivery accepted; private provider transport integrated; real qualification blocked | Bounded [command-only recipe](../lisp_workflow_drafting_guide.md#confined-workflow-children-target-238-command-only); full provider example not copy-safe |
