@@ -48,6 +48,23 @@ Historical feature tables below record their original introductions, not
 continued source admission. The [source-floor contract](../docs/design/workflow_lisp_executor_retirement.md#source-floor-235)
 owns the finite retained-reader boundary; its implementation plan owns status.
 
+**Additive frontend authoring deduplication.**
+
+The [frontend](../docs/design/workflow_lisp_frontend_specification.md),
+[command](../docs/design/workflow_command_adapter_contract.md) and
+[host-input](../docs/design/workflow_lisp_durable_host_input.md) contracts admit
+source normalization at targets 2.35–2.40: omitted external-tool
+argv is resolved from its binding, and an explicit shared-closure manifest is
+expanded to concrete per-command declarations. At 2.40 only, a directly applied
+prompt with a declared answer contract can supply omitted host-input `:returns`.
+This scoped additive extension introduces no target, state schema, runtime
+protocol or reinterpretation of existing explicit forms. Typed imported owners
+retain concrete operands, canonical types and their original admission rules.
+It grants no cross-build or cross-package resume compatibility. The
+[implementation plan](../docs/plans/2026-10-26-frontend-deduplication-plan.md)
+and [verification report](../docs/reports/2026-10-26-frontend-deduplication-verification.md)
+own delivery status and captured evidence.
+
 - Tracks
   - DSL version: governs available fields and validation behavior.
   - State schema version: `schema_version` stored in `state.json`.
@@ -884,7 +901,7 @@ owns the finite retained-reader boundary; its implementation plan owns status.
     partition are owned by the [Phase 2 plan](../docs/plans/2026-09-29-workflow-lisp-evaluated-execution-phase-2-plan.md)
     and `tests/test_workflow_lisp_closed_program_corpus.py`.
   - Every supplied command boundary and every used compiler-injected boundary
-    requires an explicit `closure` array, including `[]` when nothing is
+    requires a closure declaration, including `[]` when nothing is
     declared (C1). Canonical declarations enter program identity; compilation
     does not read their file contents (C2). See [IO](io.md) and
     `tests/test_workflow_lisp_command_boundary_closure.py`.

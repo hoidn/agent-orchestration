@@ -621,3 +621,47 @@ def test_command_result_adapter_accepts_recursive_record_input(tmp_path: Path) -
     completed = dict(typed.signature.params)["completed"]
     assert completed.name.endswith("Wrapper")
     assert completed.field_types["payload"].name.endswith("WorkReport")
+
+
+@pytest.mark.parametrize("body,code", [
+    ('(command-result emit :returns String)', "command_adapter_missing_contract"),
+    ('(command-result emit :inputs () :returns String)', "command_adapter_missing_contract"),
+    ('(command-result emit :argv () :returns String)', "command_result_argv_invalid"),
+    ('(command-result emit :argv () :inputs () :returns String)', "command_result_argv_invalid"),
+    ('(command-result emit :inputs ())', "frontend_parse_error"),
+])
+def test_omitted_command_argv_preserves_refusals(tmp_path, body, code):
+    from tests.test_workflow_lisp_command_input_documents import _compile_current_source, _source
+
+    with pytest.raises(LispFrontendCompileError) as caught:
+        _compile_current_source(tmp_path, source=_source(body), commands={})
+    assert caught.value.diagnostics[0].code == code
+
+
+@pytest.mark.parametrize("stable,code", [
+    ((), "command_adapter_missing_contract"),
+    (("python", ""), "command_adapter_missing_contract"),
+    (("python", "-c", "print(1)"), "inline_python_command_in_workflow"),
+    (("sh", "-c", "true"), "inline_shell_command_in_workflow"),
+    (("sh -c true",), "command_result_argv_invalid"),
+])
+def test_omitted_command_argv_uses_existing_boundary_checks(tmp_path, stable, code):
+    from tests.test_workflow_lisp_command_input_documents import _compile_current_source, _source
+
+    with pytest.raises(LispFrontendCompileError) as caught:
+        _compile_current_source(tmp_path, source=_source('(command-result emit :returns String)'),
+            commands={"emit": ExternalToolBinding(name="emit", stable_command=stable)})
+    assert caught.value.diagnostics[0].code == code
+
+
+def test_omitted_command_argv_keeps_hidden_effect_refusal(tmp_path):
+    path = tmp_path / "hidden.orc"
+    source = (FIXTURES / "invalid" / "macro_hidden_command_effect.orc").read_text()
+    path.write_text(source.replace(':argv ("python" "scripts/run_checks.py" report_path)', ''))
+    with pytest.raises(LispFrontendCompileError) as caught:
+        compile_stage3_module(path, validate_shared=False, workspace_root=tmp_path,
+            command_boundaries={"run_checks": ExternalToolBinding(name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"))})
+    diagnostic = caught.value.diagnostics[0]
+    assert diagnostic.code == "macro_hidden_effect"
+    assert diagnostic.expansion_stack

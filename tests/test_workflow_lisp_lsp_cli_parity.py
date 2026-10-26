@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import fields, replace
 import hashlib
 import importlib
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -84,7 +85,11 @@ def _make_cli_lsp_workspace(
 
 
 def _observe_real_cli_and_lsp_captures(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, explicit_source_roots: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    explicit_source_roots: bool,
+    command_boundaries_payload: dict[str, object] | None = None,
 ):
     workspace, entry_path, caller_roots = _make_cli_lsp_workspace(
         tmp_path, explicit_source_roots=explicit_source_roots,
@@ -112,6 +117,11 @@ def _observe_real_cli_and_lsp_captures(
     monkeypatch.setattr(compiler, "_effective_source_roots", observe_roots)
     monkeypatch.chdir(workspace)
     argv = ["run", str(entry_path), "--entry-workflow", "entry-publication-runtime", "--dry-run", "--quiet"]
+    command_boundaries_path = None
+    if command_boundaries_payload is not None:
+        command_boundaries_path = workspace / "commands.json"
+        command_boundaries_path.write_text(json.dumps(command_boundaries_payload), encoding="utf-8")
+        argv.extend(("--command-boundaries-file", str(command_boundaries_path)))
     for root in caller_roots:
         argv.extend(("--source-root", str(root)))
     assert run_command.run_workflow(cli_main.create_parser().parse_args(argv)).exit_code == 0
@@ -122,6 +132,7 @@ def _observe_real_cli_and_lsp_captures(
         root_uri=workspace.as_uri(), initialization_options={
             "entry_workflows": {str(entry_path): "entry-publication-runtime"},
             "source_roots": caller_roots,
+            **({"command_boundaries_path": command_boundaries_path} if command_boundaries_path else {}),
         },
     ))
     driver.apply_transition(lsp_state.open_entry(driver.state,
@@ -133,14 +144,23 @@ def _observe_real_cli_and_lsp_captures(
     assert before_lsp == {path.relative_to(workspace): path.read_bytes()
         for path in workspace.rglob("*") if path.is_file()}
     assert not (workspace / ".orchestrate" / "runs").exists()
-    return cli_request, cli_result, accepted.build_value, tuple(effective_root_observations), workspace, entry_path, caller_roots
+    return (
+        cli_request,
+        cli_result,
+        accepted.build_value,
+        tuple(effective_root_observations),
+        workspace,
+        entry_path,
+        caller_roots,
+        driver,
+    )
 
 
 @pytest.mark.parametrize("explicit_source_roots", (False, True))
 def test_real_evaluated_dry_run_and_lsp_consume_the_same_request(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, explicit_source_roots: bool,
 ) -> None:
-    cli_request, cli_result, lsp_result, observations, workspace, entry_path, caller_roots = _observe_real_cli_and_lsp_captures(
+    cli_request, cli_result, lsp_result, observations, workspace, entry_path, caller_roots, _driver = _observe_real_cli_and_lsp_captures(
         tmp_path, monkeypatch, explicit_source_roots=explicit_source_roots,
     )
     capture = lsp_result.compile_request_capture
@@ -164,6 +184,46 @@ def test_real_evaluated_dry_run_and_lsp_consume_the_same_request(
     assert capture.source_roots == caller_roots
     assert builtin_root not in capture.source_roots
     assert builtin_root != workspace
+
+
+def test_shared_command_manifest_is_frozen_and_expanded_for_real_cli_and_lsp(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = {
+        "$schema": "workflow-command-boundaries.v1",
+        "shared_closure": ["common.py"],
+        "commands": {
+            "unused": {"stable_command": ["python", "unused.py"]},
+        },
+    }
+    cli_request, cli_result, lsp_result, _observations, workspace, _entry, _roots, driver = (
+        _observe_real_cli_and_lsp_captures(
+            tmp_path,
+            monkeypatch,
+            explicit_source_roots=False,
+            command_boundaries_payload=payload,
+        )
+    )
+    initialization = driver.initialization_configuration
+    frozen_manifest = initialization.command_boundary_manifest
+    [command] = initialization.command_boundaries.values()
+    capture = lsp_result.compile_request_capture
+    manifest_path = (workspace / "commands.json").resolve()
+    vector = driver.state.configuration_vector
+    assert vector is not None
+
+    assert cli_request.command_boundaries_path == manifest_path
+    assert frozen_manifest["$schema"] == payload["$schema"]
+    assert frozen_manifest["shared_closure"] == ("common.py",)
+    assert frozen_manifest["commands"]["unused"]["stable_command"] == ("python", "unused.py")
+    assert command.closure == ("common.py",)
+    assert cli_result.typed_program.configuration_bindings["command_boundaries"] == capture.command_boundaries
+    assert capture.command_boundaries["unused"].closure == ("common.py",)
+    assert (
+        manifest_path,
+        f"sha256:{hashlib.sha256(manifest_path.read_bytes()).hexdigest()}",
+    ) in vector.configuration_revisions
 
 
 @pytest.mark.parametrize(

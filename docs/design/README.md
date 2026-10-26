@@ -68,11 +68,16 @@ profile or qualification gate. Target 2.40 adds [durable host input](workflow_li
 
 ## Frontend Design Direction
 
-[Frontend deduplication](workflow_lisp_frontend_deduplication.md) proposes
-omitted static command argv, inferred typed host answers and one shared command
-closure declaration. Its [implementation plan](../plans/2026-10-26-frontend-deduplication-plan.md)
-is for review; admission and implementation remain unselected. Use the current
-explicit forms until the owning contracts and verification establish support.
+[Frontend deduplication](workflow_lisp_frontend_deduplication.md) is an
+incorporated companion decision record. Current rules live in the
+[frontend baseline](workflow_lisp_frontend_specification.md#23-command-result),
+[command contract](workflow_command_adapter_contract.md#static-command-argv) and
+[host-input contract](workflow_lisp_durable_host_input.md): binding-supplied argv
+and shared closures at 2.35–2.40, declared-prompt host returns at 2.40. The
+[plan](../plans/2026-10-26-frontend-deduplication-plan.md) and
+[verification report](../reports/2026-10-26-frontend-deduplication-verification.md)
+own delivery gates and captured evidence; flat manifests and explicit forms
+remain supported.
 
 | Document | Purpose | Scope | Authoring use |
 | --- | --- | --- | --- |

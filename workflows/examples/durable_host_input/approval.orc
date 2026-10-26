@@ -21,7 +21,6 @@
 
   (defproc approval ((cause Cause) (summary String) (evidence Evidence) (guide Guide)) -> HostReply[Approval]
     (request-input (approval-question :cause cause :summary summary :guide guide)
-      :returns Approval
       :timeout-sec 3600
       :show (evidence)))
 

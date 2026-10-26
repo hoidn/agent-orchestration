@@ -76,6 +76,7 @@ from .syntax import (
     syntax_identifier,
     syntax_node_datum,
 )
+from .type_env import render_type_ref
 
 if TYPE_CHECKING:
     from .type_env import TypeRef
@@ -6398,16 +6399,22 @@ def _elaborate_request_input(
         _raise_error("`request-input` requires one question", code="request_input_arity_invalid",
             span=datum.span, form_path=form_path, expansion_stack=datum.expansion_stack)
     sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`request-input`") if typed else {}
-    if typed and (":returns" not in sections or set(sections) - {":returns", ":timeout-sec", ":show"}):
-        _raise_error("`request-input` requires :returns and admits only :timeout-sec and :show",
+    question_node = datum.items[1]
+    head = syntax_head(question_node) if isinstance(question_node, SyntaxList) else None
+    prompt = session_state.prompt_catalog.resolve(head.resolved_name) if typed and head is not None and session_state.prompt_catalog else None
+    inferred_answer_type_name = (
+        render_type_ref(prompt.return_type_ref)
+        if prompt is not None and prompt.declaration.return_contract_declared
+        else None
+    )
+    if typed and ((":returns" not in sections and inferred_answer_type_name is None)
+            or set(sections) - {":returns", ":timeout-sec", ":show"}):
+        _raise_error("`request-input` requires :returns unless its prompt declares a return contract; admits only :timeout-sec and :show",
             code="request_input_keyword_invalid", span=datum.span, form_path=form_path,
             expansion_stack=datum.expansion_stack)
     def operand(item):
         return _elaborate(item, form_path=form_path, bound_names=bound_names,
             procedure_names=procedure_names, session_state=session_state)
-    question_node = datum.items[1]
-    head = syntax_head(question_node) if isinstance(question_node, SyntaxList) else None
-    prompt = session_state.prompt_catalog.resolve(head.resolved_name) if typed and head is not None and session_state.prompt_catalog else None
     question = elaborate_prompt_application(question_node, catalog=session_state.prompt_catalog,
         elaborate_fill=operand, form_path=form_path) if prompt is not None else operand(question_node)
     shown = sections.get(":show")
@@ -6416,8 +6423,8 @@ def _elaborate_request_input(
             span=shown.span, form_path=form_path, expansion_stack=shown.expansion_stack)
     return RequestInputExpr(question=question, span=datum.span, form_path=form_path,
         expansion_stack=datum.expansion_stack,
-        answer_type_name=parse_return_spec(sections[":returns"], form_path=form_path,
-            label="`request-input :returns`").type_name if typed else None,
+        answer_type_name=(parse_return_spec(sections[":returns"], form_path=form_path,
+            label="`request-input :returns`").type_name if ":returns" in sections else inferred_answer_type_name) if typed else None,
         timeout_sec=operand(sections[":timeout-sec"]) if ":timeout-sec" in sections else None,
         show=tuple(operand(item) for item in shown.items) if shown is not None else ())
 
@@ -6478,6 +6485,9 @@ def _command_argv(argv_node, *, form_path, **elaboration):
     if not isinstance(argv_node, SyntaxList):
         _raise_error("`command-result :argv` must be a list", span=argv_node.span,
                      form_path=form_path, expansion_stack=argv_node.expansion_stack)
+    if not argv_node.items:
+        _raise_error("`command-result` requires a non-empty argv list", code="command_result_argv_invalid",
+                     span=argv_node.span, form_path=form_path, expansion_stack=argv_node.expansion_stack)
     return tuple(_elaborate(item, form_path=form_path, **elaboration) for item in argv_node.items)
 
 
@@ -6502,8 +6512,8 @@ def _elaborate_command_result(
     procedure_names: frozenset[str],
     session_state: ElaborationSessionState,
 ) -> CommandResultExpr:
-    if len(datum.items) < 5:
-        _raise_error("`command-result` requires a step name plus either :argv or :adapter/:inputs and :returns",
+    if len(datum.items) < 2:
+        _raise_error("`command-result` requires a step name and :returns",
                      span=datum.span, form_path=form_path, expansion_stack=datum.expansion_stack)
     step_identifier = syntax_identifier(datum.items[1])
     if step_identifier is None:
@@ -6532,10 +6542,6 @@ def _elaborate_command_result(
     )
 
 
-def _command_document_mode(argv_node, adapter_node, inputs_node):
-    return ((argv_node is not None) and (inputs_node is not None) and (adapter_node is None))
-
-
 def _validate_command_operand_mode(argv_node, adapter_node, inputs_node, document, *, datum, form_path):
     if argv_node is not None and not document and (adapter_node is not None or inputs_node is not None):
         _raise_error("`command-result` must use exactly one of :argv or :adapter/:inputs",
@@ -6545,16 +6551,18 @@ def _validate_command_operand_mode(argv_node, adapter_node, inputs_node, documen
 
 def _command_operands_from_sections(sections, *, datum, form_path, **elaboration):
     argv_node, adapter_node, inputs_node = (sections.get(key) for key in (":argv", ":adapter", ":inputs"))
-    document = _command_document_mode(argv_node, adapter_node, inputs_node)
+    document = inputs_node is not None and adapter_node is None
     _validate_command_operand_mode(argv_node, adapter_node, inputs_node, document, datum=datum, form_path=form_path)
-    if argv_node is None:
+    if adapter_node is not None:
         name, inputs = _command_adapter_inputs(adapter_node, inputs_node, datum=datum, form_path=form_path, **elaboration)
         return (), name, inputs, False, ()
-    argv = _command_argv(argv_node, form_path=form_path, **elaboration)
+    argv = _command_argv(argv_node, form_path=form_path, **elaboration) if argv_node is not None else ()
     inputs = ()
     if document:
         inputs = _parse_command_inputs(inputs_node, code="command_result_inputs_invalid", form_path=form_path, **elaboration)
     order = tuple(key[1:] for key in sections if key in (":argv", ":inputs")) if document else ()
+    if document and argv_node is None:
+        order = ("argv", "inputs")
     return argv, None, inputs, document, order
 
 

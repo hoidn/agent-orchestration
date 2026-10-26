@@ -73,12 +73,16 @@ same scoped leaf result. The normative durable-state and CLI contracts are in
 [State](../../specs/state.md) and [CLI](../../specs/cli.md).
 
 Current target-2.40 [durable host input](workflow_lisp_durable_host_input.md)
-uses `(request-input question :returns A [:timeout-sec duration] [:show (path ...)])`
+uses `(request-input question [:returns A] [:timeout-sec duration] [:show (path ...)])`
 and the ordinary imported generic `std/host::HostReply[A]`: `ANSWERED(value A, by
 String)`, `CANCELLED(by String)`, `EXPIRED`. Brackets here mark optional operands,
 not literal source syntax. Answer `A` is `String`, an enum or a fully transportable
-closed union. The question is a string expression or applied typed `defprompt`;
-its declared answer contract must agree. Show operands are typed relpaths,
+closed union. The question is a string expression or directly applied typed
+`defprompt`. An explicitly declared prompt answer contract supplies omitted
+`:returns`; raw questions and prompts with only an implicit return require it.
+An explicit answer contract must agree with the prompt. Imported prompt types
+retain their canonical declaring owner through specialization and typed export;
+caller-local names cannot rebind them. Show operands are typed relpaths,
 not strings; timeout is an exact positive integer expression. The checker
 retains full instantiated answer/reply constraints through closed compilation,
 transport validation, replay and branch refinement.
@@ -2940,6 +2944,34 @@ invocation-free and validates the completed state/evidence boundary without
 reading the phase ledger.
 
 ## 23. Command Result
+
+At admitted targets 2.35–2.40, `:returns` is required. With neither `:argv` nor
+`:adapter`, the named `ExternalToolBinding` supplies its **complete** literal
+`stable_command`:
+
+```lisp
+(command-result inspect :returns Inspection)
+(command-result inspect :inputs () :returns Inspection)
+(command-result inspect :inputs ((target task.path)) :returns Inspection)
+```
+
+The first sends no input document; the second sends `{}`; the third sends the
+checked fields. A stable prefix alone cannot establish the tool's required
+argument count. Dynamic or additional arguments still need explicit `:argv`.
+Missing bindings, implicit certified-adapter mode and explicitly empty
+`:argv ()` refuse; the explicit adapter route remains supported.
+
+The command typechecker materializes the literal operands before typed export,
+WCC and closed construction, using the binding's defining environment. Nested
+calls and effectful inputs retain structural order and exactly-once evaluation;
+the generated literals add no effect site. Typed imports require concrete argv
+and retain producer-owned argv, policy and closure, even with a homonymous
+consumer binding. Malformed imports cannot request ambient inference.
+
+The [command boundary contract](workflow_command_adapter_contract.md#static-command-argv)
+owns binding rules and the optional shared-closure manifest. Both manifest
+shapes become ordinary concrete bindings; runtime and persisted schemas are
+unchanged.
 
 ```lisp
 (command-result validate-plan

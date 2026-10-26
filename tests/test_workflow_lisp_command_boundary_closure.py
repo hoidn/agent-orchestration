@@ -36,6 +36,7 @@ REVIEW_LOOP_FIXTURE = (
     / "valid"
     / "phase_stdlib_review_loop.orc"
 )
+COMMAND_BOUNDARIES_SCHEMA = "workflow-command-boundaries.v1"
 
 
 def _review_loop_entry(tmp_path: Path) -> Path:
@@ -83,6 +84,155 @@ def test_closure_is_parsed_with_absence_distinct_from_an_empty_declaration(tmp_p
     bindings = _parse_command_boundaries_manifest(payload, manifest_path=tmp_path / "commands.json")
 
     assert [bindings[name].closure for name in "abc"] == [("lib/", "b.py"), None, ()]
+
+
+def test_shared_closure_expands_each_row_and_matches_an_explicit_flat_manifest(
+    tmp_path: Path,
+) -> None:
+    certified = {
+        "kind": "certified_adapter",
+        "stable_command": ["python", "adapter.py"],
+        "input_contract": {"type": "object"},
+        "output_type_name": "Result",
+        "effects": ["read"],
+        "path_safety": {"kind": "workspace_relpath"},
+        "source_map_behavior": "step",
+        "fixture_ids": ["ok"],
+        "negative_fixture_ids": ["bad"],
+        "closure": [],
+    }
+    commands = {
+        "shared-only": {
+            "stable_command": ["python", "inspect.py"],
+            "must_not_repeat": True,
+        },
+        "shared-plus-local": {
+            "stable_command": ["python", "summarize.py"],
+            "closure": ["tools/local.py", "tools/common.py"],
+            "retirement_class": "legacy",
+        },
+        "certified": certified,
+    }
+    payload = {
+        "$schema": COMMAND_BOUNDARIES_SCHEMA,
+        "shared_closure": ["tools/common.py", "tools/common.py"],
+        "commands": commands,
+    }
+    original = json.loads(json.dumps(payload))
+
+    envelope_bindings = _parse_command_boundaries_manifest(
+        payload,
+        manifest_path=tmp_path / "commands.json",
+    )
+    flat_bindings = _parse_command_boundaries_manifest(
+        {
+            "shared-only": {
+                "stable_command": ["python", "inspect.py"],
+                "must_not_repeat": True,
+                "closure": ["tools/common.py"],
+            },
+            "shared-plus-local": {
+                "stable_command": ["python", "summarize.py"],
+                "closure": ["tools/common.py", "tools/common.py", "tools/local.py", "tools/common.py"],
+                "retirement_class": "legacy",
+            },
+            "certified": {
+                **certified,
+                "closure": ["tools/common.py", "tools/common.py"],
+            },
+        },
+        manifest_path=tmp_path / "flat.json",
+    )
+
+    assert envelope_bindings["shared-only"].closure == (
+        "tools/common.py",
+        "tools/common.py",
+    )
+    assert envelope_bindings["shared-plus-local"].closure == (
+        "tools/common.py",
+        "tools/common.py",
+        "tools/local.py",
+        "tools/common.py",
+    )
+    assert envelope_bindings["certified"].closure == (
+        "tools/common.py",
+        "tools/common.py",
+    )
+    assert envelope_bindings["shared-only"].must_not_repeat is True
+    assert envelope_bindings["shared-plus-local"].retirement_class == "legacy"
+    assert canonical_command_configuration(envelope_bindings, origins={}) == canonical_command_configuration(
+        flat_bindings,
+        origins={},
+    )
+    assert json.loads(json.dumps(payload)) == original
+
+
+@pytest.mark.parametrize(
+    ("payload", "message_fragment"),
+    (
+        ({"$schema": COMMAND_BOUNDARIES_SCHEMA, "shared_closure": [], "commands": {}, "extra": 1}, "requires exactly"),
+        ({"$schema": COMMAND_BOUNDARIES_SCHEMA, "shared_closure": []}, "requires exactly"),
+        ({"$schema": COMMAND_BOUNDARIES_SCHEMA, "commands": {}}, "requires exactly"),
+        ({"$schema": "workflow-command-boundaries.v2", "shared_closure": [], "commands": {}}, "unsupported command boundaries manifest schema"),
+        ({"$schema": COMMAND_BOUNDARIES_SCHEMA, "shared_closure": [], "commands": []}, "`commands`"),
+        ({"$schema": COMMAND_BOUNDARIES_SCHEMA, "shared_closure": None, "commands": {}}, "`shared_closure`"),
+        ({"$schema": COMMAND_BOUNDARIES_SCHEMA, "shared_closure": ["bad\x00path"], "commands": {}}, "`shared_closure`"),
+        ({"$schema": COMMAND_BOUNDARIES_SCHEMA, "shared_closure": [], "commands": {"unused": {"closure": None}}}, "`closure` for `unused`"),
+    ),
+    ids=("extra-key", "missing-commands", "missing-shared", "unknown-schema", "commands-not-object", "null-shared", "invalid-shared-path", "invalid-unused-local-path"),
+)
+def test_shared_closure_envelope_rejects_malformed_declarations(
+    tmp_path: Path,
+    payload,
+    message_fragment: str,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _parse_command_boundaries_manifest(payload, manifest_path=tmp_path / "commands.json")
+
+    assert excinfo.value.diagnostics[0].code == "command_boundary_manifest_invalid"
+    assert message_fragment in excinfo.value.diagnostics[0].message
+
+
+@pytest.mark.parametrize("name", ("", 7))
+def test_shared_closure_envelope_validates_nested_command_names_before_binding(
+    tmp_path: Path,
+    name,
+) -> None:
+    payload = {
+        "$schema": COMMAND_BOUNDARIES_SCHEMA,
+        "shared_closure": [],
+        "commands": {name: {"stable_command": ["python", "tool.py"], "closure": []}},
+    }
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _parse_command_boundaries_manifest(payload, manifest_path=tmp_path / "commands.json")
+
+    assert excinfo.value.diagnostics[0].code == "command_boundary_manifest_invalid"
+
+
+def test_object_valued_reserved_command_names_remain_valid_flat_rows(tmp_path: Path) -> None:
+    payload = {
+        "$schema": {"stable_command": ["python", "schema.py"], "closure": []},
+        "commands": {"stable_command": ["python", "commands.py"], "closure": []},
+        "shared_closure": {"stable_command": ["python", "shared.py"], "closure": []},
+    }
+
+    bindings = _parse_command_boundaries_manifest(payload, manifest_path=tmp_path / "commands.json")
+
+    assert set(bindings) == {"$schema", "commands", "shared_closure"}
+
+
+def test_empty_shared_closure_is_an_explicit_empty_declaration(tmp_path: Path) -> None:
+    bindings = _parse_command_boundaries_manifest(
+        {
+            "$schema": COMMAND_BOUNDARIES_SCHEMA,
+            "shared_closure": [],
+            "commands": {"tool": {"stable_command": ["python", "tool.py"]}},
+        },
+        manifest_path=tmp_path / "commands.json",
+    )
+
+    assert bindings["tool"].closure == ()
 
 
 @pytest.mark.parametrize("kind", ["external_tool", "certified_adapter"])

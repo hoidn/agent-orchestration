@@ -86,18 +86,29 @@ The standard module exports an ordinary first-order generic union:
 
 ```lisp
 (request-input question
-  :returns AnswerType
-  :timeout-sec positive-integer-expression
-  :show (path-expression ...))
+  [:returns AnswerType]
+  [:timeout-sec positive-integer-expression]
+  [:show (path-expression ...)])
 ```
 
-`:returns` is required. `:timeout-sec` and `:show` are optional, each at most
-once. The question is either a `String` expression or an ordinary fully applied
+`:returns` is required for raw questions and prompts without an explicitly
+declared return contract. A direct, fully applied typed `defprompt` with a
+declared answer contract supplies it when omitted. `:timeout-sec` and `:show`
+are optional, each at most once. Brackets mark optional syntax. The question is either a `String` expression or an ordinary fully applied
 `defprompt` with its existing typed `:fills`/`:doc` semantics. Prompt applications
-are admitted directly at this new question position; they do not become general
+are admitted directly at this question position; they do not become general
 runtime prompt values. A declared prompt return contract, if present, must agree
-with `:returns`; it describes the answer type, not the `HostReply` wrapper.
-The host question does not append provider-specific output-file instructions.
+with an explicit `:returns`; it describes the answer type, not the `HostReply`
+wrapper. Omission uses the prompt's canonical declaring-owner type, including
+through aliases, specialization and typed imports. At an authored call to an
+imported prompt, the answer type, including its generic head and nested type
+arguments, must be available through the caller's normal imports. Inference
+neither exposes private types nor rebinds them to caller-local names. Typed
+producer capsules retain their own type environment. A prompt's implicit/default
+return is not an answer contract; no type is inferred from question text, answers
+or surrounding expected types.
+The ordinary transportability and explicit-mismatch checks still apply. The
+host question does not append provider-specific output-file instructions.
 
 ```lisp
 (defprompt approval-question
@@ -105,7 +116,6 @@ The host question does not append provider-specific output-file instructions.
   "Approve this recovery? {summary}")
 
 (request-input (approval-question :summary diagnosis.summary :report diagnosis.report)
-  :returns Approval
   :timeout-sec 86400
   :show (v.evidence bundle.logs))
 ```

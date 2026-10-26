@@ -38,6 +38,90 @@ BOUNDARIES = {
 }
 
 
+@pytest.mark.parametrize("procedure", [False, True])
+@pytest.mark.parametrize("target", ["2.35", "2.40"])
+def test_source_free_short_command_keeps_producer_binding(tmp_path, procedure, target):
+    from orchestrator.workflow_lisp.expressions import CommandResultExpr
+
+    producer = tmp_path / "producer.orc"
+    command = '(command-result inspect :returns Int)'
+    lowering = ':lowering inline' if target == "2.35" else ''
+    helper = (f'(defproc probe () -> Int :effects ((uses-command inspect)) {lowering} {command})'
+              if procedure else '')
+    producer.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
+      (defmodule producer) (export run) {helper}
+      (defworkflow run () -> Int {"(probe)" if procedure else command}))''')
+    (tmp_path / "original.py").write_text("print(1)\n")
+    binding = ExternalToolBinding(name="inspect", stable_command=("python", "original.py", "--json"),
+        closure=("original.py",), must_not_repeat=True)
+    native = compile_typed_program(producer, entry_workflow="run", source_roots=(tmp_path,),
+        workspace_root=tmp_path, command_boundaries={"inspect": binding})
+    owner = next(iter(native.procedures.values())) if procedure else native.entry
+    (expr,) = [node for node in walk_expr(owner.typed_body.expr) if isinstance(node, CommandResultExpr)]
+    assert tuple(arg.value for arg in expr.argv) == binding.stable_command
+    assert native.command_boundaries["inspect"].closure == ("original.py",)
+    assert native.command_boundaries["inspect"].must_not_repeat
+    producer.unlink()
+    consumer = tmp_path / "consumer.orc"
+    consumer.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+      (defmodule consumer) (export run) (defworkflow run () -> Int (call dep)))''')
+    (tmp_path / "consumer.py").write_text("print(2)\n")
+    typed = compile_typed_program(consumer, entry_workflow="run", source_roots=(tmp_path,),
+        workspace_root=tmp_path, imported_programs={"dep": native},
+        command_boundaries={"inspect": ExternalToolBinding(name="inspect",
+            stable_command=("python", "consumer.py"), closure=("consumer.py",))})
+    assert typed.imported_programs["dep"] is native
+    built = build_closed_program(typed)
+    effects = [node for definition in built.tree["definitions"].values()
+               for node in _ast_nodes(definition["body"])
+               if node.get("k") == "perform" and node.get("class") == "command"]
+    assert effects and all(node["command"] == list(binding.stable_command) for node in effects)
+    assert all(node["repeat"] == "never" and node["closure"] == [
+        {"base": "workspace", "path": "original.py"}] for node in effects)
+    assert typed.imported_programs["dep"].command_boundaries["inspect"] == binding
+
+
+@pytest.mark.parametrize("procedure", [False, True])
+@pytest.mark.parametrize("nested", [False, True])
+def test_typed_import_empty_external_argv_requires_source(tmp_path, procedure, nested):
+    from orchestrator.workflow_lisp.expressions import CommandResultExpr
+
+    producer = tmp_path / "producer.orc"
+    command = '(command-result inspect :argv ("python" "original.py") :returns Int)'
+    helper = (f'(defproc probe () -> Int :effects ((uses-command inspect)) :lowering inline {command})'
+              if procedure else '')
+    producer.write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+      (defmodule producer) (export run) {helper}
+      (defworkflow run () -> Int {"(probe)" if procedure else command}))''')
+    native = compile_typed_program(producer, entry_workflow="run", source_roots=(tmp_path,),
+        workspace_root=tmp_path, command_boundaries={"inspect": ExternalToolBinding(
+            name="inspect", stable_command=("python", "original.py"), closure=())})
+
+    def empty_argv(node):
+        return replace(node, argv=()) if isinstance(node, CommandResultExpr) else node
+
+    if procedure:
+        procedures = {name: replace(row, typed_body=replace(row.typed_body,
+            expr=empty_argv(row.typed_body.expr))) for name, row in native.procedures.items()}
+        invalid = replace(native, procedures=procedures)
+    else:
+        entry = replace(native.entry, typed_body=replace(native.entry.typed_body,
+            expr=empty_argv(native.entry.typed_body.expr)))
+        invalid = replace(native, entry=entry, workflows={**native.workflows, entry.definition.name: entry})
+    if nested:
+        invalid = replace(native, imported_programs={"broken": invalid})
+    producer.unlink()
+    consumer = tmp_path / "consumer.orc"
+    consumer.write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+      (defmodule consumer) (export run) (defworkflow run () -> Int (call dep)))''')
+    with pytest.raises(LispFrontendCompileError) as caught:
+        compile_typed_program(consumer, entry_workflow="run", source_roots=(tmp_path,),
+            workspace_root=tmp_path, imported_programs={"dep": invalid},
+            command_boundaries={"inspect": ExternalToolBinding(name="inspect",
+                stable_command=("python", "consumer.py"), closure=())})
+    assert caught.value.diagnostics[0].code == "compiled_workflow_source_required"
+
+
 def _fixture(name: str, *, target: str = TARGET) -> str:
     return (FIXTURES / f"{name}.orc").read_text(encoding="utf-8").replace("TARGET", target)
 

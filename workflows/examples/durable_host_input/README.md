@@ -7,6 +7,15 @@ evidence. A typed host approval controls whether the action repairs or
 escalates. The displayed evidence comes from the command result; the prompt
 also reads a separate runtime policy document.
 
+The Lisp approval prompt declares `Approval`, so its direct `request-input`
+application omits `:returns`. Its command arguments depend on the diagnosis and
+selected action, so the example keeps dynamic `:argv` explicit. Raw questions
+still declare their answer type, for example:
+
+```lisp
+(request-input "Approve this recovery?" :returns Approval :timeout-sec 3600)
+```
+
 The provider is an executable local shim named `codex`. It runs the checked-in
 `stub_provider.py`, which returns a response derived from the effect identity
 and records it in `providers.log`. It makes no network request and needs no

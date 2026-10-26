@@ -162,6 +162,7 @@ from .type_env import (
     VariantCaseTypeRef,
     WorkflowRefTypeRef,
     prelude_type_names_for_target,
+    render_type_ref,
 )
 from .type_expressions import (
     AppliedTypeExpr,
@@ -1730,14 +1731,21 @@ def _compile_stage3_graph(
             type_env=type_env,
             imported_definitions=imported_prompt_defs,
         )
-        exported_prompt_defs_by_module[module_name] = {
-            name: prompt_catalog.definitions_by_name[
-                binding.canonical_name
-            ]
-            for name, binding in export_surfaces[
-                module_name
-            ].prompts_by_name.items()
-        }
+        local_type_names = frozenset(definition.name for definition in definition_module.definitions)
+        exported_prompt_defs_by_module[module_name] = {}
+        for name, binding in export_surfaces[module_name].prompts_by_name.items():
+            definition = prompt_catalog.definitions_by_name[binding.canonical_name]
+            # Preserve producer ownership without exposing private types to importers.
+            exported_prompt_defs_by_module[module_name][name] = replace(
+                definition,
+                return_type_ref=_canonicalize_nested_imported_type_ref(
+                    definition.return_type_ref,
+                    module_name=module_name,
+                    exported_names=local_type_names,
+                    enum_owner_facts=enum_owner_facts,
+                    cloned_enum_origins=imported_enum_origins,
+                ),
+            )
         raw_workflow_defs = elaborate_workflow_definitions(expanded_syntax)
         from .loop_state import retain_loop_carrier_families
 
@@ -2611,6 +2619,8 @@ def _canonicalize_nested_imported_type_ref(
         ):
             cloned_enum_origins[id(clone)] = (clone, origin[1], origin[2])
         return clone
+    if isinstance(type_ref, PathTypeRef):
+        return replace(type_ref, name=_canonical_export_type_name(module_name, type_ref.name, exported_names))
     if isinstance(type_ref, RecordTypeRef):
         from .context_types import contextual_type, is_contextual_type
 
@@ -2741,45 +2751,36 @@ def _canonicalize_nested_imported_type_ref(
                 cloned_enum_origins=cloned_enum_origins,
             ),
         )
-    if isinstance(type_ref, OptionalTypeRef):
-        return replace(
-            type_ref,
-            item_type_ref=_canonicalize_nested_imported_type_ref(
-                type_ref.item_type_ref,
-                module_name=module_name,
-                exported_names=exported_names,
-                enum_owner_facts=enum_owner_facts,
-                cloned_enum_origins=cloned_enum_origins,
-            ),
+    if isinstance(type_ref, (OptionalTypeRef, ListTypeRef)):
+        item_type_ref = _canonicalize_nested_imported_type_ref(
+            type_ref.item_type_ref,
+            module_name=module_name,
+            exported_names=exported_names,
+            enum_owner_facts=enum_owner_facts,
+            cloned_enum_origins=cloned_enum_origins,
         )
-    if isinstance(type_ref, ListTypeRef):
-        return replace(
-            type_ref,
-            item_type_ref=_canonicalize_nested_imported_type_ref(
-                type_ref.item_type_ref,
-                module_name=module_name,
-                exported_names=exported_names,
-                enum_owner_facts=enum_owner_facts,
-                cloned_enum_origins=cloned_enum_origins,
-            ),
-        )
+        head = "Optional" if isinstance(type_ref, OptionalTypeRef) else "List"
+        return replace(type_ref, name=f"{head}[{render_type_ref(item_type_ref)}]", item_type_ref=item_type_ref)
     if isinstance(type_ref, MapTypeRef):
+        key_type_ref = _canonicalize_nested_imported_type_ref(
+            type_ref.key_type_ref,
+            module_name=module_name,
+            exported_names=exported_names,
+            enum_owner_facts=enum_owner_facts,
+            cloned_enum_origins=cloned_enum_origins,
+        )
+        value_type_ref = _canonicalize_nested_imported_type_ref(
+            type_ref.value_type_ref,
+            module_name=module_name,
+            exported_names=exported_names,
+            enum_owner_facts=enum_owner_facts,
+            cloned_enum_origins=cloned_enum_origins,
+        )
         return replace(
             type_ref,
-            key_type_ref=_canonicalize_nested_imported_type_ref(
-                type_ref.key_type_ref,
-                module_name=module_name,
-                exported_names=exported_names,
-                enum_owner_facts=enum_owner_facts,
-                cloned_enum_origins=cloned_enum_origins,
-            ),
-            value_type_ref=_canonicalize_nested_imported_type_ref(
-                type_ref.value_type_ref,
-                module_name=module_name,
-                exported_names=exported_names,
-                enum_owner_facts=enum_owner_facts,
-                cloned_enum_origins=cloned_enum_origins,
-            ),
+            name=f"Map[{render_type_ref(key_type_ref)}, {render_type_ref(value_type_ref)}]",
+            key_type_ref=key_type_ref,
+            value_type_ref=value_type_ref,
         )
     return type_ref
 
@@ -3329,6 +3330,8 @@ def _is_complete_typed_program(program: object, *, _seen: frozenset[int] = froze
             getattr(workflow.specialization, "workflow_ref_bindings", {})
         )
         for node in walk_expr(workflow.typed_body.expr):
+            if isinstance(node, CommandResultExpr) and node.adapter_name is None and not node.argv:
+                return False
             if isinstance(node, CallExpr) and not (
                 node.callee_name in program.workflows
                 or node.callee_name in workflow_ref_aliases
@@ -3356,6 +3359,8 @@ def _is_complete_typed_program(program: object, *, _seen: frozenset[int] = froze
         )
         proc_ref_params.update(getattr(specialization, "proc_ref_bindings", {}))
         for node in walk_expr(procedure.typed_body.expr):
+            if isinstance(node, CommandResultExpr) and node.adapter_name is None and not node.argv:
+                return False
             if isinstance(node, CallExpr) and not (
                 node.callee_name in program.workflows
                 or node.callee_name in workflow_ref_aliases

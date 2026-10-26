@@ -46,9 +46,12 @@ authoring changes do not introduce a new result-acceptance profile.
   - Deterministic artifact contracts:
     - Admitted evaluated command boundary manifests accept `closure`, an array of
       literal file or directory paths for both `external_tool` and
-      `certified_adapter`. C1 requires it on every supplied declaration
-      (including unused rows) and every used compiler-injected binding;
-      omission refuses with `command_boundary_closure_missing`. An explicit
+      `certified_adapter`. Flat-map rows require it on every supplied declaration
+      (including unused rows); the optional `workflow-command-boundaries.v1`
+      envelope supplies shared plus local paths to every row. Missing or empty
+      local arrays add no paths; they cannot subtract the shared set. C1 requires
+      a concrete declaration on every used injected binding too. Missing flat
+      declarations refuse with `command_boundary_closure_missing`. An explicit
       `[]` is valid; `null`, non-arrays, non-string entries, empty strings and
       NUL refuse with `command_boundary_manifest_invalid`. In the historical
       through-2.34 build contract, the valid field was accepted and ignored by
@@ -461,11 +464,13 @@ Evidence: `tests/test_workflow_evaluated_command_templates.py`,
     is one external dispatch: internal executor retries are bypassed, and
     `--max-retries` and `--retry-delay` are not read.
 - Typed command input documents (external tools)
-  - `:argv` plus `:inputs ((field expression) ...)` is admitted only at
-    evaluated targets and only for `external_tool` bindings; `certified_adapter`
-    keeps its signature-ordered inline JSON document and empty authored argv;
-    `:argv`-only forms of either kind are unchanged. Omitting `:inputs` sends
-    no document and no token; `:inputs ()` sends `{}`.
+  - `:inputs ((field expression) ...)` with explicit or binding-supplied argv
+    is admitted at evaluated targets 2.35–2.40 only for `external_tool` bindings.
+    Omitted `:argv` with no `:adapter` resolves the complete literal
+    `stable_command` at typechecking; the runtime receives concrete operands.
+    `certified_adapter` keeps its signature-ordered inline JSON document and
+    empty authored argv; valid explicit argv forms remain supported. Omitting
+    `:inputs` sends no document and no token; `:inputs ()` sends `{}`.
   - Operand effects in argv and input fields run once, in expanded structural
     source order; keyword order does not reorder argv or JSON keys.
   - The document is the canonical finite JSON encoding of the checked field

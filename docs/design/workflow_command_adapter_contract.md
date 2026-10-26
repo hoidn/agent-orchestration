@@ -83,6 +83,31 @@ Implementation forms:
 Migration decisions should be based on the behavior class. The implementation
 form determines urgency and enforcement severity.
 
+### Static command argv
+
+At admitted targets 2.35–2.40, `command-result` may omit both `:argv` and
+`:adapter` when its named binding is an `external_tool`. The typechecker
+materializes the binding's complete literal `stable_command` before typed
+export and checked-program construction. `:returns` remains required.
+
+```lisp
+(command-result inspect :returns Inspection)
+(command-result inspect :inputs ((target task.path)) :returns Inspection)
+```
+
+Omission asserts that the stable command is complete before the optional
+runtime-owned input-document path. It does not infer required flags or argument
+count. Explicit argv may still add dynamic operands after the required stable
+prefix. Missing bindings, implicit certified-adapter mode and explicitly empty
+`:argv ()` refuse. Certified adapters retain their explicit `:adapter` route
+and existing valid explicit argv forms.
+
+Absent `:inputs` appends no document or token; `:inputs ()` appends an empty JSON
+object's path; populated inputs append the checked document's path. Existing
+operand effect order and input validation apply. Exported/imported typed
+commands always carry concrete operands and their producer's closure/policy;
+a malformed import cannot infer from consumer bindings.
+
 ### Command rerun behavior
 
 Named `external_tool` and `certified_adapter` command boundaries may declare
@@ -103,14 +128,45 @@ and never dispatched again.
 
 ### Command closure declaration
 
-At target 2.35 both `external_tool` and `certified_adapter` manifest rows
-require `closure`, an array of literal file or directory paths. Declare
-`"closure": ["tool.py", "lib/"]`, or `"closure": []` explicitly when no
-implementation files are declared. C1 checks all supplied rows, including
-unused rows, and every used compiler-injected binding in retained source or
-imported owners. Omission refuses with `command_boundary_closure_missing`;
+At admitted targets 2.35–2.40, flat command maps require `closure`, an array
+of literal file or directory paths, on both `external_tool` and
+`certified_adapter` rows. Declare `"closure": ["tool.py", "lib/"]`, or
+`"closure": []` when no implementation files are declared. Flat maps remain a
+first-class authoring form. Missing flat-row closure remains undeclared (`None`)
+and refuses with `command_boundary_closure_missing`; it is not an empty tuple.
+C1 checks all supplied rows, including unused rows, and every used
+compiler-injected binding in retained source or imported owners.
+
+Alternatively, declare a common closure for every command with this envelope:
+
+```json
+{
+  "$schema": "workflow-command-boundaries.v1",
+  "shared_closure": ["tools/common.py"],
+  "commands": {
+    "inspect": {"stable_command": ["python", "tools/inspect.py"], "closure": ["tools/inspect.py"]},
+    "summarize": {"stable_command": ["python", "tools/summarize.py"], "closure": ["tools/summarize.py"]}
+  }
+}
+```
+
+The envelope requires exactly those three keys. A string `$schema` selects the
+format; unknown strings refuse. Object-valued flat rows named `$schema`,
+`shared_closure` or `commands` remain valid command names. `commands` must be
+an object; `shared_closure` must be an array of literal paths, including `[]`
+when explicitly empty.
+
+Each row receives common plus local paths, including unused and certified rows.
+Omitted local `closure` and local `[]` add nothing; neither removes shared paths.
 `null`, non-arrays, non-string entries, empty strings and NUL refuse with
-`command_boundary_manifest_invalid`. Never infer an empty closure.
+`command_boundary_manifest_invalid`, even in unused rows. Use a flat map when
+one command needs a different common set; there are no exclusions, references,
+includes or recursive inheritance.
+
+The parser constructs ordinary bindings with concrete closures. Raw manifest
+capture remains intact for build/editor currentness. Canonicalization below
+sorts and deduplicates the effective paths; no envelope or merge reference
+reaches the runtime or persisted binding schema.
 
 Build-time C2 canonicalizes separators and empty/`.` path components,
 preserves `..`, sorts and deduplicates declarations, and records a logical
@@ -149,7 +205,7 @@ as the normative owner of the resolved input and its evidence rows:
   ([§7.3](workflow_lisp_evaluated_execution.md#73-what-a-command-boundary-declares));
   commands run with `PYTHONDONTWRITEBYTECODE=1`.
 
-A typed external-tool input document (`:argv` with `:inputs`, 2.35 only) is
+A typed external-tool input document (`:inputs`, targets 2.35–2.40) is
 written as `inputs.json` in the attempt directory and appended to argv as the
 last, workspace-relative token; a certified adapter keeps its inline JSON
 document in signature order. The document's digest and contract do not depend

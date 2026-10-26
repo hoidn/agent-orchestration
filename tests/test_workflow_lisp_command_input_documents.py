@@ -30,9 +30,24 @@ def _perform(body):
     return next(node for node in _walk_wcc(body) if isinstance(node, WccPerform) and node.target_name == "emit")
 
 
+@pytest.mark.parametrize("target", ["2.35", "2.36", "2.37", "2.38", "2.39", "2.40"])
+@pytest.mark.parametrize("argv", ['', ':argv ("python" "emit.py")'])
 @pytest.mark.parametrize("inputs,present,fields", [("", False, ()), (":inputs ()", True, ()), (':inputs ((message "hi"))', True, ("message",))])
-def test_external_document_presence_survives_source_and_wcc(tmp_path, inputs, present, fields):
-    body = _compile_and_elaborate(tmp_path, source=_source(f'(command-result emit :argv ("python" "emit.py") {inputs} :returns String)'), commands=_commands(tmp_path))
+def test_external_document_presence_survives_source_and_wcc(tmp_path, inputs, present, fields, target, argv):
+    from orchestrator.workflow_lisp.expressions import CommandResultExpr, LiteralExpr
+
+    source = _source(f'(command-result emit {argv} {inputs} :returns String)', target=target)
+    commands = _commands(tmp_path)
+    compiled = _compile_current_source(tmp_path, source=source, commands=commands)
+    expr = compiled.typed_program.workflows["cp/closed_elaboration::run"].typed_body.expr
+    assert isinstance(expr, CommandResultExpr)
+    assert all(isinstance(arg, LiteralExpr) for arg in expr.argv)
+    assert tuple(arg.value for arg in expr.argv) == ("python", "emit.py")
+    assert expr.inputs_present is present
+    if not argv:
+        assert all((arg.span, arg.form_path, arg.expansion_stack) ==
+                   (expr.span, expr.form_path, expr.expansion_stack) for arg in expr.argv)
+    body = _compile_and_elaborate(tmp_path, source=source, commands=commands)
     perform = _perform(body)
     assert perform.operation_payload.get("inputs_present", False) is present
     assert tuple(name for name, _ in perform.operation_payload["adapter_inputs"]) == fields
@@ -379,3 +394,78 @@ def test_noncolliding_input_binder_identities_are_preserved(tmp_path, certified)
         "__wcc_effect_command_adapter_input_payload_3ebbb70c6972c95e",
     ]
     assert [value.name for _, value in _perform(body).operation_payload["adapter_inputs"]] == names
+
+
+@pytest.mark.parametrize("argv", ['', ':argv ("python" "emit.py")'])
+@pytest.mark.parametrize("fields", [("first", "second"), ("second", "first")])
+def test_omitted_argv_keeps_input_effect_order_once(tmp_path, argv, fields):
+    declarations = """(defproc first () -> Int :effects ((uses-command first)) :lowering inline
+      (command-result first :returns Int))
+      (defproc second () -> Int :effects ((uses-command second)) :lowering inline
+      (command-result second :returns Int))"""
+    inputs = " ".join(f"({name} ({name}))" for name in fields)
+    body = _compile_and_elaborate(tmp_path, source=_source(
+        f'(command-result emit :inputs ({inputs}) {argv} :returns String)',
+        declarations=declarations), commands=_commands(tmp_path, ("emit", "first", "second")))
+    calls = [let.bound_value for let in _let_chain(body) if hasattr(let.bound_value, "callee_name")]
+    assert [call.callee_name.rsplit("::", 1)[-1] for call in calls] == list(fields)
+    expected_order = ("inputs", "argv") if argv else ("argv", "inputs")
+    assert _perform(body).operation_payload["operand_order"] == expected_order
+
+
+@pytest.mark.parametrize("inputs", ["", ":inputs ()"])
+def test_omitted_argv_cannot_infer_certified_adapter_mode(tmp_path, inputs):
+    with pytest.raises(LispFrontendCompileError) as caught:
+        _compile_current_source(tmp_path, source=_source(
+            f'(command-result emit {inputs} :returns String)'), commands=_adapter_commands(tmp_path))
+    assert caught.value.diagnostics[0].code == "command_result_adapter_invalid"
+
+
+@pytest.mark.parametrize("target", ["2.35", "2.40"])
+@pytest.mark.parametrize("procedure", [False, True])
+@pytest.mark.parametrize("argv", ['', ':argv ("python" "prepare.py")'])
+@pytest.mark.parametrize("subject", ["direct", "let", "if", "helper", "macro"])
+def test_nested_match_keeps_resolved_command_subject(tmp_path, target, procedure, argv, subject):
+    from orchestrator.contracts.closed_program.sites import _ast_nodes
+    from orchestrator.workflow_lisp.closed.build import build_closed_program
+    from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
+    from orchestrator.workflow_lisp.command_boundaries import ExternalToolBinding
+    from orchestrator.workflow_lisp.expression_traversal import walk_expr
+    from orchestrator.workflow_lisp.expressions import CommandResultExpr
+
+    lowering = ':lowering inline' if target == "2.35" else ''
+    command = f'(command-result prepare {argv} :inputs ((diagnosis diagnosis)) :returns Preparation)'
+    subjects = {
+        "direct": command,
+        "let": f'(let* ((prepared {command})) prepared)',
+        "if": f'(if true {command} (variant Preparation BLOCKED))',
+        "helper": f'(identity {command})',
+        "macro": f'(pass {command})',
+    }
+    declarations = f'''(defunion Diagnosis (DIAGNOSED) (UNLISTED))
+      (defunion Preparation (READY (message String)) (BLOCKED))
+      (defproc identity ((value Preparation)) -> Preparation :effects () {lowering} value)
+      (defmacro pass (value) value)'''
+    body = f'''(match diagnosis
+      ((UNLISTED _) "unlisted")
+      ((DIAGNOSED _) (match {subjects[subject]}
+        ((READY ready) ready.message) ((BLOCKED _) "blocked"))))'''
+    if procedure:
+        declarations += f'''(defproc recover ((diagnosis Diagnosis)) -> String
+          :effects ((uses-command prepare)) {lowering} {body})'''
+        body = '(recover diagnosis)'
+    path = tmp_path / "cp" / "closed_elaboration.orc"
+    path.parent.mkdir()
+    path.write_text(_source(body, target=target, params="(diagnosis Diagnosis)", declarations=declarations))
+    typed = compile_typed_program(path, entry_workflow="run", source_roots=(tmp_path,),
+        workspace_root=tmp_path, command_boundaries={"prepare": ExternalToolBinding(
+            name="prepare", stable_command=("python", "prepare.py"), closure=())})
+    owner = typed.procedures["cp/closed_elaboration::recover"] if procedure else typed.entry
+    (retained,) = [node for node in walk_expr(owner.typed_body.expr) if isinstance(node, CommandResultExpr)]
+    assert tuple(arg.value for arg in retained.argv) == ("python", "prepare.py")
+    assert retained.inputs_present and retained.operand_order == ("argv", "inputs")
+    closed = build_closed_program(typed)
+    bodies = [closed.tree["body"], *(definition["body"] for definition in closed.tree["definitions"].values())]
+    effects = [node for body in bodies for node in _ast_nodes(body)
+               if node.get("k") == "perform" and node.get("class") == "command"]
+    assert effects and all(node["command"] == ["python", "prepare.py"] for node in effects)

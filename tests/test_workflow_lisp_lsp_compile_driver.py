@@ -569,6 +569,41 @@ def test_configuration_drift_latches_cancels_and_notifies_once_across_reversion(
     assert reverted.effects == lsp_state.StateEffects()
 
 
+def test_shared_closure_drift_latches_configuration_stale_after_reversion(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    initial, paths = _configured_initial_state(workspace)
+    manifest = {
+        "$schema": "workflow-command-boundaries.v1",
+        "shared_closure": ["common.py"],
+        "commands": {"unused": {"stable_command": ["python", "unused.py"]}},
+    }
+    original_bytes = (json.dumps(manifest) + "\n").encode()
+    paths["command_boundaries_path"].write_bytes(original_bytes)
+    driver = compile_driver.initialize_compile_driver(initial)
+    assert driver.initialization_configuration.command_boundaries["unused"].closure == (
+        "common.py",
+    )
+
+    manifest["shared_closure"] = ["replacement.py"]
+    paths["command_boundaries_path"].write_text(json.dumps(manifest) + "\n", encoding="utf-8")
+    changed = driver.recheck_configuration()
+    repeated = driver.recheck_configuration()
+    paths["command_boundaries_path"].write_bytes(original_bytes)
+    reverted = driver.recheck_configuration()
+
+    assert changed.state is driver.state
+    assert changed.state.configuration_stale is True
+    assert changed.effects.restart_notice_required is True
+    assert repeated.state is changed.state
+    assert repeated.effects == lsp_state.StateEffects()
+    assert reverted.state is changed.state
+    assert reverted.state.configuration_stale is True
+    assert reverted.effects == lsp_state.StateEffects()
+
+
 @pytest.mark.parametrize(
     "drift_kind",
     ("recursive_source_changed", "configuration_missing", "configuration_unreadable"),

@@ -1310,6 +1310,18 @@ def typecheck_command_result_expr(
             )
     if expr.adapter_name is not None:
         _validate_command_adapter_binding(expr, command_binding)
+    elif not expr.argv:
+        from .command_boundaries import ExternalToolBinding
+
+        if not isinstance(command_binding, ExternalToolBinding):
+            raise_error("omitted `command-result :argv` requires an external-tool binding",
+                        code="command_result_adapter_invalid" if command_binding is not None else "command_adapter_missing_contract",
+                        span=expr.span, form_path=expr.form_path, expansion_stack=expr.expansion_stack)
+        expr = replace(expr, argv=tuple(
+            LiteralExpr(value=token, literal_kind="string", span=expr.span,
+                        form_path=expr.form_path, expansion_stack=expr.expansion_stack)
+            for token in command_binding.stable_command
+        ))
     arg_summaries = []
     typed_inputs = {}
 

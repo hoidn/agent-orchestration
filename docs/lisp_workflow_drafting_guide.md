@@ -429,12 +429,53 @@ live in [State](../specs/state.md#evaluated-execution-persistence-profile-target
 [Versioning](../specs/versioning.md#version-gating-summary).
 
 Every supplied command manifest row, even unused, and every used injected
-binding needs an explicit `closure` array, including `[]` when nothing is
-declared. Compilation records logical paths without reading their contents;
+binding needs a closure declaration. Flat maps give each row a `closure` array,
+including `[]` when nothing is declared; the optional shared envelope supplies
+common plus local paths to every row. Compilation records logical paths without
+reading their contents;
 execution binds the declared bytes and pins the interpreter for the run.
 This declaration is not a sandbox. See the
 [command closure contract](design/workflow_command_adapter_contract.md#command-closure-declaration)
 and the complete lifecycle below.
+
+### Static command arguments and shared closures
+
+For targets 2.35–2.40, omit `:argv` when the external-tool binding already names
+the complete invocation:
+
+```lisp
+(command-result inspect :returns Inspection)
+(command-result inspect :inputs () :returns Inspection)
+(command-result inspect :inputs ((target task.path)) :returns Inspection)
+```
+
+These send no document, an empty `{}` document and a populated document,
+respectively. Keep `:returns` explicit. Additional or dynamic arguments need
+explicit `:argv`; the compiler cannot infer a tool's required argument count.
+An explicitly empty `:argv ()` is an error. Certified adapters keep their
+explicit `:adapter` route.
+
+Use a flat command map for independent closures. If every command needs the
+same files, use the opt-in envelope:
+
+```json
+{
+  "$schema": "workflow-command-boundaries.v1",
+  "shared_closure": ["tools/common.py"],
+  "commands": {
+    "inspect": {"stable_command": ["python", "tools/inspect.py"], "closure": ["tools/inspect.py"]}
+  }
+}
+```
+
+Every command receives common plus local files, including unused and certified
+rows. An absent or empty local closure adds nothing; `null` is invalid. Local
+`[]` cannot remove common files. All three envelope keys are required; flat
+maps remain fully supported. See the [command contract](design/workflow_command_adapter_contract.md)
+for validation and producer-owned import behavior. These forms normalize at
+compilation; public `resume` still checks recorded source/configuration
+currentness before reusing retained authority. Rewriting source or manifests
+is a migration and does not promise cross-build resume.
 
 ### A complete 2.35 recipe: compile, run, resume, report, invalidate
 
@@ -1620,9 +1661,25 @@ all outcome paths; follow its workspace/setup instructions before executing it.
 The [Python guide](python_workflow_drafting_guide.md) authors the same request.
 
 Answer types are `String`, enum or fully transportable closed union. A typed
-`defprompt` application may supply the question; its return contract must agree
-with `:returns`. The runtime renders fills/`:doc` and adds the answer contract
-without provider delivery instructions. Optional `:timeout-sec` is an exact
+`defprompt` application may supply the question. When its answer contract is
+explicitly declared, omit `:returns` to reuse that canonical type:
+
+```lisp
+(defprompt approval-question (:fills (summary :text)) -> Approval
+  "Approve this recovery? {summary}")
+(request-input (approval-question :summary diagnosis.summary)
+  :timeout-sec 3600 :show (diagnosis.report))
+```
+
+Raw questions and prompts with only implicit returns still need `:returns`, as
+in the runnable raw-question example above. An explicit return must agree with
+the prompt. Imported aliases preserve the type's original owner, including
+through specialization and typed export. To author a call to an imported prompt,
+import its answer type normally, including any generic head and nested type
+arguments. Inference does not expose private types or substitute caller-local
+names; typed producer capsules retain their own type environment. No answer
+type is inferred from text or surrounding expected types. The runtime renders
+fills/`:doc` and adds the answer contract without provider delivery instructions. Optional `:timeout-sec` is an exact
 positive integer expression; omission means no deadline. `:show (evidence ...)`
 accepts ordered typed relpaths to readable regular files, not strings.
 

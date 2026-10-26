@@ -1288,6 +1288,28 @@ Path safety: Absolute paths and any path containing `..` are rejected; symlinks 
 - `_end` is a reserved `goto` target that terminates the run successfully.
 - Precedence: `on` handlers on the step (if present) are evaluated first; if none apply, `strict_flow` and the CLI `--on-error` setting govern whether to stop or continue.
 
+## Evaluated Command Authoring (Targets 2.35–2.40)
+
+`command-result` requires `:returns`. When both `:argv` and `:adapter` are absent,
+the named external-tool binding supplies its complete literal `stable_command`.
+Explicit `:argv ()`, a missing binding or implicit certified-adapter mode refuse.
+Additional or dynamic arguments require explicit argv; required tool argument
+counts are not inferred. Absent `:inputs`, empty `:inputs ()` and populated
+inputs retain distinct document modes. Typechecking resolves argv before typed
+export and closed construction. Typed imports require concrete operands and
+retain producer-owned bindings; malformed imports cannot acquire ambient argv.
+
+Command manifests support a flat map or an envelope with exactly `$schema`,
+`shared_closure` and `commands`. The string schema is
+`workflow-command-boundaries.v1`; unknown schema strings refuse. Object-valued
+flat rows with those names remain valid. Each envelope row receives shared plus
+local closure paths; omitted or empty local arrays add nothing, while `null`
+refuses. All supplied rows, including unused and certified rows, are validated.
+Flat-map missing closures remain undeclared and refuse under C1. Raw
+configuration capture and runtime/persisted binding schemas are unchanged.
+The [command boundary contract](../docs/design/workflow_command_adapter_contract.md)
+owns the complete grammar and canonicalization rules.
+
 ## Evaluated Durable Host Input (Target 2.40)
 
 Target 2.40 admits one serial evaluated `request_input` effect. Older targets
@@ -1301,10 +1323,17 @@ format above remains historical. Import the ordinary generic union from `std/hos
   (request-input question :returns Approval :timeout-sec 86400))
 ```
 
-`request-input` requires a question and one `:returns AnswerType`; optional
-`:timeout-sec` and `:show` occur at most once. The question is a `String`
-expression or a fully applied typed `defprompt`. A declared prompt return
-contract must agree with the answer type. Rendering uses the ordinary typed
+`request-input` requires a question. `:returns AnswerType` is required for raw
+`String` expressions and prompts without an explicitly declared answer contract.
+A direct, fully applied typed `defprompt` supplies its declared answer type when
+`:returns` is omitted. Inference retains the canonical declaring owner through
+aliases, specialization and typed imports. At an authored imported-prompt call,
+the answer type, including its generic head and nested type arguments, must be
+available through normal caller imports. Inference does not expose private types
+or rebind them to caller-local names. Typed producer capsules retain their own
+type environment. An explicit `:returns` must agree with the prompt contract.
+Implicit/default prompt returns do not permit inference. Optional `:timeout-sec` and `:show` occur
+at most once. Rendering uses the ordinary typed
 fills and content-bound `:doc` reads, then adds the answer contract without
 provider output-file instructions. Prompt applications at this position do
 not introduce general runtime prompt values.

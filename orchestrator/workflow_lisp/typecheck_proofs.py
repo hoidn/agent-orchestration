@@ -349,17 +349,19 @@ def _kept_match_subject(expr: MatchExpr, typed_subject_expr, *, context):
     """Return the subject the typed `match` node carries.
 
     The authored subject, so every program that compiled before lowers as it did.
-    From target 2.33 two subjects carry their typechecked form instead, as the same
-    subject bound with `let*` does; neither lowers in its authored form:
+    Subjects that cannot lower in their authored form carry their typechecked
+    form instead, as the same subject bound with `let*` does:
     - a call of a generic procedure through a hook whose type uses a type
       parameter: it lowers only as the specialized procedure, and the authored
       call is rejected with `proc_ref_signature_invalid`;
     - a subject that applies a typed prompt: typecheck gives the application its
       compiled identity, and the authored application, which has none, is
-      rejected with `compiled_prompt_fragment_identity_missing`.
+      rejected with `compiled_prompt_fragment_identity_missing`;
+    - an external command with omitted argv: typecheck resolves its static
+      command, and the authored empty argv cannot cross into the closed program.
     """
     from .expression_traversal import walk_expr
-    from .expressions import ProviderResultExpr
+    from .expressions import CommandResultExpr, ProviderResultExpr
     from .procedure_typecheck import calls_generic_procedure_through_type_dependent_hook
     from .prompts import PromptApplicationExpr
 
@@ -370,7 +372,8 @@ def _kept_match_subject(expr: MatchExpr, typed_subject_expr, *, context):
         return typed_subject_expr
 
     if any(
-        isinstance(node, ProviderResultExpr) and isinstance(node.prompt, PromptApplicationExpr)
+        (isinstance(node, ProviderResultExpr) and isinstance(node.prompt, PromptApplicationExpr))
+        or (isinstance(node, CommandResultExpr) and node.adapter_name is None and not node.argv)
         for node in walk_expr(expr.subject)
     ) or (
         context.procedure_catalog is not None

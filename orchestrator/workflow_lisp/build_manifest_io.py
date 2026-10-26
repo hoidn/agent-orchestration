@@ -319,8 +319,62 @@ def _parse_command_boundaries_manifest(
     *,
     manifest_path: Path | None,
 ) -> Mapping[str, ExternalToolBinding | CertifiedAdapterBinding]:
+    rows = payload
+    shared_closure: tuple[str, ...] | None = None
+    schema = payload.get("$schema")
+    if isinstance(schema, str):
+        if schema != "workflow-command-boundaries.v1":
+            raise LispFrontendCompileError(
+                (
+                    _cli_request_diagnostic(
+                        code="command_boundary_manifest_invalid",
+                        message=f"unsupported command boundaries manifest schema `{schema}`",
+                        path=manifest_path,
+                    ),
+                )
+            )
+        if set(payload) != {"$schema", "shared_closure", "commands"}:
+            raise LispFrontendCompileError(
+                (
+                    _cli_request_diagnostic(
+                        code="command_boundary_manifest_invalid",
+                        message="shared command boundaries manifest requires exactly `$schema`, `shared_closure`, and `commands`",
+                        path=manifest_path,
+                    ),
+                )
+            )
+        commands = payload["commands"]
+        if not isinstance(commands, Mapping):
+            raise LispFrontendCompileError(
+                (
+                    _cli_request_diagnostic(
+                        code="command_boundary_manifest_invalid",
+                        message="`commands` in shared command boundaries manifest must be an object",
+                        path=manifest_path,
+                    ),
+                )
+            )
+        rows = commands
+        for name in rows:
+            if not isinstance(name, str) or not name:
+                raise LispFrontendCompileError(
+                    (
+                        _cli_request_diagnostic(
+                            code="command_boundary_manifest_invalid",
+                            message="shared command boundaries entries must use non-empty string names",
+                            path=manifest_path,
+                        ),
+                    )
+                )
+        shared_closure = _require_closure_array(
+            payload["shared_closure"],
+            binding_name="manifest",
+            field_name="shared_closure",
+            manifest_path=manifest_path,
+        )
+
     bindings: dict[str, ExternalToolBinding | CertifiedAdapterBinding] = {}
-    for name, raw_entry in payload.items():
+    for name, raw_entry in rows.items():
         if not isinstance(raw_entry, Mapping):
             raise LispFrontendCompileError(
                 (
@@ -348,14 +402,19 @@ def _parse_command_boundaries_manifest(
                     ),
                 )
             )
-        closure = (
+        local_closure = (
             _require_closure_array(
                 raw_entry["closure"],
                 binding_name=name,
                 manifest_path=manifest_path,
             )
             if "closure" in raw_entry
-            else None
+            else (() if shared_closure is not None else None)
+        )
+        closure = (
+            shared_closure + local_closure
+            if shared_closure is not None and local_closure is not None
+            else local_closure
         )
         if kind == "external_tool":
             bindings[name] = ExternalToolBinding(
@@ -589,6 +648,7 @@ def _require_closure_array(
     *,
     binding_name: str,
     manifest_path: Path | None,
+    field_name: str = "closure",
 ) -> tuple[str, ...]:
     if not isinstance(value, (list, tuple)) or any(
         not isinstance(path, str) or not path or "\x00" in path for path in value
@@ -597,7 +657,7 @@ def _require_closure_array(
             (
                 _cli_request_diagnostic(
                     code="command_boundary_manifest_invalid",
-                    message=f"`closure` for `{binding_name}` must be an array of nonempty literal paths without NUL",
+                    message=f"`{field_name}` for `{binding_name}` must be an array of nonempty literal paths without NUL",
                     path=manifest_path or Path(binding_name),
                 ),
             )

@@ -8,13 +8,14 @@ from orchestrator.workflow_lisp.closed.build import build_closed_program
 from tests.workflow_lisp_closed_program_helpers import install
 
 
-def _compile(root: Path, *, answer="Approval", question='question', options=':timeout-sec 60', declarations='', target='2.40', effects='', extra_params='', extra_args=''):
+def _compile(root: Path, *, answer="Approval", question='question', options=':timeout-sec 60', declarations='', target='2.40', effects='', extra_params='', extra_args='', include_returns=True):
+    returns = f':returns {answer} ' if include_returns else ''
     source = f'''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
       (defmodule host/entry) (import std/host :only (HostReply)) (export run)
       (defenum Approval APPROVED DENIED)
       {declarations}
       (defproc ask ((question String){extra_params}) -> HostReply[{answer}] {effects}
-        (request-input {question} :returns {answer} {options}))
+        (request-input {question} {returns}{options}))
       (defworkflow run ({extra_params}) -> HostReply[{answer}] (ask "Approve?"{extra_args})))'''
     return _build_source(root, source)
 
@@ -66,13 +67,30 @@ def test_supported_full_answer_descriptors(tmp_path, answer):
     assert ClosedProgram.from_artifact(program.artifact()).digest == program.digest
 
 
-def test_prompt_fills_and_shown_paths_survive_specialization(tmp_path):
+@pytest.mark.parametrize(('answer', 'kind', 'declarations'), [
+    ('String', 'primitive', ''),
+    ('Approval', 'enum', ''),
+    ('Choice', 'union', '(defunion Choice (ACCEPT (reason String)) (DECLINE (reason String)))'),
+])
+def test_declared_prompt_contract_infers_host_answer(tmp_path, answer, kind, declarations):
+    program, _ = _compile(tmp_path, answer=answer,
+        question='(answer-prompt :summary question)', include_returns=False,
+        declarations=f'''{declarations}
+          (defprompt answer-prompt (:fills (summary :text)) -> {answer} "{{summary}}")''')
+    node, = _requests(program)
+    assert node['answer']['kind'] == kind
+    assert ClosedProgram.from_artifact(program.artifact()).digest == program.digest
+
+
+@pytest.mark.parametrize('include_returns', [True, False])
+def test_prompt_fills_and_shown_paths_survive_specialization(tmp_path, include_returns):
     program, path = _compile(tmp_path, question='(approval :summary question :report report :choice choice)',
         declarations='''(defpath Report :kind relpath :under "reports" :must-exist true)
           (defprompt approval (:fills (summary :text) (report :doc Report) (choice :value Approval)) -> Approval
-            "{summary} {choice}")''', options=':timeout-sec (+ 30 30) :show (report report)', extra_params=' (report Report) (choice Approval)', extra_args=' report choice')
+            "{summary} {choice}")''', options=':timeout-sec (+ 30 30) :show (report report)', extra_params=' (report Report) (choice Approval)', extra_args=' report choice', include_returns=include_returns)
     node, = _requests(program)
     assert 'question' not in node
+    assert node['answer']['name'] == 'host/entry::Approval'
     assert [fill['kind'] for fill in node['prompt']['fills']] == ['text', 'doc', 'value']
     assert len(node['show']) == 2
     assert all(fill['type']['kind'] in {'primitive', 'path', 'enum'} for fill in node['prompt']['fills'])
@@ -320,6 +338,133 @@ def test_prompt_explicit_value_return_does_not_match_enum_answer(tmp_path):
     assert caught.value.diagnostics[0].code == 'request_input_prompt_return_invalid'
 
 
+def test_raw_host_question_still_requires_returns(tmp_path):
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+      (defmodule host/entry) (import std/host :only (HostReply)) (export run)
+      (defworkflow run () -> HostReply[String] (request-input "Explain")))'''
+    with pytest.raises(LispFrontendCompileError) as caught:
+        _build_source(tmp_path, source)
+    assert caught.value.diagnostics[0].code == 'request_input_keyword_invalid'
+
+
+def test_unresolved_prompt_still_requires_returns(tmp_path):
+    with pytest.raises(LispFrontendCompileError) as caught:
+        _compile(tmp_path, question='(missing-prompt :summary question)', include_returns=False)
+    assert caught.value.diagnostics[0].code == 'request_input_keyword_invalid'
+
+
+def test_prompt_without_declared_return_still_requires_returns(tmp_path):
+    with pytest.raises(LispFrontendCompileError) as caught:
+        _compile(tmp_path, question='(question-prompt :summary question)', include_returns=False,
+            declarations='(defprompt question-prompt (:fills (summary :text)) "{summary}")')
+    assert caught.value.diagnostics[0].code == 'request_input_keyword_invalid'
+
+
+def test_declared_invalid_prompt_return_is_not_inferred_as_host_answer(tmp_path):
+    with pytest.raises(LispFrontendCompileError) as caught:
+        _compile(tmp_path, question='(question-prompt :summary question)', include_returns=False,
+            declarations='(defprompt question-prompt (:fills (summary :text)) -> Value "{summary}")')
+    assert caught.value.diagnostics[0].code == 'request_input_answer_type_invalid'
+
+
+def test_target_239_does_not_infer_prompt_host_answer(tmp_path):
+    with pytest.raises(LispFrontendCompileError):
+        _compile(tmp_path, target='2.39', question='(question-prompt :summary question)',
+            include_returns=False,
+            declarations='(defprompt question-prompt (:fills (summary :text)) -> Approval "{summary}")')
+
+
+def test_imported_aliased_prompt_infers_its_canonical_answer_type(tmp_path):
+    install(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+      (defmodule host/prompts) (export approval Approval)
+      (defenum Approval PROMPT_YES PROMPT_NO)
+      (defprompt approval (:fills (summary :text)) -> Approval "{summary}"))''')
+    source = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+      (defmodule host/entry) (import std/host :only (HostReply))
+      (import host/prompts :as p :only (approval Approval)) (export run)
+      (defenum Approval CALLER_ONLY)
+      (defworkflow run () -> HostReply[p.Approval]
+        (request-input (p.approval :summary "Decide"))))'''
+    program, _ = _build_source(tmp_path, source)
+    node, = _requests(program)
+    assert node['answer']['name'] == 'host/prompts::Approval'
+    assert node['result']['name'] == 'std/host::HostReply[host/prompts::Approval]'
+
+
+@pytest.mark.parametrize('argument', ['Approval', 'List[Approval]', 'Optional[Approval]', 'Map[String, Approval]', 'Report'])
+@pytest.mark.parametrize('owner', ['producer', 'third-module'])
+def test_imported_prompt_generic_answer_keeps_argument_owners(tmp_path, argument, owner):
+    if owner == 'third-module':
+        install(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+          (defmodule host/types) (export Approval Report)
+          (defenum Approval PROMPT_YES PROMPT_NO)
+          (defpath Report :kind relpath :under "reports" :must-exist true))''')
+        producer_import = '(import host/types :as original :only (Approval Report))'
+        producer_types = ''
+        producer_argument = argument.replace('Approval', 'original.Approval').replace('Report', 'original.Report')
+        caller_types = '(import host/types :as actual :only (Approval Report))'
+        caller_argument = argument.replace('Approval', 'actual.Approval').replace('Report', 'actual.Report')
+        owner_module = 'host/types'
+        exported_types = ''
+    else:
+        producer_import = ''
+        producer_types = '(defenum Approval PROMPT_YES PROMPT_NO) (defpath Report :kind relpath :under "reports" :must-exist true)'
+        producer_argument = argument
+        caller_types = ''
+        caller_argument = argument.replace('Approval', 'p.Approval').replace('Report', 'p.Report')
+        owner_module = 'host/prompts'
+        exported_types = 'Approval Report'
+    install(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+      (defmodule host/prompts) {producer_import} (export approval Box {exported_types})
+      {producer_types}
+      (defunion Box :forall (T) (SOME (value T)) (NONE))
+      (defprompt approval (:fills (summary :text)) -> Box[{producer_argument}] "{{summary}}"))''')
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+      (defmodule host/entry) (import std/host :only (HostReply))
+      (import host/prompts :as p :only (approval Box {exported_types})) {caller_types} (export run)
+      (defenum Approval CALLER_ONLY)
+      (defpath Report :kind relpath :under "caller" :must-exist false)
+      (defworkflow run () -> HostReply[p.Box[{caller_argument}]]
+        (request-input (p.approval :summary "Decide") {{returns}})))'''
+    forms = []
+    for returns in (f':returns p.Box[{caller_argument}]', ''):
+        path = install(tmp_path, source.format(returns=returns))
+        typed = compile_typed_program(path, entry_workflow='run', command_boundaries={}, source_roots=(tmp_path,), workspace_root=tmp_path)
+        forms.append((typed, build_closed_program(typed)))
+    (explicit_typed, explicit), (inferred_typed, inferred) = forms
+    explicit_node, = _requests(explicit)
+    inferred_node, = _requests(inferred)
+    assert inferred_node['answer'] == explicit_node['answer']
+    assert inferred_node['result'] == explicit_node['result']
+    assert inferred_typed.entry.effect_summary == explicit_typed.entry.effect_summary
+    canonical_argument = argument.replace('Approval', f'{owner_module}::Approval').replace('Report', f'{owner_module}::Report')
+    assert inferred_typed.entry.typed_body.expr.answer_type_name == f'host/prompts::Box[{canonical_argument}]'
+    assert inferred_node['answer']['name'] == f'host/prompts::Box[{canonical_argument.replace(", ", ",")}]'
+    path.unlink()
+    (tmp_path / 'host/prompts.orc').unlink()
+    if owner == 'third-module':
+        (tmp_path / 'host/types.orc').unlink()
+    assert ClosedProgram.from_artifact(inferred.artifact()).digest == inferred.digest
+
+
+@pytest.mark.parametrize('answer', ['Approval', 'Box[Approval]'])
+def test_imported_prompt_private_answer_cannot_rebind_to_caller_type(tmp_path, answer):
+    install(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+      (defmodule host/prompts) (export approval Box)
+      (defenum Approval YES NO)
+      (defunion Box :forall (T) (SOME (value T)) (NONE))
+      (defprompt approval (:fills (summary :text)) -> {answer} "{{summary}}"))''')
+    caller_answer = answer.replace('Box', 'p.Box')
+    source = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+      (defmodule host/entry) (import std/host :only (HostReply))
+      (import host/prompts :as p :only (approval Box)) (export run)
+      (defenum Approval YES NO)
+      (defworkflow run () -> HostReply[{caller_answer}]
+        (request-input (p.approval :summary "Decide"))))'''
+    with pytest.raises(LispFrontendCompileError):
+        _build_source(tmp_path, source)
+
+
 def test_specialization_result_analysis_keeps_typed_reply(tmp_path):
     from orchestrator.workflow_lisp.procedure_specialization import _private_workflow_result_type_for_expr
     _, path = _compile(tmp_path)
@@ -408,15 +553,20 @@ def test_capsule_generic_argument_absent_in_caller_keeps_erased_matching(tmp_pat
 
 @pytest.mark.parametrize('answer', ['Approval', 'Decision'])
 @pytest.mark.parametrize('route', ['direct', 'helper', 'workflow-ref'])
-def test_typed_capsule_keeps_shared_nominal_answer_after_producer_source_removal(tmp_path, answer, route):
+@pytest.mark.parametrize('include_returns', [True, False])
+def test_typed_capsule_keeps_shared_nominal_answer_after_producer_source_removal(tmp_path, answer, route, include_returns):
     install(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
-      (defmodule host/types) (export Approval Decision)
+      (defmodule host/types) (export Approval Decision Report)
+      (defpath Report :kind relpath :under "reports" :must-exist true)
       (defenum Approval APPROVED DENIED)
       (defunion Decision (ACCEPT (approval Approval)) (DECLINE (reason String))))''')
+    returns_clause = f':returns p.{answer}' if include_returns else ''
     producer_path = install(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule host/producer) (import std/host :only (HostReply))
-      (import host/types :as p :only (Approval Decision)) (export run)
-      (defworkflow run ((n Int)) -> HostReply[p.{answer}] (request-input "Decide" :returns p.{answer})))''')
+      (import host/types :as p :only (Approval Decision Report)) (export run)
+      (defprompt decision (:fills (summary :text) (evidence :doc p.Report)) -> p.{answer} "{{summary}}")
+      (defworkflow run ((n Int) (report p.Report)) -> HostReply[p.{answer}]
+        (request-input (decision :summary "Decide" :evidence report) {returns_clause} :show (report))))''')
     producer = compile_typed_program(producer_path, entry_workflow='run', command_boundaries={}, source_roots=(tmp_path,), workspace_root=tmp_path)
     producer_path.unlink()
     install(tmp_path, '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
@@ -425,18 +575,20 @@ def test_typed_capsule_keeps_shared_nominal_answer_after_producer_source_removal
     call = '(call child :n 1)'
     if route != 'direct':
         helper_import = '(import host/caller :only (ask))'
-        call = '(ask)'
-        helper_body = '(call child :n 1)' if route == 'helper' else '(invoke (workflow-ref child))'
+        call = '(ask report)'
+        helper_body = '(call child :n 1 :report report)' if route == 'helper' else '(invoke (workflow-ref child) report)'
         install(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule host/caller) (import std/host :only (HostReply))
-          (import host/types :as t :only (Approval Decision)) (export ask)
-          (defproc invoke ((hook WorkflowRef[Int -> HostReply[t.{answer}]])) -> HostReply[t.{answer}] (call hook :n 1))
-          (defproc ask () -> HostReply[t.{answer}] {helper_body}))''')
+          (import host/types :as t :only (Approval Decision Report)) (export ask)
+          (defproc invoke ((hook WorkflowRef[(Int t.Report) -> HostReply[t.{answer}]]) (report t.Report)) -> HostReply[t.{answer}]
+            (call hook :n 1 :report report))
+          (defproc ask ((report t.Report)) -> HostReply[t.{answer}] {helper_body}))''')
     path = install(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule host/entry) (import std/host :only (HostReply))
-      (import host/types :as c :only (Approval Decision))
+      (import host/types :as c :only (Approval Decision Report))
       (import host/utility :only (one)) {helper_import} (export run)
-      (defworkflow run () -> HostReply[c.{answer}] (let* ((n (one))) {call})))''')
+      (defworkflow run ((report c.Report)) -> HostReply[c.{answer}] (let* ((n (one)))
+        {'(call child :n 1 :report report)' if route == 'direct' else call})))''')
     typed = compile_typed_program(path, entry_workflow='run', command_boundaries={}, imported_programs={'child': producer},
         source_roots=(tmp_path,), workspace_root=tmp_path)
     path.unlink()
@@ -449,6 +601,8 @@ def test_typed_capsule_keeps_shared_nominal_answer_after_producer_source_removal
     assert node['answer']['name'] == f'host/types::{answer}'
     assert node['result'] == program.tree['result']
     assert node['result']['name'] == f'std/host::HostReply[host/types::{answer}]'
+    assert [fill['kind'] for fill in node['prompt']['fills']] == ['text', 'doc']
+    assert len(node['show']) == 1
     assert ClosedProgram.from_artifact(program.artifact()).digest == program.digest
 
     if answer == 'Decision':
