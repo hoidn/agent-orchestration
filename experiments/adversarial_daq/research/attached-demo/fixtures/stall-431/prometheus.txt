@@ -1,0 +1,15 @@
+# drp metrics, instrument="tmo", partition="0", scraped 2026-10-22 03:40:52
+drp_deadtime{alias="timing_0",detname="timing",detseg="0",instrument="tmo",partition="0"} 0
+drp_deadtime{alias="hsd_0",detname="hsd",detseg="0",instrument="tmo",partition="0"} 0
+drp_deadtime{alias="hsd_3",detname="hsd",detseg="3",instrument="tmo",partition="0"} 0
+drp_deadtime{alias="hsd_4",detname="hsd",detseg="4",instrument="tmo",partition="0"} 0
+drp_deadtime{alias="hsd_5",detname="hsd",detseg="5",instrument="tmo",partition="0"} 0
+drp_deadtime{alias="tmo_atmopal_0",detname="tmo_atmopal",detseg="0",instrument="tmo",partition="0"} 0
+drp_deadtime{alias="tmo_atmpiranha_0",detname="tmo_atmpiranha",detseg="0",instrument="tmo",partition="0"} 0
+drp_dma_in_use{alias="timing_0",detname="timing",detseg="0",instrument="tmo",partition="0"} 0
+drp_dma_in_use{alias="hsd_0",detname="hsd",detseg="0",instrument="tmo",partition="0"} 0
+drp_dma_in_use{alias="hsd_3",detname="hsd",detseg="3",instrument="tmo",partition="0"} 0
+drp_dma_in_use{alias="hsd_4",detname="hsd",detseg="4",instrument="tmo",partition="0"} 0
+drp_dma_in_use{alias="hsd_5",detname="hsd",detseg="5",instrument="tmo",partition="0"} 0
+drp_dma_in_use{alias="tmo_atmopal_0",detname="tmo_atmopal",detseg="0",instrument="tmo",partition="0"} 0
+drp_dma_in_use{alias="tmo_atmpiranha_0",detname="tmo_atmpiranha",detseg="0",instrument="tmo",partition="0"} 0

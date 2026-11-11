@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""The diagnosis step's credentials: Claude Code permission rules, not a sentence in a prompt.
+
+The runtime starts `claude -p ... --permission-mode bypassPermissions` (its
+claude_unrestricted_workspace binding). With confine/ first on PATH, as
+demo.sh does for PROVIDER=real, this wrapper starts the real claude with
+
+  --permission-mode dontAsk      anything not allowed below is refused, with no prompt
+  --disallowedTools Bash Grep Glob, and Read of the kit's own files (scripts,
+                 fixtures, workflows, docs, rehearsal records, built programs)
+  --allowedTools Read            read the log bundle (it is also in the prompt)
+      Edit(artifacts/daq/*/<run id>/evidence.md)       this run's evidence
+      Edit(.orchestrate/runs/<run id>/effects/*/attempt-*/result.json)   this run's results
+  --setting-sources project      none of the operator's own settings, CLAUDE.md or plugin hooks
+  --disable-slash-commands       no skills: the workflow's prompt is the whole instruction
+
+so the model can read the logs and write exactly two files. It cannot run a
+command, read the playbooks or the other stall's fixtures, touch a playbook, or
+start a recovery. In the facility the same step gets read-only credentials
+from the access-checked tool layer.
+"""
+import os
+import shutil
+import sys
+from pathlib import Path
+
+here = Path(__file__).resolve().parent
+kit_bin = here.parent / "bin"   # the scripted stand-in is also called claude; skip it too
+search = [p for p in os.environ.get("PATH", "").split(os.pathsep)
+          if p and Path(p).resolve() not in (here, kit_bin.resolve())]
+real = shutil.which("claude", path=os.pathsep.join(search))
+if real is None:
+    raise SystemExit("confine/claude: no real claude found on PATH")
+
+result = Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])   # .orchestrate/runs/<run id>/effects/...
+run_id = result.parts[result.parts.index("runs") + 1]
+
+args, skip = [], False
+for arg in sys.argv[1:]:
+    if skip:
+        skip = False
+        continue
+    if arg == "--permission-mode":
+        skip = True
+        continue
+    args.append(arg)
+
+HIDDEN = ["scripts/**", "fixtures/**", "workflows/**", "rehearsal/**", "tests/**", "bin/**", "confine/**",
+          "inputs/**", ".orchestrate/python/**", ".orchestrate/build/**", "README.md", "TRANSCRIPT.txt"]
+policy = ["--setting-sources", "project", "--disable-slash-commands",
+          "--permission-mode", "dontAsk",
+          "--disallowedTools", "Bash", "Grep", "Glob", *(f"Read({path})" for path in HIDDEN),
+          "--allowedTools", "Read",
+          f"Edit(artifacts/daq/*/{run_id}/evidence.md)",
+          # rules take workspace-relative globs: a leading "/" would mean the project root, not "/"
+          f"Edit(.orchestrate/runs/{run_id}/effects/*/attempt-*/result.json)"]
+os.execv(real, [real, *args, *policy])

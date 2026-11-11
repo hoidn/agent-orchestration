@@ -1,0 +1,10 @@
+hsdpva, rendered by daq_logs from DAQ:TMO:HSD:1_<card>:<side> (config enable, pgp lanes linked,
+remaining buffers, timing pause count):
+side   enable  lanes_up  freeevt  freesz  timpausecnt
+1B:A        1       4/4       64    2048            0
+1B:B        0       4/4       64    2048            0
+1A:A        0       4/4       64    2048            0
+1A:B        1       4/4       64    2048            0
+3E:A        1       4/4       64    2048            0
+3E:B        1       4/4       64    2048            0
+3D:B        1       4/4       64    2048            0

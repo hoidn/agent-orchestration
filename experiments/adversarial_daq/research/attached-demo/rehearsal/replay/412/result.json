@@ -1,0 +1,7 @@
+{
+  "variant": "DIAGNOSED",
+  "cause": "deadtime_link",
+  "target": "tmo_atmopal_0",
+  "evidence": "artifacts/daq/412/20261023T023549Z-6k359a/evidence.md",
+  "fix": "Reseat/check the timing fiber from drp-srcf-cmp026's KCU to XPM:2 link 4 (likely disturbed during the 02:09 opal camlink swap) until DAQ:NEH:XPM:2:LinkRxReady4 is 1 and stable, then restartdaq."
+}

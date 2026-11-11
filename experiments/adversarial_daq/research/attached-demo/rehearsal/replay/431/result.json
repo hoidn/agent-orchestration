@@ -1,0 +1,6 @@
+{
+  "variant": "UNLISTED",
+  "summary": "Readout group 0 is 100% dead (DeadFrac 1, L0AccRate 0) because of XPM:2 link 6 = HSD 3E:B. That HSD was removed from the run by commenting hsd_7 out of tmo.cnf, but it is still enabled (enable 1) in hsdpva, and its link still carries deadtime into group 0. No DRP reads it, so its buffers are full (freeevt 0, freesz 0, timpausecnt 4123987) and it holds deadtime. Its link is locked (LinkRxReady 1), its lanes are up (4/4), the KCU write buffers are not stuck in hardware, and every configured DRP reports deadtime 0, so none of the four playbook causes applies. Link 4 (run 412's cause) is healthy.",
+  "evidence": "artifacts/daq/431/20261023T023549Z-xobmen/evidence.md",
+  "suggestion": "Take HSD 3E:B out of readout group 0: set its enable to 0 in hsdpva (DAQ:TMO:HSD:1_3E:B), as is done for the also-removed 1B:B, or remove XPM:2 link 6 from group 0 in xpmpva. Then restartdaq. The other option is to restore hsd_7 in tmo.cnf so a DRP reads it, which brings back the noisy channel."
+}

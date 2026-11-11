@@ -1,0 +1,6 @@
+.venv/
+.orchestrate/
+.pytest_cache/
+__pycache__/
+artifacts/
+research/agent-orchestration-main/

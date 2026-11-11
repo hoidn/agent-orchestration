@@ -1,0 +1,61 @@
+{
+  "sha": "bb9cb30d8d4b2ea8b24b6d1ee996b198f640a1d2",
+  "node_id": "C_kwDOPwAe19oAKGJiOWNiMzBkOGQ0YjJlYThiMjRiNmQxZWU5OTZiMTk4ZjY0MGExZDI",
+  "commit": {
+    "author": {
+      "name": "ollie",
+      "email": "ohoidn",
+      "date": "2026-10-23T01:48:28Z"
+    },
+    "committer": {
+      "name": "ollie",
+      "email": "ohoidn",
+      "date": "2026-10-23T01:48:28Z"
+    },
+    "message": "docs: record verified main merge and preserved local changes",
+    "tree": {
+      "sha": "f468572e0d15bbedbe7d8ca5ccba37ee8de5f30f",
+      "url": "https://api.github.com/repos/hoidn/agent-orchestration/git/trees/f468572e0d15bbedbe7d8ca5ccba37ee8de5f30f"
+    },
+    "url": "https://api.github.com/repos/hoidn/agent-orchestration/git/commits/bb9cb30d8d4b2ea8b24b6d1ee996b198f640a1d2",
+    "comment_count": 0,
+    "verification": {
+      "verified": false,
+      "reason": "unsigned",
+      "signature": null,
+      "payload": null,
+      "verified_at": null
+    }
+  },
+  "url": "https://api.github.com/repos/hoidn/agent-orchestration/commits/bb9cb30d8d4b2ea8b24b6d1ee996b198f640a1d2",
+  "html_url": "https://github.com/hoidn/agent-orchestration/commit/bb9cb30d8d4b2ea8b24b6d1ee996b198f640a1d2",
+  "comments_url": "https://api.github.com/repos/hoidn/agent-orchestration/commits/bb9cb30d8d4b2ea8b24b6d1ee996b198f640a1d2/comments",
+  "author": null,
+  "committer": null,
+  "parents": [
+    {
+      "sha": "73b590b71e4df4c611a7ae5c4a3530813b98cd09",
+      "url": "https://api.github.com/repos/hoidn/agent-orchestration/commits/73b590b71e4df4c611a7ae5c4a3530813b98cd09",
+      "html_url": "https://github.com/hoidn/agent-orchestration/commit/73b590b71e4df4c611a7ae5c4a3530813b98cd09"
+    }
+  ],
+  "stats": {
+    "total": 35,
+    "additions": 32,
+    "deletions": 3
+  },
+  "files": [
+    {
+      "sha": "52b7f5f452e9b12abf7ec63bdf3271a12e99a53c",
+      "filename": "docs/plans/2026-10-22-durable-host-input-plan.md",
+      "status": "modified",
+      "additions": 32,
+      "deletions": 3,
+      "changes": 35,
+      "blob_url": "https://github.com/hoidn/agent-orchestration/blob/bb9cb30d8d4b2ea8b24b6d1ee996b198f640a1d2/docs%2Fplans%2F2026-10-22-durable-host-input-plan.md",
+      "raw_url": "https://github.com/hoidn/agent-orchestration/raw/bb9cb30d8d4b2ea8b24b6d1ee996b198f640a1d2/docs%2Fplans%2F2026-10-22-durable-host-input-plan.md",
+      "contents_url": "https://api.github.com/repos/hoidn/agent-orchestration/contents/docs%2Fplans%2F2026-10-22-durable-host-input-plan.md?ref=bb9cb30d8d4b2ea8b24b6d1ee996b198f640a1d2",
+      "patch": "@@ -13,9 +13,9 @@\n ## Role, authority and selection\n \n **Status: COMPLETE. All seven tasks and final integration gates are complete.**\n-The implementation is committed on `feat/durable-host-input` in its worktree.\n-After verification the owner additionally requested staging, committing and\n-merging into main; that integration follows the completed implementation gates.\n+The implementation is committed on `feat/durable-host-input` and merged into\n+main. After verification the owner additionally requested staging, committing\n+and merging; that integration also completed with local user changes preserved.\n Final verification and limitations are recorded in the evidence ledger below.\n \n The owner noted that `main` now contains a separately merged native Python\n@@ -832,6 +832,35 @@ questions return to Design rather than being resolved with another frontend.\n   environment, confirmed clean `git diff --check`, and retained the branch and\n   worktree. This gate precedes the owner's subsequent request to merge into\n   current main; the completion-ledger change itself does not alter execution.\n+- Owner-authorized main integration completed after the full gate. Closure\n+  commit `a282bc7d` was merged with current main `3aabdd21` as `73b590b7`.\n+  The only conflict was the Python guide's artifact-location paragraph; the\n+  resolution retains main's direct API recipe, source-map diagnostic role and\n+  the complete host-input section. Three current target ranges introduced by\n+  main were corrected to include 2.40, retaining Python's default 2.39.\n+  Independent documentation SPEC/QUALITY and code/evidence review approved\n+  the integration. Host/compiler/runtime/Python production code is identical\n+  to the full-suite-tested implementation; new main production changes are\n+  confined to the existing experiment scanner/model guard.\n+  Fresh collection found 172 tests in the three changed main test modules;\n+  their narrow run passed **172 tests in 129.55s**, exit 0. The canonical\n+  Python/host/public integration selector plus four documentation contract\n+  modules passed **542 tests in 73.52s**, exit 0, using 16 workers and\n+  `--dist=worksteal`. Both ran in tmux with worktree `PYTHONPATH`; exact commands\n+  and outputs are `/tmp/durable-input-merge-tests.sh`,\n+  `/tmp/durable-input-merge-collect.log`,\n+  `/tmp/durable-input-merge-narrow.log`/`.exit` and\n+  `/tmp/durable-input-merge-gate.log`/`.exit`. The unchanged full-suite evidence\n+  was reused rather than repeating unrelated checks.\n+  Main was fast-forwarded to the verified merge commit. Seven overlapping\n+  tracked local files were temporarily stashed and restored; all 21 preexisting\n+  dirty tracked files matched the exact expected full-file hashes after applying\n+  their original patch to the merged tree. The index remained empty, all 6807\n+  preexisting untracked paths remained present, and only this task's own stash\n+  was dropped after verification. Backup, original patch, expected files and\n+  verification are retained at `/tmp/durable-input-main-local-dx_v45ov`.\n+  This final ledger update is the only subsequent change; the feature worktree\n+  remains available for inspection.\n - No provider-quality result, paid live-provider qualification or live-email\n   delivery check is claimed. Local deterministic stubs cover both frontends,\n   four host outcomes and crash/replay boundaries. One serial pending request"
+    }
+  ]
+}

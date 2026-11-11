@@ -1,0 +1,25 @@
+{
+  "paired-trials": {
+    "kind": "external_tool",
+    "stable_command": [
+      "python",
+      "scripts/confined_trials.py"
+    ],
+    "closure": [
+      "scripts/confined_trials.py",
+      "scripts/run_trials.py"
+    ]
+  },
+  "verify-evidence": {
+    "kind": "external_tool",
+    "stable_command": [
+      "python",
+      "scripts/confined_trials.py",
+      "verify"
+    ],
+    "closure": [
+      "scripts/confined_trials.py",
+      "scripts/run_trials.py"
+    ]
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "daq_logs": {
+    "kind": "external_tool",
+    "stable_command": [
+      "python3",
+      "scripts/daq_logs.py"
+    ],
+    "closure": [
+      "scripts/daq_logs.py"
+    ]
+  },
+  "check_playbook": {
+    "kind": "external_tool",
+    "stable_command": [
+      "python3",
+      "scripts/check_playbook.py"
+    ],
+    "closure": [
+      "scripts/check_playbook.py",
+      "scripts/evidence.py",
+      "scripts/playbooks.py"
+    ]
+  },
+  "daq_recover": {
+    "kind": "external_tool",
+    "stable_command": [
+      "python3",
+      "scripts/daq_recover.py"
+    ],
+    "closure": [
+      "scripts/daq_recover.py",
+      "scripts/playbooks.py"
+    ],
+    "must_not_repeat": true
+  }
+}

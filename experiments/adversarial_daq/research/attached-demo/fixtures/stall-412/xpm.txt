@@ -1,0 +1,18 @@
+$ pvget DAQ:NEH:XPM:2:PART:0:L0InpRate DAQ:NEH:XPM:2:PART:0:L0AccRate DAQ:NEH:XPM:2:PART:0:DeadFrac DAQ:NEH:XPM:2:PART:0:DeadFLnk
+DAQ:NEH:XPM:2:PART:0:L0InpRate 2026-10-22 02:13:40.004  1020.4
+DAQ:NEH:XPM:2:PART:0:L0AccRate 2026-10-22 02:13:40.004  0
+DAQ:NEH:XPM:2:PART:0:DeadFrac 2026-10-22 02:13:40.004  1
+DAQ:NEH:XPM:2:PART:0:DeadFLnk 2026-10-22 02:13:40.004  [0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+
+DAQ:NEH:XPM:2 links, rendered by daq_logs from LinkRxReady<i>, LinkRxErr<i>, RemoteLinkId<i> (decoded)
+and readout group 0 DeadFLnk[i]:
+link  remote            LinkRxReady  LinkRxErr  DeadFLnk
+   0  drp-srcf-cmp028             1          0     0.000
+   1  hsd 1B:A                    1          0     0.000
+   2  hsd 1A:B                    1          0     0.000
+   3  hsd 3E:A                    1          0     0.000
+   4  drp-srcf-cmp026             0      65535     1.000
+   5  hsd 3D:B                    1          0     0.000
+   6  hsd 3E:B                    1          0     0.000
+   7  drp-srcf-cmp007             1          0     0.000
+  14  xpm 4                       1          0     0.000

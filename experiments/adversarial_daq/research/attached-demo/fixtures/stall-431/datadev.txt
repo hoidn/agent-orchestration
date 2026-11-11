@@ -1,0 +1,33 @@
+==== drp-srcf-cmp026: cat /proc/datadev_0 (excerpt) ====
+-------------- Read Buffers ---------------
+         Buffer Count : 1024
+      Buffers In User : 0
+        Buffers In Hw : 1024
+  Buffers In Pre-Hw Q : 0
+-------------- Write Buffers ---------------
+         Buffer Count : 4
+      Buffers In User : 0
+        Buffers In Hw : 0
+  Buffers In Pre-Hw Q : 4
+==== drp-srcf-cmp007: cat /proc/datadev_0 (excerpt) ====
+-------------- Read Buffers ---------------
+         Buffer Count : 1024
+      Buffers In User : 0
+        Buffers In Hw : 1024
+  Buffers In Pre-Hw Q : 0
+-------------- Write Buffers ---------------
+         Buffer Count : 4
+      Buffers In User : 0
+        Buffers In Hw : 0
+  Buffers In Pre-Hw Q : 4
+==== drp-srcf-cmp028: cat /proc/datadev_0 (excerpt) ====
+-------------- Read Buffers ---------------
+         Buffer Count : 1024
+      Buffers In User : 0
+        Buffers In Hw : 1024
+  Buffers In Pre-Hw Q : 0
+-------------- Write Buffers ---------------
+         Buffer Count : 4
+      Buffers In User : 0
+        Buffers In Hw : 0
+  Buffers In Pre-Hw Q : 4

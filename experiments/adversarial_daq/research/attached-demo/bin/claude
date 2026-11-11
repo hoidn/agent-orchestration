@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+"""Scripted stand-in for the `claude` CLI: replays what the real model did.
+
+The runtime invokes `claude -p --model M --effort E --permission-mode ...`
+with the composed prompt on stdin and expects the structured result at
+$ORCHESTRATOR_OUTPUT_BUNDLE_PATH. For each stall this replays a recorded
+real-model diagnosis from rehearsal/replay/<run>/ (claude-opus-5-5, confined,
+2026-10-22; see SOURCE there): its evidence.md, its typed result and its
+reply, with the recorded orchestrator run id replaced by this one. Nothing is
+invented here; to see a fresh diagnosis, run with PROVIDER=real.
+"""
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+prompt = sys.stdin.read()
+out = Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"])
+run_id = out.parts[out.parts.index("runs") + 1]
+run = re.search(r"Run (\d+) stalled", prompt).group(1)
+bundle_dir = Path(re.search(r"^=== File: (\S+)", prompt, re.M).group(1)).parent
+
+replay = Path(__file__).resolve().parent.parent / "rehearsal" / "replay" / run
+recorded = json.loads((replay / "result.json").read_text())
+old_id = recorded["evidence"].split("/")[3]
+
+
+def here(text):
+    return text.replace(old_id, run_id)
+
+
+(bundle_dir / "evidence.md").write_text(here((replay / "evidence.md").read_text()))
+out.write_text(here(json.dumps(recorded)))
+print(here((replay / "reply.txt").read_text()), end="")

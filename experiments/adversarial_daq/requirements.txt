@@ -1,0 +1,4 @@
+orchestrator @ https://github.com/hoidn/agent-orchestration/archive/bb9cb30d8d4b2ea8b24b6d1ee996b198f640a1d2.zip
+jsonschema==4.26.0
+PyYAML==6.0.3
+pytest==9.1.1

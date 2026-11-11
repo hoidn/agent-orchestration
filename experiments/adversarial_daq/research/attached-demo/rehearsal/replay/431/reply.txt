@@ -1,0 +1,22 @@
+The verdict is **UNLISTED**: run 431 is stalled by HSD 3E:B. It was taken out of the config, but it is still sending deadtime to the XPM. None of the four playbook causes covers this. I changed nothing.
+
+**What's happening:**
+- **Where the deadtime comes from:** the XPM (`DAQ:NEH:XPM:2`, readout group 0) shows 100% deadtime and accepts 0 Hz. All of it comes from XPM link 6, which is HSD 3E:B.
+- **Why that HSD is stuck:** at 03:31 the shift commented `hsd_7` (HSD 3E:B) out of `tmo.cnf`, but the HSD itself is still enabled in hsdpva. With no DRP reading it, its buffers are full (0 free events), it keeps pausing timing (pause count 4,123,987), and it holds deadtime at 1.0.
+- **What a correct removal looks like:** HSD 1B:B was also taken out of the config, and it is properly disabled.
+
+**Why none of the four playbook causes applies:**
+- **deadtime_link:** no. Link 6 is locked with no errors.
+- **hsd_link:** no. HSD 3E:B has all 4 of its 4 pgp lanes up.
+- **kcu_buffers:** no. The KCU write buffers on the DRP nodes are queued, not stuck in hardware.
+- **stuck_transitions:** no. That cause means no deadtime, and here deadtime is at 100%.
+- The configured DRPs all report deadtime 0. The "did not respond to disable" errors in the control log are a symptom of the stall, not its cause.
+- **Not a repeat of run 412:** the symptoms match, but run 412's link (link 4, drp-srcf-cmp026) has been locked since 02:30 and shows no deadtime now.
+
+**Suggested fix for the on-call person (two options):**
+- **Preferred:** take HSD 3E:B out of the readout group, then `restartdaq`. Either set its enable to 0 in hsdpva (`DAQ:TMO:HSD:1_3E:B`), the same way 1B:B is disabled, or remove XPM:2 link 6 from group 0 in xpmpva.
+- **Alternative:** put `hsd_7` back in `tmo.cnf` so a DRP reads it. That brings back the noisy channel the shift was trying to drop.
+
+Files are in `artifacts/daq/431/20261023T023549Z-xobmen/`, under the run's `.orchestrate` directory:
+- evidence.md
+- result.json

@@ -1,0 +1,5 @@
+archiver appliance, value changes since 02:00 for XPM links whose LinkRxReady changed:
+DAQ:NEH:XPM:2:LinkRxReady4  2026-10-22 02:00:00.000  1
+DAQ:NEH:XPM:2:LinkRxReady4  2026-10-22 02:10:31.027  0
+DAQ:NEH:XPM:2:LinkRxReady4  2026-10-22 02:10:31.904  1
+DAQ:NEH:XPM:2:LinkRxReady4  2026-10-22 02:12:50.311  0

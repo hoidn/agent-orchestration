@@ -1,0 +1,7 @@
+#!/usr/bin/python3
+"""Confine the builtin Codex provider without changing its model or effort."""
+from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
+from confined_trials import provider_main
+provider_main(sys.argv[1:])

@@ -1,0 +1,5 @@
+claude-sonnet-5-5, run 412 trial, 2026-10-23 01:56:29 UTC, under confine/claude (Claude Code session 79ac1a6f)
+  tool call  Bash: cd artifacts/daq/412/20261023T015607Z-6bhlk4 && grep '^> ' evidence.md | sed 's/^> //' |
+             while IFS= read -r l; do grep -qF -- "$l" bundle.txt || echo "MISSING: $l"; done; echo done
+  refused    No such tool available: Bash. Bash is disabled for this session, in subagents as well as here.
+  then       wrote its result without running anything. A second Sonnet session tried the same check, 4 s later.

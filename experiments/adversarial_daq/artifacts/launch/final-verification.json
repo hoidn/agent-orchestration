@@ -1,0 +1,375 @@
+{
+  "verified_at": "2026-10-23T11:15:36.709122+00:00",
+  "run_id": "20261023T074348Z-6xkkuo",
+  "runtime_status": "completed",
+  "outcome": {
+    "reason": "budget exhausted without evidence-backed agreement; no impossibility claim",
+    "status": "INCONCLUSIVE"
+  },
+  "original_and_deployment_checks": {
+    "supplied-files.sha256.json": {
+      "count": 67,
+      "changed": []
+    },
+    "deployment-sha256.json": {
+      "count": 10,
+      "changed": []
+    }
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "evidence": {
+        "digest": "3c6bb3475de93e32c7fc9afc8d6d0317d113a788669ea8bf5e3c095bc8964cd4",
+        "report": "artifacts/evidence/ba4a285b56bf4a9d969cb9f9e5315c05/report.json",
+        "valid": true
+      },
+      "intact_at_gate": true,
+      "verified_now": true,
+      "changed_artifacts": [],
+      "case_executions": 48,
+      "reported_failed_checks": 0,
+      "totals": {
+        "baseline": {
+          "failed_checks": 0,
+          "metrics": {
+            "debugger_crashes": 12,
+            "disruptions": 75,
+            "effective_repairs": 21,
+            "escalations": 6,
+            "model_calls": 0,
+            "recovery_ticks": 180,
+            "rejected_actions": 3,
+            "repair_attempts": 39,
+            "replayed_requests": 0,
+            "total_io": 180,
+            "transport_attempts": 192,
+            "wall_ms": 39646.45282000129
+          }
+        },
+        "orc": {
+          "failed_checks": 0,
+          "metrics": {
+            "debugger_crashes": 12,
+            "disruptions": 75,
+            "effective_repairs": 21,
+            "escalations": 6,
+            "model_calls": 0,
+            "recovery_ticks": 180,
+            "rejected_actions": 3,
+            "repair_attempts": 39,
+            "replayed_requests": 0,
+            "total_io": 180,
+            "transport_attempts": 192,
+            "wall_ms": 137374.7979740019
+          }
+        }
+      },
+      "skeptic": {
+        "blockers": [
+          "S02-RELEVANCE: No independent DAQ expert determination of incident correspondence/frequency, real readback costs, or an approved targeted recovery policy; practical operational relevance remains unqualified.",
+          "S06-LEAKAGE: All evaluated cases/seeds/oracle are public development material; no independent withheld-evaluator receipt supports operational generalization or family/evaluator qualification."
+        ],
+        "claim": "In the four-case synthetic configure-recovery suite with one debugger process loss in each interrupted case and public seeds 11,23,47, the typed-Python/generated-.orc arm uses at least one fewer accepted recovery I/O call summed over partial_readback and phase2_late for every seed than the strongest equal-budget baseline, while both arms pass all five checks on every case and Orc adds no repair attempts, rejected actions, disruption, or escalation.",
+        "evidence_digest": "3c6bb3475de93e32c7fc9afc8d6d0317d113a788669ea8bf5e3c095bc8964cd4",
+        "fair": true,
+        "position": "COUNTEREXAMPLE",
+        "reason": "The actual persistent LangGraph baseline matches Orc at 14 accepted I/O calls across the two primary cases on each public seed, below the predeclared minimum Orc saving of one. All 48 official case executions and 64 new reproduction/ablation executions pass; paired journals, transport histories, final truth and outputs are identical in official evidence. This refutes exact synthetic C1; operational eligibility remains false, and no general impossibility or qualification is asserted.",
+        "relevant": false,
+        "report": "artifacts/configure-resume-20261023T074348Z/round-1/skeptic-review-20261023T0825/review.md",
+        "reproduced": true
+      },
+      "builder": {
+        "blockers": [
+          "S02-RELEVANCE: No independent DAQ expert determination of incident correspondence/frequency, real readback costs, or an approved targeted recovery policy; practical operational relevance remains unqualified.",
+          "S06-LEAKAGE: All evaluated cases/seeds/oracle are public development material; no independent withheld-evaluator receipt supports operational generalization or family/evaluator qualification."
+        ],
+        "claim": "In the four-case synthetic configure-recovery suite with one debugger process loss in each interrupted case and public seeds 11,23,47, the typed-Python/generated-.orc arm uses at least one fewer accepted recovery I/O call summed over partial_readback and phase2_late for every seed than the strongest equal-budget baseline, while both arms pass all five checks on every case and Orc adds no repair attempts, rejected actions, disruption, or escalation.",
+        "evidence_digest": "3c6bb3475de93e32c7fc9afc8d6d0317d113a788669ea8bf5e3c095bc8964cd4",
+        "fair": true,
+        "position": "COUNTEREXAMPLE",
+        "reason": "I accept the actual persistent LangGraph counterimplementation: official seeds 11,23,47 each give Orc and baseline 14 primary accepted I/O calls, saving zero against C1's required one. All 48 official cases pass, all 24 paired traces match, and a new 32-case targeted reproduction/ablation passes with strict mypy and intact evidence. C1 is retracted; practical relevance and held-out qualification remain false. This is uncalibrated exploration, not universal impossibility or a qualified protocol-gate result.",
+        "relevant": false,
+        "report": "artifacts/configure-resume-20261023T074348Z/round-1/builder-answer-20261023T0900/report.md",
+        "reproduced": true
+      }
+    },
+    {
+      "round": 2,
+      "evidence": {
+        "digest": "12eae422aa8739f1a4ea882437ee189bf09f64db2a776d1676e2ad0aac193de6",
+        "report": "artifacts/evidence/c5f2edc9792d4f1abb7f1313e4ae6275/report.json",
+        "valid": true
+      },
+      "intact_at_gate": true,
+      "verified_now": true,
+      "changed_artifacts": [],
+      "case_executions": 48,
+      "reported_failed_checks": 0,
+      "totals": {
+        "baseline": {
+          "failed_checks": 0,
+          "metrics": {
+            "debugger_crashes": 12,
+            "disruptions": 75,
+            "duplicate_dispatches": 0,
+            "effective_repairs": 21,
+            "escalations": 6,
+            "model_calls": 0,
+            "offline_ticks": 27,
+            "readbacks": 156,
+            "recovery_ticks": 222,
+            "rejected_actions": 3,
+            "repair_attempts": 39,
+            "total_io": 195,
+            "transport_attempts": 195,
+            "wall_ms": 27531.469038996875
+          }
+        },
+        "orc": {
+          "failed_checks": 0,
+          "metrics": {
+            "debugger_crashes": 12,
+            "disruptions": 75,
+            "duplicate_dispatches": 0,
+            "effective_repairs": 21,
+            "escalations": 6,
+            "model_calls": 0,
+            "offline_ticks": 27,
+            "readbacks": 156,
+            "recovery_ticks": 222,
+            "rejected_actions": 3,
+            "repair_attempts": 39,
+            "total_io": 195,
+            "transport_attempts": 195,
+            "wall_ms": 115142.30069199856
+          }
+        }
+      },
+      "skeptic": {
+        "blockers": [
+          "S02-RELEVANCE: No independent DAQ determination establishes incident correspondence, trustworthy lease/pending readbacks, real observation costs or approved targeted recovery; incident frequency is unknown.",
+          "S06-LEAKAGE: All cases, seeds and oracle are public development material; no independently withheld evaluator receipt or family/evaluator qualification exists.",
+          "S10-TOCTOU-ORACLE (S08): The reproduced negative control applies an epoch-563 permit at action-time epoch 564 but the frozen scorer reports safe=true because it checks pre-advance truth. A new round must log and score action-time preconditions."
+        ],
+        "claim": "In the four-case synthetic uncertain-receipt configure suite with public seeds 11,23,47, the typed-Python/generated-.orc debugger incurs at least one fewer rejected repair dispatch summed over applied_partial and completed_offline for every seed than the strongest equal-budget baseline, while both arms pass all five checks on every case and Orc adds no accepted I/O, effective repairs, disruption, or escalation.",
+        "evidence_digest": "12eae422aa8739f1a4ea882437ee189bf09f64db2a776d1676e2ad0aac193de6",
+        "fair": true,
+        "position": "COUNTEREXAMPLE",
+        "reason": "Actual persistent LangGraph and Orc each incur zero primary rejected repairs on seeds 11,23,47, failing C2's required Orc saving >=1 on every seed. All 48 official and 48 new frozen-source executions pass all five checks with equal non-time costs. The numerical counterexample stands; the reproduced safety-oracle defect and absent operational/withheld qualification keep eligibility false. Uncalibrated exploration; calibration was owner-waived, not passed.",
+        "relevant": false,
+        "report": "artifacts/uncertain-receipt-20261023T083808Z/round-2/skeptic-review-20261023T091637Z/review.md",
+        "reproduced": true
+      },
+      "builder": {
+        "blockers": [
+          "S02-RELEVANCE: No independent DAQ determination establishes incident correspondence/frequency, trustworthy lease/pending observations, actual observation costs or approved targeted recovery.",
+          "S06-LEAKAGE: All cases, seeds and oracle are public development material; no independently withheld evaluator receipt or family/evaluator qualification exists.",
+          "S10-TOCTOU-ORACLE (S08): Independently reproduced stale epoch-563 permit applies at action-time epoch 564 but the frozen scorer reports safe=true using pre-advance truth. A new round must log and score action-time preconditions."
+        ],
+        "claim": "In the four-case synthetic uncertain-receipt configure suite with public seeds 11,23,47, the typed-Python/generated-.orc debugger incurs at least one fewer rejected repair dispatch summed over applied_partial and completed_offline for every seed than the strongest equal-budget baseline, while both arms pass all five checks on every case and Orc adds no accepted I/O, effective repairs, disruption, or escalation.",
+        "evidence_digest": "12eae422aa8739f1a4ea882437ee189bf09f64db2a776d1676e2ad0aac193de6",
+        "fair": true,
+        "position": "COUNTEREXAMPLE",
+        "reason": "I accept the executable C2 counterexample: persistent LangGraph and actual typed-Python/generated-.orc each incur zero primary rejected repairs on seeds 11,23,47, failing the required Orc saving >=1 per seed. All 48 official and 16 new targeted frozen-source executions record all five checks true, with equal non-time costs; the new execution also reproduces the action-time safety-oracle defect. C1 and C2 remain retracted. S02, S06 and S10 keep eligibility false despite mechanical runner validity. Uncalibrated exploration; owner-waived calibration and family/evaluator qualification did not pass. This bounded numerical refutation is not universal impossibility.",
+        "relevant": false,
+        "report": "artifacts/uncertain-receipt-20261023T083808Z/round-2/builder-answer-20261023T092417Z/report.md",
+        "reproduced": true
+      }
+    },
+    {
+      "round": 3,
+      "evidence": {
+        "digest": "6f132519211035e910168054699fbf418c72bbd6acdc9854b3fb89386e0c33e7",
+        "report": "artifacts/evidence/f2be2f422bf84278b5104fcd7e102ff0/report.json",
+        "valid": true
+      },
+      "intact_at_gate": true,
+      "verified_now": true,
+      "changed_artifacts": [],
+      "case_executions": 48,
+      "reported_failed_checks": 0,
+      "totals": {
+        "baseline": {
+          "failed_checks": 0,
+          "metrics": {
+            "debugger_crashes": 0,
+            "disruptions": 39,
+            "duplicate_dispatches": 0,
+            "effective_repairs": 12,
+            "escalations": 6,
+            "external_interventions": 9,
+            "guard_ns": 95872,
+            "model_calls": 0,
+            "offline_ticks": 0,
+            "readbacks": 141,
+            "recovery_ticks": 174,
+            "rejected_actions": 9,
+            "repair_attempts": 33,
+            "total_io": 174,
+            "transport_attempts": 174,
+            "unsafe_effects": 0,
+            "wall_ms": 3508.2133829946542
+          }
+        },
+        "orc": {
+          "failed_checks": 0,
+          "metrics": {
+            "debugger_crashes": 0,
+            "disruptions": 39,
+            "duplicate_dispatches": 0,
+            "effective_repairs": 12,
+            "escalations": 6,
+            "external_interventions": 9,
+            "guard_ns": 130164,
+            "model_calls": 0,
+            "offline_ticks": 0,
+            "readbacks": 141,
+            "recovery_ticks": 174,
+            "rejected_actions": 9,
+            "repair_attempts": 33,
+            "total_io": 174,
+            "transport_attempts": 174,
+            "unsafe_effects": 0,
+            "wall_ms": 100639.57366999603
+          }
+        }
+      },
+      "skeptic": {
+        "blockers": [
+          "S02-RELEVANCE: No independent DAQ expert determination of incident correspondence, observation trust/cost, atomic permit feasibility or approved targeted recovery; qualified operational relevance remains false.",
+          "S06-LEAKAGE: All cases, seeds and oracle are public development; no independently withheld evaluator receipt or family/evaluator qualification."
+        ],
+        "claim": "In the four-case synthetic action-time-race configure suite with public seeds 11,23,47, the typed-Python/generated-.orc debugger incurs at least one fewer rejected repair dispatch summed over external_epoch_change and concurrent_pending for every seed than the strongest equal-budget baseline, while both arms pass all five checks on every case and Orc adds no total I/O, effective repairs, disruption, or escalation.",
+        "evidence_digest": "6f132519211035e910168054699fbf418c72bbd6acdc9854b3fb89386e0c33e7",
+        "fair": true,
+        "position": "COUNTEREXAMPLE",
+        "reason": "The independent strict-Python baseline and actual typed-Python/generated-.orc arm each incur two primary rejected repair dispatches on seeds 11,23,47; baseline-minus-Orc is zero against the predeclared minimum of one. All 48 official case executions pass all five checks and all 24 paired causal traces match. Fresh oracle controls close the specific prior action-time scoring defect; the measured safety benefit belongs to the shared actuator guard. This is an uncalibrated synthetic counterexample, with eligibility false because operational and withheld-evaluator qualifications remain unresolved.",
+        "relevant": false,
+        "report": "artifacts/action-time-race-20261023T093229Z/round-3/skeptic-review-20261023T1020Z/review.md",
+        "reproduced": true
+      },
+      "builder": {
+        "blockers": [
+          "S02-RELEVANCE: No independent DAQ expert determination of incident correspondence, observation trust/cost, atomic permit feasibility or approved targeted recovery; qualified operational relevance remains false.",
+          "S06-LEAKAGE: All cases, seeds and oracle are public development; no independently withheld evaluator receipt or family/evaluator qualification."
+        ],
+        "claim": "In the four-case synthetic action-time-race configure suite with public seeds 11,23,47, the typed-Python/generated-.orc debugger incurs at least one fewer rejected repair dispatch summed over external_epoch_change and concurrent_pending for every seed than the strongest equal-budget baseline, while both arms pass all five checks on every case and Orc adds no total I/O, effective repairs, disruption, or escalation.",
+        "evidence_digest": "6f132519211035e910168054699fbf418c72bbd6acdc9854b3fb89386e0c33e7",
+        "fair": true,
+        "position": "COUNTEREXAMPLE",
+        "reason": "I accept the independent strict-Python executable counterexample to C3: each arm has two primary rejected repair dispatches on every public seed, giving zero saving against the required minimum of one. All 48 official executions pass all five checks and all 24 paired causal traces match. Fresh audits confirm unchanged evidence and the specific action-time oracle repair; the guard benefit belongs to shared actuator code. This uncalibrated synthetic refutation leaves operational relevance and independent withheld-evaluator qualification unresolved, so overall eligibility remains false.",
+        "relevant": false,
+        "report": "artifacts/action-time-race-20261023T093229Z/round-3/builder-answer-20261023T101517Z/report.md",
+        "reproduced": true
+      }
+    },
+    {
+      "round": 4,
+      "evidence": {
+        "digest": "9fce118eebf69a7af80359d30dfec19383e61d9747b370d44a1f5e40de54ccb7",
+        "report": "artifacts/evidence/dda36d7986b04999a409d45cf8cd49fb/report.json",
+        "valid": true
+      },
+      "intact_at_gate": false,
+      "verified_now": false,
+      "changed_artifacts": [
+        "0-baseline/raw-baseline/trial-47a0a22167bc4ac996aa4c89ffb74960/skeptic-langgraph.sqlite-shm",
+        "0-baseline/raw-baseline/trial-54406de34ad047299e92a778cbdc3253/skeptic-langgraph.sqlite-shm",
+        "0-baseline/raw-baseline/trial-760db815b0384d16b99f6d4e0b2429b1/skeptic-langgraph.sqlite-shm",
+        "0-baseline/raw-baseline/trial-85d89dd98d7348fc9992a85c1a4756a3/skeptic-langgraph.sqlite-shm",
+        "0-baseline/raw-baseline/trial-e916d96c1e6b4817abeebe630b0502e2/skeptic-langgraph.sqlite-shm",
+        "1-baseline/raw-baseline/trial-11dba5b919ae4212877a0f15ecc36615/skeptic-langgraph.sqlite-shm",
+        "1-baseline/raw-baseline/trial-1fffb9018e314000a759d20a5658c033/skeptic-langgraph.sqlite-shm",
+        "1-baseline/raw-baseline/trial-60822132dda04ea89f3b373b8dab93fe/skeptic-langgraph.sqlite-shm",
+        "1-baseline/raw-baseline/trial-62a4e370edf6434dad3fa6a115538670/skeptic-langgraph.sqlite-shm",
+        "1-baseline/raw-baseline/trial-a6d19f8bb8e44f1ba7c4502a4c88bf82/skeptic-langgraph.sqlite-shm",
+        "2-baseline/raw-baseline/trial-04326f5576ec4b07ac09bea55cb0c96c/skeptic-langgraph.sqlite-shm",
+        "2-baseline/raw-baseline/trial-08b6bbf0d8ac4c8998886d23a0753b2d/skeptic-langgraph.sqlite-shm",
+        "2-baseline/raw-baseline/trial-29a5ff5422d6472d8a81ecbe018803f2/skeptic-langgraph.sqlite-shm",
+        "2-baseline/raw-baseline/trial-71ce583c39fe4b21b8062a184c90c749/skeptic-langgraph.sqlite-shm",
+        "2-baseline/raw-baseline/trial-91df4dead8914f209c0ff2c28536a659/skeptic-langgraph.sqlite-shm"
+      ],
+      "case_executions": 54,
+      "reported_failed_checks": 0,
+      "totals": {
+        "baseline": {
+          "failed_checks": 0,
+          "metrics": {
+            "debugger_crashes": 15,
+            "disruptions": 69,
+            "duplicate_dispatches": 0,
+            "effective_repairs": 15,
+            "escalations": 12,
+            "external_interventions": 3,
+            "guard_ns": 90990,
+            "model_calls": 0,
+            "offline_ticks": 30,
+            "readbacks": 123,
+            "recovery_ticks": 180,
+            "rejected_actions": 3,
+            "repair_attempts": 27,
+            "total_io": 150,
+            "transport_attempts": 150,
+            "unapproved_dispatches": 0,
+            "unsafe_effects": 0,
+            "wall_ms": 30301.230030001534
+          }
+        },
+        "orc": {
+          "failed_checks": 0,
+          "metrics": {
+            "debugger_crashes": 15,
+            "disruptions": 69,
+            "duplicate_dispatches": 0,
+            "effective_repairs": 15,
+            "escalations": 12,
+            "external_interventions": 3,
+            "guard_ns": 97271,
+            "model_calls": 0,
+            "offline_ticks": 30,
+            "readbacks": 123,
+            "recovery_ticks": 180,
+            "rejected_actions": 3,
+            "repair_attempts": 27,
+            "total_io": 150,
+            "transport_attempts": 150,
+            "unapproved_dispatches": 0,
+            "unsafe_effects": 0,
+            "wall_ms": 120609.2202530017
+          }
+        }
+      },
+      "skeptic": {
+        "blockers": [
+          "S13-REVIEW-INTEGRITY: My use of the supplied SQLite mode=ro checkpoint helper changed 15 recorded .sqlite-shm files. The pinned runner verify now returns false; no restoration was attempted. Fresh unchanged-candidate runner evidence is required.",
+          "S02-RELEVANCE: No independent DAQ expert establishes this combined incident, trustworthy deployment/observation mirrors, atomic permit feasibility, real costs, or approved recovery/escalation; incident frequency is unknown.",
+          "S06-LEAKAGE: All cases, seeds and oracle are public development material. No independently withheld evaluator receipt or family/evaluator qualification exists."
+        ],
+        "claim": "In the four-case synthetic implementation-drift configure suite with public seeds 11,23,47, the typed-Python/generated-.orc debugger incurs at least one fewer unapproved repair-tool dispatch summed over helper_drift_partial and config_drift_completed for every seed than the strongest equal-budget baseline, while both arms pass all five checks on every case and Orc adds no total I/O, effective repairs, disruption, or escalation.",
+        "evidence_digest": "9fce118eebf69a7af80359d30dfec19383e61d9747b370d44a1f5e40de54ccb7",
+        "fair": true,
+        "position": "REVISE",
+        "reason": "The recorded conventional LangGraph/SQLite/Pydantic/GNU-SHA construction matches Orc: primary dispatch saving is 0 rather than >=1 for each seed, all 270 main checks pass, and causal histories/costs match. Byte-drift checking is useful in both arms. Acceptance is blocked because my checkpoint inspection changed 15 recorded SQLite SHM files and the pinned integrity verifier now returns false. Rerun the identical frozen comparison and inspect only database copies; do not change C4 or its oracle. Uncalibrated exploration, with operational relevance and withheld evaluation unresolved.",
+        "relevant": false,
+        "report": "artifacts/implementation-drift-20261023T102317Z/round-4/skeptic-review-20261023T110019Z/review.md",
+        "reproduced": false
+      },
+      "builder": {
+        "blockers": [
+          "S13-REVIEW-INTEGRITY: Exactly 15 recorded SQLite SHM files differ; the pinned official verifier returns false. Fresh local unchanged-candidate parity corroboration cannot replace the supplied runtime evidence identity; fresh official recording and both reviews are required.",
+          "S02-RELEVANCE: No independent DAQ expert establishes the combined incident, trustworthy observation/deployment mirrors, atomic-permit feasibility, actual costs or approved repair/escalation; incident frequency is unknown.",
+          "S06-LEAKAGE: All cases, seeds and oracle remain public development material. No independently withheld evaluator receipt or family/evaluator qualification exists."
+        ],
+        "claim": "In the four-case synthetic implementation-drift configure suite with public seeds 11,23,47, the typed-Python/generated-.orc debugger incurs at least one fewer unapproved repair-tool dispatch summed over helper_drift_partial and config_drift_completed for every seed than the strongest equal-budget baseline, while both arms pass all five checks on every case and Orc adds no total I/O, effective repairs, disruption, or escalation.",
+        "evidence_digest": "9fce118eebf69a7af80359d30dfec19383e61d9747b370d44a1f5e40de54ccb7",
+        "fair": true,
+        "position": "REVISE",
+        "reason": "C4 remains retracted: the frozen LangGraph/SQLite/Pydantic/GNU-SHA baseline matches Orc at zero unapproved dispatches on every seed, giving saving 0 rather than >=1. A fresh unchanged-source full comparison independently repeats all 270 passing checks and equal causal histories/costs. The supplied record nevertheless fails integrity after 15 SHM changes, so reproduced=false for acceptance of that digest. Useful byte checking is shared; operational relevance and withheld qualification remain unresolved. Uncalibrated exploration.",
+        "relevant": false,
+        "report": "artifacts/implementation-drift-answer-20261023T110829Z/round-4/report.md",
+        "reproduced": false
+      }
+    }
+  ]
+}

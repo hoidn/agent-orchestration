@@ -1,0 +1,17 @@
+**DIAGNOSED: `deadtime_link` on `tmo_atmopal_0` (host drp-srcf-cmp026).** The timing link from cmp026 back to the XPM has lost lock, so the XPM counts it as permanently dead and accepts nothing.
+
+**Evidence:**
+- **No triggers accepted:** the XPM gets about 1020 Hz of triggers in but accepts 0, and the deadtime fraction is 1. The per-link deadtime array is set only at index 4.
+- **Link 4 is down:** XPM:2 link 4 goes to drp-srcf-cmp026. It shows `LinkRxReady 0`, `LinkRxErr 65535` and `DeadFLnk 1.000`. Every other link is up, with no errors and no deadtime.
+- **Timing matches the cable swap:** the archiver shows LinkRxReady4 dropping at 02:10:31 and recovering a second later. It dropped again at 02:12:50, just after run 412 started. The shift swapped the opal's camlink cable at 02:09.
+- **The cnf maps cmp026 to `tmo_atmopal_0`,** and that is the only segment whose DRP metrics report deadtime.
+- **The other three causes don't fit:**
+  - `kcu_buffers`: the write buffers are queued in Pre-Hw, not stuck in hardware, and DMA in use is 0 everywhere.
+  - `hsd_link`: every HSD has 4/4 lanes up and full buffers.
+  - `stuck_transitions`: that playbook requires no deadtime, and here deadtime is 100%. The "Disable hangs" failure follows from the dead link.
+
+**Recommended fix for the on-call person:** reseat or check the timing fiber between cmp026's KCU and XPM:2 link 4; it may have been disturbed during the camlink work at the opal. Confirm `DAQ:NEH:XPM:2:LinkRxReady4` goes back to 1 and stays there, then run `restartdaq`. I changed nothing.
+
+Files are in `artifacts/daq/412/20261023T023549Z-6k359a/`:
+- evidence.md
+- result.json (also at the contract path under `.orchestrate/runs/.../attempt-1/`)

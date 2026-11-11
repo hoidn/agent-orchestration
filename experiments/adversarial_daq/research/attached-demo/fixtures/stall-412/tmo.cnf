@@ -1,0 +1,29 @@
+# tmo.cnf as it stood for this run (excerpt). Lines are from the real
+# psdaq/psdaq/cnf/tmo.cnf; the selection of detectors is this fixture's.
+hutch, user = ('tmo', 'tmoopr')
+collect_host = 'drp-srcf-mon001'
+data_dir = '/cds/data/drpsrcf'
+hsd_epics = 'DAQ:TMO:HSD:1'
+task_set = 'taskset -c 4-63'
+batching = 'batching=yes'
+directIO = 'directIO=yes'
+std_opts = '-P '+hutch+' -C '+collect_host+' -M '+prom_dir
+std_opts0 = std_opts+' -o '+data_dir+' -d /dev/datadev_0'+' -k '+batching+','+directIO
+std_opts1 = std_opts+' -o '+data_dir+' -d /dev/datadev_1'+' -k '+batching+','+directIO
+drp_cmd0 = task_set+' drp '    +std_opts0
+drp_cmd1 = task_set+' drp '    +std_opts1
+teb_cmd  = task_set+' teb '         +std_opts+' -k '+scripts
+
+procmgr_config = [
+ { host: collect_host,      id:'control',     flags:'spu', env:epics_env, cmd:f'control -P {hutch} -B DAQ:NEH -x 2 -C BEAM {auth} {url} -d {cdb}/configDB -t trigger -S 1 -T 40000 -V {elog_cfg}'},
+ { host: 'drp-srcf-cmp030', id:'teb0',        flags:'spu',                cmd:teb_cmd},
+ { host: 'drp-srcf-cmp028', id:'timing_0',    flags:'spu',                cmd:drp_cmd1+' -l 0x1 -D ts'},
+ {host:'drp-srcf-cmp020', id:'hsd_0',  flags:'spu', env:hsd_epics_env, cmd:drp_cmd1+f' -D hsd -k hsd_epics_prefix={hsd_epics}_1B:A'},
+#{host:'drp-srcf-cmp020', id:'hsd_1',  flags:'spu', env:hsd_epics_env, cmd:drp_cmd0+f' -D hsd -k hsd_epics_prefix={hsd_epics}_1B:B'},
+ {host:'drp-srcf-cmp017', id:'hsd_3',  flags:'spu', env:hsd_epics_env, cmd:drp_cmd1+f' -D hsd -k hsd_epics_prefix={hsd_epics}_1A:B'},
+ {host:'drp-srcf-cmp019', id:'hsd_4',  flags:'spu', env:hsd_epics_env, cmd:drp_cmd1+f' -D hsd -k hsd_epics_prefix={hsd_epics}_3E:A'},
+ {host:'drp-srcf-cmp018', id:'hsd_5',  flags:'spu', env:hsd_epics_env, cmd:drp_cmd1+f' -D hsd -k hsd_epics_prefix={hsd_epics}_3D:B'},
+ {host:'drp-srcf-cmp018', id:'hsd_7',  flags:'spu', env:hsd_epics_env, cmd:drp_cmd0+f' -D hsd -k hsd_epics_prefix={hsd_epics}_3E:B'},
+ { host: 'drp-srcf-cmp026', id:'tmo_atmopal_0', flags:'spu', env:epics_env, cmd:drp_cmd0+' -l 0x1 -D opal -k ttpv=TMO:TIMETOOL:TTALL'},
+ { host: 'drp-srcf-cmp007', id:'tmo_atmpiranha_0', flags:'spu', env:epics_env, cmd:drp_cmd0+' -l 0x1 -D piranha4'},
+]
