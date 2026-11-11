@@ -303,8 +303,10 @@ negative.
   decision regions and the retry rules.
 - **Arms:** direct with replicates on each model; implement–test–repair with
   replicates; best-of-3 by visible-test selection, retry-until-pass, any-of-3
-  and random-of-3 computed offline from the direct replicates. Models at or
-  below Sonnet/Terra; no Fable model.
+  and random-of-3 computed offline from the direct replicates. Haiku wherever the
+  design allows; a higher model within the Sonnet/Terra ceiling only as the
+  stronger arm or second model placement; no Fable model. A result then
+  holds for the Haiku tier.
 - **Tests:** selection and repair see the visible check only; pass or fail is
   the hidden set only.
 - **Decision, on paired task-clustered differences with adjusted bounds:**
@@ -401,7 +403,8 @@ the owner can amend any of them.
   null.
 - Every experiment keeps one frozen, hashed criterion and one ledger row.
   Nothing else is required for a pilot.
-- The `AGENTS.md` experiment rules apply unchanged.
+- The `AGENTS.md` experiment rules apply unchanged, including the owner's
+  cost default of 2026-11-11: as many experiment calls as possible on Haiku.
 
 ## Review record
 
