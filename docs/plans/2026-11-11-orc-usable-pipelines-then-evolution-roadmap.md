@@ -1,251 +1,430 @@
 # ORC Roadmap: Usable Pipelines First, Then Program Evolution
 
-**Status: Draft proposal, not selected.** This page proposes the next project
-roadmap. It selects no work, authorizes no provider spend and changes no
-contract until the owner selects it. Until then, work selection stays with the
+**Status: Draft proposal, revision 2, not selected.** This page proposes the
+next project roadmap. It selects no work, authorizes no provider spend and
+changes no contract until the owner selects it. Until then, work selection
+stays with the
 [evaluated-execution delivery plan](2026-09-29-workflow-lisp-evaluated-execution-plan.md)
 and the other owners named in the [docs index](../index.md). Accepted designs
 and `specs/` own behavior; this page owns only order, gates and dispositions.
 It is not a source of copyable examples.
 
-**Goal:** make typed, resumable agent pipelines easy to write and cheap to
-iterate on, then test the quality and program-evolution claims on a benchmark
-that can actually measure them.
+**Goal:** make typed, resumable agent pipelines usable for one real long
+pipeline, measure what the runtime's distinctive mechanism buys, and price the
+quality and program-evolution questions honestly before any spend on them.
 
 **Basis:** the project audit of 2026-11-11 (code read and provider-free probes
-at `bb63b03b`, plus a review of every roadmap and pending design) and the
-[structural search closure](2026-10-18-orc-structural-search-roadmap.md#closure-2026-11-11).
+at `bb63b03b`), the
+[structural search closure](2026-10-18-orc-structural-search-roadmap.md#closure-2026-11-11),
+and five independent reviews of revision 1 (see [Review record](#review-record)).
+The audit and the reviews are session working notes; Phase 0 commits them as
+dated reports.
 
-## Claims
+## Where this tool is chosen
 
-| Claim | State | Where it is tested |
-| --- | --- | --- |
-| **Engineering:** long, expensive, multi-agent pipelines get typed handoffs, exact resume and an audit trail | Supported by the runtime; hard to use today | Phases 1–4 |
-| **Quality:** a workflow beats one direct call at acceptable cost | Not shown. One small positive (E-A); the rest null, incomplete or unmeasured | Phase 5 |
-| **Evolution:** searching over workflow programs finds better quality/cost trade-offs than hand-written ones | Never measured | Phase 6, gated on Phase 5 |
+Pipelines of command-line coding agents from more than one vendor, lasting
+hours to days, with typed validated handoffs, gates an agent cannot skip,
+human decisions and a per-attempt audit trail, on one machine with no service.
 
-The roadmap is ordered so that every phase before Phase 5 pays off whichever
-way the quality and evolution claims turn out.
+Not chosen for: command-only data pipelines (Snakemake, DVC), API-level agent
+graphs (LangGraph), fleet-scale durable execution (Temporal), or a task one
+agent session finishes. Every work item below is tested against this
+statement.
+
+## Hypotheses
+
+Each claim is stated so that it can fail.
+
+| Id | Hypothesis | Refuted by | Built in | Measured in |
+| --- | --- | --- | --- | --- |
+| H-G1 crash behaviour | For every kill point and effect kind, a resumed run returns the same value, re-dispatches no committed effect and recovers a completed uncommitted agent turn without re-dispatch | Any duplicated committed effect or lost completed turn. It is parity, not an advantage, if LangGraph checkpoints pass the same matrix | done | Thread M, Phase 2 |
+| H-G2 errors before spend | The checker rejects, before the first provider call, defect classes that a typed Python equivalent reports only at run time | A typed Python control with a standard type checker catching the same set | done | Thread M, consumer |
+| H-G3 iteration cost | After an edit, a run reuses a large share of committed provider cost soundly | Reuse that is small on real edit histories, or unsound | Phase 3 | Phase 3 |
+| H-Q quality | On single-context coding tasks, a workflow beats a direct-call baseline given equal compute | The "refute" region of the Phase 5 decision rule | exists | Phase 5 |
+| H-E1 representation | At equal proposer budget, typed edits with compiler admission waste fewer evaluations than free-form Python edits | Rates within a predeclared tolerance | Phase 6 | Phase 6 |
+| H-E2 cheap evaluation | A child program sharing a committed prefix with its parent is evaluated at a fraction of full cost and detects the same difference in fewer runs | Cost or variance no better than independent runs | Phase 6 | Phase 6 |
+
+Priors the project already holds: the one direct comparison with LangGraph
+(the untracked adversarial DAQ study) found parity on H-G1-like claims; in the
+three-arm search readout the compiler rejected 0 of 18 proposals in every
+interface, which counts against H-E1; the Phase 1 report itself says its flat
+result is not evidence that the search space is flat.
+
+**Mechanism hypothesis for H-Q:** structure helps only where it adds an
+independent sample, a different model, or an executed signal that can fail.
+
+## What is already known elsewhere
+
+From the reviewers' memory of the literature; verify before citing.
+
+- Durable execution is an established field (Temporal, Durable Functions,
+  DBOS, Restate, LangGraph checkpointers). "Has resume and an audit trail" is
+  a feature list those systems share.
+- Reuse after pipeline edits is solved for hermetic tasks (Nextflow and
+  Snakemake resume, Bazel, Nix). It is open for agent turns that edit a shared
+  workspace. H-G3 is the question this project can add to.
+- Test-based selection among samples helps (AlphaCode, CodeT); repair is close
+  to resampling at equal budget (Olausson et al.); baselines must be
+  cost-controlled (Kapoor et al.). A Phase 5 result on H-Q is a replication.
+- Search over agent workflows beats hand-written baselines when fitness is
+  cheap (ADAS, AFlow, AlphaEvolve). This project cannot afford those regimes,
+  so Phase 6 tests only what its representation and memo could add.
 
 ## Findings this roadmap answers
 
-| Finding (measured 2026-11-11 unless noted) | Phase |
+| Finding | Where |
 | --- | --- |
-| No page says what comes next; forward work is "pending, unselected" across four files; 641 plan files; 420 stray temp directories in the repo root; 127 worktrees | 0 |
-| The captured full suite is red (69 failure mechanisms, [simplification record](2026-10-15-orc-simplification-roadmap-extension.md)) | 0 |
-| `(continue (command-result …))` crashes the compiler (`compiler_defect`); a loop without `:on-exhausted` compiles and fails at run time; `run` prints nothing on success; every CLI call pays 2.5–4 s of imports; one error per compile | 1 |
-| About 25–35k lines of retired architecture survive as types, fixtures and dead helpers; six language targets are gated at 50 call sites | 2 |
-| Any semantic source edit refuses resume (`resume_program_changed`); invalidation cancels the whole journal suffix although per-commit dependencies are recorded | 3 |
-| The Python frontend lacks parallel map and agents; parallel map is qualified only in a bounded form | 4 |
-| Quality scores had σ ≈ 1 on an 8-point scale with two samples per arm, so a 1-point effect needs about 16 samples per arm; the task family (features of this repo) invites contamination | 5 |
-| In the three-arm search readout all 18 children converged on one shape and the compiler rejected none; Phase 1 anchors were inverted | 6 |
+| No page says what comes next; forward work is "pending, unselected" across four files | Phase 0 |
+| The recorded full suite has 71 failing tests, some dependent on launch context | Phase 0 |
+| Bare `(continue <effect>)` crashes the compiler; a loop without `:on-exhausted` compiles and fails at run time | Phase 1 |
+| A run prints nothing while in flight or on success; a failure prints no run id; resume refusals name no recourse | Phase 1 |
+| A command that failed because of a bug in its own script cannot be resumed once the script is fixed (`effect_input_diverged`; no override) | Phase 3 |
+| Any semantic source edit refuses resume (`resume_program_changed`) | Phase 3 |
+| Inserting one effect renames every later generated binder on the Python surface, shifting effect identities | Phase 2 |
+| Provider token usage is not recorded; every Phase 1 search row logged consumption as unavailable | Phase 2 |
+| About 34k lines of retired architecture remain, dead as executors but imported as types by 28 production modules | Lane D |
+| Six language targets; 388 of 686 `.orc` files sit on the oldest, under different procedure semantics from the newest | Lane D |
+| Quality scores had σ ≈ 1 on an 8-point scale with two samples per arm; the rubric placed the merged fix at or below candidates | Phase 5 |
 
-## Phases
+## Sequence
 
-Each phase gets one plan under `docs/plans/` when it starts. Provider budget is
-requested once per phase, at its start, and recorded in that plan's ledger.
+```
+Phase 0 ─ Phase 1 ─┬─ Consumer thread (continuous, selects Phase 3 and 4 items)
+                   ├─ Phase 2 ─ Phase 3 ─ Phase 4
+                   └─ Lane D (background, time-boxed)
+Thread M (zero spend) runs from Phase 0; Phase 5 and Phase 6 open only by
+owner budget decision.
+```
 
-### Phase 0: Clear the ground
+Phase 3 and each Phase 4 item enter only with a named friction item from the
+consumer or a measurement need. Each phase gets one plan under `docs/plans/`
+when it starts.
 
-- **Work:** close superseded roadmaps and drafts with a dated note (see
-  [Dispositions](#dispositions)); point the index "Select implementation work"
-  row at this page; ignore or relocate the temp directories that land in the
-  repo root and fix what creates them; prune merged worktrees and branches;
-  run the full suite once and record a single number plus a named quarantine
-  list with one owner per entry.
-- **Exit test:** one page states the next work; `git status` shows no stray
-  temp directories; suite status is one number and a list.
-- **Spend:** none.
-- **Makes harder:** finding old plans by browsing `docs/plans/`.
+### Phase 0: Records and baseline
 
-### Phase 1: The first hour
+- **Work:** commit the audit and the roadmap reviews as dated reports; record
+  the adversarial DAQ study as a result (commit or archive, with its ledger);
+  write one "what the experiments established" page; close superseded
+  roadmaps with a dated note (see [Dispositions](#dispositions)); delete the
+  420 leftover temp directories in the repo root (their creators were fixed in
+  July); prune merged worktrees not in use by a live session; record the
+  failing test ids from one fixed launch recipe (command, basetemp, session),
+  each with a mechanism and an owner; run the doc-reading tests after the
+  disposition edits.
+- **Headline exit test:** one page states the next work, and a second run of
+  the launch recipe reproduces the same failing ids.
+- **Spend:** none. **Effort:** 0.5–1 week.
 
-- **Work:** let-bind effectful subexpressions in `continue`, `match`
-  scrutinees and `loop-state :like`, as the Python emitter already does;
-  require `:on-exhausted` at compile time; print the result and the next
-  command after `run`, and the failing effect and its stderr on failure; make
-  the isolation and `jsonschema` imports lazy; add a multi-line prompt literal
-  or a prompt-file convention; write a provider-free tutorial of about 150
-  lines (compile, run, fail, resume); add the write-once lint W0.
-- **Exit test:** the audit's probe workflow compiles on the first attempt;
-  `--help` returns in under 0.5 s; a successful `run` prints its result; a new
-  author finishes the tutorial without opening another document.
-- **Spend:** none.
-- **Makes harder:** workflows that omit `:on-exhausted` stop compiling and
-  must be fixed.
+### Thread M: Zero-spend measurement (starts in Phase 0)
 
-### Phase 2: Delete and unify
+1. **Resume retrospective:** from the October experiment ledgers, count
+   interruptions, resumes attempted, resumes that succeeded and relaunches,
+   with the provider time lost.
+2. **H-G1 matrix:** publish the kill-point matrix from the existing scripted
+   kill tests, and run the same pipeline shape on a LangGraph checkpointer
+   with scripted providers.
+3. **H-G2 list:** a fixed list of seeded authoring defects, checked against
+   the compiler and against a typed Python control.
+4. **Pool reanalysis (descriptive only):** on the E-B2, E-B3 and search
+   Phase 1 pools, report rank agreement between each judge and the hidden-test
+   fraction, the retest spread of identical code, and what an oracle selector
+   would have gained. E-A has no executed tests.
+5. **Task pool for Phase 5:** natural fix commits with their own tests,
+   outside this repo, at most five per repository, dated after the bound
+   models' cutoffs where available. Each task needs a visible failing check
+   and a disjoint hidden scoring set. Freeze the splits before any call.
 
-- **Work:** remove the retired IR stack and `LoadedWorkflowBundle`, the
-  `StateManager` mutation methods, trial and adjudication execution and their
-  type checking, peer groups and supervision, CLI vestiges, and the tests that
-  exist only for them. Then migrate in-repo workflows to one language target
-  and replace the scattered version predicates with one check. Split contracts
-  from evidence ledgers in the design docs and cut the drafting guide.
-- **Exit test:** at least 30k lines removed from `orchestrator/`; one admitted
-  target; drafting guide under 1,000 lines; suite no worse than the Phase 0
-  number.
-- **Stop rule:** a workflow that cannot move to the single target without a
-  behavior change keeps its target, with the reason recorded.
-- **Spend:** none.
-- **Makes harder:** reading and reproducing historical runs once their readers
-  are gone. Needs owner approval (decision 3).
+- **Stop rule for H-G1 and H-G2:** if both come out at parity with the
+  controls, the engineering claim narrows to H-G3 and the "where chosen"
+  statement, and the owner revisits whether a custom language is warranted
+  (the research charter's own decision rule).
+- **Stop rule for item 5:** if a pool of the size Phase 5 needs cannot be
+  assembled, Phase 5 does not run and H-Q is recorded as not tested.
+
+### Phase 1: The first hour and the long run
+
+- **Work:**
+  - let-bind an effect given directly to `continue` (the `match` and
+    `loop-state :like` cases already landed in `91e4a538`);
+  - report a missing `:on-exhausted` at compile time, as a warning on admitted
+    targets and an error on the target Lane D settles on;
+  - print the run id first, one line per effect start, commit and failure,
+    and the result on success;
+  - make every resume refusal name what changed and the command that recovers;
+  - pick up `commands.json`, `providers.json` and `prompts.json` beside the
+    source when the flags are absent; hide maintainer subcommands;
+  - make the `jsonschema` import chain lazy (measured: `--help` 1.8 s to
+    0.3 s, `compile` 2.7 s to 1.1 s);
+  - check whether prompts kept in files plus `invalidate` already give prompt
+    edit-and-continue, and document it if so;
+  - write a provider-free tutorial of about 150 lines that includes wrapping
+    an existing script as a command, and run it as a smoke test in a fresh
+    environment and an empty directory.
+- **Alongside:** the Phase 3 feasibility spike (reading plus a prototype).
+- **Headline exit test:** a failed run can be diagnosed and resumed using only
+  what the terminal printed, in a fresh environment outside this checkout.
+- **Authoring check (small spend, asked with the phase):** a fresh agent
+  session at or below the model cap, given only the tutorial, writes a working
+  provider-free workflow; run before and after the phase.
+- **Not selected:** more than one diagnostic per compile (960 raise sites; a
+  project of its own); the write-once lint.
+- **Effort:** 2–3 weeks.
+
+### Consumer thread (starts after Phase 1)
+
+- **What:** one existing piece of the owner's work that would otherwise be run
+  by hand or by agent subagents, named at selection (decision 3). Written as
+  an ordinary workflow on today's system; progressive execution is used only
+  if the consumer needs it.
+- **Friction log:** every workaround, fallback to manual orchestration and
+  restart from scratch, with the compute it discarded. The log selects the
+  Phase 3 and Phase 4 work items and feeds H-G2.
+- **Exit test:** the pipeline's output is used (a merged change, a figure, a
+  paper section); the run had at least one unplanned failure recovered by
+  resume and one mid-run edit; the owner records whether the next such task
+  will use the tool and what they would have used instead.
+- **Spend:** the consumer's own provider use, budgeted by the owner as
+  ordinary work, not as an experiment.
+
+### Phase 2: Qualification, metering and stable names
+
+- **Work:**
+  - finish the open parallel-map items of the
+    [Phase 5 execution plan](2026-10-07-evaluated-execution-phase-5-plan.md)
+    (item working directories, public kill and resume, the best-of-N consumer,
+    closeout). These tests become the regression baseline for Phase 3;
+  - record per-attempt provider token usage where the agent CLI reports it;
+    `report` shows per-step and total tokens and priced cost; an optional
+    per-run spend cap stops before the next provider call;
+  - make generated binder names stable under insertion, on both surfaces;
+  - run the Agent Sessions comparison (PQ-1c) as its plan defines it: four
+    cells, three outcomes, models inside the Sonnet/Terra cap unless the owner
+    authorizes otherwise. One run per cell decides measure-free axes only.
+- **Headline exit test:** a parallel best-of-N run survives a kill and
+  resumes, and its report shows tokens per step and a total.
+- **Spend:** small, as gated tranches. **Effort:** 3–5 weeks.
 
 ### Phase 3: Edit and continue
 
-- **Target:** treat the memo as a build cache. An edited program reuses every
-  committed effect whose identity and recorded inputs are unchanged;
-  invalidation follows recorded dependencies, not journal order.
-- **This changes an accepted contract.**
-  [Evaluated execution §8.4](../design/workflow_lisp_evaluated_execution.md)
-  refuses a changed program before reading the memo. No code is written until
-  a design revision is accepted.
-- **Work:** a one-week feasibility spike, then the design revision, then
-  implementation. The spike must answer:
-  1. Do effect identities survive an unrelated edit? Generated binder names
-     (`_e0`, `_e1`, `_loop0`) are positional and may shift.
-  2. Can replay accept commits in dependency order when the edited program
-     reaches them in a different journal order, or no longer reaches some?
-  3. Which effects are safe to reuse when a command reads workspace state its
-     recorded inputs do not cover?
-- **Exit test:** in a four-step run, edit the third step's prompt; resume
-  re-runs steps three and four only, and the kill-at-every-commit resume tests
-  still pass.
-- **Stop rule:** if reuse cannot be made sound without weakening "a committed
-  effect never re-runs and never runs with different inputs", ship
-  dependency-based invalidation alone and keep the refusal.
-- **Spend:** none.
-- **Makes harder:** the resume rule stops being "identical program or
-  refusal"; reasoning about a run needs the reuse rule too.
+- **This changes accepted contracts.** In
+  [evaluated execution](../design/workflow_lisp_evaluated_execution.md): the
+  program-equality refusal of §8.4, and the retry-baseline rule of §8.1 that
+  refuses a changed script after a failed attempt "with no override". No code
+  before an accepted design revision. The design must first recover why the
+  retry-baseline rule exists.
+- **Protected invariant:** replay equivalence. After an edit, the active memo
+  is one an uninterrupted run of the edited program could have produced, with
+  reused effects returning their recorded results.
+- **3a, script fix:** a step whose latest attempt failed may be retried after
+  its script is edited. The effect has no committed result to protect.
+- **3b, prefix reuse:** an edited program resumes if replay reproduces a
+  prefix of the active journal with equal identities and equal resolved-input
+  digests. The first effect that is new, missing or diverged cancels the
+  journal suffix from that point. The run records each program digest it ran
+  under. The design covers interleaved parallel commits and keeps the
+  coordinator refusals.
+- **Deferred, 3c:** reuse scoped by recorded dependencies. The accepted design
+  tried it and mixed old and new results, because effects couple through
+  workspace files that leave no trace in values. It enters only when command
+  boundaries declare what they read and write.
+- **Headline exit test:** three cases pass and the kill-at-every-commit suite
+  still passes: (a) fix the script of a failed third step, resume runs steps
+  three and four only; (b) insert an effect before step two, resume re-runs
+  two to four; (c) a file-dependence fixture never mixes old and new results.
+- **Measurement (H-G3):** replay the recorded edit history of at least three
+  real workflows, the consumer among them. Report per edit the share of
+  committed provider cost reused, the cost re-spent, and every refusal;
+  compare with whole-run restart.
+- **Stop rule:** if 3b cannot be made sound, keep the refusal and ship 3a plus
+  the recovery messages of Phase 1.
+- **Makes harder:** a run can be the product of several programs, so reading
+  its audit trail needs the program lineage.
+- **Spend:** none. **Effort:** 5–7 weeks (spike 1, design 1–2, build 3–4).
 
-### Phase 4: Python first, parallel map
+### Phase 4: Python additions pulled by the consumer
 
-- **Work:** finish the remaining Phase 5 work of the delivery plan (public
-  interruption and resume qualification, a best-of-N consumer selected by
-  executed tests, closeout); add `parallel_map`, procedure references and
-  readable generated names to the
-  [Python frontend](../design/python_workflow_frontend.md); run the Agent
-  Sessions comparison (PQ-1c) once and then either add `Agent` to the Python
-  frontend or retire Agent Sessions.
-- **Exit test:** every catalog example has a Python version that builds to the
-  same checked program shape; a parallel best-of-N run survives a kill and
-  resumes.
-- **Spend:** small, for live parallel qualification and PQ-1c. Requested at
-  phase start.
-- **Makes harder:** `.orc` becomes the generated form most authors never
-  write, so `.orc`-only features need a Python route or a reason.
+- **Work:** only what the friction log names, from: `parallel_map`; `Agent`
+  (if PQ-1c and the consumer keep Agent Sessions); procedure references, which
+  need a revision of the
+  [Python frontend design](../design/python_workflow_frontend.md) that
+  excludes them today; `invalidate` accepting a readable name.
+- **Headline exit test:** the consumer runs from its Python source, including
+  one `parallel_map`, and a kill-resumed best-of-N.
+- **Makes harder:** `.orc` becomes the generated form; the remaining role of
+  hand-written Lisp (the standard library and the language tests) is stated in
+  the drafting guide.
+- **Effort:** 3–5 weeks if all items are pulled.
 
-### Phase 5: One real consumer, one cheap benchmark
+### Lane D: Delete and unify (background, time-boxed)
 
-- **Consumer:** one long pipeline outside this repo with human gates, built on
-  [progressive execution](../design/workflow_lisp_progressive_execution.md) as
-  an ordinary workflow. The owner names it (decision 5).
-- **Benchmark, in order:**
-  1. *Zero spend:* from the existing E-A, E-B2, E-B3 and Phase 1 pools,
-     compute what selection by tests, by each judge and by agreement would
-     have gained.
-  2. *Zero spend:* assemble 30–50 small tasks with pre-existing executable
-     tests, outside this repo's own features. Qualify the family by its
-     oracle check (tests fail at base, pass at the reference fix) and the
-     measure on the same known controls, as `AGENTS.md` requires for
-     oracle-scored families.
-  3. *Spend:* run direct, best-of-3 with executed-test selection, and
-     implement–test–repair, plus the remaining catalog programs and two or
-     three model placements, once per task on models at or below
-     Sonnet/Terra. Record pass/fail and metered tokens per run. This is the
-     table Phase 6 searches. Estimate: 240–320 short runs.
-- **Exit test:** the consumer completes a real multi-day task with at least
-  one resume; the benchmark reports, with bootstrap intervals, whether any
-  workflow Pareto-dominates direct.
-- **Stop rule:** if no workflow gains 10 pass-rate points over direct at no
-  more than three times the tokens, the quality claim is frozen, Phase 6 does
-  not open, and the project keeps the engineering claim only.
-- **A Python control** (the same three programs written without ORC) runs on
-  the same tasks, so a win is attributable to the structure and not the tool.
+Runs beside the phases and gates none of them. Each stage has its own exit
+test; the gate throughout is "no test outside the Phase 0 list fails, and
+every removed test is listed with the code it covered".
 
-### Phase 6: Program evolution
+1. **Dead executors:** trial, adjudication, peer groups and supervision, with
+   their CLI commands, source forms, specs and tests (about 20k lines). This
+   removes accepted source forms, so it is a language change with spec edits.
+2. **`StateManager` dead methods and CLI vestiges.**
+3. **The old IR stack,** after moving the dozen live types to a small module
+   and after decision 4 on the dashboard and `report` for historical runs.
+4. **Targets, in three steps:** collapse the monotone capability gates into
+   one table; migrate the packaged library and the catalog to the newest
+   target with a behavior comparison; remove the older procedure regime and
+   migrate or delete the fixtures that exist only for it.
 
-Opens only if Phase 5's bar is met. The audit's research review judged
-structural search unpromising on current evidence: the meaningful structures
-for one coding task number about five, and enumerating them in Phase 1 showed
-no separation. This phase exists because the claim was never measured and its
-first step is free once Phase 5's table exists.
+- **Exit test:** the named packages are gone and nothing imports them; one
+  admitted target for new source; any retained older target is listed with its
+  reason and removal condition.
+- **Versioning rule to write at step 4:** whether an identity-affecting change
+  adds a target or breaks retained runs.
+- **Effort:** 7–11 weeks. **Needs owner approval** (decision 4).
 
-- **6a, search on the recorded table (zero spend):** replay search policies
-  (random, greedy, an LLM proposer choosing among recorded programs) against
-  Phase 5's table. Question: does guided search find the best recorded
-  program in fewer evaluations than enumeration?
-- **6b, generation (spend):** generate new programs and evaluate them on fresh
-  tasks.
+### Phase 5: Quality benchmark (owner budget choice)
 
-  | Element | Choice |
-  | --- | --- |
-  | Individuals | Typed workflow programs |
-  | Variation | Typed edits (add a review step, change fan-out, move a model, add a repair loop) alongside free-form LLM proposals, so that children differ in structure |
-  | Admission | The compiler |
-  | Fitness | Test pass rate and metered token cost, compared by Pareto dominance |
-  | Cost control | Children reuse the parent's committed effects where Phase 3 allows |
-  | Apparatus | The offline campaign code from the closed search roadmap, reused without its qualification gates; [checked evaluation of generated source](../design/workflow_lisp_checked_program_evaluation.md) only if generation must run inside a workflow |
+Opens only if Thread M item 5 produced a pool and the owner buys a size.
 
-- **Exit test:** a generated program beats the best hand-written one on fresh
-  tasks at equal or lower cost, or a measured negative is recorded.
-- **Stop rule:** a fixed budget set at phase start; no extension after a null.
-- **Spend:** none for 6a; 6b requested once.
+| Purchase | Provider calls | Resolves |
+| --- | --- | --- |
+| Calibration tranche | about 120 | Whether the pool has headroom; freezes the criterion |
+| Small main tranche (40 tasks) | about 450 | A 15-point gain |
+| Full main tranche (60 tasks) | about 1,000–1,400 | A 10–15 point gain |
 
-## Order and dependencies
+Below the small tranche the result is recorded as "not tested", not as a
+negative.
 
-Phases 0 → 1 → 2 run in sequence; each shrinks the next. Phase 3's spike can
-start during Phase 2. Phase 4 depends on Phase 1. Phase 5 depends on Phase 4
-(best-of-N) and on Phase 1 (a usable tool). Phase 6 depends on Phase 5's table
-and bar; 6b is cheaper after Phase 3 but does not require it.
+- **Calibration gates:** direct pass rate between 25% and 75%; repeated direct
+  runs disagree enough for selection to matter; the repair branch is entered
+  in at least 30% of runs; metering complete on every row; two structurally
+  different correct submissions accepted and a broken one rejected. One redraw
+  of the pool, then stop.
+- **Frozen before the main tranche, in one hashed criterion:** the price
+  table, the quality and cost tolerances, the two primary comparisons, the
+  decision regions and the retry rules.
+- **Arms:** direct with replicates on each model; implement–test–repair with
+  replicates; best-of-3 by visible-test selection, retry-until-pass, any-of-3
+  and random-of-3 computed offline from the direct replicates. Models at or
+  below Sonnet/Terra; no Fable model.
+- **Tests:** selection and repair see the visible check only; pass or fail is
+  the hidden set only.
+- **Decision, on paired task-clustered differences with adjusted bounds:**
+  - *Support:* a primary's lower bound is above zero, its estimate is at least
+    10 points, its priced cost is at most three times direct, and no
+    equal-cost direct-family baseline dominates it.
+  - *Refute:* every primary's upper bound is below 10 points. H-Q is frozen
+    for single-context coding tasks at this model tier.
+  - *Inconclusive:* one pre-declared extension tranche, then "unresolved at
+    this budget".
+- "Better" is claimed only by Pareto dominance over a direct-family baseline
+  under the frozen tolerances, as `AGENTS.md` defines it.
+- A result here says nothing about long multi-stage pipelines. That regime is
+  measured descriptively on the consumer.
 
-If the owner makes evolution the project's main claim (decision 6), Phases 3
-and 5 move ahead of Phases 2 and 4, which shrink to what the benchmark needs.
+### Phase 6: Program evolution (owner chooses a form)
+
+- **Option A, close:** the generic claim is answered in the literature for
+  cheap-fitness regimes this project cannot afford. Archive the campaign code.
+- **Option B, test what this system could add (recommended):**
+  - *H-E2 first.* It needs no generation spend, but it needs a run to be
+    forked with its workspace, because a memo belongs to one run and one
+    workspace. That is a new design item nobody has assessed. Comparisons are
+    reported over several independent parent prefixes, since a parent chosen
+    for a lucky prefix passes the luck to its children.
+  - *H-E1* against a free-form Python arm and an equal-budget unguided arm.
+  - The most interesting target is search over suffix variants of a long
+    pipeline where intermediate signals exist, using the consumer.
+- **Generic search ("a generated program beats the best hand-written one"):**
+  opens only on a Phase 5 "support". It needs search, validation and sealed
+  task sets fixed at pool assembly, a frozen number of generations and
+  proposer model, and the incumbent re-run beside the finalists. Price: about
+  1,600 calls at 15-point resolution, about 2,100 at 9. Below that, "not
+  tested".
+- The campaign code from the closed search roadmap is kept outside the default
+  test suite until this decision, and deleted under Option A or a Phase 5
+  "refute".
+
+## Effort
+
+Reviewer estimates inferred from code counts; low to medium confidence. Token
+metering in Phase 2 was not sized by any reviewer.
+
+| Item | Engineer-weeks |
+| --- | --- |
+| Phase 0 | 0.5–1 |
+| Phase 1 | 2–3 |
+| Phase 2 | 3–5 |
+| Phase 3 | 5–7 |
+| Phase 4 | 3–5 |
+| Lane D | 7–11 |
+| Total | 21–32 |
 
 ## Dispositions
 
 | Existing record | Proposed disposition |
 | --- | --- |
-| [Evaluated-execution delivery plan](2026-09-29-workflow-lisp-evaluated-execution-plan.md) | Keep as owner of its own remaining Phase 5 work, its consumer migration (its Phase 6b) and PQ-1c; correct its stale Phase 4 text |
-| [Evolution follow-on roadmap](2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md) | Keep the axis lifecycle; close the workstream ledger except agent authoring (AA-1, into Phase 1) and checked evaluation (CE-1, into this roadmap's Phase 6 generation step) |
-| [Agent authoring improvements plan](2026-10-02-agent-authoring-improvements-plan.md) | Fold guide and remedy diagnostics into Phase 1 |
-| [Structural search roadmap](2026-10-18-orc-structural-search-roadmap.md) and cumulative campaign plan | Stay closed; offline code kept for Phase 6b |
+| [Evaluated-execution delivery plan](2026-09-29-workflow-lisp-evaluated-execution-plan.md) | Keep as owner of its remaining Phase 5 work, its consumer migration and PQ-1c; correct its stale Phase 4 text |
+| [Evolution follow-on roadmap](2026-07-22-workflow-lisp-evolution-follow-on-roadmap.md) | Keep the axis lifecycle; close the workstream ledger. The agent-authoring baseline trial becomes the Phase 1 authoring check |
+| [Checked evaluation of generated source](../design/workflow_lisp_checked_program_evaluation.md) | Park; reopen on a positive H-E result that needs generation inside a workflow |
+| [Structural search roadmap](2026-10-18-orc-structural-search-roadmap.md) and cumulative campaign plan | Stay closed; code handled as Phase 6 states |
+| [Token usage accounting backlog item](../backlog/active/2026-04-30-provider-step-token-usage-accounting.md) | Moved to Phase 2 |
 | [Substrate maintenance track](2026-07-26-substrate-maintenance-track.md) | Close as superseded by evaluated execution |
-| LSP [P-series](2026-07-30-lsp-frontend-prerequisites-p-series-roadmap.md) and [L6](2026-07-31-workflow-lisp-language-server-l6-utility-roadmap.md) | Close; move multi-diagnostic accumulation (P1) to Phase 1 if cheap |
+| LSP [P-series](2026-07-30-lsp-frontend-prerequisites-p-series-roadmap.md) and [L6](2026-07-31-workflow-lisp-language-server-l6-utility-roadmap.md) | Close |
 | [OMP roadmap](2026-08-14-omp-integration-design-and-roadmap.md) OMP-I2 | Drop |
 | Confined provider children, provider-phase isolation, typed program gates C2, MLEvolve architecture, private-runtime C2–C6, write-once W4 | Drop or archive |
-| [Backlog](../backlog/README.md) | Archive, keeping provider token-usage accounting (needed for the cost objective) |
-| Live cumulative campaigns, the natural-difficulty iteration loop, per-step governance for pilots of one to three calls | Stop |
+| Rest of the [backlog](../backlog/README.md) | Archive |
+| Live cumulative campaigns; the natural-difficulty iteration loop | Stop |
 
 ## Owner decisions
 
 1. **Select this roadmap**, as written or amended.
-2. **Project claim:** confirm the engineering claim as the claim the project
-   stands on today.
-3. **Deletion and single target** (Phase 2), including loss of historical-run
-   readers.
-4. **Dynamic branch:** its adoption lane is already stopped (simplification
-   record, Task 4, typed W3 retained). Remaining question: keep porting main
-   into it as research, or tag it and stop. Recommended: tag and stop.
-5. **Phase 5 consumer:** which pipeline.
-6. **Is evolution the main claim?** If yes, reorder as stated above.
-7. **Budgets** for Phase 4, Phase 5 step 3 and Phase 6b, each asked when its
-   phase starts.
+2. **Confirm H-G1 to H-G3** as the claims the project stands on, each with its
+   refutation condition.
+3. **Name the consumer** at selection.
+4. **Lane D:** approve the deletions, and decide whether the dashboard and
+   `report` keep reading pre-evaluated runs.
+5. **Dynamic branch:** its adoption lane is already stopped (simplification
+   record, Task 4). Recommended: tag it and stop porting main into it, because
+   the port is a standing cost with no selected consumer. Reopen if the
+   authoring check shows typed authoring is the agents' bottleneck.
+6. **Phase 5 size:** none, small or full.
+7. **Phase 6 form:** Option A, Option B, or generic search at its price.
 
 ## Process rules
 
-- One plan per phase, each with one exit test.
-- No ordered approval tokens, hash packets or review receipts in design docs;
-  a feature gets full review ceremony only after a consumer has used it.
-- A phase closes on its exit test or its stop rule, never on a disposition
-  list.
-- The `AGENTS.md` experiment rules apply unchanged to Phases 4–6: no Fable
-  model in any experiment call, models at or below Sonnet/Terra, no quality
-  comparison without a qualified task family and a checked measure, "better"
-  means Pareto dominance over quality and model-aware cost.
+- One plan per phase, with one headline exit test that fails today and a
+  checklist for the rest.
+- A feature gets full review ceremony only after the consumer has used it.
+- Experiment budget is requested once per phase as gated tranches
+  (calibration, main, one reserved extension). Each tranche is a ledger row
+  with its limit, released by its predeclared gate, with no top-up after a
+  null.
+- Every experiment keeps one frozen, hashed criterion and one ledger row.
+  Nothing else is required for a pilot.
+- The `AGENTS.md` experiment rules apply unchanged.
+
+## Review record
+
+Revision 1 was reviewed on 2026-11-11 from five viewpoints (conceptual,
+practical value, scientific value, experiment design, engineering
+feasibility): 14 blocker, 34 major and 32 minor findings. Revision 2 changes:
+
+- claims restated as hypotheses with refutation conditions, plus a "where
+  chosen" statement and a prior-results section;
+- the consumer and the zero-spend measurements moved to the front;
+- Phase 3 retargeted from dependency-scoped reuse, which the accepted design
+  rules out, to script-fix retry and prefix reuse, with stable names and
+  parallel-map qualification as prerequisites;
+- token metering scheduled; deletion re-sized and moved to a background lane
+  in stages;
+- the benchmark re-designed with replicates, a visible and hidden test split,
+  compute-matched baselines, three decision regions and honest call counts;
+- the free table-search step cut; program evolution offered as explicit
+  options with prices.
+
+Not yet verified: whether a task pool of the needed size exists; the
+literature notes; the effort estimates. Revision 2 has not been re-reviewed.
 
 ## Routing and records
 
 This roadmap has no manifest, selector or workflow that drains it; selection
 is manual. On selection: update the index "Select implementation work" row,
-add the Phase 0 plan, and record decisions 1–7 here with dates.
+add the Phase 0 plan, and record the decisions here with dates.
