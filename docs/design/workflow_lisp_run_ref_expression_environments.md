@@ -1,5 +1,9 @@
 # Workflow Lisp Run-Ref Confined Child Environments
 
+> **2026-11-11 disposition:** the confined provider-child part of this design
+> is dropped or archived by the [current roadmap](../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions). The
+> command-only confinement and its recipe stay current.
+
 - **Scope:** target-2.38 confinement contract; public command-only admission and
   separately qualified provider transport. The complete provider module below
   requires provider qualification and public admission before use.

@@ -1,5 +1,8 @@
 # OMP Integration: Design And Roadmap Extension
 
+> **2026-11-11 disposition:** OMP-I2 is dropped; this record stays historical.
+> See the [current roadmap](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions).
+
 Status: **Historical checkpoint; original body preserved.**
 
 Original OMP-I1 implementation target and evidence. Current provider/codec/conf/native continuation contracts live in the component owner. Prompt run/import, scaffold/session-link creation and old :session-artifact execution are retired; exact old schema/scaffold/link validation remains required on the native continuation read side. OMP-I2 remains unselected and gated.

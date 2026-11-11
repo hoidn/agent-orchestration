@@ -1,5 +1,8 @@
 # Workflow Lisp: Writing Each Fact Once
 
+> **2026-11-11 disposition:** W4 is dropped by the [current roadmap](../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions),
+> and the W0 lint is not selected in its [Phase 1](../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#phase-1-the-first-hour-and-the-long-run).
+
 ## Metadata
 
 - **Status:** W3 is implemented at target 2.36; W2 is delivered by EL-1 at

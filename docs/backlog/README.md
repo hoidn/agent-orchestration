@@ -1,5 +1,10 @@
 # Backlog Status Inventory
 
+> **2026-11-11 disposition:** this backlog is archived as a historical inventory
+> by the [current roadmap](../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions). The
+> [token-usage accounting item](active/2026-04-30-provider-step-token-usage-accounting.md)
+> moved to its [Phase 2](../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#phase-2-qualification-metering-and-stable-names).
+
 Status: current discovery inventory of 40 proposals, not an executable selector.
 Residence under `active/` does not establish current selection or completion.
 Each item has an individual current scope/gate notice before its untouched

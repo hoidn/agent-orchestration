@@ -1,5 +1,9 @@
 # Agent Authoring Improvements
 
+> **2026-11-11 disposition:** the guide and recovery-message work is taken up
+> by [Phase 1](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#phase-1-the-first-hour-and-the-long-run) of the [current roadmap](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions); the rest of this
+> plan is not selected.
+
 - **Status:** draft, pending and unselected. This is a proposal, not authority
   to implement its workstreams. Record the owner decisions below first.
 - **Purpose:** improve how often an agent given the documentation and CLI

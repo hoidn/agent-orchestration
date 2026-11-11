@@ -1,5 +1,9 @@
 # Workflow Lisp Checked Program Evaluation
 
+> **2026-11-11 disposition:** parked. It reopens on a positive result for the
+> [current roadmap's](../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#hypotheses) evolution hypotheses (H-E1, H-E2)
+> that needs generation inside a workflow; see its [Dispositions](../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions).
+
 - **Status:** proposed, unselected, unimplemented and not copy-safe.
 - **Kind:** a bounded extension to evaluated execution, with one proposed
   authored form. The working name is `eval-orc`; syntax is not settled.

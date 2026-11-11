@@ -1,5 +1,9 @@
 # Provider-Phase Information Isolation Design
 
+> **2026-11-11 disposition:** dropped or archived by the
+> [current roadmap](../../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions); its remaining delivery and
+> qualification are not selected.
+
 Current fallback: ordinary trusted provider execution under the existing
 provider contract. This target must refuse when its requested isolation cannot
 be enforced; it never silently falls back to trusted execution. Current delivery

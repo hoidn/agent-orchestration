@@ -1,5 +1,8 @@
 # MLEvolve Workflow Lisp System Architecture
 
+> **2026-11-11 disposition:** dropped or archived by the
+> [current roadmap](../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions); this draft is historical.
+
 Admission boundary: this remains an unselected research architecture. Historical certified-adapter, YAML-parity or trial execution descriptions are not current launch authority. Before any activation, rebase the selected consumer onto [evaluated execution](workflow_lisp_evaluated_execution.md), [executor retirement](workflow_lisp_executor_retirement.md) and its own public compile/run/recovery evidence. The fallback is ordinary separately authored admitted programs; this page authorizes no experiment.
 
 Status: draft design

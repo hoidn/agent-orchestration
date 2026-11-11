@@ -1,5 +1,8 @@
 # LSP Frontend Prerequisites P-Series Roadmap
 
+> **2026-11-11 disposition:** closed; no P-series item is selected. See the
+> [current roadmap](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions).
+
 Status: tracked and owner-slated behind the E program (sequenced 2026-07-30;
 slated by the
 [2026-08-01 owner slating record](2026-08-01-workflow-lisp-p-series-owner-slating.md)).

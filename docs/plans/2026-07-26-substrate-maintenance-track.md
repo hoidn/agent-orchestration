@@ -1,5 +1,9 @@
 # Substrate Maintenance And Persistence Parsimony Track
 
+> **2026-11-11 disposition:** closed as superseded by evaluated execution.
+> Its unselected residual items (MR, M3b/M3c, component (b) and M4) are not
+> selected. See the [current roadmap](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions).
+
 - **Status:** residual substrate roadmap; no successor tranche is selected.
   M0, M1, ML, M2 component (a), M3a and MR-4 are historical complete at their
   recorded bounded depth. [Original closure receipts](2026-07-26-substrate-maintenance-track-history.md#original-status-and-closure-ledger)

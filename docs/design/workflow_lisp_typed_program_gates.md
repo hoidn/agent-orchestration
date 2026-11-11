@@ -1,5 +1,9 @@
 # Typed Program Gates: Staged Checking, Generational Execution, And The Parked Eval Terminal
 
+> **2026-11-11 disposition:** C2 is dropped by the [current roadmap](../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions);
+> C1 and C3 are parked with
+> [checked program evaluation](workflow_lisp_checked_program_evaluation.md).
+
 Admission boundary: this remains an unselected target with its C3 gate intact. Historical M2/derived replay and trial execution are retired; they are evidence, not available prerequisites. A selected implementation must prove its checked-program/evaluated consumer and required public lifecycle without restoring those profiles. Current fallback is external analysis of ordinary admitted source variants.
 
 ## Metadata

@@ -1,5 +1,9 @@
 # Workflow Lisp Private Runtime State And Consumer Value Flow
 
+> **2026-11-11 disposition:** items C2–C6 are dropped or archived by the
+> [current roadmap](../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions). This note does not change the
+> implemented C1 carriage or C6 implicit-default slice.
+
 Current recovery boundary: [executor retirement](workflow_lisp_executor_retirement.md#7-recovery-policy-and-one-deletion-gate)
 permits only admitted evaluated profiles in this package. Old runs are read-only
 history; recovery requires a demonstrated exact complete release/environment,

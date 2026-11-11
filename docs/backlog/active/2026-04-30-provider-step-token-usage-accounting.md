@@ -1,5 +1,8 @@
 # Provider Step Token Usage Accounting
 
+> **2026-11-11 disposition:** moved to [Phase 2](../../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#phase-2-qualification-metering-and-stable-names) of the
+> [current roadmap](../../plans/2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions); the rest of the backlog is archived.
+
 Current disposition: **unselected structured usage-accounting proposal.**
 
 Per-visit usage/aggregation remains an unselected goal. The original absence statement is historical: current gateway and OMP codec expose bounded usage, without proving every proposed Codex/state/report requirement.

@@ -1,5 +1,8 @@
 # Workflow Lisp Language Server L6 Utility Roadmap
 
+> **2026-11-11 disposition:** closed; L6 implementation is not selected. See
+> the [current roadmap](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions).
+
 Status: accepted design and reviewed component plan; no implementation
 selected. The owner-selected L6 design act is complete at commit
 `e7de48e2710dddefbf14717575973b4ce41b5a06`, tree
