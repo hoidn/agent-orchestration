@@ -1,5 +1,10 @@
 # Workflow Lisp Evaluated Execution Implementation Plan
 
+> **2026-11-11 disposition:** kept. This plan still owns its remaining Phase 5
+> work, its consumer migration (Phase 6b) and PQ-1c; the
+> [current roadmap](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions) schedules the Phase 5 items and PQ-1c in
+> its [Phase 2](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#phase-2-qualification-metering-and-stable-names). The Phase 4 text below carries a correction note.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: use
 > `superpowers:subagent-driven-development` to execute selected tasks, with
 > `superpowers:test-driven-development` for behavior changes and
@@ -564,6 +569,11 @@ amendment below now separates serial migration and retirement from full Phase 5;
 unrelated Phase 4 additions remain consumer-conditioned.
 
 ### Phase 4: Consumer Capabilities And Authoring
+
+> **2026-11-11 correction:** portable context capture (4a) and the
+> supervision, peer-group, adjudication and trial classes (4b) are retired
+> ([capability matrix](../capability_status_matrix.md)). Human input and phased
+> providers were delivered by other plans, at targets 2.40 ([durable host input](2026-10-22-durable-host-input-plan.md)) and 2.39 ([phased execution](2026-10-16-phased-execution-239-plan.md)).
 
 Entry: Phase 3. Select additions by a named maintained consumer's need,
 not a fixed port of every historical runtime class. New effect classes need

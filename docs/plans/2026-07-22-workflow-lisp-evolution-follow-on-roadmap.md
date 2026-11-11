@@ -1,5 +1,10 @@
 # Workflow Lisp Evolution Follow-On Roadmap
 
+> **2026-11-11 disposition:** the axis lifecycle section stays current guidance;
+> the workstream ledger is closed. The AA-1 baseline authoring trial moves to
+> the [Phase 1](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#phase-1-the-first-hour-and-the-long-run) authoring check of the [current roadmap](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#dispositions),
+> and CE-1 checked program evaluation is parked.
+
 Status: current research sequencing, overhauled on 2026-09-08 at the owner's
 request. This roadmap owns prospective order and disposition; the
 [research charter](2026-09-08-orc-research-charter.md) owns the questions,
