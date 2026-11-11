@@ -67,7 +67,7 @@ def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileErr
             ProviderResultExpr,
         ),
         (
-            "(command-result run_checks :argv () "
+            "(command-result run_checks :argv (\"check\") "
             ':returns (result Bool :format-hint "JSON boolean." :example true))',
             CommandResultExpr,
         ),
@@ -93,7 +93,7 @@ def test_elaborate_effect_result_carries_guided_return_spec(source: str, expecte
             "returns_type_name",
         ),
         (
-            "(command-result run_checks :argv () :returns Bool)",
+            "(command-result run_checks :argv (\"check\") :returns Bool)",
             "returns_type_name",
         ),
     ],
@@ -115,7 +115,7 @@ def test_effect_result_stores_only_canonical_return_spec(source: str, legacy_nam
     [
         "(provider-result providers.review :prompt prompts.review :inputs () "
         ':returns (result Bool :description "No blockers."))',
-        "(command-result run_checks :argv () "
+        "(command-result run_checks :argv (\"check\") "
         ':returns (result Bool :format-hint "JSON boolean."))',
     ],
 )
