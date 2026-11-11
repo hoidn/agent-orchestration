@@ -16,8 +16,10 @@ quality and program-evolution questions honestly before any spend on them.
 at `bb63b03b`), the
 [structural search closure](2026-10-18-orc-structural-search-roadmap.md#closure-2026-11-11),
 and five independent reviews of revision 1 (see [Review record](#review-record)).
-The audit and the reviews are session working notes; Phase 0 commits them as
-dated reports.
+The [audit notes](../reports/2026-11-11-project-audit/README.md), the
+[reviews](../reports/2026-11-11-roadmap-review/README.md) and
+[what the experiments established](../reports/2026-11-11-what-the-experiments-established.md)
+are recorded as dated reports.
 
 ## Where this tool is chosen
 
