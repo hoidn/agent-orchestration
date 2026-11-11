@@ -8,6 +8,9 @@ with the allocation below. Phase 1 ran on 2026-10-18 and 2026-10-19, its compile
 three-arm readout included (measure-free under the calibration rule; [Phase 1 report](../reports/2026-10-18-orc-structural-search-phase1.md#three-arm-readout)). Its decision rule fired
 `anchors_inverted`, and neither task separated within tolerance, so Phases 2–5
 are not selected for family (a) ([Phase 1 report](../reports/2026-10-18-orc-structural-search-phase1.md)).
+**Closed 2026-11-11 by owner decision:** Phases 2–5 are not selected and this
+roadmap selects no further work; see [Closure](#closure-2026-11-11). The text
+below is the roadmap as it stood and remains the record of its gates.
 Amended 2026-10-19: the owner's cumulative workflow evolution extension is
 accepted for design and unselected for spend; Phase 2 is redefined as
 cumulative whole-program campaigns (C1) with a conditional Phase 2b (C2)
@@ -590,6 +593,19 @@ spend, the measurement plan remains the prerequisite of any live campaign,
 and the [pilot plan](2026-10-19-orc-structural-search-cumulative-pilot-plan.md)
 computes the power and budget numbers without selecting anything; every
 live campaign is its own owner approval.
+
+## Closure (2026-11-11)
+
+The owner closed this roadmap on 2026-11-11. Phases 0 and 1 ran; the Phase 2
+(C1) campaign apparatus is implemented and verified offline with scripted
+providers and stays available. Phases 2 (live), 2b and 3–5 are closed as not
+selected, under the Phase 1 decision rule (`anchors_inverted`, neither task
+separated) and the recorded measurement outcome (gate 2 FAIL_NOT_QUALIFIED;
+the [PRR pilot](../reports/2026-10-24-prr-direct-orc-pilot.md) closed
+incomplete). No provider spend is authorized under this roadmap. The closure
+is not a negative result about structural search: its core claim was never
+measured. Reopening any phase needs a new owner selection, a budget, and the
+gates above; the `AGENTS.md` experiment rules continue to apply.
 
 ## Routing And Records
 
