@@ -1,13 +1,12 @@
 # ORC Roadmap: Usable Pipelines First, Then Program Evolution
 
-**Status: Draft proposal, revision 2, not selected.** This page proposes the
-next project roadmap. It selects no work, authorizes no provider spend and
-changes no contract until the owner selects it. Until then, work selection
-stays with the
+**Status: Selected 2026-11-11 by owner approval (revision 2).** This page is
+the project's current roadmap. It owns order, gates and dispositions; accepted
+designs and `specs/` own behavior. Selection authorizes no provider spend:
+each experiment budget is requested when its phase starts. The
 [evaluated-execution delivery plan](2026-09-29-workflow-lisp-evaluated-execution-plan.md)
-and the other owners named in the [docs index](../index.md). Accepted designs
-and `specs/` own behavior; this page owns only order, gates and dispositions.
-It is not a source of copyable examples.
+keeps its own remaining work as [Dispositions](#dispositions) states. This
+page is not a source of copyable examples.
 
 **Goal:** make typed, resumable agent pipelines usable for one real long
 pipeline, measure what the runtime's distinctive mechanism buys, and price the
@@ -375,18 +374,19 @@ metering in Phase 2 was not sized by any reviewer.
 
 ## Owner decisions
 
-1. **Select this roadmap**, as written or amended.
-2. **Confirm H-G1 to H-G3** as the claims the project stands on, each with its
-   refutation condition.
-3. **Name the consumer** at selection.
-4. **Lane D:** approve the deletions, and decide whether the dashboard and
-   `report` keep reading pre-evaluated runs.
-5. **Dynamic branch:** its adoption lane is already stopped (simplification
-   record, Task 4). Recommended: tag it and stop porting main into it, because
-   the port is a standing cost with no selected consumer. Reopen if the
-   authoring check shows typed authoring is the agents' bottleneck.
-6. **Phase 5 size:** none, small or full.
-7. **Phase 6 form:** Option A, Option B, or generic search at its price.
+The owner approved revision 2 as written on 2026-11-11. Items 2, 4, 5 and 7
+are recorded on the reading that approval covers the stated recommendations;
+the owner can amend any of them.
+
+| # | Decision | State |
+| --- | --- | --- |
+| 1 | Select this roadmap | Selected 2026-11-11 |
+| 2 | H-G1 to H-G3 are the claims the project stands on, each with its refutation condition | Confirmed 2026-11-11 |
+| 3 | Name the consumer | Open; needed before the consumer thread starts |
+| 4 | Lane D deletions | Approved 2026-11-11. Whether the dashboard and `report` keep reading pre-evaluated runs is open and gates stage 3 only |
+| 5 | Dynamic branch: tag it and stop porting main into it; reopen if the authoring check shows typed authoring is the agents' bottleneck. Its adoption lane was already stopped (simplification record, Task 4) | Approved 2026-11-11 |
+| 6 | Phase 5 size: none, small or full | Open; no spend authorized; decided when Thread M item 5 reports |
+| 7 | Phase 6 form | Option B approved 2026-11-11; no spend authorized; generic search not selected |
 
 ## Process rules
 
@@ -421,10 +421,12 @@ feasibility): 14 blocker, 34 major and 32 minor findings. Revision 2 changes:
   options with prices.
 
 Not yet verified: whether a task pool of the needed size exists; the
-literature notes; the effort estimates. Revision 2 has not been re-reviewed.
+literature notes; the effort estimates. Revision 2 was approved without a
+second review.
 
 ## Routing and records
 
 This roadmap has no manifest, selector or workflow that drains it; selection
-is manual. On selection: update the index "Select implementation work" row,
-add the Phase 0 plan, and record the decisions here with dates.
+is manual. Phase plans are linked here as they start:
+
+- Phase 0: [records and baseline plan](2026-11-11-roadmap-phase-0-records-and-baseline-plan.md).
