@@ -196,3 +196,9 @@ def test_run_shows_compile_warnings_unless_quiet(tmp_path: Path) -> None:
     assert (shown.returncode, quiet.returncode) == (0, 0), shown.stderr + quiet.stderr
     assert "warn.orc:4:3: [variant_output_without_variant_specific_fields]" in shown.stderr
     assert "variant_output_without_variant_specific_fields" not in quiet.stderr
+
+
+def test_failed_step_prints_no_contract_pointer(tmp_path: Path) -> None:
+    result = failed_run(tmp_path)
+
+    assert "specs/cli.md" not in result.stderr

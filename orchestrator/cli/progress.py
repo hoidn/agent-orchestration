@@ -40,6 +40,7 @@ class TerminalReporter:
         self._off = False
         self.error_code: str | None = None
         self._announce_pending = False
+        self._failure_shown = False
 
     def _write(self, stream: TextIO, *lines: str) -> None:
         if self._off:
@@ -76,6 +77,7 @@ class TerminalReporter:
         elif kind == "committed":
             self._progress(f"commit  {row['identity']}  attempt {row['attempt']}")
         elif kind == "failed":
+            self._failure_shown = True
             self._write(self.err, *self._failure_block(row))
 
     def _failure_block(self, row: Mapping[str, Any]) -> list[str]:
@@ -94,6 +96,8 @@ class TerminalReporter:
     def error(self, exc: Exception, *, header: Mapping[str, Any] | None = None, stored_program: Any = None) -> None:
         """Recovery lines after a refusal's (or failure's) logged `[code] message` line."""
         self.error_code = getattr(exc, "code", "resume_preflight_failed")
+        if self._failure_shown and self.error_code not in REFUSAL_CODES:
+            return  # the failure block and the resume line already say what happened and what continues
         self._write(self.err, *recovery_lines(exc, run_id=self.run_id, launcher=self.launcher, state_dir=self.state_dir,
                                               header=header, stored_program=stored_program))
 
