@@ -13,6 +13,15 @@ derives the next step from the ledger and the run records alone:
   transcripts were read;
 - a miss of the extension is a stop: every later start refuses.
 
+An interrupted run (its runner stopped before settling it) and a provider incident are incidents, never task
+failures (coordinator ruling on review2 M2/M3, 2026-11-12): `probe` first recovers every reserved probe run a
+stopped runner left (settles it or files it as interrupted, then gives it its hidden check), and launches an
+incident's task once more, reserved from the same redraw Haiku allowance; a task whose second run is an incident
+too is excluded and listed. A rung is answered when each of its four probe tasks has a usable run or is excluded;
+its passes are counted on four (`round(4 * passes / usable)`: 3 of 3 is 4, 2 of 3 is 3, 1 of 3 is 1; an assumption
+recorded for the coordinator), and a rung with fewer than three usable runs stops the probe ("probe incomplete"),
+with no task list.
+
 `probe_readout` records the answer; a chosen or split answer draws the calibration tasks (`ladder.choose`) and,
 when they are 20, writes them to `results/calibration-tasks.json` once, with its hash and the per-rung counts in
 the ledger, which the calibration's starts require. The calibration runs at 20 tasks with the plan's frozen
@@ -20,7 +29,10 @@ thresholds or not at all (coordinator ruling, 2026-11-12): a draw short of 20 af
 together hold 11) records a stop, so no calibration call can start, and goes to the owner.
 """
 
+import fcntl
 import json
+import os
+from fractions import Fraction
 from pathlib import Path
 
 from experiments.compare.repos import dump, load, sha256_file
@@ -29,24 +41,51 @@ from experiments.seed_set import study as runner
 from experiments.seed_set.layout import CHOSEN, load_arms, study_runs, task_dir, task_rows
 
 
+RELAUNCHES, MIN_USABLE = 1, 3  # coordinator ruling on review2 M2/M3
+
+
+def attempts(study, phase):
+    """{task: [facts of each of its probe runs in `phase`]}."""
+    found = {}
+    for path in study_runs(study):
+        facts = load(path)
+        if facts["tranche"] == "redraw" and facts.get("step") == phase:
+            found.setdefault(facts["task"], []).append(facts)
+    return found
+
+
+def usable(facts):
+    return "hidden" in facts and "incident" not in facts
+
+
+def exhausted(runs):
+    return not any(map(usable, runs)) and sum("incident" in f for f in runs) > RELAUNCHES
 
 
 def results(study, phase):
-    """({rung: passes} over rungs whose four probe tasks all have a checked run in `phase`, {rung: figures})."""
-    rows, runs = task_rows(study), {}
-    for path in study_runs(study):
-        facts = load(path)
-        if facts["tranche"] == "redraw" and facts.get("step") == phase and "hidden" in facts:
-            runs.setdefault(facts["rung"], []).append(facts)
-    passes, figures = {}, {}
-    for rung, found in runs.items():
-        own = [f for f in found if f.get("self_check") is not None]
-        figures[rung] = {"runs": len(found), "passes": sum(bool(f["hidden"]["passed"]) for f in found),
-                         "incidents": sum("incident" in f for f in found), "in_tree_runs": len(own),
+    """({rung: passes on four} over the answered rungs of `phase`, {rung: figures}); a rung with fewer than three
+    usable runs is answered as `incomplete` in its figures and has no passes."""
+    rows, tried, passes, figures = task_rows(study), attempts(study, phase), {}, {}
+    for rung in {f["rung"] for runs in tried.values() for f in runs}:
+        tasks = ladder.probe_tasks(rows, rung)
+        good = [next(filter(usable, tried.get(t, []))) for t in tasks if any(map(usable, tried.get(t, [])))]
+        excluded = [t for t in tasks if exhausted(tried.get(t, []))]
+        own = [f for f in good if f.get("self_check") is not None]
+        figures[rung] = {"runs": sum(len(tried.get(t, [])) for t in tasks), "usable": len(good),
+                         "passes": sum(bool(f["hidden"]["passed"]) for f in good),
+                         "incidents": sum("incident" in f for t in tasks for f in tried.get(t, [])),
+                         "excluded": excluded, "in_tree_runs": len(own),
                          "self_checked": sum(bool(f["self_check"]) for f in own)}
-        if len(found) >= ladder.PROBE_TASKS == len(ladder.probe_tasks(rows, rung)):
-            passes[rung] = figures[rung]["passes"]
+        if len(good) + len(excluded) == len(tasks) == ladder.PROBE_TASKS:
+            if len(good) < MIN_USABLE:
+                figures[rung]["incomplete"] = True
+            else:
+                passes[rung] = round(Fraction(ladder.PROBE_TASKS * figures[rung]["passes"], len(good)))
     return passes, figures
+
+
+def incomplete(study, phase):
+    return sorted(r for r, f in results(study, phase)[1].items() if f.get("incomplete"))
 
 
 def self_check_share(figures):
@@ -71,11 +110,15 @@ def answer(study):
     first_rungs = available(rows, ladder.LADDER if bisect else ladder.FLAT)
     if not any(n >= ladder.PROBE_TASKS for n in first_rungs.values()):
         raise SystemExit("no rung has four tasks: the task list carries no ladder")
+    if lost := incomplete(study, "first"):
+        return {"phase": "first", "bisect": bisect, "stop": probe_incomplete(lost)}
     first = step_answer(results(study, "first")[0], first_rungs, bisect)
     if "miss" not in first:
         return {"phase": "first", "bisect": bisect, **first}
     if first["miss"] == "all_hard" and not spend.latest(entries, "transcripts"):
         return {"phase": "first", "bisect": bisect, **first, "await": "read the transcripts, then record-transcripts"}
+    if lost := incomplete(study, "extension"):
+        return {"phase": "extension", "first": first["miss"], "stop": probe_incomplete(lost)}
     rungs = available(rows, searched_rungs(study, {"first": first["miss"]}))
     then = ladder.next_rung(results(study, "extension")[0], rungs)
     if "miss" in then:
@@ -83,6 +126,11 @@ def answer(study):
             f"the whole ladder missed ({first['miss']} on the probe, {then['miss']} on the extension probe): no "
             "calibration call; the finding goes to the owner (plan, If the whole ladder misses)")}
     return {"phase": "extension", "first": first["miss"], **then}
+
+
+def probe_incomplete(rungs):
+    return (f"probe incomplete: {rungs} kept fewer than {MIN_USABLE} usable runs of {ladder.PROBE_TASKS} after one "
+            "relaunch of each incident; no task list, no calibration call; a stop to report to the owner")
 
 
 def searched_rungs(study, now):
@@ -98,27 +146,95 @@ def phase_rungs(study, now):
 
 
 def probe(study, rungs=None):
-    """Probe the requested rungs (default: the ones the answer asks for next)."""
+    """Recover what a stopped runner left, then probe the requested rungs (default: the ones the answer asks for
+    next): each probe task without a usable run, once, and once more after an incident."""
     spend.authorize("redraw")
     rules.enforce(study, "redraw")
-    now = answer(study)
-    if "await" in now or "probe" not in now:
-        raise SystemExit(f"nothing to probe now: {now}")
-    rungs = rungs or now["probe"]
-    if set(rungs) - set(now["probe"]):
-        raise SystemExit(f"the probe takes {now['probe']} next, not {rungs}")
-    rows, spec = task_rows(study), load_arms(study)["direct"]
-    fixes, entries = ladder.fix_commits(task_rows(study)), spend.starts(spend.rows(study.ledger))
-    jobs = [(task, rung) for rung in rungs for task in ladder.probe_tasks(rows, rung) if not any(
-        (row["tranche"], row.get("task"), row.get("step")) == ("redraw", task, now["phase"]) for row in entries)]
-    spend.check(study.ledger, "redraw", "candidate", spec["model"], spec["max_calls"] * len(jobs))
-    return runner.run_jobs(study, "redraw", jobs, lambda job: probe_run(study, spec, *job, fixes[job[0]],
-                                                                        now["phase"]))
+    with probe_lock(study):
+        recover(study)
+        rules.enforce(study, "redraw")  # a recovered incident may fire the stop rule
+        now = answer(study)
+        if "await" in now or "probe" not in now:
+            raise SystemExit(f"nothing to probe now: {now}")
+        rungs = rungs or now["probe"]
+        if set(rungs) - set(now["probe"]):
+            raise SystemExit(f"the probe takes {now['probe']} next, not {rungs}")
+        rows, spec = task_rows(study), load_arms(study)["direct"]
+        fixes, tried = ladder.fix_commits(rows), attempts(study, now["phase"])
+        starts = spend.starts(spend.rows(study.ledger))
+        def started(task):
+            return sum((row["tranche"], row.get("task"), row.get("step")) == ("redraw", task, now["phase"])
+                       for row in starts)
+        def due(task):  # never started, or every start an incident with a relaunch left
+            n, runs = started(task), tried.get(task, [])
+            return n == 0 or (n == len(runs) <= RELAUNCHES and all("incident" in f for f in runs))
+        jobs = [(task, rung) for rung in rungs for task in ladder.probe_tasks(rows, rung) if due(task)]
+        spend.check(study.ledger, "redraw", "candidate", spec["model"], spec["max_calls"] * len(jobs))
+        return runner.run_jobs(study, "redraw", jobs, lambda job: probe_run(
+            study, spec, *job, fixes[job[0]], now["phase"], limit=started(job[0]) + 1))
 
 
-def probe_run(study, spec, task, rung, fix, phase):
-    records, facts = runner.one_run(study, "redraw", "direct", spec, task, fix, limit=1, step=phase, rung=rung)
-    package = task_dir(study, task)
+class probe_lock:
+    """One probe at a time: a second runner would settle the first one's live runs."""
+    def __init__(self, study):
+        study.ledger.parent.mkdir(parents=True, exist_ok=True)
+        self.file = open(study.ledger.parent / "probe.lock", "w")
+
+    def __enter__(self):
+        try:
+            fcntl.flock(self.file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise SystemExit("another probe is running on this study") from None
+
+    def __exit__(self, *_):
+        self.file.close()
+
+
+def recover(study):
+    """Every reserved probe run a stopped runner left: settled (its tree still there) or filed as interrupted, then
+    given its hidden check; a run never reserved is removed. Refuses while a launched session still runs."""
+    reserved = {row["unit"] for row in spend.starts(spend.rows(study.ledger)) if row["tranche"] == "redraw"}
+    fixes = ladder.fix_commits(task_rows(study))
+    for path in study_runs(study):
+        records, facts = path.parent, load(path)
+        if facts["tranche"] != "redraw" or "hidden" in facts or "incident" in facts:
+            continue
+        if str(records) not in reserved:  # died between its facts file and its reservation: nothing started
+            path.unlink()
+            continue
+        if (pgid := records / "run.pgid").is_file() and alive(int(pgid.read_text())):
+            raise SystemExit(f"{records}: its session {pgid.read_text()} is still running; wait for it")
+        if "calls" not in facts:
+            tree = load(records / "record.json").get("tree")
+            facts = (runner.finish(study, records, facts, fixes[facts["task"]]) if tree and Path(tree).exists()
+                     else facts | {"incident": "interrupted: the runner stopped before the run was settled"})
+            if "exit" not in facts and facts.get("outcome") != "completed":
+                facts.setdefault("incident", "interrupted: the runner stopped during the launch")
+            dump(path, facts)
+        if "incident" not in facts:
+            probe_check(study, records, facts)
+        print(f"{records}: recovered, {facts.get('incident') or facts.get('outcome')}")
+
+
+def alive(pgid):
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def probe_run(study, spec, task, rung, fix, phase, limit=1):
+    records, facts = runner.one_run(study, "redraw", "direct", spec, task, fix, limit=limit, step=phase, rung=rung)
+    return records, facts if "incident" in facts else probe_check(study, records, facts)
+
+
+def probe_check(study, records, facts):
+    """The probe's own figures for a settled run: its hidden set behind the host guard and, in-tree, the
+    self-check detector over its transcripts."""
+    package = task_dir(study, facts["task"])
     final = facts.get("final_patch")
     facts["hidden"] = (host.hidden_check(package, Path(final), study.runtime) if facts.get("outcome") == "completed"
                        and final else {"passed": False, "failing": ["no completed final patch"]})
@@ -126,7 +242,7 @@ def probe_run(study, spec, task, rung, fix, phase):
     facts["self_check"] = (None if (package / "withheld").is_dir()
                            else ladder.self_checked(home, ladder.visible_targets(package)))
     dump(records / "study.json", facts)
-    return records, facts
+    return facts
 
 
 def probe_readout(study):

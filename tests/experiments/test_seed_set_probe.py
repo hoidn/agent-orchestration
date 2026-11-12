@@ -2,6 +2,7 @@
 (rules.py, study.py, host.py) on synthetic run records: no provider process is launched here."""
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -302,3 +303,118 @@ def test_a_t0_draw_filled_from_t2_fits_the_calibration_caps_and_one_more_call_re
     with pytest.raises(SystemExit, match="of the cap remain"):
         spend.check(s.ledger, "calibration", "candidate", H, tasks * planned["direct"] + 1)
     assert (out["drawn"], tasks) == ({"T0": 8, "T2": 12}, 20)
+
+
+def probe_unit(s, task, rung, attempt=1, phase="first", **facts):
+    """One reserved probe run of `task` with the given facts (default: an incident with no hidden result)."""
+    records = s.work / "records" / "direct" / f"run-{phase}-{task}-{attempt}"
+    records.mkdir(parents=True)
+    (records / "study.json").write_text(json.dumps({
+        "tranche": "redraw", "task": task, "arm": "direct", "model": H, "effort": "medium", "max_calls": 1,
+        "step": phase, "rung": rung, **facts}))
+    (records / "record.json").write_text("{}")
+    spend.reserve(s.ledger, "redraw", "candidate", H, 1, records, limit=2, task=task, arm="direct", step=phase)
+    return records
+
+
+def launches(s, monkeypatch):
+    """probe() with each launch replaced by a passing probe run written in place; returns the launched jobs."""
+    jobs = []
+    def fake(study_, spec, task, rung, fix, phase, limit):
+        jobs.append((task, rung))
+        return probe_unit(s, task, rung, attempt=9, phase=phase, calls=1, outcome="completed",
+                          hidden={"passed": True}, self_check=False), {"calls": 1}
+    monkeypatch.setattr(probing, "probe_run", fake)
+    probing.probe(s)
+    return jobs
+
+
+def flat_with(s, rung, units):
+    """The flat probe with every rung but `rung` settled; `units(task, k)` writes `rung`'s four probe runs."""
+    probed(s, "first", {r: n for r, n in FLAT_IN_BAND.items() if r != rung})
+    for k, task in enumerate(ladder.probe_tasks(layout.task_rows(s), rung)):
+        units(task, k)
+
+
+def test_a_probe_run_whose_runner_died_is_an_incident_relaunched_once(s, monkeypatch):  # review2 M2
+    def units(task, k):
+        if k == 0:
+            probe_unit(s, task, "T3", exit=0)  # reserved and launched; the runner died before it was settled
+        else:
+            probe_unit(s, task, "T3", calls=1, outcome="completed", hidden={"passed": k < 2}, self_check=False)
+    flat_with(s, "T3", units)
+    assert (launches(s, monkeypatch), load(s.work / "records/direct/run-first-T3-00-1/study.json")["incident"]) == (
+        [("T3-00", "T3")], "interrupted: the runner stopped before the run was settled")
+
+
+def test_a_provider_incident_is_not_a_failure_the_rung_waits_for_its_relaunch(s):  # review2 M3
+    def units(task, k):
+        probe_unit(s, task, "T3", calls=1, outcome="failed", incident="provider: call 1: 529 overloaded") if k == 0 \
+            else probe_unit(s, task, "T3", calls=1, outcome="completed", hidden={"passed": k < 2}, self_check=False)
+    flat_with(s, "T3", units)
+    assert probing.answer(s)["probe"] == ["T3"]
+
+
+def test_a_relaunched_incident_launches_no_third_time_and_its_task_is_excluded(s, monkeypatch):
+    def units(task, k):
+        if k == 0:
+            for attempt in (1, 2):
+                probe_unit(s, task, "T3", attempt, calls=1, outcome="failed", incident="provider: 529")
+        else:
+            probe_unit(s, task, "T3", calls=1, outcome="completed", hidden={"passed": k < 3}, self_check=False)
+    flat_with(s, "T3", units)
+    figures = probing.results(s, "first")
+    assert (figures[0]["T3"], figures[1]["T3"]["excluded"]) == (3, ["T3-00"])  # 2 of 3 usable pass: 3 on four
+
+
+def test_a_rung_with_two_usable_runs_of_four_stops_the_probe_with_no_list(s):
+    def units(task, k):
+        if k < 2:
+            for attempt in (1, 2):
+                probe_unit(s, task, "T3", attempt, calls=1, outcome="failed", incident="provider: 529")
+        else:
+            probe_unit(s, task, "T3", calls=1, outcome="completed", hidden={"passed": True}, self_check=False)
+    flat_with(s, "T3", units)
+    out = probing.probe_readout(s)
+    assert ("probe incomplete" in out["answer"]["stop"], (s.results / layout.CHOSEN).exists(),
+            "probe incomplete" in spend.latest(spend.rows(s.ledger), "stop")["reason"]) == (True, False, True)
+
+
+def test_a_settled_but_unchecked_probe_run_gets_its_hidden_check_on_the_next_probe(s, monkeypatch, tmp_path):
+    monkeypatch.setattr(host, "hidden_check", lambda package, patch, runtime: {"passed": True, "failing": []})
+    home = tmp_path / "home"
+    home.mkdir()
+    def units(task, k):
+        records = probe_unit(s, task, "T3", calls=1, outcome="completed", final_patch=str(tmp_path / "final.patch"))
+        (records / "record.json").write_text(json.dumps({"sandbox": {"home": str(home)}}))
+        (layout.task_dir(s, task) / "withheld").mkdir(parents=True)  # no self-check detector to feed
+    flat_with(s, "T3", units)
+    probing.recover(s)
+    assert probing.results(s, "first")[0]["T3"] == 4
+
+
+def test_recovery_refuses_while_the_launched_session_still_runs(s):
+    records = probe_unit(s, "T3-00", "T3")
+    (records / "run.pgid").write_text(str(os.getpgid(0)))
+    with pytest.raises(SystemExit, match="still running"):
+        probing.recover(s)
+
+
+def test_settle_finds_the_fix_of_a_withheld_package(s, monkeypatch):  # review2 M2: no KeyError for a withheld id
+    tree = s.work / "agents" / "x"
+    tree.mkdir(parents=True)
+    records = s.work / "records" / "direct" / "run-w"
+    records.mkdir(parents=True)
+    task = next(row["withheld_id"] for row in layout.task_rows(s) if row.get("withheld_id"))
+    (records / "study.json").write_text(json.dumps({"tranche": "calibration", "task": task, "max_calls": 1}))
+    (records / "record.json").write_text(json.dumps({"tree": str(tree)}))
+    seen = []
+    monkeypatch.setattr(study, "finish", lambda study_, records_, facts, fix: seen.append(fix) or {})
+    study.settle_runs(s, [records])
+    assert seen == [ladder.fix_commits(layout.task_rows(s))[task]]
+
+
+def test_the_redraw_incident_threshold_counts_the_extensions_probe_units(s):  # minor 4
+    probed(s, "first", dict.fromkeys(ladder.FLAT, 4))
+    probed(s, "extension", {"T2w": 0, "T3w": 0, "T4w": 0})
+    assert rules.planned_runs(s, "redraw") == 32

@@ -78,9 +78,13 @@ def contaminated_tasks(study):
 
 
 def planned_runs(study, tranche):
-    """The runs the tranche plans: the smoke's five, the flat probe's 20, the calibration's five per chosen task."""
+    """The runs the tranche plans: the smoke's five, the calibration's five per chosen task, and the probe's units
+    (a task in one phase; a relaunch is the same unit), at least the flat probe's 20 (review2 minor 4: the
+    extension's probe units count)."""
     if tranche == "redraw":
-        return len(ladder.FLAT) * ladder.PROBE_TASKS
+        units = {(row.get("task"), row.get("step")) for row in spend.starts(spend.rows(study.ledger))
+                 if row["tranche"] == "redraw"}
+        return max(len(ladder.FLAT) * ladder.PROBE_TASKS, len(units))
     return sum(PLANNED[tranche].values()) * len(tranche_tasks(study, tranche))
 
 

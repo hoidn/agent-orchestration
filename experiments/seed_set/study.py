@@ -95,6 +95,7 @@ def launch(command, env, log, timeout):
     with open(log, "x") as out:
         process = subprocess.Popen(["bash", str(command)], env=env, stdout=out, stderr=subprocess.STDOUT,
                                    start_new_session=True)
+        Path(log).with_suffix(".pgid").write_text(str(process.pid))  # a recovery refuses while the session lives
         try:
             return process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -119,10 +120,12 @@ def candidates(study, tranche, arm, tasks):
     spec, entries = load_arms(study)[arm], spend.starts(spend.rows(study.ledger))
     def started(task, where):
         return sum((row["tranche"], row.get("task"), row.get("arm")) == (where, task, arm) for row in entries)
+    probed = [f for path in study_runs(study) if (f := load(path))["tranche"] == "redraw" and "incident" not in f]
 
-    # a probe run of a chosen package (the same id is the same form) is the first of its Haiku direct runs
-    limits = {task: PLANNED[tranche][arm] - (started(task, "redraw") if tranche == "calibration" else 0)
-              for task in tasks}
+    # a probe run of a chosen package (the same id is the same form) that is not an incident is the first of its
+    # Haiku direct runs
+    limits = {task: PLANNED[tranche][arm] - (sum(f["task"] == task and f["arm"] == arm for f in probed)
+                                             if tranche == "calibration" else 0) for task in tasks}
     jobs = [task for task in tasks for _ in range(limits[task] - started(task, tranche))]
     spend.check(study.ledger, tranche, "candidate", spec["model"], spec["max_calls"] * len(jobs))
     return run_jobs(study, tranche, jobs, lambda task: one_run(study, tranche, arm, spec, task, fixes[task],
@@ -213,10 +216,13 @@ def settle(study, records, task, fix, cap, model, status):
 
 
 def settle_runs(study, runs):
-    """Settle runs whose runner stopped after launching them (their study.json has no settled facts)."""
-    fixes = {row["id"]: row["commit"] for row in task_rows(study)}
+    """Settle runs whose runner stopped after launching them (their study.json has no settled facts). A probe run
+    is recovered by rerunning `probe`, which also gives it its hidden check."""
+    fixes = ladder.fix_commits(task_rows(study))
     for records in map(Path, runs):
         facts = load(records / "study.json")
+        if facts["tranche"] == "redraw":
+            raise SystemExit(f"{records} is a probe run: rerun `probe`, which recovers it")
         if "calls" in facts or not Path(load(records / "record.json")["tree"]).exists():
             raise SystemExit(f"{records} is already settled")
         print(f"{records}: {finish(study, records, facts, fixes[facts['task']]).get('outcome')}")
