@@ -43,15 +43,15 @@ class _PreflightRefusal(RuntimeError):
 
 
 class _EffectInputDiverged(_PreflightRefusal):
-    """`retry` marks a failed step whose files changed; `changed_files` are implementation-file keys."""
+    """`changed_files` are implementation-file keys; whether the step is committed is read from the memo."""
 
-    def __init__(self, identity: str, detail: str, *, changed_parts=(), changed_files=(), retry=False) -> None:
+    def __init__(self, identity: str, detail: str, *, changed_parts=(), changed_files=()) -> None:
         super().__init__(
             "effect_input_diverged",
             f"{identity}: effect input diverged ({detail})",
             identity=identity,
         )
-        self.changed_parts, self.changed_files, self.retry = list(changed_parts), list(changed_files), retry
+        self.changed_parts, self.changed_files = list(changed_parts), list(changed_files)
 
 
 def _replay_committed_effect(authority, node, operands, identity, reader, commit, workspace, snapshot, owner, *,
@@ -236,6 +236,7 @@ def _check_resume_boundary(authority, snapshot, node, operands, identity, reader
         raise _PreflightRefusal(
             "lexical_restore_pending_effect_unsafe",
             f"{identity}: effect declares that it must not be repeated",
+            identity=identity,
         )
 
 
@@ -491,7 +492,7 @@ def _check_retry_implementation(identity, baseline, implementation_files) -> Non
         return
     changed = _changed_evidence(baseline.data["implementation_files"], implementation_files)
     raise _EffectInputDiverged(identity, f"retry implementation files changed: {changed}",
-                               changed_files=changed, retry=True)
+                               changed_files=changed)
 
 
 def _reuse_effect_commit(authority, commit, node, identity, parts, input_digest, dependencies,

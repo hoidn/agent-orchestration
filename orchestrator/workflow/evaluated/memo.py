@@ -159,6 +159,19 @@ def repair_torn_tail(path: Path, snapshot: MemoSnapshot, *, run_files: Workspace
         os.close(fd)
 
 
+def _uncommitted_state(snapshot: MemoSnapshot, identity: str) -> str | None:
+    """`pending`, `failed` (its latest attempt), `invalidated` (committed once, now cancelled) or None (unknown)."""
+    if identity in snapshot.pending_starts:
+        return "pending"
+    latest = snapshot.latest_starts.get(identity)
+    if latest is None:
+        return None
+    rows = [entry.data for entry in snapshot.entries if entry.data.get("identity") == identity]
+    if any(row["record"] == "failed" and row.get("attempt") == latest.data["attempt"] for row in rows):
+        return "failed"
+    return "invalidated" if any(row["record"] == "committed" for row in rows) else None
+
+
 def invalidate_suffix(path: Path, identity: str, site_classes: Mapping[str, str], *, run_files: WorkspaceFiles | None = None,
                       checked_authority=None) -> dict[str, Any]:
     """Append one C8 range after validating its active commit suffix; caller owns the lock."""
@@ -168,8 +181,7 @@ def invalidate_suffix(path: Path, identity: str, site_classes: Mapping[str, str]
     if chosen is None:
         error = MemoError("invalidate_not_committed", identity)
         error.identity, error.committed = identity, list(snapshot.active_commits)
-        error.pending = identity in snapshot.pending_starts
-        error.failed = not error.pending and identity in snapshot.latest_starts
+        error.state = _uncommitted_state(snapshot, identity)
         raise error
     suffix = [item for item in snapshot.active_commits.values() if item.offset >= chosen.offset]
     coordinators = [item.data["identity"] for item in suffix if is_coordinator_class(item.data["effect_class"])]

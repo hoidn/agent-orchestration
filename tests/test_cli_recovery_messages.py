@@ -80,7 +80,7 @@ def test_failed_step_script_edit_refusal_names_the_file_and_a_run_command_that_w
 
     result = refused(tmp_path, run_id_of(failed.stderr), "effect_input_diverged")
 
-    assert f"step {IDENTITIES[0]} failed, and its files changed since: step.py" in result.stderr
+    assert f"step {IDENTITIES[0]} did not finish, and its files changed since: step.py" in result.stderr
     (resume, fresh_run) = commands(result.stderr)
     assert " resume " in resume
     rerun = shell(tmp_path, fresh_run)
@@ -135,3 +135,90 @@ def test_every_refusal_code_has_recovery_lines(code: str) -> None:
     lines = recovery_lines(_Refusal(code), run_id="r1", launcher="orchestrator", state_dir=None, header=HEADER)
 
     assert lines and all(line.strip() for line in lines)
+
+
+def _memo_bytes(root: Path, run_id: str) -> bytes:
+    return (root / ".orchestrate" / "runs" / run_id / "memo.jsonl").read_bytes()
+
+
+def test_a_script_fix_after_a_failure_prints_a_fresh_run_and_never_invalidate(tmp_path: Path) -> None:
+    run_id = run_id_of(failed_run(tmp_path).stderr)
+    (tmp_path / "fail-two").unlink()
+    edit_script(tmp_path)
+
+    result = refused(tmp_path, run_id, "effect_input_diverged")
+
+    printed = commands(result.stderr)
+    assert not any(" invalidate " in command for command in printed)
+    memo = _memo_bytes(tmp_path, run_id)
+    for command in printed:
+        followed = shell(tmp_path, command)
+        assert _memo_bytes(tmp_path, run_id) == memo  # no committed step of this run is spent again
+    assert followed.returncode == 0, followed.stderr
+    assert followed.stdout.splitlines()[-1] == RESULT_LINE
+    assert " run main.orc " in printed[-1]
+
+
+BRANCHED = '''\
+(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+  (defmodule main) (export run)
+  (defworkflow run ((n Int)) -> Int
+    (let* ((a (command-result step :argv ("python" "step.py" "one" n) :returns Int))
+           (b (command-result other :argv ("python" "two.py" a) :returns Int)))
+      b)))
+'''
+
+
+def test_a_failed_step_whose_closure_lost_a_file_is_not_called_committed(tmp_path: Path) -> None:
+    write_pipeline(tmp_path)
+    (tmp_path / "main.orc").write_text(BRANCHED, encoding="utf-8")
+    (tmp_path / "two.py").write_text("import sys; sys.exit(4)\n", encoding="utf-8")
+    (tmp_path / "helper.py").write_text("", encoding="utf-8")
+    (tmp_path / "commands.json").write_text(json.dumps({
+        "step": {"stable_command": ["python", "step.py"], "closure": ["step.py"]},
+        "other": {"stable_command": ["python", "two.py"], "closure": ["two.py", "helper.py"]}}), encoding="utf-8")
+    failed = run_pipeline(tmp_path)
+    assert failed.returncode == 1, failed.stderr
+    (tmp_path / "helper.py").unlink()
+
+    result = refused(tmp_path, run_id_of(failed.stderr), "effect_input_diverged")
+
+    assert "committed" not in result.stderr.split("\n", 1)[1]
+    assert not any(" invalidate " in command for command in commands(result.stderr))
+    assert any(command.endswith(" resume " + run_id_of(failed.stderr)) for command in commands(result.stderr))
+
+
+def test_invalidate_of_a_failed_step_offers_resume_and_warns_before_listing(tmp_path: Path) -> None:
+    run_id = run_id_of(failed_run(tmp_path).stderr)
+
+    result = cli(tmp_path, "invalidate", run_id, IDENTITIES[1])
+
+    assert result.returncode == 2
+    lines = result.stderr.splitlines()
+    assert f"step {IDENTITIES[1]} failed and has no commit to invalidate; resume runs it again:" in lines
+    assert commands(result.stderr)[0].endswith(f" resume {run_id}")
+    warning = next(index for index, line in enumerate(lines) if "workspace files are not rolled back" in line)
+    first_listed = next(index for index, line in enumerate(lines)
+                        if line.startswith(COMMAND_INDENT) and " invalidate " in line)
+    assert warning < first_listed
+
+
+def test_invalidate_of_an_invalidated_step_says_it_was_invalidated(tmp_path: Path) -> None:
+    write_pipeline(tmp_path)
+    run_id = run_id_of(run_pipeline(tmp_path).stderr)
+    assert cli(tmp_path, "invalidate", run_id, IDENTITIES[1]).returncode == 0
+
+    result = cli(tmp_path, "invalidate", run_id, IDENTITIES[2])
+
+    assert result.returncode == 2
+    assert f"step {IDENTITIES[2]} was invalidated and has no active commit; resume runs it again:" in result.stderr.splitlines()
+    assert "failed" not in result.stderr
+
+
+def test_a_refusal_without_an_identity_does_not_print_none() -> None:
+    from orchestrator.workflow.evaluated.effect_inputs import _PreflightRefusal
+
+    lines = recovery_lines(_PreflightRefusal("lexical_restore_pending_effect_unsafe", "detail"),
+                           run_id="r1", launcher="orchestrator", state_dir=None, header=HEADER)
+
+    assert not any("None" in line for line in lines)

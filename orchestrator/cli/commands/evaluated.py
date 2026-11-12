@@ -5,16 +5,14 @@ from __future__ import annotations
 from collections.abc import Mapping
 from contextlib import ExitStack
 from dataclasses import replace
-from functools import partial
 import os
 import hashlib
 import logging
-import sys
 from argparse import Namespace
 from pathlib import Path
 from typing import Any
 
-from orchestrator.cli.progress import TerminalReporter
+from orchestrator.cli.progress import TerminalReporter, say
 from orchestrator.state import StateManager
 from orchestrator.run_lock import workspace_run_lock, reserved_run_writer_lock, ReservedRunRootError, run_root_matches_fd
 from orchestrator.workflow.workspace_files import WorkspaceFiles
@@ -207,20 +205,21 @@ def prepare_evaluated_resume(run_root: Path, *, workspace: Path, force_restart=F
     return authority, inputs, provider_io
 
 
-def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart: bool = False, run_ref_root: str | None = None, run_files: WorkspaceFiles | None = None, stream_output: bool = True, quiet: bool = False, state_dir: str | None = None) -> int:
-    """Rebuild and compare before loading the stored program, pins or memo."""
-    reporter = TerminalReporter(run_root.name, run_root, quiet=quiet, state_dir=state_dir)
+def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart: bool = False, run_ref_root: str | None = None, run_files: WorkspaceFiles | None = None, stream_output: bool = True, quiet: bool = False, state_dir: str | None = None, terminal_lines: bool = False) -> int:
+    """Rebuild and compare before loading the stored program, pins or memo.
+
+    `terminal_lines` (the command line sets it) prints progress, recovery lines and the result.
+    """
+    reporter = TerminalReporter(run_root.name, run_root, quiet=quiet, state_dir=state_dir, enabled=terminal_lines)
     try:
         authority, inputs, provider_io = prepare_evaluated_resume(
             run_root, workspace=workspace, force_restart=force_restart,
             run_ref_root=run_ref_root, run_files=run_files)
         _warn_changed_interpreters(authority)
         reporter.announce(lazy=True)
-        exit_code, value = execute_pure_resume(
-            replace(authority, observer=reporter.record), inputs, run_id=run_root.name, workspace=workspace,
-            provider_io=provider_io, stream_output=stream_output,
-            on_error=partial(reporter.error, header=authority.header, stored_program=authority.program))
-        _report_outcome(reporter, authority, exit_code, value)
+        exit_code, _ = _execute_reported(
+            reporter, execute_pure_resume, authority, inputs, stored_program=authority.program,
+            run_id=run_root.name, workspace=workspace, provider_io=provider_io, stream_output=stream_output)
         return exit_code
     except LispFrontendCompileError as exc:
         for diagnostic in exc.diagnostics:
@@ -263,7 +262,8 @@ def run_evaluated_workflow(
     _show_compile_warnings(built, args)
     bound_inputs = _bind_initial_inputs(built.program, args, resume_request, workspace) if reserved else _bind_recipe(built.program, resume_request, workspace)
     if getattr(args, "dry_run", False):
-        print(f"checked {built.program.tree['entry']}  {len(built.program.sites)} effect sites", file=sys.stderr)
+        if getattr(args, "terminal_lines", False):
+            say(f"checked {built.program.tree['entry']}  {len(built.program.sites)} effect sites")
         return 0, None, None, {}
 
     state_manager = StateManager(
@@ -293,18 +293,13 @@ def run_evaluated_workflow(
                 result_root=workspace_relative_path(state_manager.workspace, state_manager.run_root),
             ) as authority:
                 reporter = TerminalReporter(state_manager.run_id, state_manager.run_root,
-                                            quiet=getattr(args, "quiet", False), state_dir=getattr(args, "state_dir", None))
+                                            quiet=getattr(args, "quiet", False), state_dir=getattr(args, "state_dir", None),
+                                            enabled=getattr(args, "terminal_lines", False))
                 reporter.announce()
-                exit_code, value = execute_pure_run(
-                    replace(authority, observer=reporter.record),
-                    bound_inputs,
-                    run_id=state_manager.run_id,
-                    workspace=workspace,
-                    provider_io=built.provider_io,
-                    stream_output=not getattr(args, "quiet", False),
-                    on_error=partial(reporter.error, header=authority.header),
-                )
-                _report_outcome(reporter, authority, exit_code, value)
+                exit_code, value = _execute_reported(
+                    reporter, execute_pure_run, authority, bound_inputs,
+                    run_id=state_manager.run_id, workspace=workspace, provider_io=built.provider_io,
+                    stream_output=not getattr(args, "quiet", False))
                 return exit_code, state_manager.run_id, state_manager.run_root, _run_outputs(exit_code, value)
     finally:
         state_manager.close()
@@ -418,14 +413,36 @@ def _run_outputs(exit_code, value):
     return dict(value) if isinstance(value, Mapping) else {"__result__": value}
 
 
+def _execute_reported(reporter: TerminalReporter, execute, authority, inputs, *, stored_program=None, **kwargs):
+    """Run `execute` with the reporter as memo observer and error sink; Ctrl-C also prints the resume line."""
+    def on_error(exc: Exception) -> None:
+        reporter.error(exc, header=authority.header, stored_program=stored_program, snapshot=_memo_or_none(authority))
+
+    try:
+        exit_code, value = execute(replace(authority, observer=reporter.record), inputs, on_error=on_error, **kwargs)
+    except KeyboardInterrupt:
+        reporter.run_failed()
+        raise
+    _report_outcome(reporter, authority, exit_code, value)
+    return exit_code, value
+
+
+def _memo_or_none(authority):
+    """A read-only memo snapshot for recovery text, after the outcome is decided; None when it cannot be read."""
+    try:
+        return read_memo(authority.memo_path, site_classes(authority.program), run_files=authority.run_files)
+    except Exception:
+        return None
+
+
 def _report_outcome(reporter: TerminalReporter, authority, exit_code: int, value: Any) -> None:
     """The resume line after a failure; the result, or the waiting line of a suspended run."""
     if exit_code != 0:
         if reporter.resumable(exit_code):
             reporter.run_failed()
         return
-    snapshot = read_memo(authority.memo_path, site_classes(authority.program), run_files=authority.run_files)
-    if snapshot.terminal is None:
+    snapshot = _memo_or_none(authority)
+    if snapshot is not None and snapshot.terminal is None:
         reporter.waiting(snapshot.suspensions)
     else:
         reporter.result(value)
@@ -442,13 +459,13 @@ def _stored_context(exc, run_root, run_files) -> dict[str, Any]:
 
     try:
         header = load_run_header(run_root, run_files=run_files)
-    except (OSError, UnicodeError, ValueError):
+    except Exception:  # any failure, a RecursionError included, only drops the commands that need the header
         return {}
     if getattr(exc, "code", None) != "resume_program_changed":
         return {"header": header}
     try:
         stored = ClosedProgram.from_artifact(_read_file(run_root / PROGRAM_FILENAME, run_files).decode("utf-8"))
-    except (OSError, UnicodeError, ValueError):
+    except Exception:  # a hostile artifact (deep nesting included) only drops the diff
         return {"header": header}
     return {"header": header, "stored_program": stored if stored.digest == header["program_digest"] else None}
 

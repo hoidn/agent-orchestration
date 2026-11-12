@@ -755,9 +755,13 @@ def main(args: Optional[list] = None) -> int:
         parser.print_help()
         return 1
     from .defaults import apply_manifest_defaults
+    from .progress import say, track_stdout
     for used in apply_manifest_defaults(parsed_args):
         if not getattr(parsed_args, "quiet", False):
-            print(f"using {used} beside {parsed_args.workflow}", file=sys.stderr)
+            say(f"using {used} beside {parsed_args.workflow}")
+    parsed_args.terminal_lines = True  # library entry points (the SDK) leave it unset and print nothing
+    if parsed_args.command in {"run", "resume", "py"}:
+        track_stdout()
 
     if parsed_args.command == 'run':
         from .commands import run_workflow

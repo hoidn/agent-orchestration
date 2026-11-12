@@ -90,8 +90,7 @@ def _resume_refusal(exc: Exception) -> tuple[int, None]:
     return 2, None
 
 
-def _replayed_halt_result(snapshot, value, reached_boundary, refuse=None):
-    refuse = refuse or _runtime()._resume_refusal
+def _replayed_halt_result(snapshot, value, reached_boundary, refuse):
     if reached_boundary:
         return None
     if snapshot.pending_starts:
