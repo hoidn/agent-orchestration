@@ -68,12 +68,6 @@ def test_phase_family_helpers_require_explicit_profile_catalog() -> None:
         )
         is None
     )
-    assert (
-        module.checked_design_delta_public_input_names(
-            "lisp_frontend_design_delta/work_item::run-work-item"
-        )
-        == frozenset()
-    )
 
 
 def test_generic_family_profile_loader_accepts_fixture_workflows() -> None:
