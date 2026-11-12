@@ -2493,7 +2493,7 @@ authority before exposing it:
 | --- | --- | --- |
 | `public_authored` | The caller genuinely chooses the value: steering doc, target design, explicit output root | Keep public |
 | `compatibility_bridge` | Historical state/artifact path retained for a supported persisted consumer | Keep only while that consumer contract remains, labeled with a retirement route |
-| `runtime_derived` | Derivable from run context, resource identity, or `StateLayout` | Bind internally; not a public input |
+| `runtime_derived` | Derivable from run context or resource identity | Bind internally; not a public input |
 | `generated_internal` | Compiler/runtime-owned bundle, write root, temp, or sidecar | Allocate privately |
 | `materialized_view` | Deterministic rendering of a typed value | Allocate as a view; never semantic authority |
 
@@ -2538,7 +2538,7 @@ Before adding a path field, decide who semantically owns that path:
 | Public authored input | target design doc, baseline design doc, steering doc, explicit output root | Keep as a typed public input when the caller genuinely chooses it. |
 | Source or context document | prompt context doc, design reference doc, check-command spec | Model as a typed path value or typed request field. |
 | Provider/command result bundle | structured `provider-result` or `command-result` bundle | Let the runtime bind the output target and validate the declared bundle. |
-| Generated internal path | write root, checkpoint path, temp path, result-bundle sidecar | Allocate through `StateLayout`; never expose as ordinary public input. |
+| Generated internal path | write root, checkpoint path, temp path, result-bundle sidecar | Let the runtime place it under the run root ([State](../specs/state.md#attempt-directories)); never expose as ordinary public input. |
 | Public report or summary | drain summary, review report, operator-facing artifact | Prefer boundary publication policy or observability rendering over body plumbing. |
 | Prompt rendering | provider prompt input text | Pass supported scalar, record, relpath, exact `Value`, closed union, or recursively renderer-admitted `List[T]` values in `:inputs`; use `:prompt-dependencies` when the provider also needs a relpath target's body. Other composite shapes require an implemented checked route. |
 | Compatibility file | YAML-era pointer, selection bundle, legacy ledger view | Declare a labeled bridge with owner, source value, renderer/schema, and retirement condition. |
@@ -2554,7 +2554,7 @@ If the only way to compute a path is string concatenation such as
 usually one of:
 
 - move the value into a typed request record;
-- derive it from private context through `StateLayout`;
+- derive it from private context (the runtime owns generated paths);
 - make it a provider/command structured-output target;
 - publish it at the boundary;
 - declare it as a compatibility bridge; or
