@@ -408,9 +408,11 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   timestamp prefix. The run's workflow
   outputs are the terminal value, as `{"__result__": value}` for a non-object
   value.
-- Terminal lines of `run` and `resume`. Each line is a view of a memo row as
-  it is appended (or of the outcome), never authority; columns are separated
-  by two spaces:
+- Terminal lines of `run` and `resume`. The command-line `run`, `resume` and
+  `py run`, and the REPL's `:run`, print them; the Python SDK
+  `orchestrator.py.run()` prints none and leaves the caller's streams
+  untouched. Each line is a view of a memo row as it is appended (or of the
+  outcome), never authority; columns are separated by two spaces:
 
   ```text
   run     <run id>  <run root>
@@ -429,18 +431,25 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   its first new effect row or failure, so a preflight refusal's `[code]` line
   stays first. `start` and `commit` follow the journal; effects reused from
   the memo print nothing. A `failed` row prints its block, with the stderr
-  lines when the attempt's `stderr.txt` exists. After a run or resume that
-  exits non-zero, the `resume` line is printed unless the failure was a
-  refusal whose recovery lines (see [Diagnostics](#diagnostics)) say what to
-  run instead. A run that suspends on a host request prints one `waiting`
-  line per pending request and no result. A run that returns prints its
-  terminal value (not the `{"__result__": ...}` wrapper) as one line of
-  compact, sorted-key JSON on stdout, after any `print` lines; a resume of a
-  completed run prints the recorded value the same way. `--quiet` drops the
-  `run`, `start` and `commit` lines and warnings; the failure block, the
-  `[code]` line, recovery lines, the `resume` and `waiting` lines and the
-  result are always printed. A write error on the terminal stops these lines
-  and does not change the run or its exit code.
+  lines when the attempt's `stderr.txt` exists. The `resume` line is
+  printed after a run or resume that exits `1`, unless its error has a row
+  in the recovery table (see [Diagnostics](#diagnostics)), whose lines say
+  what to run instead; after exit `2` it is printed only when no refusal was
+  reported (a pending run-ref cleanup); and after Ctrl-C, before the
+  interrupt propagates. A run that suspends on a host request prints one
+  `waiting` line per pending request and no result. A run that returns
+  prints its terminal value (not the `{"__result__": ...}` wrapper) as one
+  line of compact, sorted-key JSON on stdout, after any `print` lines and
+  streamed provider output, starting a new line when that output did not end
+  one, so the last stdout line is the result; a resume of a completed run
+  prints the recorded value the same way. `--quiet` drops the `run`, `start`
+  and `commit` lines and warnings; the failure block, the `[code]` line,
+  recovery lines, the `resume` and `waiting` lines and the result are always
+  printed, so a failed or interrupted quiet run still names its `resume`
+  command. A write error on stderr (for example a closed pipe) stops the
+  stderr lines only, and a process started without stderr prints none of
+  them; the stdout result is still printed, and neither changes the run or
+  its exit code.
 - `resume RUN_ID` recognizes the run by its header before any flat-route
   state check and performs the read-only preflight below under the workspace
   and run writer locks. `--force-restart` is refused with
@@ -648,19 +657,26 @@ name what changed, and the commands that continue, each on its own line
 indented by four spaces and ready to run from the run's workspace (the same
 `<launcher>` and `--state-dir` as the refused command; a fresh `run` command
 repeats the recorded source, roots, entry, manifests, input file and
-`--input` values). A code without a row below gets one line pointing to this
-table.
+`--input` values). Whether a step is committed, failed, pending or
+invalidated is read from the run's memo after the refusal is decided; that
+read, and the read of the stored program for a program change, only shape
+the text, and when either fails the text is the generic one and the exit
+code is unchanged. A code without a row below gets one line pointing to this
+table, except after a failed step's block, which already names the step and
+the `resume` command.
 
 | Code | Recovery lines name | Commands printed |
 | --- | --- | --- |
 | `resume_program_changed` | each effect site added, removed or changed between the recorded and the current program, by identity (provenance ignored), or that only code between effects changed | `resume` after restoring the source; or a fresh `run`, in which every step runs again |
 | `resume_inputs_changed` | the inputs whose bound value differs | `resume` after restoring them; or a fresh `run` with the new values |
-| `effect_input_diverged`, committed step | the identity, the changed input parts and implementation files | `invalidate RUN_ID 'IDENTITY'` then `resume`; this step and all later ones run again and workspace files are not rolled back |
-| `effect_input_diverged`, failed step retried | the identity and the changed files | `resume` after restoring the files; otherwise a fresh `run`, since a failed step cannot yet be retried with a changed script in the same run |
-| `invalidate_not_committed` | whether the step has an unfinished attempt, or failed or was invalidated, or is unknown | `resume` for an unfinished attempt; otherwise one `invalidate` command per committed identity, in journal order |
+| `effect_input_diverged`, a step the memo shows committed, when no step whose latest attempt did not commit uses a changed file | the identity, the changed input parts and implementation files | `invalidate RUN_ID 'IDENTITY'` then `resume`; this step and all later ones run again and workspace files are not rolled back |
+| `effect_input_diverged`, a committed step whose changed files are also used by a step whose latest attempt did not commit (or the changed files are unknown and such a step exists) | the changed files, the unfinished steps, and that a script fix after a failure cannot be resumed in this run | `resume` after restoring the files; or a fresh `run`; never `invalidate` |
+| `effect_input_diverged`, a step without an active commit (failed or pending) | the identity and the changed files, or that its inputs changed | `resume` after restoring what changed; otherwise a fresh `run`, since a step that did not finish cannot yet be retried with changed files in the same run |
+| `invalidate_not_committed` | whether the step has an unfinished attempt, its latest attempt failed, it was invalidated, or no step has that identity | `resume` for an unfinished, failed or invalidated step; then, after the warning that a step and every later one run again and workspace files are not rolled back, one `invalidate` command per committed identity in journal order (at most 20) |
 | `invalidate_coordinator_committed` | the committed run references or agent turns in the suffix | a fresh `run` |
 | `resume_result_root_changed`, `resume_run_ref_root_changed` | the recorded value | `resume` with the `--state-dir` or `--run-ref-root` value that matches the run |
-| `evaluated_execution_unavailable`, `lexical_restore_pending_effect_unsafe` | the reason in one sentence | a fresh `run` |
+| `evaluated_execution_unavailable` | the reason in one sentence | a fresh `run` |
+| `lexical_restore_pending_effect_unsafe` | the step that must not repeat, and that a new run performs it again, so whether the interrupted attempt took effect should be checked first | a fresh `run` |
 | `resume_request_missing` | that the run has no rebuild recipe | none |
 
 | Code | Raised by | Exit | Effect on evidence |
