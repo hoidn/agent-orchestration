@@ -10,9 +10,19 @@ from statistics import mean
 
 from experiments.seed_set import gates, ladder, selection
 
-LIMITS = ("the plan's size section; 12 to 16 tasks support differences of about a point, not an ordering. A "
-          "candidate can reach the network (the sandbox does not unshare it; whether the repository is public is "
-          "unverified); the contamination scan matches the fix's commit hash, not its content")
+LIMITS = (  # stated on every readout, one line each; recorded, not changed (coordinator rulings, 2026-11-12)
+    "The plan's size section: 12 to 16 tasks support differences of about a point, not an ordering.",
+    "A candidate can reach the network (the sandbox does not unshare it; whether the repository is public is "
+    "unverified); the contamination scan matches the fix's commit hash, not its content.",
+    "The visible check runs the candidate's code on the host, outside the sandbox, so that code could read the "
+    "runtime checkout (the hidden tests among it); the scan of patches and transcripts for hidden names is the control.",
+    "The per-run time limit does not include time spent in checks; a run cut short is a natural failure and is "
+    "never pooled.",
+    "A candidate patch that legitimately adds a token of the arm-identity scan costs its whole task: the pool is "
+    "refused, not scrubbed.",
+    "The check-withheld check on the study's own path was rehearsed only through a single run on a separate "
+    "ledger, and no planned calibration arm runs it.",
+)
 
 
 def measure_free(runs):
@@ -65,9 +75,9 @@ def v4_note(calibration):
             "tests and passed its gate on V1-V3 alone (coordinator ruling)")
 
 
-def rungs(names):
-    """The chosen rungs in words: tier and form (`T3w` is T3 in the check-withheld form)."""
-    words = [f"{n.rstrip('w')} {ladder.tier_form(n)[1]}" for n in names]
+def rungs(counts):
+    """The drawn set per rung in words: tier, form and count (`T3w` is T3 in the check-withheld form)."""
+    words = [f"{n.rstrip('w')} {ladder.tier_form(n)[1]} {k}" for n, k in counts.items()]
     return ", ".join(words) if words else "no chosen rung"
 
 
@@ -133,9 +143,13 @@ def gate_lines(gates_):
             f"{g4['judge_exclusions']}: {g4['passed']}"]
 
 
+def limit_lines():
+    return ["", "## Limits", ""] + [f"- {line}" for line in LIMITS]
+
+
 def markdown(r):
     lines = ["# Seed-set calibration readout", "",
-             f"Tasks: {len(r['tasks'])} from {rungs(r['rungs'])}; retest: {len(r['retest_tasks'])}.",
+             f"Tasks: {len(r['tasks'])} ({rungs(r['rungs'])}); retest: {len(r['retest_tasks'])}.",
              "", "## Runs (measure-free)", "",
              "| tranche/arm | runs | completed | failed | incidents | calls | wall clock s | visible passed | metered |",
              "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
@@ -154,7 +168,7 @@ def markdown(r):
               for u in r["unusual_runs"]] + ["", "## Anchors", ""]
     if r["anchor_failures"]:
         return "\n".join(lines + [f"- {f}" for f in r["anchor_failures"]]
-                         + ["", "An anchor check failed: no quality number is reported.", "", f"Limits: {LIMITS}."]) + "\n"
+                         + ["", "An anchor check failed: no quality number is reported."] + limit_lines()) + "\n"
     lines += ["Every pool holds an unchanged base and the reference fix, both rated; hidden tests fail the base and "
               "pass the reference.", "", "## Judge gate", ""] + judge_lines(r["calibration"]["judges"])
     c = r["calibration"]
@@ -174,5 +188,5 @@ def markdown(r):
                   f"{fmt(b['Q3_calls'])} calls; random-of-3 {fmt(b['random_of_3'])}; any-of-3 {fmt(b['any_of_3'])}; "
                   f"visible check failed in {fmt(b['visible_fail_rate'])} of direct runs."]
     decision = c["decision"] + (f"; {c['v4_note']}" if c.get("v4_note") else "")
-    lines += ["", f"Decision: {decision}.", "", f"Limits: {LIMITS}."]
+    lines += ["", f"Decision: {decision}."] + limit_lines()
     return "\n".join(lines) + "\n"

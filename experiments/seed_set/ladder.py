@@ -14,14 +14,14 @@ task's whole hidden set.
 
 `table` applies the flat probe's table, `next_rung` the bisection; both return an answer: {"probe": [rungs]},
 {"chosen": rung}, {"split": [easier, harder]}, or {"miss": "all_easy" | "all_hard"}. `choose` turns a chosen or
-split answer into the calibration's tasks, by rung and seed order only, never the same commit twice; `scaling`
-states the plan's count thresholds for the number drawn and the points the plan leaves open. `ran_visible_test`
-is the detector of an agent running the visible test itself. Depends on nothing outside the standard library.
+split answer into the calibration's tasks, by rung and seed order only, never the same commit twice; a draw that
+does not reach 20 is a stop (coordinator ruling, 2026-11-12: the calibration runs at 20 tasks with the plan's
+frozen thresholds, or not at all). `ran_visible_test` is the detector of an agent running the visible test
+itself. Depends on nothing outside the standard library.
 """
 
 import fnmatch
 import json
-import math
 import re
 import shlex
 from pathlib import Path
@@ -35,10 +35,7 @@ WITHHELD_TIERS = ("T5",)  # built in the check-withheld form only
 PROBE_TASKS, CALIBRATION_TASKS, SPLIT = 4, 20, 10
 SELF_CHECK_SHARE = 0.80
 BISECT_WALL_SEC, BISECT_COST_USD = 15 * 60, 0.50  # a median direct run above either: bisect from the start
-# The plan's count thresholds as shares of its 20 tasks (V1 18, V2 17, G1 12), scaled down as the plan scales them
-# for 30 (V1 27, V2 25 of 30: rounded down); minimum sample sizes (V4's 15 per class) are not scaled.
-COUNTS = {"V1": 0.90, "V2": 0.85, "G1": 0.60}
-RETESTS, MAX_JUDGE_EXCLUSIONS, V4_MIN_PER_CLASS = 10, 2, 15
+HINTED = ("T0", "T1")  # T0 is T1 with its failing assertion quoted: the same commits
 
 
 def commits(row):
@@ -128,6 +125,11 @@ def withheld_rung(rung):
     return f"{rung}w" if rung in ("T1", "T2", "T3", "T4") else rung
 
 
+def rung_counts(rungs):
+    """{rung: how many} over a draw's rungs, easy to hard."""
+    return {rung: rungs.count(rung) for rung in order(set(rungs))}
+
+
 def adjacent(rung, rungs, results):
     """The neighbour of `rung` in the phase's ladder `rungs` that fills it (plan: "filled from the adjacent tier whose
     count is nearer to 2"): an unprobed neighbour counts as farthest; a tie goes to the harder."""
@@ -139,19 +141,26 @@ def adjacent(rung, rungs, results):
 
 
 def draw_plan(answer, rungs, results):
-    """[(rung, quota or None)]: ten from each side of a split, or the chosen rung and its adjacent one."""
+    """[(rung, quota or None)] in the order they are drawn (coordinator rulings, 2026-11-12). A split: ten from each
+    side, then the rest of each side in turn, so a side shorter than ten is topped up from the other; a split of
+    T0 and T1 (one set of commits) continues from T2. A chosen rung: its tasks, then its adjacent rung, or T2 when
+    that rung is the chosen one's hinted twin (T0 for T1, T1 for T0), which adds no new commit."""
     if "split" in answer:
-        return [(rung, SPLIT) for rung in answer["split"]]
-    fill = adjacent(answer["chosen"], rungs, results)
-    return [(answer["chosen"], None)] + ([(fill, None)] if fill else [])
+        sides = answer["split"]
+        extra = [("T2", None)] if set(sides) == set(HINTED) else []
+        return [(rung, SPLIT) for rung in sides] + [(rung, None) for rung in sides] + extra
+    chosen, fill = answer["chosen"], adjacent(answer["chosen"], rungs, results)
+    if {chosen, fill} == set(HINTED):
+        fill = "T2"
+    return [(chosen, None)] + ([(fill, None)] if fill else [])
 
 
 def choose(rows, answer, results, self_share, rungs):
     """[(task, rung)] the calibration draws for a chosen or split answer: at most 20, in seed order within each rung,
-    never two packages of one commit. A split takes ten from each side; a chosen rung takes its tasks, filled from
-    its `adjacent` rung in the phase's `rungs` and from nowhere else (coordinator ruling 2: tier sizes are what they
-    are). With the agent running the visible test in 80% or more of the in-tree probe runs and a T1 to T4 rung in
-    the answer, every drawn rung is used in the check-withheld form."""
+    never two packages of one commit, from the rungs `draw_plan` names and nowhere else (tier sizes are what they
+    are). Fewer than 20 means the ladder is too short there: the caller stops. With the agent running the visible
+    test in 80% or more of the in-tree probe runs and a T1 to T4 rung in the answer, every drawn rung is used in
+    the check-withheld form."""
     first = answer.get("split") or [answer["chosen"]]
     switch = (self_share is not None and self_share >= SELF_CHECK_SHARE
               and any(r in ("T1", "T2", "T3", "T4") for r in first))
@@ -164,25 +173,6 @@ def choose(rows, answer, results, self_share, rungs):
                 seen |= by_id[task]["commits"]
                 taken += 1
     return picked[:CALIBRATION_TASKS]
-
-
-def scaling(n):
-    """The plan's count thresholds for `n` drawn tasks and the points it leaves open. Counts scale down from 20
-    (rounded down, as the plan's 25 of 30 for V2); `open` names every point where the plan does not determine the
-    value: the rounding where rounding down and rounding to nearest differ, and below 20 tasks the number of retest
-    tasks and the judge-exclusion bound of G4. The calibration does not start while a point is open."""
-    out, open_ = {"tasks": n, "V4_min_per_class": V4_MIN_PER_CLASS}, []
-    for name, share in COUNTS.items():
-        down, nearest = math.floor(share * n + 1e-9), math.ceil(share * n - 0.5 - 1e-9)
-        out[f"{name}_need"] = down
-        if nearest != down:
-            open_.append(f"{name} rounding: {down} (down) or {nearest} (nearest) of {n}")
-    out["retests"] = RETESTS if n == CALIBRATION_TASKS else None
-    out["max_judge_exclusions"] = MAX_JUDGE_EXCLUSIONS if n == CALIBRATION_TASKS else None
-    if n < CALIBRATION_TASKS:
-        open_ += [f"retests: the first {min(RETESTS, n)} or half ({n // 2} or {-(-n // 2)}) of {n}",
-                  f"G4 judge exclusions: at most {MAX_JUDGE_EXCLUSIONS} pools, or scaled to {n} tasks"]
-    return out | {"open": open_}
 
 
 OPTIONS_WITH_VALUE = {"-k", "-m", "-p", "-c", "-o", "-n", "-W", "--tb", "--rootdir", "--deselect", "--ignore",

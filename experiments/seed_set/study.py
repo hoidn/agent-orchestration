@@ -42,7 +42,7 @@ from pathlib import Path
 from experiments.compare import pool as pooling, prepare, scan, summarize as summary
 from experiments.compare.repos import dump, load, sha256_file
 from experiments.orc_structural_search import metering
-from experiments.seed_set import blinding, gates, host, readout, rules, selection, spend, units
+from experiments.seed_set import blinding, gates, host, ladder, readout, rules, selection, spend, units
 from experiments.seed_set.layout import (
     PLANNED, RETESTS, Study, chosen, load_arms, load_criterion, require_free, require_tasks, study_runs,
     task_dir, task_rows, tranche_tasks,
@@ -395,7 +395,7 @@ def write_readout(study):
     programs = {name: {"source": arm["source"], "lines": selection.program_lines(study.programs / arm["source"])}
                 for name, arm in arms.items()}
     tasks = tranche_tasks(study, "calibration")
-    retests, rungs = tasks[:RETESTS["calibration"]], sorted({task["rung"] for task in chosen(study)})
+    retests, rungs = tasks[:RETESTS["calibration"]], ladder.rung_counts([task["rung"] for task in chosen(study)])
     records, pools = load_records(study, models, tasks)
     runs = {str(path.parent): load(path) | {"wall_clock_sec": load(path.parent / "record.json").get(
         "wall_clock_sec")} for path in study_runs(study)}

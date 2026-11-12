@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.39")
+  (:target-dsl "2.40")
   (defmodule retry_until_check)
   (import common :only (Change CheckReport Outcome))
   (export run)

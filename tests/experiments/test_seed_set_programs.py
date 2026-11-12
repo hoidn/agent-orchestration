@@ -1,4 +1,4 @@
-"""Seed-set programs (experiments/seed_set/programs/): each compiles at 2.39 and runs end to end through the public
+"""Seed-set programs (experiments/seed_set/programs/): each compiles at 2.40 and runs end to end through the public
 CLI against a scripted `claude` and the real dev-check and reset-clone boundaries, in a clone built by the
 comparison harness's `build_candidate`. No provider is called."""
 
@@ -122,7 +122,7 @@ def sees_check_output(call):
 
 
 @pytest.mark.parametrize("arm", ["direct", "retry_until_check", "implement_check_repair", "implement_review_revise"])
-def test_program_compiles_at_2_39(arm):
+def test_program_compiles_at_2_40(arm):
     spec = ARMS[arm]
     proc = subprocess.run(
         [sys.executable, "-B", "-m", "orchestrator", "compile", str(PROGRAMS / spec["source"]),

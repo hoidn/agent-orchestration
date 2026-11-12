@@ -1,6 +1,6 @@
 (workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.39")
+  (:target-dsl "2.40")
   (defmodule implement_review_revise)
   (import common :only (Change Outcome))
   (export run)

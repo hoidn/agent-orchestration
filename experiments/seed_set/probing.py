@@ -13,11 +13,11 @@ derives the next step from the ledger and the run records alone:
   transcripts were read;
 - a miss of the extension is a stop: every later start refuses.
 
-`probe_readout` records the answer; a chosen or split answer draws the calibration tasks (`ladder.choose`: at most
-20, fewer when the chosen rungs hold fewer) with the thresholds scaled to their number (`ladder.scaling`) and
-writes both to `results/calibration-tasks.json` once, with its hash in the ledger, which the calibration's starts
-require. A draw whose scaling leaves a point open (fewer than 20 tasks) is refused and recorded with the open
-points: the calibration waits for the coordinator's ruling.
+`probe_readout` records the answer; a chosen or split answer draws the calibration tasks (`ladder.choose`) and,
+when they are 20, writes them to `results/calibration-tasks.json` once, with its hash and the per-rung counts in
+the ledger, which the calibration's starts require. The calibration runs at 20 tasks with the plan's frozen
+thresholds or not at all (coordinator ruling, 2026-11-12): a draw short of 20 after fill and top-up (T4 and T5
+together hold 11) records a stop, so no calibration call can start, and goes to the owner.
 """
 
 import json
@@ -130,31 +130,37 @@ def probe_run(study, spec, task, rung, fix, phase):
 
 
 def probe_readout(study):
-    """The probe figures and the answer, recorded; a chosen or split answer writes the 20 tasks once."""
+    """The probe figures and the answer, recorded; a chosen or split answer writes the 20 tasks once, with the drawn
+    set's count per rung. A draw short of 20 is a stop: no list, nothing more starts, the owner is told."""
     now, (first, first_figures), (extension, extension_figures) = (
         answer(study), results(study, "first"), results(study, "extension"))
     share = self_check_share(first_figures)
     out = {"answer": now, "first": first_figures, "extension": extension_figures, "self_check_share": share}
     path, facts = study.results / CHOSEN, {}
     if ("chosen" in now or "split" in now) and not path.is_file():
-        picked = ladder.choose(task_rows(study), now, extension if now["phase"] == "extension" else first, share,
-                               phase_rungs(study, now))
-        out["scaling"] = ladder.scaling(len(picked))
-        if out["scaling"]["open"]:
-            spend.record(study.ledger, "probe_readout", answer=now, drawn=len(picked), open=out["scaling"]["open"])
-            raise SystemExit(f"{len(picked)} tasks drawn ({sorted({r for _, r in picked})}); the plan leaves open "
-                             f"{out['scaling']['open']}: no calibration start until the coordinator rules")
-        study.results.mkdir(parents=True, exist_ok=True)
-        dump(path, {"tasks": [{"id": task, "rung": rung} for task, rung in picked], **out})
+        draw(study, now, extension if now["phase"] == "extension" else first, share, out)
     if path.is_file():
         out["chosen"], facts = load(path)["tasks"], {"chosen_sha256": sha256_file(path)}
-    spend.record(study.ledger, "probe_readout", answer=now, **facts)
-    if "stop" in now:
-        rules.stop(study, now["stop"])
+        out["drawn"] = ladder.rung_counts([task["rung"] for task in out["chosen"]])
+    spend.record(study.ledger, "probe_readout", answer=now, drawn=out.get("drawn"), **facts)
+    if now.get("stop") or out.get("stop"):
+        rules.stop(study, now.get("stop") or out["stop"])
     study.results.mkdir(parents=True, exist_ok=True)
     dump(study.results / "probe-readout.json", out)
-    print(json.dumps(now))
+    print(json.dumps({**now, "drawn": out.get("drawn")}))
     return out
+
+
+def draw(study, now, passes, share, out):
+    """Draw the calibration's tasks into `out`; write them when they are 20, else name the stop in `out`."""
+    picked = ladder.choose(task_rows(study), now, passes, share, phase_rungs(study, now))
+    out["drawn"] = ladder.rung_counts([rung for _, rung in picked])
+    if len(picked) < ladder.CALIBRATION_TASKS:
+        out["stop"] = (f"the ladder is too short at {out['drawn']}: {len(picked)} tasks after fill and top-up, the "
+                       "plan needs 20 at its frozen thresholds; no calibration call; a stop to report to the owner")
+        return
+    study.results.mkdir(parents=True, exist_ok=True)
+    dump(study.results / CHOSEN, {"tasks": [{"id": task, "rung": rung} for task, rung in picked], **out})
 
 
 def record_transcripts(study, fault, note, runs):

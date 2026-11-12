@@ -12,8 +12,8 @@ and per pool `{"task", "pool", "excluded_judges": {judge: reason}}`. A failed ru
 excluded run (contaminated or a model-policy hit) and an incident (a run the harness could not collect) are
 left out of every mean and count against G4. A rating whose judged digest differs from the pooled patch is
 refused (left out of `scores`, listed in `unbound`, and an apparatus failure: `binding_failures`). Task lists are
-in seed order. Counts scale as `floor(fraction * tasks)`: V1 18 of 20 and 27 of 30, V2 17 of 20 and 25 of 30, as
-the plan states, and G1 12 of 20 (coordinator ruling 2; `ladder.scaling` refuses a draw where rounding is open).
+in seed order. V1 and V2 count as `floor(fraction * tasks)`, which is the plan's 18 and 17 of the 20 tasks the
+calibration always has (a draw short of 20 is a stop, `probing.probe_readout`); G1 needs 12 survivors.
 """
 
 import math
@@ -23,7 +23,7 @@ HAIKU, SONNET = "claude-haiku-5-5", "claude-sonnet-5-5"
 JUDGES = (HAIKU, SONNET)  # cheapest first: the cheapest passing judge is used
 POLICY = ("Fable model", "Forbidden model")
 SURVIVOR = (2.0, 6.5)  # a task's Haiku mean, inclusive
-SURVIVORS_SHARE, SURVIVORS_MAX = 0.60, 16  # G1: 12 of 20 survivors
+SURVIVORS_MIN, SURVIVORS_MAX = 12, 16
 
 
 def required(fraction, n):
@@ -217,9 +217,8 @@ def task_gates(records, pools, judge, tasks):
     runs = [r for r in records if r["pool"] == "first" and r["task"] in tasks and r["role"] == "candidate"]
     rated = sum(r["status"] == "rated" and r["scores"].get(judge) is not None for r in runs)
     excluded = {j: sum(j in p["excluded_judges"] for p in pools if p["task"] in tasks) for j in JUDGES}
-    need = required(SURVIVORS_SHARE, len(tasks))
     gates = {
-        "G1": {"survivors": len(survivors), "need": need, "passed": len(survivors) >= need},
+        "G1": {"survivors": len(survivors), "need": SURVIVORS_MIN, "passed": len(survivors) >= SURVIVORS_MIN},
         "G2": {"haiku_mean": haiku, "haiku_pass_rate": rate_h, "tasks": len(paired),
                "passed": haiku is not None and 2.5 <= haiku <= 6.5},
         "G3": {"gap": None if None in (haiku, sonnet) else sonnet - haiku,

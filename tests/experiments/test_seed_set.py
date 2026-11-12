@@ -334,7 +334,7 @@ def test_the_decision_states_when_v4_was_not_assessed_for_the_selected_judge():
     from experiments.seed_set import readout
     records, pools = world(passes=lambda s: True)
     tasks, retests = tasks_of()
-    report = readout.report(records, pools, tasks, retests, ["T3"], {}, {}, {}, 100)
+    report = readout.report(records, pools, tasks, retests, {"T3": 20}, {}, {}, {}, 100)
     decision = readout.markdown(report).split("Decision: ", 1)[1].splitlines()[0]
     assert ("V4" in decision and "not assessed" in decision, report["calibration"]["v4_note"] is not None) == (True, True)
 
@@ -343,7 +343,7 @@ def test_the_decision_carries_no_v4_statement_when_v4_was_assessed():
     from experiments.seed_set import readout
     records, pools = world()
     tasks, retests = tasks_of()
-    assert readout.report(records, pools, tasks, retests, ["T3"], {}, {}, {}, 100)["calibration"]["v4_note"] is None
+    assert readout.report(records, pools, tasks, retests, {"T3": 20}, {}, {}, {}, 100)["calibration"]["v4_note"] is None
 
 
 def test_incidents_over_a_tenth_of_the_planned_runs_make_the_decision_a_stop():
@@ -353,7 +353,7 @@ def test_incidents_over_a_tenth_of_the_planned_runs_make_the_decision_a_stop():
     runs = {f"r{k}": {"tranche": "calibration", "task": "t00", "arm": "direct", "outcome": "failed",
                     "incident": "provider: 429"}
             for k in range(11)}
-    decision = readout.report(records, pools, tasks, retests, ["T3"], runs, {}, {}, 100)["calibration"]["decision"]
+    decision = readout.report(records, pools, tasks, retests, {"T3": 20}, runs, {}, {}, 100)["calibration"]["decision"]
     assert decision.startswith("stop: 11 of 100 planned runs are incidents")
 
 
@@ -475,7 +475,3 @@ def test_v3_a_mean_of_exactly_three_quarters_passes():
     v3 = gates.v3_retest(records, H, retests)
     assert (v3["mean_abs"], v3["passed"]) == (0.75, True)
 
-
-def test_g1_scales_with_the_number_of_drawn_tasks():
-    records, pools = world(tasks=16)
-    assert gates.task_gates(records, pools, H, tasks_of(16)[0])["gates"]["G1"]["need"] == 9  # 12 of 20, rounded down

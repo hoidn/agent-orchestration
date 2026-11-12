@@ -1,7 +1,7 @@
 # Seed-set programs
 
 The four workflow programs of the [seed-set calibration plan](../../../docs/plans/2026-11-11-seed-set-calibration-plan.md)
-(Step 1, "1c. Programs"). Each is one `.orc` file at target 2.39 with the entry
+(Step 1, "1c. Programs"). Each is one `.orc` file at target 2.40 with the entry
 `run ((task String) (intent String) (repo String) (model String) (effort String)) -> Outcome`;
 `common.orc` holds the shared types. All four use the same implementer prompt,
 so they differ in structure only. Every provider call has `:timeout-sec 1200`.
@@ -43,10 +43,19 @@ cannot see a session written inside the unit's tree or its `/tmp` (indistinguish
 test fixtures), a session kept only in memory (`/dev/shm`, `--no-session-persistence`), or a direct API request
 made with the sandbox's copied credential; the model pin and `COMPARE_MAX_CALLS` remain the bound there.
 
-**Network** (coordinator ruling 4, 2026-11-12): a candidate can reach the network. The comparison harness's sandbox
-does not unshare it, so an agent could fetch the fix if the repository is public (unverified); the contamination
-scan matches the fix's commit hash in a run's transcripts and patches, not the fix's content. The readout states
-this limit (`readout.LIMITS`); the sandbox is not changed for this study.
+**Known limits** (coordinator rulings, 2026-11-12; recorded, not changed; the readout states each, `readout.LIMITS`):
+
+- A candidate can reach the network: the comparison harness's sandbox does not unshare it, so an agent could fetch
+  the fix if the repository is public (unverified); the contamination scan matches the fix's commit hash in a run's
+  transcripts and patches, not the fix's content.
+- The visible check runs the candidate's code on the host, outside the sandbox, so that code could read the
+  runtime checkout (the hidden tests among it); the scan of patches and transcripts for hidden names is the control.
+- The per-run time limit does not include time spent in checks; a run cut short is a natural failure and is never
+  pooled.
+- A candidate patch that legitimately adds a token of the arm-identity scan costs its whole task: the pool is
+  refused, not scrubbed.
+- The check-withheld check on the study's own path was rehearsed only through a single run on a separate ledger,
+  and no planned calibration arm runs it.
 
 **Check-withheld runs.** For a package with `withheld/`, the runner copies those test files into the run's records
 directory (outside the agents' tree and the sandbox) and names the copy in `SEED_SET_WITHHELD` for the launch;

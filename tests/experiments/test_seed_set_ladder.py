@@ -129,80 +129,33 @@ def test_a_chosen_rung_is_filled_from_one_adjacent_rung_only():
     assert counts(ladder.choose(rows, answer, results, 0.0, ladder.FLAT)) == {"T5": 5, "T4": 6}
 
 
-def test_a_split_takes_what_a_short_side_holds():
-    rows = manifest_rows({"T3": 12, "T4": 6, "T5": 5})
-    assert counts(ladder.choose(rows, {"split": ["T3", "T4"]}, {"T3": 4, "T4": 0}, 0.0, ladder.FLAT)) == {
-        "T3": 10, "T4": 6}
+def test_a_split_side_shorter_than_ten_is_topped_up_from_the_other_side_in_seed_order():
+    rows = manifest_rows({"T3": 20, "T4": 6, "T5": 5})
+    picked = ladder.choose(rows, {"split": ["T3", "T4"]}, {"T3": 4, "T4": 0}, 0.0, ladder.FLAT)
+    assert (counts(picked), [t for t, r in picked if r == "T3"][-4:]) == (
+        {"T3": 14, "T4": 6}, ["T3-10", "T3-11", "T3-12", "T3-13"])
+
+
+def test_t4_and_t5_together_cannot_reach_twenty():
+    rows = manifest_rows({"T3": 20, "T4": 6, "T5": 5})
+    assert len(ladder.choose(rows, {"split": ["T4", "T5"]}, {"T4": 4, "T5": 0}, 0.0, ladder.FLAT)) == 11
+
+
+ROWS_T0 = manifest_rows({"T0": 10, "T1": 12, "T2": 12})  # T0 is T1 with its failing assertion quoted
+
+
+@pytest.mark.parametrize("answer, results, drawn", [
+    ({"chosen": "T0"}, {"T0": 2, "T1": 2}, {"T0": 10, "T2": 10}),
+    ({"chosen": "T1"}, {"T0": 2, "T1": 1}, {"T1": 12, "T2": 8}),
+    ({"split": ["T0", "T1"]}, {"T0": 4, "T1": 0}, {"T0": 10, "T1": 2, "T2": 8})])
+def test_a_hinted_twin_that_adds_no_commit_gives_way_to_t2(answer, results, drawn):
+    assert counts(ladder.choose(ROWS_T0, answer, results, 0.0, ladder.HARD_EXTENSION)) == drawn
 
 
 def test_a_draw_never_holds_two_packages_of_one_commit():
-    rows = manifest_rows({"T0": 10, "T1": 12})  # T0 is T1 with its failing assertion quoted
-    picked = ladder.choose(rows, {"chosen": "T0"}, {"T0": 2}, 0.0, ladder.HARD_EXTENSION)
-    assert counts(picked) == {"T0": 10, "T1": 2}
-
-
-def test_scaling_at_20_leaves_nothing_open():
-    assert ladder.scaling(20) == {"tasks": 20, "V4_min_per_class": 15, "V1_need": 18, "V2_need": 17, "G1_need": 12,
-                                  "retests": 10, "max_judge_exclusions": 2, "open": []}
-
-
-@pytest.mark.parametrize("n, needs, rounding", [
-    (16, (14, 13, 9), ["V2", "G1"]), (15, (13, 12, 9), ["V2"]), (12, (10, 10, 7), ["V1"]), (11, (9, 9, 6), ["V1", "G1"])])
-def test_scaling_below_20_names_every_point_the_plan_leaves_open(n, needs, rounding):
-    out = ladder.scaling(n)
-    assert ((out["V1_need"], out["V2_need"], out["G1_need"]), [o.split()[0] for o in out["open"]], out["retests"]) == (
-        needs, rounding + ["retests:", "G4"], None)
-
-
-TARGETS = ["tests/test_visible_add.py::test_visible"]
-
-
-@pytest.mark.parametrize("command", [
-    "cd /work && python -m pytest -q tests/test_visible_add.py",
-    "pytest tests/test_visible_add.py::test_visible -x",
-    "pytest -q tests/",  # the whole test directory
-    "python3 -m pytest",
-    "cd tests && pytest test_visible_add.py",
-    "pytest 'tests/test_visible_*.py'",
-    "python dev_check.py",
-    "git diff && pytest -p no:cacheprovider tests",
-])
-def test_detector_sees_the_visible_test_run(command):
-    assert ladder.ran_visible_test(command, TARGETS) is True
-
-
-@pytest.mark.parametrize("command", [
-    "pytest tests/test_other.py",
-    "python -m pytest -k add tests/test_other.py",
-    "pytest -p no:cacheprovider tests/test_other.py",
-    "grep -n add tests/test_visible_add.py",
-    "python -c 'import pkg.calc'",
-])
-def test_detector_ignores_other_commands(command):
-    assert ladder.ran_visible_test(command, TARGETS) is False
-
-
-def session(home, name, commands):
-    path = home / ".claude" / "projects" / "-work-cand-1" / name
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("".join(json.dumps({"type": "assistant", "message": {"content": [
-        {"type": "text", "text": "running"}, {"type": "tool_use", "name": "Bash", "input": {"command": c}}]}}) + "\n"
-        for c in commands) + "not json\n")
-
-
-def test_self_check_reads_every_session_including_a_subagents(tmp_path):
-    session(tmp_path / "a", "s.jsonl", ["ls", "pytest tests/test_other.py"])
-    session(tmp_path / "b", "s.jsonl", ["ls"])
-    session(tmp_path / "b", "s/subagents/agent-1.jsonl", ["python -m pytest tests"])
-    assert (ladder.self_checked(tmp_path / "a", TARGETS), ladder.self_checked(tmp_path / "b", TARGETS)) == (
-        False, True)
-
-
-def test_visible_targets_come_from_the_packages_check(tmp_path):
-    (tmp_path / "seed").mkdir()
-    (tmp_path / "seed" / "dev-check.json").write_text(json.dumps({"argv": [
-        "/usr/bin/python3", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests/test_x.py::test_y"]}))
-    assert ladder.visible_targets(tmp_path) == ["tests/test_x.py::test_y"]
+    picked = ladder.choose(ROWS_T0, {"split": ["T0", "T1"]}, {"T0": 4, "T1": 0}, 0.0, ladder.HARD_EXTENSION)
+    commits = [row["commit"] for task, _ in picked for row in ROWS_T0 if task in (row["id"], row["withheld_id"])]
+    assert len(commits) == len(set(commits)) == 20
 
 
 REAL = [json.loads(line) for line in (Path(__file__).resolve().parents[2] / "experiments" / "seed_set" /
@@ -223,13 +176,16 @@ def test_the_real_probe_tasks_are_each_rungs_first_four():
         dict.fromkeys(REAL_RUNGS, True)
 
 
-def test_every_real_flat_probe_outcome_draws_twenty_or_names_what_the_plan_leaves_open():
-    sizes = set()
+def test_every_real_flat_outcome_draws_twenty_unless_t4_and_t5_meet_or_the_split_is_inverted():
+    """Short of 20 only when T4 and T5 are the drawn rungs (11 tasks), or when the split is inverted: its "easy"
+    side T4 or T5 (3-4 passes) is harder than its "hard" side T1 or T2 (0-1 passes), which T1 and T2 cannot top up."""
+    short = set()
     for passes in itertools.product(range(5), repeat=len(ladder.FLAT)):
         results = dict(zip(ladder.FLAT, passes))
         answer = ladder.table(results)
         for share in (0.0, 1.0):
-            if "miss" not in answer:
-                n = len(ladder.choose(REAL, answer, results, share, ladder.FLAT))
-                sizes.add((n, bool(ladder.scaling(n)["open"])))
-    assert sizes == {(20, False), (16, True), (15, True), (11, True)}
+            if "miss" not in answer and len(ladder.choose(REAL, answer, results, share, ladder.FLAT)) < 20:
+                short.add(json.dumps(answer))
+    assert short == {json.dumps(a) for a in (
+        {"chosen": "T4"}, {"chosen": "T5"}, {"split": ["T4", "T5"]}, {"split": ["T5", "T4"]}, {"split": ["T4", "T1"]},
+        {"split": ["T4", "T2"]}, {"split": ["T5", "T1"]}, {"split": ["T5", "T2"]})}

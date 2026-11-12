@@ -246,17 +246,24 @@ def test_a_withheld_package_names_its_staged_tests_for_the_check_only(tmp_path):
         str(tmp_path / "records" / "withheld"), True, False, None)
 
 
-def test_a_short_draw_records_its_open_points_and_writes_no_list(s):
+def test_a_draw_short_of_twenty_is_a_stop_with_no_list(s):
     probed(s, "first", {"T1": 4, "T2": 4, "T3": 4, "T4": 4, "T5": 2})  # T5 (8) filled from T4 (12): 20 here
     rows = layout.task_rows(s)
     for row in rows:
         row["rejected"] = "short" if row["tier"] == "T4" and row["id"] >= "T4-06" else row.get("rejected")
     s.tasks_file.write_text("".join(json.dumps(row) + "\n" for row in rows))
-    with pytest.raises(SystemExit, match="coordinator rules"):
-        probing.probe_readout(s)
-    row = spend.latest(spend.rows(s.ledger), "probe_readout")
-    assert ((s.results / layout.CHOSEN).exists(), row["drawn"], [o.split()[0] for o in row["open"]]) == (
-        False, 14, ["V1", "V2", "retests:", "G4"])
+    out = probing.probe_readout(s)
+    row, stop = spend.latest(spend.rows(s.ledger), "probe_readout"), spend.latest(spend.rows(s.ledger), "stop")
+    assert ((s.results / layout.CHOSEN).exists(), row["drawn"], "too short" in stop["reason"], "owner" in out["stop"]) == (
+        False, {"T4": 6, "T5": 8}, True, True)
+    with pytest.raises(SystemExit, match="the study is stopped"):
+        spend.reserve(s.ledger, "calibration", "candidate", H, 1, "/w/x", {spend.AUTHORIZATION: "calibration"})
+
+
+def test_the_probe_readout_states_the_drawn_sets_count_per_rung(s):
+    probed(s, "first", FLAT_IN_BAND)
+    out = probing.probe_readout(s)
+    assert (out["drawn"], spend.latest(spend.rows(s.ledger), "probe_readout")["drawn"]) == ({"T3": 12, "T4": 8},) * 2
 
 
 def test_the_host_checks_a_withheld_package_through_its_in_tree_view(tmp_path):

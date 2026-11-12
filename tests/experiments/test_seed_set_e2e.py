@@ -217,7 +217,7 @@ def test_offline_calibration_runs_end_to_end_behind_the_real_shims(world, monkey
     text = (s.results / "readout.md").read_text()
     (line,) = [x for x in text.splitlines() if x.startswith("Decision:")]
     assert (line.startswith("Decision: stop"), "V4 (agreement with the hidden tests) was not assessed" in line,
-            "Tasks: 2 from T3 in-tree" in text) == (True, True, True)  # too few candidates per hidden class
+            "Tasks: 2 (T3 in-tree 2)" in text) == (True, True, True)  # too few candidates per hidden class
     assert [e["event"] for e in study.ledger_report(s)["events"]] == [
         "freeze", "probe_readout", "smoke", "early_look", "decision", "stop"]
     resume = next(s.work.glob("records/*/run-*/resume.sh"))
