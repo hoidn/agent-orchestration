@@ -135,6 +135,8 @@ def append_record(path: Path, record: Mapping[str, Any], *, run_files: Workspace
     if checked_authority is not None:
         from orchestrator.workflow.evaluated.views import publish_evaluated_view
         publish_evaluated_view(checked_authority, entry)
+        if checked_authority.observer is not None:
+            checked_authority.observer(entry.data)
     return entry
 
 

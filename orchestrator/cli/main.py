@@ -267,7 +267,7 @@ def _add_run_options(parser: argparse.ArgumentParser) -> None:
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser for the orchestrator CLI."""
     parser = argparse.ArgumentParser(
-        prog='orchestrate',
+        prog='orchestrator',
         description='Multi-Agent Orchestration System'
     )
 
@@ -499,6 +499,11 @@ def create_parser() -> argparse.ArgumentParser:
         '--state-dir',
         type=str,
         help='Override default state directory'
+    )
+    resume_parser.add_argument(
+        '--quiet',
+        action='store_true',
+        help='Print only failures, the resume command and the result'
     )
     resume_parser.add_argument(
         '--run-ref-root',

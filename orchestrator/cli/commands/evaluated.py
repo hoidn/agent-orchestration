@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from contextlib import ExitStack
+from dataclasses import replace
 import os
 import hashlib
 import logging
+import sys
 from argparse import Namespace
 from pathlib import Path
 from typing import Any
 
+from orchestrator.cli.progress import TerminalReporter
 from orchestrator.state import StateManager
 from orchestrator.run_lock import workspace_run_lock, reserved_run_writer_lock, ReservedRunRootError, run_root_matches_fd
 from orchestrator.workflow.workspace_files import WorkspaceFiles
@@ -20,6 +23,8 @@ from orchestrator.workflow.evaluated.authority import (
 from orchestrator.workflow.evaluated.commands import workspace_relative_path
 from orchestrator.workflow.evaluated.interpreters import check_command_interpreter
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
+from orchestrator.workflow.evaluated.machine import site_classes
+from orchestrator.workflow.evaluated.memo import read_memo
 from orchestrator.workflow.evaluated.runtime import execute_pure_resume, execute_pure_run
 from orchestrator.workflow.evaluated.values import coerce_evaluated_value
 from orchestrator.workflow.signatures import (
@@ -197,14 +202,17 @@ def prepare_evaluated_resume(run_root: Path, *, workspace: Path, force_restart=F
     return authority, inputs, provider_io
 
 
-def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart: bool = False, run_ref_root: str | None = None, run_files: WorkspaceFiles | None = None, stream_output: bool = True) -> int:
+def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart: bool = False, run_ref_root: str | None = None, run_files: WorkspaceFiles | None = None, stream_output: bool = True, quiet: bool = False, state_dir: str | None = None) -> int:
     """Rebuild and compare before loading the stored program, pins or memo."""
     try:
         authority, inputs, provider_io = prepare_evaluated_resume(
             run_root, workspace=workspace, force_restart=force_restart,
             run_ref_root=run_ref_root, run_files=run_files)
         _warn_changed_interpreters(authority)
-        exit_code, _ = execute_pure_resume(authority, inputs, run_id=run_root.name, workspace=workspace, provider_io=provider_io, stream_output=stream_output)
+        reporter = TerminalReporter(run_root.name, run_root, quiet=quiet, state_dir=state_dir)
+        reporter.announce()
+        exit_code, value = execute_pure_resume(replace(authority, observer=reporter.record), inputs, run_id=run_root.name, workspace=workspace, provider_io=provider_io, stream_output=stream_output)
+        _report_outcome(reporter, authority, exit_code, value)
         return exit_code
     except LispFrontendCompileError as exc:
         for diagnostic in exc.diagnostics:
@@ -243,8 +251,10 @@ def run_evaluated_workflow(
     except ConfinedRunRefUnavailable as exc:
         logger.error("[%s] %s", exc.code, exc)
         return 2, None, None, {}
+    _show_compile_warnings(built, args)
     bound_inputs = _bind_initial_inputs(built.program, args, resume_request, workspace) if reserved else _bind_recipe(built.program, resume_request, workspace)
     if getattr(args, "dry_run", False):
+        print(f"checked {built.program.tree['entry']}  {len(built.program.sites)} effect sites", file=sys.stderr)
         return 0, None, None, {}
 
     state_manager = StateManager(
@@ -273,14 +283,18 @@ def run_evaluated_workflow(
                 run_files=run_files,
                 result_root=workspace_relative_path(state_manager.workspace, state_manager.run_root),
             ) as authority:
+                reporter = TerminalReporter(state_manager.run_id, state_manager.run_root,
+                                            quiet=getattr(args, "quiet", False), state_dir=getattr(args, "state_dir", None))
+                reporter.announce()
                 exit_code, value = execute_pure_run(
-                    authority,
+                    replace(authority, observer=reporter.record),
                     bound_inputs,
                     run_id=state_manager.run_id,
                     workspace=workspace,
                     provider_io=built.provider_io,
                     stream_output=not getattr(args, "quiet", False),
                 )
+                _report_outcome(reporter, authority, exit_code, value)
                 return exit_code, state_manager.run_id, state_manager.run_root, _run_outputs(exit_code, value)
     finally:
         state_manager.close()
@@ -392,6 +406,25 @@ def _run_outputs(exit_code, value):
     if exit_code != 0:
         return {}
     return dict(value) if isinstance(value, Mapping) else {"__result__": value}
+
+
+def _report_outcome(reporter: TerminalReporter, authority, exit_code: int, value: Any) -> None:
+    """The resume line after a failure; the result, or the waiting line of a suspended run."""
+    if exit_code != 0:
+        reporter.run_failed()
+        return
+    snapshot = read_memo(authority.memo_path, site_classes(authority.program), run_files=authority.run_files)
+    if snapshot.terminal is None:
+        reporter.waiting(snapshot.suspensions)
+    else:
+        reporter.result(value)
+
+
+def _show_compile_warnings(built, args) -> None:
+    """`py run` shows its warnings at Python locations before it gets here."""
+    if not getattr(args, "compile_warnings_shown", False):
+        from orchestrator.cli.commands.python import _show_run_compile_warnings
+        _show_run_compile_warnings(built.compile_diagnostics or (), args)
 
 
 def _warn_changed_interpreters(authority):
