@@ -104,6 +104,13 @@ def test_launcher_refuses_kit_files_other_than_the_manifests(tmp, name):
     assert refused(launched, "differ from manifest.json") and nothing_launched(tmp), launched.stderr
 
 
+@pytest.mark.parametrize("value, gate", [(None, "set PQ1C_MANIFEST_SHA256"), ("0" * 64, "not the ledger's")],
+                         ids=["absent", "another"])
+def test_launcher_refuses_without_the_ledgers_manifest_digest(tmp, value, gate):
+    launched = launch(tmp, "variant-clean", PQ1C_MANIFEST_SHA256=value)
+    assert refused(launched, gate) and nothing_launched(tmp), launched.stderr
+
+
 def test_launcher_refuses_a_cli_version_other_than_the_first_cells(tmp):
     ledger(tmp).mkdir(parents=True)
     (ledger(tmp) / "claude-version").write_text("9.9.9 (Claude Code)\n")
@@ -219,6 +226,17 @@ def test_a_claude_started_inside_a_cell_is_refused(tmp):
     nested = json.loads((tmp / "standins" / "nested.json").read_text())
     cell = tmp / "results" / "baseline-clean"
     assert (nested["exit"], len(paid_calls(tmp)), len((cell / "nested-calls.log").read_text().splitlines())) == (97, 4, 4)
+
+
+@pytest.mark.parametrize("probe, reason", [("stray", "native sessions for the workspace"),
+                                           ("hooked", "hook records in the native transcripts")])
+def test_a_session_or_hook_outside_the_journal_makes_the_cell_an_infrastructure_failure(tmp, probe, reason):
+    (tmp / "standins" / probe).touch()
+    launched = launch(tmp, "baseline-clean")
+    assert launched.returncode == 0, launched.stderr
+    checked = subprocess.run([__import__("sys").executable, "-B", str(KIT / "readout.py"), "--retry-check",
+                              str(tmp / "results" / "baseline-clean")], capture_output=True, text=True, check=False)
+    assert checked.returncode == 0 and reason in checked.stdout, checked.stdout
 
 
 # --- the one infrastructure retry ---

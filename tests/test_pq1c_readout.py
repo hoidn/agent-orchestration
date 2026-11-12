@@ -116,6 +116,34 @@ def budget_stopped(cell: str):
     return change
 
 
+def result_appended(cell: str, **fields):
+    """The cell's last call ends with this `result` event, and the run failed."""
+    def change(results):
+        stdout = sorted((results / cell / "workspace").glob(".orchestrate/runs/*/effects/*/attempt-*/stdout.txt"))[-1]
+        stdout.write_text(stdout.read_text() + json.dumps({"type": "result", **fields}) + "\n")
+        _run(results, cell, lambda run: run.update(status="failed"))
+    return change
+
+
+def stream_line(cell: str, row: dict):
+    return lambda results: _attempt(results, cell, "stdout.txt").open("a").write(json.dumps(row) + "\n")
+
+
+def first_turn_budget_stop(cell: str):
+    """The CLI's per-call budget stopped the first turn: nothing committed."""
+    def change(results):
+        (memo,) = (results / cell / "workspace").glob(".orchestrate/runs/*/memo.jsonl")
+        rows = [json.loads(line) for line in memo.read_text().splitlines()]
+        first = next(index for index, row in enumerate(rows) if row["record"] == "started"
+                     and row["identity"].endswith("/ draft"))
+        memo.write_text("".join(json.dumps(row) + "\n" for row in rows[:first + 1]))
+        stdout = _attempt(results, cell, "stdout.txt")
+        stdout.write_text(stdout.read_text() + json.dumps({"type": "result", "subtype": "error_max_budget_usd",
+                                                          "is_error": True}) + "\n")
+        _run(results, cell, lambda run: run.update(status="failed"))
+    return change
+
+
 def extra_session(cell: str):
     """One more native transcript for the workspace than the attempts name: a CLI ran outside the journal."""
     return lambda results: edit_json(results / cell / "cell.json",
@@ -194,6 +222,12 @@ def test_a_cost_that_is_not_a_finite_number_above_zero_decides_nothing(rehearsal
     (init_edited(B1, _added("plugins", {"name": "superpowers", "path": "/home/u/.claude/plugins/superpowers",
                                          "source": "superpowers@claude-plugins"})),),
     (init_edited(B1, _added("plugins", {"name": "cc-plugin-agents-md"})),),
+    (init_edited(B1, _added("plugins", {"name": "x", "path": "builtin", "source": "x@claude-plugins"})),),
+    (init_edited(B1, _added("plugins", {"name": "x", "path": "/home/u/.claude/plugins/x", "source": "x@builtin"})),),
+    (stream_line(B1, {"type": "system", "subtype": "hook_response", "hook_event": "SessionStart"}),),
+    (meta(B0, native_hook_traces=1),),
+    (result_appended(V1, subtype="success", is_error=True, api_error_status=529, result="API Error: overloaded"),),
+    (result_appended(V1, subtype="success", is_error=True, result="API Error: Request was aborted."),),
     (init_edited(B1, _added("agents", "developer")),),
     (init_edited(B1, _added("skills", "ponytail")),),
     (init_edited(B1, _added("slash_commands", "brainstorm")),),
@@ -211,7 +245,8 @@ def test_a_cost_that_is_not_a_finite_number_above_zero_decides_nothing(rehearsal
     (lambda results: (results / B0 / "cell.json").write_text("{not json"),),
     tuple(failed(cell) for cell in (V0, V1, B0, B1)) + tuple(unknown_usage(cell) for cell in (V0, V1, B0, B1)),
 ], ids=["report-missing", "unmetered-attempt", "cap-unmetered", "codex-called", "claude-nested", "zero-output",
-        "user-plugin", "plugin-without-builtin-marker", "user-agent", "user-skill", "slash-command", "mcp-server",
+        "user-plugin", "plugin-without-builtin-marker", "builtin-path-user-source", "user-path-builtin-source",
+        "hook-event-in-stream", "hook-record-in-transcript", "api-error-status", "api-error-text", "user-agent", "user-skill", "slash-command", "mcp-server",
         "other-model", "no-init-event", "renamed-plugins", "renamed-mcp-servers", "extra-native-session",
         "stop-never-fired", "never-resumed", "another-cells-record", "cell-missing", "unreadable-record",
         "all-failed-silently"])
@@ -291,3 +326,20 @@ def test_retry_check_tells_an_infrastructure_failure_from_a_valid_observation(re
 def test_a_call_without_an_init_event_fails_closed(rehearsal, tmp_path):
     shown = outcome(_changed(rehearsal, tmp_path, init_edited(B1, lambda init: None)))
     assert any("0 init events" in reason for reason in shown["reasons"]), shown["reasons"]
+
+
+def test_a_failure_the_model_produced_stays_a_workflow_outcome(rehearsal, tmp_path):
+    results = _changed(rehearsal, tmp_path, result_appended(V1, subtype="error_during_execution", is_error=True))
+    assert (outcome(results)["outcome"], readout(results / V1, "--retry-check").returncode) == ("Retire", 4)
+
+
+def test_an_api_error_is_an_infrastructure_failure_and_retryable(rehearsal, tmp_path):
+    results = _changed(rehearsal, tmp_path, result_appended(V1, subtype="success", is_error=True, api_error_status=500))
+    assert readout(results / V1, "--retry-check").returncode == 0
+
+
+def test_a_first_turn_budget_stop_is_a_cost_outcome_not_retryable(rehearsal, tmp_path):
+    results = _changed(rehearsal, tmp_path, first_turn_budget_stop(V0))
+    cell = outcome(results)["cells"][V0]
+    assert (cell["committed_turns"], cell["problems"], cell["completed"]) == ([], [], False)
+    assert readout(results / V0, "--retry-check").returncode == 4

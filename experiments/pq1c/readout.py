@@ -40,7 +40,8 @@ INIT_KEYS = ("plugins", "mcp_servers", "skills", "slash_commands", "agents", "mo
 LOGS = ("run.log", "resume.log")
 META_KEYS = ("cell", "arm", "mode", "slot", "rehearsal", "runtime_commit", "runtime_dirty", "source_sha256",
              "fixture_commit", "run_exit", "stop", "resume_exit", "report_exit", "run_sec", "resume_sec",
-             "manifest_sha256", "claude_version", "python_version", "price_table_sha256", "native_sessions")
+             "manifest_sha256", "claude_version", "python_version", "price_table_sha256", "native_sessions",
+             "native_hook_traces")
 # Cells must agree on these; a difference makes the readout undetermined.
 SHARED_KEYS = ("rehearsal", "runtime_commit", "fixture_commit", "claude_version", "python_version", "price_table_sha256")
 STOPPED = 75
@@ -168,13 +169,27 @@ def _init_problem(rows: list[dict], criterion: dict) -> str | None:
     return f"the init event shows what isolation should have removed: {shown}" if shown else None
 
 
+def _api_error(row: dict) -> bool:
+    """An error result the API returned (overloaded, 5xx, rate limit, login), not one the model produced."""
+    return row.get("type") == "result" and row.get("is_error") is True and (
+        row.get("api_error_status") is not None or str(row.get("result", "")).startswith("API Error"))
+
+
+def _stream_problems(rows: list[dict], criterion: dict) -> list[str]:
+    """The init-event check, an API error, and any hook event (SessionStart and Setup hook events are always
+    in a stream-json stream, so a user hook that ran shows here)."""
+    problem = _init_problem(rows, criterion)
+    hooks = sorted({str(row.get("subtype")) for row in rows if str(row.get("subtype", "")).startswith("hook_")})
+    return ([problem] if problem else []) + ([f"hook events in the stream: {hooks}"] if hooks else []) + (
+        ["an API error result"] if any(_api_error(row) for row in rows) else [])
+
+
 def attempt_facts(run_root: Path | None, criterion: dict) -> dict:
-    """Per provider attempt: its init-event problems, the sessions it names and whether the CLI's budget stopped it."""
+    """Per provider attempt: its stream problems, the sessions it names and whether the CLI's budget stopped it."""
     problems, sessions, budget_stops = [], set(), []
     for attempt in _attempts(run_root):
         where, rows = attempt.relative_to(run_root).as_posix(), _jsonl(attempt / "stdout.txt")
-        problem = _init_problem(rows, criterion)
-        problems += [f"{where}: {problem}"] if problem else []
+        problems += [f"{where}: {problem}" for problem in _stream_problems(rows, criterion)]
         sessions |= {str(row.get("session_id")) for row in rows if row.get("subtype") == "init"}
         budget_stops += [f"{where}: {BUDGET_STOP}"] if any(row.get("subtype") == BUDGET_STOP for row in rows) else []
     return {"init_problems": problems, "sessions": sorted(sessions), "budget_stops": budget_stops}
@@ -246,11 +261,13 @@ def _meta_problems(name: str, cell_dir: Path, meta: dict, criterion: dict) -> li
 
 
 def _session_problems(meta: dict, sessions: list[str]) -> list[str]:
-    """The CLI's transcripts for the workspace are exactly the sessions the attempts name; more means a CLI ran
-    outside the journal (detected, not prevented)."""
-    found = sorted(map(str, _listed(meta["native_sessions"])))
-    return [] if found == sessions else [f"{len(found)} native session transcripts for the workspace, "
-                                         f"{len(sessions)} sessions in its attempts"]
+    """The CLI's sessions for the workspace (transcripts and session folders) are exactly the sessions the attempts
+    name, and none ran a hook; another session means a CLI ran outside the journal (detected, not prevented)."""
+    found = sorted(set(map(str, _listed(meta["native_sessions"]))))
+    problems = [] if found == sessions else [f"{len(found)} native sessions for the workspace, "
+                                             f"{len(sessions)} sessions in its attempts"]
+    traces = meta["native_hook_traces"]
+    return problems + ([f"{traces} hook records in the native transcripts"] if traces != 0 else [])
 
 
 def _model_problems(usage: dict, run: dict, model: str) -> list[str]:

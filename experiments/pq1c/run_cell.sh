@@ -113,6 +113,10 @@ print(json.dumps(found, sort_keys=True))
 EOF
 ) || refuse "the kit's files are not the frozen ones"
 MANIFEST_SHA256=$(sha256sum "$KIT/manifest.json" | cut -d' ' -f1)
+# The anchor is outside the kit: the operator passes the manifest digest recorded in the plan's ledger.
+[ -n "${PQ1C_MANIFEST_SHA256:-}" ] || refuse "set PQ1C_MANIFEST_SHA256 to the manifest digest recorded in the plan's ledger"
+[ "$PQ1C_MANIFEST_SHA256" = "$MANIFEST_SHA256" ] ||
+  refuse "manifest.json is $MANIFEST_SHA256, not the ledger's $PQ1C_MANIFEST_SHA256"
 
 is_stub() {
   case "$1" in */no_provider/*|*/provider-guard/*) return 0;; esac
@@ -329,11 +333,26 @@ if [ "$MODE" = clean ] && [ "$RUN_EXIT" -eq 0 ]; then
 json.dump({"exit": int(e), "identity": i, "coordinator_committed": c == "0", "bytes_unchanged": b == a}, open(sys.argv[6], "w"), indent=2)' \
     "$INVALIDATE_EXIT" "$FEEDBACK" "$COMMITTED" "$BEFORE" "$AFTER" "$CELL_DIR/invalidate.json"
 fi
-# The CLI's native transcripts for this workspace (it names the directory after the path, every
-# non-alphanumeric character replaced by -): the readout compares them with the sessions the attempts name.
-NATIVE_SESSIONS=$("$PYTHON" -c 'import json, pathlib, re, sys
+# The CLI's sessions for this workspace (it names the directory after the path, every non-alphanumeric
+# character replaced by -): each transcript <id>.jsonl and each session folder <id>/ (all a call without
+# session persistence leaves), and the hook records in the transcripts. The readout compares the sessions with
+# those the attempts name and refuses any hook record.
+NATIVE=$("$PYTHON" -c 'import json, pathlib, re, sys
 d = pathlib.Path(sys.argv[1]) / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", str(pathlib.Path(sys.argv[2]).resolve()))
-print(json.dumps(sorted(p.stem for p in d.glob("*.jsonl"))))' "$HOME" "$WS")
+ids = {p.stem for p in d.glob("*.jsonl")} | {p.name for p in d.glob("*") if p.is_dir()}
+traces = 0
+for transcript in d.glob("*.jsonl"):
+    for line in transcript.read_text(errors="replace").splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        attachment = row.get("attachment") if isinstance(row, dict) else None
+        traces += isinstance(attachment, dict) and ("hookEvent" in attachment or str(attachment.get("type", "")).startswith("hook_"))
+print(json.dumps(sorted(ids)))
+print(traces)' "$HOME" "$WS")
+NATIVE_SESSIONS=$(printf '%s\n' "$NATIVE" | sed -n 1p)
+NATIVE_HOOK_TRACES=$(printf '%s\n' "$NATIVE" | sed -n 2p)
 set -e
 
 # The record is written whole (temporary file, then rename), so a readable cell.json is a finished cell.
@@ -342,12 +361,12 @@ set -e
   cap_usd "$CAP_USD" claude_path "$CLAUDE" claude_version "$VERSION" runtime "$RUNTIME" runtime_commit "$RUNTIME_COMMIT" \
   runtime_dirty "$([ -n "$DIRTY" ] && echo true || echo false)" source "$SOURCE" source_sha256 "$SOURCE_SHA256" \
   manifest_sha256 "$MANIFEST_SHA256" kit_files "$KIT_FILES" python "$PYTHON" python_version "$PYTHON_VERSION" \
-  price_table_sha256 "$PRICE_TABLE_SHA256" native_sessions "$NATIVE_SESSIONS" fixture_commit "$FIXTURE_COMMIT" run_id "$RUN_ID" \
+  price_table_sha256 "$PRICE_TABLE_SHA256" native_sessions "$NATIVE_SESSIONS" native_hook_traces "$NATIVE_HOOK_TRACES" fixture_commit "$FIXTURE_COMMIT" run_id "$RUN_ID" \
   run_exit "$RUN_EXIT" stop "$STOP" resume_exit "$RESUME_EXIT" report_exit "$REPORT_EXIT" run_sec "$RUN_SEC" \
   resume_sec "$RESUME_SEC" <<'EOF'
 import json, os, sys
 meta = dict(zip(sys.argv[2::2], sys.argv[3::2]))
-for key in ("cap_usd", "run_exit", "run_sec", "resume_sec"):
+for key in ("cap_usd", "run_exit", "run_sec", "resume_sec", "native_hook_traces"):
     meta[key] = int(meta[key])
 for key in ("stop", "resume_exit", "report_exit", "kit_files", "native_sessions"):
     meta[key] = json.loads(meta[key])

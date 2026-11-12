@@ -6,13 +6,15 @@ transcripts where the real CLI does, and its closing `result` line carries usage
 variant's agent turns and the baseline's plain metered calls both record priced usage. It carries the
 kit's stand-in marker line, logs every invocation (argv, cwd, the nesting marker, the rehearsal slots
 claimed at that moment) to `invocations.log` beside itself, reads its plan from `plan.json` beside itself,
-keeps its native store where the real CLI does (`~/.claude`), counts its plan steps per cell, sleeps first when a file `slow` is beside it,
+keeps its native store where the real CLI does (`~/.claude`), counts its plan steps per cell, leaves a stray
+session folder when a file `stray` is beside it, a hook record in its transcript when a file `hooked` is, sleeps first when a file `slow` is beside it,
 and, when a file `nest` is beside it, tries to start `claude` from its own PATH as an agent's shell would.
 Every launch gets a closed PATH and a temporary HOME, so the slot ledger is temporary too.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -70,6 +72,16 @@ if (_here / "nest").exists() and not os.environ.get("PQ1C_STANDIN_NESTED"):     
     _nested = subprocess.run(["claude", "-p", "--model", "claude-fable-5-1"], input="", capture_output=True, text=True,
                              env={**os.environ, "PQ1C_STANDIN_NESTED": "1"}, timeout=60)
     (_here / "nested.json").write_text(json.dumps({"exit": _nested.returncode}))
+_project = Path.home() / ".claude" / "projects" / __import__("re").sub(r"[^A-Za-z0-9]", "-", os.getcwd())
+if (_here / "stray").exists():          # what a nested call without session persistence leaves: a folder only
+    (_project / str(__import__("uuid").uuid4()) / "tool-results").mkdir(parents=True, exist_ok=True)
+if (_here / "hooked").exists():         # what a user hook that ran leaves in the session's transcript
+    def _hook_record():
+        for transcript in _project.glob("*.jsonl"):
+            with transcript.open("a") as out:
+                out.write(json.dumps({"type": "attachment", "attachment": {"type": "hook_success",
+                                      "hookEvent": "SessionStart", "hookName": "SessionStart:startup"}}) + "\\n")
+    __import__("atexit").register(_hook_record)
 # The shim counts its plan steps beside argv[0]: count per cell (the cell's bin), not beside the stand-in.
 sys.argv[0] = str(Path.cwd().parent / "bin" / "claude")
 os.environ.setdefault("AGENT_SHIM_PLAN", (_here / "plan.json").read_text())
@@ -89,9 +101,15 @@ def standins(tmp: Path, plan: dict = PLAN) -> Path:
     return bin_dir
 
 
-def _env(tmp: Path, *, rehearsal: bool, authorized: bool, path: tuple, extra: dict) -> dict:
+def manifest_sha256(kit: Path = KIT) -> str:
+    """What the operator takes from the plan's ledger; here, the kit's own manifest digest."""
+    return hashlib.sha256((kit / "manifest.json").read_bytes()).hexdigest()
+
+
+def _env(tmp: Path, *, kit: Path, rehearsal: bool, authorized: bool, path: tuple, extra: dict) -> dict:
     env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH" and not key.startswith("PQ1C_")}
-    env.update(HOME=str(tmp / "home"), PATH=closed_path(*path), PQ1C_PYTHON=sys.executable)
+    env.update(HOME=str(tmp / "home"), PATH=closed_path(*path), PQ1C_PYTHON=sys.executable,
+               PQ1C_MANIFEST_SHA256=manifest_sha256(kit))
     if rehearsal:
         env["PQ1C_REHEARSAL_STANDINS"] = str(tmp / "standins")
     if authorized:
@@ -104,7 +122,8 @@ def launch(tmp: Path, cell: str, *, kit: Path = KIT, runtime: Path = REPO, rehea
     """`run_cell.sh RUNTIME CELL <tmp>/results`; a rehearsal unless `rehearsal=False`."""
     (tmp / "home").mkdir(exist_ok=True)
     argv = ["bash", str(kit / "run_cell.sh"), str(runtime), cell, str(tmp / "results")]
-    env = _env(tmp, rehearsal=rehearsal, authorized=authorized, path=path, extra=extra)
+    env = {key: value for key, value in _env(tmp, kit=kit, rehearsal=rehearsal, authorized=authorized, path=path,
+                                              extra=extra).items() if value is not None}
     if background:
         return subprocess.Popen(argv, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     return subprocess.run(argv, env=env, capture_output=True, text=True, timeout=600, check=False)
