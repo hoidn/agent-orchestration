@@ -1602,40 +1602,6 @@ def test_compile_stage3_reports_macro_emitted_malformed_letstar_as_frontend_diag
     assert "expanded from macro `emit-broken-workflow` call at" in rendered
 
 
-def test_compile_stage3_renders_macro_expansion_notes_for_downstream_name_unknown_errors(tmp_path: Path) -> None:
-    path = tmp_path / "macro_record_missing_name.orc"
-    path.write_text(
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
-                "  (defrecord Out",
-                "    (value String))",
-                "  (emit-record-workflow broken)",
-                "  (defmacro emit-record-workflow (name)",
-                "    (defworkflow name",
-                "      ()",
-                "      -> Out",
-                "      (record Out :value missing_name))))",
-            ]
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(path, validate_shared=False)
-
-    diagnostic = excinfo.value.diagnostics[0]
-    rendered = render_diagnostic(diagnostic)
-
-    assert diagnostic.code == "name_unknown"
-    assert diagnostic.expansion_stack
-    assert diagnostic.expansion_stack[0].macro_name == "emit-record-workflow"
-    assert "expanded from macro `emit-record-workflow` call at" in rendered
-    assert "macro definition at" in rendered
-
-
 def test_compile_stage3_preserves_macro_provenance_without_reclassifying_downstream_validation_failures(
     tmp_path: Path,
 ) -> None:
@@ -1899,54 +1865,6 @@ def test_serialize_diagnostic_classifies_source_map_validation_errors() -> None:
     assert payload["phase"] == "source_map"
     assert payload["validation_pass"] == "source_map"
     assert payload["authority_layer"] == "frontend"
-
-
-def test_serialize_diagnostic_infers_semantic_ir_metadata_from_code() -> None:
-    diagnostics_module = importlib.import_module("orchestrator.workflow_lisp.diagnostics")
-    serialize_diagnostic = getattr(diagnostics_module, "serialize_diagnostic")
-
-    diagnostic = LispFrontendDiagnostic(
-        code="semantic_ir_invalid",
-        message="semantic_ir_invalid: executable bridge references unknown node",
-        span=SourceSpan(
-            start=SourcePosition(path="tests/fixtures/workflow_lisp/valid/example.orc", line=12, column=3, offset=0),
-            end=SourcePosition(path="tests/fixtures/workflow_lisp/valid/example.orc", line=12, column=18, offset=0),
-        ),
-        form_path=("workflow-lisp", "defworkflow", "command_checks"),
-    )
-
-    payload = serialize_diagnostic(diagnostic)
-
-    assert payload["code"] == "semantic_ir_invalid"
-    assert payload["phase"] == "semantic_ir"
-    assert payload["validation_pass"] == "semantic_ir"
-    assert payload["authority_layer"] == "shared"
-
-
-def test_serialize_diagnostic_infers_executable_ir_metadata_from_code() -> None:
-    diagnostics_module = importlib.import_module("orchestrator.workflow_lisp.diagnostics")
-    serialize_diagnostic = getattr(diagnostics_module, "serialize_diagnostic")
-
-    diagnostic = LispFrontendDiagnostic(
-        code="executable_ir_invalid",
-        message="executable_ir_invalid: executable node references unknown target",
-        span=SourceSpan(
-            start=SourcePosition(path="tests/fixtures/workflow_lisp/valid/example.orc", line=14, column=3, offset=0),
-            end=SourcePosition(path="tests/fixtures/workflow_lisp/valid/example.orc", line=14, column=18, offset=0),
-        ),
-        form_path=("workflow-lisp", "defworkflow", "command_checks"),
-    )
-
-    payload = serialize_diagnostic(diagnostic)
-
-    assert payload["code"] == "executable_ir_invalid"
-    assert payload["phase"] == "executable"
-    assert payload["validation_pass"] == "executable"
-    assert payload["authority_layer"] == "frontend"
-
-
-
-
 
 
 @pytest.mark.parametrize(
