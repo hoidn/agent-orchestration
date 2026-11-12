@@ -1689,6 +1689,9 @@ Lowering:
 - each effectful binding lowers to one or more core statements
 - later bindings may reference earlier bound values
 - pure bindings lower to expression IR
+- a `let*` binding is visible only in that `let*`'s body: written inside one
+  record or variant field, operand or condition, it does not reach a sibling
+  field or operand, whether or not a sibling field is a `match`
 
 The runtime remains deterministic and sequential unless the core runtime
 explicitly supports parallelism.
