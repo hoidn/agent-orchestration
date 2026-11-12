@@ -276,7 +276,9 @@ every removed test is listed with the code it covered".
    removes accepted source forms, so it is a language change with spec edits.
 2. **`StateManager` dead methods and CLI vestiges.**
 3. **The old IR stack,** after moving the dozen live types to a small module
-   and after decision 4 on the dashboard and `report` for historical runs.
+   and after the dashboard is migrated to evaluated runs (it reads only the
+   old bundles today). `report` and the dashboard then drop their readers for
+   runs of the retired runtime, with the tests held back for them.
 4. **Targets, in three steps:** collapse the monotone capability gates into
    one table; migrate the packaged library and the catalog to the newest
    target with a behavior comparison; remove the older procedure regime and
@@ -400,7 +402,7 @@ the owner can amend any of them.
 | 1 | Select this roadmap | Selected 2026-11-11 |
 | 2 | H-G1 to H-G3 are the claims the project stands on, each with its refutation condition | Confirmed 2026-11-11 |
 | 3 | Name the consumer | Open; needed before the consumer thread starts |
-| 4 | Lane D deletions | Approved 2026-11-11. Whether the dashboard and `report` keep reading pre-evaluated runs is open and gates stage 3 only |
+| 4 | Lane D deletions | Approved 2026-11-11. Owner, same day: the dashboard and `report` stop reading runs from the retired runtime, and the dashboard is migrated to read evaluated runs. The migration precedes stage 3 |
 | 5 | Dynamic branch: tag it and stop porting main into it; reopen if the authoring check shows typed authoring is the agents' bottleneck. Its adoption lane was already stopped (simplification record, Task 4) | Approved 2026-11-11 |
 | 6 | Phase 5 size: none, small or full | Open; no spend authorized; decided when Thread M item 5 reports |
 | 7 | Phase 6 form | Option B approved 2026-11-11; no spend authorized; generic search not selected |
