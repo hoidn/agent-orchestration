@@ -9,19 +9,14 @@ from pathlib import Path
 from typing import Any
 
 from .context_classification import (
-    _bootstrap_role_for_field,
     classify_structural_private_exec_context,
 )
-from .contracts import FlattenedContractField, derive_workflow_boundary_fields
+from .contracts import FlattenedContractField
 from .effects import CallsWorkflowEffect, EffectSummary
 from .family_profiles import WorkflowFamilyProfileCatalog
-from .phase import private_exec_context_capabilities
-from .phase import private_exec_context_bootstrap_supported
 from .type_env import PathTypeRef, RecordTypeRef, TypeRef
-from orchestrator.workflow.surface_ast import PrivateExecContextBinding
 
 
-PHASE_CONTEXT_TYPE_NAME = "PhaseCtx"
 DESIGN_DELTA_BOUNDARY_AUTHORITY_SCHEMA_VERSION = (
     "workflow_lisp_design_delta_boundary_authority.v1"
 )
@@ -178,152 +173,6 @@ def phase_family_entry_phase_identity(
     if family_profile_catalog is None:
         return None
     return family_profile_catalog.entry_phase_identity(workflow_name)
-
-
-def apply_phase_family_boundary_classification(
-    *,
-    workflow_name: str,
-    params: Iterable[tuple[str, TypeRef]],
-    hidden_context_requirements: Mapping[str, Any] | None = None,
-    boundary_projection: Any,
-    context: Any,
-) -> PhaseFamilyBoundaryClassification:
-    classification = classify_phase_family_boundary(
-        workflow_name=workflow_name,
-        params=params,
-        flattened_inputs=boundary_projection.flattened_inputs,
-        family_profile_catalog=context.workflow_catalog.family_profile_catalog,
-        hidden_context_requirements=hidden_context_requirements,
-    )
-    for name in classification.runtime_owned_context_inputs:
-        context.internal_generated_input_reasons[name] = "runtime_owned_context"
-        context.authored_generated_inputs.discard(name)
-    for name in classification.compatibility_bridge_inputs:
-        context.internal_generated_input_reasons[name] = "compatibility_bridge"
-        context.authored_generated_inputs.discard(name)
-    return classification
-
-
-def record_direct_entry_phase_context_binding(
-    *,
-    context: Any,
-    typed_workflow: Any,
-    generated_input_names: tuple[str, ...],
-) -> None:
-    if not generated_input_names:
-        return
-    generated_input_name_set = set(generated_input_names)
-    params_by_name = dict(typed_workflow.signature.params)
-    for (
-        source_param_name,
-        requirement,
-    ) in typed_workflow.signature.hidden_context_requirements.items():
-        type_ref = params_by_name.get(source_param_name)
-        structural_classification = classify_structural_private_exec_context(type_ref)
-        if not private_exec_context_bootstrap_supported(
-            requirement.context_kind
-        ) and structural_classification is None:
-            continue
-        if not isinstance(type_ref, RecordTypeRef):
-            continue
-        flattened_fields = tuple(
-            field
-            for field in derive_workflow_boundary_fields(
-                type_ref,
-                generated_name=source_param_name,
-                source_path=(source_param_name,),
-                span=typed_workflow.definition.span,
-                form_path=typed_workflow.definition.form_path,
-            )
-            if field.generated_name in generated_input_name_set
-        )
-        if not flattened_fields:
-            continue
-        origin = context.generated_input_spans.get(flattened_fields[0].generated_name)
-        provenance: dict[str, Any] = {
-            "workflow_name": typed_workflow.definition.name,
-        }
-        if origin is not None:
-            provenance.update(
-                {
-                    "path": str(origin.span.start.path),
-                    "line": origin.span.start.line,
-                    "form_path": list(origin.form_path),
-                }
-            )
-        input_roles: dict[str, str] = {}
-        carried_input_sources: dict[str, tuple[str, ...]] = {}
-        has_non_bootstrap_leaf = False
-        entry_phase_identity = requirement.phase_name or phase_family_entry_phase_identity(
-            typed_workflow.definition.name,
-            family_profile_catalog=context.workflow_catalog.family_profile_catalog,
-        )
-        if structural_classification is not None:
-            for field in flattened_fields:
-                contract_definition = dict(field.contract_definition)
-                if (
-                    requirement.context_kind == PHASE_CONTEXT_TYPE_NAME
-                    and entry_phase_identity is not None
-                ):
-                    relative_path = field.source_path[1:]
-                    if relative_path == ("phase-name",):
-                        contract_definition["default"] = entry_phase_identity
-                    elif relative_path == ("state-root",):
-                        contract_definition["default"] = f"state/{entry_phase_identity}"
-                    elif relative_path == ("artifact-root",):
-                        contract_definition["default"] = (
-                            f"artifacts/{entry_phase_identity}"
-                        )
-                role = _bootstrap_role_for_field(
-                    source_path=field.source_path,
-                    contract_definition=contract_definition,
-                    anchors=structural_classification.anchors,
-                )
-                if role is not None:
-                    input_roles[field.generated_name] = role
-                    if role.startswith("run_anchor:"):
-                        carried_input_sources[field.generated_name] = field.source_path
-                    continue
-                carried_input_sources[field.generated_name] = field.source_path
-                has_non_bootstrap_leaf = True
-        projection_hints: dict[str, Any] = {"context_binding_schema_version": 1}
-        if input_roles:
-            projection_hints["context_input_roles"] = input_roles
-        if carried_input_sources:
-            projection_hints["carried_input_sources"] = carried_input_sources
-        binding = PrivateExecContextBinding(
-            binding_id=source_param_name,
-            source_param_name=source_param_name,
-            context_family=requirement.context_kind,
-            bridge_class=(
-                "imported_adapter_carried_context"
-                if has_non_bootstrap_leaf
-                else "runtime_owned_context"
-            ),
-            generated_input_names=tuple(
-                field.generated_name for field in flattened_fields
-            ),
-            required_capabilities=(
-                structural_classification.derived_capabilities
-                if structural_classification is not None
-                else private_exec_context_capabilities(requirement.context_kind)
-            ),
-            derived_phase_identity=entry_phase_identity,
-            projection_hints=projection_hints,
-            source_provenance=provenance,
-        )
-        if binding not in context.private_exec_context_bindings:
-            context.private_exec_context_bindings.append(binding)
-
-
-def _phase_context_capabilities(typed_workflow: Any) -> tuple[str, ...]:
-    for param_name, type_ref in typed_workflow.signature.params:
-        if param_name != "phase-ctx":
-            continue
-        classification = classify_structural_private_exec_context(type_ref)
-        if classification is not None:
-            return classification.derived_capabilities
-    return ()
 
 
 def load_design_delta_boundary_authority_registry(

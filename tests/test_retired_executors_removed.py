@@ -106,6 +106,26 @@ def test_nothing_imports_removed_packages(package: str) -> None:
     assert importers == []
 
 
+# The bundle-era IR modules that the Workflow Lisp frontend no longer imports.
+OLD_IR_MODULES = [
+    f"orchestrator.workflow.{name}"
+    for name in ("surface_ast", "loaded_bundle", "executable_ir", "core_ast", "semantic_ir", "runtime_plan")
+]
+FRONTEND_PACKAGES = ["orchestrator/workflow_lisp", "orchestrator/py", "orchestrator/lsp"]
+
+
+@pytest.mark.parametrize("package", FRONTEND_PACKAGES)
+def test_frontend_imports_nothing_from_the_old_ir_stack(package: str) -> None:
+    paths = sorted((REPO / package).rglob("*.py"))
+    importers = [
+        f"{path.relative_to(REPO)}: {name}"
+        for path in paths
+        for name in sorted(_imported_modules(path))
+        if any(name == module or name.startswith(module + ".") for module in OLD_IR_MODULES)
+    ]
+    assert (bool(paths), importers) == (True, [])
+
+
 @pytest.mark.parametrize("argv", REMOVED_COMMANDS, ids=lambda argv: argv[0])
 def test_removed_commands_are_refused(tmp_path: Path, argv: list[str]) -> None:
     result = cli(tmp_path, *argv)

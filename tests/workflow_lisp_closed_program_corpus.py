@@ -687,7 +687,6 @@ def prepare(workflow: Workflow, scratch: Path, *, source_fixture: Path | None = 
 def compile(prepared: Prepared):
     """Compile source to the public typed evaluated-execution program."""
 
-    imported_bundles: Mapping[str, object] = {}
     imported_programs: Mapping[str, object] = {}
     if prepared.imported_workflow_manifest is not None:
         from orchestrator.workflow_lisp.build import FrontendBuildRequest
@@ -759,7 +758,6 @@ def compile(prepared: Prepared):
         command_boundaries=prepared.commands,
         provider_externs=prepared.providers,
         prompt_externs=prepared.prompts,
-        imported_workflow_bundles=imported_bundles,
         imported_programs=imported_programs,
         workspace_root=prepared.workspace_root,
     )
