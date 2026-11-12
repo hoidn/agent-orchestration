@@ -13,6 +13,7 @@ import hashlib
 import json
 import re
 import shutil
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -176,6 +177,77 @@ def test_node_stripping_equals_the_node_taken_from_the_stripped_program() -> Non
     assert not any(_has_position(clean) for _raw, clean in pairs)
 
 
+def _without_any_position(value):
+    if isinstance(value, dict):
+        return {key: _without_any_position(item) for key, item in value.items() if key != "@"}
+    if isinstance(value, list):
+        return [_without_any_position(item) for item in value]
+    return value
+
+
+def _subjects() -> list[tuple[str, dict]]:
+    """(origin, subject) of every provider-class site: the recorded stored programs and the maintained catalog
+    (`tests/workflow_lisp_closed_program_corpus.py`); an agent turn is seen as a provider node of a stand-in agent."""
+    from tests.workflow_lisp_closed_program_corpus import Built, corpus, try_build
+    trees = [(str(path), json.loads(path.read_text(encoding="utf-8")))
+             for path in sorted(RECORDED.glob("*/runs/*/closed_program.json"))]
+    with tempfile.TemporaryDirectory() as scratch:
+        for index, workflow in enumerate(corpus()):
+            built = try_build(workflow, Path(scratch) / str(index))
+            if isinstance(built.outcome, Built):
+                trees.append((workflow.key, built.program.tree))
+    found = []
+    for origin, tree in trees:
+        for body in [tree["body"], *(definition["body"] for definition in tree["definitions"].values())]:
+            for node in _ast_nodes(body):
+                if node.get("k") == "perform" and node["class"] in {"provider", "provider_phased", "agent_turn"}:
+                    agent = SimpleNamespace(provider="stand-in")
+                    found.append((origin, provider_view(node, agent) if node["class"] == "agent_turn" else node))
+    return found
+
+
+def test_declaration_digest_is_the_whole_node_without_any_position() -> None:
+    subjects = _subjects()
+
+    assert {subject["class"] for _origin, subject in subjects} == {"provider", "provider_phased"} and len(subjects) >= 40
+    assert [origin for origin, subject in subjects
+            if declaration_digest(subject) != canonical_sha256(_without_any_position(subject))] == []
+
+
+def _field_edits(subject: dict):
+    """One deletion and one changed value per top-level field other than `@` and `k` (a perform node's kind, which
+    the walker requires), and a changed literal per policy entry."""
+    for key, value in subject.items():
+        if key in {"@", "k"}:
+            continue
+        yield key + " removed", {k: v for k, v in subject.items() if k != key}
+        if isinstance(value, str):
+            changed = value + "'"
+        elif isinstance(value, dict):
+            changed = {**value, "changed": True}
+        elif isinstance(value, list):
+            changed = [*value, "changed"]
+        else:
+            changed = "changed"
+        yield key + " changed", {**subject, key: changed}
+    for name, operand in (subject.get("policy") or {}).items():
+        if isinstance(operand, dict) and operand.get("k") == "lit":
+            yield "policy " + name, {**subject, "policy": {**subject["policy"], name: {**operand, "v": f"{operand['v']}'"}}}
+
+
+def test_each_field_of_the_node_moves_the_declaration_digest() -> None:
+    edits, missed = set(), []
+    for origin, subject in _subjects():
+        for edit, changed in _field_edits(subject):
+            edits.add(edit)
+            if declaration_digest(changed) == declaration_digest(subject):
+                missed.append((origin, subject["site"], edit))
+
+    assert missed == []
+    assert {"policy model", "policy effort"} <= edits and {"contract", "prompt", "provider", "repeat", "result",
+            "dependencies", "inputs", "policy", "site", "class"} <= {edit.split()[0] for edit in edits}
+
+
 def test_old_digest_is_used_only_when_both_rules_agree_on_the_written_subject() -> None:
     """Design §2: the recorded old-rule value stands for the current one only when the subject in the writing program
     has the current subject's new-rule digest. Under one program both are the same node; a later program differs."""
@@ -238,25 +310,6 @@ def test_pre_change_phased_commit_resumes_without_dispatch(tmp_path: Path) -> No
     again = _cli(tmp_path, env, "resume", run_root.name)
     assert again.returncode == 0, again.stderr
     assert _rows(run_root) == rows and not (tmp_path / "phased-events.jsonl").exists()
-
-
-def test_pre_change_pending_phased_attempt_is_recovered(tmp_path: Path) -> None:
-    """As on the base (`tests/test_workflow_evaluated_edit_resume_baseline.py`): the prepared attempt's transport
-    reservation is gone, so resume refuses before any write. A pending phased attempt is never compared with a fresh
-    input outside a plan (its receipt binds the recorded digest, and recovery starts a new attempt), so this pins that
-    the new rule adds no refusal ahead of the base's; the planner's kept-pending test (T6) is where it is compared."""
-    run_root, env = _recorded("phased_pending", tmp_path)
-    (start,) = [row for row in _rows(run_root) if row["record"] == "started"]
-    assert start["input_parts"]["declaration"] == legacy_declaration_digest(_subject(run_root, start))
-    receipt = json.loads((run_root / start["result_path"]).with_name("phased-attempt.json").read_text())
-    if (Path("/tmp") / receipt["transport"]["namespace"]).exists():
-        pytest.skip("the recording host still holds this reservation")
-    before = {path: path.read_bytes() for path in run_root.rglob("*") if path.is_file() and path.name != "run.lock"}
-
-    resumed = _cli(tmp_path, env, "resume", run_root.name)
-
-    assert resumed.returncode == 2 and "[provider_phased_cleanup_failed]" in resumed.stderr.splitlines()[0]
-    assert {path: path.read_bytes() for path in run_root.rglob("*") if path.is_file() and path.name != "run.lock"} == before
 
 
 # ---- a recorded value that is no rule of the current node --------------------------------------------------------

@@ -145,20 +145,6 @@ def _strip_positions(nodes) -> None:
                         row.pop("@", None)
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def _sites_from_nodes(tree: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
     definitions = tree["definitions"]
     owners = [(tree["entry"], tree["body"])]
