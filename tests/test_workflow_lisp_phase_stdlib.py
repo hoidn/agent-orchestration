@@ -357,7 +357,6 @@ def _compile(
     *,
     tmp_path: Path,
     validate_shared: bool = False,
-    imported_workflow_bundles=None,
 ):
     return compile_stage3_module(
         path,
@@ -389,7 +388,6 @@ def _compile(
                 ),
             ),
         },
-        imported_workflow_bundles=imported_workflow_bundles,
         validate_shared=validate_shared,
         workspace_root=tmp_path,
 

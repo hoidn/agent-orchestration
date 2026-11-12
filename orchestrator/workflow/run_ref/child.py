@@ -14,7 +14,7 @@ import sys
 from typing import Any, Mapping, Sequence
 
 from orchestrator.run_lock import run_writer_lock, workspace_run_lock
-from orchestrator.workflow.executable_ir import RunRefStepConfig, StepCommonConfig
+from orchestrator.workflow.run_ref.step_config import RunRefStepConfig, StepCommonConfig
 
 
 from .contracts import (

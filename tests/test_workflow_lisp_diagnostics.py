@@ -1026,7 +1026,6 @@ def test_stage3_validation_pipeline_reports_authority_as_blocking_pass(tmp_path:
         standalone_entry_namespace="entry",
         provider_externs={"providers.execute": "test-provider"},
         prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        imported_workflow_bundles=None,
         command_boundaries=None,
         validate_shared=False,
         workspace_root=tmp_path,
@@ -1103,7 +1102,6 @@ def test_stage3_validation_pipeline_runs_retained_frontend_passes(tmp_path: Path
         standalone_entry_namespace="entry",
         provider_externs={"providers.execute": "test-provider"},
         prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        imported_workflow_bundles=None,
         command_boundaries={
             "run_checks": ExternalToolBinding(
                 name="run_checks",

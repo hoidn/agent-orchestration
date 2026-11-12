@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
-from dataclasses import dataclass
 from pathlib import Path
-from orchestrator.workflow.surface_ast import SurfaceWorkflow, WorkflowProvenance
 
 import pytest
 
@@ -711,13 +709,6 @@ def test_prompt_extern_object_shape_invalid_diagnostic(tmp_path: Path, payload: 
 
 
 
-
-
-@dataclass(frozen=True)
-class _HistoricalSurfaceGraph:
-    surface: SurfaceWorkflow
-    provenance: WorkflowProvenance
-    imports: dict
 
 
 def test_json_data_keeps_plain_return_and_field_dataclasses_legacy_compatible() -> None:

@@ -1211,10 +1211,10 @@ class ModuleGraph:
 def generate_graph(module: ModuleType, output_root: Path, *, module_name=None, source_roots=(),
                    module_names=None, python_sources=None, provider_externs=None,
                    prompt_externs=None, command_boundaries=None, workspace_root=None,
-                   imported_programs=None, imported_workflow_bundles=None):
+                   imported_programs=None):
     """Generate an ownership-preserving graph and retain exact dependency evidence."""
     return ModuleGraph(module, output_root, module_name=module_name, source_roots=source_roots,
                        module_names=module_names, python_sources=python_sources,
                        provider_externs=provider_externs, prompt_externs=prompt_externs,
                        command_boundaries=command_boundaries, workspace_root=workspace_root,
-                       imported_programs=imported_programs, imported_workflow_bundles=imported_workflow_bundles).emit()
+                       imported_programs=imported_programs).emit()

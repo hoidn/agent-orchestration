@@ -1,1 +1,0 @@
-"""Managed provider job primitives."""

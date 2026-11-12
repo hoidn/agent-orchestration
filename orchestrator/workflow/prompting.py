@@ -26,7 +26,6 @@ from ..contracts.prompt_contract import (
     stringify_consumed_value,
 )
 from .assets import AssetResolutionError, WorkflowAssetResolver
-from .executor_runtime import RuntimeStepInput
 from .prompt_fragment_contract import (
     CompilerPromptAttemptBindingPlan,
     CompilerPromptFragmentContract,
@@ -45,6 +44,7 @@ from .view_renderer import (
 )
 
 
+RuntimeStepInput = Mapping[str, Any]
 _RenderOwner = TypeVar("_RenderOwner")
 
 
