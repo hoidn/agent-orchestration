@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shutil
 import signal
 import subprocess
 import sys
@@ -144,9 +145,19 @@ def fresh_value(tmp_path_factory):
     return snapshot.terminal.data["value"]
 
 
-def _baseline(root: Path) -> dict:
+@pytest.fixture(scope="module")
+def completed_20(tmp_path_factory):
+    """One real completed run (value 20), built once per module; tests receive private copies."""
+    root = tmp_path_factory.mktemp("completed20") / "ws"
+    _completed(root, 20)
+    return root
+
+
+def _baseline(root: Path, completed_20: Path) -> dict:
     """Completed P, A (writes handoff.txt), B (reads it by name) and L; then A's script changes."""
-    run_root = _completed(root, 20)
+    root.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(completed_20, root)
+    (run_root,) = (root / ".orchestrate" / "runs").iterdir()
     _rows, snapshot = _memo(run_root)
     commits = [entry for entry in snapshot.entries if entry.data["record"] == "committed"]
     assert [entry.data["value"] for entry in commits] == [1, 20, 20, 7]
@@ -292,8 +303,8 @@ def _assert_resumed(case: dict, fresh_value: int) -> None:
 
 
 @pytest.mark.parametrize(("window", "image"), CELLS, ids=[f"{window}-{image}" for window, image in CELLS])
-def test_public_invalidation_external_window_is_atomic(tmp_path, window, image, fresh_value):
-    case = _baseline(tmp_path / "ws")
+def test_public_invalidation_external_window_is_atomic(tmp_path, window, image, fresh_value, completed_20):
+    case = _baseline(tmp_path / "ws", completed_20)
     marker = _kill_invalidate(case, window)
     _assert_killed_state(case, window, marker)
     if image == "unsynced-line-lost":
@@ -304,8 +315,8 @@ def test_public_invalidation_external_window_is_atomic(tmp_path, window, image, 
     _assert_resumed(case, fresh_value)
 
 
-def test_public_invalidation_visible_fsync_failure_keeps_one_range(tmp_path, fresh_value):
-    case = _baseline(tmp_path / "ws")
+def test_public_invalidation_visible_fsync_failure_keeps_one_range(tmp_path, fresh_value, completed_20):
+    case = _baseline(tmp_path / "ws", completed_20)
     process, _control, stdout_path, stderr_path = _start_gate(case, "fsync-error")
     try:
         process.wait(timeout=60)
@@ -326,8 +337,8 @@ def _tear_and_stale(run_root: Path) -> None:
     (run_root / "state.json").write_text('{"status":"stale"}', encoding="utf-8")
 
 
-def test_public_invalidation_refuses_readonly_while_writer_lock_is_held(tmp_path):
-    case = _baseline(tmp_path / "ws")
+def test_public_invalidation_refuses_readonly_while_writer_lock_is_held(tmp_path, completed_20):
+    case = _baseline(tmp_path / "ws", completed_20)
     _tear_and_stale(case["run_root"])
     before = _tree_bytes(case["root"])
     with memo_writer_lock(case["run_root"]):
