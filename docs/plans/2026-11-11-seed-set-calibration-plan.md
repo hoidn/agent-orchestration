@@ -380,6 +380,52 @@ dominance test against direct with `tau_q` 0.5 point and `tau_c` 0.10.
 **Extension (reserved).** A live workflow within 0.25 point of the line in
 rule 2 or 3 gets two more runs per task, once, judged in one further batch.
 
+**Model-placement block (proposed 2026-11-12; not authorized, not yet built).**
+Owner question: is it better, in the Pareto sense, to plan with a mid model
+and implement with a weak one, to use the weak model for both, or the mid
+model for both; and the same for the reviewer. No measurement in this
+repository answers it, and the four programs above cannot: none has a plan
+step and all run on Haiku. The block adds:
+
+| Arm | Planner / implementer / reviewer | Runs per task |
+| --- | --- | --- |
+| `plan_implement.orc` (new, 2 calls, under 50 lines) | Haiku / Haiku / – | 3 |
+| same program | Sonnet / Haiku / – | 3 |
+| same program | Sonnet / Sonnet / – | 3 |
+| `direct.orc` on Sonnet | – / Sonnet / – | 3, fresh (the calibration's Sonnet runs chose the tasks) |
+| `implement_review_revise.orc` | – / Haiku / Sonnet | 3 |
+
+The model of each step is a binding of one program, not a separate program,
+so a later search can mutate it. Haiku planner with Sonnet implementer is
+left out: the three placements already show whether the plan's model matters
+under a weak implementer and whether the implementer's model matters under a
+mid planner.
+
+Rules for this block, replacing rule 4 and the call-count cost for its arms:
+
+- Cost is priced tokens only (frozen price table). Provider calls are not a
+  cost proxy once arms differ in model.
+- A mixed-model arm is reported on one front with the all-Haiku arms and with
+  the offline re-roll curve `Q(k)` priced at `k` direct Haiku runs. It is a
+  seed only if nothing on that front dominates it within `tau_q` and `tau_c`.
+  The question a Sonnet step must answer is whether it beats spending the
+  same money on more Haiku attempts.
+- Each step's model is verified per step from the run's receipts; a run
+  whose planner or reviewer did not run on the declared model is excluded
+  and listed.
+- Limit of the claim: the task set is chosen so that Sonnet beats Haiku on
+  it (gate G3), so the result holds for tasks where the model matters and
+  says nothing about easier ones.
+
+The calibration already gives the two ends without a plan step (direct on
+Haiku four times, direct on Sonnet once, per task) with priced tokens; that
+figure is reported with the calibration result. Spend if approved, on 20
+surviving tasks: about 300 Haiku and 300 Sonnet candidate calls and about 40
+more judge calls; fewer if fewer tasks survive. Dollar figures follow from
+the smoke's tokens per call. Zero-spend preparation: the program, per-step
+model binding through the shims' model guard, and the per-step model check.
+The request goes to the owner with the seed-evaluation budget.
+
 ## Step 4: Output
 
 `experiments/seed_set/`: `programs/`, `tasks/`, `tasks.jsonl`,
@@ -463,4 +509,4 @@ Allowance does not move between tranches; there is no top-up after a null.
 | 2026-11-11 | Runner reviewed and revised (branch `feat/seed-set-prep`, not merged). The independent review confirmed the caps, the locking and the gate formulas, and found one blocker and nine majors, all fixed: the visible check and the hidden tests now run behind refusing stubs with an empty home, so candidate code cannot start a provider outside the guard; the spend ledger lives at a fixed path under the home directory; planning and reserving share one lock; order and stop rules are enforced in code (criterion frozen, smoke passed, stops on a forbidden model, three contaminated tasks or the incident rule); provider incidents are not scored as zeros; an unsummarizable pool is an incident, not a suppressed readout; resume scripts are disabled. Spend to date: 0. |
 | 2026-11-11 | Coordinator rulings recorded with the runner: there is no later redraw (the ladder probe is the one redraw; the redraw cap's 40 Haiku calls serve only the probe, its Sonnet and judge allowances stay unused; a failed calibration gate is a stop with no quality claim). A judge whose agreement with the hidden tests cannot be assessed (fewer than 15 candidates in a class) is not failed for that, and the decision line and the result say in plain words that it passed on V1 to V3 alone. When two rungs are in band the one nearer 2 of 4 wins, ties to the harder. |
 | 2026-11-11 | Known limits of the runner, accepted: the subagent tool cannot be switched off (the provider command is a fixed registry template), so the model pin and the call cap are the bound; the session audit cannot see a session kept only in memory or a direct API request made with the sandbox's copied credential; the detector for "the agent ran the visible test itself" misses wrappers and test files run directly, and over-counts a `-k` filter that deselects the test. |
-
+| 2026-11-12 | Owner question: which model placement is Pareto-better (plan mid and implement weak, weak for both, mid for both; reviewer strength as another axis). Coordinator ruling: recorded as the "Model-placement block" of Step 3, proposed and not authorized; cost for its arms is priced tokens and the comparison includes the equal-price re-roll curve; Sonnet is needed there because the placement itself is the variable. Its budget is requested together with the seed-evaluation budget after the calibration result. Spend to date: 0. |
