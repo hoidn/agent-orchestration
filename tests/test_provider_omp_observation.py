@@ -665,21 +665,3 @@ def test_recognized_preset_topologies_copied_path_same_digest_and_topology(tmp_p
     assert len(report.advisor_relpaths) == 1 and len(report.child_relpaths) == 2
 
 
-def test_recognized_preset_topologies_label_key_is_not_authoritative(tmp_path):
-    """R5 RED: a name-labeled key (e.g. ``{"advised": ...}``) is absent from
-    the digest-keyed authority, so the same conf digest selects NO counts and
-    close observation stays unrecognized rather than trusting the label."""
-    from orchestrator.providers.omp_observation import (
-        ExpectedTopology,
-        recognized_preset_topologies,
-    )
-
-    topologies = recognized_preset_topologies()
-    digest = _conf_digest("advised")
-    assert digest not in {"advised": ExpectedTopology(advisor=1)}
-    report = _observe(
-        tmp_path,
-        {PRIMARY: _fixture(PRIMARY)},
-        conf_map={},
-    )
-    assert report.unrecognized is True

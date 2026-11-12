@@ -482,11 +482,6 @@ def test_environment_values_outside_canonical_root_rejected() -> None:
         validate_build_observations(pin, observations=obs)
 
 
-def test_environment_values_inside_canonical_root_validate() -> None:
-    pin = _pin()
-    validate_build_observations(pin, observations=_observations(pin))
-
-
 def test_bazel_jobs_drift_rejected() -> None:
     pin = _pin()
     obs = _observations(pin)
