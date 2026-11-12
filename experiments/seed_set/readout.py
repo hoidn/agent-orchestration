@@ -26,6 +26,11 @@ LIMITS = (  # stated on every readout, one line each; recorded, not changed (coo
     "refused, not scrubbed.",
     "The check-withheld check on the study's own path was rehearsed only through a single run on a separate "
     "ledger, and no planned calibration arm runs it.",
+    "G2 and G3 average over the tasks where both arms have a score, and V4 over the rated candidates; a run that "
+    "failed or was never pooled is not among the plan's 100 natural candidates.",
+    "A check-withheld run whose patch creates or edits the withheld test's path fails the host visible check (its "
+    "patch does not apply to the in-tree view); this touches the visible-check figures only, not the gates.",
+    "A T5 choice is always a stop: T4 and T5 hold 11 tasks together, short of the 20 the frozen thresholds need.",
 )
 
 

@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from experiments.compare import pool, prepare, sandbox, scan
+from tests.agent_session_shims import closed_path
 from tests.experiments.compare_harness_support import SHIM, call, skip_without_sandbox, start, world  # noqa: F401
 from tests.experiments.test_compare_model_cap import DISABLED, guarded  # noqa: F401
 
@@ -144,7 +145,7 @@ def scripted_runtime(world):
 
 def run_script(records, script, ambient):
     env = {key: value for key, value in os.environ.items() if key != "COMPARE_CLAUDE_MODELS"}
-    env |= {} if ambient is None else {"COMPARE_CLAUDE_MODELS": ambient}
+    env |= {"PATH": closed_path()} | ({} if ambient is None else {"COMPARE_CLAUDE_MODELS": ambient})
     return subprocess.run(["bash", str(records / script), *(["R1"] if script == "resume.sh" else [])],
                           capture_output=True, text=True, env=env, timeout=60)
 

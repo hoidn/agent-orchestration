@@ -51,9 +51,24 @@ def provider_incident(records):
     for call in calls(records):
         for name in ("stderr.txt", "stdout.txt"):
             path = call / name
-            for line in path.read_text(errors="replace").splitlines() if path.is_file() else []:
+            for line in error_lines(path.read_text(errors="replace"), name) if path.is_file() else []:
                 if PROVIDER_ERRORS.search(line):
                     return f"call {call.name}: {line.strip()[:300]}"
+
+
+def error_lines(text, name):
+    """The lines that can carry the provider's own error: all of stderr (the CLI's); of the stream-json stdout,
+    lines that are not JSON and the text of a `result` event marked `is_error`, never the transcript's tool output,
+    where a task's own text can name 401 or oauth (review2 minor 6)."""
+    for line in text.splitlines():
+        try:
+            event = json.loads(line) if name == "stdout.txt" else None
+        except ValueError:
+            event = None
+        if not isinstance(event, dict):
+            yield line
+        elif event.get("type") == "result" and event.get("is_error"):
+            yield str(event.get("result"))
     return None
 
 

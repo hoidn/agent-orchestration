@@ -13,7 +13,6 @@ the ledger holds.
 """
 
 import json
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -111,13 +110,6 @@ def load_criterion(study):
         raise SystemExit(f"{study.criterion}: the judge-calibration criterion names both judges and the functional "
                          "rubric, without a calibration purpose or block")
     return value
-
-
-def require_free(study, path):
-    path.mkdir(parents=True, exist_ok=True)
-    free = shutil.disk_usage(path).free
-    if free < study.min_free:
-        raise SystemExit(f"stop: {free / 1e9:.1f} GB free under {path}, below {study.min_free / 1e9:.0f} GB")
 
 
 def study_runs(study):

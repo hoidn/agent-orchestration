@@ -21,7 +21,9 @@ files and the results directory, written after the commit, excepted), and when
 criterion by its file name). A second freeze after a start needs a reason, which the ledger keeps.
 """
 
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 from experiments.compare.repos import git, load, runtime_commit, sha256_file
@@ -195,6 +197,23 @@ def stop_reasons(study):
         if incidents * 10 > planned_runs(study, tranche):  # over 10%, exactly
             reasons.append(f"{incidents} incidents in the {tranche} tranche, over 10% of its planned runs")
     return reasons
+
+
+def written_filesystems(study, path):
+    """Where a start writes: `path` (its trees or pools), the results, the ledger, the host checks' temporary
+    clones and `/`."""
+    return [path, study.results, study.state, Path(tempfile.gettempdir()), Path("/")]
+
+
+def require_free(study, path):
+    """Plan, Stop rules: under the floor (20 GB) free on any filesystem a start writes to, stop (review2 minor 5)."""
+    path.mkdir(parents=True, exist_ok=True)
+    for where in written_filesystems(study, path):
+        existing = next(p for p in (where, *where.parents) if p.exists())
+        if (free := shutil.disk_usage(existing).free) < study.min_free:
+            reason = f"{free / 1e9:.1f} GB free under {existing}, below {study.min_free / 1e9:.0f} GB"
+            stop(study, reason)
+            raise SystemExit(f"stop: {reason}")
 
 
 def stop(study, reason):

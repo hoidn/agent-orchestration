@@ -239,7 +239,7 @@ def test_a_withheld_package_names_its_staged_tests_for_the_check_only(tmp_path):
     (tmp_path / "pkg" / "withheld" / "tests" / "test_v.py").write_text("def test_v(): pass\n")
     (tmp_path / "records").mkdir()
     staged = study.stage_withheld(tmp_path / "pkg", tmp_path / "records")
-    assert (study.launch_env(H, 1, staged)["SEED_SET_WITHHELD"], (staged / "tests" / "test_v.py").is_file(),
+    assert (study.launch_env(H, 1, tmp_path / "host-home", withheld=staged)["SEED_SET_WITHHELD"], (staged / "tests" / "test_v.py").is_file(),
             "SEED_SET_WITHHELD" in study.launch_env(H, 1), study.stage_withheld(tmp_path / "in-tree", tmp_path)) == (
         str(tmp_path / "records" / "withheld"), True, False, None)
 

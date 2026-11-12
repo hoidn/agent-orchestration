@@ -47,7 +47,7 @@ from experiments.compare.repos import dump, load, sha256_file
 from experiments.orc_structural_search import metering
 from experiments.seed_set import blinding, gates, host, ladder, readout, rules, selection, spend, units
 from experiments.seed_set.layout import (
-    PLANNED, RETESTS, Study, chosen, load_arms, load_criterion, require_free, require_tasks, study_runs,
+    PLANNED, RETESTS, Study, chosen, load_arms, load_criterion, require_tasks, study_runs,
     task_dir, task_rows, tranche_tasks,
 )
 
@@ -152,7 +152,7 @@ def boundaries(study, cand):
 def one_run(study, tranche, arm, spec, task, fix, limit, **extra):
     """Prepare one run, reserve it (at most `limit` starts of its tranche, task, arm and step), launch it, settle
     it; return (records, the facts in its study.json). `extra` facts (a probe's step and rung) join them."""
-    require_free(study, study.work)
+    rules.require_free(study, study.work)
     env, programs = launch_env(spec["model"], spec["max_calls"]), study.programs
     arm_spec = prepare.ArmSpec(programs / spec["source"], spec["entry"], programs, programs / "providers.json",
                                INPUTS, command_boundaries=programs / "commands.json")
@@ -165,7 +165,7 @@ def one_run(study, tranche, arm, spec, task, fix, limit, **extra):
         raise SystemExit(f"{records}: prepared for {record['claude_model']}, not {spec['model']}; nothing started")
     boundaries(study, Path(record["candidates"][0]))
     env = launch_env(spec["model"], spec["max_calls"], records / "host-home",
-                     stage_withheld(task_dir(study, task), records))
+                     withheld=stage_withheld(task_dir(study, task), records))
     facts = {"tranche": tranche, "task": task, "arm": arm, "model": spec["model"], "effort": spec["effort"],
              "max_calls": spec["max_calls"], **extra}
     dump(records / "study.json", facts)  # before the reservation: every reserved run has its facts file
@@ -266,7 +266,7 @@ def build_pools(study, tranche, kind, tasks):
         out = study.pools / task / kind
         if out.exists() or (study.results / "pools" / f"{task}-{kind}").exists():
             raise SystemExit(f"{out} exists or ended as an incident; a pool is built once")
-        require_free(study, study.pools)
+        rules.require_free(study, study.pools)
         if len(live_pools(study)) >= MAX_POOLS:
             raise SystemExit(f"two pools still hold clones ({live_pools(study)}); summarize one first")
         runs = [path.parent for path in study_runs(study) if (facts := load(path))["task"] == task

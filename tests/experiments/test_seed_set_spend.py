@@ -6,6 +6,7 @@ import json
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 from pathlib import Path
 
@@ -399,7 +400,12 @@ def test_a_run_refuses_to_start_below_the_free_disk_floor(runner):
     full = layout.Study(*[getattr(runner, f) for f in ("runtime", "work", "pools", "results", "tasks_file",
                                                         "criterion", "state")], min_free=10**18)
     with pytest.raises(SystemExit, match="GB free"):
-        layout.require_free(full, full.work)
+        rules.require_free(full, full.work)
+    assert "GB free" in spend.latest(spend.rows(full.ledger), "stop")["reason"]  # review2 minor 5: a recorded stop
+
+
+def test_the_disk_floor_covers_root_and_the_host_checks_temporary_files(runner):
+    assert {Path("/"), Path(tempfile.gettempdir())} <= set(rules.written_filesystems(runner, runner.work))
 
 
 def test_a_third_live_pool_refuses(runner):
@@ -560,3 +566,14 @@ def test_copied_credentials_are_removed_from_a_private_home(tmp_path):  # review
     (home / ".claude" / "projects").mkdir()
     units.forget_credentials(home)
     assert sorted(str(p.relative_to(home)) for p in home.rglob("*")) == [".claude", ".claude/projects", ".codex"]
+
+
+@pytest.mark.parametrize("line, incident", [  # review2 minor 6: the agent's own tool output is not the provider's
+    ({"type": "user", "message": {"content": [{"type": "tool_result", "content": "E   401 Unauthorized: bad oauth"}]}},
+     False),
+    ({"type": "result", "is_error": False, "result": "fixed the quota check"}, False),
+    ({"type": "result", "is_error": True, "result": "API Error: 529 overloaded_error"}, True)])
+def test_only_the_providers_own_error_in_stream_json_stdout_is_an_incident(tmp_path, line, incident):
+    (tmp_path / "calls" / "1").mkdir(parents=True)
+    (tmp_path / "calls" / "1" / "stdout.txt").write_text(json.dumps(line) + "\n")
+    assert (units.provider_incident(tmp_path) is not None) == incident

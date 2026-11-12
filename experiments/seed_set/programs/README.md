@@ -56,6 +56,15 @@ made with the sandbox's copied credential; the model pin and `COMPARE_MAX_CALLS`
   refused, not scrubbed.
 - The check-withheld check on the study's own path was rehearsed only through a single run on a separate ledger,
   and no planned calibration arm runs it.
+- G2 and G3 average over the tasks where both arms have a score, and V4 over the rated candidates; a run that
+  failed or was never pooled is not among the plan's 100 natural candidates (review2 minor 3).
+- A check-withheld run whose patch creates or edits the withheld test's path fails the host visible check (its patch
+  does not apply to the in-tree view); this touches the visible-check figures only (review2 minor 10).
+- A T5 choice is always a stop: T4 and T5 hold 11 tasks together (review2 minor 12).
+- A unit's copied credentials are removed when it ends (settled, refused, or after its judge's launch); a pool
+  whose judges never launched keeps them in `<pool>/.private-homes` until it is deleted (review2 minor 7).
+- A runner that dies between launch and settle leaves the agents' tree on disk until `settle` (a calibration
+  run) or the next `probe` (a probe run) settles it (review2 minor 9).
 
 **Check-withheld runs.** For a package with `withheld/`, the runner copies those test files into the run's records
 directory (outside the agents' tree and the sandbox) and names the copy in `SEED_SET_WITHHELD` for the launch;
