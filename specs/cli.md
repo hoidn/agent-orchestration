@@ -425,8 +425,10 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   resume  <launcher> resume <run id> [--state-dir DIR]
   ```
 
-  `<launcher>` is `orchestrator`, or `python -m orchestrator` when the
-  program was started as a module. All of these lines go to stderr. The
+  `<launcher>` is `orchestrator`, or `<interpreter> -m orchestrator` when
+  the program was started as a module, where `<interpreter>` is the path of
+  the running Python interpreter, quoted for the shell. All of these lines go
+  to stderr. The
   `run` line comes first, once the run root exists; `resume` prints it before
   its first new effect row or failure, so a preflight refusal's `[code]` line
   stays first. `start` and `commit` follow the journal; effects reused from
