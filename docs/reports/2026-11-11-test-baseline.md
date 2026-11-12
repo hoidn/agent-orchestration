@@ -47,6 +47,7 @@ final run.
 - `tests/test_provider_materialization_protocol.py::test_request_worker_start_failure_closes_connection_and_cleans_sets` (baseline 2)
 - `tests/test_workflow_evaluated_run_ref_kills.py::test_kill_at_parent_settlement_gap_recovers[memo-before-finalize-evaluated]` (baseline 2; its marker wait has a 15-second deadline in `tests/workflow_evaluated_run_ref_helpers.py`)
 - `tests/experiments/test_native_session_cli_probe.py::test_short_overlap_timeout_bounds_both_concurrent_model_calls[delayed-marker-hang]` (baseline 2; the module has since been removed)
+- `tests/test_workflow_evaluated_resume_retry.py::test_pending_provider_required_dependency_c6_refuses_before_executor_then_retries[missing]` (failed once in a sampled run on `main` at load average about 20; passed three times alone)
 - Nine kill-and-deadline tests in `tests/test_provider_interactive_terminal_recovery.py` failed once when run alone at load average about 60; they passed in every full run.
 
 **Gate for later phases:** no test outside the four worktree-artifact ids
