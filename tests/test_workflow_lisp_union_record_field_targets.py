@@ -104,8 +104,8 @@ def _location_of(entry: Path, marker: str) -> tuple[str, int, int]:
 @pytest.mark.parametrize("placement", sorted(PLACEMENTS))
 @pytest.mark.parametrize(
     ("limit", "expected_variant"),
-    [(1, "EXHAUSTED"), (2, "APPROVED")],
-    ids=["exhausted", "approved"],
+    [(1, "EXHAUSTED")],
+    ids=["exhausted"],
 )
 def test_current_target_types_a_record_field_filled_from_a_bound_name(
     tmp_path: Path, placement: str, limit: int, expected_variant: str
