@@ -1,7 +1,7 @@
 """Journal-only agent guards for the pure memo reducer (R1).
 
 Each function reads the reducer's in-memory state (`active`, `entries`,
-`site_class`) and raises through `reducer.inconsistent`; none reads a receipt
+`class_at`) and raises through `reducer.inconsistent`; none reads a receipt
 or touches the filesystem. Receipt-based guards live in the write preflight and
 the resume-time prefix validation.
 """
@@ -41,13 +41,17 @@ def check_committed_proof(reducer, row: dict[str, Any], identity: str) -> None:
 
 
 def check_invalidation_cut(reducer, anchor: int) -> None:
-    """Refuse a cut over an `agent_turn` attempt that is pending or failed after dispatch."""
+    """Refuse a cut over an `agent_turn` attempt that is pending or failed after dispatch.
+
+    Each row is classified by the program that wrote it (`class_at`), so an attempt keeps its class across a
+    `rebased` record even where the next program gives its identity another class.
+    """
     pending: set[tuple[str, int]] = set()
     for entry in reducer.entries:
         row = entry.data
         if entry.offset < anchor or row["record"] not in {"started", "committed", "failed"}:
             continue
-        if reducer.site_class(row["identity"]) != "agent_turn":
+        if reducer.class_at(entry.offset, row["identity"]) != "agent_turn":
             continue
         key = (row["identity"], row["attempt"])
         if row["record"] == "started":

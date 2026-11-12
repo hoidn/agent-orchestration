@@ -31,7 +31,7 @@ def checked_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, 
     """The complete read-only reached-prefix preflight for resume and host settlement."""
     snapshot = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
     prefix = discover_prefix(authority, snapshot, inputs=inputs, run_id=run_id, provider_io=provider_io)
-    _validate_discovered_prefix(authority, prefix, snapshot, workspace, site_classes, defer_parallel_fault=True, confined=confined)
+    _validate_discovered_prefix(authority, prefix, snapshot, workspace, defer_parallel_fault=True, confined=confined)
     from .parallel import has_parallel
     if has_parallel(authority.program):
         from .run_ref import inventory_parallel_run_ref_recovery
@@ -45,17 +45,17 @@ def _replay_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, 
     snapshot, prefix = checked_resume_prefix(authority, inputs, run_id=run_id, workspace=workspace,
         provider_io=provider_io, site_classes=site_classes, confined=confined)
     if authority.accept_changes:
-        _require_changes_to_accept(snapshot, prefix, site_classes, workspace)
+        _require_changes_to_accept(snapshot, prefix, workspace)
     commits = sorted(snapshot.active_commits.values(), key=lambda entry: entry.offset)
     return snapshot, commits, len(prefix.commits), prefix.value, not prefix.halted
 
 
-def _require_changes_to_accept(snapshot, prefix, site_classes, workspace) -> None:
+def _require_changes_to_accept(snapshot, prefix, workspace) -> None:
     """The flag needs an unproven command attempt whose declared files differ from its `started` evidence, or one
     preflight does not reach yet (it runs after other steps, as after an `invalidate`): those cannot be rehashed
     before they run, so they count, and are printed now as the flag accepts them unseen."""
     reached = {item.identity: item for item in prefix.frontiers}
-    unproven = unproven_command_retries(snapshot, site_classes)
+    unproven = unproven_command_retries(snapshot)
     unreached = [identity for identity in unproven if identity not in reached]
     if unreached:
         logger.warning("[accept_changes_unreached] --accept-changes also accepts steps resume reaches later, "
@@ -83,7 +83,7 @@ def _prepare_parallel_recovery(authority, inputs, run_id, workspace, provider_io
     if not snapshot.entries:
         return frozenset()
     prefix = discover_prefix(authority, snapshot, inputs=inputs, run_id=run_id, provider_io=provider_io)
-    _validate_discovered_prefix(authority, prefix, snapshot, workspace, site_classes, defer_parallel_fault=True, confined=confined)
+    _validate_discovered_prefix(authority, prefix, snapshot, workspace, defer_parallel_fault=True, confined=confined)
     run_ref_obligations = []
     for reached in prefix.commits:
         if reached.node['class'] == 'run_ref' and (reached.identity, reached.commit.data['attempt']) not in snapshot.settlements:
@@ -96,15 +96,12 @@ def _prepare_parallel_recovery(authority, inputs, run_id, workspace, provider_io
     return frozenset(reached.identity for reached in prefix.frontiers)
 
 
-def _validate_discovered_prefix(authority, prefix, snapshot, workspace, site_classes=None, *, defer_parallel_fault=False, confined=None, proof_only=False):
+def _validate_discovered_prefix(authority, prefix, snapshot, workspace, *, defer_parallel_fault=False, confined=None, proof_only=False):
     for reached in sorted(prefix.commits, key=lambda reached: reached.commit.offset):
         effect_inputs._replay_committed_effect(authority, reached.node, reached.operands,
             reached.identity, reached.reader, reached.commit, workspace, snapshot, reached.owner,
             launch_workspace=reached.launch_workspace, confined=confined)
-    if site_classes is None:
-        from .machine import site_classes as program_site_classes
-        site_classes = program_site_classes(authority.program)
-    agent_guards.validate_prefix_receipts(authority, snapshot, site_classes)
+    agent_guards.validate_prefix_receipts(authority, snapshot)
     if proof_only:
         return
     frontiers = frozenset(reached.identity for reached in prefix.frontiers)

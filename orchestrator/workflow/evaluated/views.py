@@ -17,7 +17,7 @@ from orchestrator.workflow.evaluated.authority import (
     load_run_authority_from_bytes, _require_retained_root,
 )
 from orchestrator.workflow.evaluated.machine import evaluate_closed_program, site_classes
-from orchestrator.workflow.evaluated.memo import MemoError, _DYNAMIC_INDEX, reduce_memo
+from orchestrator.workflow.evaluated.memo import MemoError, earlier_tables, reduce_memo
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from .replay import MissingCommit as _MissingCommit, discover_prefix
@@ -111,7 +111,8 @@ def publish_evaluated_view(authority, entry, *, start_reached=False):
     """
     try:
         files = authority.run_files
-        snapshot = reduce_memo(files.read(MEMO_FILENAME)[:entry.end], site_classes(authority.program))
+        snapshot = reduce_memo(files.read(MEMO_FILENAME)[:entry.end], site_classes(authority.program),
+                               earlier_tables(authority))
         if snapshot.complete_bytes != entry.end or snapshot.entries[-1] != entry:
             raise MemoError("memo_inconsistent", "published prefix differs from synchronized append")
         reached = start_reached and entry.data["record"] == "started"
@@ -130,10 +131,11 @@ def load_evaluated_view(run_root: Path, *, run_files: WorkspaceFiles | None = No
     root = Path(os.path.abspath(os.fspath(run_root)))
     files = run_files if run_files is not None else WorkspaceFiles(root)
     try:
-        authority = load_run_authority_from_bytes(
-            root, header_bytes=files.read(HEADER_FILENAME), program_bytes=files.read(PROGRAM_FILENAME),
-        )
-        snapshot = reduce_memo(files.read(MEMO_FILENAME), site_classes(authority.program))
+        # One capture of the three files, in this order; the artifacts its records name are read after it.
+        header, program, memo = files.read(HEADER_FILENAME), files.read(PROGRAM_FILENAME), files.read(MEMO_FILENAME)
+        authority = load_run_authority_from_bytes(root, header_bytes=header, program_bytes=program,
+                                                  memo_bytes=memo, read_artifact=files.read)
+        snapshot = reduce_memo(memo, site_classes(authority.program), earlier_tables(authority))
         value, next_effect, halted = _replay(authority, snapshot)
         terminal = _checked_terminal(snapshot, value, halted)
         active = run_writer_active(root, root_fd=files.root_fd)
@@ -156,7 +158,7 @@ def _view(authority, snapshot, terminal, next_effect, halted, active):
     times = [entry.data["time"] for entry in snapshot.entries if "time" in entry.data]
     view.update(updated_at=_timestamp(times[-1]) if times else header["started_at"],
                 status=_status(snapshot, halted, active), memo_offset=snapshot.complete_bytes,
-                steps=_effect_rows(snapshot, site_classes(authority.program)), next_effect=next_effect)
+                steps=_effect_rows(snapshot), next_effect=next_effect)
     in_flight = [*snapshot.pending_starts.values(), *snapshot.unsettled_coordinators.values()]
     view["current_step"] = None
     if in_flight:
@@ -183,11 +185,11 @@ def _view(authority, snapshot, terminal, next_effect, halted, active):
     return view
 
 
-def _effect_rows(snapshot, classes):
+def _effect_rows(snapshot):
     rows = {}
     for identity, start in snapshot.latest_starts.items():
         row = start.data
-        kind = classes.get(identity) or classes[_DYNAMIC_INDEX.sub("[*]", identity)]
+        kind = snapshot.lineage.class_at(start.offset, identity)     # by the program that wrote the latest start
         rows[identity] = {"name": identity, "identity": identity, "status": "running", "effect_class": kind,
                           "attempt": row["attempt"], "result_path": row["result_path"],
                           "started_at": _timestamp(row["time"])}

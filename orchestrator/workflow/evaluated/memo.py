@@ -25,6 +25,7 @@ from .memo_reducer import (
     is_coordinator_class,
     reduce_memo,
 )
+from .memo_reducer_lineage import lineage_digests, rebased_records, verified_program
 
 
 def _read_bytes(path: Path, run_files: WorkspaceFiles | None = None) -> bytes:
@@ -50,8 +51,51 @@ def _read_bytes(path: Path, run_files: WorkspaceFiles | None = None) -> bytes:
 
 
 def read_memo(path: Path, site_classes: Mapping[str, str], *, run_files: WorkspaceFiles | None = None) -> MemoSnapshot:
-    """Read a journal snapshot without locking, repairing, or reconciling it."""
-    return reduce_memo(_read_bytes(Path(path), run_files), site_classes)
+    """Read a journal snapshot without locking, repairing, or reconciling it.
+
+    `site_classes` is the current program's table. A journal with `rebased` records is reduced with the tables of
+    the earlier programs too, each from the artifact beside the journal, verified to its name (C10).
+    """
+    path = Path(path)
+    raw = _read_bytes(path, run_files)
+    records = rebased_records(raw)
+    if not records:
+        return reduce_memo(raw, site_classes)
+    return reduce_memo(raw, site_classes, _lineage_tables(path.parent, records, site_classes, run_files))
+
+
+# A program's site table is a pure function of its verified digest. Each run root verifies its own copy once per
+# process (key: run root, digest), so a second run root in the same process (the REPL) never borrows another's
+# check. Process state like `memo_reducer._LAST`: tests reset both (tests/memo_fold_guard.py).
+_TABLES: dict[tuple[str, str], dict[str, str]] = {}
+
+
+def _site_table(root: Path, digest: str, load) -> dict[str, str]:
+    key = (os.fspath(root), digest)
+    if key not in _TABLES:
+        from .machine import site_classes
+        _TABLES[key] = site_classes(load())
+    return _TABLES[key]
+
+
+def _lineage_tables(root: Path, records, site_classes, run_files) -> tuple[dict[str, str], ...]:
+    """The earlier programs' tables; the last record must name the caller's program (compared by table)."""
+    from .authority import PROGRAM_FILENAME, load_run_header
+
+    header_digest = load_run_header(root, run_files=run_files)["program_digest"]
+    digests = lineage_digests(header_digest, [digest for _offset, digest in records])
+    read = lambda name: _read_bytes(root / name, run_files)  # noqa: E731
+    first = lambda: verified_program(read, header_digest, PROGRAM_FILENAME)  # noqa: E731
+    tables = [_site_table(root, digests[0], first),
+              *(_site_table(root, digest, lambda d=digest: verified_program(read, d)) for digest in digests[1:])]
+    if tables[-1] != dict(site_classes):
+        raise _inconsistent("journal's rebased records do not end at the caller's program")
+    return tuple(tables[:-1])
+
+
+def earlier_tables(authority) -> tuple[dict[str, str], ...]:
+    """Site tables of a checked authority's earlier programs, for a direct reduction of bytes it captured."""
+    return tuple(_site_table(authority.run_root, program.digest, lambda p=program: p) for program, _end in authority.earlier)
 
 
 @contextmanager
@@ -194,7 +238,7 @@ def invalidate_suffix(path: Path, identity: str, site_classes: Mapping[str, str]
         from .run_ref import guard_confined_invalidation
         guard_confined_invalidation(checked_authority, snapshot, chosen.offset)
     from .agent_guards import check_invalidation_suffix
-    check_invalidation_suffix(snapshot, chosen, run_files, site_classes)     # receipt-aware agent history, before any write
+    check_invalidation_suffix(snapshot, chosen, run_files)     # receipt-aware agent history, before any write
     if snapshot.tail:
         repair_torn_tail(path, snapshot, run_files=run_files)
     row = {"record": "invalidated", "from_commit": chosen.offset, "time": time.time()}

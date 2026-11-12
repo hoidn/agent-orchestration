@@ -12,7 +12,6 @@ from typing import Any
 from orchestrator.workflow.evaluated.attempt_processes import run_process_alive
 from orchestrator.workflow.evaluated.closure import resolve_command_evidence
 from orchestrator.workflow.evaluated.memo import (
-    _DYNAMIC_INDEX,
     JournalEntry,
     MemoError,
     MemoSnapshot,
@@ -119,12 +118,12 @@ def retry_change_admitted(snapshot: MemoSnapshot | None, baseline: JournalEntry,
     return accept_changes or (snapshot is not None and proven_unchanged(snapshot, baseline))
 
 
-def unproven_command_retries(snapshot: MemoSnapshot, site_classes: Mapping[str, str]) -> list[str]:
-    """Uncommitted host commands with a retry baseline that no clean failure covers: what the flag accepts."""
-    def is_command(identity):
-        return (site_classes.get(identity) or site_classes.get(_DYNAMIC_INDEX.sub("[*]", identity))) == "command"
+def unproven_command_retries(snapshot: MemoSnapshot) -> list[str]:
+    """Uncommitted host commands with a retry baseline that no clean failure covers: what the flag accepts.
+
+    A start is a command by the program that wrote it (`snapshot.lineage`)."""
     return [identity for identity, start in snapshot.latest_starts.items()
-            if identity not in snapshot.active_commits and is_command(identity)
+            if identity not in snapshot.active_commits and snapshot.lineage.class_at(start.offset, identity) == "command"
             and _retry_baseline(snapshot, identity, start) is not None and not proven_unchanged(snapshot, start)]
 
 
@@ -165,8 +164,8 @@ def _retry_baseline(
     identity: str,
     latest_start: JournalEntry | None,
 ) -> JournalEntry | None:
-    if latest_start is None:
-        return None
+    if latest_start is None or not snapshot.lineage.keeps_class(latest_start.offset, identity):
+        return None     # an attempt of another class, by the program that wrote it, is no baseline (C10)
     row = latest_start.data
     commit = next(
         (
@@ -178,11 +177,15 @@ def _retry_baseline(
         ),
         None,
     )
-    if commit is not None and any(
-        entry.offset > commit.offset
-        and entry.data.get("record") == "invalidated"
-        and entry.data.get("from_commit", commit.offset + 1) <= commit.offset
-        for entry in snapshot.entries
-    ):
+    if commit is not None and cancelled(snapshot, commit):
         return None
     return latest_start
+
+
+_CUT_FIELDS = {"invalidated": "from_commit", "rebased": "from_offset"}
+
+
+def cancelled(snapshot: MemoSnapshot, commit: JournalEntry) -> bool:
+    """Whether a later `invalidated` range or `rebased` cut covers `commit` (C8, C10)."""
+    return any(entry.offset > commit.offset and (cut := entry.data.get(_CUT_FIELDS.get(entry.data["record"]))) is not None
+               and cut <= commit.offset for entry in snapshot.entries)

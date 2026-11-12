@@ -294,4 +294,4 @@ def test_resume_never_consults_the_receipt_of_a_failed_attempt_with_a_non_dispat
     from orchestrator.workflow.evaluated.memo import read_memo
     from tests.test_workflow_evaluated_memo_agent_classes import SITES
     _raw, _anchor, files, _line = _journal_with_failed_turn(tmp_path, b"{not json")
-    validate_prefix_receipts(SimpleNamespace(run_files=files), read_memo(tmp_path / "memo.jsonl", SITES), SITES)
+    validate_prefix_receipts(SimpleNamespace(run_files=files), read_memo(tmp_path / "memo.jsonl", SITES))
