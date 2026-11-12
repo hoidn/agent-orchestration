@@ -510,8 +510,9 @@ is manual. Phase plans are linked here as they start:
 - Lane D, old IR stack, done: [stage 3 plan](2026-11-12-lane-d-stage-3-old-ir-stack-plan.md).
   The old stack's modules are gone and nothing imports them (code kept at the local tag
   `archive/old-ir-stack-2026-11-12`); a small leftovers list remains in the plan's ledger.
-- Lane D, one target, planned: [stage 4 plan](2026-11-12-lane-d-stage-4-one-target-plan.md),
-  written and under review; not accepted yet.
+- Lane D, one target, in execution: [stage 4 plan](2026-11-12-lane-d-stage-4-one-target-plan.md),
+  accepted. Target 2.40 survives; after the cut a run recorded at an older target is read-only
+  (`report`, dashboard and monitor read it; continuing it needs the tagged release).
 - Lane D, surface coherence: design in progress (stage 5).
 - Side work, done: run and resume cost. A run re-read the whole memo and replayed the whole program
   after every record; memo reduction now continues from the last fold, a start the evaluator has
