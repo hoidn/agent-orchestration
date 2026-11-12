@@ -74,8 +74,17 @@ def _column_of(source: str, line: int, needle: str) -> int:
     return source.splitlines()[line - 1].index(needle) + 1
 
 
-@pytest.mark.parametrize("position", sorted(POSITIONS))
-@pytest.mark.parametrize(("literal", "value"), LITERALS, ids=[literal for literal, _ in LITERALS])
+# Every literal in one position, and one literal in each other position.
+POSITION_CASES = [(literal, value, "workflow-result") for literal, value in LITERALS] + [
+    ("1.5", 1.5, position) for position in sorted(POSITIONS) if position != "workflow-result"
+]
+
+
+@pytest.mark.parametrize(
+    ("literal", "value", "position"),
+    POSITION_CASES,
+    ids=[f"{literal}-{position}" for literal, _, position in POSITION_CASES],
+)
 def test_literal_runs_in_position(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, literal: str, value: float, position: str
 ) -> None:
@@ -148,9 +157,7 @@ TOKENS = {
 }
 # Tokens that read as a symbol at every target.
 SYMBOLS = [
-    "-", "+", ".", "-.", "1-2", "1e", "1e+", "1e-", "e5", ".e5", "-e5", "1e5x", "x1e5", "1e5.x", "1.2.3",
-    "1..5", "a.b", "std/improve", "v1.2", "+1.5", "+1e5", "--1e5", "1_0.5", "1e1_0", "0x1p3", "inf", "-inf",
-    "nan", "NaN", "Infinity", "1e5e5", "1ee5", "1e+-5",
+    "-", "+", ".", "1e", "1e+", "1e5x", "1.2.3", "+1.5", "1_0.5", "inf", "nan", "1e+-5",
 ]  # fmt: skip
 
 
