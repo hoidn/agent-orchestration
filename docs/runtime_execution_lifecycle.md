@@ -167,6 +167,83 @@ dependence or bypasses C4; a suffix containing a committed coordinator is
 refused whole; a chosen identity without an active commit refuses
 `invalidate_not_committed`.
 
+### Edit a prompt and continue
+
+You can change a provider step's prompt in the middle of a run and continue
+the same run, as long as the prompt lives in its own file. Bind each prompt
+to a file in the prompt manifest, `prompts.json`:
+
+```json
+{"prompts.one": {"asset_file": "one.md"},
+ "prompts.two": {"asset_file": "two.md"},
+ "prompts.three": {"asset_file": "three.md"}}
+```
+
+and refer to it from the step with `:prompt prompts.two`. A prompt written
+inline in the source, as a `defprompt` string, is part of the program:
+editing it makes `resume` refuse with `resume_program_changed`, and short of
+reverting the edit the only way forward is a new `run`.
+
+The examples below are illustrative: a workflow `main.orc` whose three
+provider steps, in a `let*`, use those three prompts through the provider
+`providers.review`, bound in the provider manifest `providers.json`:
+
+```json
+{"providers.review": "codex"}
+```
+
+The run command is:
+
+```bash
+orchestrator run main.orc --provider-externs-file providers.json \
+  --prompt-externs-file prompts.json --input message=hi
+```
+
+`orchestrator report` shows the run id (`run_id`), the status, the step that
+failed and, under "Steps", every step's identity, such as
+`workflow:main::run / two`.
+
+**The step failed, or has not run yet.** Edit its prompt file and resume.
+The step runs again as a new attempt with the new prompt; steps that already
+committed are reused, not run again.
+
+```bash
+orchestrator resume 20261112T035933Z-d60jut
+# [effect_rerun] workflow:main::run / two attempts=[1]
+```
+
+**The step already committed.** Editing its prompt file makes `resume`
+refuse, exit 2, without running anything:
+
+```text
+[effect_input_diverged] workflow:main::run / two: effect input diverged
+(input parts changed: ['prompt', 'source:asset_file:two.md']; ...)
+```
+
+Tell the run to forget that step's result with `invalidate`, quoting the
+identity from the refusal, then resume:
+
+```bash
+orchestrator invalidate 20261112T035933Z-d60jut 'workflow:main::run / two'
+orchestrator resume 20261112T035933Z-d60jut
+```
+
+The resume runs that step and every step after it again, with their current
+prompt files, and reuses the steps before it. To undo the edit instead,
+restore the file's old contents and resume.
+
+**Limits.**
+
+- `invalidate` does not roll back files in the workspace. Anything the
+  cancelled steps wrote stays until the steps run again and overwrite it.
+- If a step after the edited one is a committed agent turn or run reference,
+  `invalidate` refuses (`invalidate_coordinator_committed`); start a new run.
+
+[`tests/test_workflow_evaluated_prompt_edit_continue.py`](../tests/test_workflow_evaluated_prompt_edit_continue.py)
+pins the failed, not-yet-run, committed-then-invalidate, restore and inline
+cases above; the `invalidate_coordinator_committed` limit is pinned for agent turns by
+[`tests/test_workflow_evaluated_agent_invalidate.py`](../tests/test_workflow_evaluated_agent_invalidate.py).
+
 ### Readers
 
 `report`, the dashboard scanner, the monitor classifier and scanner, the
