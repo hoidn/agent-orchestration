@@ -53,9 +53,10 @@ def _principal(value):
     return value
 
 
-def _request_id(authority, identity, attempt):
-    return canonical_sha256(dict(schema_version=1, run_id=authority.header['run_id'],
-        header_digest=canonical_sha256(authority.header), program_digest=authority.program.digest,
+def _request_id(header, program_digest, identity, attempt):
+    """`program_digest`: the program in force when the request started (C10), checked against that program."""
+    return canonical_sha256(dict(schema_version=1, run_id=header['run_id'],
+        header_digest=canonical_sha256(header), program_digest=program_digest,
         identity=identity, attempt=attempt))
 
 
@@ -160,7 +161,8 @@ def validate_checked_request(authority, node, started, commit=None, *, operands=
     request = validate_request_start_binding(started.data)
     _require(node['class'] == 'request_input' and request['answer_contract'] == node['answer']
         and request['reply_contract'] == node['result'], 'request contracts differ from checked node')
-    _require(request['request_id'] == _request_id(authority, started.data['identity'], started.data['attempt']), 'request identity differs from checked run')
+    _require(request['request_id'] == _request_id(authority.header, authority.program_at(started.offset).digest,
+        started.data['identity'], started.data['attempt']), 'request identity differs from checked run')
     _require(request['created_at'] == started.data['time'], 'request creation differs from start')
     if operands is not None:
         from .effect_inputs import effect_dependencies
@@ -306,7 +308,7 @@ def execute_request(authority, node, operands, identity, *, workspace, workspace
         if not _finite_time(now) or deadline is not None and not _finite_time(deadline):
             raise HostInputError('host_input_invalid_timeout', 'deadline is not finite')
         show = [{**row, 'sha256': _observe_show(workspace_files, row, initial=True)['sha256']} for row in resolved.show]
-        request = dict(schema_version=1, request_id=_request_id(authority, identity, ordinal),
+        request = dict(schema_version=1, request_id=_request_id(authority.header, authority.program.digest, identity, ordinal),
             question=resolved.question, question_digest=parts['question'], answer_contract=node['answer'],
             answer_contract_digest=parts['answer_contract'], reply_contract=node['result'], reply_contract_digest=parts['reply_contract'],
             show=show, created_at=now, deadline=deadline, timeout_sec=resolved.timeout_sec, depends_on=dependencies)
