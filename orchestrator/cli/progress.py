@@ -15,6 +15,7 @@ import errno
 import io
 import json
 import os
+import shlex
 import sys
 from collections.abc import Iterable, Mapping
 from pathlib import Path
@@ -27,8 +28,10 @@ _STDERR_TAIL_BYTES = 64 * 1024
 
 
 def launcher() -> str:
-    """The command prefix that reruns this program: the installed script or the module form."""
-    return "python -m orchestrator" if Path(sys.argv[0]).name == "__main__.py" else "orchestrator"
+    """The command prefix that reruns this program: the installed script, or this interpreter's module form."""
+    if Path(sys.argv[0]).name != "__main__.py":
+        return "orchestrator"
+    return f"{shlex.quote(sys.executable) if sys.executable else 'python'} -m orchestrator"
 
 
 class _LineEndTracker(io.RawIOBase):

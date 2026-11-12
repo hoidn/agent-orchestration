@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shlex
+import sys
 
 import pytest
 
@@ -16,7 +18,7 @@ from tests.test_cli_run_output import (
 def commands(stderr: str) -> list[str]:
     """The recovery commands: lines indented by the command indent."""
     return [line.strip() for line in stderr.splitlines()
-            if line.startswith(COMMAND_INDENT + "python -m orchestrator ")]
+            if line.startswith(COMMAND_INDENT + shlex.quote(sys.executable) + " -m orchestrator ")]
 
 
 def run_id_of(stderr: str) -> str:
