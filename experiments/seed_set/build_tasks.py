@@ -1,46 +1,34 @@
 """Build the seed-set task packages (plan `docs/plans/2026-11-11-seed-set-calibration-plan.md`, Step 1b).
 
-Mechanical, provider-free pipeline from this repository's own history:
+Provider-free, mechanical, from this repository's history. Rules, in order:
+1. Mine (`mine`): non-merge commits reachable from `TIP`, author and committer dates >= `FLOOR`, no revert
+   (made or suffered), fix-worded (`FIX_WORDS`; dropped once if under 20 are admitted), a changed
+   `tests/**/test_*.py`, no deletion under `tests/`, 1-5 files and <= 200 lines under `orchestrator/`, one
+   commit per `git patch-id --stable` (oldest kept), a parent ignoring `.orchestrate/`; ordered by `rank`.
+2. Screen (`evaluate`): the fix's touched test files once on the parent (fix tests overlaid) and once on the
+   fix, in `git archive` trees. Fail-to-pass: a function new in the fix, all instances passing or skipping
+   (one passing) on the fix, some instance failing or uncollected on the parent. >= 2 needed; the first by
+   `rank(node id)` is visible, the rest hidden.
+3. Package (`write_package`, the layout of `experiments/compare/README.md`): `seed/` = the fix's `tests/`
+   files minus hidden functions (`ast` line ranges) plus `dev-check.json`; `hidden/` = the fix's versions;
+   `hidden_tests.txt` = hidden functions and touched test files; empty `anchors/<id>-base.diff`;
+   `anchors/<id>-upstream.diff` = the fix without `tests/`; `intent.txt` = subject and body without
+   `Co-Authored-By`/`Signed-off-by`; `task.txt` adds the visible check and the hands-off rule.
+4. Leaks: a hidden name (whole word) in the statement or the seeded tree, a statement under 80 characters,
+   or one repeating a 20+ character line the fix adds outside `tests/`.
+5. Provider guard: fresh no-provider stubs first on `PATH` for every run; any logged line rejects the
+   candidate ("tests attempt a provider call", argv in `note`).
+6. Oracle (`oracle`), on `repos.build_candidate` and `summarize.hidden_failures`, `RUNS` times per side:
+   base fails the visible check and every hidden function; with the upstream anchor applied the visible
+   check passes and no hidden node fails, each hidden evaluation under `HIDDEN_LIMIT_SEC`. First deviation
+   rejects (no retries); `--prior` rejects an outcome that differs from an earlier build's `rows.jsonl`.
+7. Admit (`admit`), rank order: skip one whose `orchestrator/` file two admitted tasks already change; stop
+   at `MAX_TASKS`; the first `DRAWN` are drawn, the rest reserve.
 
-1. *Mine* (`mine`): non-merge commits reachable from `TIP`, author and committer date on or after
-   `FLOOR`, not a revert and not reverted, fix-worded (`FIX_WORDS`, subject or body; dropped once when
-   under 20 tasks are admitted), changing at least one `tests/**/test_*.py`, deleting nothing under
-   `tests/`, changing 1-5 files and at most 200 lines under `orchestrator/`, one commit per
-   `git patch-id --stable` (the oldest kept), first parent ignoring `.orchestrate/`. Candidates are
-   ordered by `rank(sha)` = sha256("seed-set-2026-11-11|" + sha).
-2. *Screen* (`evaluate`): run the fix's touched test files once on the parent (with the fix's tests
-   overlaid) and once on the fix, in `git archive` trees (no `.git`, as hidden scoring runs). A
-   fail-to-pass group is a test function new in the fix whose instances all pass (or skip, at least one
-   passing) on the fix while some instance fails, errors or is not collected on the parent. Two or more
-   groups are needed; the first by `rank(node id)` is the visible check, the rest are hidden.
-3. *Package* (`write_package`, harness layout of `experiments/compare/README.md`): `seed/` holds every
-   file the fix changes under `tests/`, with the hidden functions deleted by `ast` line range, plus
-   `dev-check.json`; `hidden/` holds the fix's versions of those files; `hidden_tests.txt` lists each
-   hidden function and each touched test file; `anchors/<id>-base.diff` is empty and
-   `anchors/<id>-upstream.diff` is the fix without `tests/`; `intent.txt` is the commit subject and body
-   without `Co-Authored-By`/`Signed-off-by` trailers; `task.txt` adds the visible check and the rule to
-   leave `dev-check.json` and existing tests alone.
-4. *Leaks*: rejected when a hidden function name occurs (whole word) in the statement or anywhere in
-   the seeded tree, the statement is under 80 characters, or it repeats a line of 20+ characters the fix
-   adds outside `tests/`.
-5. *Provider guard*: every screening and oracle run of a candidate has a fresh copy of the no-provider
-   stubs first on `PATH`; any line they log rejects the candidate ("tests attempt a provider call", argv
-   in `note`), because hidden tests later run on hosts where the real CLIs are on `PATH`.
-6. *Oracle* (`oracle`): on the harness's own seeded candidate (`repos.build_candidate`) and through the
-   harness's hidden scorer (`summarize.hidden_failures`), `RUNS` times each: the visible check fails and
-   every hidden function fails on the seeded base; after `git apply` of the upstream anchor the visible
-   check passes and no hidden node fails, each hidden evaluation under `HIDDEN_LIMIT_SEC`. The first
-   deviation rejects the task (no retries).
-7. *Admit* (`admit`), in rank order: skip a passing task whose `orchestrator/` file is already changed
-   by two admitted tasks; stop at `MAX_TASKS`. The first `DRAWN` are drawn, the rest reserve.
-
-Outputs: `tasks/<id>/` per admitted task; `tasks.jsonl` (rank order; deterministic, with each package's
-sha256); `screening.jsonl` (every commit considered, its stage and reason, and wall times). `verify`
-recomputes the package hashes. `--prior` compares outcomes with an earlier build's `rows.jsonl`: a
-candidate that passed in one and failed in the other is rejected as flaky. Depends on: git, the harness modules `experiments.compare.repos` and
-`experiments.compare.summarize`, pytest in `sys.executable`, and the no-provider guard
-(`experiments/thread_m/no_provider/`) first on `PATH` (checked). Work trees live under `--work` and are
-deleted after each evaluation; the run stops when `/` or `/home` has under 20 GB free.
+Outputs: `tasks/<id>/`; `tasks.jsonl` (deterministic, package sha256s; `verify` rechecks them);
+`screening.jsonl` (every commit, its reason, wall times). Depends on git, `experiments.compare.repos` and
+`.summarize`, pytest in `sys.executable`, the guard first on `PATH` (checked). Work trees under `--work` are
+deleted after each evaluation; the run stops under 20 GB free on `/` or `/home`.
 """
 
 import argparse
@@ -102,7 +90,7 @@ def mine(repo=ROOT, tip=TIP, fix_wording=True):
             pid = patch_id(repo, sha)
             reason = f"same patch-id as {seen_patch[pid][:10]}" if pid in seen_patch else None
             seen_patch.setdefault(pid, sha)
-        if not reason and ".orchestrate" not in gitignore(repo, parents.split()[0]):
+        if not reason and ".orchestrate" not in show(repo, f"{parents.split()[0]}:.gitignore"):
             reason = "base does not ignore .orchestrate/"
         if reason:
             rejects.append({"commit": sha, "stage": "mine", "reason": reason})
@@ -142,11 +130,6 @@ def patch_id(repo, sha):
     out = subprocess.run(["git", "-C", str(repo), "patch-id", "--stable"], input=diff,
                          capture_output=True, check=True).stdout.decode().split()
     return out[0] if out else f"empty:{sha}"
-
-
-def gitignore(repo, commit):
-    done = subprocess.run(["git", "-C", str(repo), "show", f"{commit}:.gitignore"], capture_output=True, text=True)
-    return done.stdout if done.returncode == 0 else ""
 
 
 def statement(message):
@@ -438,13 +421,12 @@ def evaluate_all(cands, rows, work, workers, runs):
     with ProcessPoolExecutor(max_workers=workers) as pool:
         for cand, row in zip(todo, pool.map(evaluate, todo, [work] * len(todo), [runs] * len(todo))):
             rows[cand["commit"]] = row
-            if not row.get("stop"):
-                with log.open("a") as handle:
-                    handle.write(json.dumps(row, sort_keys=True) + "\n")
             print(f"{cand['commit'][:10]} {row.get('reason') or 'PASS'} {row.get('times', {})}", flush=True)
             if row.get("stop"):
                 pool.shutdown(cancel_futures=True)
                 raise SystemExit("stopped: under 20 GB free on / or /home")
+            with log.open("a") as handle:
+                handle.write(json.dumps(row, sort_keys=True) + "\n")
 
 
 def disagree(rows, prior):
@@ -463,17 +445,14 @@ def build(work, workers, runs, out=HERE, repo=ROOT, tip=TIP, prior=()):
     if not os.environ.get("PATH", "").startswith(str(GUARD)):
         raise SystemExit(f"put {GUARD} first on PATH")
     earlier = {r["commit"]: r for path in prior for r in map(json.loads, Path(path).read_text().splitlines())}
-    cands, mined = mine(repo, tip)
-    rows, widened = {}, False
-    evaluate_all(cands, rows, work, workers, runs)
-    disagree(rows, earlier)
-    admitted, skipped = admit(cands, rows)
-    if len(admitted) < DRAWN:
-        widened = True
-        cands, mined = mine(repo, tip, fix_wording=False)
+    rows = {}
+    for widened in (False, True):  # the fix-wording filter is dropped once, when under DRAWN are admitted
+        cands, mined = mine(repo, tip, fix_wording=not widened)
         evaluate_all(cands, rows, work, workers, runs)
         disagree(rows, earlier)
         admitted, skipped = admit(cands, rows)
+        if len(admitted) >= DRAWN:
+            break
     remove(out / "tasks")
     lines = []
     for i, cand in enumerate(admitted):
