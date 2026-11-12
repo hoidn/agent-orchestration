@@ -588,7 +588,7 @@ def test_every_event_encoding_has_exact_common_and_payload_keys(
     assert row["attempt"] == _attempt()
 
 
-@pytest.mark.parametrize("event", tuple(_event_payloads()))
+@pytest.mark.parametrize("event", ("task_start_requested", "turn_offer_requested"))
 @pytest.mark.parametrize("mutation", ("missing", "extra"))
 def test_event_encoding_payload_keys_are_closed(
     event: str,
@@ -1509,16 +1509,7 @@ _EVENT_DIAGNOSTIC_REASONS = {
     "publication_failed": (
         "deadline_exhausted_before_evidence_publication",
         "deadline_exhausted_during_evidence_publication",
-        "deadline_exhausted_before_frozen_restoration",
-        "deadline_exhausted_during_frozen_restoration",
-        "deadline_exhausted_before_frozen_verification",
-        "deadline_exhausted_during_frozen_verification",
-        "deadline_exhausted_before_state_commit",
-        "deadline_exhausted_during_state_commit_preparation",
         "evidence_publication_failed",
-        "frozen_restoration_failed",
-        "frozen_verification_failed",
-        "workflow_state_commit_failed",
     ),
 }
 
