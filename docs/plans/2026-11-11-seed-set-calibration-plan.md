@@ -225,6 +225,29 @@ the calibration tranche on a task set that cannot pass its gates.
   kind, longer and multi-stage, since a model that finishes every task of
   this family in one call leaves a workflow nothing to add (all too easy).
 
+**Bisection instead of the flat probe (owner, 2026-11-11: "consider binary
+search type strategies if this turns out to be inefficient").** The flat
+probe is the default because its 20 runs go out as one batch, it measures on
+every tier whether the agent runs the test itself, and it shows whether the
+tiers are really ordered by difficulty, which a bisection assumes. It is
+replaced by a bisection over the rungs, ordered T0, T1, T2, T3, T4, T5, T6,
+in either of these cases:
+
+- the smoke shows a `direct` run is expensive: a median above 15 minutes or
+  above USD 0.50 by the CLI's own figure;
+- more than five rungs have to be searched, which is the extension probe:
+  it then bisects the rungs not yet probed instead of probing them all.
+
+The rule: probe four tasks of the middle rung; 4 passes of 4 moves to the
+middle of the harder half, 0 of 4 to the middle of the easier half, 1 to 3
+stops there. When two adjacent rungs come out 4 and 0, calibration takes ten
+tasks from each. Seven rungs need at most three steps, 12 calls, against 28
+for a flat pass. What it costs: the steps run one after another, it gives no
+check that the rungs are ordered, and a rung decided on four tasks can send
+the search the wrong way; so if a step contradicts an earlier one (a harder
+rung passes more than an easier one), the search stops and the remaining
+rungs are probed flat within the cap.
+
 Tasks are chosen by tier and seed order, never by their own probe outcome; a
 probed task that is drawn keeps its probe run as the first of its four Haiku
 runs unless the form changed. The ladder probe is the plan's one redraw,
@@ -436,3 +459,4 @@ Allowance does not move between tranches; there is no top-up after a null.
 | 2026-11-11 | Owner instruction: "preempt probable calibration failures". The section "Probable calibration failures and the response to each" is added: a 20-call Haiku probe before anything else, hard and easy reserves mined before spend, a check-withheld task form, an early judge look on three tasks, and apparatus measures. All inside the authorized caps; the early replacement of tasks is the plan's one redraw. Coordinator rulings; the check-withheld form changes what `direct` can do and is used only on the probe's evidence. |
 | 2026-11-11 | Owner clarification: preempt "by designing significantly harder / easier tasks". The reserves and the single-tier probe of the previous row are replaced by a five-tier difficulty ladder (very easy to very hard, the hardest being features in the check-withheld form) and a ladder probe of four tasks per tier that picks the tier calibration draws from. No flaw is planted in any task. |
 | 2026-11-11 | Owner question: "what if all tiers are too easy or all tiers are too hard". The ladder section gains the two cases: one extension probe of 20 calls inside the redraw cap (harder rungs: the check-withheld form and a tier of larger features; or, after reading the transcripts for an apparatus fault, an easier rung), then a stop with a report to the owner if no tier lands in the band. No calibration call is made on a task set the probe shows cannot pass. |
+| 2026-11-11 | Owner suggestion: "consider binary search type strategies if this turns out to be inefficient". Recorded as a pre-decided switch: the flat ladder probe stays the default; a bisection over the ordered rungs replaces it when a `direct` run proves expensive in the smoke (median above 15 minutes or USD 0.50) and is always used for the extension probe. Thresholds are the coordinator's. |
