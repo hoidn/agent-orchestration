@@ -10,6 +10,7 @@ import hashlib
 from hashlib import sha256
 import json
 from pathlib import Path
+import re
 from typing import Any, Mapping
 
 from orchestrator._common.validation import (
@@ -18,8 +19,10 @@ from orchestrator._common.validation import (
     ordinary_integer as _ordinary_integer,
 )
 from ..state import RunState, StateManager
-from .identity import STEP_ID_PATTERN
 from .resume_projection_integrity import ResumeScopePath
+
+
+STEP_ID_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 
 
 def _path_safe_frame_scope_token(frame_id: str) -> str:
