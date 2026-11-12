@@ -83,7 +83,7 @@ def test_committed_script_edit_refusal_warns_once_before_its_commands(tmp_path: 
     assert (warning.count("every later one"), warning.count("workspace files are not rolled back")) == (1, 1)
 
 
-def test_failed_step_script_edit_refusal_names_the_file_and_a_run_command_that_works(tmp_path: Path) -> None:
+def test_failed_step_script_edit_resumes_with_the_edited_script(tmp_path: Path) -> None:
     write_pipeline(tmp_path)
     (tmp_path / "fail-one").write_text("", encoding="utf-8")
     failed = run_pipeline(tmp_path)
@@ -91,14 +91,11 @@ def test_failed_step_script_edit_refusal_names_the_file_and_a_run_command_that_w
     edit_script(tmp_path)
     (tmp_path / "fail-one").unlink()
 
-    result = refused(tmp_path, run_id_of(failed.stderr), "effect_input_diverged")
+    resumed = cli(tmp_path, "resume", run_id_of(failed.stderr))
 
-    assert f"step {IDENTITIES[0]} did not finish, and its files changed since: step.py" in result.stderr
-    (resume, fresh_run) = commands(result.stderr)
-    assert " resume " in resume
-    rerun = shell(tmp_path, fresh_run)
-    assert rerun.returncode == 0, rerun.stderr
-    assert rerun.stdout.splitlines()[-1] == RESULT_LINE
+    assert resumed.returncode == 0, resumed.stderr
+    assert resumed.stdout.splitlines()[-1] == RESULT_LINE
+    assert f"start   {IDENTITIES[0]}  attempt 2" in resumed.stderr.splitlines()
 
 
 def test_input_change_refusal_names_the_input(tmp_path: Path) -> None:
@@ -148,28 +145,6 @@ def test_every_refusal_code_has_recovery_lines(code: str) -> None:
     lines = recovery_lines(_Refusal(code), run_id="r1", launcher="orchestrator", state_dir=None, header=HEADER)
 
     assert lines and all(line.strip() for line in lines)
-
-
-def _memo_bytes(root: Path, run_id: str) -> bytes:
-    return (root / ".orchestrate" / "runs" / run_id / "memo.jsonl").read_bytes()
-
-
-def test_a_script_fix_after_a_failure_prints_a_fresh_run_and_never_invalidate(tmp_path: Path) -> None:
-    run_id = run_id_of(failed_run(tmp_path).stderr)
-    (tmp_path / "fail-two").unlink()
-    edit_script(tmp_path)
-
-    result = refused(tmp_path, run_id, "effect_input_diverged")
-
-    printed = commands(result.stderr)
-    assert not any(" invalidate " in command for command in printed)
-    memo = _memo_bytes(tmp_path, run_id)
-    for command in printed:
-        followed = shell(tmp_path, command)
-        assert _memo_bytes(tmp_path, run_id) == memo  # no committed step of this run is spent again
-    assert followed.returncode == 0, followed.stderr
-    assert followed.stdout.splitlines()[-1] == RESULT_LINE
-    assert " run main.orc " in printed[-1]
 
 
 def test_a_shared_script_edit_after_invalidating_later_steps_offers_invalidate_that_recovers(tmp_path: Path) -> None:
