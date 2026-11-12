@@ -59,10 +59,10 @@ def _restore(snapshot, world):
 @pytest.fixture(scope="module")
 def _template(tmp_path_factory):
     patch = pytest.MonkeyPatch()
-    generator = support.world._get_wrapped_function()(tmp_path_factory.mktemp("template"), patch)
+    generator = support.make_world(tmp_path_factory.mktemp("template"), patch)
     live = next(generator)
     plain = _snapshot(live, tmp_path_factory.mktemp("plain"))
-    pooled = support.pooled._get_wrapped_function()(live)
+    pooled = support.make_pooled(live)
     full = _snapshot(live, tmp_path_factory.mktemp("full"))
     patch.undo()
     yield SimpleNamespace(live=live, plain=plain, full=full, pooled=pooled)
