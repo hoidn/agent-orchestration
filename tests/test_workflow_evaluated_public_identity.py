@@ -15,7 +15,8 @@ from tests.test_workflow_evaluated_providers import _orchestrate_snapshot
 from tests.test_workflow_evaluated_resume import _resume_cli
 from tests.test_workflow_lisp_closed_program_compile_cli import _compile
 from tests.workflow_evaluated_context_helpers import pure_files, pause_context
-from tests.workflow_evaluated_totality_helpers import checked_run, compile_public, assert_commit_bytes
+from tests.workflow_evaluated_totality_helpers import checked_run, assert_commit_bytes
+from tests.workflow_inprocess_cli_helpers import compile_public_inprocess as compile_public
 from tests.test_workflow_evaluated_calls import _walk_nodes
 
 
