@@ -14,8 +14,8 @@ probe tasks), never T4 or T5; Sonnet fixes everything; on the smoke task Haiku f
 
 The setup makes ROOT/runtime, a worktree of this checkout's HEAD, and runs the stages from it (working directory
 and PYTHONPATH): the freeze refuses study modules loaded from anywhere else. The agents' trees and the pools live
-in a private directory under the harness tests' sandbox-visible cache (the sandbox binds its own /tmp), named in
-ROOT/study.json and deleted at the end. `--calibration-tasks N` runs the calibration stage on the first N chosen
+in a private directory under the harness tests' sandbox-visible cache (the sandbox binds its own /tmp), with the
+stand-in CLI and its plan, named in ROOT/study.json and deleted at the end; ROOT itself may be under /tmp. `--calibration-tasks N` runs the calibration stage on the first N chosen
 tasks only (the readout then reports the missing ones as missing).
 
 Writes ROOT/rehearsal.json (ledger totals per tranche, the smoke check, the probe answer, the readout's decision
@@ -74,7 +74,9 @@ def stand_in_plan(rows, tasks):
 
 def setup(root):
     root.mkdir()
-    main, runtime, home, fakebin = root / "main", root / "runtime", root / "home", root / "fakebin"
+    OUTSIDE_SANDBOX_MOUNTS.mkdir(parents=True, exist_ok=True)
+    outside = Path(tempfile.mkdtemp(dir=OUTSIDE_SANDBOX_MOUNTS))  # what the sandbox must see: not under /tmp
+    main, runtime, home, fakebin = root / "main", root / "runtime", root / "home", outside / "fakebin"
     head = subprocess.run(["git", "-C", str(CHECKOUT), "rev-parse", "HEAD"], check=True, capture_output=True,
                           text=True).stdout.strip()
     git("clone", "-q", "--shared", "--no-checkout", CHECKOUT, main)
@@ -85,7 +87,7 @@ def setup(root):
         (fakebin / name).write_text(STUB)
         (fakebin / name).chmod(0o755)
     tasks_file = runtime / "experiments" / "seed_set" / "tasks.jsonl"
-    plan = root / "stub-plan.json"
+    plan = outside / "stub-plan.json"
     dump(plan, stand_in_plan([json.loads(line) for line in tasks_file.read_text().splitlines()],
                              tasks_file.parent / "tasks"))
     os.environ.update(PATH=f"{GUARD}{os.pathsep}{closed_path(fakebin)}", HOME=str(home),
@@ -98,8 +100,6 @@ def setup(root):
         os.environ.pop(key, None)
     criterion = root / "freeze" / "judge-calibration.json"
     dump(criterion, {"judges": [H, S], "rubric": layout.RUBRIC, "primary": [], "secondary": []})
-    OUTSIDE_SANDBOX_MOUNTS.mkdir(parents=True, exist_ok=True)
-    outside = Path(tempfile.mkdtemp(dir=OUTSIDE_SANDBOX_MOUNTS))
     dump(root / "study.json", {"work": str(outside / "work"), "pools": str(outside / "pools"), "outside": str(outside)})
     s = study_at(root)
     dump(s.frozen, {"sha256": rules.required_hashes(s), "rehearsal": "stand-in providers only"})
