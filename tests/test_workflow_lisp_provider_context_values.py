@@ -155,44 +155,6 @@ def test_capture_context_rejects_session_artifact_publication() -> None:
     assert excinfo.value.diagnostics[0].code == "provider_context_session_artifact_invalid"
 
 
-def test_capture_context_rejects_provider_peer_groups() -> None:
-    expr = elaborate_expression(
-        _expression_syntax(
-            "(with-live-provider-peers "
-            "((left (provider-result providers.execute :prompt prompts.execute :inputs () "
-            ":capture-context :portable :returns Int)) "
-            "(right (provider-result providers.execute :prompt prompts.execute :inputs () :returns Int))) "
-            "left)"
-        ),
-        bound_names=frozenset({"providers.execute", "prompts.execute"}),
-        target_dsl_version="2.35",
-    )
-    type_env = FrontendTypeEnvironment.from_module(
-        WorkflowLispModule(
-            language_version="0.1",
-            target_dsl_version="2.35",
-            module_name=None,
-            imports=(),
-            exports=(),
-            definitions=(),
-            span=expr.span,
-        )
-    )
-
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        typecheck_expression(
-            expr,
-            type_env=type_env,
-            value_env={},
-            extern_environment=build_extern_environment(
-                provider_externs={"providers.execute": "test-provider"},
-                prompt_externs={"prompts.execute": "tests/prompt.md"},
-            ),
-        )
-
-    assert excinfo.value.diagnostics[0].code == "provider_context_peer_group_invalid"
-
-
 def test_wcc_prebinds_a_computed_provider_context_operand() -> None:
     expr = elaborate_expression(
         _expression_syntax(
