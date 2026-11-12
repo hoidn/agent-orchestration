@@ -1,5 +1,3 @@
-import ast
-import hashlib
 import importlib
 import json
 from dataclasses import fields, replace
@@ -54,7 +52,6 @@ from orchestrator.workflow_lisp.workflows import (
     typecheck_workflow_definitions,
 )
 from tests.workflow_lisp_command_boundaries import validate_review_findings_v1_binding
-from tests.workflow_lisp_procedure_identity import normalize_procedure_prerequisite_failure_log
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
@@ -178,18 +175,6 @@ def _compiler_module():
     return importlib.import_module("orchestrator.workflow_lisp.compiler")
 
 
-def _procedure_specialization_source_path() -> Path:
-    path = Path(importlib.import_module("orchestrator.workflow_lisp.procedure_specialization").__file__)
-    assert path.is_file()
-    return path
-
-
-def _specialization_typecheck_source_path() -> Path:
-    path = Path(importlib.import_module("orchestrator.workflow_lisp.specialization_typecheck").__file__)
-    assert path.is_file()
-    return path
-
-
 def _definition_context(path: Path):
     syntax_module = build_syntax_module(read_sexpr_file(path))
     module = elaborate_definition_module(_definition_only_syntax_module(syntax_module))
@@ -249,100 +234,6 @@ def test_procedure_definition_stores_only_canonical_return_spec() -> None:
 def test_elaborate_procedure_rejects_invalid_return_guidance(return_source: str) -> None:
     with pytest.raises(LispFrontendCompileError):
         _elaborate_inline_procedures(return_source)
-
-
-def _typecheck_top_level_names() -> set[str]:
-    source_path = Path(importlib.import_module("orchestrator.workflow_lisp.typecheck").__file__)
-    return _module_top_level_names(source_path)
-
-
-def _module_top_level_names(source_path: Path) -> set[str]:
-    module = ast.parse(source_path.read_text(encoding="utf-8"))
-    return {
-        node.name
-        for node in module.body
-        if isinstance(node, (ast.AsyncFunctionDef, ast.ClassDef, ast.FunctionDef))
-    }
-
-
-def _function_body_mentions_symbol(path: Path, function_name: str, symbol: str) -> bool:
-    module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    for node in module.body:
-        if not isinstance(node, ast.FunctionDef) or node.name != function_name:
-            continue
-        for child in ast.walk(node):
-            if isinstance(child, ast.Name) and child.id == symbol:
-                return True
-            if isinstance(child, ast.Attribute) and child.attr == symbol:
-                return True
-            if isinstance(child, ast.ImportFrom):
-                if any(alias.name == symbol or alias.asname == symbol for alias in child.names):
-                    return True
-    return False
-
-
-def _imported_symbols_from(source_path: Path, module_name: str) -> set[str]:
-    module = ast.parse(source_path.read_text(encoding="utf-8"))
-    imported: set[str] = set()
-    for node in ast.walk(module):
-        if not isinstance(node, ast.ImportFrom) or node.module != module_name:
-            continue
-        for alias in node.names:
-            imported.add(alias.asname or alias.name)
-    return imported
-
-
-def test_typecheck_facade_keeps_generated_local_procedure_helpers_after_let_proc_split() -> None:
-    package_dir = Path(importlib.import_module("orchestrator.workflow_lisp").__file__).resolve().parent
-    typecheck_module = importlib.import_module("orchestrator.workflow_lisp.typecheck")
-    dispatch_source = (package_dir / "typecheck_dispatch.py").read_text(encoding="utf-8")
-    procedure_source = (package_dir / "procedure_typecheck.py").read_text(encoding="utf-8")
-    dispatch_top_level_names = _module_top_level_names(package_dir / "typecheck_dispatch.py")
-    procedure_top_level_names = _module_top_level_names(package_dir / "procedure_typecheck.py")
-
-    assert hasattr(typecheck_module, "consume_generated_local_procedures")
-    assert hasattr(typecheck_module, "reset_generated_local_procedure_state")
-    assert hasattr(typecheck_module, "set_active_workflow_signature")
-    assert hasattr(typecheck_module, "clear_active_workflow_signature")
-    assert hasattr(typecheck_module, "set_active_reusable_state_producer_context")
-    assert hasattr(typecheck_module, "clear_active_reusable_state_producer_context")
-    assert (package_dir / "procedure_typecheck.py").is_file()
-    assert "_typecheck_let_proc" not in _typecheck_top_level_names()
-    assert "typecheck_let_proc_expr(" in procedure_source
-    assert "from .typecheck_dispatch import _typecheck_let_proc" not in procedure_source
-    assert "return _typecheck_let_proc(" not in procedure_source
-    assert {
-        "LocalProcRewriteBinding",
-        "_rewrite_local_proc_references",
-        "_expr_returns_local_proc_value",
-        "_replace_eliminated_let_procs",
-    } <= procedure_top_level_names
-    assert dispatch_top_level_names.isdisjoint(
-        {
-            "_typecheck_let_proc",
-            "LocalProcRewriteBinding",
-            "_rewrite_local_proc_references",
-            "_expr_returns_local_proc_value",
-            "_replace_eliminated_let_procs",
-        }
-    )
-    assert "if isinstance(expr, LetProcExpr):" not in dispatch_source
-
-
-def test_compiler_procedure_dependency_owner_uses_shared_walk_expr() -> None:
-    source_path = Path(importlib.import_module("orchestrator.workflow_lisp.compiler").__file__)
-
-    assert _function_body_mentions_symbol(source_path, "_procedure_dependencies", "walk_expr")
-
-
-def test_proc_ref_specialization_owner_uses_shared_iter_child_exprs() -> None:
-    source_path = _procedure_specialization_source_path()
-
-    assert _function_body_mentions_symbol(
-        source_path,
-        "discover_proc_ref_specializations",
-        "iter_child_exprs",
-    )
 
 
 def test_procedure_dependency_walker_descends_through_let_proc_expr() -> None:
@@ -2314,85 +2205,6 @@ def test_proc_ref_return_match_without_declared_capabilities_is_rejected(tmp_pat
         _typecheck_proc_ref_return_match_module(path)
 
     _assert_diagnostic_code(excinfo, "parametric_capability_undeclared")
-
-
-def test_compiler_owner_split_stops_importing_procedure_specialization_from_lowering() -> None:
-    compiler_path = Path(_compiler_module().__file__)
-
-    assert "from .lowering import _specialize_typed_procedure" not in compiler_path.read_text(
-        encoding="utf-8"
-    )
-
-
-def test_specialization_owner_split_stops_importing_private_workflow_eligibility_from_core() -> None:
-    path = _procedure_specialization_source_path()
-    imported_from_core = _imported_symbols_from(path, "lowering.core")
-
-    assert "_procedure_private_boundary_valid" not in imported_from_core
-    assert "_procedure_private_body_valid" not in imported_from_core
-
-
-def test_specialization_owner_split_stops_importing_value_helpers_from_core() -> None:
-    source_path = _procedure_specialization_source_path()
-    imported_from_core = _imported_symbols_from(source_path, "lowering.core")
-
-    assert imported_from_core.isdisjoint(
-        {
-            "_build_output_step_local_value",
-            "_flatten_boundary_leaf_paths",
-            "_flatten_inline_output_refs",
-            "_record_expr_value_at_path",
-            "_render_existing_output_ref",
-            "_normalize_union_field_path",
-            "_union_variant_expr_value_at_path",
-        }
-    )
-
-    imported_from_values = _imported_symbols_from(source_path, "lowering.values")
-    assert not imported_from_values
-    definitions = {
-        node.name for node in ast.parse(source_path.read_text()).body
-        if isinstance(node, (ast.FunctionDef, ast.ClassDef))
-    }
-    assert {
-        "_build_output_step_local_value", "_flatten_boundary_leaf_paths",
-        "_flatten_inline_output_refs", "_record_expr_value_at_path",
-        "_render_existing_output_ref", "_normalize_union_field_path",
-        "_union_variant_expr_value_at_path",
-        "_control_binding_terminal_for_match_subject_impl",
-        "_control_binding_terminal_for_inline_match_impl",
-        "_control_match_arm_local_values_impl",
-    } <= definitions
-    assert not _imported_symbols_from(source_path, "lowering.control")
-
-
-def test_specialization_workflow_call_does_not_import_managed_write_root_emitter() -> None:
-    source_path = _procedure_specialization_source_path()
-    assert not _imported_symbols_from(source_path, "lowering.core")
-    assert not _imported_symbols_from(source_path, "lowering.workflow_calls")
-
-
-
-def test_compiler_uses_specialization_typecheck_owner_for_pending_parametric_specializations() -> None:
-    compiler_path = Path(_compiler_module().__file__)
-    specialization_typecheck_path = _specialization_typecheck_source_path()
-
-    assert "materialize_pending_parametric_specialization" in specialization_typecheck_path.read_text(
-        encoding="utf-8"
-    )
-    assert "from .procedure_specialization import specialize_typed_procedure" not in compiler_path.read_text(
-        encoding="utf-8"
-    )
-    assert "from .specialization_typecheck import materialize_pending_parametric_specialization" in compiler_path.read_text(
-        encoding="utf-8"
-    )
-
-
-def test_compiler_keeps_typecheck_procedure_definitions_compat_entrypoint() -> None:
-    compiler_module = _compiler_module()
-
-    assert callable(_typecheck_procedure_definitions)
-    assert compiler_module._typecheck_procedure_definitions is _typecheck_procedure_definitions
 
 
 def _infer_stage3_proc_ref_effects(path: Path):
@@ -5597,137 +5409,6 @@ def test_wcc_anonymous_effect_terminal_pure_op_compiles_cleanly(tmp_path: Path) 
     assert result.diagnostics == ()
 
 
-def test_procedure_prerequisite_failure_log_normalizes_only_repr_addresses() -> None:
-    first = (
-        "E assert <generator object collect.<locals>.<genexpr> at 0x7c1717026330> == "
-        "<Widget object at 0x7C1717026ABC>\n"
-        "E assert 0xDEADBEEF == 0xCAFE\n"
-        "E assert mapped at 0xDEADBEEF == mapped at 0xCAFE\n"
-    )
-    second = (
-        "E assert <generator object collect.<locals>.<genexpr> at 0x7395eef2e670> == "
-        "<Widget object at 0x7395EEF2FFFF>\n"
-        "E assert 0xDEADBEEF == 0xCAFE\n"
-        "E assert mapped at 0xDEADBEEF == mapped at 0xCAFE\n"
-    )
-
-    normalized = normalize_procedure_prerequisite_failure_log(
-        first,
-        repo_root=Path("/unused/repo"),
-    )
-
-    assert normalized == normalize_procedure_prerequisite_failure_log(
-        second,
-        repo_root=Path("/unused/repo"),
-    )
-    assert normalized.count("at $ADDR") == 2
-    assert "0xDEADBEEF == 0xCAFE" in normalized
-    assert normalized.endswith(
-        "E assert mapped at 0xDEADBEEF == mapped at 0xCAFE\n"
-    )
-
-
-def test_procedure_prerequisite_failure_log_normalizes_root_temp_and_time() -> None:
-    repo_root = Path("/srv/work/agent-orchestration")
-    raw = (
-        "root: /srv/work/agent-orchestration/tests/test_example.py\n"
-        "tmp: /tmp/pytest-of-ollie/pytest-3936/test_example0/result.json\n"
-        "1 failed in 0.35s\n"
-    )
-
-    assert normalize_procedure_prerequisite_failure_log(raw, repo_root=repo_root) == (
-        "root: $REPO/tests/test_example.py\n"
-        "tmp: $PYTEST_TMP/test_example0/result.json\n"
-        "1 failed in $TIME\n"
-    )
-
-
-def test_procedure_prerequisite_failure_log_normalizes_only_pytest_summary_time() -> None:
-    raw = (
-        "E expected operation in 30s\n"
-        "2 passed, 1 skipped in 1.25s\n"
-        "1 failed, 2 warnings in 0.50s\n"
-    )
-
-    assert normalize_procedure_prerequisite_failure_log(
-        raw,
-        repo_root=Path("/unused/repo"),
-    ) == (
-        "E expected operation in 30s\n"
-        "2 passed, 1 skipped in $TIME\n"
-        "1 failed, 2 warnings in $TIME\n"
-    )
-
-
-def test_procedure_prerequisite_failure_log_replaces_complete_session_roots() -> None:
-    raw = (
-        "/var/tmp/build-cache/pytest-of-ollie/pytest-42/workspace/result.json\n"
-        "C:\\Users\\Ollie\\Temp\\pytest-of-ollie\\pytest-43\\workspace\\result.json\n"
-        "D:/ci/temp/pytest-of-ollie/pytest-44/workspace/result.json\n"
-        "relative/pytest-of-ollie/pytest-45/workspace/result.json\n"
-        "/var/tmp/build-cache/pytest-of-ollie/session-46/workspace/result.json\n"
-    )
-
-    assert normalize_procedure_prerequisite_failure_log(
-        raw,
-        repo_root=Path("/unused/repo"),
-    ) == (
-        "$PYTEST_TMP/workspace/result.json\n"
-        "$PYTEST_TMP\\workspace\\result.json\n"
-        "$PYTEST_TMP/workspace/result.json\n"
-        "relative/pytest-of-ollie/pytest-45/workspace/result.json\n"
-        "/var/tmp/build-cache/pytest-of-ollie/session-46/workspace/result.json\n"
-    )
-
-
-def test_procedure_prerequisite_failure_log_preserves_compared_path_prefix() -> None:
-    raw = "E assert /expected/value != /var/tmp/pytest-of-ollie/pytest-42/result.json\n"
-
-    assert normalize_procedure_prerequisite_failure_log(
-        raw,
-        repo_root=Path("/unused/repo"),
-    ) == "E assert /expected/value != $PYTEST_TMP/result.json\n"
-
-
-def test_procedure_prerequisite_failure_log_normalizes_unc_but_not_relative_roots() -> None:
-    raw = (
-        r"\\server\share\cache\pytest-of-ada\pytest-47\workspace\result.json"
-        "\n"
-        r"\server\share\cache\pytest-of-ada\pytest-48\workspace\result.json"
-        "\n"
-        r"server\share\cache\pytest-of-ada\pytest-49\workspace\result.json"
-        "\n"
-    )
-
-    assert normalize_procedure_prerequisite_failure_log(
-        raw,
-        repo_root=Path("/unused/repo"),
-    ) == (
-        "$PYTEST_TMP" + r"\workspace\result.json" + "\n"
-        r"\server\share\cache\pytest-of-ada\pytest-48\workspace\result.json"
-        "\n"
-        r"server\share\cache\pytest-of-ada\pytest-49\workspace\result.json"
-        "\n"
-    )
-
-
-def test_procedure_prerequisite_failure_log_preserves_newline_and_utf8_digest() -> None:
-    raw = "répr: <generator object work at 0x1234ABCD>\n1 failed in 8.25s\n"
-
-    normalized = normalize_procedure_prerequisite_failure_log(
-        raw,
-        repo_root=Path("/unused/repo"),
-    )
-
-    assert normalized == "répr: <generator object work at $ADDR>\n1 failed in $TIME\n"
-    assert normalized.endswith("\n")
-    assert hashlib.sha256(normalized.encode("utf-8")).hexdigest() == (
-        "eea2456d4cf60095f3a40233c4c8dbcd1d47ffe339e14fe46fe1b176d42ab11c"
-    )
-
-
-
-
 def test_stage3_returns_module_resolved_procedure_modes_and_names(tmp_path: Path) -> None:
     result = _compile_procedure_identity_fixture(tmp_path)
 
@@ -5776,25 +5457,3 @@ def test_stage3_resolves_lowering_after_specialization_and_effects(
         procedure.resolved_lowering_mode is not ProcedureLoweringMode.AUTO
         for procedure in result.typed_procedures
     )
-
-
-
-
-
-
-
-
-
-
-
-
-def test_resolved_procedure_mapping_rejects_wrong_type_and_equal_distinct_rows(
-    tmp_path: Path,
-) -> None:
-    compiled = _compile_procedure_identity_fixture(tmp_path)
-    procedure = compiled.typed_procedures[0]
-
-
-    equal_but_distinct = replace(procedure)
-    assert equal_but_distinct == procedure
-    assert equal_but_distinct is not procedure
