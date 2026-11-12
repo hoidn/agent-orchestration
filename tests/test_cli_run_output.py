@@ -139,6 +139,17 @@ def test_resume_prints_only_the_effects_it_runs_and_the_result(tmp_path: Path) -
     assert resumed.stdout.splitlines()[-1] == RESULT_LINE
 
 
+def test_resume_prints_the_run_line_first_and_the_rerun_note_after_its_start_line(tmp_path: Path) -> None:
+    failed = failed_run(tmp_path)
+    (tmp_path / "fail-two").unlink()
+
+    lines = shell(tmp_path, resume_command(failed.stderr)).stderr.splitlines()
+
+    assert lines[0].split()[0] == "run"
+    rerun = next(index for index, line in enumerate(lines) if line.startswith("[effect_rerun]"))
+    assert lines[rerun - 1].split() == ["start", *IDENTITIES[1].split(), "attempt", "2"]
+
+
 def test_resume_accepts_quiet(tmp_path: Path) -> None:
     failed = failed_run(tmp_path)
     (tmp_path / "fail-two").unlink()

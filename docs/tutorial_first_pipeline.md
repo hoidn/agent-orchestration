@@ -141,19 +141,19 @@ one two three
 ```console
 $ orchestrator run grow.orc --input file=notes.txt --input target=5
 using commands.json beside grow.orc
-run     20261112T052252Z-r5kwto  /home/you/first-pipeline/.orchestrate/runs/20261112T052252Z-r5kwto
+run     20261112T060059Z-wpdnn6  /home/you/first-pipeline/.orchestrate/runs/20261112T060059Z-wpdnn6
 start   workflow:grow::run / loop:pads[1] / words  attempt 1
 commit  workflow:grow::run / loop:pads[1] / words  attempt 1
 start   workflow:grow::run / loop:pads[1] / else / padded  attempt 1
 failed  workflow:grow::run / loop:pads[1] / else / padded  attempt 1  [command_exit_nonzero]
-        stderr: /home/you/first-pipeline/.orchestrate/runs/20261112T052252Z-r5kwto/effects/916a1013837e190c3975e6c21d5f0d0af43ec4d55213789a8060cdbaa725a650/attempt-1/stderr.txt
+        stderr: /home/you/first-pipeline/.orchestrate/runs/20261112T060059Z-wpdnn6/effects/916a1013837e190c3975e6c21d5f0d0af43ec4d55213789a8060cdbaa725a650/attempt-1/stderr.txt
         | Traceback (most recent call last):
         |   File "/home/you/first-pipeline/pad.py", line 5, in <module>
         |     filler = open("filler.txt").read()
         |              ~~~~^^^^^^^^^^^^^^
         | FileNotFoundError: [Errno 2] No such file or directory: 'filler.txt'
 [command_exit_nonzero] evaluated command failed with exit code 1
-resume  orchestrator resume 20261112T052252Z-r5kwto
+resume  orchestrator resume 20261112T060059Z-wpdnn6
 ```
 
 A **run** is one execution, recorded under `.orchestrate/runs/<run id>`. The
@@ -176,9 +176,9 @@ more
 <!-- run: printed -->
 ```console
 $ orchestrator resume <run id>
-[effect_rerun] workflow:grow::run / loop:pads[1] / else / padded attempts=[1]
-run     20261112T052252Z-r5kwto  /home/you/first-pipeline/.orchestrate/runs/20261112T052252Z-r5kwto
+run     20261112T060059Z-wpdnn6  /home/you/first-pipeline/.orchestrate/runs/20261112T060059Z-wpdnn6
 start   workflow:grow::run / loop:pads[1] / else / padded  attempt 2
+[effect_rerun] workflow:grow::run / loop:pads[1] / else / padded attempts=[1]
 commit  workflow:grow::run / loop:pads[1] / else / padded  attempt 2
 start   workflow:grow::run / loop:pads[2] / words  attempt 1
 commit  workflow:grow::run / loop:pads[2] / words  attempt 1
@@ -189,7 +189,7 @@ commit  workflow:grow::run / loop:pads[3] / words  attempt 1
 {"pads":2,"reached":true}
 ```
 
-The first line notes that the failed step runs again. The committed count of
+The `[effect_rerun]` line notes that the failed step runs again. The committed count of
 round 1 did not run again; the pad ran as attempt 2. The last line, on
 standard output, is the result as JSON, and the command exits 0.
 
@@ -201,12 +201,12 @@ $ orchestrator report | head -n 9
 # Workflow Status
 
 ## Run
-- run_id: `20261112T052252Z-r5kwto`
+- run_id: `20261112T060059Z-wpdnn6`
 - status: `completed`
 - workflow_file: `grow.orc`
-- started_at: `2026-11-12T05:22:52.117286+00:00`
-- updated_at: `2026-11-12T05:22:53.700013+00:00`
-- memo_offset: `12764`
+- started_at: `2026-11-12T06:00:59.502171+00:00`
+- updated_at: `2026-11-12T06:01:00.238726+00:00`
+- memo_offset: `12762`
 ```
 
 `report` shows the latest run (`--run-id` picks another). After these lines
@@ -252,8 +252,8 @@ $ orchestrator resume <run id>
 [effect_input_diverged] workflow:grow::run / loop:pads[1] / else / padded: effect input diverged (input parts changed: ['implementation_files']; dependency identities changed: False; previous sha256:944b4a0ab4faac62789e027c4eda240c5c64d41b90edd275c859800efffb7c90, current sha256:8daa183fb6611eba7aab5312f3e4dcc68e79c0ad87bc2aac245636e52fee662c)
 step workflow:grow::run / loop:pads[1] / else / padded was committed with other inputs; changed: implementation_files; files: pad.py
 to run this step and every later one again (that step and every later one run again; workspace files are not rolled back):
-    orchestrator invalidate 20261112T052252Z-r5kwto 'workflow:grow::run / loop:pads[1] / else / padded'
-    orchestrator resume 20261112T052252Z-r5kwto
+    orchestrator invalidate 20261112T060059Z-wpdnn6 'workflow:grow::run / loop:pads[1] / else / padded'
+    orchestrator resume 20261112T060059Z-wpdnn6
 ```
 
 **Invalidate** tells the run to forget a committed step, so `resume` runs it
@@ -262,9 +262,9 @@ and every later step again:
 <!-- run: printed -->
 ```console
 $ orchestrator invalidate <run id> 'workflow:grow::run / loop:pads[1] / else / padded'
-{"from_commit": 4620, "record": "invalidated", "time": 1794460978.436652}
+{"from_commit": 4620, "record": "invalidated", "time": 1794463262.3061292}
 $ orchestrator resume <run id>
-run     20261112T052252Z-r5kwto  /home/you/first-pipeline/.orchestrate/runs/20261112T052252Z-r5kwto
+run     20261112T060059Z-wpdnn6  /home/you/first-pipeline/.orchestrate/runs/20261112T060059Z-wpdnn6
 start   workflow:grow::run / loop:pads[1] / else / padded  attempt 3
 commit  workflow:grow::run / loop:pads[1] / else / padded  attempt 3
 start   workflow:grow::run / loop:pads[2] / words  attempt 2
