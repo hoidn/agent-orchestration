@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import os
 from pathlib import Path
@@ -399,7 +400,7 @@ def test_coordinator_terminal_corruption_remains_readonly_refusal(tmp_path, monk
     result = _run_cli(parent, str(source), "--run-ref-root", str(refs))
     assert result.returncode == 0, result.stderr
     authority, snapshot = _authority(parent)
-    rows = [entry.data for entry in snapshot.entries]
+    rows = [copy.deepcopy(entry.data) for entry in snapshot.entries]  # edited below; the reducer cache shares the originals
     commit = next(row for row in rows if row["record"] == "committed")
     if corruption == "class":
         commit["effect_class"] = "command"

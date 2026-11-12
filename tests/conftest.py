@@ -4,7 +4,17 @@ The seed changes after every passing run. A run that fails or is interrupted kee
 its seed, so the next `--sample` run repeats the same tests until they pass.
 """
 
+import re
+
+import pytest
+
 from tests.sampling import choose_seed, keep, record_outcome
+
+# Modules whose in-process memo folds must stay equal to their bytes (tests/memo_fold_guard.py).
+_FOLD_GUARDED = re.compile(r"test_(workflow_evaluated_|workflow_host_input|workflow_python_|workflow_run_ref_"
+                           r"|dashboard_|cli_dashboard_command|cli_report_command)")
+# Modules whose replay-free start views are recomputed with the replay.
+_START_VIEW_GUARDED = re.compile(r"kill|resume|recovery|invalidate|parallel")
 
 
 def pytest_addoption(parser):
@@ -56,3 +66,19 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
              else "the next --sample run repeats these tests")
     terminalreporter.write_line(
         f"sample: {config.getoption('sample'):g}% of the collected tests, seed {seed} ({origin}); {after}")
+
+
+@pytest.fixture(autouse=True)
+def _evaluated_fast_path_guards(request, monkeypatch):
+    """Check the evaluated runtime's shared-state fast paths in the modules that exercise them."""
+    module = request.node.path.name
+    if not _FOLD_GUARDED.match(module):
+        yield
+        return
+    from tests.memo_fold_guard import FoldGuard, install_start_view_guard
+
+    guard = FoldGuard(monkeypatch)
+    if _START_VIEW_GUARDED.search(module):
+        install_start_view_guard(monkeypatch)
+    yield
+    guard.check(request.node.nodeid)
