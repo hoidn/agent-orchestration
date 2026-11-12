@@ -62,6 +62,9 @@ def _recorded(case: str, root: Path) -> tuple[Path, dict[str, str]]:
     shutil.copytree(source, root, ignore=shutil.ignore_patterns("runs", "README.md"), dirs_exist_ok=True)
     shutil.copytree(source / "runs", root / ".orchestrate" / "runs")
     (run_root,) = (root / ".orchestrate" / "runs").iterdir()
+    for path in run_root.rglob("*"):        # git keeps no 0600 mode; the run wrote its files 0600 (README)
+        if path.is_file():
+            path.chmod(0o600)
     env = {"PATH": closed_path(root / "bin")}
     if case == "provider_committed":
         _shim(root / "bin" / "codex", (source / "codex_shim.py").read_text(encoding="utf-8"))

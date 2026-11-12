@@ -21,4 +21,7 @@ agent run, which a completed run never reads.
 | `phased_committed` | the `phased_239` workflow, killed after the phased provider's `committed` row, before `settled` | yes |
 | `phased_pending` | the same, killed with the attempt's receipt `prepared` and no `committed` row | **no**: the receipt names a transport reservation under `/tmp` by device and inode; without it the base refuses `provider_phased_cleanup_failed` |
 
+The run wrote its files `0600`; git keeps no such mode, so a test restores it after copying (the
+phased receipt check requires it).
+
 `tests/test_workflow_evaluated_edit_resume_baseline.py` pins what the base does with each.
