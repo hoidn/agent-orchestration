@@ -433,51 +433,57 @@ tranche T1) needs owner-approved spend and has not run.
 **Evidence.** Phase 2 lane 1 merged as `3491fbba` and changed tests only
 (`git diff --stat 3491fbba^1 3491fbba` lists six files under `tests/`, none
 under `orchestrator/`). The headline exit test merged with B4 (`895b5f74`).
-Fresh runs on `e65c1782`, stand-ins only, the no-provider stubs first on
-`PATH`:
+All runs use stand-ins only, with the no-provider stubs first on `PATH`:
 
 | Run | Result |
 | --- | --- |
-| `tests/test_workflow_evaluated_parallel_{cwd_variants,reserved_root,kill_resume,invalidate,consumers}.py` and `tests/test_phase2_exit_e2e.py` (`-n 8`) | 47 passed (18, 4, 16, 2, 6 and 1 collected) |
-| Controls: `tests/test_workflow_evaluated_{resume_kills,recovery,invalidate_windows,parallel_cwd_cli,parallel_resume,parallel_run_ref,consumers,views,recovery_views,run_ref_settlement}.py`, `tests/test_logical_workspace_coordinates.py` | 330 passed |
-| `tests/test_workflow_evaluated_parallel_run_ref_clone.py` (added by this closeout): a run-reference child per item, decoy `candidate.orc` files in the item directories and the parent workspace, fresh run and resume after a kill at the child's start reservation and at its commit before settlement | 3 collected, 3 passed |
-| After merging `main` at `68858baf` (run and resume performance work, which changed `orchestrator/workflow/evaluated/`): the seven modules above, `tests/test_workflow_evaluated_parallel{,_resume}.py`, the controls above and the document tests | 509 passed |
+| On `e65c1782`: `tests/test_workflow_evaluated_parallel_{cwd_variants,reserved_root,kill_resume,invalidate,consumers}.py` and `tests/test_phase2_exit_e2e.py` (`-n 8`) | 47 passed (18, 4, 16, 2, 6 and 1 collected) |
+| On `e65c1782`, controls: `tests/test_workflow_evaluated_{resume_kills,recovery,invalidate_windows,parallel_cwd_cli,parallel_resume,parallel_run_ref,consumers,views,recovery_views,run_ref_settlement}.py`, `tests/test_logical_workspace_coordinates.py` | 330 passed |
 | `tests/test_workflow_evaluated_parallel_resume.py` after renaming `test_live_parallel_execution_is_still_refused` to `test_bare_evaluator_without_parallel_handler_refuses_par_map` (it tests `evaluate_closed_program` without a parallel handler) | 41 collected, 41 passed |
+| `tests/test_workflow_evaluated_parallel_run_ref_clone.py` (added by this closeout; see below) | 4 collected, 4 passed |
+| After merging `main` at `68858baf` (run and resume performance work, which changed `orchestrator/workflow/evaluated/`): the Phase 2 parallel modules, `tests/test_workflow_evaluated_parallel{,_resume}.py`, the controls above and the document tests | 509 passed |
+| `tests/test_phase2_exit_e2e.py` after splitting its function into the test and three helpers (assertions unchanged) | 5 serial runs, 1 passed each; 29 passed under `-n 8` beside the consumer, report-usage and clone modules |
 
 The lane 1 review broke production code in 16 ways and each break failed a
-named test; the exit-test review broke it in 8 ways, all caught (both review
-records are kept with the Phase 2 coordinator). The old-target artifact
-comparison and the full suite were not rerun, because lane 1 changed no
-production byte. The most recent full suite with the lane 1 tests on `main`
-in the [Phase 2 ledger](../plans/2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md#ledger)
-stands: at the B4 merge `895b5f74` (branch with `main` merged), 14,414
-passed, only the four known worktree-artifact failures. The later
-performance merge `1102ab17` has no full-suite figure there; the parallel
-modules were rerun on it (table above).
+named test; the exit-test review broke it in 8 ways, all caught; the
+closeout's independent review reran the 16 on the merged code and added
+seven more (both review records are kept with the Phase 2 coordinator). The
+old-target artifact comparison was not rerun, because lane 1 changed no
+production byte. No full suite covers the qualified code yet: the last
+recorded one (B4 merge `895b5f74`, 14,414 passed, only the four known
+worktree-artifact failures) predates the performance merge `1102ab17`, which
+changed the memo reducer, runtime and views that parallel resume relies on.
+The coordinator runs the full suite at the closeout branch's head before it
+merges.
 
 **Phase 5 plan boxes.** Closed, each with its test named in the plan: Task 3
-boxes 2 and 3; Task 5, all five; Task 6 boxes 1 to 3; Task 7 box 1 (these document
-edits) and box 4 (reused suites). Still open:
+boxes 2 and 3; Task 5, all five; Task 6 boxes 1 to 3; Task 7 box 1 (these
+document edits). Open: run figures against the serial specimen (Task 6 box
+4); the live smoke, which needs provider spend (Task 6 box 5); the
+pinned-controller compatibility campaign (Task 7 box 3); a full suite on the
+qualified code (Task 7 box 4); the pending reviews (Task 7 boxes 2 and 5).
 
-- Task 6 box 4: run figures against the serial specimen are not recorded.
-- Task 6 box 5: the live smoke, not authorized.
-- Task 7 box 2: Radon is not installed; the census below is an AST
-  approximation, and the closeout's independent review is pending.
-- Task 7 box 3: the pinned-controller compatibility campaign has never run for
-  Phase 5; the old-target evidence is Task 1C's.
-- Task 7 box 5: independent and coordinator review pending.
-
-**The child-in-clone clause.** Changing the run-reference child launcher's
-cwd to its request directory passed every parallel and run-reference test,
-and passes the new module too: the mutation is equivalent, because a
-path-mode child takes every root from its request (`clone_root` in
-`orchestrator/workflow/run_ref/child.py::_execute_closed_path`) and nothing
-under `orchestrator/workflow/run_ref/` reads the process cwd. A path-mode
-child is effect-free (a command in it refuses with
-`trial_candidate_environment_not_admissible`), so it can record no cwd; the
-new module asserts what the child does read, its program and inputs, from
-its own clone. Making the child take its root from its process cwd as well
-fails all three cases.
+**The run-reference rule.** A path run reference in a parallel item keeps the
+outer workspace as its `parent_workspace` and runs its child in its own clone.
+`tests/test_workflow_evaluated_parallel_run_ref_clone.py` covers both halves:
+- *Outer parent authority:* `test_parallel_run_ref_children_copy_path_inputs_from_the_outer_workspace`.
+  Each child's copy of a `WorkPath` input holds the outer `artifacts/seed.txt`,
+  not the decoy in its item directory. With `prepare_parallel_run_ref` passing
+  the item directory as `parent_workspace` (the review's mutation) it fails:
+  the copies read the item bytes.
+- *Child in its own clone:* `test_parallel_run_ref_children_compile_in_their_own_clones_on_run`
+  and `..._after_kill_and_resume` (kills at the child's start reservation and
+  at its commit before settlement). Each child compiles the committed
+  candidate in its own clone below the run-reference root and records its
+  run there, while decoy `candidate.orc` files sit in the item directories and
+  the parent workspace. Changing only the child launcher's cwd fails no test:
+  a path-mode child takes every root from its request (`clone_root` in
+  `orchestrator/workflow/run_ref/child.py::_execute_closed_path`) and nothing
+  under `orchestrator/workflow/run_ref/` reads the process cwd. A path-mode
+  child is effect-free (a command in it refuses with
+  `trial_candidate_environment_not_admissible`), so it can record no cwd.
+  Making the child take its root from its process cwd as well fails all
+  three cases.
 
 **Limits a user must know.** Authored reserved environment is refused at
 launcher level only (no public surface exists for it); the built-in
@@ -489,20 +495,24 @@ wider bound under heavy load could go undetected there (the kill test catches
 it without timing); `parallel_workspace_shared` (exit 1, no `started` row,
 failed terminal, observed through `run`) is pinned only by the in-process
 `tests/test_workflow_evaluated_parallel.py::test_map_preflight_refusals_reserve_no_attempt`,
-which does not assert the code.
+which does not assert the code; when several items fail, the reported error
+is the lowest failing input index's, but the message does not name the index.
 
-**Census** of the Phase 2 modules (physical lines; cyclomatic complexity by
-an AST count of Radon's rules with nested functions counted on their own,
-approximate because Radon was not installed; the Python stand-in scripts
-embedded in string constants are not analysed):
+**Census** of the Phase 2 test modules: physical lines, and the highest
+cyclomatic complexity per module by Radon 6.0.1 (`radon cc`, default rules,
+assertions counted, closures included), run from a throwaway virtual
+environment outside the repository:
 
-| Module | Lines | Highest function (approx. CC) |
+| Module | Lines | Highest function (CC) |
 | --- | --- | --- |
-| `tests/test_workflow_evaluated_parallel_cwd_variants.py` | 386 | `_unsafe_carrier` 10 |
-| `tests/test_workflow_evaluated_parallel_reserved_root.py` | 132 | at most 6 |
-| `tests/test_workflow_evaluated_parallel_kill_resume.py` | 307 | `_coordinator_window` 11 |
-| `tests/test_workflow_evaluated_parallel_invalidate.py` | 60 | `test_invalidate_cancels_the_whole_suffix_across_interleaved_items` 10 |
-| `tests/test_workflow_evaluated_parallel_consumers.py` | 241 | `_run_with_failed_candidate` 11 |
-| `tests/workflow_evaluated_parallel_kill_helpers.py` | 155 | at most 6 |
-| `tests/test_workflow_evaluated_parallel_run_ref_clone.py` | 107 | `_assert_children_ran_in_their_clones` 9 |
-| `tests/test_phase2_exit_e2e.py` | 190 | `test_parallel_best_of_n_survives_a_kill_and_reports_tokens` **20**, over the limit of 12 (eleven of its points are `assert` statements) |
+| `tests/test_workflow_evaluated_parallel_cwd_variants.py` | 386 | `_unsafe_carrier` 8 |
+| `tests/test_workflow_evaluated_parallel_reserved_root.py` | 132 | `_nested_orchestrator` 5 |
+| `tests/test_workflow_evaluated_parallel_run_ref_clone.py` | 137 | `test_parallel_run_ref_children_copy_path_inputs_from_the_outer_workspace` 7 |
+| `tests/test_workflow_evaluated_parallel_kill_resume.py` | 307 | `_coordinator_window` 9 |
+| `tests/test_workflow_evaluated_parallel_invalidate.py` | 60 | `test_invalidate_cancels_the_whole_suffix_across_interleaved_items` 9 |
+| `tests/test_workflow_evaluated_parallel_consumers.py` | 241 | `test_compile_dry_run_run_report_and_two_completed_resumes` 9 |
+| `tests/workflow_evaluated_parallel_kill_helpers.py` | 155 | `Batch.__init__` 6 |
+| `tests/test_phase2_exit_e2e.py` | 205 | `_run_until_two_commits_and_two_held` 10 (the test function, 18 before the split, is now 2) |
+| `tests/test_workflow_evaluated_parallel_resume.py` (renamed test) | 383 | `test_serial_tail_after_map_keeps_historical_start_policy` 9 |
+
+Every function is within the limit of 12 and every module within 500 lines.

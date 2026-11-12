@@ -3007,12 +3007,14 @@ What to rely on:
   runtime names in `ORCHESTRATOR_WORKSPACE_ROOT`. The runtime rewrites no
   prompt prose: a provider prompt that names a repository needs an absolute
   path (the best-of-N test passes absolute repository inputs for this
-  reason). A run reference in an item keeps the parent's authority and runs
-  its child in its own clone below the run-reference root, never in the item
-  directory.
-- **Failure.** When an item fails, its siblings still run and commit; the
-  map then fails with the lowest failing input index. A running item is not
-  cancelled.
+  reason). A run reference in an item keeps the outer workspace as its
+  parent (a typed path input is copied from there, not from the item
+  directory) and runs its child in its own clone below the run-reference
+  root.
+- **Failure.** When an item fails, its siblings still run and commit, and
+  each failed item keeps its own `failed` row; the run then fails with an
+  item's error code (the lowest failing input index's, though the message
+  does not name the index). A running item is not cancelled.
 - **Kill and resume.** `resume` reuses every committed effect, continues each
   item from its first missing effect and dispatches no committed effect
   again; a completed resume writes nothing. A pending `must_not_repeat` command refuses with
