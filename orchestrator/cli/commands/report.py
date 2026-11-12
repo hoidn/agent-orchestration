@@ -1,255 +1,42 @@
-"""Report command implementation."""
+"""Report command implementation.
+
+Reads evaluated runs only, through `load_evaluated_view` and `report_snapshot`. A run directory with
+a `state.json` entry and no evaluated authority was written by the retired runtime: `report` refuses it
+with one stderr line and exit 2, and never opens its `state.json` beyond the view-hint check in
+`has_evaluated_authority`. Without `--run-id`, the latest evaluated run by directory name is reported.
+"""
 
 from __future__ import annotations
 
 import json
+import os
 import sys
-from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
-from orchestrator.observability.report import (
-    _load_typed_terminal_observability_summary,
-    derive_status_projection,
-    render_status_markdown,
+from orchestrator.observability.report import render_status_markdown
+from orchestrator.workflow.evaluated.views import (
+    has_evaluated_authority,
+    load_evaluated_view,
+    report_snapshot,
+    retired_run_refusal,
 )
-from orchestrator.runtime_observability import compute_active_runtime
-from orchestrator.workflow.judgment_views import project_judgment_views
-from orchestrator.workflow.prompt_context_report import (
-    project_prompt_context_v2,
-)
-from orchestrator.workflow.evaluated.views import has_evaluated_authority, load_evaluated_view, report_snapshot
-
-
-_STATE_ONLY_DEBUG_KIND_DISCRIMINATORS = frozenset(
-    {
-        "provider_peer_group",
-        "provider_supervision",
-    }
-)
-
-
-def _state_only_step_kind(payload: Mapping[str, Any]) -> Any:
-    """Resolve persisted kind without guessing across debug discriminators."""
-
-    if "type" in payload:
-        explicit = payload.get("type") or "unknown"
-        if isinstance(payload.get("trial"), Mapping) and explicit != "trial":
-            raise ValueError(
-                "persisted trial result conflicts with explicit step kind"
-            )
-        return explicit
-
-    debug_payload = payload.get("debug")
-    debug_candidates = sorted(
-        discriminator
-        for discriminator in _STATE_ONLY_DEBUG_KIND_DISCRIMINATORS
-        if isinstance(debug_payload, Mapping)
-        and isinstance(debug_payload.get(discriminator), Mapping)
-    )
-    if len(debug_candidates) > 1:
-        raise ValueError(
-            "ambiguous persisted step kind debug discriminators: "
-            + ", ".join(debug_candidates)
-        )
-    candidates = [*debug_candidates]
-    if isinstance(payload.get("trial"), Mapping):
-        candidates.append("trial")
-    if len(candidates) > 1:
-        raise ValueError(
-            "ambiguous persisted step kind discriminators: "
-            + ", ".join(sorted(candidates))
-        )
-    return candidates[0] if candidates else "unknown"
 
 
 def _latest_run_dir(runs_root: Path) -> Optional[Path]:
     if not runs_root.exists():
         return None
-    candidates = [p for p in runs_root.iterdir() if p.is_dir() and
-                  (has_evaluated_authority(p) or (p / "state.json").exists())]
-    if not candidates:
-        return None
-    return sorted(candidates, key=lambda p: p.name)[-1]
+    candidates = [p for p in runs_root.iterdir() if p.is_dir() and has_evaluated_authority(p)]
+    return max(candidates, key=lambda p: p.name) if candidates else None
 
 
 def _resolve_run_dir(run_id: Optional[str], runs_root: Path) -> Optional[Path]:
-    if run_id:
-        run_dir = runs_root / run_id
-        if has_evaluated_authority(run_dir) or (run_dir / "state.json").exists():
-            return run_dir
-        return None
-    return _latest_run_dir(runs_root)
-
-
-def _state_only_snapshot(
-    state: dict[str, Any],
-    run_dir: Path,
-) -> dict[str, Any]:
-    """Build a report exclusively from persisted run state and run-owned evidence."""
-
-    def result_status(value: Any) -> str:
-        if isinstance(value, Mapping):
-            status = value.get("status")
-            if isinstance(status, str):
-                return status
-            if value.get("skipped"):
-                return "skipped"
-            exit_code = value.get("exit_code")
-            if exit_code == 0:
-                return "completed"
-            if isinstance(exit_code, int):
-                return "failed"
-            child_statuses = [
-                result_status(child)
-                for child in value.values()
-                if isinstance(child, (Mapping, list))
-            ]
-            if "failed" in child_statuses:
-                return "failed"
-            if "running" in child_statuses:
-                return "running"
-            if child_statuses and all(
-                status in {"completed", "skipped"} for status in child_statuses
-            ):
-                return "completed"
-        elif isinstance(value, list):
-            child_statuses = [result_status(child) for child in value]
-            if "failed" in child_statuses:
-                return "failed"
-            if "running" in child_statuses:
-                return "running"
-            if child_statuses and all(
-                status in {"completed", "skipped"} for status in child_statuses
-            ):
-                return "completed"
-        return "pending"
-
-    def step_entry(name: str, value: Any) -> dict[str, Any]:
-        payload = value if isinstance(value, Mapping) else {}
-        kind = _state_only_step_kind(payload)
-        status = result_status(value)
-        if kind == "trial":
-            return {
-                "name": name,
-                "step_id": payload.get("step_id"),
-                "kind": kind,
-                "status": status,
-                "input": {},
-                "output": {},
-            }
-        debug_payload = payload.get("debug")
-        raw_preview = payload.get("output")
-        if raw_preview is None:
-            raw_preview = payload.get("text")
-        preview = str(raw_preview) if raw_preview is not None else ""
-        if len(preview) > 200:
-            preview = preview[:197] + "..."
-        output_payload = {
-            "exit_code": payload.get("exit_code"),
-            "duration_ms": payload.get("duration_ms"),
-            "output_preview": preview,
-            "artifacts": (
-                payload.get("artifacts")
-                if isinstance(payload.get("artifacts"), Mapping)
-                else {}
-            ),
-            "error": payload.get("error"),
-            "outcome": payload.get("outcome"),
-        }
-        if isinstance(debug_payload, Mapping) and debug_payload:
-            output_payload["debug"] = dict(debug_payload)
-        return {
-            "name": name,
-            "step_id": payload.get("step_id"),
-            "kind": kind,
-            "status": status,
-            "input": {},
-            "output": output_payload,
-        }
-
-    raw_steps = state.get("steps")
-    steps = (
-        [step_entry(str(name), value) for name, value in raw_steps.items()]
-        if isinstance(raw_steps, Mapping)
-        else []
-    )
-    current_step = (
-        state.get("current_step")
-        if isinstance(state.get("current_step"), dict)
-        else None
-    )
-    if isinstance(current_step, dict):
-        current_name = str(
-            current_step.get("name")
-            or current_step.get("step_id")
-            or "current_step"
-        )
-        existing = next((step for step in steps if step["name"] == current_name), None)
-        if existing is None:
-            existing = step_entry(current_name, current_step)
-            steps.append(existing)
-        existing["status"] = current_step.get("status") or "running"
-
-    status_projection = derive_status_projection(state, steps)
-    display_status = str(status_projection["display_status"])
-    progress = {
-        "total": len(steps),
-        "completed": sum(1 for step in steps if step["status"] == "completed"),
-        "running": sum(1 for step in steps if step["status"] == "running"),
-        "failed": sum(1 for step in steps if step["status"] == "failed"),
-        "pending": sum(1 for step in steps if step["status"] == "pending"),
-        "skipped": sum(1 for step in steps if step["status"] == "skipped"),
-    }
-    if display_status == "completed":
-        progress["running"] = 0
-        progress["failed"] = 0
-        progress["pending"] = 0
-        progress["completed"] = progress["total"] - progress["skipped"]
-    elif display_status == "failed":
-        progress["running"] = 0
-
-    run_payload: dict[str, Any] = {
-        "run_id": state.get("run_id"),
-        "status": display_status,
-        "workflow_file": state.get("workflow_file"),
-        "started_at": state.get("started_at"),
-        "updated_at": state.get("updated_at"),
-        "run_root": str(run_dir),
-        "transition_count": state.get("transition_count", 0),
-        "persisted_status": status_projection["persisted_status"],
-        "display_status": display_status,
-        "display_status_reason": status_projection["display_status_reason"],
-        "report_warning": (
-            "Authored workflow definitions are not loaded for report projection; "
-            "showing a state-only report."
-        ),
-    }
-    status_reason = status_projection["display_status_reason"]
-    if status_reason:
-        run_payload["status_reason"] = status_reason
-    if isinstance(state.get("bound_inputs"), Mapping):
-        run_payload["bound_inputs"] = state["bound_inputs"]
-    if isinstance(state.get("workflow_outputs"), Mapping):
-        run_payload["workflow_outputs"] = state["workflow_outputs"]
-    if isinstance(state.get("finalization"), Mapping) and state["finalization"]:
-        run_payload["finalization"] = state["finalization"]
-    if isinstance(state.get("error"), Mapping):
-        run_payload["error"] = state["error"]
-    typed_terminal_summary = _load_typed_terminal_observability_summary(run_dir)
-    if typed_terminal_summary is not None:
-        run_payload["observability_summaries"] = {
-            "typed_terminal": typed_terminal_summary,
-        }
-    run_payload.update(compute_active_runtime(state))
-
-    return {
-        "run": run_payload,
-        "progress": progress,
-        "steps": steps,
-        "prompt_context": project_prompt_context_v2(state, run_dir),
-        "judgment_views": project_judgment_views(state, run_dir),
-    }
+    if not run_id:
+        return _latest_run_dir(runs_root)
+    run_dir = runs_root / run_id
+    if has_evaluated_authority(run_dir) or os.path.lexists(run_dir / "state.json"):
+        return run_dir
+    return None
 
 
 def report_workflow(
@@ -258,39 +45,14 @@ def report_workflow(
     format: str = "md",
     output: Optional[str] = None,
 ) -> int:
-    """Render a workflow status report for an existing run."""
-    runs_root_path = Path(runs_root)
-    run_dir = _resolve_run_dir(run_id, runs_root_path)
+    """Render a workflow status report for an existing evaluated run."""
+    run_dir = _resolve_run_dir(run_id, Path(runs_root))
     if run_dir is None:
         print("Error: run not found", file=sys.stderr)
         return 1
-
-    if has_evaluated_authority(run_dir):
-        return _report_evaluated(run_dir, format, output)
-
-    snapshot = _legacy_report_snapshot(run_dir)
-    if snapshot is None:
-        return 1
-
-    if format == "json":
-        rendered = json.dumps(snapshot, indent=2) + "\n"
-    else:
-        rendered = render_status_markdown(snapshot)
-        report_warning = snapshot.get("run", {}).get("report_warning")
-        if isinstance(report_warning, str) and report_warning:
-            rendered = f"{rendered.rstrip()}\n\n> {report_warning}\n"
-
-    if output:
-        output_path = Path(output)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(rendered, encoding="utf-8")
-    else:
-        print(rendered, end="")
-
-    return 0
-
-
-def _report_evaluated(run_dir: Path, format: str, output: Optional[str]) -> int:
+    if not has_evaluated_authority(run_dir):
+        print(f"Error: {retired_run_refusal(run_dir.name)}", file=sys.stderr)
+        return 2
     try:
         snapshot = report_snapshot(load_evaluated_view(run_dir), run_dir)
     except (OSError, ValueError) as exc:
@@ -304,19 +66,3 @@ def _report_evaluated(run_dir: Path, format: str, output: Optional[str]) -> int:
     else:
         print(rendered, end="")
     return 0
-
-
-def _legacy_report_snapshot(run_dir: Path) -> Optional[dict[str, Any]]:
-    state_file = run_dir / "state.json"
-    try:
-        state = json.loads(state_file.read_text(encoding="utf-8"))
-    except Exception as exc:
-        print(f"Error: failed to load state: {exc}", file=sys.stderr)
-        return None
-
-    try:
-        snapshot = _state_only_snapshot(state, run_dir)
-    except ValueError as exc:
-        print(f"Error: failed to project persisted state: {exc}", file=sys.stderr)
-        return None
-    return snapshot
