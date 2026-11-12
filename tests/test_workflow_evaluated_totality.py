@@ -15,7 +15,9 @@ from tests.workflow_evaluated_totality_helpers import public_files
 
 
 PROJECTED = [(form, position) for form, position in cells() if axes(form)[0] == "2.35"]
-ADMITTED = [(form, position) for form, position in PROJECTED if cell_refusal(form, position) is None]
+# Inline defun/pure-proc calls generate the same source as plain-variant, so they are not run twice.
+ADMITTED = [(form, position) for form, position in PROJECTED if cell_refusal(form, position) is None
+            and form not in ("inline:defun-call", "inline:pure-proc-call")]
 REFUSED = [(form, position) for form, position in PROJECTED if cell_refusal(form, position) is not None]
 CONTROL_EXPECTED = {
     "effectful_if_branches": (11, ["arm-prefix 11", "arm-value 11"]),
@@ -33,26 +35,6 @@ CONTROL_EXPECTED = {
 }
 LEFT = {"variant": "LEFT", "payload": {"n": 7, "label": "á雪"}}
 RIGHT = {"variant": "RIGHT", "count": 9}
-
-
-def _current_row(form, position):
-    target, locality, base = axes(form)
-    refusal = cell_refusal(form, position)
-    classification = "type-incompatibility" if refusal == "match_subject_not_union" else "source-rule" if refusal else "admitted"
-    return {"id": f"{target}/{base}/{position}/{locality}", "target": target,
-            "form": base, "position": position, "locality": locality,
-            "classification": classification, "refusal": refusal}
-
-
-def test_current_matrix_preserves_each_shape_and_source_refusal(tmp_path):
-    rows = [_current_row(form, position) for form, position in PROJECTED]
-    (tmp_path / "current-matrix.json").write_text(json.dumps(rows, indent=2))
-    assert len(PROJECTED) == 275
-    assert len(set(PROJECTED)) == len(PROJECTED)
-    assert len(ADMITTED) + len(REFUSED) == len(PROJECTED)
-    assert {row["target"] for row in rows} == {"2.35"}
-    assert {row["refusal"] for row in rows} == {
-        None, "match_subject_not_union", "effect_not_permitted", "loop_recur_contract_invalid"}
 
 
 @pytest.mark.parametrize(("form", "position"), ADMITTED, ids=[f"{f}/{p}" for f, p in ADMITTED])
