@@ -7,13 +7,17 @@ the current answer asks for; each run is settled as a candidate run is, then its
 (behind the host guard) and, for an in-tree package, the self-check detector over its transcripts. `answer`
 derives the next step from the ledger and the run records alone:
 
-- phase `first`: the flat five (T1 to T5), or the bisection over T0 to T6 when the smoke check said so;
-- a miss starts phase `extension`: all too easy bisects over T1w to T4w and T6, all too hard over T0 and T1
-  again, the latter only after `record-transcripts` recorded that the transcripts were read;
+- phase `first`: the flat five (T1 to T5), or the bisection over T0 to T5 when the smoke check said so;
+- a miss starts phase `extension`: all too easy bisects over T1w to T4w (T6 is dropped: the extension upward
+  ends at T5), all too hard over T0 and T1 again, the latter only after `record-transcripts` recorded that the
+  transcripts were read;
 - a miss of the extension is a stop: every later start refuses.
 
-`probe_readout` records the answer; a chosen or split answer writes the 20 calibration tasks to
-`results/calibration-tasks.json` once, with its hash in the ledger, which the calibration's starts require.
+`probe_readout` records the answer; a chosen or split answer draws the calibration tasks (`ladder.choose`: at most
+20, fewer when the chosen rungs hold fewer) with the thresholds scaled to their number (`ladder.scaling`) and
+writes both to `results/calibration-tasks.json` once, with its hash in the ledger, which the calibration's starts
+require. A draw whose scaling leaves a point open (fewer than 20 tasks) is refused and recorded with the open
+points: the calibration waits for the coordinator's ruling.
 """
 
 import json
@@ -22,17 +26,14 @@ from pathlib import Path
 from experiments.compare.repos import dump, load, sha256_file
 from experiments.seed_set import host, ladder, rules, spend
 from experiments.seed_set import study as runner
-from experiments.seed_set.layout import CHOSEN, load_arms, study_runs, task_dir, task_rows, tranche_tasks
+from experiments.seed_set.layout import CHOSEN, load_arms, study_runs, task_dir, task_rows
 
 
-def probe_rows(study):
-    allowed = set(tranche_tasks(study, "redraw"))
-    return [row for row in task_rows(study) if row["id"] in allowed]
 
 
 def results(study, phase):
     """({rung: passes} over rungs whose four probe tasks all have a checked run in `phase`, {rung: figures})."""
-    rows, runs = probe_rows(study), {}
+    rows, runs = task_rows(study), {}
     for path in study_runs(study):
         facts = load(path)
         if facts["tranche"] == "redraw" and facts.get("step") == phase and "hidden" in facts:
@@ -65,7 +66,7 @@ def step_answer(passes, rungs, bisect):
 
 
 def answer(study):
-    rows, entries = probe_rows(study), spend.rows(study.ledger)
+    rows, entries = task_rows(study), spend.rows(study.ledger)
     bisect = bool((spend.latest(entries, "smoke") or {}).get("bisect"))
     first_rungs = available(rows, ladder.LADDER if bisect else ladder.FLAT)
     if not any(n >= ladder.PROBE_TASKS for n in first_rungs.values()):
@@ -89,6 +90,13 @@ def searched_rungs(study, now):
     return ladder.EASY_EXTENSION if now.get("first") == "all_easy" else ladder.HARD_EXTENSION
 
 
+def phase_rungs(study, now):
+    """The rungs of the answer's phase: the extension's, or the first probe's (flat five, or T0 to T5 bisected)."""
+    if now["phase"] == "extension":
+        return searched_rungs(study, now)
+    return ladder.LADDER if now.get("bisect") else ladder.FLAT
+
+
 def probe(study, rungs=None):
     """Probe the requested rungs (default: the ones the answer asks for next)."""
     spend.authorize("redraw")
@@ -99,8 +107,8 @@ def probe(study, rungs=None):
     rungs = rungs or now["probe"]
     if set(rungs) - set(now["probe"]):
         raise SystemExit(f"the probe takes {now['probe']} next, not {rungs}")
-    rows, spec = probe_rows(study), load_arms(study)["direct"]
-    fixes, entries = {row["id"]: row["commit"] for row in rows}, spend.starts(spend.rows(study.ledger))
+    rows, spec = task_rows(study), load_arms(study)["direct"]
+    fixes, entries = ladder.fix_commits(task_rows(study)), spend.starts(spend.rows(study.ledger))
     jobs = [(task, rung) for rung in rungs for task in ladder.probe_tasks(rows, rung) if not any(
         (row["tranche"], row.get("task"), row.get("step")) == ("redraw", task, now["phase"]) for row in entries)]
     spend.check(study.ledger, "redraw", "candidate", spec["model"], spec["max_calls"] * len(jobs))
@@ -129,11 +137,13 @@ def probe_readout(study):
     out = {"answer": now, "first": first_figures, "extension": extension_figures, "self_check_share": share}
     path, facts = study.results / CHOSEN, {}
     if ("chosen" in now or "split" in now) and not path.is_file():
-        phase = now["phase"] == "extension"
-        picked = ladder.choose(probe_rows(study), now, extension if phase else first, share,
-                               searched_rungs(study, now) if phase else ladder.FLAT)
-        if len(picked) < ladder.CALIBRATION_TASKS:
-            raise SystemExit(f"only {len(picked)} tasks on the chosen rungs and their neighbours; the plan needs 20")
+        picked = ladder.choose(task_rows(study), now, extension if now["phase"] == "extension" else first, share,
+                               phase_rungs(study, now))
+        out["scaling"] = ladder.scaling(len(picked))
+        if out["scaling"]["open"]:
+            spend.record(study.ledger, "probe_readout", answer=now, drawn=len(picked), open=out["scaling"]["open"])
+            raise SystemExit(f"{len(picked)} tasks drawn ({sorted({r for _, r in picked})}); the plan leaves open "
+                             f"{out['scaling']['open']}: no calibration start until the coordinator rules")
         study.results.mkdir(parents=True, exist_ok=True)
         dump(path, {"tasks": [{"id": task, "rung": rung} for task, rung in picked], **out})
     if path.is_file():

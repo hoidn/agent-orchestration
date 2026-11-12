@@ -15,6 +15,7 @@ import pytest
 
 from experiments.compare.repos import build_candidate, git
 from experiments.seed_set.selection import COMMON_TYPES, MAX_PROGRAM_LINES, common_definitions, program_lines
+from tests.agent_session_shims import closed_path
 
 ROOT = Path(__file__).resolve().parents[2]
 PROGRAMS = ROOT / "experiments" / "seed_set" / "programs"
@@ -80,7 +81,7 @@ def world(tmp_path):
 
 
 def cli(world, *args):
-    env = {**os.environ, "PATH": f"{world / 'bin'}{os.pathsep}{os.environ['PATH']}", "PYTHONPATH": str(ROOT),
+    env = {**os.environ, "PATH": closed_path(world / "bin"), "PYTHONPATH": str(ROOT),
            "PYTHONDONTWRITEBYTECODE": "1", "SEED_SET_CALLS": str(world / "calls.jsonl"),
            "SEED_SET_SCRIPT": str(world / "script.json")}
     return subprocess.run([sys.executable, "-B", "-m", "orchestrator", *args], cwd=world / "repo", env=env,
@@ -143,6 +144,40 @@ def test_common_defines_only_the_shared_result_types():
 
 def test_no_program_names_a_model():
     assert [p.name for p in PROGRAMS.glob("*.orc") if re.search(r'claude-|gpt-|:model "', p.read_text())] == []
+
+
+def command_forms(text):
+    """Every `(command-result ...)` form of a program, parentheses balanced."""
+    forms = []
+    for start in [m.start() for m in re.finditer(r"\(command-result\b", text)]:
+        depth = 0
+        for end in range(start, len(text)):
+            depth += {"(": 1, ")": -1}.get(text[end], 0)
+            if depth == 0:
+                forms.append(text[start:end + 1])
+                break
+    return forms
+
+
+def test_no_command_step_has_a_timeout_below_the_checks_own():
+    """The orchestrator SIGKILLs a command step at its timeout, which would leave a check-withheld test in the tree;
+    dev_check.py applies dev-check.json's own timeout (600 s in every package) and restores the tree itself."""
+    tasks = ROOT / "experiments" / "seed_set" / "tasks"
+    own = {json.loads(path.read_text())["timeout_sec"] for path in tasks.glob("*/seed/dev-check.json")}
+    forms = [form for path in sorted(PROGRAMS.glob("*.orc")) for form in command_forms(path.read_text())]
+    limits = [int(m[1]) for form in forms if (m := re.search(r":timeout-sec\s+(\d+)", form))]
+    assert (own, len(forms), [limit for limit in limits if limit < max(own)]) == ({600}, 3, [])
+
+
+def test_every_real_withheld_package_names_its_tests_for_the_check_and_keeps_none_in_its_seed():
+    tasks = ROOT / "experiments" / "seed_set" / "tasks"
+    found = {}
+    for package in sorted(tasks.iterdir()):
+        config = json.loads((package / "seed" / "dev-check.json").read_text())
+        withheld = (package / "withheld").is_dir()
+        found[package.name] = (withheld, bool(config.get("withheld")),
+                               withheld and any((package / "seed").rglob("test_*.py")))
+    assert {value for value in found.values()} == {(True, True, False), (False, False, False)}
 
 
 def test_every_program_has_the_same_implementer_prompt():

@@ -5,12 +5,15 @@ Input is a list of records, one per pooled clone and per unrated run, built by `
 
     {"task", "pool": "first"|"retest", "role": "base"|"reference"|"candidate", "arm", "model", "run",
      "patch": sha256 of the pooled patch, "hidden": pass fraction or None, "scores": {judge: 0..8},
+     "judged": {judge: sha256 of the patch that judge read}, "unbound": [judges whose rating was refused],
      "status": "rated"|"failed"|"excluded"|"incident", "reason"}
 
 and per pool `{"task", "pool", "excluded_judges": {judge: reason}}`. A failed run (or a timeout) scores 0; an
 excluded run (contaminated or a model-policy hit) and an incident (a run the harness could not collect) are
-left out of every mean and count against G4. Task lists are in seed order. Counts scale as
-`floor(fraction * tasks)`: V1 18 of 20 and 27 of 30, V2 17 of 20 and 25 of 30, as the plan states.
+left out of every mean and count against G4. A rating whose judged digest differs from the pooled patch is
+refused (left out of `scores`, listed in `unbound`, and an apparatus failure: `binding_failures`). Task lists are
+in seed order. Counts scale as `floor(fraction * tasks)`: V1 18 of 20 and 27 of 30, V2 17 of 20 and 25 of 30, as
+the plan states, and G1 12 of 20 (coordinator ruling 2; `ladder.scaling` refuses a draw where rounding is open).
 """
 
 import math
@@ -20,7 +23,7 @@ HAIKU, SONNET = "claude-haiku-5-5", "claude-sonnet-5-5"
 JUDGES = (HAIKU, SONNET)  # cheapest first: the cheapest passing judge is used
 POLICY = ("Fable model", "Forbidden model")
 SURVIVOR = (2.0, 6.5)  # a task's Haiku mean, inclusive
-SURVIVORS_MIN, SURVIVORS_MAX = 12, 16
+SURVIVORS_SHARE, SURVIVORS_MAX = 0.60, 16  # G1: 12 of 20 survivors
 
 
 def required(fraction, n):
@@ -36,16 +39,20 @@ def anchor_role(label):
     return roles[suffix]
 
 
-def pool_records(task, pool, results, patch_sha, models):
+def pool_records(task, pool, results, patch_sha, models, judged):
     """Records of one pool's results.json: every clone, and every pooled run without a clone (failed or excluded).
-    `patch_sha` maps clone id to the pooled patch's sha256; `models` maps arm to its bound model."""
+    `patch_sha` maps clone id to the pooled patch's sha256; `models` maps arm to its bound model; `judged` maps
+    judge to {clone id: sha256 of the patch it read}, which must equal the pooled patch for the rating to count."""
     records, rated = [], set()
     for cid, clone in results["clones"].items():
         role = anchor_role(clone["labels"][0]) if clone["arm"] == "anchor" else "candidate"
         rated.add(clone["run"])
+        bound = {judge: judged.get(judge, {}).get(cid) for judge in clone["ratings"]}
         records.append({"task": task, "pool": pool, "role": role, "arm": clone["arm"], "model": models.get(clone["arm"]),
                         "run": clone["run"], "patch": patch_sha[cid], "hidden": clone["hidden"],
-                        "scores": {judge: rating["quality"] for judge, rating in clone["ratings"].items()},
+                        "scores": {judge: rating["quality"] for judge, rating in clone["ratings"].items()
+                                   if bound[judge] == patch_sha[cid]},
+                        "judged": bound, "unbound": sorted(j for j, sha in bound.items() if sha != patch_sha[cid]),
                         "status": "rated", "reason": None})
     for row in results["runs"]:
         if row["run"] not in rated:
@@ -207,8 +214,9 @@ def task_gates(records, pools, judge, tasks):
     runs = [r for r in records if r["pool"] == "first" and r["task"] in tasks and r["role"] == "candidate"]
     rated = sum(r["status"] == "rated" and r["scores"].get(judge) is not None for r in runs)
     excluded = {j: sum(j in p["excluded_judges"] for p in pools if p["task"] in tasks) for j in JUDGES}
+    need = required(SURVIVORS_SHARE, len(tasks))
     gates = {
-        "G1": {"survivors": len(survivors), "need": SURVIVORS_MIN, "passed": len(survivors) >= SURVIVORS_MIN},
+        "G1": {"survivors": len(survivors), "need": need, "passed": len(survivors) >= need},
         "G2": {"haiku_mean": haiku, "haiku_pass_rate": rate_h, "tasks": len(paired),
                "passed": haiku is not None and 2.5 <= haiku <= 6.5},
         "G3": {"gap": None if None in (haiku, sonnet) else sonnet - haiku,
@@ -269,6 +277,12 @@ def anchor_failures(records, pools, tasks, judges=JUDGES):
         if len(refs) > 1:
             failures.append(f"{task}: its pools hold different reference patches")
     return failures
+
+
+def binding_failures(records):
+    """Ratings refused because the patch their judge read is not the pooled patch: no quality number is reported."""
+    return [f"{r['task']}/{r['pool']}: the {r['role']} of run {r['run']} was rated by {judge} on another patch"
+            for r in records for judge in r.get("unbound", [])]
 
 
 def missing_pools(pools, tasks, retest_tasks):

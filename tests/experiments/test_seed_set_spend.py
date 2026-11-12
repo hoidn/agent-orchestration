@@ -113,7 +113,7 @@ def runner(tmp_path):
         subprocess.run(["git", "-C", str(runtime), *args], check=True)
     tasks = tmp_path / "tasks.jsonl"
     tasks.write_text("".join(json.dumps({"id": i, "set": s, "commit": "f" * 40, "tier": "T3", "form": "in-tree"}) + "\n"
-                             for i, s in (("t1", "drawn"), ("t2", "drawn"), ("r1", "reserve"), ("r2", "reserve"))))
+                             for i, s in (("t1", "drawn"), ("t2", "drawn"), ("r1", "reserve"), ("r2", "smoke"))))
     (tmp_path / "results").mkdir()
     (tmp_path / "results" / layout.CHOSEN).write_text(json.dumps({"tasks": [{"id": "t1", "rung": "T3"},
                                                                             {"id": "t2", "rung": "T3"}]}))

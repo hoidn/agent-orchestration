@@ -42,7 +42,7 @@ from pathlib import Path
 from experiments.compare import pool as pooling, prepare, scan, summarize as summary
 from experiments.compare.repos import dump, load, sha256_file
 from experiments.orc_structural_search import metering
-from experiments.seed_set import gates, host, readout, rules, selection, spend, units
+from experiments.seed_set import blinding, gates, host, readout, rules, selection, spend, units
 from experiments.seed_set.layout import (
     PLANNED, RETESTS, Study, chosen, load_arms, load_criterion, require_free, require_tasks, study_runs,
     task_dir, task_rows, tranche_tasks,
@@ -54,15 +54,24 @@ WIDTH, FIRST_WAVE, MAX_POOLS = 4, 2, 2  # a tranche's first wave runs two at a t
 CALL_SEC, JUDGE_SEC, SLACK_SEC = 1200, 3600, 600  # the programs' and score_functional.orc's :timeout-sec
 
 
-def launch_env(model, calls, package=None):
-    """The launch environment; a check-withheld package's `withheld/` is named for dev_check.py, which runs on the
-    host as a command boundary (the agents' sandbox never sees it)."""
+def launch_env(model, calls, withheld=None):
+    """The launch environment. `withheld` (a check-withheld run's staged test files) is named for dev_check.py,
+    which runs on the host as a command boundary and inherits the controller's environment; the agents' sandbox
+    clears its environment, so an agent never sees the path."""
     env = {**os.environ, "COMPARE_CLAUDE_MODELS": model, "COMPARE_MAX_CALLS": str(calls),
            "PYTHONDONTWRITEBYTECODE": "1"}
     env.pop("SEED_SET_WITHHELD", None)
-    if package is not None and (Path(package) / "withheld").is_dir():
-        env["SEED_SET_WITHHELD"] = str(Path(package) / "withheld")
-    return env
+    return env | ({"SEED_SET_WITHHELD": str(withheld)} if withheld else {})
+
+
+def stage_withheld(package, records):
+    """A check-withheld package's `withheld/` copied into the run's records directory: outside the agents' tree and
+    the sandbox, and a copy, so code the check runs on the host cannot alter the frozen package. None for an
+    in-tree package. The programs give the dev-check step no timeout (dev-check.json's 600 s apply inside the
+    check, which restores the tree; a test holds this), so the orchestrator never SIGKILLs a check that placed
+    the files."""
+    source = Path(package) / "withheld"
+    return shutil.copytree(source, Path(records) / "withheld") if source.is_dir() else None
 
 
 def waves(jobs, started):
@@ -131,7 +140,7 @@ def one_run(study, tranche, arm, spec, task, fix, limit, **extra):
     """Prepare one run, reserve it (at most `limit` starts of its tranche, task, arm and step), launch it, settle
     it; return (records, the facts in its study.json). `extra` facts (a probe's step and rung) join them."""
     require_free(study, study.work)
-    env, programs = launch_env(spec["model"], spec["max_calls"], task_dir(study, task)), study.programs
+    env, programs = launch_env(spec["model"], spec["max_calls"]), study.programs
     arm_spec = prepare.ArmSpec(programs / spec["source"], spec["entry"], programs, programs / "providers.json",
                                INPUTS, command_boundaries=programs / "commands.json")
     records = prepare.run_arm(task_dir(study, task), arm, study.work, study.runtime, spec=arm_spec,
@@ -142,6 +151,7 @@ def one_run(study, tranche, arm, spec, task, fix, limit, **extra):
         shutil.rmtree(record["tree"])
         raise SystemExit(f"{records}: prepared for {record['claude_model']}, not {spec['model']}; nothing started")
     boundaries(study, Path(record["candidates"][0]))
+    env = launch_env(spec["model"], spec["max_calls"], stage_withheld(task_dir(study, task), records))
     facts = {"tranche": tranche, "task": task, "arm": arm, "model": spec["model"], "effort": spec["effort"],
              "max_calls": spec["max_calls"], **extra}
     dump(records / "study.json", facts)  # before the reservation: every reserved run has its facts file
@@ -244,6 +254,12 @@ def build_pools(study, tranche, kind, tasks):
             pool_incident(study, task, kind, f"not pooled: {error}")
             continue
         units.disable_resume(*(out / "records").glob("resume-*.sh"))
+        hits = blinding.scan_pool(out, task_dir(study, task), blinding.identity_tokens(study, load_arms(study), runs))
+        dump(out / "records" / "identity-scan.json", {"hits": hits})
+        if hits:  # refused before any judge call; nothing is scrubbed
+            pool_incident(study, task, kind, f"arm-identifying text in judged content: {hits[:3]}")
+            (out / "clones").chmod(0o755)
+            shutil.rmtree(out)
 
 
 def judge(study, tranche, kind, tasks):
@@ -268,9 +284,10 @@ def judge(study, tranche, kind, tasks):
 def one_judge(study, tranche, kind, task, out, mapping, model, fix):
     batches, records = len(mapping["batches"]), out / "records"
     pooling.verify_pool(out)
+    judged = blinding.judged_patches(out, mapping)  # what this judge reads, bound to its ratings in the readout
     spend.reserve(study.ledger, tranche, "judge", model, batches, f"{out}#{model}", task=task, pool=kind)
     start = time.time()
-    facts = {"exit": launch(records / f"score-{model}.sh", launch_env(model, batches),
+    facts = {"judged_patches": judged, "exit": launch(records / f"score-{model}.sh", launch_env(model, batches),
                             records / f"judge-{model}.log", batches * JUDGE_SEC + SLACK_SEC)}
     facts |= {"wall_clock_sec": time.time() - start, "calls": units.physical_calls(records / "judges" / model)}
     if facts["calls"] > batches:
@@ -332,8 +349,9 @@ def summarize_pools(study, kind, tasks):
             shutil.copyfile(out / "records" / "mapping.json", dest / "mapping.json")
         else:
             dest.mkdir(parents=True)
-            for name in ("results.json", "results.md", "mapping.json"):
-                shutil.copyfile(out / "records" / name, dest / name)
+            for path in [out / "records" / n for n in ("results.json", "results.md", "mapping.json",
+                                                       "identity-scan.json")] + sorted((out / "records").glob("study-*.json")):
+                shutil.copyfile(path, dest / path.name)
             shutil.copytree(out / "records" / "patches", dest / "patches")
         (out / "clones").chmod(0o755)
         shutil.rmtree(out / "clones")
@@ -352,7 +370,9 @@ def load_records(study, models, tasks):
             continue
         results = load(directory / "results.json")
         hashes = {cid: sha256_file(directory / "patches" / f"{cid}.diff") for cid in results["clones"]}
-        found, info = gates.pool_records(task, kind, results, hashes, models)
+        judged = {path.stem.removeprefix("study-"): load(path).get("judged_patches", {})
+                  for path in directory.glob("study-*.json")}
+        found, info = gates.pool_records(task, kind, results, hashes, models, judged)
         records += found
         pools.append(info)
     pooled = {r["run"] for r in records if r["pool"] == "first"}
@@ -363,8 +383,6 @@ def load_records(study, models, tasks):
                             "model": row["model"], "run": run, "patch": None, "hidden": None, "scores": {},
                             "status": "failed" if failed else "incident", "reason": row.get("incident")})
     return records, pools
-
-
 
 
 def write_readout(study):

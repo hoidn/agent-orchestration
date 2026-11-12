@@ -186,6 +186,8 @@ def smoke_check(study):
     results_path = study.results / "pools" / f"{task}-first" / "results.json"
     results = load(results_path) if results_path.is_file() else {"clones": {}, "excluded_judges": {"pool": "missing"}}
     clones = results["clones"].values()
+    judged = {j: load(path).get("judged_patches", {}) if (path := results_path.with_name(f"study-{j}.json")).is_file()
+              else {} for j in gates.JUDGES}
     reserved = {row["unit"]: row["calls"] for row in spend.starts(spend.rows(study.ledger)) if row["tranche"] == "smoke"}
     checks = {
         "every_program_ran_without_incident": sorted(f["arm"] for f in runs) == sorted(PLANNED["smoke"])
@@ -194,6 +196,9 @@ def smoke_check(study):
         "both_judges_rated_every_clone": not results["excluded_judges"] and all(
             set(c.get("ratings", {})) == {spend.HAIKU, spend.SONNET} for c in clones) and bool(clones),
         "hidden_result_on_every_clone": bool(clones) and all(c.get("hidden") is not None for c in clones),
+        "ratings_bound_to_judged_patches": bool(clones) and all(
+            judged[j].get(cid) == sha256_file(results_path.parent / "patches" / f"{cid}.diff")
+            for cid, c in results["clones"].items() for j in c.get("ratings", {})),
         "scans_and_session_audits_clean": all(f.get("scan_hits") == 0 and not f.get("incident") for _, _, _, _, f in found),
         "bound_model_and_effort_on_every_call": all(bound_argv(r, m, e) for _, r, m, e, _ in found),
         "calls_within_reserved": all(units.physical_calls(r) <= reserved.get(unit_of(r), 0) for _, r, _, _, _ in found),

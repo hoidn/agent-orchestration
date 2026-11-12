@@ -4,9 +4,12 @@
 directory, the task list, the judge-calibration criterion (the freeze's `criterion.json` lies beside it) and the
 state directory holding the spend ledger (`~/.local/state/seed-set` for the command line; tests pass their own).
 
-Tranches: the smoke runs on the last reserve task; the redraw cap serves the ladder probe only (plan, "Ladder
-probe": the probe is the plan's one redraw), on the rows that carry a `tier`; the calibration runs on the 20 tasks
-`probe-readout` wrote to `results/calibration-tasks.json` (`CHOSEN`), whose hash the ledger holds.
+Tranches: the smoke runs on the manifest's `set: "smoke"` task (coordinator ruling 1, 2026-11-12: the leaking
+T3 task left the drawn set, the reserve took its place and the smoke moved to the first T2 task that is not a
+probe task); the redraw cap serves the ladder probe only (plan, "Ladder probe": the probe is the plan's one
+redraw), on the ladder's packages (`ladder.packages`: both forms, without rejected rows and the smoke's commit);
+the calibration runs on the tasks `probe-readout` wrote to `results/calibration-tasks.json` (`CHOSEN`), whose hash
+the ledger holds.
 """
 
 import json
@@ -15,11 +18,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from experiments.compare.repos import load
-from experiments.seed_set import gates, spend
+from experiments.seed_set import gates, ladder, spend
 
 PROGRAMS = Path("experiments/seed_set/programs")  # in the runtime checkout
 EFFORT = "medium"
-# runs per task and arm, per tranche: the smoke runs every program once on the last reserve task
+# runs per task and arm, per tranche: the smoke runs every program once on the smoke task
 PLANNED = {"smoke": dict.fromkeys(("direct", "direct_sonnet", "retry_until_check", "implement_check_repair",
                                    "implement_review_revise"), 1),
            "calibration": {"direct": 4, "direct_sonnet": 1}, "redraw": {"direct": 1}}  # redraw: one per probe step
@@ -69,25 +72,24 @@ def chosen(study):
 
 
 def tranche_tasks(study, tranche):
-    """The tasks a tranche may run, in order: the last reserve task for the smoke, every laddered task but the
-    smoke's for the probe, the chosen tasks for the calibration."""
+    """The tasks a tranche may run, in order: the smoke task, every ladder package for the probe, the chosen tasks
+    for the calibration."""
     rows = task_rows(study)
-    smoke = [row["id"] for row in rows if row.get("set") == "reserve"][-1:]
     if tranche == "smoke":
-        return smoke
+        return [row["id"] for row in rows if row.get("set") == "smoke"]
     if tranche == "redraw":
-        return [row["id"] for row in rows if row.get("tier") and row["id"] not in smoke]
+        return [package["id"] for package in ladder.packages(rows)]
     return [task["id"] for task in chosen(study)]
 
 
 def require_tasks(study, tranche, tasks, kind="first"):
-    """{task: fix commit}; refuse tasks outside the tranche (or outside its retest tasks)."""
+    """{package: fix commit}; refuse tasks outside the tranche (or outside its retest tasks)."""
     allowed = tranche_tasks(study, tranche)
     if kind == "retest":
         allowed = allowed[:RETESTS[tranche]]
     if not tasks or set(tasks) - set(allowed):
         raise SystemExit(f"{tranche} {kind} takes tasks among {allowed}, not {sorted(set(tasks) - set(allowed))}")
-    return {row["id"]: row["commit"] for row in task_rows(study)}
+    return ladder.fix_commits(task_rows(study))
 
 
 def load_arms(study):

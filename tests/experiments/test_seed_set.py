@@ -198,10 +198,22 @@ def test_pool_records_join_clones_and_unrated_runs_by_clone_id():
         "runs": [{"run": "/r/1", "arm": "direct", "excluded": None, "failure": None},
                  {"run": "/r/2", "arm": "direct", "excluded": None, "failure": {"code": "provider_timeout"}},
                  {"run": "/r/3", "arm": "direct", "excluded": "contaminated: x", "failure": None}]}
-    records, _ = gates.pool_records("t", "first", results, {"c1": "a", "c2": "b", "c3": "c"}, {"direct": H})
+    hashes = {"c1": "a", "c2": "b", "c3": "c"}
+    records, _ = gates.pool_records("t", "first", results, hashes, {"direct": H}, {H: hashes})
     assert [(r["role"], r["run"], r["status"], r["scores"]) for r in records] == [
         ("base", None, "rated", {H: 0}), ("reference", None, "rated", {H: 8}), ("candidate", "/r/1", "rated", {H: 6}),
         ("candidate", "/r/2", "failed", {}), ("candidate", "/r/3", "excluded", {})]
+
+
+def test_a_rating_of_another_patch_than_the_pooled_one_is_refused():
+    results = {"excluded_judges": {}, "runs": [], "clones": {
+        "c1": {"arm": "anchor", "labels": ["t-base"], "run": None, "hidden": 0.5, "ratings": {H: {"quality": 0}}},
+        "c2": {"arm": "direct", "labels": ["final"], "run": "/r/1", "hidden": 1.0,
+               "ratings": {H: {"quality": 6}, S: {"quality": 7}}}}}
+    hashes = {"c1": "a", "c2": "c"}
+    records, _ = gates.pool_records("t", "first", results, hashes, {"direct": H}, {H: {"c1": "a", "c2": "x"},
+                                                                                   S: hashes})
+    assert ([r["scores"] for r in records], len(gates.binding_failures(records))) == ([{H: 0}, {S: 7}], 1)
 
 
 def test_an_unexpected_anchor_is_refused():

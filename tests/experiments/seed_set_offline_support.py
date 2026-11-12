@@ -27,6 +27,9 @@ slug = re.sub(r"[^A-Za-z0-9]", "-", os.getcwd())
 session = Path(os.environ["HOME"]) / ".claude" / "projects" / slug / f"{{os.getpid()}}.jsonl"
 session.parent.mkdir(parents=True, exist_ok=True)
 session.write_text(json.dumps({{"type": "assistant", "message": {{"model": model}}}}) + "\\n")
+if os.environ.get("SEED_SET_WITHHELD"):  # the sandbox clears it: an agent must never see the withheld tests' path
+    with session.open("a") as log:
+        log.write(json.dumps({{"type": "assistant", "message": {{"model": model, "withheld_seen": True}}}}) + "\\n")
 
 def changed(repo):
     status = subprocess.run(["git", "-C", repo, "diff", "--quiet", "HEAD"]).returncode
@@ -58,3 +61,21 @@ else:
     result = {{"summary": f"attempt {{attempt}}", "account": "applied the reference fix" if fixes else "none"}}
 Path(re.findall(r"^- path: (.+)$", prompt, re.M)[-1]).write_text(json.dumps(result))
 """
+
+
+def manifest_rows(sizes, smoke=True):
+    """tasks.jsonl rows in the builder's format for a synthetic ladder: `sizes` maps tier to its number of tasks.
+    T1 to T4 rows carry a check-withheld twin (`withheld_id` `<tier>w-<k>`), T5 rows are withheld only, T0 rows are
+    variants of the T1 rows (the same commits), the first four of each tier are probe tasks, and an extra T2 row
+    is the smoke task."""
+    rows = []
+    for tier, count in sizes.items():
+        for k in range(count):
+            commit = f"{'T1' if tier == 'T0' else tier}{k:02d}".ljust(40, "0")
+            rows.append({"id": f"{tier}-{k:02d}", "tier": tier, "form": "withheld" if tier == "T5" else "in_tree",
+                         "withheld_id": f"{tier}w-{k:02d}" if tier in ("T1", "T2", "T3", "T4") else None,
+                         "probe": k < 4, "set": "ladder", "commit": commit})
+    if smoke:
+        rows.append({"id": "smoke", "tier": "T2", "form": "in_tree", "withheld_id": "smoke-withheld", "probe": False,
+                     "set": "smoke", "commit": "s" * 40})
+    return rows

@@ -42,3 +42,15 @@ may be no more top-level sessions than physical calls, and any model outside the
 cannot see a session written inside the unit's tree or its `/tmp` (indistinguishable from the repository's own
 test fixtures), a session kept only in memory (`/dev/shm`, `--no-session-persistence`), or a direct API request
 made with the sandbox's copied credential; the model pin and `COMPARE_MAX_CALLS` remain the bound there.
+
+**Network** (coordinator ruling 4, 2026-11-12): a candidate can reach the network. The comparison harness's sandbox
+does not unshare it, so an agent could fetch the fix if the repository is public (unverified); the contamination
+scan matches the fix's commit hash in a run's transcripts and patches, not the fix's content. The readout states
+this limit (`readout.LIMITS`); the sandbox is not changed for this study.
+
+**Check-withheld runs.** For a package with `withheld/`, the runner copies those test files into the run's records
+directory (outside the agents' tree and the sandbox) and names the copy in `SEED_SET_WITHHELD` for the launch;
+`dev_check.py`, a host-side command boundary, inherits it, places the files for each check and removes them. The
+sandbox clears its environment, so an agent never sees the path. No program gives a command step a timeout (a
+test holds that none is below dev-check.json's 600 s), since the orchestrator SIGKILLs a timed-out step and would
+leave the test files in the tree.

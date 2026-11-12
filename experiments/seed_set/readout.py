@@ -1,13 +1,18 @@
 """The seed-set calibration readout: `report` (a JSON-ready dict) and `markdown` (results/readout.md).
 
 `report` takes the gate records (`gates.pool_records` over the pools' results.json), the runs' study.json facts
-keyed by records path, and the spend totals. Anchors are checked first; when any check fails the report holds
-measure-free figures only (runs, outcomes, calls, wall clock, visible-check passes, spend) and no score.
+keyed by records path, and the spend totals. Anchors and the binding of every rating to the patch its judge read
+are checked first; when any check fails the report holds measure-free figures only (runs, outcomes, calls, wall
+clock, visible-check passes, spend) and no score. `LIMITS` are stated on every readout.
 """
 
 from statistics import mean
 
 from experiments.seed_set import gates, ladder, selection
+
+LIMITS = ("the plan's size section; 12 to 16 tasks support differences of about a point, not an ordering. A "
+          "candidate can reach the network (the sandbox does not unshare it; whether the repository is public is "
+          "unverified); the contamination scan matches the fix's commit hash, not its content")
 
 
 def measure_free(runs):
@@ -69,7 +74,8 @@ def rungs(names):
 def report(records, pools, tasks, retests, rungs, runs, totals, programs, planned):
     """`programs` maps each arm to its program's {"source", "lines"}; `planned` counts the gated tranches' runs."""
     out = {"tasks": tasks, "retest_tasks": retests, "rungs": rungs, "spend": totals, "programs": programs,
-           "measure_free": measure_free(runs), "anchor_failures": gates.anchor_failures(records, pools, tasks),
+           "measure_free": measure_free(runs),
+           "anchor_failures": gates.anchor_failures(records, pools, tasks) + gates.binding_failures(records),
            "missing_pools": gates.missing_pools(pools, tasks, retests), "unusual_runs": unusual_runs(runs, tasks),
            "calibration": None, "baselines": None}
     if out["anchor_failures"]:
@@ -148,7 +154,7 @@ def markdown(r):
               for u in r["unusual_runs"]] + ["", "## Anchors", ""]
     if r["anchor_failures"]:
         return "\n".join(lines + [f"- {f}" for f in r["anchor_failures"]]
-                         + ["", "An anchor check failed: no quality number is reported."]) + "\n"
+                         + ["", "An anchor check failed: no quality number is reported.", "", f"Limits: {LIMITS}."]) + "\n"
     lines += ["Every pool holds an unchanged base and the reference fix, both rated; hidden tests fail the base and "
               "pass the reference.", "", "## Judge gate", ""] + judge_lines(r["calibration"]["judges"])
     c = r["calibration"]
@@ -168,6 +174,5 @@ def markdown(r):
                   f"{fmt(b['Q3_calls'])} calls; random-of-3 {fmt(b['random_of_3'])}; any-of-3 {fmt(b['any_of_3'])}; "
                   f"visible check failed in {fmt(b['visible_fail_rate'])} of direct runs."]
     decision = c["decision"] + (f"; {c['v4_note']}" if c.get("v4_note") else "")
-    lines += ["", f"Decision: {decision}.", "",
-              "Limits: the plan's size section; 12 to 16 tasks support differences of about a point, not an ordering."]
+    lines += ["", f"Decision: {decision}.", "", f"Limits: {LIMITS}."]
     return "\n".join(lines) + "\n"

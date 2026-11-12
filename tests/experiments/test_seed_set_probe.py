@@ -10,11 +10,11 @@ import pytest
 
 from experiments.compare.repos import load
 from experiments.seed_set import host, ladder, layout, probing, rules, spend, study
+from tests.experiments.seed_set_offline_support import manifest_rows
 
 H, S = spend.HAIKU, spend.SONNET
 ROOT = Path(__file__).resolve().parents[2]
-SIZES = {"T0": 8, "T1": 12, "T2": 12, "T3": 12, "T4": 12, "T5": 8, "T6": 8, "T1w": 12, "T2w": 12, "T3w": 12,
-         "T4w": 12}
+SIZES = {"T0": 8, "T1": 12, "T2": 12, "T3": 12, "T4": 12, "T5": 8}
 
 
 @pytest.fixture
@@ -24,9 +24,7 @@ def s(tmp_path, monkeypatch):
     shutil.copytree(ROOT / layout.PROGRAMS, runtime / layout.PROGRAMS, ignore=shutil.ignore_patterns("__pycache__"))
     for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "rt"]):
         subprocess.run(["git", "-C", str(runtime), *args], check=True)
-    rows = [{"id": f"{rung}-{k:02d}", "tier": ladder.tier_form(rung)[0], "form": ladder.tier_form(rung)[1],
-             "set": "drawn", "commit": "f" * 40} for rung, n in SIZES.items() for k in range(n)]
-    rows.append({"id": "smoke", "set": "reserve", "commit": "f" * 40})
+    rows = manifest_rows(SIZES)
     (tmp_path / "tasks.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
     criterion = tmp_path / "judge-calibration.json"
     criterion.write_text(json.dumps({"judges": [H, S], "rubric": layout.RUBRIC}))
@@ -61,9 +59,9 @@ def test_the_first_probe_is_the_flat_five(s):
     assert probing.answer(s) == {"phase": "first", "bisect": False, "probe": ["T1", "T2", "T3", "T4", "T5"]}
 
 
-def test_a_smoke_that_calls_for_bisection_starts_at_the_middle_of_t0_to_t6(s):
+def test_a_smoke_that_calls_for_bisection_starts_at_the_middle_of_t0_to_t5(s):
     spend.record(s.ledger, "smoke", passed=True, bisect=True)
-    assert probing.answer(s)["probe"] == ["T3"]
+    assert probing.answer(s)["probe"] == ["T2"]
 
 
 def test_a_tier_in_band_writes_the_chosen_tasks_and_their_hash(s):
@@ -83,7 +81,8 @@ def test_the_chosen_tasks_become_the_calibration_tasks(s):
 
 def test_tiers_straddling_the_band_split_ten_and_ten(s):
     probed(s, "first", {"T1": 4, "T2": 4, "T3": 4, "T4": 0, "T5": 0})
-    assert ladder.choose(layout.task_rows(s), probing.answer(s), probing.results(s, "first")[0], 0.0)[9:11] == [
+    assert ladder.choose(layout.task_rows(s), probing.answer(s), probing.results(s, "first")[0], 0.0,
+                         ladder.FLAT)[9:11] == [
         ("T3-09", "T3"), ("T4-00", "T4")]
 
 
@@ -94,7 +93,7 @@ def test_agents_running_the_test_themselves_switch_the_chosen_tier_to_withheld(s
 
 def test_all_too_easy_bisects_the_easy_extension(s):
     probed(s, "first", dict.fromkeys(ladder.FLAT, 4))
-    assert probing.answer(s) == {"phase": "extension", "first": "all_easy", "probe": ["T3w"]}
+    assert probing.answer(s) == {"phase": "extension", "first": "all_easy", "probe": ["T2w"]}
 
 
 def test_all_too_hard_waits_for_the_transcripts_and_writes_no_list(s):
@@ -125,7 +124,7 @@ def test_runs_a_fault_failed_become_incidents_and_count_toward_the_stop_rule(s):
 
 def test_an_extension_that_still_misses_stops_every_later_start(s):
     probed(s, "first", dict.fromkeys(ladder.FLAT, 4))
-    probed(s, "extension", {"T3w": 4, "T4w": 4, "T6": 4})
+    probed(s, "extension", {"T2w": 4, "T3w": 4, "T4w": 4})
     probing.probe_readout(s)
     with pytest.raises(SystemExit, match="the whole ladder missed"):
         spend.reserve(s.ledger, "calibration", "candidate", H, 1, "/w/x", {spend.AUTHORIZATION: "calibration"})
@@ -133,13 +132,13 @@ def test_an_extension_that_still_misses_stops_every_later_start(s):
 
 def test_an_extension_in_band_chooses_from_the_extension_rungs(s):
     probed(s, "first", dict.fromkeys(ladder.FLAT, 4))
-    probed(s, "extension", {"T3w": 2})
-    assert {t["rung"] for t in probing.probe_readout(s)["chosen"]} >= {"T3w"}
+    probed(s, "extension", {"T2w": 2})
+    assert {t["rung"] for t in probing.probe_readout(s)["chosen"]} == {"T2w", "T3w"}  # the unprobed tie: harder
 
 
 def test_the_extension_is_used_once_nothing_more_probes_after_its_answer(s):
     probed(s, "first", dict.fromkeys(ladder.FLAT, 4))
-    probed(s, "extension", {"T3w": 2})
+    probed(s, "extension", {"T2w": 2})
     probing.probe_readout(s)
     with pytest.raises(SystemExit, match="nothing to probe now"):
         probing.probe(s)
@@ -170,11 +169,11 @@ def test_the_probe_is_charged_to_the_redraw_cap_only(s, monkeypatch):
 
 def test_budget_arithmetic_fits_the_caps():
     caps, tasks = spend.CAPS, ladder.CALIBRATION_TASKS
-    assert ((len(ladder.FLAT) + len(ladder.EASY_EXTENSION)) * ladder.PROBE_TASKS,
-            tasks * layout.PLANNED["calibration"]["direct"], tasks * layout.PLANNED["calibration"]["direct_sonnet"],
-            tasks + layout.RETESTS["calibration"]) == (
-        caps["redraw"]["candidate"][H], caps["calibration"]["candidate"][H], caps["calibration"]["candidate"][S],
-        caps["calibration"]["judge"][H])  # 40, 80, 20, 30: the early look judges three of the 20 first pools
+    worst_probe = (len(ladder.FLAT) + max(len(ladder.EASY_EXTENSION), len(ladder.HARD_EXTENSION))) * ladder.PROBE_TASKS
+    assert (worst_probe <= caps["redraw"]["candidate"][H], tasks * layout.PLANNED["calibration"]["direct"],
+            tasks * layout.PLANNED["calibration"]["direct_sonnet"], tasks + layout.RETESTS["calibration"]) == (
+        True, caps["calibration"]["candidate"][H], caps["calibration"]["candidate"][S],
+        caps["calibration"]["judge"][H])  # 36 <= 40, 80, 20, 30: the early look judges three of the 20 first pools
 
 
 def test_the_41st_probe_call_refuses(s):
@@ -237,10 +236,27 @@ def test_the_first_wave_runs_two_at_a_time():
         [(2, [1, 2]), (4, [3, 4, 5])], [(4, [1, 2, 3])])
 
 
-def test_a_withheld_package_names_its_tests_for_the_check_only(tmp_path):
-    (tmp_path / "withheld" / "tests").mkdir(parents=True)
-    assert (study.launch_env(H, 1, tmp_path)["SEED_SET_WITHHELD"], "SEED_SET_WITHHELD" in study.launch_env(H, 1)) == (
-        str(tmp_path / "withheld"), False)
+def test_a_withheld_package_names_its_staged_tests_for_the_check_only(tmp_path):
+    (tmp_path / "pkg" / "withheld" / "tests").mkdir(parents=True)
+    (tmp_path / "pkg" / "withheld" / "tests" / "test_v.py").write_text("def test_v(): pass\n")
+    (tmp_path / "records").mkdir()
+    staged = study.stage_withheld(tmp_path / "pkg", tmp_path / "records")
+    assert (study.launch_env(H, 1, staged)["SEED_SET_WITHHELD"], (staged / "tests" / "test_v.py").is_file(),
+            "SEED_SET_WITHHELD" in study.launch_env(H, 1), study.stage_withheld(tmp_path / "in-tree", tmp_path)) == (
+        str(tmp_path / "records" / "withheld"), True, False, None)
+
+
+def test_a_short_draw_records_its_open_points_and_writes_no_list(s):
+    probed(s, "first", {"T1": 4, "T2": 4, "T3": 4, "T4": 4, "T5": 2})  # T5 (8) filled from T4 (12): 20 here
+    rows = layout.task_rows(s)
+    for row in rows:
+        row["rejected"] = "short" if row["tier"] == "T4" and row["id"] >= "T4-06" else row.get("rejected")
+    s.tasks_file.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    with pytest.raises(SystemExit, match="coordinator rules"):
+        probing.probe_readout(s)
+    row = spend.latest(spend.rows(s.ledger), "probe_readout")
+    assert ((s.results / layout.CHOSEN).exists(), row["drawn"], [o.split()[0] for o in row["open"]]) == (
+        False, 14, ["V1", "V2", "retests:", "G4"])
 
 
 def test_the_host_checks_a_withheld_package_through_its_in_tree_view(tmp_path):

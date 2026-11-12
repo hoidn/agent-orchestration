@@ -23,10 +23,11 @@ from types import SimpleNamespace
 import pytest
 
 from experiments.compare.repos import sha256_file
-from experiments.seed_set import host, layout, probing, rules, spend, study
+from experiments.seed_set import forms, host, layout, probing, rules, spend, study
 from tests.experiments.compare_harness_support import (
     OUTSIDE_SANDBOX_MOUNTS, commit, git, open_up, skip_without_sandbox, write_test_sandbox_config,
 )
+from tests.agent_session_shims import closed_path
 from tests.experiments.seed_set_offline_support import STUB
 
 REPO = Path(__file__).resolve().parents[2]
@@ -39,7 +40,7 @@ BASE = {"pkg/__init__.py": "", "pkg/calc.py": "".join(f"def {f}(a, b):\n    {bod
 # id: (function, fix, visible check, hidden checks (the last passes on the base too), set, Haiku's first fixing attempt)
 TASKS = {"a0a0a0a0a0": ("add", "return a + b", "add(2, 3) == 5", "add(10, 5) == 15", "add(0, 0) == 0", "drawn", 1),
          "b1b1b1b1b1": ("mul", "return a * b", "mul(2, 3) == 6", "mul(4, 5) == 20", "mul(2, 2) == 4", "drawn", None),
-         "c2c2c2c2c2": ("sub", "return a - b", "sub(3, 1) == 2", "sub(5, 3) == 2", "sub(0, 0) == 0", "reserve", 2),
+         "c2c2c2c2c2": ("sub", "return a - b", "sub(3, 1) == 2", "sub(5, 3) == 2", "sub(0, 0) == 0", "smoke", 2),
          "d3d3d3d3d3": ("mx", "return max(a, b)", "mx(2, 3) == 3", "mx(5, 1) == 5", "mx(2, 2) == 2", "drawn", 1),
          "e4e4e4e4e4": ("mn", "return min(a, b)", "mn(2, 3) == 2", "mn(5, 1) == 1", "mn(2, 2) == 2", "drawn", None)}
 DRAWN, SMOKE = ["a0a0a0a0a0", "b1b1b1b1b1"], "c2c2c2c2c2"
@@ -82,7 +83,7 @@ def write_task(root, task, base, fix, task_repo, row):
     for relative, text in files.items():
         (package / relative).parent.mkdir(parents=True, exist_ok=True)
         (package / relative).write_text(text)
-    tier = {"tier": "T3", "form": "in-tree"} if listed == "drawn" else {}
+    tier = {"tier": "T3", "form": "in_tree", "probe": True, "withheld_id": None} if listed == "drawn" else {}
     return {"id": task, "set": listed, "commit": fix, "base_commit": base, **tier}, {
         "marker": f"Make {name} correct.", "patch": upstream, "visible": argv, "fix": {H: haiku, S: 1}}
 
@@ -119,7 +120,8 @@ def world(tmp_path, monkeypatch):
                                             environment_names=("SEED_SET_STUB_PLAN",))
     empty = tmp_path / "empty-home"
     empty.mkdir()
-    for key, value in {"COMPARE_SANDBOX": declaration, "SEED_SET_STUB_PLAN": stub_plan, "HOME": empty,
+    for key, value in {"PATH": closed_path(fakebin), "COMPARE_SANDBOX": declaration, "SEED_SET_STUB_PLAN": stub_plan,
+                       "HOME": empty,
                        "CODEX_HOME": empty / ".codex", "CLAUDE_CONFIG_DIR": empty / ".claude"}.items():
         monkeypatch.setenv(key, str(value))
     for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
@@ -131,7 +133,7 @@ def world(tmp_path, monkeypatch):
     s = study.Study(runtime, outside / "work", outside / "pools", tmp_path / "results",
                     tmp_path / "seedset" / "tasks.jsonl", criterion, tmp_path / "state", min_free=10**9)
     rules.record_freeze(s)
-    yield SimpleNamespace(study=s, fixes=fixes)
+    yield SimpleNamespace(study=s, fixes=fixes, plan=stub_plan)
     open_up(outside)
     shutil.rmtree(outside)
     shutil.rmtree(runtime)
@@ -278,3 +280,25 @@ def test_offline_probe_of_one_rung_runs_hidden_tests_and_detects_self_checks(wor
         "candidate"][H]) == ({("redraw", H, 1, "first")}, {"reserved": 4, "cap": 40, "made": 4})
     with pytest.raises(SystemExit, match="nothing to probe now"):
         probing.probe(s, ["T3"])
+
+
+def test_offline_withheld_check_runs_through_a_real_launch_and_leaves_no_test_behind(world, monkeypatch):
+    """A check-withheld package behind the real shims, sandbox and orchestrator: its test files are staged in the run's
+    records, dev_check.py places them for each check and removes them, the agent never sees their path, and the
+    final patch is the fix alone. Haiku fixes `sub` from its second attempt: implement-check-repair makes two calls
+    only if the second check found the test and passed."""
+    s, task = world.study, f"{SMOKE}-withheld"
+    forms.withhold(study.task_dir(s, SMOKE), study.task_dir(s, task))
+    plan_file = Path(world.plan)
+    plan = json.loads(plan_file.read_text())
+    plan["tasks"][task] = {**plan["tasks"][SMOKE], "marker": "sub is correct.", "visible": [sys.executable, "-c", ""]}
+    plan_file.write_text(json.dumps(plan))
+    monkeypatch.setenv(spend.AUTHORIZATION, "smoke")
+    spec = layout.load_arms(s)["implement_check_repair"]
+    records, facts = study.one_run(s, "smoke", "implement_check_repair", spec, task, world.fixes[SMOKE], limit=1)
+    home = Path(json.loads((records / "record.json").read_text())["sandbox"]["home"])
+    patch = Path(facts["final_patch"]).read_text()
+    assert (facts["outcome"], facts["calls"], facts["visible"]["passed"], (records / "withheld").is_dir(),
+            [line for line in patch.splitlines() if line.startswith("diff --git")],
+            any("withheld_seen" in p.read_text() for p in home.rglob("*.jsonl"))) == (
+        "completed", 2, True, True, ["diff --git a/pkg/calc.py b/pkg/calc.py"], False)

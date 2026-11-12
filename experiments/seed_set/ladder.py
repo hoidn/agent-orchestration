@@ -1,46 +1,82 @@
 """The difficulty ladder's pure rules (plan, "Probable calibration failures and the response to each": Difficulty
 ladder, Check-withheld form, Ladder probe, If the whole ladder misses, Bisection instead of the flat probe).
 
-A rung is a tier in one form: `T0` to `T6` in the tier's own form (T5 and T6 check-withheld, the others in-tree)
-or `T1w` to `T4w` (T1 to T4 in the check-withheld form). The ladder is ordered from easy to hard. Probe results are
-{rung: passes} over the rung's four probe tasks (its first four tasks in seed order); a pass is a run whose
-final patch passes the task's whole hidden set.
+A rung is a tier in one form: `T0` to `T5` in the tier's own form (T5 check-withheld, the others in-tree) or `T1w`
+to `T4w` (T1 to T4 in the check-withheld form). T6 is dropped as a rung (coordinator ruling 2, 2026-11-12: its one
+task cannot be probed with four), so the extension upward ends at T5. The ladder is ordered from easy to hard.
+
+`packages` reads the manifest (`tasks.jsonl`: per row `tier`, `form` "in_tree" | "withheld", `withheld_id`,
+`probe`, `set`, `rejected`, `commit`, `commits`) into one entry per usable package in seed order: a rejected row,
+the smoke's row (`set` "smoke") and every package sharing a commit with the smoke are left out. A rung's probe
+tasks are its packages whose row carries `probe` (the builder flags the first four of each tier in seed order).
+Probe results are {rung: passes} over the rung's four probe tasks; a pass is a run whose final patch passes the
+task's whole hidden set.
 
 `table` applies the flat probe's table, `next_rung` the bisection; both return an answer: {"probe": [rungs]},
 {"chosen": rung}, {"split": [easier, harder]}, or {"miss": "all_easy" | "all_hard"}. `choose` turns a chosen or
-split answer into the calibration's 20 tasks, by rung and seed order only. `ran_visible_test` is the detector of
-an agent running the visible test itself. Depends on nothing outside the standard library.
+split answer into the calibration's tasks, by rung and seed order only, never the same commit twice; `scaling`
+states the plan's count thresholds for the number drawn and the points the plan leaves open. `ran_visible_test`
+is the detector of an agent running the visible test itself. Depends on nothing outside the standard library.
 """
 
 import fnmatch
 import json
+import math
 import re
 import shlex
 from pathlib import Path
 
-LADDER = ("T0", "T1", "T2", "T3", "T4", "T5", "T6")
+LADDER = ("T0", "T1", "T2", "T3", "T4", "T5")
 FLAT = ("T1", "T2", "T3", "T4", "T5")
-EASY_EXTENSION = ("T1w", "T2w", "T3w", "T4w", "T6")  # every rung too easy: the agent loses its test, or T6
+EASY_EXTENSION = ("T1w", "T2w", "T3w", "T4w")  # every rung too easy: the agent loses its test
 HARD_EXTENSION = ("T0", "T1")  # every rung too hard: the hinted T0, and T1 again
 IN_TREE, WITHHELD = "in-tree", "check-withheld"
+WITHHELD_TIERS = ("T5",)  # built in the check-withheld form only
 PROBE_TASKS, CALIBRATION_TASKS, SPLIT = 4, 20, 10
 SELF_CHECK_SHARE = 0.80
 BISECT_WALL_SEC, BISECT_COST_USD = 15 * 60, 0.50  # a median direct run above either: bisect from the start
+# The plan's count thresholds as shares of its 20 tasks (V1 18, V2 17, G1 12), scaled down as the plan scales them
+# for 30 (V1 27, V2 25 of 30: rounded down); minimum sample sizes (V4's 15 per class) are not scaled.
+COUNTS = {"V1": 0.90, "V2": 0.85, "G1": 0.60}
+RETESTS, MAX_JUDGE_EXCLUSIONS, V4_MIN_PER_CLASS = 10, 2, 15
+
+
+def commits(row):
+    return set(row.get("commits") or [row["commit"]])
+
+
+def packages(rows):
+    """[{"id", "rung", "commits", "probe"}] of every usable package in seed order (both forms of a row)."""
+    smoke = set().union(*(commits(row) for row in rows if row.get("set") == "smoke"))
+    found = []
+    for row in rows:
+        if row.get("tier") not in LADDER or row.get("rejected") or row.get("set") == "smoke" or commits(row) & smoke:
+            continue
+        own = row["tier"] + ("w" if row["form"] == "withheld" and row["tier"] not in WITHHELD_TIERS else "")
+        found.append({"id": row["id"], "rung": own, "commits": commits(row), "probe": bool(row.get("probe"))})
+        if row.get("withheld_id"):
+            found.append({"id": row["withheld_id"], "rung": f"{row['tier']}w", "commits": commits(row),
+                          "probe": bool(row.get("probe"))})
+    return found
+
+
+def fix_commits(rows):
+    """{package id: the fix's (last) commit} over both forms of every row."""
+    return {pid: row["commit"] for row in rows for pid in (row["id"], row.get("withheld_id")) if pid}
 
 
 def tier_form(rung):
     tier = rung.rstrip("w")
-    return tier, WITHHELD if rung.endswith("w") or tier in ("T5", "T6") else IN_TREE
+    return tier, WITHHELD if rung.endswith("w") or tier in WITHHELD_TIERS else IN_TREE
 
 
 def rung_tasks(rows, rung):
-    """The rung's task ids in seed order (the order of tasks.jsonl)."""
-    tier, form = tier_form(rung)
-    return [row["id"] for row in rows if row.get("tier") == tier and row.get("form") == form]
+    """The rung's package ids in seed order (the order of tasks.jsonl)."""
+    return [p["id"] for p in packages(rows) if p["rung"] == rung]
 
 
 def probe_tasks(rows, rung):
-    return rung_tasks(rows, rung)[:PROBE_TASKS]
+    return [p["id"] for p in packages(rows) if p["rung"] == rung and p["probe"]]
 
 
 def order(rungs):
@@ -92,27 +128,55 @@ def withheld_rung(rung):
     return f"{rung}w" if rung in ("T1", "T2", "T3", "T4") else rung
 
 
-def choose(rows, answer, results, self_share, rungs=()):
-    """[(task, rung)] of the calibration's 20 tasks for a chosen or split answer, in seed order within each rung:
-    the chosen rung, then the probed and the searched `rungs` by distance from it (a tie: the one whose probe count is nearer 2, then the
-    harder); a split takes ten from each side first. With the agent running the visible test in 80% or more of
-    the in-tree probe runs, a chosen T1 to T4 rung is used in the check-withheld form."""
+def adjacent(rung, rungs, results):
+    """The neighbour of `rung` in the phase's ladder `rungs` that fills it (plan: "filled from the adjacent tier whose
+    count is nearer to 2"): an unprobed neighbour counts as farthest; a tie goes to the harder."""
+    ladder = order(set(rungs) | {rung})
+    at = ladder.index(rung)
+    near = [ladder[k] for k in (at - 1, at + 1) if 0 <= k < len(ladder)]
+    return min(near, key=lambda r: (abs(results[r] - 2) if r in results else PROBE_TASKS, -ladder.index(r)),
+               default=None)
+
+
+def choose(rows, answer, results, self_share, rungs):
+    """[(task, rung)] the calibration draws for a chosen or split answer: at most 20, in seed order within each rung,
+    never two packages of one commit. A split takes ten from each side; a chosen rung takes its tasks, filled from
+    its `adjacent` rung in the phase's `rungs` and from nowhere else (coordinator ruling 2: tier sizes are what they
+    are). With the agent running the visible test in 80% or more of the in-tree probe runs and a T1 to T4 rung in
+    the answer, every drawn rung is used in the check-withheld form."""
     first = answer.get("split") or [answer["chosen"]]
     switch = (self_share is not None and self_share >= SELF_CHECK_SHARE
               and any(r in ("T1", "T2", "T3", "T4") for r in first))
-    ladder = order(set(results) | set(first) | set(rungs))
-
-    def rank(rung):
-        distance = min(abs(ladder.index(rung) - ladder.index(f)) for f in first)
-        return distance, abs(results[rung] - 2) if rung in results else PROBE_TASKS, -ladder.index(rung)
-
-    picked, taken = [], set()
-    for rung, quota in [(r, SPLIT) for r in answer.get("split", [])] + [(r, None) for r in sorted(ladder, key=rank)]:
-        used = withheld_rung(rung) if switch else rung
-        new = [t for t in rung_tasks(rows, used) if t not in taken][:quota]
-        picked += [(t, used) for t in new]
-        taken.update(new)
+    plan = ([(r, SPLIT) for r in first] if "split" in answer
+            else [(first[0], None)] + [(r, None) for r in [adjacent(first[0], rungs, results)] if r])
+    by_id, picked, seen = {p["id"]: p for p in packages(rows)}, [], set()
+    for rung, quota in plan:
+        used, taken = withheld_rung(rung) if switch else rung, 0
+        for task in rung_tasks(rows, used):
+            if taken != quota and not by_id[task]["commits"] & seen:
+                picked.append((task, used))
+                seen |= by_id[task]["commits"]
+                taken += 1
     return picked[:CALIBRATION_TASKS]
+
+
+def scaling(n):
+    """The plan's count thresholds for `n` drawn tasks and the points it leaves open. Counts scale down from 20
+    (rounded down, as the plan's 25 of 30 for V2); `open` names every point where the plan does not determine the
+    value: the rounding where rounding down and rounding to nearest differ, and below 20 tasks the number of retest
+    tasks and the judge-exclusion bound of G4. The calibration does not start while a point is open."""
+    out, open_ = {"tasks": n, "V4_min_per_class": V4_MIN_PER_CLASS}, []
+    for name, share in COUNTS.items():
+        down, nearest = math.floor(share * n + 1e-9), math.ceil(share * n - 0.5 - 1e-9)
+        out[f"{name}_need"] = down
+        if nearest != down:
+            open_.append(f"{name} rounding: {down} (down) or {nearest} (nearest) of {n}")
+    out["retests"] = RETESTS if n == CALIBRATION_TASKS else None
+    out["max_judge_exclusions"] = MAX_JUDGE_EXCLUSIONS if n == CALIBRATION_TASKS else None
+    if n < CALIBRATION_TASKS:
+        open_ += [f"retests: the first {min(RETESTS, n)} or half ({n // 2} or {-(-n // 2)}) of {n}",
+                  f"G4 judge exclusions: at most {MAX_JUDGE_EXCLUSIONS} pools, or scaled to {n} tasks"]
+    return out | {"open": open_}
 
 
 OPTIONS_WITH_VALUE = {"-k", "-m", "-p", "-c", "-o", "-n", "-W", "--tb", "--rootdir", "--deselect", "--ignore",
