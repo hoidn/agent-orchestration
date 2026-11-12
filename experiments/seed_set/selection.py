@@ -93,10 +93,10 @@ def rules(name, arm, direct, rerolled):
 
 def select_seeds(arms, rerolled):
     """`arms` maps name to {"tasks": {task: mean score}, "completed", "calls", "tokens" or None, "distinctive",
-    "parity", "lines"}; "direct" is the reference and a seed while within the line limit. Returns the seeds and
-    every arm's report."""
+    "parity", "lines"}; "direct" is the reference and always in the set (plan), its line count reported. Returns
+    the seeds and every arm's report."""
     direct = arms["direct"]
-    reports, seeds = {}, ["direct"] if direct["lines"] < MAX_PROGRAM_LINES else []
+    reports, seeds = {"direct": {"lines": direct["lines"]}}, ["direct"]
     for name, arm in arms.items():
         if name == "direct":
             continue

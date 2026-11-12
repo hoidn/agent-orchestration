@@ -35,3 +35,10 @@ program and runs it through the public CLI with a scripted `claude` and the
 real boundaries: result values, call counts on the pass and fail paths, the
 distinctive step, the bound, the bound model and effort on every call, and a
 resume after the orchestrator is killed inside a call.
+
+**Runner limits** (`../study.py`, `../units.py`). After each candidate run and judgment the runner audits the
+unit's whole private home: every session-shaped `.jsonl` must sit under the unit's own project directory, there
+may be no more top-level sessions than physical calls, and any model outside the binding stops the study. It
+cannot see a session written inside the unit's tree or its `/tmp` (indistinguishable from the repository's own
+test fixtures), a session kept only in memory (`/dev/shm`, `--no-session-persistence`), or a direct API request
+made with the sandbox's copied credential; the model pin and `COMPARE_MAX_CALLS` remain the bound there.

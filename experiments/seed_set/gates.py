@@ -107,14 +107,19 @@ def v2_reference_rank(records, judge, tasks):
 
 def v3_retest(records, judge, retest_tasks):
     """Retest clones matched to their first judgment by (task, role, run record, patch hash), never by position:
-    mean absolute difference <= 0.75 and at most 10% of clones differing by 2 or more."""
+    mean absolute difference <= 0.75 and at most 10% of clones differing by 2 or more, over every clone as the plan
+    says (anchors included); the candidate-only mean is reported beside it. A task whose two pools do not hold the
+    same clones, or whose pool is an incident, is missing and listed; V3 is computed over the rest (G4 bounds how
+    many pools a judge may lose)."""
     first = {(r["task"], r["role"], r["run"], r["patch"]): r["scores"].get(judge)
              for r in records if r["pool"] == "first" and r["status"] == "rated"}
-    diffs, missing = [], []
+    diffs, candidate, missing = [], [], []
     for task in retest_tasks:
         again = [r for r in records if r["pool"] == "retest" and r["task"] == task and r["status"] == "rated"]
-        if not again:
+        if not again or len(again) != sum(key[0] == task for key in first):
             missing.append(task)
+        if not any(key[0] == task for key in first):  # the first pool is an incident or missing
+            continue
         for r in again:
             key = (r["task"], r["role"], r["run"], r["patch"])
             if key not in first:
@@ -125,9 +130,11 @@ def v3_retest(records, judge, retest_tasks):
                 missing.append(task)
             else:
                 diffs.append(abs(pair[0] - pair[1]))
+                candidate += [abs(pair[0] - pair[1])] if r["role"] == "candidate" else []
     out = {"clones": len(diffs), "missing": sorted(set(missing)), "mean_abs": mean(diffs) if diffs else None,
-           "large_fraction": sum(d >= 2 for d in diffs) / len(diffs) if diffs else None}
-    return out | {"passed": bool(diffs) and not missing and out["mean_abs"] <= 0.75 and out["large_fraction"] <= 0.10}
+           "large_fraction": sum(d >= 2 for d in diffs) / len(diffs) if diffs else None,
+           "candidate_mean_abs": mean(candidate) if candidate else None}
+    return out | {"passed": bool(diffs) and out["mean_abs"] <= 0.75 and out["large_fraction"] <= 0.10}
 
 
 def v4_agreement(records, judge, tasks, minimum=15):
@@ -193,15 +200,17 @@ def policy_hits(records, pools):
 def task_gates(records, pools, judge, tasks):
     """G1-G4 on `judge`'s scores, with the hidden-test figure beside each."""
     table = task_table(records, judge, tasks)
-    haiku, sonnet = _mean_of(table, "haiku"), _mean_of(table, "sonnet")
+    paired = {t: row for t, row in table.items() if row["haiku"] is not None and row["sonnet"] is not None}
+    haiku, sonnet = _mean_of(paired, "haiku"), _mean_of(paired, "sonnet")
     rate_h, rate_s = _rate(table, "haiku"), _rate(table, "sonnet")
     survivors = [t for t in tasks if table[t]["survivor"]]
     runs = [r for r in records if r["pool"] == "first" and r["task"] in tasks and r["role"] == "candidate"]
     rated = sum(r["status"] == "rated" and r["scores"].get(judge) is not None for r in runs)
-    excluded = {j: sum(j in p["excluded_judges"] for p in pools) for j in JUDGES}
+    excluded = {j: sum(j in p["excluded_judges"] for p in pools if p["task"] in tasks) for j in JUDGES}
     gates = {
         "G1": {"survivors": len(survivors), "need": SURVIVORS_MIN, "passed": len(survivors) >= SURVIVORS_MIN},
-        "G2": {"haiku_mean": haiku, "haiku_pass_rate": rate_h, "passed": haiku is not None and 2.5 <= haiku <= 6.5},
+        "G2": {"haiku_mean": haiku, "haiku_pass_rate": rate_h, "tasks": len(paired),
+               "passed": haiku is not None and 2.5 <= haiku <= 6.5},
         "G3": {"gap": None if None in (haiku, sonnet) else sonnet - haiku,
                "pass_rate_gap": None if None in (rate_h, rate_s) else rate_s - rate_h},
         "G4": {"rated_fraction": rated / len(runs) if runs else None, "policy_hits": policy_hits(records, pools),
@@ -252,16 +261,22 @@ def anchor_failures(records, pools, tasks, judges=JUDGES):
     patch per task across its pools, and an integer rating of both by every judge not excluded there."""
     failures = []
     for pool in pools:
-        if pool["task"] in tasks:
+        if pool["task"] in tasks and "incident" not in pool:
             here = [r for r in records if (r["task"], r["pool"]) == (pool["task"], pool["pool"])]
             failures += pool_anchor_failures(pool, here, judges)
     for task in tasks:
         refs = {r["patch"] for r in records if r["task"] == task and r["role"] == "reference"}
         if len(refs) > 1:
             failures.append(f"{task}: its pools hold different reference patches")
-        if not any(p["task"] == task and p["pool"] == "first" for p in pools):
-            failures.append(f"{task}: no first pool")
     return failures
+
+
+def missing_pools(pools, tasks, retest_tasks):
+    """Gated pools that are incidents or were never summarized: their tasks count as missing in the gates."""
+    have = {(p["task"], p["pool"]): p for p in pools}
+    wanted = [(t, "first") for t in tasks] + [(t, "retest") for t in retest_tasks]
+    return {f"{t}/{k}": have[t, k]["incident"] if (t, k) in have else "not summarized"
+            for t, k in wanted if (t, k) not in have or "incident" in have[t, k]}
 
 
 def pool_anchor_failures(pool, here, judges):

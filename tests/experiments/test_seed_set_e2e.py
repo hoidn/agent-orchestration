@@ -9,6 +9,7 @@ program once on the reserve task `sub`, where Haiku fixes the bug from its secon
 """
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -18,7 +19,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from experiments.seed_set import spend, study
+from experiments.seed_set import host, layout, rules, spend, study
 from tests.experiments.compare_harness_support import (
     OUTSIDE_SANDBOX_MOUNTS, commit, git, open_up, skip_without_sandbox, write_test_sandbox_config,
 )
@@ -116,10 +117,12 @@ def world(tmp_path, monkeypatch):
                 "CLAUDE_CODE_OAUTH_TOKEN_FILE", spend.AUTHORIZATION):
         monkeypatch.delenv(key, raising=False)
     criterion = tmp_path / "judge-calibration.json"
-    criterion.write_text(json.dumps({"judges": [H, S], "rubric": study.RUBRIC, "primary": [], "secondary": []}))
-    yield SimpleNamespace(study=study.Study(runtime, outside / "work", outside / "pools", tmp_path / "results",
-                                            tmp_path / "seedset" / "tasks.jsonl", criterion, min_free=10**9),
-                          fixes=fixes)
+    criterion.write_text(json.dumps({"judges": [H, S], "rubric": layout.RUBRIC, "primary": [], "secondary": []}))
+    (tmp_path / "criterion.json").write_text(json.dumps({"frozen": "toy"}))  # the freeze's criterion, beside it
+    s = study.Study(runtime, outside / "work", outside / "pools", tmp_path / "results",
+                    tmp_path / "seedset" / "tasks.jsonl", criterion, tmp_path / "state", min_free=10**9)
+    rules.record_freeze(s)
+    yield SimpleNamespace(study=s, fixes=fixes)
     open_up(outside)
     shutil.rmtree(outside)
     shutil.rmtree(runtime)
@@ -141,9 +144,12 @@ def test_offline_calibration_runs_end_to_end_behind_the_real_shims(world, monkey
     s, tasks = world.study, DRAWN
     with pytest.raises(SystemExit, match="provider spend refused"):
         study.candidates(s, "calibration", "direct", tasks)
-    assert (s.work.exists(), s.ledger.exists()) == (False, False)  # unauthorized: nothing prepared or started
+    assert (s.work.exists(), spend.starts(spend.rows(s.ledger))) == (False, [])  # unauthorized: nothing started
 
     monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
+    with pytest.raises(SystemExit, match="no passed smoke"):
+        study.candidates(s, "calibration", "direct", tasks)
+    spend.record(s.ledger, "smoke", passed=True)  # the smoke itself is the next test
     study.candidates(s, "calibration", "direct", tasks)
     study.candidates(s, "calibration", "direct_sonnet", tasks)
     for kind in ("first", "retest"):
@@ -156,7 +162,7 @@ def test_offline_calibration_runs_end_to_end_behind_the_real_shims(world, monkey
     totals = study.ledger_report(s)["calibration"]
     assert {kind: {model: (row["reserved"], row.get("made")) for model, row in models.items()}
             for kind, models in totals.items()} == {"candidate": {H: (8, 8), S: (2, 2)}, "judge": {H: (4, 4), S: (4, 4)}}
-    assert calls_before_reservation(rows) == []
+    assert calls_before_reservation(spend.starts(rows)) == []
     assert study.candidates(s, "calibration", "direct", tasks) == [] and spend.rows(s.ledger) == rows  # no relaunch
 
     runs = [json.loads(path.read_text()) for path in study.study_runs(s)]
@@ -184,7 +190,12 @@ def test_offline_calibration_runs_end_to_end_behind_the_real_shims(world, monkey
     assert (report["anchor_failures"], c["selected"], c["judges"][H]["V3"]["clones"], c["judges"][H]["V3"]["mean_abs"],
             c["gates"]["G1"]["survivors"], c["gates"]["G2"]["haiku_mean"], c["gates"]["G3"]["gap"], c["decision"]) == (
         [], H, 14, 0, 0, 4, 4, "redraw")
-    assert "Decision: redraw." in (s.results / "readout.md").read_text()
+    (line,) = [x for x in (s.results / "readout.md").read_text().splitlines() if x.startswith("Decision:")]
+    assert (line.startswith("Decision: redraw"), "V4 (agreement with the hidden tests) was not assessed" in line) == (
+        True, True)  # 2 toy tasks: too few candidates per hidden class, and the decision says so
+    assert [e["event"] for e in study.ledger_report(s)["events"]] == ["freeze", "smoke", "decision"]
+    resume = next(s.work.glob("records/*/run-*/resume.sh"))
+    assert subprocess.run(["bash", str(resume)], capture_output=True).returncode == 64  # no unit ever resumes
 
 
 def test_offline_smoke_runs_every_program_once_behind_the_real_shims(world, monkeypatch):
@@ -208,3 +219,18 @@ def test_offline_smoke_runs_every_program_once_behind_the_real_shims(world, monk
     assert (len(results["clones"]), results["excluded_judges"],
             all(set(c["ratings"]) == {H, S} and c["hidden"] is not None for c in results["clones"].values())) == (
         7, {}, True)
+    assert rules.smoke_check(s)["passed"] is True
+    assert spend.latest(spend.rows(s.ledger), "smoke")["passed"] is True  # the calibration may now start
+
+
+def test_offline_visible_check_fails_a_patch_whose_code_calls_a_provider(world):
+    s, task = world.study, "a0a0a0a0a0"
+    package = study.task_dir(s, task)
+    upstream = (package / "anchors" / f"{task}-upstream.diff").read_text()
+    calling = re.sub(r"@@ -(\d+),(\d+) \+(\d+),(\d+) @@", lambda m: f"@@ -{m[1]},{m[2]} +{m[3]},{int(m[4]) + 1} @@",
+                     upstream).replace("+    return a + b", "+    __import__('subprocess').run(['claude', '-p', 'x'])\n"
+                                                         "+    return a + b")
+    patch = s.results / "calling.diff"
+    patch.parent.mkdir(parents=True)
+    patch.write_text(calling)
+    assert host.visible_check(package, patch, s.runtime)["provider_attempts"]

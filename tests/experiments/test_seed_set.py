@@ -260,5 +260,204 @@ def test_a_program_file_counts_every_physical_line(tmp_path):
     assert selection.program_lines(program) == 4
 
 
-def test_a_direct_program_at_the_line_limit_is_not_a_seed():
-    assert selection.select_seeds({"direct": {**DIRECT, "lines": 50}}, REROLLED)["seeds"] == []
+def test_direct_stays_in_the_set_as_the_reference_whatever_its_size():
+    result = selection.select_seeds({"direct": {**DIRECT, "lines": 50}}, REROLLED)
+    assert (result["seeds"], result["arms"]["direct"]["lines"]) == (["direct"], 50)
+
+
+def test_a_pool_incident_costs_its_task_and_suppresses_nothing_else():
+    records, pools = world()
+    records = [r for r in records if not (r["task"] == "t05" and r["pool"] == "first")]
+    pools = [p for p in pools if (p["task"], p["pool"]) != ("t05", "first")]
+    pools.append({"task": "t05", "pool": "first", "incident": "judge run failed", "excluded_judges": {H: "judge_failed"}})
+    tasks, retests = tasks_of()
+    result = gates.calibration(records, pools, tasks, retests)
+    assert (gates.anchor_failures(records, pools, tasks), gates.missing_pools(pools, tasks, retests),
+            result["judges"][H]["V1"]["missing"], result["gates"]["G4"]["judge_exclusions"][H]) == (
+        [], {"t05/first": "judge run failed"}, ["t05"], 1)
+
+
+def test_a_task_never_summarized_is_missing_not_a_global_anchor_failure():
+    records, pools = world()
+    tasks, retests = tasks_of()
+    assert (gates.anchor_failures(records, pools, tasks + ["t99"]),
+            gates.missing_pools(pools, tasks + ["t99"], retests)) == ([], {"t99/first": "not summarized"})
+
+
+def test_g2_and_g3_compare_only_tasks_with_both_arms():
+    records, pools = world()
+    for r in records:  # t00's Sonnet run is an incident; its Haiku runs must leave the means too
+        if r["task"] == "t00" and r["model"] == S:
+            r.update(status="incident", scores={})
+            r["scores"] = {}
+    for r in records:
+        if r["task"] == "t00" and r["model"] == H and r["pool"] == "first":
+            r["scores"] = {j: 8 for j in gates.JUDGES}
+    g = gates.task_gates(records, pools, H, tasks_of()[0])["gates"]
+    assert (g["G2"]["tasks"], g["G2"]["haiku_mean"], g["G3"]["gap"]) == (19, 3.75, 2.25)
+
+
+def test_a_retest_pool_missing_a_first_pool_clone_makes_its_task_missing():
+    records, _ = world()
+    records.remove(next(r for r in records if r["pool"] == "retest" and r["role"] == "candidate"))
+    assert gate(records)["V3"]["missing"] == ["t00"]
+
+
+def test_v3_reports_the_candidate_only_difference_beside_the_all_clone_one():
+    records, _ = world(retest_shift=1)
+    v3 = gate(records)["V3"]
+    assert (round(v3["mean_abs"], 3), v3["candidate_mean_abs"]) == (round(6 / 7, 3), 1)
+
+
+def test_g4_ignores_judge_exclusions_on_pools_outside_the_gated_tasks():
+    records, pools = world()
+    pools += [{"task": "smoke", "pool": "first", "excluded_judges": {S: "judge_failed"}}]
+    for pool in pools[:2]:
+        pool["excluded_judges"][S] = "judge_failed"
+    assert gates.task_gates(records, pools, H, tasks_of()[0])["gates"]["G4"]["passed"] is True
+
+
+def test_the_decision_states_when_v4_was_not_assessed_for_the_selected_judge():
+    from experiments.seed_set import readout
+    records, pools = world(passes=lambda s: True)
+    tasks, retests = tasks_of()
+    report = readout.report(records, pools, tasks, retests, False, {}, {}, {}, 100)
+    decision = readout.markdown(report).split("Decision: ", 1)[1].splitlines()[0]
+    assert ("V4" in decision and "not assessed" in decision, report["calibration"]["v4_note"] is not None) == (True, True)
+
+
+def test_the_decision_carries_no_v4_statement_when_v4_was_assessed():
+    from experiments.seed_set import readout
+    records, pools = world()
+    tasks, retests = tasks_of()
+    assert readout.report(records, pools, tasks, retests, False, {}, {}, {}, 100)["calibration"]["v4_note"] is None
+
+
+def test_incidents_over_a_tenth_of_the_planned_runs_make_the_decision_a_stop():
+    from experiments.seed_set import readout
+    records, pools = world()
+    tasks, retests = tasks_of()
+    runs = {f"r{k}": {"tranche": "calibration", "task": "t00", "arm": "direct", "outcome": "failed",
+                    "incident": "provider: 429"}
+            for k in range(11)}
+    decision = readout.report(records, pools, tasks, retests, False, runs, {}, {}, 100)["calibration"]["decision"]
+    assert decision.startswith("stop: 11 of 100 planned runs are incidents")
+
+
+def shifted(world_kwargs, edit):
+    records, pools = world(**world_kwargs)
+    for r in records:
+        edit(r)
+    return records, pools
+
+
+def test_v1_a_gap_of_exactly_four_counts():
+    records, _ = world(ref=5, base=1)
+    assert gate(records)["V1"]["met"] == 20
+
+
+def test_v1_a_mean_reference_of_exactly_six_passes():
+    records, _ = world(ref=6, base=0, haiku=(2, 2, 2, 2), sonnet=2)
+    assert gate(records)["V1"]["passed"] is True
+
+
+def test_v1_mean_base_exactly_one_passes_and_above_fails():
+    for base, passed in ((1, True), (2, False)):
+        records, _ = world(ref=8, base=base)
+        assert gate(records)["V1"]["passed"] is passed
+
+
+def test_v2_reference_equal_to_the_candidate_mean_counts():
+    records, _ = world(haiku=(6, 6, 6, 6), sonnet=6, ref=6)
+    assert gate(records)["V2"]["met"] == 20
+
+
+def v3_of(differences):
+    """V3 over ten retest tasks whose seventy clones differ from their first judgment by `differences`."""
+    records, _ = world(haiku=(4, 4, 4, 4), sonnet=4, ref=7, base=1)
+    retest = [r for r in records if r["pool"] == "retest"]
+    for r, d in zip(retest, differences):
+        r["scores"] = {j: v + d for j, v in r["scores"].items()}
+    return gate(records)["V3"]
+
+
+def test_v3_at_exactly_three_quarters_passes():
+    assert v3_of([1] * 52 + [0] * 18)["passed"] is True  # 52/70 = 0.743 <= 0.75
+
+
+def test_v3_just_above_three_quarters_fails():
+    assert v3_of([1] * 53 + [0] * 17)["passed"] is False  # 53/70 = 0.757
+
+
+def test_v3_at_exactly_ten_percent_large_differences_passes():
+    assert v3_of([2] * 7 + [0] * 63)["passed"] is True  # 7/70 = 0.10, mean 0.2
+
+
+def test_v3_just_above_ten_percent_large_differences_fails():
+    assert v3_of([2] * 8 + [0] * 62)["passed"] is False
+
+
+def test_v3_a_difference_of_exactly_two_counts_as_large():
+    assert v3_of([2] * 8 + [0] * 62)["large_fraction"] == 8 / 70
+
+
+@pytest.mark.parametrize("haiku, survivor", [((2, 2, 2, 2), True), ((6, 7, 6, 7), True), ((1, 2, 2, 2), False),
+                                             ((7, 7, 6, 7), False)])
+def test_the_survivor_band_is_inclusive_at_two_and_six_and_a_half(haiku, survivor):
+    records, _ = world(haiku=haiku)
+    assert gates.task_table(records, H, ["t00"])["t00"]["survivor"] is survivor
+
+
+@pytest.mark.parametrize("haiku, passed", [((2, 3, 2, 3), True), ((6, 7, 6, 7), True), ((2, 2, 3, 2), False),
+                                           ((7, 7, 6, 7), False)])
+def test_g2_is_inclusive_at_two_and_a_half_and_six_and_a_half(haiku, passed):
+    records, pools = world(haiku=haiku, sonnet=8)
+    assert gates.task_gates(records, pools, H, tasks_of()[0])["gates"]["G2"]["passed"] is passed
+
+
+@pytest.mark.parametrize("sonnet, passed", [(4, False), (4.25, True)])
+def test_g3_needs_a_gap_of_at_least_half_a_point(sonnet, passed):
+    records, pools = world(haiku=(3, 4, 4, 4), sonnet=0)  # Haiku mean 3.75
+    for r in records:
+        if r["model"] == S:
+            r["scores"] = {j: sonnet for j in gates.JUDGES}
+    assert gates.task_gates(records, pools, H, tasks_of()[0])["gates"]["G3"]["passed"] is passed
+
+
+@pytest.mark.parametrize("unrated, passed", [(10, True), (11, False)])
+def test_g4_needs_at_least_ninety_percent_rated(unrated, passed):
+    records, pools = world()
+    for r in [r for r in records if r["pool"] == "first" and r["role"] == "candidate"][:unrated]:
+        r.update(status="incident", scores={})
+    assert gates.task_gates(records, pools, H, tasks_of()[0])["gates"]["G4"]["passed"] is passed
+
+
+@pytest.mark.parametrize("exclusions, passed", [(2, True), (3, False)])
+def test_g4_allows_two_judge_exclusions_and_not_three(exclusions, passed):
+    records, pools = world()
+    for pool in pools[:exclusions]:
+        pool["excluded_judges"][S] = "judge_failed"
+    assert gates.task_gates(records, pools, H, tasks_of()[0])["gates"]["G4"]["passed"] is passed
+
+
+@pytest.mark.parametrize("failing, assessed", [(15, True), (14, False)])
+def test_v4_needs_fifteen_in_each_class(failing, assessed):
+    records, _ = world(passes=lambda s: True)
+    candidates = [r for r in records if r["pool"] == "first" and r["role"] == "candidate"]
+    for r in candidates[:failing]:
+        r["hidden"] = 0.5
+    assert gate(records)["V4"]["assessed"] is assessed
+
+
+@pytest.mark.parametrize("calls, k", [(1.49, 1), (1.5, 2), (2.5, 3), (2.49, 2), (0.4, 1), (3.6, 3)])
+def test_mean_calls_round_halves_up_to_one_two_or_three(calls, k):
+    assert selection.calls_k(calls) == k
+
+
+def test_v3_a_mean_of_exactly_three_quarters_passes():
+    records, _ = world(haiku=(4, 4, 4, 4), sonnet=4, ref=7, base=1)
+    retests = ["t00", "t01", "t02", "t03"]  # 28 clones, 21 of them one point apart: a mean of 0.75
+    for r in [r for r in records if r["pool"] == "retest" and r["task"] in retests][:21]:
+        r["scores"] = {j: v + 1 for j, v in r["scores"].items()}
+    v3 = gates.v3_retest(records, H, retests)
+    assert (v3["mean_abs"], v3["passed"]) == (0.75, True)

@@ -42,15 +42,38 @@ def direct_runs(records, runs, judge, tasks):
     return {task: rows for task, rows in per_task.items() if len(rows) >= 3}
 
 
-def report(records, pools, tasks, retests, redrawn, runs, totals, programs):
-    """`programs` maps each arm to its program's {"source", "lines"}."""
+def unusual_runs(runs, tasks):
+    """Every gated run that did not complete cleanly: its outcome, failure code and incident reason."""
+    return [{"run": run, "task": f["task"], "arm": f["arm"], "outcome": f.get("outcome"),
+             "failure": (f.get("failure") or {}).get("code"), "incident": f.get("incident")}
+            for run, f in runs.items() if f["task"] in tasks and (f.get("outcome") != "completed" or "incident" in f)]
+
+
+def v4_note(calibration):
+    """The plain statement the decision carries when the selected judge's V4 was not assessed."""
+    judge = calibration["selected"]
+    v4 = calibration["judges"][judge]["V4"] if judge else None
+    if not v4 or v4["assessed"]:
+        return None
+    return (f"V4 (agreement with the hidden tests) was not assessed for {judge}: {v4['passing']} hidden-passing and "
+            f"{v4['failing']} hidden-failing candidates, under 15 in a class; the judge was not checked against the "
+            "tests and passed its gate on V1-V3 alone (coordinator ruling)")
+
+
+def report(records, pools, tasks, retests, redrawn, runs, totals, programs, planned):
+    """`programs` maps each arm to its program's {"source", "lines"}; `planned` counts the gated tranches' runs."""
     out = {"tasks": tasks, "retest_tasks": retests, "redrawn": redrawn, "spend": totals, "programs": programs,
            "measure_free": measure_free(runs), "anchor_failures": gates.anchor_failures(records, pools, tasks),
+           "missing_pools": gates.missing_pools(pools, tasks, retests), "unusual_runs": unusual_runs(runs, tasks),
            "calibration": None, "baselines": None}
     if out["anchor_failures"]:
         return out
-    out["calibration"] = gates.calibration(records, pools, tasks, retests, redrawn)
-    judge = out["calibration"]["selected"]
+    out["calibration"] = calibration = gates.calibration(records, pools, tasks, retests, redrawn)
+    incidents = sum(1 for row in out["unusual_runs"] if row["incident"])
+    if incidents > 0.10 * planned:
+        calibration["decision"] = f"stop: {incidents} of {planned} planned runs are incidents, over 10%"
+    calibration["v4_note"] = v4_note(calibration)
+    judge = calibration["selected"]
     per_task = direct_runs(records, runs, judge, tasks) if judge else {}
     out["baselines"] = selection.baselines(per_task) if per_task else None
     return out
@@ -111,7 +134,12 @@ def markdown(r):
               "| arm | program | lines | within the limit |", "| --- | --- | --- | --- |"]
     lines += [f"| {arm} | {p['source']} | {p['lines']} | {p['lines'] < selection.MAX_PROGRAM_LINES} |"
               for arm, p in r["programs"].items()]
-    lines += ["", "## Spend", ""] + spend_lines(r["spend"]) + ["", "## Anchors", ""]
+    lines += ["", "## Spend", ""] + spend_lines(r["spend"])
+    lines += ["", f"## Pools missing or incidents ({len(r['missing_pools'])}): their tasks count as missing", ""]
+    lines += [f"- {name}: {why}" for name, why in r["missing_pools"].items()]
+    lines += ["", f"## Runs that did not complete cleanly ({len(r['unusual_runs'])})", ""]
+    lines += [f"- {u['task']} {u['arm']}: {u['outcome']}, failure {u['failure']}, incident {u['incident']}"
+              for u in r["unusual_runs"]] + ["", "## Anchors", ""]
     if r["anchor_failures"]:
         return "\n".join(lines + [f"- {f}" for f in r["anchor_failures"]]
                          + ["", "An anchor check failed: no quality number is reported."]) + "\n"
@@ -123,6 +151,8 @@ def markdown(r):
     if c["selected"]:
         lines += ["## Calibration table", ""] + task_lines(c["table"]) + ["", "## Task gates", ""]
         lines += gate_lines(c["gates"]) + ["", f"Survivors (at most 16, seed order): {', '.join(c['survivors'])}."]
+        unscored = [t for t, row in c["table"].items() if row["haiku"] is None or row["sonnet"] is None]
+        lines += [f"Tasks without both arms scored by {c['selected']} (left out of G2/G3): {unscored or 'none'}."]
     else:
         lines += [f"Hidden-test fallback: {c['tests_primary']}."]
     b = r["baselines"]
@@ -131,6 +161,7 @@ def markdown(r):
                   f"Q1 {fmt(b['Q1'])}; Q2 {fmt(b['Q2'])} at {fmt(b['Q2_calls'])} calls; Q3 {fmt(b['Q3'])} at "
                   f"{fmt(b['Q3_calls'])} calls; random-of-3 {fmt(b['random_of_3'])}; any-of-3 {fmt(b['any_of_3'])}; "
                   f"visible check failed in {fmt(b['visible_fail_rate'])} of direct runs."]
-    lines += ["", f"Decision: {c['decision']}.", "",
+    decision = c["decision"] + (f"; {c['v4_note']}" if c.get("v4_note") else "")
+    lines += ["", f"Decision: {decision}.", "",
               "Limits: the plan's size section; 12 to 16 tasks support differences of about a point, not an ordering."]
     return "\n".join(lines) + "\n"
