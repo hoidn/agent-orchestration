@@ -145,15 +145,17 @@ derives solely from the validated `.orc` executable and `state.json`.
     siblings) and the v2.10 `provider_attempt_interrupted_rerun` and
     `output.provider_session` projections came from the retired-run report;
     `report` no longer produces them (kept at the git tag `archive/retired-run-readers-2026-11-11`).
-  - v2.11 adjudicated provider snapshots may expose selected candidate id, selected score or null score, selection reason, run-local score ledger path, workspace-visible score ledger mirror path, promotion status, and adjudication failure type. Candidate workspaces, evaluator packets, and ledgers are observability sidecars, not ordinary artifact lineage.
+  - v2.11 adjudicated provider snapshots: no step of this kind can be produced since its
+    executor was removed on 2026-11-12 (see the
+    [salvage record](../docs/design/trial_and_adjudication_salvage.md)).
   - v2.16 provider-supervision and v2.17 provider-peer-group snapshots: no
     step of either kind can be produced since their executors were removed on
     2026-11-11 (see the
     [salvage record](../docs/design/live_provider_supervision_and_peers_salvage.md)).
-  - Target-2.23 phased recovery and v2.11 adjudication recovery may expose only
-    their bounded named diagnostic, recovery family/mismatch class, and old/new
-    visit coordinates. Prompt, candidate, score packet, ledger, and partial
-    result content remain sidecar evidence and never report authority.
+  - Target-2.23 phased recovery may expose only its bounded named diagnostic,
+    recovery family/mismatch class, and old/new visit coordinates. Prompt, ledger,
+    and partial result content remain sidecar evidence and never report authority.
+    The v2.11 adjudication recovery was removed with its executor on 2026-11-12.
 
 - Workflow monitor notifications
   - `orchestrator monitor` is a read-only observer over configured workspace roots. It enumerates run directories under `.orchestrate/runs/` and must not mutate `state.json`, reconcile run status, resume runs, kill processes, or execute workflow control.

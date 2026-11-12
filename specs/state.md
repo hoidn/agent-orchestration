@@ -744,7 +744,7 @@ creates or asks a replacement question.
 - A Workflow Lisp provider boundary with a typed prompt-dependency contract
   allocates its attempt ordinal in root `RunState.provider_attempt_allocations`.
   The member is omitted while empty. It is root-owned across ordinary, loop,
-  call-frame, phased, and adjudicated execution;
+  call-frame and phased execution;
   nested state managers do not maintain competing counters.
 - Each allocation entry is a plain monotonic counter: its closed current form
   contains the exact scope plus `last_allocated_ordinal`, and a Q3-bound scope

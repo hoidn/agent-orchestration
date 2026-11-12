@@ -269,6 +269,9 @@ own delivery status and captured evidence.
   - Evaluator scoring requires `evaluator.evidence_confidentiality: same_trust_boundary`, complete bounded UTF-8 score-critical evidence packets, and strict JSON evaluator output with `candidate_id`, finite `score` in `[0.0, 1.0]`, and `summary`.
   - Selected outputs are promoted through a manifest-backed transaction with preimage checks, staged replacements, rollback metadata, parent output revalidation, and publication withholding until promotion and any score-ledger mirror finalization succeed.
   - State schema remains `2.1`; adjudication state is additive under `steps.<Step>.adjudication` and run-owned sidecars under `.orchestrate/runs/<run_id>/adjudication/`, `candidates/`, and `promotions/`.
+  - The adjudicated-provider executor was removed on 2026-11-12 (packages kept at git tag
+    `archive/dead-executors-2026-11-11`; the whole runtime: commit `08cdd59b`). See the
+    [salvage record](../docs/design/trial_and_adjudication_salvage.md).
 
 - v2.12 additions (`repeat_until.on_exhausted`)
   - `repeat_until.on_exhausted.outputs` lets an authored loop complete with literal scalar loop-frame output overrides when the loop body succeeds but the post-test condition remains false through `max_iterations`.
@@ -1205,7 +1208,7 @@ retired. Run-ref still enforces its independent feature restrictions.
 | 2.8 | Score-aware predicate helper `score` for thresholds and score bands | Thin sugar over numeric typed predicates; keeps benchmark gating inside the existing `when` / `assert` / structured-control surfaces. |
 | 2.9 | Advisory authoring linting / normalization hints surfaced in CLI dry-run and report output | Warns about migration candidates without turning valid workflows into validation failures. |
 | 2.10 | Scalar `string` contracts and first-class provider-session resume | Adds runtime-owned fresh/resume session handles for root-level provider steps. Its original interrupted-visit quarantine is superseded by the ML-0 at-least-once recovery contract. |
-| 2.11 | `adjudicated_provider` steps | Runs isolated artifact-producing candidates, scores valid outputs through a same-trust-boundary evaluator, promotes the selected declared outputs, and records adjudication ledgers/state without stdout-derived step output. |
+| 2.11 | `adjudicated_provider` steps | Runs isolated artifact-producing candidates, scores valid outputs through a same-trust-boundary evaluator, promotes the selected declared outputs, and records adjudication ledgers/state without stdout-derived step output. Removed on 2026-11-12 ([salvage record](../docs/design/trial_and_adjudication_salvage.md)). |
 | 2.12 | `repeat_until.on_exhausted.outputs` | Lets bounded post-test loops route deterministic non-convergence through authored scalar loop-frame outputs while preserving hard failures for body, output, and predicate errors. |
 | 2.13 | `managed_jobs` provider-step modifier | Adds runtime-owned managed job interception, guard/shim execution, watcher classification, audit/recovery state, and managed outcome routing for provider-launched training jobs. |
 | 2.14 | `materialize_artifacts`, `pre_snapshot`, `variant_output`, `select_variant_output`, and `requires_variant` | Adds deterministic typed materialization, durable snapshot-diff evidence, tagged-union output validation, atomic variant bundle selection, and author-time variant availability proof. |
