@@ -660,8 +660,11 @@ authority, memo, attempts or views, in this order:
 7. A fresh in-memory build from the recipe (source, ordered roots, entry and
    manifests resolved under the effective workspace; no build cache read or
    published): compile errors refuse; `resume_program_changed` when the
-   fresh digest differs. Formatting and provenance-only changes build the
-   same digest; `workflow_checksum` is not compared.
+   fresh digest differs. The plan is then computed read-only, by steps 8 to
+   10 on the fresh program, and printed with the refusal, or the reason no
+   plan can be shown; the refusal's code and exit status do not change.
+   Formatting and provenance-only changes build the same digest;
+   `workflow_checksum` is not compared.
 8. Fresh inputs: the recipe's `input_file` is read anew, `input_overrides`
    applied and the result bound against the fresh program; binding errors
    refuse; `resume_inputs_changed` when the digest differs.
@@ -672,7 +675,8 @@ authority, memo, attempts or views, in this order:
    logged and execution continues on the recorded path).
 10. Memo replay: reduce the journal (`memo_inconsistent`), replay the active
     committed prefix in journal order re-resolving every input
-    (`effect_input_diverged` at the first divergence; `result_root_missing`
+    (`effect_input_diverged` at the first divergence, and for a committed
+    effect the plan is printed with it; `result_root_missing`
     at a reached result-path form of a header without `result_root`;
     `resume_run_ref_root_missing` at any reached run reference, committed or
     not, of a header without `run_ref_root`), and at the first uncommitted
@@ -749,7 +753,7 @@ the `resume` command.
 
 | Code | Recovery lines name | Commands printed |
 | --- | --- | --- |
-| `resume_program_changed` | each effect site added, removed or changed between the recorded and the current program, by identity (provenance ignored), or that only code between effects changed | `resume` after restoring the source; or a fresh `run`, in which every step runs again |
+| `resume_program_changed` | each effect site added, removed or changed between the recorded and the current program, by identity (provenance ignored), or that only code between effects changed; then the plan (kept, cancelled with recorded cost, the commit at the cut and what differed, asked again, unfinished steps retried, what runs first) and its `plan token:` line, or the reason no plan can be accepted | `resume` after restoring the source; or a fresh `run`, in which every step runs again |
 | `resume_inputs_changed` | the inputs whose bound value differs | `resume` after restoring them; or a fresh `run` with the new values |
 | `effect_input_diverged`, a step the memo shows committed, when no step whose latest attempt is pending or failed uses a changed file (a step invalidated and not yet run again does not count) | the identity, the changed input parts and implementation files | `invalidate RUN_ID 'IDENTITY'` then `resume`; this step and all later ones run again and workspace files are not rolled back |
 | `effect_input_diverged`, a committed step whose changed files are also used by a step whose latest attempt is pending or failed (or the changed files are unknown and such a step exists) | the identity, the changed parts and files, and the unfinished steps; with the flag, every attempt it would accept and why, as in the next row | `invalidate RUN_ID 'IDENTITY'` then `resume`, with `--accept-changes` when an unfinished step is not proven clean (no `closure: unchanged` failure, or a parallel-map item); the same warning |

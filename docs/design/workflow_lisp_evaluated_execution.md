@@ -1395,7 +1395,7 @@ view never invokes reconciliation.
 | Memo holds for `i` | Action |
 | --- | --- |
 | A committed result with input digest equal to the digest of `x`, not invalidated | Return the result. Run nothing. For a coordinator effect, `reconcile` first (K3) |
-| A committed result with another input digest | Stop with `effect_input_diverged`, located at the site, showing both digests, which parts of the input differ and which files |
+| A committed result with another input digest | Stop with `effect_input_diverged`, located at the site, showing both digests, which parts of the input differ and which files; in resume preflight the refusal also prints the plan an acceptance would apply |
 | A `started` agent turn with no commit | Classify from receipt and native store ([Agent Sessions](workflow_lisp_agent_sessions.md), Persistence); never the generic retry rule |
 | A `started` or `failed` attempt with no commit | Before retry, enforce C4's implementation-file comparison below. If the boundary declares `must_not_repeat`, stop with `lexical_restore_pending_effect_unsafe` regardless. Otherwise record `effect_rerun`, naming the identity and its earlier attempts (and the declared files that changed, when §8.1 accepted a change), and run the next attempt |
 | An `invalidated` range covers the last commit, with no newer uncommitted attempt | Run the next attempt. No rerun diagnostic |

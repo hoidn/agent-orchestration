@@ -86,10 +86,19 @@ def human_input_command(args: Any) -> int:
         ValueError,
         json.JSONDecodeError,
     ) as exc:
-        print(f"input: {exc}", file=sys.stderr)
+        _print_refusal(exc, args.run_id)
         return 2
     print(json.dumps(record, ensure_ascii=True, sort_keys=True))
     return 0
+
+
+def _print_refusal(exc: Exception, run_id: str) -> None:
+    if getattr(exc, "code", None) != "resume_program_changed":
+        print(f"input: {exc}", file=sys.stderr)
+        return
+    print(f"input: [resume_program_changed] {exc}", file=sys.stderr)         # an edited source, not accepted (C10)
+    print("input: a pending question cannot be answered until the edit is accepted or the source restored; "
+          f"resume {run_id} prints the plan", file=sys.stderr)
 
 
 def _retired_input_mutation() -> int:
