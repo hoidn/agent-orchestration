@@ -27,9 +27,14 @@ def _runtime():
 logger = logging.getLogger(__name__)
 
 
-def checked_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, site_classes, confined=None):
-    """The complete read-only reached-prefix preflight for resume and host settlement."""
-    snapshot = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
+def checked_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, site_classes, confined=None,
+                          snapshot=None):
+    """The complete read-only reached-prefix preflight for resume and host settlement.
+
+    `snapshot`: an in-memory reduction to check instead of the journal on disk (the plan's journal as it will be,
+    `rebase.py`); None reads the journal."""
+    if snapshot is None:
+        snapshot = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
     prefix = discover_prefix(authority, snapshot, inputs=inputs, run_id=run_id, provider_io=provider_io)
     _validate_discovered_prefix(authority, prefix, snapshot, workspace, defer_parallel_fault=True, confined=confined)
     from .parallel import has_parallel

@@ -27,7 +27,7 @@ from .authority import RunAuthority, workspace_result_locator, _require_retained
 from .agent_sessions import resolve_allocation_input
 from .agent_turns import AgentTurnError, resolve_turn_input, turn_dependencies, validate_turn
 from .agent_turn_recovery import classify_pending_turn, latest_failure
-from .declaration import declaration_subject, replay_parts
+from .declaration import declaration_subject, replay_parts, written_subject
 from .memo import MemoError
 from .inputs import DocumentInputError, command_binding_kind, prepare_command_document
 from . import phased_providers
@@ -302,7 +302,8 @@ def _resolve_external_input(authority, node, operands, identity, workspace, read
         resolved = _resolve_provider_effect_input(authority, node, operands, identity, workspace, reader,
             commit, result_path, launch_cwd)
     if commit is not None:      # comparison point 1: both callers of `_reuse_effect_commit` resolve here
-        return resolved, replay_parts(resolved.input_parts, commit.data["input_parts"], declaration_subject(node, resolved))
+        return resolved, replay_parts(resolved.input_parts, commit.data["input_parts"], declaration_subject(node, resolved),
+                                      written_subject(authority, commit, node, resolved))
     return resolved, dict(resolved.input_parts)
 
 
