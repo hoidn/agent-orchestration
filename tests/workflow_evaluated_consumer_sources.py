@@ -315,13 +315,12 @@ def r3(request: dict) -> str:
 
 
 def _legacy_provider_prompt(request: dict) -> str:
-    from orchestrator.contracts.closed_program.program import strip_provenance
     from orchestrator.contracts.closed_program.sites import _ast_nodes
     from orchestrator.contracts.prompt_contract import render_output_bundle_contract_block, render_variant_output_contract_block
     from orchestrator.contracts.prompt_json_shape import render_json_shape_contract_block
     from orchestrator.workflow.evaluated.authority import load_run_authority
+    from orchestrator.workflow.evaluated.declaration import declaration_digest
     from orchestrator.workflow.evaluated.providers import DELIVERY_NAMES_BY_DIGEST, DELIVERY_SELECTORS
-    from orchestrator.workflow.run_ref.contracts import canonical_sha256
 
     target = Path(request["env"][BUNDLE])
     authority = load_run_authority(target.parents[3])
@@ -332,7 +331,7 @@ def _legacy_provider_prompt(request: dict) -> str:
     bodies = [authority.program.tree["body"],
               *(definition["body"] for definition in authority.program.tree["definitions"].values())]
     node = next(node for body in bodies for node in _ast_nodes(body) if node.get("class") == "provider"
-        and canonical_sha256(strip_provenance({"body": node})["body"]) == started["input_parts"]["declaration"])
+        and declaration_digest(node) == started["input_parts"]["declaration"])
     payload = {**node["contract"]["payload"], "path": r2(request)}
     renderer = (render_output_bundle_contract_block if node["contract"]["kind"] == "output_bundle"
                 else render_variant_output_contract_block)
