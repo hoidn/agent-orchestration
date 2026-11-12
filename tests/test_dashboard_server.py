@@ -11,6 +11,8 @@ from urllib.parse import quote
 from pathlib import Path
 
 
+import pytest
+
 from orchestrator.dashboard.projection import RunProjector
 from orchestrator.dashboard.scanner import RunScanner
 from orchestrator.dashboard.server import DashboardApp
@@ -2658,21 +2660,49 @@ def test_summary_hub_does_not_link_unsafe_index_paths(tmp_path: Path):
     assert "/files/run/../outside.md" not in body
 
 
-def test_step_detail_route_resolves_by_name_and_escapes_payloads(tmp_path: Path):
+HOSTILE_ERROR_SOURCE = '''\
+(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+  (defmodule hostile) (export run)
+  (defworkflow run () -> Int
+    (command-result hostile :argv ("<script>boom" "x") :returns Int)))
+'''
+
+
+def _hostile_error_run(workspace: Path, monkeypatch) -> Path:
+    """A real run whose failed effect's error carries hostile text: the launcher's exec error names the program."""
+    program = workspace / "bin" / "<script>boom"
+    program.parent.mkdir()
+    program.write_bytes(b"\x00\x01 not an executable format")
+    program.chmod(0o700)
+    monkeypatch.setenv("PATH", str(program.parent) + os.pathsep + os.environ["PATH"])
+    (workspace / "hostile.orc").write_text(HOSTILE_ERROR_SOURCE, encoding="utf-8")
+    (workspace / "hostile_commands.json").write_text(
+        json.dumps({"hostile": {"stable_command": ["<script>boom"], "closure": []}}), encoding="utf-8")
+    before = _run_names(workspace)
+    result = cli_inprocess(workspace, "run", "hostile.orc", "--command-boundaries-file", "hostile_commands.json")
+    assert result.returncode == 1, result.stderr
+    return _new_run(workspace, before)
+
+
+def test_step_detail_route_resolves_by_name_and_escapes_payloads(tmp_path: Path, monkeypatch):
     run_root = _failing_run(tmp_path)
+    hostile_root = _hostile_error_run(tmp_path, monkeypatch)
     shown, failed = _step(tmp_path, run_root, "/ shown"), _step(tmp_path, run_root, "/ fail")
+    hostile = _step(tmp_path, hostile_root, "")  # the run's one effect
+    assert "<script>boom" in json.dumps(hostile.error)
     before = _tree_bytes(tmp_path)
     app = _app(tmp_path)
 
     response = app.handle("GET", f"/runs/w0/{run_root.name}/steps/{quote(shown.name, safe='')}")
-    failed_page = app.handle("GET", f"/runs/w0/{run_root.name}/steps/{quote(failed.name, safe='')}")
-    stderr = app.handle("GET", f"/runs/w0/{run_root.name}/files/run/{failed.file_refs['stderr'].route_path}")
+    error_page = app.handle("GET", f"/runs/w0/{hostile_root.name}/steps/{quote(hostile.name, safe='')}")
+    stderr = app.handle("GET", f"/runs/w0/{run_root.name}/files/run/{failed.file_refs['stderr.txt'].route_path}")
 
     body = response.body.decode("utf-8")
-    assert response.status == 200 and failed_page.status == 200
+    assert response.status == 200 and error_page.status == 200
     assert "&lt;b&gt;bad&lt;/b&gt;" in body
     assert "&lt;img src=x&gt;" in body and "<img src=x>" not in body
-    assert "<script>boom" not in failed_page.body.decode("utf-8")
+    error_body = error_page.body.decode("utf-8")
+    assert "&lt;script&gt;boom" in error_body and "<script>boom" not in error_body
     assert "&lt;script&gt;boom&lt;/script&gt;" in stderr.body.decode("utf-8")
     assert _tree_bytes(tmp_path) == before
 
@@ -2763,7 +2793,7 @@ def test_file_preview_route_escapes_workspace_and_run_files(tmp_path: Path):
     artifact.parent.mkdir()
     artifact.write_text("<script>artifact</script>", encoding="utf-8")
     run_root = _failing_run(tmp_path)
-    run_log = _step(tmp_path, run_root, "/ shown").file_refs["stdout"].route_path
+    run_log = _step(tmp_path, run_root, "/ shown").file_refs["stdout.txt"].route_path
 
     workspace_response = _app(tmp_path).handle(
         "GET",
@@ -2830,7 +2860,7 @@ def test_file_route_rejects_traversal_and_displays_missing_state(tmp_path: Path)
 
 def test_detail_links_artifacts_through_dashboard_file_routes(tmp_path: Path):
     run_root = _completed_run(tmp_path)
-    stdout = _step(tmp_path, run_root, "/ prefix").file_refs["stdout"]
+    stdout = _step(tmp_path, run_root, "/ prefix").file_refs["stdout.txt"]
 
     response = _app(tmp_path).handle("GET", f"/runs/w0/{run_root.name}")
 
@@ -2998,3 +3028,30 @@ def test_rejected_state_json_symlink_file_route_uses_scanned_run_root(
     assert "missing" in body
     assert "outside-secret" not in body
     assert str(outside) not in body
+
+
+@pytest.mark.parametrize("authority", ["run.json", "closed_program.json", "memo.jsonl"])
+def test_symlinked_authority_file_leaving_workspace_is_unreadable_and_not_served(tmp_path: Path, authority: str):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    run_root = _pure_run(workspace)
+    outside = tmp_path / f"outside-{authority}"
+    outside.write_bytes((run_root / authority).read_bytes() + b"\nOUTSIDE-AUTHORITY-MARKER\n")
+    (run_root / authority).unlink()
+    (run_root / authority).symlink_to(outside)
+    before = _tree_bytes(tmp_path)
+    app = _app(workspace)
+
+    index = app.handle("GET", "/runs").body.decode("utf-8")
+    page = app.handle("GET", f"/runs/w0/{run_root.name}")
+    preview = app.handle("GET", f"/runs/w0/{run_root.name}/files/run/{authority}")
+    raw = app.handle("GET", f"/runs/w0/{run_root.name}/files/run/{authority}?raw=1")
+
+    row = next(line for line in index.splitlines() if f'href="/runs/w0/{run_root.name}"' in line)
+    assert "<td>unreadable</td>" in row
+    body = page.body.decode("utf-8")
+    assert page.status == 200 and "memo_inconsistent" in body and "0.75" not in body
+    assert preview.status == raw.status == 400
+    for response_body in (index, body, preview.body.decode("utf-8"), raw.body.decode("utf-8")):
+        assert "OUTSIDE-AUTHORITY-MARKER" not in response_body and str(outside) not in response_body
+    assert _tree_bytes(tmp_path) == before

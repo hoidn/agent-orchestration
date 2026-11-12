@@ -11,6 +11,7 @@ from typing import Any, Mapping, Optional
 from orchestrator.dashboard.compiled_workflow import (
     load_persisted_compiled_workflow_surface,
 )
+from orchestrator.dashboard.attempt_files import attempt_file_refs
 from orchestrator.dashboard.cursor import ExecutionCursorProjector
 from orchestrator.dashboard.files import FileReferenceResolver, UnsafePathError
 from orchestrator.dashboard.models import (
@@ -33,16 +34,18 @@ class RunProjector:
         self.now = now or datetime.now(timezone.utc)
         self.cursor_projector = ExecutionCursorProjector()
 
-    def project_detail(self, run: RunRecord) -> DashboardRunDetail:
+    def project_detail(self, run: RunRecord, *, attempt_files: bool = True) -> DashboardRunDetail:
+        """Detail model; `attempt_files=False` skips listing attempt directories (pages that link no files)."""
         if run.state is not None and run.state.get("result_persistence_profile") == PROFILE:
-            return self._project_evaluated_detail(run)
+            return self._project_evaluated_detail(run, attempt_files)
         return self._project_legacy_detail(run)
 
-    def _project_evaluated_detail(self, run: RunRecord) -> DashboardRunDetail:
+    def _project_evaluated_detail(self, run: RunRecord, attempt_files: bool) -> DashboardRunDetail:
         state = dict(run.state)
         resolver = FileReferenceResolver(run.workspace.root, run.run_root)
         warnings = list(run.warnings)
-        steps = [self._evaluated_step(identity, payload, resolver, warnings) for identity, payload in state["steps"].items()]
+        steps = [self._evaluated_step(identity, payload, resolver, warnings, attempt_files)
+                 for identity, payload in state["steps"].items()]
         cursor = self.cursor_projector.project(state)
         row = DashboardIndexRow(
             workspace_id=run.workspace.id, workspace_label=run.workspace.label,
@@ -57,52 +60,15 @@ class RunProjector:
         return DashboardRunDetail(row=row, steps=steps, cursor=cursor, bound_inputs=state["bound_inputs"],
             workflow_outputs=state["workflow_outputs"], error=state["error"], state=state, warnings=warnings)
 
-    def _evaluated_step(self, identity, payload, resolver, warnings):
+    def _evaluated_step(self, identity, payload, resolver, warnings, attempt_files):
         return DashboardStep(ref=identity, name=identity, step_id=identity,
             kind=payload["effect_class"], status=payload["status"],
             duration_ms=payload.get("duration_ms"), error=payload.get("error"),
             outcome=payload.get("host_settlement"),
-            file_refs=self._evaluated_file_refs(payload, resolver, warnings),
+            file_refs=attempt_file_refs(payload, resolver, warnings) if attempt_files else {},
             output_preview=json.dumps(payload["value"], ensure_ascii=False)[:200] if "value" in payload else "",
             attempt=payload.get("attempt"), started_at=payload.get("started_at"),
             completed_at=payload.get("completed_at"))
-
-    def _evaluated_file_refs(self, payload, resolver, warnings):
-        """The result path, then every file in its attempt directory, each through the run-scope resolver.
-
-        Keys are the file name without its suffix (`stdout`, `prompt`, `receipt`), or the path inside the
-        attempt directory when that name is taken. A file that resolves outside the run root is left out
-        with a warning.
-        """
-        result = Path(payload["result_path"])
-        paths = {"result": result}
-        for relative in self._attempt_files(result.parent, resolver, warnings):
-            path = result.parent / relative
-            if path != result:
-                key = relative.with_suffix("").as_posix()
-                paths[relative.as_posix() if key in paths else key] = path
-        references = {}
-        for name, path in paths.items():
-            try:
-                references[name] = resolver.run_ref(path, label=path.name)
-            except UnsafePathError as exc:
-                warnings.append(f"unsafe {name} file: {exc}")
-        return references
-
-    def _attempt_files(self, attempt, resolver, warnings):
-        """Paths under one attempt directory, sorted, without following symlinks (listed as files)."""
-        try:
-            directory = resolver.run_ref(attempt, label="attempt directory")
-        except UnsafePathError as exc:
-            warnings.append(f"unsafe attempt directory: {exc}")
-            return []
-        if directory.status != "not_file":
-            return []
-        found = []
-        for parent, directories, files in directory.absolute_path.walk():
-            directories.sort()
-            found.extend((parent / name).relative_to(directory.absolute_path) for name in sorted(files))
-        return found
 
     def _project_legacy_detail(self, run: RunRecord) -> DashboardRunDetail:
         read_time = self.now.isoformat()
@@ -208,7 +174,7 @@ class RunProjector:
         )
 
     def project_index(self, runs: list[RunRecord]) -> list[DashboardIndexRow]:
-        return [self.project_detail(run).row for run in runs]
+        return [self.project_detail(run, attempt_files=False).row for run in runs]
 
     def _load_workflow(
         self,

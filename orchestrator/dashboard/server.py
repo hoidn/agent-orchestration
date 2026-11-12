@@ -20,7 +20,7 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from orchestrator.dashboard.commands import CommandBuilder
-from orchestrator.dashboard.effect_html import effect_timing, failed_effects_section
+from orchestrator.dashboard.effect_html import effect_timing, failed_effects_section, step_href
 from orchestrator.dashboard.files import FileReferenceResolver, UnsafePathError
 from orchestrator.dashboard.preview import DASHBOARD_CSP
 from orchestrator.dashboard.preview import PreviewRenderer
@@ -463,7 +463,8 @@ class DashboardApp:
         segments = [unquote(segment) for segment in parsed.path.strip("/").split("/") if segment]
         if len(segments) >= 3 and segments[0] == "runs":
             workspace_id, run_dir_id = segments[1], segments[2]
-            detail = self._find_detail(workspace_id, run_dir_id, request_now)
+            links_files = len(segments) == 3 or (len(segments) >= 5 and segments[3] == "steps")
+            detail = self._find_detail(workspace_id, run_dir_id, request_now, attempt_files=links_files)
             if detail is None:
                 return self._response(404, "Run not found")
             if len(segments) == 3:
@@ -554,11 +555,11 @@ class DashboardApp:
         lines.extend(["</tbody></table>", "</main>", "</body></html>"])
         return self._html_response("\n".join(lines))
 
-    def _find_detail(self, workspace_id: str, run_dir_id: str, now: datetime):
+    def _find_detail(self, workspace_id: str, run_dir_id: str, now: datetime, *, attempt_files: bool = False):
         scan = self.scanner.scan()
         for run in scan.runs:
             if run.workspace.id == workspace_id and run.run_dir_id == run_dir_id:
-                return RunProjector(now=now).project_detail(run)
+                return RunProjector(now=now).project_detail(run, attempt_files=attempt_files)
         return None
 
     def _run_detail(self, detail, *, refresh: Optional[int] = None) -> DashboardResponse:
@@ -664,9 +665,8 @@ class DashboardApp:
 
         lines.extend(["<section><h2>Step Timeline</h2><ul>"])
         for step in detail.steps:
-            href = f"/runs/{quote(row.workspace_id)}/{quote(row.run_dir_id)}/steps/{quote(step.ref)}"
             lines.append(
-                f"<li><a href=\"{href}\">{self._e(step.name)}</a> "
+                f"<li><a href=\"{step_href(row, step)}\">{self._e(step.name)}</a> "
                 f"{self._e(step.status)} {self._e(step.kind)} <small>{effect_timing(step)}</small></li>"
             )
             if step.file_refs:
