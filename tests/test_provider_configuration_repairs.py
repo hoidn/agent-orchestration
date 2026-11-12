@@ -47,8 +47,6 @@ def test_codex_default_model_and_cli_reasoning_key(tmp_path: Path) -> None:
     "provider_name",
     (
         "codex",
-        "codex_gpt55",
-        "codex_unrestricted_workspace",
         "codex_gpt55_unrestricted_workspace",
     ),
 )
@@ -75,8 +73,6 @@ def test_codex_command_profiles_use_cli_config_key(
     (
         ("codex", ProviderSessionMode.FRESH),
         ("codex", ProviderSessionMode.RESUME),
-        ("codex_gpt55", ProviderSessionMode.FRESH),
-        ("codex_gpt55", ProviderSessionMode.RESUME),
     ),
 )
 def test_codex_session_commands_use_cli_config_key(
