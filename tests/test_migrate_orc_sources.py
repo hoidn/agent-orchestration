@@ -318,3 +318,17 @@ def test_state_moved_across_literals_with_other_quotes_is_reencoded(tmp_path: Pa
     namespace: dict[str, object] = {}
     exec(path.read_text(encoding="utf-8"), namespace)
     assert namespace["LOOP"] == '(loop/recur ((state (record R\n   :status "ready"))) :max 1\n  (done state))'
+
+
+def test_a_directory_skips_the_tools_own_fixtures_unless_named(tmp_path: Path) -> None:
+    own = _write(tmp_path / "tests" / "test_migrate_orc_sources.py", _python_module(f'S = """{NESTED_FN}"""'))
+    other = _write(tmp_path / "tests" / "test_other.py", _python_module(f'S = """{NESTED_FN}"""'))
+
+    _migrate(tmp_path / "tests")
+    walked = (own.read_text(encoding="utf-8"), other.read_text(encoding="utf-8"))
+    _migrate(own)
+
+    assert (walked, own.read_text(encoding="utf-8")) == (
+        (_python_module(f'S = """{NESTED_FN}"""'), _python_module(f'S = """{NESTED_BINDER}"""')),
+        _python_module(f'S = """{NESTED_BINDER}"""'),
+    )

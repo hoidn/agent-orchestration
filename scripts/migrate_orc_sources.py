@@ -1,8 +1,12 @@
 """Migrate Workflow Lisp sources to target 2.40 and to the binder form of `loop/recur`.
 
-usage: python scripts/migrate_orc_sources.py [--check] [--verify] FILE...
+usage: python scripts/migrate_orc_sources.py [--check] [--verify] PATH...
 
-One pass over each named file: a `.orc` file, or a Python module whose string literals hold
+A PATH is a file or a directory; a directory stands for every `.orc` and `.py` file below it
+outside hidden directories and `__pycache__`, except the fixtures of this tool's own tests (OWN_FIXTURES),
+which keep `fn`-form loops on purpose and are migrated only when named as files.
+
+One pass over each file: a `.orc` file, or a Python module whose string literals hold
 `.orc` source. In Python, a unit is a literal, or a run of implicitly concatenated literals with
 one prefix, that contains `(:target-dsl` or `loop/recur`; plain, raw and f-strings are read
 through their escapes, and each f-string replacement field is read as an unknown symbol. Source
@@ -807,13 +811,36 @@ def _print(reports: list[Report], *, check: bool, verify: bool) -> None:
               f"{total('unverifiable')} could not be compiled, {sum(len(r.mismatches) for r in reports)} mismatches")
 
 
+OWN_FIXTURES = ("tests/test_migrate_orc_sources.py", "tests/test_workflow_lisp_loop_recur_binder.py")
+
+
+def expand(paths: list[Path]) -> list[Path]:
+    """Files named, then the `.orc` and `.py` files below each directory, less OWN_FIXTURES."""
+    files = []
+    for path in paths:
+        if not path.is_dir():
+            files.append(path)
+            continue
+        for found in sorted(path.rglob("*")):
+            parts = found.relative_to(path).parts
+            hidden = any(part.startswith(".") or part == "__pycache__" for part in parts)
+            own = any(found.resolve().as_posix().endswith("/" + fixture) for fixture in OWN_FIXTURES)
+            if found.suffix in {".orc", ".py"} and found.is_file() and not hidden and not own:
+                files.append(found)
+    return files
+
+
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser = argparse.ArgumentParser(
+        description=__doc__.split("\n\n")[0],
+        epilog=f"A directory skips {' and '.join(OWN_FIXTURES)}: they hold this tool's and the binder "
+               "tests' fn-form fixtures. Name one as a file to migrate it; a file list such as "
+               "`git ls-files` output names them, so leave them out of it.")
     parser.add_argument("--check", action="store_true", help="report what would change; write nothing")
     parser.add_argument("--verify", action="store_true", help="also compile syntactic rewrites and compare hashes")
-    parser.add_argument("files", nargs="+", type=Path)
+    parser.add_argument("paths", nargs="+", type=Path, help="files, or directories to walk")
     args = parser.parse_args(argv)
-    reports = [migrate_file(path, check=args.check, verify=args.verify) for path in args.files]
+    reports = [migrate_file(path, check=args.check, verify=args.verify) for path in expand(args.paths)]
     _print(reports, check=args.check, verify=args.verify)
     if any(r.error for r in reports) or any(r.mismatches for r in reports):
         return 2

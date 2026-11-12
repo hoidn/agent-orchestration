@@ -213,3 +213,41 @@ def test_run_started_under_fn_form_resumes_from_binder_source(tmp_path: Path) ->
 
     calls = (tmp_path / "calls.txt").read_text(encoding="utf-8").split()
     assert (resumed.returncode, resumed.stdout.splitlines()[-1:], calls) == (0, ["3"], ["0", "1", "1", "2"]), resumed.stderr
+
+
+# A frozen Python build compares its pin with the hash of the emitted `.orc` text, so the emitter
+# keeps the `fn` form until the release that removes it (surface coherence I2b). This is the text
+# `main`'s emitter wrote for this program when I2a was made; a pin made then must still build.
+PINNED_PYTHON_LOOP = '''from __future__ import annotations
+from orchestrator.py import *
+
+
+@workflow
+def run() -> int:
+    return loop(state=0, max=3,
+        body=lambda n: when(n == 2, then=lambda: done(n), else_=lambda: cont(n + 1)),
+        on_exhausted=lambda n: n)
+'''
+PINNED_EMITTED_TEXT = '''(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.39")
+  (defmodule py/count)
+  (export run)
+  (defworkflow run () -> Int
+    (let* ((_loop (loop/recur :max 3 :state 0 :on-exhausted (let* ((_exhausted0 _loop0)) _exhausted0) (fn (_loop0) (if (= _loop0 2) (done _loop0) (continue (+ _loop0 1)))))))
+      _loop))
+)
+'''
+
+
+def test_a_frozen_python_pin_made_before_the_binder_form_still_builds(tmp_path: Path) -> None:
+    from orchestrator.py.build import build as build_python
+
+    source = tmp_path / "count.py"
+    source.write_text(PINNED_PYTHON_LOOP, encoding="utf-8")
+    pinned = build_python(source, workspace_root=tmp_path)
+    (emitted,) = pinned.snapshot_path.glob("generated/**/count.orc")
+
+    frozen = build_python(source, workspace_root=tmp_path, frozen=True)
+
+    assert (emitted.read_text(encoding="utf-8"), frozen.snapshot_path) == (PINNED_EMITTED_TEXT, pinned.snapshot_path)
