@@ -1,5 +1,9 @@
 # Evaluated Execution Phase 5 Execution Record
 
+> The [2026-11-12 addendum](#addendum-2026-11-12-public-qualification) records
+> the later public qualification and what remains open; the status below is
+> the record as of its writing.
+
 Status: **implementation in progress**. Task 0 is prepared; Task 1 compilation
 and checked read-back and Task 2 read-only replay are accepted after independent
 contract/quality reviews and coordinator acceptance.
@@ -411,3 +415,85 @@ checked 1,224 local links/anchors across 15 affected documents with no failures
 (`E/consistency-validation.json`); all 12 Task 4 source/test hashes still match
 the reviewed freeze. No push, full-suite rerun, consumer migration or executor
 retirement is claimed by this delivery.
+
+## Addendum 2026-11-12: Public Qualification
+
+Added by the Phase 2 closeout (task A4 of the
+[Phase 2 plan](../plans/2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md#a4-closeout-m)).
+The body above is the record as written and is not revised.
+
+**What is qualified.** Target 2.37 parallel map is qualified through the
+public command line (`compile`, `run`, `resume`, `invalidate`, `report`) with
+stand-in providers and commands: item working directories under D2, SIGKILL
+and resume in every Phase 5 window, refusals that write nothing, whole-suffix
+C8 invalidation, and the maintained best-of-N consumer with `:parallel 2`.
+It has **not** been exercised with a real provider: the live smoke (Phase 2
+tranche T1) needs owner-approved spend and has not run.
+
+**Evidence.** Phase 2 lane 1 merged as `3491fbba` and changed tests only
+(`git diff --stat 3491fbba^1 3491fbba` lists six files under `tests/`, none
+under `orchestrator/`). The headline exit test merged with B4 (`895b5f74`).
+Fresh runs on `e65c1782`, stand-ins only, the no-provider stubs first on
+`PATH`:
+
+| Run | Result |
+| --- | --- |
+| `tests/test_workflow_evaluated_parallel_{cwd_variants,reserved_root,kill_resume,invalidate,consumers}.py` and `tests/test_phase2_exit_e2e.py` (`-n 8`) | 47 passed (18, 4, 16, 2, 6 and 1 collected) |
+| Controls: `tests/test_workflow_evaluated_{resume_kills,recovery,invalidate_windows,parallel_cwd_cli,parallel_resume,parallel_run_ref,consumers,views,recovery_views,run_ref_settlement}.py`, `tests/test_logical_workspace_coordinates.py` | 330 passed |
+| `tests/test_workflow_evaluated_parallel_resume.py` after renaming `test_live_parallel_execution_is_still_refused` to `test_bare_evaluator_without_parallel_handler_refuses_par_map` (it tests `evaluate_closed_program` without a parallel handler) | 41 collected, 41 passed |
+
+The lane 1 review broke production code in 16 ways and each break failed a
+named test; the exit-test review broke it in 8 ways, all caught (both review
+records are kept with the Phase 2 coordinator). The old-target artifact
+comparison and the full suite were not rerun, because lane 1 changed no
+production byte; the full suites recorded in the
+[Phase 2 ledger](../plans/2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md#ledger)
+stand (14,520 passed with lane 1 merged; 14,414 after B4, each with only the
+four known worktree-artifact failures).
+
+**Phase 5 plan boxes.** Closed, each with its test named in the plan: Task 3
+box 2; Task 5, all five; Task 6 boxes 1 to 3; Task 7 box 1 (these document
+edits) and box 4 (reused suites). Still open:
+
+- Task 3 box 3, one clause: no test observes that a parallel item's
+  run-reference child runs in its clone workspace. A scratch copy in which the
+  child launcher used its request directory as cwd passed all 43 tests of the
+  parallel run-reference, invalidate, reserved-root and kill/resume modules and
+  all 73 of `tests/test_workflow_evaluated_run_ref.py`,
+  `tests/test_workflow_evaluated_run_ref_settlement.py` and
+  `tests/test_workflow_run_ref_child.py`. The parallel route passes no item cwd
+  to the run-reference adapter (read, not tested).
+- Task 6 box 4: run figures against the serial specimen are not recorded.
+- Task 6 box 5: the live smoke, not authorized.
+- Task 7 box 2: Radon is not installed; the census below is an AST
+  approximation, and the closeout's independent review is pending.
+- Task 7 box 3: the pinned-controller compatibility campaign has never run for
+  Phase 5; the old-target evidence is Task 1C's.
+- Task 7 box 5: independent and coordinator review pending.
+
+**Limits a user must know.** Authored reserved environment is refused at
+launcher level only (no public surface exists for it); the built-in
+`validate_review_findings_v1` inline signature omits `schema_version`, so
+built-in inline use is not qualified; a provider prompt that names a
+repository must receive an absolute path, because D2 rewrites no prose; the
+consumer's overlap check holds the first two coders for one second, so a
+wider bound under heavy load could go undetected there (the kill test catches
+it without timing); `parallel_workspace_shared` (exit 1, no `started` row,
+failed terminal, observed through `run`) is pinned only by the in-process
+`tests/test_workflow_evaluated_parallel.py::test_map_preflight_refusals_reserve_no_attempt`,
+which does not assert the code.
+
+**Census** of the Phase 2 modules (physical lines; cyclomatic complexity by
+an AST count of Radon's rules with nested functions counted on their own,
+approximate because Radon was not installed; the Python stand-in scripts
+embedded in string constants are not analysed):
+
+| Module | Lines | Highest function (approx. CC) |
+| --- | --- | --- |
+| `tests/test_workflow_evaluated_parallel_cwd_variants.py` | 386 | `_unsafe_carrier` 10 |
+| `tests/test_workflow_evaluated_parallel_reserved_root.py` | 132 | at most 6 |
+| `tests/test_workflow_evaluated_parallel_kill_resume.py` | 307 | `_coordinator_window` 11 |
+| `tests/test_workflow_evaluated_parallel_invalidate.py` | 60 | `test_invalidate_cancels_the_whole_suffix_across_interleaved_items` 10 |
+| `tests/test_workflow_evaluated_parallel_consumers.py` | 241 | `_run_with_failed_candidate` 11 |
+| `tests/workflow_evaluated_parallel_kill_helpers.py` | 155 | at most 6 |
+| `tests/test_phase2_exit_e2e.py` | 190 | `test_parallel_best_of_n_survives_a_kill_and_reports_tokens` **20**, over the limit of 12 (eleven of its points are `assert` statements) |

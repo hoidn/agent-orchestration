@@ -60,8 +60,9 @@ dashboard read evaluated runs only and refuse historical ones. See
     [version contract](versioning.md#versioning-and-migration-normative) and
     [W3 contract](../docs/design/workflow_lisp_write_once.md#6-w3-hooks-see-their-context)
     own the rules.
-  - Target 2.37 parallel-map compilation and bounded execution have scoped
-    acceptance; full public qualification and phase delivery remain pending.
+  - Target 2.37 parallel map is qualified through the public command line
+    with stand-in providers and commands, not yet with a real provider
+    ([addendum](../docs/reports/2026-10-07-evaluated-execution-phase-5-closeout.md#addendum-2026-11-12-public-qualification)).
     Follow [versioning](versioning.md#version-gating-summary) and the
     [Phase 5 status](../docs/plans/2026-10-07-evaluated-execution-phase-5-plan.md#status-entry-and-decisions)
     for its limits; it is not yet a copy-safe authoring surface.

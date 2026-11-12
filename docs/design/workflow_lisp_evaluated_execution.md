@@ -4,8 +4,9 @@
 
 - **Status:** current execution contract. Target 2.35 admits commands, portable
   composed providers without context capture, calls/captures and path-mode run
-  references. Target 2.36 adds bounded W3; 2.37 parallel-map qualification and
-  2.38 confined-provider qualification remain separately gated. Target 2.38
+  references. Target 2.36 adds bounded W3; 2.37 adds bounded parallel map
+  (§11), qualified through the public command line with stand-ins, not yet with
+  a real provider; 2.38 confined-provider qualification remains separately gated. Target 2.38
   has bounded Agent Sessions and command-only confined run-ref admission.
   Target 2.39 changes procedure authoring and finite source admission under the
   [frontend contract](workflow_lisp_frontend_specification.md#106-procedure-lowering-policy-resolved),
@@ -2998,11 +2999,15 @@ Target 2.37 registration and checked `par-map` construction/read-back are
 qualified ([bounded record](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-1c--checked-compilation-and-read-back)).
 Bounded parallel workers are implemented and independently reviewed
 ([Task 4 record](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#task-4--bounded-workers-and-coordinator)).
-The [Phase 5 plan](../plans/2026-10-07-evaluated-execution-phase-5-plan.md)
-owns the remaining public qualification and delivery gates; this is not yet a
-copy-safe authoring surface. Its rules preserve the existing identity and memo.
+The form is qualified through the public command line with stand-in
+providers and commands: item working directories, kill and resume in every
+window, whole-suffix invalidation and the best-of-N consumer
+([addendum](../reports/2026-10-07-evaluated-execution-phase-5-closeout.md#addendum-2026-11-12-public-qualification)).
+It has not run against a real provider, and the addendum lists what stays
+open. The [drafting guide](../lisp_workflow_drafting_guide.md#173-parallel-map-target-237)
+gives the recipe and its limits. Its rules preserve the existing identity and memo.
 The accepted D2/D3 [concrete refinements](../plans/2026-10-07-evaluated-execution-phase-5-plan.md#contract-delta-to-review-before-implementation)
-own the proposed 2.37 activation's cwd/IO and independent-prefix replay rules;
+own the 2.37 activation's cwd/IO and independent-prefix replay rules;
 current first-release 2.35 behavior remains as implemented.
 
 `par-map` evaluates a body once per item of a list, with at most `n` items in
