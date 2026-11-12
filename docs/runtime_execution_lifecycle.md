@@ -171,10 +171,9 @@ refused whole; a chosen identity without an active commit refuses
 
 You can change a provider step's prompt in the middle of a run and continue
 the same run, as long as the prompt lives in its own file. Bind each prompt
-to a file in the prompt manifest:
+to a file in the prompt manifest, `prompts.json`:
 
 ```json
-// prompts.json
 {"prompts.one": {"asset_file": "one.md"},
  "prompts.two": {"asset_file": "two.md"},
  "prompts.three": {"asset_file": "three.md"}}
@@ -182,11 +181,18 @@ to a file in the prompt manifest:
 
 and refer to it from the step with `:prompt prompts.two`. A prompt written
 inline in the source, as a `defprompt` string, is part of the program:
-editing it makes `resume` refuse with `resume_program_changed`, and the only
-way forward is a new `run`.
+editing it makes `resume` refuse with `resume_program_changed`, and short of
+reverting the edit the only way forward is a new `run`.
 
-The examples below are a workflow `main.orc` with three provider steps that
-use those three prompts, run as:
+The examples below are illustrative: a workflow `main.orc` whose three
+provider steps, in a `let*`, use those three prompts through the provider
+`providers.review`, bound in the provider manifest `providers.json`:
+
+```json
+{"providers.review": "codex"}
+```
+
+The run command is:
 
 ```bash
 orchestrator run main.orc --provider-externs-file providers.json \
@@ -233,8 +239,10 @@ restore the file's old contents and resume.
 - If a step after the edited one is a committed agent turn or run reference,
   `invalidate` refuses (`invalidate_coordinator_committed`); start a new run.
 
-These behaviors are pinned by
-[`tests/test_workflow_evaluated_prompt_edit_continue.py`](../tests/test_workflow_evaluated_prompt_edit_continue.py).
+[`tests/test_workflow_evaluated_prompt_edit_continue.py`](../tests/test_workflow_evaluated_prompt_edit_continue.py)
+pins the failed, not-yet-run, committed-then-invalidate, restore and inline
+cases above; the `invalidate_coordinator_committed` limit is pinned for agent turns by
+[`tests/test_workflow_evaluated_agent_invalidate.py`](../tests/test_workflow_evaluated_agent_invalidate.py).
 
 ### Readers
 
