@@ -442,6 +442,7 @@ the owner can amend any of them.
 | 9 | Live supervision and peer groups | Kept as a future direction by the owner 2026-11-11: not scheduled, no phase owns it. Lane D keeps the two source forms and their frontend support, deletes the old executor packages, and records the reusable design first. A port needs its own design on evaluated execution; the [salvage record](../design/live_provider_supervision_and_peers_salvage.md) is its starting material and finds supervision the closer of the two |
 | 10 | Budget for the Agent Sessions comparison (PQ-1c) | Approved 2026-11-12: the comparison only, at most 20 `claude-haiku-5-5` calls, ceiling USD 10, through the kit's launcher. The live best-of-N smoke is not approved |
 | 11 | Agent Sessions after the comparison | Kept, 2026-11-12. The owner values sessions for versatility in workflow patterns, not efficiency. The comparison's cost finding (1.4 to 1.7 times the plain handoff on a four-turn pattern; a committed turn cannot be invalidated) is the known price, not a reason to retire |
+| 12 | Who approves provider spend | Delegated to the coordinator, 2026-11-12, "within reason": planned-size tranches with a cap recorded in the plan ledger before the first call, Haiku by default and nothing above the Sonnet/Terra ceiling. The coordinator still asks for a tranche above about USD 100, cumulative spend above about USD 300, a new experiment line, or a top-up after a null result ([`AGENTS.md`](../../AGENTS.md), experiment rules) |
 
 ## Process rules
 
