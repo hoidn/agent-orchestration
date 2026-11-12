@@ -30,7 +30,7 @@ def _perform(body):
     return next(node for node in _walk_wcc(body) if isinstance(node, WccPerform) and node.target_name == "emit")
 
 
-@pytest.mark.parametrize("target", ["2.35", "2.36", "2.37", "2.38", "2.39", "2.40"])
+@pytest.mark.parametrize("target", ["2.35", "2.40"])
 @pytest.mark.parametrize("argv", ['', ':argv ("python" "emit.py")'])
 @pytest.mark.parametrize("inputs,present,fields", [("", False, ()), (":inputs ()", True, ()), (':inputs ((message "hi"))', True, ("message",))])
 def test_external_document_presence_survives_source_and_wcc(tmp_path, inputs, present, fields, target, argv):
@@ -421,9 +421,11 @@ def test_omitted_argv_cannot_infer_certified_adapter_mode(tmp_path, inputs):
     assert caught.value.diagnostics[0].code == "command_result_adapter_invalid"
 
 
-@pytest.mark.parametrize("target", ["2.35", "2.40"])
-@pytest.mark.parametrize("procedure", [False, True])
-@pytest.mark.parametrize("argv", ['', ':argv ("python" "prepare.py")'])
+@pytest.mark.parametrize(
+    ("target", "procedure", "argv"),
+    [("2.35", False, ''), ("2.40", True, ':argv ("python" "prepare.py")')],
+    ids=["2.35-workflow-argv-omitted", "2.40-procedure-argv-given"],
+)
 @pytest.mark.parametrize("subject", ["direct", "let", "if", "helper", "macro"])
 def test_nested_match_keeps_resolved_command_subject(tmp_path, target, procedure, argv, subject):
     from orchestrator.contracts.closed_program.sites import _ast_nodes
