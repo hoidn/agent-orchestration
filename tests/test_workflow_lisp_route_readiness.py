@@ -202,7 +202,7 @@ def test_self_referential_registry_evidence_is_rejected(tmp_path: Path) -> None:
             tmp_path,
             [
                 _base_entry(
-                    evidence=["python -m pytest tests/test_workflow_lisp_expressions.py -q"]
+                    evidence=["python -m pytest tests/test_workflow_lisp_route_readiness.py -q"]
                 )
             ],
         )
