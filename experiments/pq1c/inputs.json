@@ -1,0 +1,5 @@
+{
+  "task": "Add a Python module `wordcount.py` at the repository root with a function `count_words(text: str) -> int` that counts whitespace-separated words, and a command line `python wordcount.py FILE` that prints the word count of FILE and exits 2 with a message on stderr when FILE does not exist; add pytest tests in `tests/test_wordcount.py` for the function and both command-line cases.",
+  "planner_model": "claude-haiku-5-5",
+  "reviewer_model": "claude-haiku-5-5"
+}
