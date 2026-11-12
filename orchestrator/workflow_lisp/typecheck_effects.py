@@ -1302,7 +1302,8 @@ def typecheck_command_result_expr(
         command_binding = context.command_boundary_environment.bindings_by_name.get(binding_name)
         if command_binding is None:
             raise_error(
-                f"`command-result` `{binding_name}` is missing command boundary metadata",
+                f"`command-result` `{binding_name}` is missing command boundary metadata. "
+                "Add it to commands.json beside the source, or name the manifest with --command-boundaries-file",
                 code="command_adapter_missing_contract",
                 span=expr.span,
                 form_path=expr.form_path,

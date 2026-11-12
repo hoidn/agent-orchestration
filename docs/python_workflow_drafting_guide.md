@@ -104,8 +104,10 @@ Procedures infer effects at 2.39 and later. Older targets require explicit effec
 descriptors and emit inline lowering; imported definitions keep their own rules.
 Supply repeatable `--source-root` paths for additional source libraries, select
 an exported entry with `--entry-workflow`, and supply the relevant provider,
-prompt, command or imported-bundle manifests. There are no default extern
-bindings. The [design](design/python_workflow_frontend.md#public-authoring-surface)
+prompt, command or imported-bundle manifests. When a manifest flag is absent,
+a file named `commands.json`, `providers.json` or `prompts.json` beside the
+source is used (an explicit flag wins; the CLI prints `using <file> beside
+<source>`). The [design](design/python_workflow_frontend.md#public-authoring-surface)
 documents the declaration API and concrete `.orc` imports.
 
 ## Ask For A Durable Decision

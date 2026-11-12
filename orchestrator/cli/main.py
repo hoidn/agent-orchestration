@@ -6,6 +6,17 @@ from typing import Optional
 
 from orchestrator.observability.summary import DEFAULT_SUMMARY_TIMEOUT_SEC
 
+PUBLIC_COMMANDS = ("run", "py", "compile", "repl", "resume", "invalidate", "input", "report", "dashboard", "monitor")
+# Accepted and not read by evaluated execution (specs/cli.md); hidden from help.
+HIDDEN_RUN_FLAGS = ("--context", "--clean-processed", "--archive-processed", "--on-error", "--max-retries",
+                    "--retry-delay", "--step-summaries", "--summary-", "--live-agent-", "--backup-state",
+                    "--repair", "--force-restart", "--stream-output")
+
+
+def _hide_flags(parser: argparse.ArgumentParser, prefixes: tuple[str, ...]) -> None:
+    for action in parser._actions:
+        if any(option.startswith(prefixes) for option in action.option_strings):
+            action.help = argparse.SUPPRESS
 
 
 def _add_frontend_flags(
@@ -271,7 +282,7 @@ def create_parser() -> argparse.ArgumentParser:
         description='Multi-Agent Orchestration System'
     )
 
-    subparsers = parser.add_subparsers(dest='command', help='Commands')
+    subparsers = parser.add_subparsers(dest='command', help='Commands', metavar='{' + ','.join(PUBLIC_COMMANDS) + '}')
 
     # Run command
     run_parser = subparsers.add_parser(
@@ -285,6 +296,7 @@ def create_parser() -> argparse.ArgumentParser:
     )
     _add_run_options(run_parser)
     _add_frontend_flags(run_parser)
+    _hide_flags(run_parser, HIDDEN_RUN_FLAGS)
 
     python_parser = subparsers.add_parser('py', help='Build and run Python-authored workflows', allow_abbrev=False)
     python_subparsers = python_parser.add_subparsers(dest='py_command', required=True)
@@ -298,11 +310,11 @@ def create_parser() -> argparse.ArgumentParser:
     python_run_parser.add_argument('workflow', type=str, help='Path to a Python workflow source file')
     _add_run_options(python_run_parser)
     _add_frontend_flags(python_run_parser)
+    _hide_flags(python_run_parser, HIDDEN_RUN_FLAGS)
     python_run_parser.add_argument('--frozen', action='store_true', help='Require the pinned authoring snapshot')
 
     prompt_parser = subparsers.add_parser(
         'prompt',
-        help='Deterministic OMP prompt scaffolds and ordinary runs',
         allow_abbrev=False,
     )
     prompt_subparsers = prompt_parser.add_subparsers(
@@ -400,10 +412,7 @@ def create_parser() -> argparse.ArgumentParser:
         help='Resume the primary journal in place instead of forking a new one',
     )
 
-    trial_parser = subparsers.add_parser(
-        'trial',
-        help='Run a target-2.25 terminal trial entry',
-    )
+    trial_parser = subparsers.add_parser('trial')
     trial_parser.add_argument(
         'workflow',
         type=str,
@@ -439,6 +448,7 @@ def create_parser() -> argparse.ArgumentParser:
         help='Path to workflow .orc file'
     )
     _add_frontend_flags(compile_parser, include_emit_artifact_exports=True)
+    _hide_flags(compile_parser, ('--emit-',))
     compile_parser.add_argument(
         '--diagnostics-json',
         action='store_true',
@@ -455,7 +465,7 @@ def create_parser() -> argparse.ArgumentParser:
     repl_parser.add_argument('--run-id', help='Attach to an evaluated run at startup')
     repl_parser.add_argument('--state-dir', help='Override the default runs directory')
 
-    explain_parser = subparsers.add_parser('explain', help='Explain a compiled Workflow Lisp form')
+    explain_parser = subparsers.add_parser('explain')
     explain_parser.add_argument(
         'workflow',
         type=str,
@@ -573,6 +583,7 @@ def create_parser() -> argparse.ArgumentParser:
         type=int,
         help='Override maximum tmux pane tail chars passed to live note provider'
     )
+    _hide_flags(resume_parser, HIDDEN_RUN_FLAGS)
 
     invalidate_parser = subparsers.add_parser(
         'invalidate',
@@ -685,10 +696,7 @@ def create_parser() -> argparse.ArgumentParser:
         help='Override notification ledger path'
     )
 
-    route_readiness_parser = subparsers.add_parser(
-        'workflow-lisp-route-readiness',
-        help='Validate Workflow Lisp route/readiness registry'
-    )
+    route_readiness_parser = subparsers.add_parser('workflow-lisp-route-readiness')
     route_readiness_parser.add_argument(
         '--registry',
         default='docs/workflow_lisp_route_readiness_registry.json',
@@ -700,14 +708,8 @@ def create_parser() -> argparse.ArgumentParser:
         help='Validate registry and exit nonzero on stale or invalid labels'
     )
 
-    subparsers.add_parser(
-        'peer-ready',
-        help='Declare this exact peer-group member attempt ready',
-    )
-    peer_send_parser = subparsers.add_parser(
-        'peer-send',
-        help='Queue a message for another active peer binding',
-    )
+    subparsers.add_parser('peer-ready')
+    peer_send_parser = subparsers.add_parser('peer-send')
     peer_send_parser.add_argument(
         'target_binding',
         help='Authored binding name of the receiving peer',
@@ -716,27 +718,15 @@ def create_parser() -> argparse.ArgumentParser:
         'message',
         help='Verbatim message to queue at the receiver turn boundary',
     )
-    peer_ack_parser = subparsers.add_parser(
-        'peer-ack',
-        help='Acknowledge a received peer message',
-    )
+    peer_ack_parser = subparsers.add_parser('peer-ack')
     peer_ack_parser.add_argument(
         'message_id',
         help='Runtime-issued peer message id',
     )
-    subparsers.add_parser(
-        'peer-finish',
-        help='Request cooperative natural close for this member',
-    )
-    subparsers.add_parser(
-        'provider-materialization-submit',
-        help='Submit the current phased materialization candidate',
-    )
+    subparsers.add_parser('peer-finish')
+    subparsers.add_parser('provider-materialization-submit')
 
-    provider_manifest_parser = subparsers.add_parser(
-        'provider-isolation-environment-manifest',
-        help='Publish a prospective provider-isolation environment manifest',
-    )
+    provider_manifest_parser = subparsers.add_parser('provider-isolation-environment-manifest')
     provider_manifest_parser.add_argument(
         '--root',
         required=True,
@@ -764,6 +754,10 @@ def main(args: Optional[list] = None) -> int:
     if not parsed_args.command:
         parser.print_help()
         return 1
+    from .defaults import apply_manifest_defaults
+    for used in apply_manifest_defaults(parsed_args):
+        if not getattr(parsed_args, "quiet", False):
+            print(f"using {used} beside {parsed_args.workflow}", file=sys.stderr)
 
     if parsed_args.command == 'run':
         from .commands import run_workflow
