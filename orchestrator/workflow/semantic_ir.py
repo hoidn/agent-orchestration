@@ -28,7 +28,6 @@ from .executable_ir import (
     ProviderStepConfig,
     RequestInputStepConfig,
     RunRefStepConfig,
-    TrialStepConfig,
 )
 from .prompt_dependency_contract import (
     CompilerPromptDependencyContract,
@@ -48,10 +47,6 @@ from .runtime_plan import WorkflowRuntimePlan
 from .run_ref.config import (
     RunRefStaticConfig,
     validate_run_ref_static_config_authority,
-)
-from .trial.config import (
-    TrialStaticConfig,
-    validate_trial_static_config_authority,
 )
 from .state_layout import (
     GeneratedPathAllocationRequest,
@@ -74,17 +69,6 @@ from .view_renderer import VIEW_RENDERER_SCHEMA_VERSION
 
 
 WORKFLOW_SEMANTIC_IR_SCHEMA_VERSION = "workflow_semantic_ir.v1"
-_PROMOTED_ADAPTER_EFFECT_KINDS = frozenset({"resource_transition", "ledger_update"})
-_PROMOTED_GENERATED_EFFECT_KINDS = frozenset(
-    {
-        "snapshot_capture",
-        "pointer_materialization",
-        "pure_projection",
-        "materialize_view",
-        "run_ref",
-        "trial",
-    }
-)
 _PROVIDER_BUNDLE_PATH_PROJECTION_KIND = "provider_bundle_path_projection"
 
 

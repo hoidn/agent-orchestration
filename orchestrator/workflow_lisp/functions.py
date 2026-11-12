@@ -1195,8 +1195,7 @@ def normalize_resolved_inline_procedure_calls(
                     from .effects import effect_summary_contains_runs_ref
                     from .typecheck_context import raise_run_ref_placement_invalid
                     if effect_summary_contains_runs_ref(procedure_effect_summary):
-                        raise_run_ref_placement_invalid(expr, reason="is not permitted in a pure function",
-                            effect_summary=procedure_effect_summary)
+                        raise_run_ref_placement_invalid(expr, reason="is not permitted in a pure function")
                 raise LispFrontendCompileError(
                     (
                         LispFrontendDiagnostic(
@@ -2021,7 +2020,7 @@ def _validate_pure_function_expr(
     procedure_catalog: "ProcedureCatalog | None" = None,
     target_dsl_version: str | None = None,
 ) -> None:
-    from .effects import RunsRefEffect, effect_summary
+    from .effects import RunsRefEffect
     from .typecheck_context import raise_run_ref_placement_invalid
 
     for candidate in walk_expr(expr):
@@ -2040,9 +2039,6 @@ def _validate_pure_function_expr(
                 raise_run_ref_placement_invalid(
                     candidate,
                     reason="is not permitted in a pure function",
-                    effect_summary=effect_summary(
-                        direct_effects=signature.declared_effects
-                    ),
                 )
     violation = _find_purity_violation(
         expr,

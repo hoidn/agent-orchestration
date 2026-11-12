@@ -430,35 +430,6 @@ def create_parser() -> argparse.ArgumentParser:
         help='Resume the primary journal in place instead of forking a new one',
     )
 
-    trial_parser = subparsers.add_parser('trial')
-    trial_parser.add_argument(
-        'workflow',
-        type=str,
-        help='Path to a Workflow Lisp .orc source file',
-    )
-    trial_parser.add_argument(
-        '--input',
-        action='append',
-        metavar='NAME=VALUE',
-        help='Workflow signature inputs (can be specified multiple times)',
-    )
-    trial_parser.add_argument(
-        '--input-file',
-        type=str,
-        help='Path to JSON file containing workflow signature inputs',
-    )
-    trial_parser.add_argument(
-        '--state-dir',
-        type=str,
-        help='Override default state directory',
-    )
-    trial_parser.add_argument(
-        '--run-ref-root',
-        type=str,
-        help='Canonical absolute runtime root for trial child workspaces',
-    )
-    _add_frontend_flags(trial_parser, require_entry_workflow=True)
-
     compile_parser = subparsers.add_parser('compile', help='Compile a Workflow Lisp entrypoint')
     compile_parser.add_argument(
         'workflow',
@@ -675,6 +646,11 @@ def create_parser() -> argparse.ArgumentParser:
         type=str,
         help='Optional output file path'
     )
+    report_parser.add_argument(
+        '--price-table',
+        type=str,
+        help='Price table JSON used instead of the packaged one'
+    )
 
     dashboard_parser = subparsers.add_parser('dashboard', help='Serve local workflow dashboard')
     dashboard_parser.add_argument(
@@ -784,9 +760,6 @@ def main(args: Optional[list] = None) -> int:
     elif parsed_args.command == 'prompt':
         from .commands import prompt_workflow
         return prompt_workflow(parsed_args)
-    elif parsed_args.command == 'trial':
-        from orchestrator.cli.commands.trial import trial_workflow
-        return trial_workflow(parsed_args)
     elif parsed_args.command == 'compile':
         from orchestrator.cli.commands import compile_workflow
         return compile_workflow(parsed_args)
@@ -813,6 +786,7 @@ def main(args: Optional[list] = None) -> int:
             runs_root=parsed_args.runs_root,
             format=parsed_args.format,
             output=parsed_args.output,
+            price_table=parsed_args.price_table,
         )
     elif parsed_args.command == 'dashboard':
         from orchestrator.cli.commands import dashboard_workflow

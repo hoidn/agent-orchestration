@@ -4,6 +4,7 @@ Reads evaluated runs only, through `load_evaluated_view` and `report_snapshot`. 
 a `state.json` entry and no evaluated authority was written by the retired runtime: `report` refuses it
 with one stderr line and exit 2, and never opens its `state.json` beyond the view-hint check in
 `has_evaluated_authority`. Without `--run-id`, the latest evaluated run by directory name is reported.
+Reads the packaged price table, or the `--price-table` file, to price the attempts' `usage.json`.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 from orchestrator.observability.report import render_status_markdown
+from orchestrator.providers.pricing import load_price_table
 from orchestrator.workflow.evaluated.views import (
     has_evaluated_authority,
     load_evaluated_view,
@@ -44,8 +46,18 @@ def report_workflow(
     runs_root: str = ".orchestrate/runs",
     format: str = "md",
     output: Optional[str] = None,
+    price_table: Optional[str] = None,
 ) -> int:
-    """Render a workflow status report for an existing evaluated run."""
+    """Render a workflow status report for an existing evaluated run.
+
+    `price_table` is a price table file used instead of the packaged one; a table that cannot be read
+    or is invalid exits 2 with `price_table_invalid`, before the run is read.
+    """
+    try:
+        table = load_price_table(price_table)
+    except (OSError, ValueError) as exc:
+        print(f"Error: price_table_invalid: {price_table}: {exc}", file=sys.stderr)
+        return 2
     run_dir = _resolve_run_dir(run_id, Path(runs_root))
     if run_dir is None:
         print("Error: run not found", file=sys.stderr)
@@ -54,7 +66,7 @@ def report_workflow(
         print(f"Error: {retired_run_refusal(run_dir.name)}", file=sys.stderr)
         return 2
     try:
-        snapshot = report_snapshot(load_evaluated_view(run_dir), run_dir)
+        snapshot = report_snapshot(load_evaluated_view(run_dir), run_dir, table)
     except (OSError, ValueError) as exc:
         print(f"Error: memo_inconsistent: {exc}", file=sys.stderr)
         return 1

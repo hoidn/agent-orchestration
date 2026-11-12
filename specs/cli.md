@@ -168,10 +168,18 @@ this locking rule does not retain workflow supervision or watchdog execution.
       before locks/writes. [Historical state](state.md#durable-host-input-state-and-recovery)
       remains unchanged. `input get` prints the pending evaluated request or
       retained historical request as JSON (exit 0); absent/invalid request exits 2.
-  - `orchestrate report [--run-id <id>] [--runs-root <dir>] [--format md|json] [--output <path>]`
+  - `orchestrate report [--run-id <id>] [--runs-root <dir>] [--format md|json] [--output <path>] [--price-table <path>]`
     - Reads evaluated runs only (see the [readers](#evaluated-readers)). Without
       `--run-id` it reports the evaluated run with the greatest directory name;
       retired runs are skipped.
+    - Usage: each provider-class step (`provider`, `provider_phased`,
+      `agent_turn`, `run_ref`) carries `usage` and the run `run.usage`, summed
+      from every attempt's `usage.json` and priced at the ordinary rates of the
+      packaged price table, or of the table at `--price-table`; the shape and
+      the `unknown` and partial rules are in
+      [observability](observability.md#report-usage). A `--price-table` file
+      that cannot be read or is not a valid table exits 2 with one stderr line
+      `Error: price_table_invalid: <path>: <reason>`, before the run is read.
     - A run directory with a `state.json` entry and no evaluated authority
       (`run.json`, `closed_program.json`, `memo.jsonl`) was written by the
       retired runtime: `report` exits 2 with one stderr line
@@ -265,7 +273,7 @@ followed by `-m orchestrator` when the module was invoked (see
 `orchestrate` elsewhere in this contract names the same program. `--help`
 lists the public commands (`run`, `py`, `compile`, `repl`, `resume`,
 `invalidate`, `input`, `report`, `dashboard`, `monitor`). The retired and
-maintainer commands (`prompt`, `trial`, `explain`,
+maintainer commands (`prompt`, `explain`,
 `workflow-lisp-route-readiness`, `provider-materialization-submit`,
 `provider-isolation-environment-manifest`) and the flags evaluated execution
 does not read (see [Evaluated execution](#evaluated-execution-target-235))
@@ -301,27 +309,11 @@ orchestrator run workflows/examples/plan_review_execute.orc \
 
 ### Workflow Lisp trials (target 2.25)
 
-```text
-orchestrate trial WORKFLOW --entry-workflow NAME
-  [--input NAME=VALUE ...] [--input-file JSON]
-  [--source-root DIR ...]
-  [--provider-externs-file JSON] [--prompt-externs-file JSON]
-  [--imported-workflow-bundles-file JSON] [--command-boundaries-file JSON]
-  [--state-dir DIR] [--run-ref-root DIR]
-```
-
-Historical grammar only: trial execution is retired. The CLI and
-`run_trial_entry` SDK refuse with `workflow_execution_target_retired` before
-execution/publication (CLI exit 2), rather than compiling or creating a trial
-run/result. The historical `workflow_trial_run_result.v1` wire remains useful
-for reading retained trial evidence; it does not admit new trials. ES/research
-callers share this retirement, with no evaluated trial port. The current CLI
-`report` and the dashboard no longer read trial runs: a retained trial run has
-no evaluated authority, so both refuse it with
-`workflow_execution_profile_retired`; the old readers are kept at the git tag
-`archive/retired-run-readers-2026-11-11`. The
-[observability contract](observability.md#target-225-trial-observability) owns
-the historical detail format.
+The `trial` command, its `run_trial_entry` SDK and the trial executor were removed on 2026-11-12;
+`orchestrate trial` now exits 2 with `invalid choice`. The packages are kept at git tag
+`archive/dead-executors-2026-11-11`; the last tree with the whole runtime is commit `08cdd59b`.
+See the [salvage record](../docs/design/trial_and_adjudication_salvage.md). `report` and the
+dashboard refuse a retained trial run with `workflow_execution_profile_retired`.
 
 ### Evaluated execution (target 2.35)
 
@@ -375,6 +367,7 @@ orchestrator run WORKFLOW [the same frontend flags] [--input NAME=VALUE ...]
 orchestrator resume RUN_ID [--state-dir DIR] [--run-ref-root DIR] [--accept-changes] [--quiet] [--max-cost-usd USD]
 orchestrator invalidate RUN_ID IDENTITY [--state-dir DIR]
 orchestrator report [--run-id RUN_ID] [--runs-root DIR] [--format md|json] [--output PATH]
+  [--price-table PATH]
 orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--state-dir DIR]
 ```
 
@@ -599,7 +592,10 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   root and render its [derived view](state.md#derived-view-statejson)
   (`steps` keyed by identity, `current_step`, `next_effect`, `error`,
   `workflow_outputs`, and `interrupted` from writer-lock liveness). `report`
-  previews a row as the `repr` of its committed value from the view. The
+  previews a row as the `repr` of its committed value from the view; the view
+  reads nothing under `effects/`, and `report` additionally reads only
+  `attempt-<n>/usage.json` of provider-class steps, never a recipe, prompt,
+  stdout or result file. The
   dashboard shows each effect's attempt, start, completion and duration,
   links each failed effect with its error code, and links the files of the
   row's attempt directory: the `result_path` file first, then the other
@@ -777,7 +773,7 @@ the `resume` command.
 | `reserved_run_root_changed` | any writer whose locked run root no longer matches its path: publication, execution, `resume` preflight, `invalidate` | publication and execution 1; `resume` preflight and `invalidate` 2 | Nothing written into the substitute root |
 | `memo_inconsistent` | `resume` preflight (including stored authority without command transport); `invalidate`; readers; during execution when evidence is unsettled at a start or at `halt` | 2 (`report`: 1; during execution 1 without a terminal) | None; readers report no outputs |
 | `resume_request_missing` | `resume` | 2 | None |
-| `workflow_execution_target_retired` | `compile`, `run`, `run --dry-run` on an entry through 2.34; retired trial CLI/SDK; old path child before child publication; flat/staged child execution (`flat_execution_retired` / `staged_execution_retired`) | 2 at public admission; reached run-reference failure follows the evaluated parent's failure contract | No build/run/child publication at admission; a reached evaluated parent retains its own attempt evidence |
+| `workflow_execution_target_retired` | `compile`, `run`, `run --dry-run` on an entry through 2.34; old path child before child publication; flat/staged child execution (`flat_execution_retired` / `staged_execution_retired`) | 2 at public admission; reached run-reference failure follows the evaluated parent's failure contract | No build/run/child publication at admission; a reached evaluated parent retains its own attempt evidence |
 | `workflow_execution_profile_retired` | `resume` including restart/repair, `invalidate` of a retired profile; historical-profile `input answer`/`cancel`; `report` of a run with no evaluated authority (the dashboard shows the same line as a `retired` row and 404s the routes below its page) | 2 | None; before locks or writes |
 | `prompt_execution_retired` | Every `prompt run` and `prompt import` mode | 2 | None; before inputs, inference, scaffold/run/session writes or effects |
 | `workflow_explain_retired` | `explain`, independent of entry target or export flags | 2 | None; before source/build/export reads or writes |

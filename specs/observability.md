@@ -105,7 +105,10 @@ derives solely from the validated `.orc` executable and `state.json`.
 - Status/report surfaces
   - `report` and the dashboard read evaluated runs only: the checked authority
     (`run.json`, `closed_program.json`, `memo.jsonl`) and the view derived from
-    it, without reopening the workflow source. A run directory with a
+    it, without reopening the workflow source. The view reads nothing under
+    `effects/`; `report` additionally reads only `attempt-<n>/usage.json` of
+    provider-class steps ([usage](#report-usage)), never a recipe, prompt,
+    stdout or result file. A run directory with a
     `state.json` entry and no evaluated authority was written by the retired
     runtime; both refuse it with `workflow_execution_profile_retired` and the
     git tag `archive/retired-run-readers-2026-11-11` that keeps the old readers (see
@@ -141,19 +144,60 @@ derives solely from the validated `.orc` executable and `state.json`.
     or populate the run-level error. No completed cleanup history is required
     in this projection. Rendering the report is not a full revalidation of
     export bytes; settlement and resume retain that responsibility.
+  - <a id="report-usage"></a>Token usage and cost (`report`). Each
+    provider-class step (`provider`, `provider_phased`, `agent_turn`,
+    `run_ref`) has `usage`, summed over all its attempts (`attempt-1` to its
+    latest, beside its `result_path`), and the run has `run.usage`, the same sum
+    over every such step's attempts plus `price_table: {source, date}` of the
+    table used:
+    `{"tokens": {"input", "output", "cache_read", "cache_write"} | null,
+    "cost_usd": float | null, "attempts": n, "unknown_attempts": k,
+    "partial": bool}`. Other steps have no `usage`; a run with no
+    provider-class step has no `run.usage` key and its markdown no `## Usage`
+    section.
+    - Unknown attempts: an attempt whose `usage.json` is absent (killed before
+      writing it, still running, or recorded before `usage.json` existed, so
+      a run recorded before metering shows `unknown` for every provider step),
+      not a readable regular file, `unknown`, or not well-formed `reported`
+      usage counts in `unknown_attempts`, never as zero. A `run_ref` step's
+      attempts always do, since its child run's spend is in the child's own
+      report.
+    - `tokens` sums the reported attempts; null when none reported.
+    - `cost_usd` is the list-price equivalent at the table's ordinary rates
+      (`pricing.priced`), summed over the attempts that can be priced: an
+      attempt whose model has no rates adds nothing, and a reported attempt
+      with no token rows but a positive `reported_cost_usd` (Claude's `result`
+      line with an empty `modelUsage`) adds that cost, as the spend cap does.
+      It is null only when no attempt could be priced, or when the sum leaves
+      the float range (JSON never carries `Infinity` or `NaN`). The ordinary
+      rates understate a request priced at a model's `long_context` tier; the
+      spend cap prices conservatively instead (the larger of the CLI's cost
+      and the highest tier, [providers](providers.md#metered-templates-and-usage)),
+      so the two figures differ by design.
+    - `partial` is true when the figures are a lower bound: some attempt is
+      unknown, unpriced, priced from `reported_cost_usd` alone, or its usage
+      is `complete: false`.
+    - Markdown prints a step's `usage` line and a `## Usage` section with the
+      run total and the table's source and date: `unknown` when no attempt
+      reported, `cost_usd unknown` when nothing could be priced, a leading `≥`
+      on partial figures, and never `0` for an unmetered step.
+    - `usage` is a view of the attempt files, not memo authority
+      ([providers](providers.md#metered-templates-and-usage)).
   - The executor-session accounting fields (`run.active_runtime_ms` and its
     siblings) and the v2.10 `provider_attempt_interrupted_rerun` and
     `output.provider_session` projections came from the retired-run report;
     `report` no longer produces them (kept at the git tag `archive/retired-run-readers-2026-11-11`).
-  - v2.11 adjudicated provider snapshots may expose selected candidate id, selected score or null score, selection reason, run-local score ledger path, workspace-visible score ledger mirror path, promotion status, and adjudication failure type. Candidate workspaces, evaluator packets, and ledgers are observability sidecars, not ordinary artifact lineage.
+  - v2.11 adjudicated provider snapshots: no step of this kind can be produced since its
+    executor was removed on 2026-11-12 (see the
+    [salvage record](../docs/design/trial_and_adjudication_salvage.md)).
   - v2.16 provider-supervision and v2.17 provider-peer-group snapshots: no
     step of either kind can be produced since their executors were removed on
     2026-11-11 (see the
     [salvage record](../docs/design/live_provider_supervision_and_peers_salvage.md)).
-  - Target-2.23 phased recovery and v2.11 adjudication recovery may expose only
-    their bounded named diagnostic, recovery family/mismatch class, and old/new
-    visit coordinates. Prompt, candidate, score packet, ledger, and partial
-    result content remain sidecar evidence and never report authority.
+  - Target-2.23 phased recovery may expose only its bounded named diagnostic,
+    recovery family/mismatch class, and old/new visit coordinates. Prompt, ledger,
+    and partial result content remain sidecar evidence and never report authority.
+    The v2.11 adjudication recovery was removed with its executor on 2026-11-12.
 
 - Workflow monitor notifications
   - `orchestrator monitor` is a read-only observer over configured workspace roots. It enumerates run directories under `.orchestrate/runs/` and must not mutate `state.json`, reconcile run status, resume runs, kill processes, or execute workflow control.
@@ -206,54 +250,13 @@ derives solely from the validated `.orc` executable and `state.json`.
 
 ## Target 2.25 Trial Observability (Historical)
 
-The detailed trial projection and its report/Markdown/dashboard rendering are
-withdrawn from the current package: no admitted 2.35+ producer or public
-state-reader path supplies the typed authority they require. The rules below
-preserve the historical format contract, not current rendering support.
-
-`report` and the dashboard no longer read trial runs: a retained trial run has
-no evaluated authority, so both refuse it with
-`workflow_execution_profile_retired`; the old state-only report is kept at the
-git tag `archive/retired-run-readers-2026-11-11`. Raw run state, output suppression, trial configuration/ledger and
-settlement validators, and frozen JSON remain supported only for their actual
-data consumers. None of these readers restores trial execution or supplies
-recovery evidence for another release. See the
-[family disposition](../docs/design/workflow_lisp_executor_retirement.md#trial-observability-disposition).
-
-- A reached target-2.25 trial owns one run/frame/step/visit directory below
-  `RUN_ROOT/trials/`. Run-owned ledgers, bounded evidence snapshots, check
-  receipts, evaluator-attempt receipts, score rows, and terminal verdict
-  evidence are observability sidecars. The validated `StepResult.trial` and
-  typed verdict artifact remain result authority; sidecars and reports are
-  non-authoritative and cannot settle, route, retry, promote, or repair a run.
-- Status and report snapshots render one outer step with kind `trial`. While
-  active, the view is current-only and may expose the frozen cell count,
-  terminal completed/failed counts, active child and evaluator counts,
-  configured concurrency ceilings, exact budget counters, current phase, and
-  bounded named failure diagnostics. It must not infer a cell result from a
-  child directory or present a prepared row as committed.
-- Before scoring completes, snapshots expose opaque cell counts and digests
-  only. Authored arm IDs may appear only after the unblinded verdict join and
-  only in the validated terminal outcome/verdict projection. A terminal view
-  may expose authored-order outcomes, aggregate scores, ranking, nullable
-  selected arm, success-rule disposition, verdict digest and relpath, evidence
-  freeze digest, and complete budget accounting.
-- The sealed opaque-label map, source/program identities, workspace paths,
-  provider/model identities, completion timing/order, packet bodies, evaluator
-  prompt/output bodies, mutable logs, `.orchestrate` child sidecars, and score
-  summaries remain absent from stable status fields. Debug access to permitted
-  run-owned evidence never adds those bytes to a workflow value, checkpoint,
-  result, verdict artifact, or evaluator packet.
-- Under `derived_pure_replay.v1`, status and persisted step summaries show the
-  exact value-free completion shell for eligible pure trial projections, never
-  a reconstructed ordering, median, ranking, packet view, or report value. The
-  outer trial effect and verdict keep their ordinary durable result views.
-- The public SDK and CLI project the same closed versioned terminal summary:
-  run ID, terminal status, verdict digest and path, and a bounded failure
-  diagnostic. They expose no executable config, sealed mapping, child state,
-  packet content, provider transcript, or privileged control. Ordinary
-  non-trial runs perform no trial projection work and create zero trial
-  sidecars.
+The trial executor, its run-owned sidecars and its projections were removed on 2026-11-12. Its
+packages are kept at git tag `archive/dead-executors-2026-11-11`; the last tree with the
+whole runtime is commit `08cdd59b`. See the
+[salvage record](../docs/design/trial_and_adjudication_salvage.md).
+`report` and the dashboard refuse a retained trial run with
+`workflow_execution_profile_retired`; the old state-only report is kept at the git tag
+`archive/retired-run-readers-2026-11-11`.
 
 ## Workflow Lisp Judgment Views (Historical)
 

@@ -2054,9 +2054,8 @@ records the run-reference root used on resume.
 
 Bundle-mode run references are unavailable at both evaluated targets and
 refuse with `closed_program_gap`; the `trial` form was removed and refuses
-with `form_retired`. The `trial` CLI and old trial SDK
-are retired; the CLI refuses with `workflow_execution_target_retired` before
-source reads or publication. The [DSL contract](../specs/dsl.md) and
+with `form_retired`. The `trial` command and the old trial SDK were removed on
+2026-11-12; `orchestrate trial` exits 2 with `invalid choice`. The [DSL contract](../specs/dsl.md) and
 [CLI contract](../specs/cli.md#evaluated-execution-target-235) own those boundaries.
 
 ### Confined workflow children (target 2.38, command-only)
