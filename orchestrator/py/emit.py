@@ -702,19 +702,19 @@ class ModuleGenerator:
             maximum, state, body_region, exhausted_region, owner = value._args
             body_trace, body_result, body_binder = body_region
             exhausted_trace, exhausted_result, exhausted_binder = exhausted_region
-            w.write("(loop/recur :max ")
-            self.expression(maximum, expected=int)
-            w.write(" :state ")
+            w.write("(loop/recur ((" + body_binder + " ")
             self.expression(state, expected=body_trace.loop_state_type)
+            w.write(")) :max ")
+            self.expression(maximum, expected=int)
             w.write(" :on-exhausted (let* ((" + exhausted_binder + " " + body_binder + ")) ")
             self.region(exhausted_trace, exhausted_result, expected=expected)
-            w.write(") (fn (" + body_binder + ") ")
+            w.write(") ")
             self.loop_binders[owner] = (body_binder, body_trace.loop_state_type)
             try:
                 self.region(body_trace, body_result, expected=expected)
             finally:
                 self.loop_binders.pop(owner, None)
-            w.write("))")
+            w.write(")")
         elif value._kind == "continue":
             owner, state = value._args
             self.require_current_loop_owner(owner, value)
