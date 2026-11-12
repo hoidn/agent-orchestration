@@ -350,6 +350,10 @@ negative.
   proposer model, and the incumbent re-run beside the finalists. Price: about
   1,600 calls at 15-point resolution, about 2,100 at 9. Below that, "not
   tested".
+- Whatever form is chosen, the search starts from the
+  [seed set](2026-11-11-seed-set-calibration-plan.md) and admits a generated
+  program only if it compiles and stays under the seed set's size limit
+  (fewer than 50 lines of `.orc`; owner, 2026-11-11).
 - The campaign code from the closed search roadmap is kept outside the default
   test suite until this decision, and deleted under Option A or a Phase 5
   "refute".
