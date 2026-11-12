@@ -127,7 +127,6 @@ def typecheck_loop_recur_expr(
             raise_run_ref_placement_invalid(
                 typed_exhausted.expr,
                 reason="is not permitted in `loop/recur` exhaustion",
-                effect_summary=typed_exhausted.effect_summary,
             )
         if typed_exhausted.type_ref != typed_body.type_ref.result_type_ref:
             raise_error(

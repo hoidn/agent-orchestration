@@ -12,7 +12,7 @@ from tests.test_cli_run_output import RESULT_LINE, cli, printed, shell, write_pi
 
 REPO = Path(__file__).parents[1]
 PUBLIC = {"run", "py", "compile", "repl", "resume", "invalidate", "input", "report", "dashboard", "monitor"}
-HIDDEN = {"prompt", "trial", "explain", "workflow-lisp-route-readiness", "provider-materialization-submit",
+HIDDEN = {"prompt", "explain", "workflow-lisp-route-readiness", "provider-materialization-submit",
           "provider-isolation-environment-manifest"}
 
 
@@ -86,7 +86,7 @@ def test_top_level_help_lists_only_public_commands(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("argv", [
-    ["prompt", "resume", "S1"], ["trial", "w.orc", "--entry-workflow", "e"], ["explain", "w.orc"],
+    ["prompt", "resume", "S1"], ["explain", "w.orc"],
     ["workflow-lisp-route-readiness"], ["provider-materialization-submit"],
     ["provider-isolation-environment-manifest", "--root", "/r", "--provider-prefix", "/p", "--output", "/o"],
     ["run", "w.orc", "--context", "k=v", "--clean-processed", "--on-error", "continue", "--max-retries", "2",

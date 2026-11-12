@@ -417,7 +417,6 @@ def raise_run_ref_placement_invalid(
     expr: ExprNode,
     *,
     reason: str,
-    effect_summary: EffectSummary | None = None,
 ) -> None:
     """Reject child-run work at its owning authored form or call boundary."""
 

@@ -379,7 +379,6 @@ class WorkflowSignature:
     entry_hidden_context_callees: frozenset[str] = frozenset()
     allowed_private_compatibility_bridge_callees: frozenset[str] = frozenset()
     entry_bootstrap_gate_denial: str | None = None
-    compiler_direct_result_contract_digest: str | None = None
 
 
 @dataclass(frozen=True)
@@ -2051,9 +2050,6 @@ def _signature_from_imported_typed_program(
             native_signature.allowed_private_compatibility_bridge_callees
         ),
         entry_bootstrap_gate_denial=native_signature.entry_bootstrap_gate_denial,
-        compiler_direct_result_contract_digest=(
-            native_signature.compiler_direct_result_contract_digest
-        ),
     )
 
 

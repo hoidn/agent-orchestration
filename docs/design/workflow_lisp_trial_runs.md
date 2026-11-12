@@ -17,6 +17,12 @@ are excluded. The original E0–E2 completion, study park, protocol and scientif
 results below are historical evidence, not current launch permission or a new
 research selection. [CLI](../../specs/cli.md) owns the public refusal boundary.
 
+Removal notice (2026-11-12): the `trial` command, the `run_trial_entry` SDK and the
+`orchestrator/workflow/trial/` and `orchestrator/workflow/adjudication/` packages were removed;
+the `trial` form refuses with `form_retired`. Sections below on `trial`, its evaluation, SDK and
+command describe removed code; the run-ref sections stay current. The packages are kept at git tag
+`archive/dead-executors-2026-11-11`; the last tree with the whole runtime is commit `08cdd59b`.
+
 ## Metadata
 
 - **Status:** partial current control/run-ref contract; E0–E2 completion below

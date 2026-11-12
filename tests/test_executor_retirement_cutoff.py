@@ -322,7 +322,7 @@ def test_staged_child_refuses_before_decode_stage_or_execution(tmp_path):
     assert tree(tmp_path) == before
 
 
-def test_retired_python_execution_exports_and_trial_sdk(tmp_path):
+def test_retired_python_execution_exports(tmp_path):
     import importlib.util
     import orchestrator.workflow as workflow
     import orchestrator.workflow_lisp as frontend
@@ -331,19 +331,8 @@ def test_retired_python_execution_exports_and_trial_sdk(tmp_path):
     assert not hasattr(workflow, "WorkflowExecutor")
     assert "lower_workflow_definitions" not in frontend.__all__
     assert not hasattr(frontend, "lower_workflow_definitions")
-    assert importlib.util.find_spec("orchestrator.workflow.trial.sdk") is None
     assert importlib.util.find_spec("orchestrator.workflow.executor") is None
     assert not hasattr(StateManager, "initialize")
-
-
-def test_trial_cli_refuses_before_source_reads_or_publication(tmp_path):
-    before = tree(tmp_path)
-    result = cli(tmp_path, "trial", "missing.orc", "--entry-workflow", "run",
-                 "--run-ref-root", str(tmp_path / "children"))
-    assert result.returncode == 2, result.stdout + result.stderr
-    assert "workflow_execution_target_retired" in result.stderr
-    assert "Traceback" not in result.stderr
-    assert tree(tmp_path) == before
 
 
 def test_public_historical_report_refuses_without_self_healing(tmp_path):

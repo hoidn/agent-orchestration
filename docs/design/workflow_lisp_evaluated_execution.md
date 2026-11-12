@@ -2960,7 +2960,7 @@ No reader may treat an older completed snapshot as the current terminal.
 | Monitor classifier | Map evaluated `completed`/`failed` to terminal events, `interrupted` to a stopped/interrupted event using lock liveness, and `running`/`settling` to active; do not infer a stalled writer from an absent legacy heartbeat |
 | Retained watchdog probe and usage-limit watcher | Treat `running`/`settling` as live, `interrupted` as resumable interruption, and only validated terminal records as terminal. Derive attempt errors/log locations from V5/V6 |
 | Report and dashboard cursor | Render effect order, current/next identity, errors, result and per-attempt previews directly from V1–V6; replace their step/frame walk for this profile. The current state-only renderer is not sufficient evidence |
-| Trial SDK | Retired under the selected cutoff; preserved trial data is historical. No new evaluated port or envelope is selected |
+| Trial SDK | Retired under the selected cutoff and removed on 2026-11-12 (git tag `archive/dead-executors-2026-11-11`); preserved trial data is historical. No new evaluated port or envelope is selected |
 
 These adapters are implemented over one shared read-only projection,
 `orchestrator/workflow/evaluated/views.py::load_evaluated_view`, consumed by

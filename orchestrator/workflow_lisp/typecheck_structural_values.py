@@ -375,7 +375,6 @@ def typecheck_structural_value_expr(
             raise_run_ref_placement_invalid(
                 typed_source.expr,
                 reason="is not permitted in a `list/map-effect` source",
-                effect_summary=typed_source.effect_summary,
             )
         if not isinstance(typed_source.type_ref, ListTypeRef):
             raise_error(

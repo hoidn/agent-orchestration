@@ -13,3 +13,5 @@ and `orchestrator/workflow/evaluated/`. Follow the
 [drafting guide](../../docs/lisp_workflow_drafting_guide.md#a-complete-235-recipe-compile-run-resume-report-invalidate)
 for public usage. Current evaluator tests own compilation, input identity,
 replay and recovery; the prototype is not an additional execution route.
+
+Since 2026-11-12, `trial.py` and `closed_effects.py` import `orchestrator.workflow.trial`, which is removed; the git tag `archive/dead-executors-2026-11-11` holds it.

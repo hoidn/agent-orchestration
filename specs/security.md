@@ -280,13 +280,9 @@ Note: These safety checks apply to paths the orchestrator resolves (e.g., `input
     quiescence blocks recovery, never authorizes a replacement or FAILED.
 
 - Adjudicated provider child workspaces (v2.11)
-  - Candidate workspaces are run-owned copies created from a fixed immutable baseline snapshot. They are isolation boundaries for orchestrator-managed output validation and promotion, not OS sandboxes.
-  - Baseline copy policy `adjudicated_provider.baseline_copy.v1` excludes `.orchestrate/`, `.git/`, dependency/cache roots, common generated cache directories, local secret denylist entries such as `.env`, unsafe symlinks, broken symlinks, and symlinks whose resolved targets would escape or point into excluded paths.
-  - Safe relative symlinks may be preserved when both the link and resolved target remain inside the copied baseline and outside excluded roots.
-  - Required orchestrator-managed paths that existed in the parent workspace but are excluded by the baseline policy fail before provider launch with a baseline-exclusion error. Optional excluded paths are recorded as absent.
-  - Candidate-managed runtime paths must not depend on `${run.root}` or target the parent run root in the first release.
-  - Baseline snapshots, candidate workspaces, composed prompts, evaluator packets, score ledgers, logs, and promotion staging can contain sensitive source or prompt material. Retain and share run roots using the same confidentiality assumptions as the original workspace.
-  - `evaluator.evidence_confidentiality: same_trust_boundary` is an explicit author attestation that the evaluator provider may receive complete score-critical evidence. The runtime may scan declared secret values before packet persistence, but this is not a substitute for choosing providers within the right trust boundary.
+  - The adjudicated-provider executor and its candidate workspaces were removed on 2026-11-12
+    (packages kept at git tag `archive/dead-executors-2026-11-11`; the whole runtime: commit
+    `08cdd59b`). See the [salvage record](../docs/design/trial_and_adjudication_salvage.md).
 
 - Reusable-call operational-risk boundary (versioned v2.5 contract; ordinary host calls)
   - The first `call` tranche is intentionally non-isolating.

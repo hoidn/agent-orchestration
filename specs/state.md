@@ -751,7 +751,7 @@ creates or asks a replacement question.
 - A Workflow Lisp provider boundary with a typed prompt-dependency contract
   allocates its attempt ordinal in root `RunState.provider_attempt_allocations`.
   The member is omitted while empty. It is root-owned across ordinary, loop,
-  call-frame, phased, and adjudicated execution;
+  call-frame and phased execution;
   nested state managers do not maintain competing counters.
 - Each allocation entry is a plain monotonic counter: its closed current form
   contains the exact scope plus `last_allocated_ordinal`, and a Q3-bound scope
@@ -1595,71 +1595,10 @@ actual boundary; it does not establish terminality by itself.
 
 ## Target 2.25 Trial State, Settlement, And Replay
 
-- Target-2.25 `trial` is additive under `schema_version: "2.1"`. One
-  append-only `trial_event_ledger.v1` lives at the exact
-  run/frame/step/visit scope below
-  `RUN_ROOT/trials/<frame-scope>/<step-id>/<visit>/`. The ledger header binds
-  the static config, runtime request, evaluation, budget, result-contract, and
-  compiler/runtime identity digests plus the frozen authored-order
-  `(arm, rep)` cell domain. Sequence numbers are contiguous and rows use a
-  closed event grammar.
-- The ledger records only validated effect and public-boundary facts: each
-  cell allocation and disjoint trial-scoped E1 root/ledger; prepared E1
-  settlement and committed-edge digests; completed or failed cell settlement;
-  one sealed opaque-label map and digest; the frozen admitted evidence-set
-  digest; deterministic check results; packet, scorer-attempt, and score
-  digests; aggregation-input, verdict, verdict-artifact, and outer-parent
-  settlement digests; terminal status; and exact launch, evaluator-attempt,
-  elapsed-time, token, and cost counters. Missing facts remain absent rather
-  than receiving default values.
-- The trial coordinator is the sole writer of the trial ledger, every
-  trial-scoped E1 ledger, and parent state. Workers may perform blocking child
-  stages and emit immutable lifecycle events, but they cannot allocate
-  ordinals, append rows, settle a cell, write parent state, or finalize an E1
-  edge. Each child remains an ordinary E1 run with its own state root and
-  run-lifetime writer lock.
-- Per-cell settlement has one order: allocate the cell and fresh E1 ordinal;
-  validate and acknowledge each E1 lifecycle event; receive the prepared E1
-  settlement; append the exact cell settlement bound to that pending E1 row;
-  then append the adjacent E1 `committed` transition. A cell settled before
-  that adjacent transition is reconciled from the exact validated trial row
-  with zero launch. A child or E1 attempt that completed before cell settlement
-  remains incomplete and non-authoritative: retain available incident facts,
-  discard only its exact workspace, and rerun the cell with a fresh ordinal.
-- After every admitted cell is terminal, the coordinator appends the frozen
-  admitted evidence-set digest before any check or evaluator dispatch. It then
-  commits checks in authority order, packet/scorer attempts and scores,
-  aggregation inputs, the unblinded verdict, and the existing verdict artifact.
-  A terminal prepared-trial row binds the exact result, verdict, artifact, and
-  budget digests. One atomic outer parent transition stores
-  `StepResult.trial` plus typed artifacts and clears `current_step`; only then
-  is the adjacent outer-parent `committed` event appended. A crash in that
-  final gap reconciles from the exact parent result and prepared row without
-  launching a child, check, or evaluator again.
-- Resume validates the source/executable/projection, parent run/frame/visit,
-  `TrialStaticConfig`, runtime request, ordered cell domain, E1 roots and rows,
-  sealed map, evidence freeze, check/score/verdict chain, result contract, and
-  artifact digests before reuse. An exact settled cell is reused with no child
-  launch. Missing, corrupt, ambiguous, escaping, cross-cell, or multiply bound
-  authority fails closed without mutation or launch. A failed cell is a
-  durable `TrialArmOutcome.Failed` value and never causes an otherwise valid
-  sibling settlement to be removed or rerun.
-- The outer lexical checkpoint policy is
-  `reuse_validated_trial_result`. It retains every existing root, callee,
-  bound-input, checkpoint, visit, result-contract, and completed-effect guard.
-  The trial result is a durable effect/public-boundary fact; replay never
-  recomputes or substitutes it from a report, packet, score summary, or
-  verdict view.
-- M2's `derived_pure_replay.v1` boundary applies without exception. Pure
-  ordering, median and ranking, rendered packet views, and report projections
-  are reconstructed transiently from validated durable facts. An eligible
-  successful compiler-generated pure projection persists the exact value-free
-  completion shell and no value-bearing row, bundle, private lineage value, or
-  pure checkpoint. Trial state creates no second derived-value cache, no
-  effect-identity memo key, no memo-first path, no cross-run memo, and no
-  persisted optimizer state. Failed/skipped pure rows, E1 effects, checks,
-  evaluator attempts, scores, the verdict artifact, and the outer trial
-  settlement keep their owning durable contracts.
+The trial executor, its ledger, settlement and replay state were removed on 2026-11-12. Its
+packages are kept at git tag `archive/dead-executors-2026-11-11`; the last tree with the
+whole runtime is commit `08cdd59b`. See the
+[salvage record](../docs/design/trial_and_adjudication_salvage.md).
 
 ## Workflow Lisp Typed Prompt-Input Evidence
 
@@ -1993,26 +1932,10 @@ Schema boundary note:
 
 ## Adjudicated Provider State (v2.11)
 
-- State schema remains `2.1`; adjudication state is an additive `steps.<Step>.adjudication` payload plus run-root sidecars.
-- Normal artifact lineage contains only promoted selected outputs. Candidate outputs are not published as ordinary artifacts.
-- `steps.<Step>.adjudication` records selected candidate id, selected score or `null`, selection reason, promotion status, scorer identity, evaluator prompt hash, evidence confidentiality, score ledger paths, scorer snapshot path, promotion manifest path, and per-candidate terminal metadata.
-- Candidate/evaluator stdout-derived state is absent: `output`, `lines`, `json`, `truncated`, and `debug.json_parse_error` are not populated for adjudicated provider steps.
-- Run-local score ledgers live under `.orchestrate/runs/<run_id>/adjudication/<frame_scope>/<step_id>/<visit_count>/candidate_scores.jsonl`. Workspace-visible ledgers configured by `score_ledger_path` are terminal mirrors only.
-- Ledger rows are keyed by `candidate_run_key` and `score_run_key` and include candidate provider/model/prompt identity, scorer identity or scorer-unavailable metadata, packet hash when present, score status, selection status, promotion status, and attempt counts.
-- Resume reconciles the baseline manifest, candidate metadata, scorer snapshot
-  or scorer-unavailable metadata, evaluation packets, ledger rows, and
-  promotion manifests. A fully consistent completed visit is reused without
-  provider invocation. When inconsistent state can be bound to one exact
-  run-owned step/visit scope, the runtime discards only that visit's partial
-  adjudication state and sidecars, emits
-  `adjudication_state_mismatch_rerun`, and re-enters ordinary adjudicated-step
-  dispatch with fresh identities. Unknown, ambiguous, escaping, aliased, or
-  otherwise unprovable cleanup scope fails closed without mutation or provider
-  launch. Before removing one visit across its run-owned roots, the runtime
-  writes a frame/step-scoped cleanup guard bound to the discarded and next
-  visit coordinates. Successful cleanup removes that guard before dispatch; a
-  surviving guard proves cleanup was interrupted and blocks later provider
-  dispatch or publication with `adjudication_state_integrity_error`.
+The adjudicated-provider executor and its state were removed on 2026-11-12. Its
+packages are kept at git tag `archive/dead-executors-2026-11-11`; the last tree with the
+whole runtime is commit `08cdd59b`. See the
+[salvage record](../docs/design/trial_and_adjudication_salvage.md).
 
 ## Evaluated Durable Host Input (Target 2.40)
 
