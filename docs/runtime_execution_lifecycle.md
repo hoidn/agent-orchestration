@@ -24,9 +24,10 @@ the same program, input and closure freshness checks.
 Executable entries through 2.34 are retired. `resume` admits only a supported
 evaluated header and refuses old profiles, including force-restart, before
 changing their run contents. Invalidation has the same old-profile boundary;
-see [CLI](../specs/cli.md#executable-support-boundary). Historical `report` and
-dashboard views read state without compiling source or reconstructing an
-executor. Native `prompt resume [--in-place]` is a separate retained session
+see [CLI](../specs/cli.md#executable-support-boundary). `report` and the
+dashboard read evaluated runs only and refuse older runs with
+`workflow_execution_profile_retired`; the old readers are kept at the git tag
+`archive/retired-run-readers-2026-11-11`. Native `prompt resume [--in-place]` is a separate retained session
 bridge; it does not resume old workflow execution.
 
 ## Execution Profiles

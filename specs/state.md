@@ -13,8 +13,10 @@ replays, repairs and translates none of those profiles. Public resume (including
 restart/repair) and invalidation refuse them before locks or mutation; they
 do not proceed to the historical checksum, projection or numeric validators.
 
-Historical report/dashboard readers interpret stored evidence without source
-compilation or rewriting original data. Shared result/provider IO contracts
+`report` and the dashboard read evaluated runs only and refuse a run these
+profiles wrote with `workflow_execution_profile_retired`, reading nothing of it
+beyond the view-hint check; the old readers are kept at the git tag
+`archive/retired-run-readers-2026-11-11`. Original data is never rewritten. Shared result/provider IO contracts
 remain applicable where used by admitted evaluated effects. A historical
 provider family or host-input format does not confer evaluated admission.
 Recovery is qualified only for the exact retained complete release/environment

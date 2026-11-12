@@ -170,7 +170,10 @@ python -m orchestrator resume <run_id>
 ```
 
 Inspect `.orchestrate/runs/<run_id>/state.json` and run-local logs if the email
-reports `FAILED`, `CRASHED`, or `STALLED`.
+reports `FAILED`, `CRASHED`, or `STALLED`. For a historical flat-route run,
+`report` and the dashboard refuse with `workflow_execution_profile_retired`;
+read its `state.json` directly, or run the old readers from a worktree of the
+git tag `archive/retired-run-readers-2026-11-11`.
 
 ## After A Suspension Notification
 

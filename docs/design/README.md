@@ -125,9 +125,9 @@ owns those gates; the [current roadmap](../plans/2026-11-11-orc-usable-pipelines
 
 | Document | Purpose | Scope | Authoring use |
 | --- | --- | --- | --- |
-| [dashboard_observability_summary_gui.md](dashboard_observability_summary_gui.md) | Dashboard summary GUI | Designed/partial | No |
-| [dashboard_summary_invocation_tabs.md](dashboard_summary_invocation_tabs.md) | Dashboard invocation tabs | Designed/partial | No |
-| [observability_step_visit_summaries.md](observability_step_visit_summaries.md) | Step visit summary observability | Partial/unknown from this index; read the doc and linked evidence | No |
+| [dashboard_observability_summary_gui.md](dashboard_observability_summary_gui.md) | Dashboard summary GUI | Historical; Summary Hub removed, dashboard reads evaluated runs only ([plan](../plans/2026-11-11-dashboard-evaluated-runs-migration-plan.md)) | No |
+| [dashboard_summary_invocation_tabs.md](dashboard_summary_invocation_tabs.md) | Dashboard invocation tabs | Retired; never implemented | No |
+| [observability_step_visit_summaries.md](observability_step_visit_summaries.md) | Step visit summary observability | Partial; dashboard summary pages removed, runtime observers remain | No |
 
 ## Review And Workflow Families
 
@@ -161,7 +161,7 @@ pointers; their original commands and status do not select work.
 | [Workflow Lisp evolution substrate and feature design](../superpowers/specs/2026-07-22-workflow-lisp-evolution-substrate-and-feature-design.md) | Compiler-certified immutable variants, context-stratified subject adjudication, inert fragment archives, role-separated prompt environments, prompt/code evolution, and the substrate/feature boundary | Historical; current owner linked in the record | No |
 | [workflow_lisp_provider_prompt_queue.md](workflow_lisp_provider_prompt_queue.md) | Historical analysis of native transport and recovery within one queue effect | Historical; current owner linked in the record | No |
 | [workflow_lisp_provider_context_values.md](workflow_lisp_provider_context_values.md) | First-class context, explicit transformations and rebinding | Historical execution; retained reader/shared-service scope only | No |
-| [workflow_lisp_judgment_views.md](workflow_lisp_judgment_views.md) | Q4 read-only result-plus-Q3-provenance inspection and deterministic judgment views | Historical execution; retained reader/shared-service scope only | No |
+| [workflow_lisp_judgment_views.md](workflow_lisp_judgment_views.md) | Q4 read-only result-plus-Q3-provenance inspection and deterministic judgment views | Historical; report projection removed with the retired-run readers | No |
 | [workflow_lisp_provider_live_binding.md](workflow_lisp_provider_live_binding.md) | Live provider supervision through observation panes and one bounded provider-session correction | Historical execution; retained reader/shared-service scope only | No |
 | [workflow_lisp_provider_peer_messaging.md](workflow_lisp_provider_peer_messaging.md) | Recorded turn-boundary peer messaging and static provider-peer groups | Historical execution; retained reader/shared-service scope only | No |
 | [workflow_lisp_lsp_diagnostic_lifecycle_and_progress.md](workflow_lisp_lsp_diagnostic_lifecycle_and_progress.md) | L4 current-only diagnostic presentation and serialized compile progress | Historical; current owner linked in the record | No |

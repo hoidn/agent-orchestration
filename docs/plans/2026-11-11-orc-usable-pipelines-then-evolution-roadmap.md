@@ -437,5 +437,8 @@ is manual. Phase plans are linked here as they start:
   its ledger records which tasks are merged.
 - Phase 5, in preparation: [seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md).
 - Lane D, tests, done: [low-value test removal plan](2026-11-11-low-value-test-removal-plan.md).
-- Lane D, dashboard: [dashboard migration plan](2026-11-11-dashboard-evaluated-runs-migration-plan.md).
+- Lane D, dashboard, implemented: [dashboard migration plan](2026-11-11-dashboard-evaluated-runs-migration-plan.md).
+  `report` and the dashboard read evaluated runs only and refuse retired runs
+  (old readers at the git tag `archive/retired-run-readers-2026-11-11`); this
+  unblocks stage 3, the old IR stack, once the branch is merged.
 - Thread M, reduced: [zero-spend measurement plan](2026-11-11-roadmap-thread-m-zero-spend-measurement-plan.md).
