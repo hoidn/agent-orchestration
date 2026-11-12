@@ -649,6 +649,7 @@ def test_required_lint_registry_contains_active_and_reserved_policy_metadata() -
         "resource_move_without_transition": ("authority", "frontend", "error", "error", "active"),
         "recovery_gate_without_resume_or_start": ("authority", "frontend", "error", "error", "active"),
         "workflow_call_signature_erased": ("reference", "frontend", "error", "error", "active"),
+        "loop_missing_on_exhausted": ("contract", "frontend", "warn", "error", "active"),
         "macro_hidden_effect": ("effect", "frontend", "error", "error", "active"),
         "interior_publication": ("authority", "frontend", "error", "error", "active"),
         "command_adapter_missing_contract": ("authority", "frontend", "error", "error", "active"),

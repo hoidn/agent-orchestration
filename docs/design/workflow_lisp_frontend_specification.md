@@ -1882,6 +1882,7 @@ Preferred:
 (loop/recur
   :max max-iterations
   :state initial-state
+  :on-exhausted exhausted-result
 
   (fn (state)
     ...))
@@ -1891,6 +1892,11 @@ Loop body returns:
 
 - `(continue new-state)`
 - `(done result)`
+
+`:on-exhausted` is the loop's value when it reaches `:max` without `done`; the
+loop binder (`state` here) is in scope and holds the last state. A loop without
+it compiles with the `loop_missing_on_exhausted` warning, and reaching `:max`
+fails the run with `loop_exhausted`.
 
 Lowering options:
 
@@ -4534,6 +4540,7 @@ The original resource/drain example is a historical design sketch, not an admitt
 - `string_status_gate_without_union_match`
 - `workflow_call_signature_erased`
 - `macro_hidden_effect`
+- `loop_missing_on_exhausted`
 
 ## 93. Lint Levels
 
@@ -4548,6 +4555,11 @@ Examples:
 - `line_prefix_extractor_in_workflow`: error
 - `manual_snapshot_name_in_high_level_module`: warn
 - `variant_output_without_variant_specific_fields`: warn or error in strict mode
+- `loop_missing_on_exhausted`: warn. The registry marks it an error under the
+  strict profile, which only the compiler API selects; no command and not the
+  language server select it. One per authored `loop/recur` without
+  `:on-exhausted` after macro expansion, in workflows and procedures, located
+  at the loop; the loop that `list/map-effect` lowers to is not warned
 
 The boundary lints `low_level_state_path_in_high_level_module` and
 `variant_output_without_variant_specific_fields` treat structurally effect-free
