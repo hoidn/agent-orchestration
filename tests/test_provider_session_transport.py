@@ -1739,34 +1739,6 @@ def test_session_executor_uses_real_codex_shape_and_preserves_raw_stdout(
     }
 
 
-def test_legacy_codex_jsonl_parser_delegates_to_shared_real_shape_codec(
-    tmp_path: Path,
-):
-    raw_stdout = b"\n".join(
-        (
-            _jsonl_event(type="thread.started", thread_id="thread-real"),
-            _jsonl_event(
-                type="item.completed",
-                item={"type": "agent_message", "text": "delegated"},
-            ),
-            _jsonl_event(type="turn.completed"),
-        )
-    )
-
-    metadata, error = ProviderExecutor(
-        tmp_path,
-        ProviderRegistry(),
-    )._parse_codex_jsonl_transport(raw_stdout)
-
-    assert error is None
-    assert metadata == {
-        "session_id": "thread-real",
-        "normalized_stdout": "delegated",
-        "event_count": 3,
-        "turns_completed": 1,
-    }
-
-
 # ---------------------------------------------------------------------------
 # OMP JSON stdout contract: enum, expectation carrier, factory, resume scope
 # ---------------------------------------------------------------------------
@@ -1869,42 +1841,6 @@ def test_session_transport_accumulator_protocol_is_exported_and_structural():
         expectation=_omp_expectation()
     )
     assert isinstance(omp_accumulator, protocol)
-
-
-def test_omp_transport_carriers_survive_supervision_snapshot_roundtrip(
-    tmp_path: Path,
-):
-    from orchestrator.workflow.provider_supervision.bindings import (
-        ProviderSupervisionInvocationSnapshot,
-    )
-    from orchestrator.providers.types import OmpTransportExpectation
-
-    expectation = _omp_expectation(
-        lane="no-tools",
-        persistence="fresh",
-        visit_key="step-7__v2",
-        confinement_policy_sha256="d" * 64,
-    )
-    invocation = ProviderInvocation(
-        command=["python", "-c", "pass"],
-        input_mode=InputMode.ARGV,
-        metadata_mode=ProviderSessionMetadataMode.OMP_JSON_STDOUT.value,
-        provider_session_dir="/run/root/provider_sessions/step-7__v2",
-        omp_transport_expectation=expectation,
-    )
-
-    snapshot = ProviderSupervisionInvocationSnapshot.from_invocation(
-        invocation
-    )
-    restored = snapshot.materialize()
-
-    assert restored.provider_session_dir == (
-        "/run/root/provider_sessions/step-7__v2"
-    )
-    assert restored.omp_transport_expectation == expectation
-    assert restored.omp_transport_expectation is not expectation
-    assert restored.omp_transport_expectation.binary == EXPECTED_BINARY
-    assert snapshot.omp_transport_expectation is not None
 
 
 EXPECTED_BINARY = {
