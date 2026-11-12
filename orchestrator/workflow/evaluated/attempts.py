@@ -32,10 +32,15 @@ def allocate_attempt(
     checked_authority=None,
     before_failure=None,
     after_started=None,
+    start_reached=False,
 ) -> WorkspaceFiles:
-    """Synchronize ``started`` (then call ``after_started``) before creating and pinning its attempt directory."""
+    """Synchronize ``started`` (then call ``after_started``) before creating and pinning its attempt directory.
+
+    ``start_reached`` is passed to the ``started`` row's view publication (``publish_evaluated_view``).
+    """
     attempt_dir = Path(started_record["result_path"]).parent
-    append_record(memo_path, started_record, run_files=run_files, checked_authority=checked_authority)
+    append_record(memo_path, started_record, run_files=run_files, checked_authority=checked_authority,
+                  start_reached=start_reached)
     if after_started is not None:
         after_started()
     try:

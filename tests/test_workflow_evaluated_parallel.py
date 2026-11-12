@@ -458,12 +458,12 @@ def test_publication_failure_releases_start_waiters_without_more_writes(tmp_path
         publish = views.publish_evaluated_view
         failed = threading.Event()
 
-        def fail_first_start(authority, entry):
+        def fail_first_start(authority, entry, **kwargs):
             view_threads.append(threading.get_ident())
             if entry.data["record"] == "started":
                 failed.set()
                 raise ViewPublicationError("injected first-start publication failure")
-            return publish(authority, entry)
+            return publish(authority, entry, **kwargs)
 
         monkeypatch.setattr(views, "publish_evaluated_view", fail_first_start)
         executor, future = _async_run(authority, tmp_path)

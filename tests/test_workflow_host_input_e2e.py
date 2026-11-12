@@ -97,7 +97,7 @@ def hold(row):
 if stage:
     from orchestrator.workflow.evaluated import views
     publish = views.publish_evaluated_view
-    def gated_publish(authority, entry):
+    def gated_publish(authority, entry, **kwargs):
         row = entry.data
         targets = ((stage.startswith("started-") and row.get("record") == "started" and row.get("host_request"))
                    or (stage.startswith("action-") and row.get("record") == "started"
@@ -108,7 +108,7 @@ if stage:
                        and row.get("host_reply", {}).get("origin") == "host"))
         if targets and stage.endswith("-before-view"):
             hold(row)
-        result = publish(authority, entry)
+        result = publish(authority, entry, **kwargs)
         if targets and stage.endswith("-after-view"):
             hold(row)
         return result

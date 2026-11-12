@@ -19,6 +19,11 @@ import pytest
 
 from orchestrator.cli.main import main
 from orchestrator.workflow.evaluated import memo_reducer, views
+from orchestrator.workflow.evaluated.machine import site_classes
+from orchestrator.workflow.evaluated.memo import append_record
+from tests.test_workflow_evaluated_command_lifecycle import _publish
+from tests.test_workflow_evaluated_memo import _started
+from tests.workflow_lisp_closed_program_helpers import build
 
 TICK = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
   (defmodule tick)
@@ -79,12 +84,24 @@ def _run_root(root: Path) -> Path:
 
 
 class _Checks:
-    """Self-checks installed for one test; ``reductions`` counts full (from byte 0) reductions."""
+    """Self-checks installed for one test; ``full`` counts reductions from byte 0."""
 
     def __init__(self, monkeypatch):
         self.full = 0
         self.continued = 0
+        self.views: list[bytes] = []
+        self.shortcuts = 0
         reduce = memo_reducer._Reducer.reduce
+        publish = views.publish_evaluated_view
+
+        def checked_publish(authority, entry, **kwargs):
+            publish(authority, entry, **kwargs)
+            published = authority.run_files.read("state.json")
+            if kwargs.get("start_reached"):
+                self.shortcuts += 1
+                publish(authority, entry)
+                assert authority.run_files.read("state.json") == published, "started view differs from replay"
+            self.views.append(published)
 
         def checked_reduce(reducer, raw, start=0):
             snapshot = reduce(reducer, raw, start)
@@ -96,6 +113,7 @@ class _Checks:
             return snapshot
 
         monkeypatch.setattr(memo_reducer._Reducer, "reduce", checked_reduce)
+        monkeypatch.setattr(views, "publish_evaluated_view", checked_publish)
 
 
 def _assert_cached_rows_are_the_journal_bytes():
@@ -116,6 +134,7 @@ def test_loop_run_continues_folds_that_equal_fresh_reductions(tmp_path, monkeypa
     assert _cli(monkeypatch, root, "run", "tick.orc", "--input", "n=12") == 0
     _assert_cached_rows_are_the_journal_bytes()
     assert checks.continued > 12 * 3
+    assert checks.shortcuts == 12
     small = checks.full
     memo_reducer._LAST = None
     checks.full = 0
@@ -128,6 +147,7 @@ def test_parallel_map_run_continues_folds_that_equal_fresh_reductions(tmp_path, 
     assert _cli(monkeypatch, root, "run", "fanout.orc") == 0
     _assert_cached_rows_are_the_journal_bytes()
     assert checks.continued
+    assert checks.shortcuts == 4
 
 
 def test_killed_loop_resume_continues_folds_that_equal_fresh_reductions(tmp_path, monkeypatch, checks):
@@ -140,3 +160,30 @@ def test_killed_loop_resume_continues_folds_that_equal_fresh_reductions(tmp_path
     assert _cli(monkeypatch, root, "resume", _run_root(root).name) == 0
     _assert_cached_rows_are_the_journal_bytes()
     assert checks.continued
+    assert checks.shortcuts == 5
+
+
+BRANCH = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
+  (defmodule branch) (export run)
+  (defworkflow run ((flag Bool)) -> Int
+    (if flag
+      (command-result fetch :argv ("python" "probe.py") :returns Int)
+      (command-result inc :argv ("python" "probe.py") :returns Int))))
+'''
+
+
+@pytest.mark.parametrize(("site", "detail"), [
+    ("workflow:branch::run / else / #1", "memo_inconsistent: a pending start is unreachable from the evaluated program"),
+    (None, "memo_inconsistent: identity does not resolve to a checked effect site: workflow:branch::run / nowhere"),
+])
+def test_unreachable_or_unknown_start_still_fails_at_its_own_view_publication(tmp_path, site, detail):
+    (tmp_path / "probe.py").write_text("# probe\n")
+    program = build(tmp_path, BRANCH)
+    with _publish(tmp_path, program, inputs={"flag": True}) as authority:
+        assert set(site_classes(authority.program)) == {"workflow:branch::run / then / #1", "workflow:branch::run / else / #1"}
+        identity = site or "workflow:branch::run / nowhere"
+        with pytest.raises(views.ViewPublicationError) as refused:
+            append_record(authority.memo_path, _started(identity), run_files=authority.run_files,
+                          checked_authority=authority)
+    assert refused.value.code == "view_write_failed"
+    assert str(refused.value) == f"derived view publication failed at memo byte {len(authority.memo_path.read_bytes())}: {detail}"

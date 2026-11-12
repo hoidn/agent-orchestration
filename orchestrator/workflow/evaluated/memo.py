@@ -99,10 +99,11 @@ def _checked_writer_context(path, run_files, authority):
 
 
 def append_record(path: Path, record: Mapping[str, Any], *, run_files: WorkspaceFiles | None = None,
-                  checked_authority=None) -> JournalEntry:
+                  checked_authority=None, start_reached=False) -> JournalEntry:
     """Sync one row and publish its view when supplied the checked writer context.
 
     All production callers carry this context; raw synthetic journal tests do not.
+    ``start_reached`` is passed to ``publish_evaluated_view``.
     """
     path = Path(path)
     if checked_authority is not None:
@@ -134,7 +135,7 @@ def append_record(path: Path, record: Mapping[str, Any], *, run_files: Workspace
     entry = JournalEntry(start, start + len(encoded), dict(record))
     if checked_authority is not None:
         from orchestrator.workflow.evaluated.views import publish_evaluated_view
-        publish_evaluated_view(checked_authority, entry)
+        publish_evaluated_view(checked_authority, entry, start_reached=start_reached)
         if checked_authority.observer is not None:
             checked_authority.observer(entry.data)
     return entry

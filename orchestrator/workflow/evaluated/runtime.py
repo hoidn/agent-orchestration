@@ -401,7 +401,8 @@ def prepare_effect(
         confined.check_evidence(extra_bytes=len(canonical_json_bytes(started)) + 1)
     _require_retained_root(run_files)
     code = "provider_attempt_interrupted_rerun" if node['class'] == 'provider_phased' else "effect_rerun"
-    attempt_files = allocate_attempt(run_files, authority.memo_path, started, checked_authority=authority,
+    # the evaluator reached this site and the preflight refused other pending work: no replay needed
+    attempt_files = allocate_attempt(run_files, authority.memo_path, started, checked_authority=authority, start_reached=True,
         before_failure=None if confined is None else lambda exc: confined.record_failure(authority, exc),
         # logged once `started` is durable, so the terminal's `run` and `start` lines come before it
         after_started=None if baseline is None else lambda: logger.warning(
