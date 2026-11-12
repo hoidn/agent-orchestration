@@ -183,14 +183,6 @@ class CoreProviderStep:
 
 
 @dataclass(frozen=True)
-class CoreProviderSupervisionStep:
-    meta: CoreStmtMeta
-    common: Any
-    provider_supervision: Any
-    _surface_step: SurfaceStep | None = field(default=None, repr=False, compare=False)
-
-
-@dataclass(frozen=True)
 class CoreRunRefStep:
     meta: CoreStmtMeta
     common: Any
@@ -745,13 +737,6 @@ def _build_statement(
             ),
             _surface_step=step,
         )
-    if step.kind is SurfaceStepKind.PROVIDER_SUPERVISION:
-        return CoreProviderSupervisionStep(
-            meta=meta,
-            common=step.common,
-            provider_supervision=step.provider_supervision,
-            _surface_step=step,
-        )
     if step.kind is SurfaceStepKind.RUN_REF:
         return CoreRunRefStep(
             meta=meta,
@@ -1203,8 +1188,6 @@ def _surface_step_from_core_statement(statement: Any) -> SurfaceStep:
                 statement.compiler_prompt_attempt_binding_plan
             ),
         )
-    elif isinstance(statement, CoreProviderSupervisionStep):
-        kwargs["provider_supervision"] = statement.provider_supervision
     elif isinstance(statement, CoreRunRefStep):
         kwargs["run_ref"] = statement.run_ref
     elif isinstance(statement, CoreTrialStep):
@@ -1427,16 +1410,6 @@ def _statement_to_json(statement: Any) -> dict[str, Any]:
                     statement.compiler_prompt_attempt_binding_plan
                 )
             )
-        return payload
-    if isinstance(statement, CoreProviderSupervisionStep):
-        payload.update(
-            {
-                "kind": "provider_supervision",
-                "provider_supervision": _json_data(
-                    statement.provider_supervision
-                ),
-            }
-        )
         return payload
     if isinstance(statement, CoreRunRefStep):
         validate_run_ref_static_config_authority(statement.run_ref)

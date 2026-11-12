@@ -26,7 +26,6 @@ from .executable_ir import (
     ExecutableWorkflow,
     FinalizationStepNode,
     ProviderStepConfig,
-    ProviderSupervisionStepConfig,
     RequestInputStepConfig,
     RunRefStepConfig,
     TrialStepConfig,

@@ -342,36 +342,6 @@ class ProviderAttemptScope:
         )
 
 
-def derive_provider_attempt_member_turn_scope(
-    base_scope: ProviderAttemptScope,
-    *,
-    member_id: str,
-    turn_ordinal: int,
-) -> ProviderAttemptScope:
-    """Derive one injective member-turn scope without changing persisted shape."""
-
-    if not isinstance(base_scope, ProviderAttemptScope):
-        raise TypeError("ProviderAttemptScope required")
-    runtime_step_id, qualifier = _decode_member_turn_runtime_step_id(
-        base_scope.runtime_step_id
-    )
-    if qualifier is not None:
-        raise ValueError("provider attempt scope is already qualified")
-    member = _nonempty_string(member_id, "provider attempt member_id")
-    turn = _ordinary_integer(
-        turn_ordinal,
-        "provider attempt turn_ordinal",
-        minimum=0,
-    )
-    payload = base_scope.to_dict()
-    payload["runtime_step_id"] = _encode_member_turn_runtime_step_id(
-        runtime_step_id=runtime_step_id,
-        member_id=member,
-        turn_ordinal=turn,
-    )
-    return ProviderAttemptScope.from_dict(payload)
-
-
 def _ordinary_absolute(path: Any) -> Path:
     return Path(path).absolute()
 

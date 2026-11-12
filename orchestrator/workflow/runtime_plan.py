@@ -15,7 +15,6 @@ from .executable_ir import (
     ForEachNode,
     MaterializeArtifactsStepConfig,
     ProviderStepConfig,
-    ProviderSupervisionStepConfig,
     RequestInputStepConfig,
     RepeatUntilFrameNode,
     RunRefStepConfig,
@@ -30,16 +29,6 @@ from .surface_ast import WorkflowProvenance, empty_frozen_mapping
 
 
 WORKFLOW_RUNTIME_PLAN_SCHEMA_VERSION = "workflow_runtime_plan.v1"
-
-
-@dataclass(frozen=True)
-class RuntimeProviderSupervisionPlan:
-    """Topology-only summary for one bounded provider-supervision node."""
-
-    worker_member_id: str
-    supervisor_member_id: str
-    atomic_workflow_result_commit: bool
-    max_resume_transitions: int
 
 
 @dataclass(frozen=True)
@@ -61,10 +50,6 @@ class RuntimePlanNode:
     call_alias: str | None = None
     command_boundary_kind: str | None = None
     command_boundary_name: str | None = None
-    provider_supervision: RuntimeProviderSupervisionPlan | None = field(
-        default=None,
-        metadata={"json_omit_if_none": True},
-    )
     provider_context: Mapping[str, Any] | None = field(
         default=None,
         metadata={"json_omit_if_none": True},
@@ -337,13 +322,6 @@ def validate_workflow_runtime_plan(
             raise ValueError(f"Runtime plan node '{node.node_id}' references unknown routed transfer targets")
         if node.execution_index is not None and node.node_id not in ordered_node_ids:
             raise ValueError(f"Nested node '{node.node_id}' cannot claim a top-level execution index")
-        expected_supervision = _derive_provider_supervision_plan(
-            ir.nodes[node.node_id]
-        )
-        if node.provider_supervision != expected_supervision:
-            raise ValueError(
-                f"Runtime plan node '{node.node_id}' has inconsistent provider supervision topology"
-            )
         expected_run_ref_digest = _derive_run_ref_config_digest(
             ir.nodes[node.node_id]
         )
@@ -455,27 +433,12 @@ def _runtime_plan_node(
         dependency_node_ids=dependency_node_ids,
         nested_body_node_ids=nested_body_node_ids,
         call_alias=call_alias,
-        provider_supervision=_derive_provider_supervision_plan(node),
         provider_context=_derive_provider_context(node),
         request_input=_derive_request_input(node),
         run_ref_config_digest=_derive_run_ref_config_digest(node),
         trial_config_digest=_derive_trial_config_digest(node),
         trial_result_contract_digest=_derive_trial_result_contract_digest(node),
         exhaustion_diagnostic_code=_derive_exhaustion_diagnostic_code(node),
-    )
-
-
-def _derive_provider_supervision_plan(
-    node: ExecutableNode,
-) -> RuntimeProviderSupervisionPlan | None:
-    config = node.execution_config
-    if not isinstance(config, ProviderSupervisionStepConfig):
-        return None
-    return RuntimeProviderSupervisionPlan(
-        worker_member_id=config.worker.member_id,
-        supervisor_member_id=config.supervisor.member_id,
-        atomic_workflow_result_commit=True,
-        max_resume_transitions=config.max_steers,
     )
 
 

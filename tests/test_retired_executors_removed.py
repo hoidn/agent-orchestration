@@ -13,6 +13,8 @@ from tests.test_cli_run_output import cli
 REPO = Path(__file__).parents[1]
 REMOVED_PACKAGES = [
     "orchestrator.workflow.provider_peer_group",
+    "orchestrator.workflow.provider_supervision",
+    "orchestrator.workflow.legacy_provider_quarantine",
 ]
 REMOVED_COMMANDS = [
     ["peer-ready"], ["peer-send", "b", "m"], ["peer-ack", "m1"], ["peer-finish"],
