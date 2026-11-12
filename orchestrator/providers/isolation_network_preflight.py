@@ -25,8 +25,6 @@ import struct
 from typing import Any
 import unicodedata
 
-from jsonschema import Draft202012Validator
-
 from .isolation import (
     ProviderIsolationIssue,
     canonical_isolation_json_bytes,
@@ -423,6 +421,8 @@ def validate_provider_isolation_network_inventory(
     )
     if semantic_issues:
         return _deduplicate_issues(semantic_issues)
+    from jsonschema import Draft202012Validator
+
     schema = load_provider_isolation_schema(
         NETWORK_INVENTORY_SCHEMA_RESOURCE
     )

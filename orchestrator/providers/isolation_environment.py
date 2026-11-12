@@ -30,8 +30,6 @@ from typing import Any
 import unicodedata
 import uuid
 
-from jsonschema import Draft202012Validator
-
 from orchestrator._common.io_atomic import (
     RenameNoreplaceError,
     RenameNoreplaceUnavailableError,
@@ -3337,6 +3335,8 @@ def validate_provider_environment_manifest(
     expected_digest: str | None = None,
 ) -> tuple[ProviderIsolationIssue, ...]:
     """Return every deterministic structural, semantic, and identity issue."""
+
+    from jsonschema import Draft202012Validator
 
     schema = load_provider_isolation_schema(ENVIRONMENT_SCHEMA_RESOURCE)
     validator = Draft202012Validator(schema)
