@@ -145,6 +145,7 @@ def _effect_diverged(exc, context: _Context) -> list[str]:
     shared = ([f"the change also affects {', '.join(unfinished)}, whose last attempt did not finish"
                + ("; resuming accepts its changed files" if unproven else "")] if unfinished else [])
     return [f"step {identity} was committed with other inputs; changed: {parts}; files: {files}", *shared,
+            *(_flag_accepts(context, unproven) if unproven else []),
             "to run this step and every later one again (workspace files are not rolled back):",
             context.command("invalidate", context.run_id, identity),
             context.resume("--accept-changes") if unproven else context.resume()]
@@ -156,11 +157,23 @@ def _unfinished_step(identity: str, changed: list[str], files: str, context: _Co
         return [f"the inputs of step {identity} changed since its last attempt (see the message above)",
                 "restore what changed and resume:", context.resume(),
                 *context.fresh_run("otherwise start a new run:")]
-    return [f"step {identity} did not finish, and its files changed since: {files}; "
-            + _why_unproven(context.snapshot, identity),
-            "to retry it with the files as they are now:", context.resume("--accept-changes"),
+    return [f"step {identity} did not finish, and its files changed since: {files}",
+            *_flag_accepts(context, [identity]), context.resume("--accept-changes"),
             "or restore the files as they were and resume:", context.resume(),
             *context.fresh_run("or start a new run:")]
+
+
+def _flag_accepts(context: _Context, named: list[str]) -> list[str]:
+    """Every attempt `--accept-changes` would accept, each with why it is not proven clean (all, not only `named`)."""
+    from orchestrator.workflow.evaluated.attempts import unproven_command_retries
+    from orchestrator.workflow.evaluated.machine import site_classes
+
+    snapshot = context.snapshot
+    every = ([] if context.stored_program is None
+             else unproven_command_retries(snapshot, site_classes(context.stored_program)))
+    listed = [*named, *(identity for identity in every if identity not in named)]
+    return ["with --accept-changes, each of these unfinished steps is retried with its files as they are now:",
+            *(f"  {identity}: {_why_unproven(snapshot, identity)}" for identity in listed)]
 
 
 def _why_unproven(snapshot, identity: str) -> str:
@@ -172,7 +185,7 @@ def _why_unproven(snapshot, identity: str) -> str:
         return "its last attempt was interrupted, so it may have changed them itself"
     closure = failure.get("closure")
     if closure == "changed":
-        return "its last attempt changed its own declared files"
+        return "its last attempt changed its own declared files, or left a process running"
     if closure is None:
         return "its last attempt has no record of whether it changed them"
     return "it is an item of a parallel map, where another item may have changed them after the failure"

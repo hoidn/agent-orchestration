@@ -390,3 +390,18 @@ def test_command_that_waits_for_its_children_records_unchanged(tmp_path: Path) -
 
     (failed,) = failed_rows(tmp_path)
     assert failed["closure"] == "unchanged"
+
+
+def test_parallel_refusal_names_every_attempt_the_flag_accepts(tmp_path: Path) -> None:
+    write_parallel(tmp_path, {"alpha": BAD, "beta": SELF_WRITE})
+    assert run_parallel(tmp_path).returncode == 1
+    assert {row["identity"]: row["closure"] for row in failed_rows(tmp_path)} == {
+        item(0): "unchanged", item(1): "changed"}
+    (tmp_path / "alpha" / "work" / "probe.py").write_text(ITEM_GOOD, encoding="utf-8")
+
+    refused = refuses_without_writes(tmp_path, "effect_input_diverged")
+
+    lines = refused.stderr.splitlines()
+    offer = next(index for index, line in enumerate(lines) if line.endswith(" --accept-changes"))
+    before_offer = "\n".join(lines[1:offer])
+    assert item(0) in before_offer and item(1) in before_offer
