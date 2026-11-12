@@ -302,7 +302,26 @@ every removed test is listed with the code it covered".
 4. **Targets, in three steps:** collapse the monotone capability gates into
    one table; migrate the packaged library and the catalog to the newest
    target with a behavior comparison; remove the older procedure regime and
-   migrate or delete the fixtures that exist only for it.
+   migrate or delete the fixtures that exist only for it. The same plan
+   deletes the source forms that are registered but refuse at build.
+5. **Surface coherence** (added 2026-11-12 from an assessment of the language
+   by its compiler and about 55 provider-free programs; the coordinator
+   confirmed the counts and the guide drift, a design task reproduces the
+   rest before deciding anything). The core holds together; the edges do not:
+   - one rule for where an effect may appear (today it is allowed as a
+     procedure argument, operand, `if` condition and `match` subject, and
+     refused in a record field, a variant field and a list element);
+   - the three iteration forms (`loop/recur`, `list/map`, `list/map-effect`)
+     differ in binder shape, in what a body may contain and in whether `:max`
+     takes a variable;
+   - four kinds of callable with three calling conventions;
+   - the authoring guide (3,438 lines) describes much that is unavailable,
+     and the design record (81 documents, 52,000 lines) is too large to act
+     as a design. Each language change in this stage shrinks the guide, and
+     the stage ends with one current language reference and the superseded
+     designs marked historical.
+   Order: the design for the effect rule and the iteration and callable
+   conventions first; code only after it is accepted.
 
 - **Exit test:** the named packages are gone and nothing imports them; one
   admitted target for new source; any retained older target is listed with its
