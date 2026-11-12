@@ -4617,7 +4617,11 @@ def test_reviewed_system_python_fixture_never_invokes_subprocess(
 
 def test_closure_accepts_actual_static_codex_pie(tmp_path: Path) -> None:
     api = _environment_api()
-    codex_launcher = shutil.which("codex")
+    # Reads (never runs) the installed Codex package, so it looks past the suite's provider-guard stubs.
+    guard = os.environ.get("ORC_TEST_PROVIDER_GUARD_LOG")
+    path = os.pathsep.join(d for d in os.environ.get("PATH", "").split(os.pathsep)
+                           if guard is None or Path(d) != Path(guard).parent / "bin")
+    codex_launcher = shutil.which("codex", path=path)
     if codex_launcher is None:
         pytest.skip("Codex launcher is unavailable")
     package_root = Path(codex_launcher).resolve().parents[1]
