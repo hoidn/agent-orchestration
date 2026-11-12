@@ -708,22 +708,6 @@ def create_parser() -> argparse.ArgumentParser:
         help='Validate registry and exit nonzero on stale or invalid labels'
     )
 
-    subparsers.add_parser('peer-ready')
-    peer_send_parser = subparsers.add_parser('peer-send')
-    peer_send_parser.add_argument(
-        'target_binding',
-        help='Authored binding name of the receiving peer',
-    )
-    peer_send_parser.add_argument(
-        'message',
-        help='Verbatim message to queue at the receiver turn boundary',
-    )
-    peer_ack_parser = subparsers.add_parser('peer-ack')
-    peer_ack_parser.add_argument(
-        'message_id',
-        help='Runtime-issued peer message id',
-    )
-    subparsers.add_parser('peer-finish')
     subparsers.add_parser('provider-materialization-submit')
 
     provider_manifest_parser = subparsers.add_parser('provider-isolation-environment-manifest')
@@ -824,21 +808,6 @@ def main(args: Optional[list] = None) -> int:
     elif parsed_args.command == 'workflow-lisp-route-readiness':
         from orchestrator.cli.commands import route_readiness_workflow
         return route_readiness_workflow(parsed_args)
-    elif parsed_args.command == 'peer-ready':
-        from orchestrator.cli.commands import peer_ready_workflow
-        return peer_ready_workflow()
-    elif parsed_args.command == 'peer-send':
-        from orchestrator.cli.commands import peer_send_workflow
-        return peer_send_workflow(
-            target_binding=parsed_args.target_binding,
-            message=parsed_args.message,
-        )
-    elif parsed_args.command == 'peer-ack':
-        from orchestrator.cli.commands import peer_ack_workflow
-        return peer_ack_workflow(message_id=parsed_args.message_id)
-    elif parsed_args.command == 'peer-finish':
-        from orchestrator.cli.commands import peer_finish_workflow
-        return peer_finish_workflow()
     elif parsed_args.command == 'provider-materialization-submit':
         from orchestrator.cli.commands import (
             provider_materialization_submit_workflow,

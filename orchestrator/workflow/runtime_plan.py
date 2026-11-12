@@ -14,7 +14,6 @@ from .executable_ir import (
     FinalizationStepNode,
     ForEachNode,
     MaterializeArtifactsStepConfig,
-    ProviderPeerGroupStepConfig,
     ProviderStepConfig,
     ProviderSupervisionStepConfig,
     RequestInputStepConfig,
@@ -44,17 +43,6 @@ class RuntimeProviderSupervisionPlan:
 
 
 @dataclass(frozen=True)
-class RuntimeProviderPeerGroupPlan:
-    """Topology-only summary for one static provider peer group."""
-
-    member_ids: tuple[str, ...]
-    messaging_policy: str
-    interactive_session_schema_version: str
-    atomic_workflow_result_commit: bool
-    max_steers: int
-
-
-@dataclass(frozen=True)
 class RuntimePlanNode:
     """Runtime-facing summary for one executable node."""
 
@@ -74,10 +62,6 @@ class RuntimePlanNode:
     command_boundary_kind: str | None = None
     command_boundary_name: str | None = None
     provider_supervision: RuntimeProviderSupervisionPlan | None = field(
-        default=None,
-        metadata={"json_omit_if_none": True},
-    )
-    provider_peer_group: RuntimeProviderPeerGroupPlan | None = field(
         default=None,
         metadata={"json_omit_if_none": True},
     )
@@ -360,13 +344,6 @@ def validate_workflow_runtime_plan(
             raise ValueError(
                 f"Runtime plan node '{node.node_id}' has inconsistent provider supervision topology"
             )
-        expected_peer_group = _derive_provider_peer_group_plan(
-            ir.nodes[node.node_id]
-        )
-        if node.provider_peer_group != expected_peer_group:
-            raise ValueError(
-                f"Runtime plan node '{node.node_id}' has inconsistent provider peer group topology"
-            )
         expected_run_ref_digest = _derive_run_ref_config_digest(
             ir.nodes[node.node_id]
         )
@@ -479,7 +456,6 @@ def _runtime_plan_node(
         nested_body_node_ids=nested_body_node_ids,
         call_alias=call_alias,
         provider_supervision=_derive_provider_supervision_plan(node),
-        provider_peer_group=_derive_provider_peer_group_plan(node),
         provider_context=_derive_provider_context(node),
         request_input=_derive_request_input(node),
         run_ref_config_digest=_derive_run_ref_config_digest(node),
@@ -500,23 +476,6 @@ def _derive_provider_supervision_plan(
         supervisor_member_id=config.supervisor.member_id,
         atomic_workflow_result_commit=True,
         max_resume_transitions=config.max_steers,
-    )
-
-
-def _derive_provider_peer_group_plan(
-    node: ExecutableNode,
-) -> RuntimeProviderPeerGroupPlan | None:
-    config = node.execution_config
-    if not isinstance(config, ProviderPeerGroupStepConfig):
-        return None
-    return RuntimeProviderPeerGroupPlan(
-        member_ids=tuple(member.member_id for member in config.members),
-        messaging_policy=config.messaging_policy,
-        interactive_session_schema_version=(
-            config.interactive_session_schema_version
-        ),
-        atomic_workflow_result_commit=True,
-        max_steers=config.max_steers,
     )
 
 

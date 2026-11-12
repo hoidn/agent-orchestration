@@ -12,8 +12,8 @@ from tests.test_cli_run_output import RESULT_LINE, cli, printed, shell, write_pi
 
 REPO = Path(__file__).parents[1]
 PUBLIC = {"run", "py", "compile", "repl", "resume", "invalidate", "input", "report", "dashboard", "monitor"}
-HIDDEN = {"prompt", "trial", "explain", "workflow-lisp-route-readiness", "peer-ready", "peer-send",
-          "peer-ack", "peer-finish", "provider-materialization-submit", "provider-isolation-environment-manifest"}
+HIDDEN = {"prompt", "trial", "explain", "workflow-lisp-route-readiness", "provider-materialization-submit",
+          "provider-isolation-environment-manifest"}
 
 
 def test_manifests_beside_the_source_are_used_when_flags_are_absent(tmp_path: Path) -> None:
@@ -86,9 +86,8 @@ def test_top_level_help_lists_only_public_commands(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("argv", [
-    *([name] for name in ("peer-ready", "peer-finish", "provider-materialization-submit")),
     ["prompt", "resume", "S1"], ["trial", "w.orc", "--entry-workflow", "e"], ["explain", "w.orc"],
-    ["workflow-lisp-route-readiness"], ["peer-send", "b", "m"], ["peer-ack", "m1"],
+    ["workflow-lisp-route-readiness"], ["provider-materialization-submit"],
     ["provider-isolation-environment-manifest", "--root", "/r", "--provider-prefix", "/p", "--output", "/o"],
     ["run", "w.orc", "--context", "k=v", "--clean-processed", "--on-error", "continue", "--max-retries", "2",
      "--step-summaries", "--summary-mode", "sync", "--live-agent-notes", "--backup-state", "--stream-output"],

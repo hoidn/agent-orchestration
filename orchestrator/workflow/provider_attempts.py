@@ -372,20 +372,6 @@ def derive_provider_attempt_member_turn_scope(
     return ProviderAttemptScope.from_dict(payload)
 
 
-def derive_provider_peer_group_member_scope(
-    base_scope: ProviderAttemptScope,
-    *,
-    member_id: str,
-) -> ProviderAttemptScope:
-    """Derive the single non-resumable attempt owned by one peer-group member."""
-
-    return derive_provider_attempt_member_turn_scope(
-        base_scope,
-        member_id=member_id,
-        turn_ordinal=0,
-    )
-
-
 def _ordinary_absolute(path: Any) -> Path:
     return Path(path).absolute()
 
