@@ -17,14 +17,16 @@ usage it could not read. Sources:
   Charged input is input minus cached and cache-write tokens.
 
 A cut final line (a killed writer) is ignored; any other undecodable line makes usage `malformed`.
-Reads nothing but its arguments.
+`usage_from_stdout` reads nothing but its arguments; `spent` reads a run's `usage.json` files.
 """
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any, Iterable
 
+from .pricing import priced
 from .types import ProviderSessionMetadataMode
 
 UNAVAILABLE = "unavailable"
@@ -181,3 +183,35 @@ def usage_from_stdout(metadata_mode: str | None, raw_stdout: bytes, *, model: st
     except _Malformed:
         return {"status": "unknown", "reason": "malformed"}
     return usage or {"status": "unknown", "reason": "no_usage_event"}
+
+
+def spent(run_root: Path, table: dict, *, in_flight: frozenset[str] = frozenset()) -> tuple[float, list[str]]:
+    """Priced usage of the run's provider attempts, and the attempts whose spend is unknown.
+
+    A provider attempt is an `effects/<sha>/attempt-<n>/` holding `prompt.txt`. One without a readable
+    `reported` `usage.json` (unknown usage, an unpriced model, a run recorded before usage existed, an
+    interrupted call) is listed, never counted as zero; `in_flight` (run-relative attempt directories
+    still running) are skipped.
+    """
+    total, unmetered = 0.0, []
+    for prompt in sorted(Path(run_root).glob("effects/*/attempt-*/prompt.txt")):
+        attempt = prompt.parent.relative_to(run_root).as_posix()
+        if attempt in in_flight:
+            continue
+        cost = _attempt_cost(prompt.parent / "usage.json", table)
+        if cost is None:
+            unmetered.append(attempt)
+        else:
+            total += cost
+    return total, unmetered
+
+
+def _attempt_cost(path: Path, table: dict) -> float | None:
+    try:
+        usage = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    rows = usage.get("rows") if isinstance(usage, dict) and usage.get("status") == "reported" else None
+    if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+        return None
+    return priced(rows, table)

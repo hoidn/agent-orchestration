@@ -216,6 +216,17 @@ def _not_repeatable(exc, context: _Context) -> list[str]:
             *context.fresh_run("start a new run:")]
 
 
+def _spend_cap_reached(exc, context: _Context) -> list[str]:
+    higher = f"{max(getattr(exc, 'spent_usd', 0.0), getattr(exc, 'cap_usd', 0.0)) * 2:.6g}"
+    return ["no provider call started; to continue, resume with a higher cap:",
+            context.command("resume", context.run_id, "--max-cost-usd", higher)]
+
+
+def _spend_cap_unmetered(exc, context: _Context) -> list[str]:
+    return ["the cap prices only metered calls: bind provider steps to `<name>_metered` templates",
+            "to continue without a cap:", context.resume()]
+
+
 _RECOVERY = {
     "resume_program_changed": _program_changed,
     "resume_inputs_changed": _inputs_changed,
@@ -228,6 +239,8 @@ _RECOVERY = {
     "resume_request_missing": lambda exc, context: [
         "this run was recorded without a rebuild recipe, so it cannot be resumed; start it again with run"],
     "lexical_restore_pending_effect_unsafe": _not_repeatable,
+    "spend_cap_reached": _spend_cap_reached,
+    "spend_cap_unmetered": _spend_cap_unmetered,
 }
 REFUSAL_CODES: tuple[str, ...] = tuple(_RECOVERY)
 

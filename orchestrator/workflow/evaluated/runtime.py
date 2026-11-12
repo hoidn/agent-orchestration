@@ -27,6 +27,7 @@ from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.providers.registry import ProviderRegistry
 from orchestrator.workflow.evaluated.provider_io import ProviderIOContext
 from .providers import provider_result, provider_transport
+from .spend_cap import check_spend_cap
 from .agent_sessions import allocation_result
 from . import effect_execution
 from .effect_execution import PreparedAttempt, ExternalOutcome, perform_external
@@ -382,6 +383,7 @@ def prepare_effect(
     if commit is not None:
         return _reuse_reached_commit(authority, node, identity, parts, input_digest,
             dependencies, resolved, workspace, commit, snapshot, site_classes)
+    check_spend_cap(authority, node, snapshot)
     if node['class'] == 'agent_turn':
         return agent_turns.prepare_agent_attempt(authority, node, operands, identity, snapshot, ordinal=ordinal,
             attempt_directory=attempt_directory, result_path=result_path, resolved=resolved, parts=parts,
