@@ -189,7 +189,7 @@ def test_malformed_settlement_obligations_refuse(tmp_path):
     before = _tree_bytes(parent), _tree_bytes(refs)
     refused = resume(parent, authority.run_root.name)
     assert refused.returncode == 2, refused.stdout + refused.stderr
-    assert "parallel E1 recovery" in refused.stderr
+    assert "[memo_inconsistent]" in refused.stdout + refused.stderr
     assert (_tree_bytes(parent), _tree_bytes(refs)) == before
 
 
@@ -212,9 +212,10 @@ def _run_ref_identity(root: Path, invoke: str, items: tuple[str, ...]) -> str:
     return identity
 
 
-def _kill_at_commit(batch: Batch, identity: str, window: str = "W9") -> None:
+def _kill_at_commit(batch: Batch, identity: str, window: str = "W9", check=lambda marker: None, quiet=()) -> None:
     from tests.workflow_evaluated_recovery_helpers import digest
-    batch.kill((), window={"window": window, "identity": identity, "attempt": 1, "digest": digest(identity)})
+    gate = {"window": window, "identity": identity, "attempt": 1, "digest": digest(identity)}
+    batch.kill((), check, window=gate, quiet=quiet)
 
 
 def _command_window(tmp_path: Path, window: str, must_not_repeat: bool) -> None:
@@ -234,17 +235,34 @@ def _command_window(tmp_path: Path, window: str, must_not_repeat: bool) -> None:
 
 
 def _coordinator_window(tmp_path: Path, must_not_repeat: bool) -> None:
-    """Kill after `b`'s run-reference commit, before its settlement; its successor never started."""
+    """Kill after `b`'s run-reference commit, before its settlement, while sibling `a`'s
+    `peer` command (`must_not_repeat` in that variant) is dispatched and blocked.
+
+    `a`'s start is reserved first: its single request is queued when the batch opens, while
+    `b`'s commit needs the whole E1 lifecycle and a child process; the kill check asserts it.
+    """
     identity = _run_ref_identity(tmp_path / "baseline", COORDINATED, ("a", "b"))
-    batch = run_ref_batch(tmp_path / "killed", COORDINATED, ("a", "b"), must_not_repeat=must_not_repeat)
-    _kill_at_commit(batch, identity)
-    assert [key for key, _attempt in batch.snapshot().unsettled_coordinators] == [identity]
+    batch = run_ref_batch(tmp_path / "killed", COORDINATED, ("a", "b"),
+                          must_not_repeat=("peer",) if must_not_repeat else ())
+    peer_pending = {}
+
+    def check(_marker):
+        snapshot = batch.snapshot()
+        peer_pending["a"] = [item_of(key) for key in snapshot.pending_starts] == ["a"]
+        assert [key for key, _attempt in snapshot.unsettled_coordinators] == [identity]
+
+    _kill_at_commit(batch, identity, check=check, quiet=(("a", "first"),))
+    assert peer_pending == {"a": True} and batch.quietly_held("a", "first")
+    if must_not_repeat:
+        _assert_refused_without_writes(batch, "lexical_restore_pending_effect_unsafe", "par-map:repo[0]")
+        assert child_launches(batch) == 1
+        return
     result = resume(batch.ws, batch.run_root().name)
     assert result.returncode == 0, result.stdout + result.stderr
     snapshot = batch.snapshot()
     assert snapshot.terminal.data["value"] is True and not snapshot.unsettled_coordinators
     assert child_launches(batch) == 1
-    assert Counter(batch.dispatches())[("b", "first")] == 1
+    assert Counter(batch.dispatches()) == {("a", "first"): 2, ("b", "first"): 1}
 
 
 @pytest.mark.parametrize("must_not_repeat", [False, True], ids=["retryable", "must_not_repeat"])

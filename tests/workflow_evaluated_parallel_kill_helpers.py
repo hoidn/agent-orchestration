@@ -43,6 +43,11 @@ if Path("fail").exists():
     raise SystemExit(3)
 if Path("noresult").exists():
     raise SystemExit(0)
+quiet = CONTROL / "quiet.json"
+if quiet.exists() and [repo, stage] in json.loads(quiet.read_text()):
+    (CONTROL / f"quiet-{repo}-{stage}").write_text("")
+    while True:
+        signal.pause()
 hold = CONTROL / "hold.json"
 held = json.loads(hold.read_text()) if hold.exists() else []
 if [repo, stage] in held:
@@ -64,13 +69,20 @@ Path(bundle).write_text(str(value))
 
 
 class Batch:
-    """A workspace whose items `a` to `d` each hold a copy of `STEP`."""
+    """A workspace whose items (`a` to `d` by default) each hold a copy of `STEP`.
 
-    def __init__(self, root: Path, *, source: str = FOUR, items=ITEMS, waits=None, boundaries=None):
-        self.ws, self.control = root / "ws", root / "control"
+    `source` is written as `ws/main.orc`; with `source=None` the caller has already written
+    the program into `ws`, and `run_args` names it (with any flags it needs, such as
+    `--run-ref-root`). `refs` is the run-reference root, when there is one.
+    """
+
+    def __init__(self, root: Path, *, source: str | None = FOUR, items=ITEMS, waits=None, boundaries=None,
+                 ws: Path | None = None, run_args: tuple[str, ...] = ("main.orc",), refs: Path | None = None):
+        self.ws, self.control, self.run_args, self.refs = ws or root / "ws", root / "control", run_args, refs
         self.control.mkdir(parents=True)
-        self.ws.mkdir()
-        (self.ws / "main.orc").write_text(source)
+        self.ws.mkdir(exist_ok=True)
+        if source is not None:
+            (self.ws / "main.orc").write_text(source)
         boundary = {"stable_command": ["python", "step.py"], "closure": []}
         (self.ws / "commands.json").write_text(json.dumps(boundaries or {"step": boundary}))
         script = STEP.replace("@CONTROL@", json.dumps(str(self.control))).replace(
@@ -80,16 +92,22 @@ class Batch:
             (self.ws / item / "step.py").write_text(script)
 
     def argv(self, *extra: str) -> list[str]:
-        return ["run", "main.orc", "--command-boundaries-file", "commands.json", *extra]
+        return ["run", *self.run_args, "--command-boundaries-file", "commands.json", *extra]
 
     def run(self, *extra: str):
         return _run_cli(self.ws, *self.argv(*extra)[1:])
 
-    def kill(self, holds, check=lambda marker: None, *, window=None, extra=()):
+    def kill(self, holds, check=lambda marker: None, *, window=None, extra=(), quiet=()):
+        """Kill at `window` or once every step in `holds` blocks; steps in `quiet` block unannounced."""
         (self.control / "hold.json").write_text(json.dumps([list(hold) for hold in holds]))
+        (self.control / "quiet.json").write_text(json.dumps([list(step) for step in quiet]))
         marker = kill_at(self.ws, self.control, self.argv(*extra), window, check)
         (self.control / "hold.json").unlink()
+        (self.control / "quiet.json").unlink()
         return marker
+
+    def quietly_held(self, repo: str, stage: str) -> bool:
+        return (self.control / f"quiet-{repo}-{stage}").exists()
 
     def run_root(self) -> Path:
         (root,) = (self.ws / ".orchestrate" / "runs").iterdir()
@@ -114,8 +132,11 @@ def item_of(identity: str) -> str:
     return ITEMS[int(identity.split("par-map:repo[", 1)[1].split("]", 1)[0])]
 
 
-def run_ref_batch(root: Path, invoke: str, items: tuple[str, ...], *, must_not_repeat: bool = False) -> Batch:
-    """A 2.37 controller whose items call `invoke` (its run reference spelled `CALL`) in `parent/<item>`."""
+def run_ref_batch(root: Path, invoke: str, items: tuple[str, ...], *, must_not_repeat=()) -> Batch:
+    """A 2.37 controller whose items call `invoke` (its run reference spelled `CALL`) in `parent/<item>`.
+
+    Its commands are `peer` and `target`; those named in `must_not_repeat` declare it.
+    """
     from tests.test_workflow_evaluated_run_ref import _public_fixture
     root.mkdir(parents=True)
     listed = " ".join(json.dumps(item) for item in items)
@@ -125,18 +146,9 @@ def run_ref_batch(root: Path, invoke: str, items: tuple[str, ...], *, must_not_r
         definitions=lambda call: invoke.replace("CALL", call),
         body=lambda _call: f"(let* ((items {body})) (= (list/length items) {len(items)}))")
     boundary = {"stable_command": ["python", "step.py"], "closure": []}
-    batch = Batch.__new__(Batch)
-    batch.ws, batch.control, batch.refs = parent, root / "control", refs
-    batch.control.mkdir()
-    (parent / "commands.json").write_text(json.dumps(
-        {"peer": boundary, "target": {**boundary, "must_not_repeat": must_not_repeat}}))
-    script = STEP.replace("@CONTROL@", json.dumps(str(batch.control))).replace("WAITS.get", "{}.get")
-    for item in items:
-        (parent / item).mkdir()
-        (parent / item / "step.py").write_text(script)
-    batch.argv = lambda *extra: ["run", str(source), "--run-ref-root", str(refs),
-                                 "--command-boundaries-file", "commands.json", *extra]
-    return batch
+    boundaries = {name: {**boundary, "must_not_repeat": name in must_not_repeat} for name in ("peer", "target")}
+    return Batch(root, source=None, items=items, boundaries=boundaries, ws=parent,
+                 run_args=(str(source), "--run-ref-root", str(refs)), refs=refs)
 
 
 def child_launches(batch: Batch) -> int:

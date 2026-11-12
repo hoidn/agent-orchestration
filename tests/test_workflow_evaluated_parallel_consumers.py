@@ -32,15 +32,12 @@ TARGETS = ("2.37", NEWEST)
 PROGRAM = PROGRAMS["best_of_n"]
 SERIAL_MAP = "(list/map-effect ((repo repos)) :max 8\n"
 PARALLEL_MAP = "(list/map-effect ((repo repos)) :max 8 :parallel 2 :workspace repo\n"
-REPOS = (*CANDIDATES, "candidates/gamma", "candidates/delta")
+REPOS = (*CANDIDATES, "candidates/gamma", "candidates/delta")  # under the workspace; inputs are absolute
 FIXED = "def add(a, b):\n    return a + b\n"
 BEST = "workflow:best_of_n::best-of-n"
 JUDGE = f"{BEST} / selection"
 ACCOUNTS = [f"candidate-account-{index}" for index in range(len(REPOS))]
-SELECTION = {"winner": REPOS[-1], "ranking": [f"{repo}: 2 2 2 2" for repo in reversed(REPOS)],
-             "report": "artifacts/review/selection.md"}
-INPUTS = {"task": "Fix add in calc.py so that it returns the sum.", "intent": "add returns a + b",
-          "repos": list(REPOS)}
+REPORT = "artifacts/review/selection.md"
 OVERLAP = '''import os as _os, sys as _sys, time as _time
 from pathlib import Path as _Path
 _control = _Path(_os.environ["OVERLAP_CONTROL"])
@@ -67,25 +64,37 @@ def coder(index: int) -> str:
     return f"{BEST} / accounts / body / par-map:repo[{index}] / #1=workflow:best_of_n::implement-one / change"
 
 
-def _answers() -> dict[str, dict]:
+def repos(root: Path) -> list[str]:
+    """The candidates as absolute paths: the prompt's `{repo}` must name the coder's own cwd."""
+    return [str(root / repo) for repo in REPOS]
+
+
+def selection(root: Path) -> dict:
+    return {"winner": repos(root)[-1], "ranking": [f"{repo}: 2 2 2 2" for repo in reversed(repos(root))],
+            "report": REPORT}
+
+
+def _answers(root: Path) -> dict[str, dict]:
     answers = {sha256(coder(index)): {"result": {"summary": f"Fix {repo}.", "account": account},
                                       "files": {"calc.py": FIXED}}
                for index, (repo, account) in enumerate(zip(REPOS, ACCOUNTS, strict=True))}
-    answers[sha256(JUDGE)] = {"result": SELECTION, "files": {SELECTION["report"]: "# Selection\n"}}
+    answers[sha256(JUDGE)] = {"result": selection(root), "files": {REPORT: "# Selection\n"}}
     return answers
 
 
 def _workspace(tmp_path: Path, monkeypatch, target: str) -> tuple[Path, list[str]]:
     """The copy at `target` with only the parallel map added, four candidates and the stand-ins."""
-    install_standins(tmp_path / "bin", monkeypatch, _answers(), list(REPOS))
+    root = tmp_path / "workspace"
+    install_standins(tmp_path / "bin", monkeypatch, _answers(root), repos(root))
     claude = tmp_path / "bin" / "claude"
     shebang, body = claude.read_text().split("\n", 1)
     claude.write_text(f"{shebang}\n{OVERLAP}{body}")
     control = tmp_path / "control"
     control.mkdir()
     monkeypatch.setenv("OVERLAP_CONTROL", str(control))
-    root = tmp_path / "workspace"
-    frontend = install(root, PROGRAM, INPUTS)
+    inputs = {"task": "Fix add in calc.py so that it returns the sum.", "intent": "add returns a + b",
+              "repos": repos(root)}
+    frontend = install(root, PROGRAM, inputs)
     source = (ROOT / PROGRAM.source).read_text()
     assert source.count(SERIAL_MAP) == 1 and source.count('(:target-dsl "2.35")') == 1
     (root / PROGRAM.source).write_text(source.replace('(:target-dsl "2.35")', f'(:target-dsl "{target}")')
@@ -135,10 +144,17 @@ def _assert_judged_once_after_all(root: Path, snapshot) -> None:
 
 def _assert_judge_inputs_in_order(root: Path) -> None:
     (judge,) = jsonl(root / "requests.jsonl")
-    assert judge["repos"] == list(REPOS)
+    assert judge["repos"] == repos(root)
     prompt = (Path(judge["bundle"]).parent / "prompt.txt").read_text()
     positions = [prompt.index(account) for account in ACCOUNTS]
     assert positions == sorted(positions)
+
+
+def _assert_coders_ran_in_their_repo(root: Path) -> None:
+    """Each coder's cwd is the one repository its own request names."""
+    coders = [request for request in _requests(root) if request["tool"] == "claude"]
+    assert sorted(request["cwd"] for request in coders) == sorted(repos(root))
+    assert all(request["repos"] == [request["cwd"]] for request in coders)
 
 
 def _assert_candidates_edited(root: Path) -> None:
@@ -154,14 +170,15 @@ def test_parallel_best_of_n_overlaps_within_its_bound_and_judges_once(tmp_path, 
     result = _run_cli(root, *frontend, "--input-file", "inputs.json")
     assert result.returncode == 0, result.stderr
     _authority, snapshot = checked_run(root)
-    assert snapshot.terminal.data["value"] == SELECTION
+    assert snapshot.terminal.data["value"] == selection(root)
     entries = _entries(tmp_path)
     assert len(entries) == len(REPOS) and max(entries) == 2
     _assert_judged_once_after_all(root, snapshot)
     _assert_requests_match_commits(root, snapshot)
-    assert [request["cwd"] for request in _requests(root)] == [*(str(root / repo) for repo in REPOS), str(root)]
+    assert [request["cwd"] for request in _requests(root)] == [*repos(root), str(root)]
+    _assert_coders_ran_in_their_repo(root)
     _assert_candidates_edited(root)
-    assert (root / SELECTION["report"]).is_file()
+    assert (root / REPORT).is_file()
 
 
 def _run_with_failed_candidate(root: Path, frontend: list[str], index: int) -> list[dict]:
@@ -189,12 +206,13 @@ def test_failed_implementation_keeps_sibling_commits_and_resume_judges_once(tmp_
     resumed = resume(root, snapshot_run_id(root))
     assert resumed.returncode == 0, resumed.stdout + resumed.stderr
     _authority, after = checked_run(root)
-    assert after.terminal.data["value"] == SELECTION
+    assert after.terminal.data["value"] == selection(root)
     assert [entry.data for entry in _rows(after, "committed")][:3] == kept
     assert _attempts(after, coder(1)) == [1, 2]
     _assert_judged_once_after_all(root, after)
     _assert_requests_match_commits(root, after)
     _assert_candidates_edited(root)
+    _assert_coders_ran_in_their_repo(root)
 
 
 def snapshot_run_id(root: Path) -> str:
@@ -215,7 +233,7 @@ def test_compile_dry_run_run_report_and_two_completed_resumes(tmp_path, monkeypa
     report = _cli(root, "report", "--run-id", run_id, "--runs-root", str(root / ".orchestrate" / "runs"),
                   "--format", "json")
     assert report.returncode == 0, report.stderr
-    assert json.loads(report.stdout)["run"]["workflow_outputs"] == SELECTION
+    assert json.loads(report.stdout)["run"]["workflow_outputs"] == selection(root)
     before = _tree_bytes(root), _tree_bytes(tmp_path / "control")
     for _ in range(2):
         completed = resume(root, run_id)
