@@ -69,17 +69,6 @@ from .view_renderer import VIEW_RENDERER_SCHEMA_VERSION
 
 
 WORKFLOW_SEMANTIC_IR_SCHEMA_VERSION = "workflow_semantic_ir.v1"
-_PROMOTED_ADAPTER_EFFECT_KINDS = frozenset({"resource_transition", "ledger_update"})
-_PROMOTED_GENERATED_EFFECT_KINDS = frozenset(
-    {
-        "snapshot_capture",
-        "pointer_materialization",
-        "pure_projection",
-        "materialize_view",
-        "run_ref",
-        "trial",
-    }
-)
 _PROVIDER_BUNDLE_PATH_PROJECTION_KIND = "provider_bundle_path_projection"
 
 
