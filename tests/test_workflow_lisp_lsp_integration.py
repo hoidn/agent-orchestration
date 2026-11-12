@@ -28,7 +28,7 @@ FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp"
 CALLABLE_ROOT = FIXTURES / "modules" / "valid" / "callables"
 IMPORTED_SELECTOR_SOURCE = FIXTURES / "cli" / "imported_selector.orc"
 STDLIB_CALLER_SOURCE = (
-    FIXTURES / "valid" / "minimal_caller_finalize_selected_item.orc"
+    FIXTURES / "valid" / "lsp_stdlib_improve_caller.orc"
 )
 CONTROLLED_SERVER = (
     FIXTURES / "lsp_transport" / "controlled_compile_server.py"
@@ -2287,7 +2287,7 @@ def test_real_stdio_definition_reaches_compiler_owned_builtin_stdlib(
             method="textDocument/definition",
             params={
                 "textDocument": {"uri": source_path.as_uri()},
-                "position": {"line": 41, "character": 7},
+                "position": {"line": 11, "character": 5},
             },
             result_predicate=lambda result: result is not None,
         )
@@ -2297,8 +2297,9 @@ def test_real_stdio_definition_reaches_compiler_owned_builtin_stdlib(
             / "orchestrator"
             / "workflow_lisp"
             / "stdlib_modules"
+            / "w3"
             / "std"
-            / "resource.orc"
+            / "improve.orc"
         ).resolve().as_uri()
         process.shutdown()
     finally:
@@ -2358,5 +2359,5 @@ def test_built_wheel_contains_lsp_and_compiler_owned_builtin_stdlib(
             "orchestrator/workflow_lisp/stdlib_modules/std/"
             f"{module_name}.orc"
         )
-        for module_name in ("context", "drain", "phase", "resource")
+        for module_name in ("context", "phase")
     }.issubset(members)

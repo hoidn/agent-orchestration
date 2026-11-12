@@ -24,9 +24,15 @@ from orchestrator.workflow_lisp.effects import (
     UsesCommandEffect,
     UsesProviderEffect,
 )
-from orchestrator.workflow_lisp.expressions import BindProcBinding, BindProcExpr, FinalizeSelectedItemExpr, LetProcBinding, LetProcExpr, LetStarExpr, LiteralExpr, NameExpr, ProcedureCallExpr, ProcRefLiteralExpr, ProduceOneOfExpr, ResourceTransitionExpr, ResumeOrStartExpr, RunProviderPhaseExpr, UnionVariantExpr
+from orchestrator.workflow_lisp.expressions import (
+    LetProcBinding,
+    LetProcExpr,
+    LetStarExpr,
+    LiteralExpr,
+    ProcedureCallExpr,
+    UnionVariantExpr,
+)
 from orchestrator.workflow_lisp.procedure_specialization import (_resolve_procedure_lowering)
-from orchestrator.workflow_lisp.phase_stdlib import ProduceOneOfProducerSpec
 from orchestrator.workflow_lisp.procedures import (
     ProcedureLoweringMode,
     build_procedure_catalog,
@@ -36,15 +42,11 @@ from orchestrator.workflow_lisp.procedures import (
 from orchestrator.workflow_lisp.procedure_specialization import specialize_typed_procedure
 from orchestrator.workflow_lisp.reader import read_sexpr_file
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
-from orchestrator.workflow_lisp.resource_stdlib import FinalizeSelectedItemSpec, ResourceTransitionSpec
 from orchestrator.workflow_lisp.syntax import build_syntax_module
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
-from orchestrator.workflow_lisp.typecheck import TypedExpr, consume_generated_local_procedures
+from orchestrator.workflow_lisp.typecheck import consume_generated_local_procedures
 from orchestrator.workflow_lisp.workflows import (
     ExternalToolBinding,
-    TypedWorkflowDef,
-    WorkflowDef,
-    WorkflowSignature,
     build_command_boundary_environment,
     build_extern_environment,
     build_workflow_catalog,
@@ -139,8 +141,6 @@ def _write_module(path: Path, lines: list[str]) -> Path:
     return path
 
 
-
-
 def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileError], code: str) -> None:
     assert excinfo.value.diagnostics[0].code == code
 
@@ -192,8 +192,8 @@ def _elaborate_inline_procedures(return_source: str):
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.35")',
-                    f"  (defproc approved () -> {return_source} :effects () true))",
+                    '  (:target-dsl "2.40")',
+                    f"  (defproc approved () -> {return_source} true))",
                 ]
             ),
             source_path="inline_procedure_guidance.orc",
@@ -275,7 +275,7 @@ def test_elaborate_defproc_parses_structured_where_metadata(tmp_path: Path) -> N
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -287,8 +287,6 @@ def test_elaborate_defproc_parses_structured_where_metadata(tmp_path: Path) -> N
             "    :where ((T is-record)",
             "            (U has-field report WorkReport))",
             "    -> T",
-            "    :effects ()",
-            "    :lowering inline",
             "    current))",
         ],
     )
@@ -315,13 +313,11 @@ def test_elaborate_defproc_rejects_duplicate_type_params(tmp_path: Path) -> None
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defproc carry",
             "    :forall (T T)",
             "    ((value T))",
             "    -> T",
-            "    :effects ()",
-            "    :lowering inline",
             "    value))",
         ],
     )
@@ -339,13 +335,11 @@ def test_elaborate_defproc_rejects_invalid_parametric_clause_order(tmp_path: Pat
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defproc carry",
             "    ((value T))",
             "    :forall (T)",
             "    -> T",
-            "    :effects ()",
-            "    :lowering inline",
             "    value))",
         ],
     )
@@ -363,7 +357,7 @@ def test_elaborate_defproc_parses_has_union_variant_field_requirements(tmp_path:
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -373,8 +367,6 @@ def test_elaborate_defproc_parses_has_union_variant_field_requirements(tmp_path:
             "    ((value ResultT))",
             "    :where ((ResultT has-union-variant APPROVED (report WorkReport) (status String)))",
             "    -> ResultT",
-            "    :effects ()",
-            "    :lowering inline",
             "    value))",
         ],
     )
@@ -400,14 +392,12 @@ def test_elaborate_defproc_rejects_unknown_where_subject_type_param(tmp_path: Pa
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defproc carry",
             "    :forall (T)",
             "    ((value T))",
             "    :where ((U is-record))",
             "    -> T",
-            "    :effects ()",
-            "    :lowering inline",
             "    value))",
         ],
     )
@@ -425,7 +415,7 @@ def test_elaborate_defproc_rejects_malformed_where_variant_field_requirements(tm
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -435,8 +425,6 @@ def test_elaborate_defproc_rejects_malformed_where_variant_field_requirements(tm
             "    ((value T))",
             "    :where ((T has-union-variant APPROVED (report WorkReport extra)))",
             "    -> T",
-            "    :effects ()",
-            "    :lowering inline",
             "    value))",
         ],
     )
@@ -458,7 +446,7 @@ def test_build_procedure_catalog_resolves_type_params_inside_nested_proc_ref_and
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defrecord WorkflowInput",
             "    (report String))",
             "  (defrecord WorkflowOutput",
@@ -468,8 +456,6 @@ def test_build_procedure_catalog_resolves_type_params_inside_nested_proc_ref_and
             "    ((runner ProcRef[(WorkflowRef[T -> WorkflowOutput]) -> WorkflowOutput])",
             "     (target WorkflowRef[T -> WorkflowOutput]))",
             "    -> WorkflowOutput",
-            "    :effects ()",
-            "    :lowering inline",
             "    (runner target)))",
         ],
     )
@@ -496,13 +482,11 @@ def test_build_procedure_catalog_resolves_type_param_refs(tmp_path: Path) -> Non
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defproc identity",
             "    :forall (T)",
             "    ((value T))",
             "    -> T",
-            "    :effects ()",
-            "    :lowering inline",
             "    value))",
         ],
     )
@@ -524,13 +508,11 @@ def test_compile_generic_identity_with_description_only_return_guidance(tmp_path
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defproc identity",
             "    :forall (T)",
             "    ((value T))",
             '    -> (result T :description "Return the input unchanged.")',
-            "    :effects ()",
-            "    :lowering inline",
             "    value))",
         ],
     )
@@ -549,13 +531,11 @@ def test_compile_generic_identity_defers_example_until_type_param_specialization
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defproc identity",
             "    :forall (T)",
             "    ((value T))",
             '    -> (result T :description "Return the input unchanged." :example true)',
-            "    :effects ()",
-            "    :lowering inline",
             "    value))",
         ],
     )
@@ -574,19 +554,15 @@ def test_generic_specialization_revalidates_deferred_return_guidance_example(tmp
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defproc identity",
             "    :forall (T)",
             "    ((value T))",
             "    -> (result T :example true)",
-            "    :effects ()",
-            "    :lowering inline",
             "    value)",
             "  (defproc use-string",
             "    ((value String))",
             "    -> String",
-            "    :effects ()",
-            "    :lowering inline",
             "    (identity value)))",
         ],
     )
@@ -613,7 +589,7 @@ def test_type_param_substitution_rewrites_nested_proc_ref_and_workflow_ref_types
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defrecord WorkflowInput",
             "    (report String))",
             "  (defrecord WorkflowOutput",
@@ -622,8 +598,6 @@ def test_type_param_substitution_rewrites_nested_proc_ref_and_workflow_ref_types
             "    :forall (T)",
             "    ((runner ProcRef[(WorkflowRef[T -> WorkflowOutput]) -> T]))",
             "    -> T",
-            "    :effects ()",
-            "    :lowering inline",
             "    (runner entry))",
             "  (defworkflow entry",
             "    ((input WorkflowInput))",
@@ -663,7 +637,7 @@ def test_nonempty_where_metadata_is_preserved_when_header_validation_succeeds(tm
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -673,8 +647,6 @@ def test_nonempty_where_metadata_is_preserved_when_header_validation_succeeds(tm
             "    ((value T))",
             "    :where ((T has-field report WorkReport))",
             "    -> T",
-            "    :effects ()",
-            "    :lowering inline",
             "    value))",
         ],
     )
@@ -697,7 +669,7 @@ def test_compile_stage3_specializes_generic_defproc_before_lowering(tmp_path: Pa
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defrecord WorkflowInput",
             "    (report String))",
             "  (defproc apply-runner",
@@ -705,14 +677,10 @@ def test_compile_stage3_specializes_generic_defproc_before_lowering(tmp_path: Pa
             "    ((runner ProcRef[T -> T])",
             "     (value T))",
             "    -> T",
-            "    :effects ()",
-            "    :lowering inline",
             "    (runner value))",
             "  (defproc echo-input",
             "    ((value WorkflowInput))",
             "    -> WorkflowInput",
-            "    :effects ()",
-            "    :lowering inline",
             "    (record WorkflowInput",
             "      :report value.report))",
             "  (defworkflow entry",
@@ -742,7 +710,7 @@ def test_compile_stage3_reuses_equivalent_parametric_specializations(tmp_path: P
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defrecord WorkflowInput",
             "    (report String))",
             "  (defproc apply-runner",
@@ -750,14 +718,10 @@ def test_compile_stage3_reuses_equivalent_parametric_specializations(tmp_path: P
             "    ((runner ProcRef[T -> T])",
             "     (value T))",
             "    -> T",
-            "    :effects ()",
-            "    :lowering inline",
             "    (runner value))",
             "  (defproc echo-input",
             "    ((value WorkflowInput))",
             "    -> WorkflowInput",
-            "    :effects ()",
-            "    :lowering inline",
             "    (record WorkflowInput",
             "      :report value.report))",
             "  (defworkflow entry",
@@ -786,7 +750,7 @@ def test_compile_stage3_rejects_ambiguous_type_argument_bindings(tmp_path: Path)
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defrecord LeftValue",
             "    (report String))",
             "  (defrecord RightValue",
@@ -796,8 +760,6 @@ def test_compile_stage3_rejects_ambiguous_type_argument_bindings(tmp_path: Path)
             "    ((left T)",
             "     (right T))",
             "    -> T",
-            "    :effects ()",
-            "    :lowering inline",
             "    left)",
             "  (defworkflow entry",
             "    ((left LeftValue)",
@@ -819,15 +781,13 @@ def test_compile_stage3_rejects_unbindable_type_parameters(tmp_path: Path) -> No
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defrecord WorkflowInput",
             "    (report String))",
             "  (defproc identity",
             "    :forall (T U)",
             "    ((value T))",
             "    -> T",
-            "    :effects ()",
-            "    :lowering inline",
             "    value)",
             "  (defworkflow entry",
             "    ((input WorkflowInput))",
@@ -848,7 +808,7 @@ def test_compile_stage3_accepts_is_record_and_has_field_constraints(tmp_path: Pa
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defrecord WorkflowInput",
             "    (report String))",
             "  (defproc apply-runner",
@@ -858,14 +818,10 @@ def test_compile_stage3_accepts_is_record_and_has_field_constraints(tmp_path: Pa
             "    :where ((T is-record)",
             "            (T has-field report String))",
             "    -> T",
-            "    :effects ()",
-            "    :lowering inline",
             "    (runner value))",
             "  (defproc echo-input",
             "    ((value WorkflowInput))",
             "    -> WorkflowInput",
-            "    :effects ()",
-            "    :lowering inline",
             "    (record WorkflowInput",
             "      :report value.report))",
             "  (defworkflow entry",
@@ -893,7 +849,7 @@ def test_compile_stage3_accepts_has_union_variant_with_field_requirements(tmp_pa
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -913,14 +869,10 @@ def test_compile_stage3_accepts_has_union_variant_with_field_requirements(tmp_pa
             "     (label String))",
             "    :where ((T has-union-variant APPROVED (report String) (status String)))",
             "    -> WorkflowOutput",
-            "    :effects ()",
-            "    :lowering inline",
             "    (runner label))",
             "  (defproc emit-output",
             "    ((label String))",
             "    -> WorkflowOutput",
-            "    :effects ((uses-command run_checks))",
-            "    :lowering inline",
             "    (command-result run_checks",
             '      :argv ("python" "scripts/run_checks.py" label)',
             "      :returns WorkflowOutput))",
@@ -954,7 +906,7 @@ def test_compile_stage3_rejects_unknown_structural_constraint(tmp_path: Path) ->
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defrecord WorkflowInput",
             "    (report String))",
             "  (defproc identity",
@@ -962,8 +914,6 @@ def test_compile_stage3_rejects_unknown_structural_constraint(tmp_path: Path) ->
             "    ((value T))",
             "    :where ((T unknown-constraint report String))",
             "    -> T",
-            "    :effects ()",
-            "    :lowering inline",
             "    value)",
             "  (defworkflow entry",
             "    ((input WorkflowInput))",
@@ -984,7 +934,7 @@ def test_compile_stage3_rejects_unsatisfied_has_field_constraint(tmp_path: Path)
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defrecord WorkflowInput",
             "    (status String))",
             "  (defproc identity",
@@ -992,8 +942,6 @@ def test_compile_stage3_rejects_unsatisfied_has_field_constraint(tmp_path: Path)
             "    ((value T))",
             "    :where ((T has-field report String))",
             "    -> T",
-            "    :effects ()",
-            "    :lowering inline",
             "    value)",
             "  (defworkflow entry",
             "    ((input WorkflowInput))",
@@ -1019,7 +967,7 @@ def test_compile_stage3_rejects_unsatisfied_has_union_variant_constraint(tmp_pat
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defunion ReviewResult",
             "    (BLOCKED",
             "      (report String)))",
@@ -1030,8 +978,6 @@ def test_compile_stage3_rejects_unsatisfied_has_union_variant_constraint(tmp_pat
             "    ((value T))",
             "    :where ((T has-union-variant APPROVED))",
             "    -> String",
-            "    :effects ()",
-            "    :lowering inline",
             '    "ok")',
             "  (defworkflow entry",
             "    ((input String))",
@@ -1056,7 +1002,7 @@ def test_compile_stage3_rejects_unsatisfied_shared_union_field_constraint(tmp_pa
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defunion ReviewResult",
             "    (APPROVED",
             "      (report String))",
@@ -1069,8 +1015,6 @@ def test_compile_stage3_rejects_unsatisfied_shared_union_field_constraint(tmp_pa
             "    ((value T))",
             "    :where ((T has-shared-union-field report String))",
             "    -> String",
-            "    :effects ()",
-            "    :lowering inline",
             '    "ok")',
             "  (defworkflow entry",
             "    ((input String))",
@@ -1166,7 +1110,7 @@ def _has_field_projection_module_lines(*, body_projection: str) -> list[str]:
     return [
         "(workflow-lisp",
         '  (:language "0.1")',
-        '  (:target-dsl "2.35")',
+        '  (:target-dsl "2.40")',
         "  (defrecord Inner",
         "    (marker String))",
         "  (defrecord Ctx",
@@ -1179,8 +1123,6 @@ def _has_field_projection_module_lines(*, body_projection: str) -> list[str]:
         "    :where ((CtxT is-record)",
         "            (CtxT has-field payload Inner))",
         "    -> WorkflowOutput",
-        "    :effects ()",
-        "    :lowering inline",
         "    (record WorkflowOutput",
         f"      :status {body_projection}))",
         "  (defworkflow entry",
@@ -1251,7 +1193,7 @@ def test_compile_stage3_accepts_generic_shared_union_field_projection(tmp_path: 
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -1269,8 +1211,6 @@ def test_compile_stage3_accepts_generic_shared_union_field_projection(tmp_path: 
             "    ((value T))",
             "    :where ((T has-shared-union-field shared_report WorkReport))",
             "    -> WorkflowOutput",
-            "    :effects ((uses-command run_checks))",
-            "    :lowering inline",
             "    (command-result run_checks",
             '      :argv ("python" "scripts/run_checks.py" value.shared_report)',
             "      :returns WorkflowOutput))",
@@ -1302,7 +1242,7 @@ def _compile_constraint_owner_homonym(tmp_path: Path, *, call: str):
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule helper)",
             "  (export Inner Choice Output project check read pick)",
             "  (defrecord Inner",
@@ -1319,8 +1259,6 @@ def _compile_constraint_owner_homonym(tmp_path: Path, *, call: str):
             "    ((value T))",
             "    :where ((T has-shared-union-field selection Inner))",
             "    -> Output",
-            "    :effects ((uses-command run_checks))",
-            "    :lowering inline",
             "    (command-result run_checks",
             '      :argv ("python" "scripts/run_checks.py" value.selection.marker)',
             "      :returns Output))",
@@ -1329,8 +1267,6 @@ def _compile_constraint_owner_homonym(tmp_path: Path, *, call: str):
             "    ((value T) (label String))",
             "    :where ((T has-union-variant SELECTED (selection Inner)))",
             "    -> Output",
-            "    :effects ((uses-command run_checks))",
-            "    :lowering inline",
             "    (command-result run_checks",
             '      :argv ("python" "scripts/run_checks.py" label)',
             "      :returns Output))",
@@ -1339,8 +1275,6 @@ def _compile_constraint_owner_homonym(tmp_path: Path, *, call: str):
             "    ((value T) (label String))",
             "    :where ((T has-field selection Inner))",
             "    -> Output",
-            "    :effects ((uses-command run_checks))",
-            "    :lowering inline",
             "    (command-result run_checks",
             '      :argv ("python" "scripts/run_checks.py" label)',
             "      :returns Output))",
@@ -1349,8 +1283,6 @@ def _compile_constraint_owner_homonym(tmp_path: Path, *, call: str):
             "    ((value T) (fallback P) (label String))",
             "    :where ((T has-shared-union-field selection P))",
             "    -> Output",
-            "    :effects ((uses-command run_checks))",
-            "    :lowering inline",
             "    (command-result run_checks",
             '      :argv ("python" "scripts/run_checks.py" label)',
             "      :returns Output)))",
@@ -1361,7 +1293,7 @@ def _compile_constraint_owner_homonym(tmp_path: Path, *, call: str):
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule entry)",
             "  (import helper :as h)",
             "  (export orchestrate)",
@@ -1377,8 +1309,6 @@ def _compile_constraint_owner_homonym(tmp_path: Path, *, call: str):
             "    ((value T))",
             "    :where ((T has-shared-union-field selection Inner))",
             "    -> h.Output",
-            "    :effects ((uses-command run_checks))",
-            "    :lowering inline",
             "    (command-result run_checks",
             '      :argv ("python" "scripts/run_checks.py" value.selection.other)',
             "      :returns h.Output))",
@@ -1475,7 +1405,7 @@ def test_compile_stage3_validates_generic_where_workflow_bundle(tmp_path: Path) 
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -1487,8 +1417,6 @@ def test_compile_stage3_validates_generic_where_workflow_bundle(tmp_path: Path) 
             "  (defproc run-checks",
             "    ((input WorkflowInput))",
             "    -> WorkflowOutput",
-            "    :effects ((uses-command run_checks))",
-            "    :lowering inline",
             "    (command-result run_checks",
             '      :argv ("python" "scripts/run_checks.py" input.report)',
             "      :returns WorkflowOutput))",
@@ -1499,8 +1427,6 @@ def test_compile_stage3_validates_generic_where_workflow_bundle(tmp_path: Path) 
             "    :where ((T is-record)",
             "            (T has-field report WorkReport))",
             "    -> WorkflowOutput",
-            "    :effects ()",
-            "    :lowering inline",
             "    (runner value))",
             "  (defworkflow entry",
             "    ((input WorkflowInput))",
@@ -1528,19 +1454,15 @@ def test_generic_specialization_substitutes_return_type_and_preserves_guidance(t
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defproc identity",
             "    :forall (T)",
             "    ((value T))",
             '    -> (result T :description "Return the value unchanged.")',
-            "    :effects ()",
-            "    :lowering inline",
             "    value)",
             "  (defproc use-bool",
             "    ((value Bool))",
             "    -> Bool",
-            "    :effects ()",
-            "    :lowering inline",
             "    (identity value)))",
         ],
     )
@@ -1564,19 +1486,15 @@ def test_generic_specialization_identity_excludes_return_guidance(tmp_path: Path
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defproc identity",
             "    :forall (T)",
             "    ((value T))",
             '    -> (result T :description "Prompt-only metadata.")',
-            "    :effects ()",
-            "    :lowering inline",
             "    value)",
             "  (defproc use-bool",
             "    ((value Bool))",
             "    -> Bool",
-            "    :effects ()",
-            "    :lowering inline",
             "    (identity value)))",
         ],
     )
@@ -1602,7 +1520,7 @@ def test_compile_stage3_preserves_effect_visibility_for_constrained_generic_proc
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -1614,8 +1532,6 @@ def test_compile_stage3_preserves_effect_visibility_for_constrained_generic_proc
             "  (defproc run-checks",
             "    ((input WorkflowInput))",
             "    -> WorkflowOutput",
-            "    :effects ((uses-command run_checks))",
-            "    :lowering inline",
             "    (command-result run_checks",
             '      :argv ("python" "scripts/run_checks.py" input.report)',
             "      :returns WorkflowOutput))",
@@ -1626,8 +1542,6 @@ def test_compile_stage3_preserves_effect_visibility_for_constrained_generic_proc
             "    :where ((T is-record)",
             "            (T has-field report WorkReport))",
             "    -> WorkflowOutput",
-            "    :effects ()",
-            "    :lowering inline",
             "    (runner value))",
             "  (defworkflow entry",
             "    ((input WorkflowInput))",
@@ -1903,15 +1817,13 @@ def test_compile_stage3_rejects_parametric_specialization_cycles(tmp_path: Path)
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defrecord WorkflowInput",
             "    (report String))",
             "  (defproc loop",
             "    :forall (T)",
             "    ((value T))",
             "    -> T",
-            "    :effects ()",
-            "    :lowering inline",
             "    (loop value))",
             "  (defworkflow entry",
             "    ((input WorkflowInput))",
@@ -1932,7 +1844,7 @@ def test_compile_stage3_supports_type_params_nested_inside_proc_ref_signatures(t
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defrecord WorkflowInput",
             "    (report String))",
             "  (defproc apply-runner",
@@ -1940,14 +1852,10 @@ def test_compile_stage3_supports_type_params_nested_inside_proc_ref_signatures(t
             "    ((runner ProcRef[T -> T])",
             "     (value T))",
             "    -> T",
-            "    :effects ()",
-            "    :lowering inline",
             "    (runner value))",
             "  (defproc echo-input",
             "    ((value WorkflowInput))",
             "    -> WorkflowInput",
-            "    :effects ()",
-            "    :lowering inline",
             "    (record WorkflowInput",
             "      :report value.report))",
             "  (defworkflow entry",
@@ -1974,7 +1882,7 @@ def test_compile_stage3_specializes_nested_generic_defproc_calls_transitively(tm
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defrecord WorkflowInput",
             "    (report String))",
             "  (defproc invoke-runner",
@@ -1982,22 +1890,16 @@ def test_compile_stage3_specializes_nested_generic_defproc_calls_transitively(tm
             "    ((runner ProcRef[T -> T])",
             "     (value T))",
             "    -> T",
-            "    :effects ()",
-            "    :lowering inline",
             "    (runner value))",
             "  (defproc wrap",
             "    :forall (T)",
             "    ((runner ProcRef[T -> T])",
             "     (value T))",
             "    -> T",
-            "    :effects ()",
-            "    :lowering inline",
             "    (invoke-runner runner value))",
             "  (defproc echo-input",
             "    ((value WorkflowInput))",
             "    -> WorkflowInput",
-            "    :effects ()",
-            "    :lowering inline",
             "    (record WorkflowInput",
             "      :report value.report))",
             "  (defworkflow entry",
@@ -2028,7 +1930,7 @@ def test_compile_stage3_retypechecks_specialized_generic_body_instead_of_reusing
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defunion ReviewResult",
             "    (APPROVED",
             "      (status String)",
@@ -2044,8 +1946,6 @@ def test_compile_stage3_retypechecks_specialized_generic_body_instead_of_reusing
             "    :where ((T has-union-variant APPROVED (status String) (message String))",
             "            (T has-union-variant BLOCKED (status String) (message String)))",
             "    -> WorkflowOutput",
-            "    :effects ()",
-            "    :lowering inline",
             "    (match value",
             "      ((APPROVED approved)",
             "       (record WorkflowOutput :status approved.status))",
@@ -2108,7 +2008,7 @@ def _proc_ref_return_match_module_lines(*, where_clauses: list[str]) -> list[str
     return [
         "(workflow-lisp",
         '  (:language "0.1")',
-        '  (:target-dsl "2.35")',
+        '  (:target-dsl "2.40")',
         "  (defrecord SelectorCtx",
         "    (seed String))",
         "  (defunion SelectionResult",
@@ -2120,8 +2020,6 @@ def _proc_ref_return_match_module_lines(*, where_clauses: list[str]) -> list[str
         "  (defproc pick",
         "    ((ctx SelectorCtx))",
         "    -> SelectionResult",
-        "    :effects ()",
-        "    :lowering inline",
         "    (variant SelectionResult EMPTY))",
         "  (defproc status-from-selector",
         "    :forall (CtxT SelectionT)",
@@ -2129,8 +2027,6 @@ def _proc_ref_return_match_module_lines(*, where_clauses: list[str]) -> list[str
         "     (selector ProcRef[(CtxT) -> SelectionT]))",
         *where_clauses,
         "    -> String",
-        "    :effects ()",
-        "    :lowering inline",
         "    (let* ((selection (selector ctx)))",
         "      (match selection",
         '        ((EMPTY e) "empty")',
@@ -2239,178 +2135,6 @@ def _infer_stage3_proc_ref_effects(path: Path):
     )
 
 
-def _proc_ref_discovery_context(tmp_path: Path):
-    path = _write_module(
-        tmp_path / "proc_ref_discovery_context.orc",
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
-            "  (defpath WorkReport",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist true)",
-            "  (defrecord WorkflowInput",
-            "    (report WorkReport))",
-            "  (defrecord WorkflowOutput",
-            "    (report WorkReport))",
-            "  (defproc helper",
-            "    ((fixed String)",
-            "     (input WorkflowInput))",
-            "    -> WorkflowOutput",
-            "    :effects ((uses-command run_checks))",
-            "    :lowering inline",
-            "    (command-result run_checks",
-            '      :argv ("python" "scripts/run_checks.py" input.report fixed)',
-            "      :returns WorkflowOutput))",
-            "  (defproc invoke-runner",
-            "    ((runner ProcRef[WorkflowInput -> WorkflowOutput])",
-            "     (input WorkflowInput))",
-            "    -> WorkflowOutput",
-            "    :effects ()",
-            "    :lowering inline",
-            "    (runner input)))",
-        ],
-    )
-    syntax_module = build_syntax_module(read_sexpr_file(path))
-    module = elaborate_definition_module(_definition_only_syntax_module(syntax_module))
-    _validate_definition_module(module)
-    type_env = FrontendTypeEnvironment.from_module(module)
-    workflow_defs = elaborate_workflow_definitions(syntax_module)
-    procedure_defs = elaborate_procedure_definitions(syntax_module)
-    workflow_catalog = build_workflow_catalog(module, workflow_defs, type_env)
-    procedure_catalog = build_procedure_catalog(procedure_defs, type_env=type_env)
-    extern_environment = build_extern_environment(provider_externs={}, prompt_externs={})
-    command_boundary_environment = build_command_boundary_environment(
-        {
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            )
-        }
-    )
-    typed_procedures, _typed_workflows, _diagnostics = _infer_stage3_effect_summaries(
-        procedure_defs,
-        workflow_defs=workflow_defs,
-        type_env=type_env,
-        workflow_catalog=workflow_catalog,
-        procedure_catalog=procedure_catalog,
-        extern_environment=extern_environment,
-        command_boundary_environment=command_boundary_environment,
-    )
-    return module, procedure_defs, typed_procedures, procedure_catalog, type_env
-
-
-def _nested_proc_ref_specialization_expr(*, span, form_path: tuple[str, ...]) -> LetStarExpr:
-    runner_ref = BindProcExpr(
-        base_expr=ProcRefLiteralExpr(
-            target_name="helper",
-            authored_name="helper",
-            span=span,
-            form_path=form_path,
-        ),
-        bindings=(
-            BindProcBinding(
-                name="fixed",
-                value_expr=LiteralExpr(
-                    value="same",
-                    literal_kind="string",
-                    span=span,
-                    form_path=form_path,
-                ),
-                keyword_span=span,
-                keyword_form_path=form_path,
-            ),
-        ),
-        span=span,
-        form_path=form_path,
-    )
-    return LetStarExpr(
-        bindings=(("runner", runner_ref),),
-        body=ProcedureCallExpr(
-            callee_name="invoke-runner",
-            args=(
-                NameExpr(name="runner", span=span, form_path=form_path),
-                NameExpr(name="input", span=span, form_path=form_path),
-            ),
-            span=span,
-            form_path=form_path,
-        ),
-        span=span,
-        form_path=form_path,
-    )
-
-
-def _wrap_proc_ref_discovery_expr(case_name: str, nested_expr: LetStarExpr, *, span, form_path: tuple[str, ...]):
-    placeholder = NameExpr(name="placeholder", span=span, form_path=form_path)
-    if case_name == "run_provider_phase":
-        return RunProviderPhaseExpr(
-            phase_name="implementation",
-            ctx_expr=placeholder,
-            inputs_expr=nested_expr,
-            provider=placeholder,
-            prompt=placeholder,
-            returns_type_name="WorkflowOutput",
-            span=span,
-            form_path=form_path,
-        )
-    if case_name == "produce_one_of":
-        return ProduceOneOfExpr(
-            returns_type_name="WorkflowOutput",
-            ctx_expr=placeholder,
-            producer=ProduceOneOfProducerSpec(
-                kind="provider",
-                provider_expr=placeholder,
-                prompt_expr=placeholder,
-                inputs=(nested_expr,),
-            ),
-            candidates=(),
-            span=span,
-            form_path=form_path,
-        )
-    if case_name == "resume_or_start":
-        return ResumeOrStartExpr(
-            resume_name="checks",
-            ctx_expr=placeholder,
-            resume_from_expr=placeholder,
-            valid_when=(),
-            start_expr=nested_expr,
-            returns_type_name="WorkflowOutput",
-            span=span,
-            form_path=form_path,
-        )
-    if case_name == "resource_transition":
-        return ResourceTransitionExpr(
-            spec=ResourceTransitionSpec(
-                mode="legacy_queue_move",
-                transition_name="backlog-item",
-                ctx_expr=placeholder,
-                when_expr=None,
-                resource_expr=nested_expr,
-                from_queue_name="Queue.active",
-                to_queue_name="Queue.in_progress",
-                ledger_expr=placeholder,
-                event_name="SELECTED",
-            ),
-            span=span,
-            form_path=form_path,
-        )
-    if case_name == "finalize_selected_item":
-        return FinalizeSelectedItemExpr(
-            spec=FinalizeSelectedItemSpec(
-                ctx_expr=placeholder,
-                selected_expr=placeholder,
-                queue_transition_expr=placeholder,
-                roadmap_expr=placeholder,
-                plan_expr=nested_expr,
-                implementation_expr=placeholder,
-            ),
-            span=span,
-            form_path=form_path,
-        )
-    raise AssertionError(f"unknown outer ProcRef discovery case: {case_name}")
-
-
 def test_compile_stage3_collects_defproc_catalog_before_body_checking(tmp_path: Path) -> None:
     result = _compile(INLINE_FIXTURE, tmp_path=tmp_path)
 
@@ -2436,7 +2160,7 @@ def test_elaboration_rejects_unknown_same_file_procedure_call_heads(tmp_path: Pa
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -2479,12 +2203,6 @@ def test_typecheck_rejects_procedure_arity_mismatch(tmp_path: Path) -> None:
     _assert_diagnostic_code(excinfo, "procedure_arity_mismatch")
 
 
-
-
-
-
-
-
 def test_lowering_rejects_private_workflow_for_non_boundary_type(tmp_path: Path) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(PRIVATE_BOUNDARY_FIXTURE, tmp_path=tmp_path)
@@ -2497,20 +2215,16 @@ def test_auto_lowering_stays_inline_when_call_sites_cannot_bind_through_stage3_s
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defrecord Flagged",
             "    (flag Bool))",
             "  (defproc make-flag",
             "    ((flag Bool))",
             "    -> Flagged",
-            "    :effects ()",
-            "    :lowering auto",
             "    (record Flagged :flag flag))",
             "  (defproc forward-flag",
             "    ((flag Bool))",
             "    -> Flagged",
-            "    :effects ()",
-            "    :lowering inline",
             "    (make-flag flag))",
             "  (defworkflow first",
             "    ()",
@@ -2575,20 +2289,16 @@ def test_auto_lowering_counts_distinct_same_file_call_sites_not_reachable_paths(
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defrecord Flagged",
             "    (flag Bool))",
             "  (defproc make-flag",
             "    ((flag Bool))",
             "    -> Flagged",
-            "    :effects ()",
-            "    :lowering auto",
             "    (record Flagged :flag flag))",
             "  (defproc wrap-flag",
             "    ((flag Bool))",
             "    -> Flagged",
-            "    :effects ()",
-            "    :lowering inline",
             "    (make-flag flag))",
             "  (defworkflow first",
             "    ((flag Bool))",
@@ -2662,7 +2372,7 @@ def test_auto_lowering_call_binding_body_stays_inline_outside_iteration_scopes(
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defrecord Payload",
             "    (flag Bool))",
             "  (defworkflow make-payload",
@@ -2672,8 +2382,6 @@ def test_auto_lowering_call_binding_body_stays_inline_outside_iteration_scopes(
             "  (defproc project-payload",
             "    ((flag Bool))",
             "    -> Payload",
-            "    :effects ((calls-workflow make-payload))",
-            "    :lowering auto",
             "    (let* ((payload (call make-payload :flag flag)))",
             "      payload))",
             "  (defworkflow first",
@@ -2819,17 +2527,13 @@ def test_auto_lowering_stays_inline_when_private_workflow_would_only_project_inp
     )
 
 
-
-
-
-
 def test_direct_command_result_procedure_effects_do_not_require_hidden_bundle_writes(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "procedure_direct_command_result.orc",
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -2841,7 +2545,6 @@ def test_direct_command_result_procedure_effects_do_not_require_hidden_bundle_wr
             "    -> ChecksResult",
             "    :effects",
             "      ((uses-command run_checks))",
-            "    :lowering inline",
             "    (command-result run_checks",
             '      :argv ("python" "scripts/run_checks.py" report_path)',
             "      :returns ChecksResult))",
@@ -2868,7 +2571,7 @@ def test_procedure_calls_keep_callee_effects_out_of_body_local_direct_effects(tm
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -2878,16 +2581,12 @@ def test_procedure_calls_keep_callee_effects_out_of_body_local_direct_effects(tm
             "  (defproc run-checks",
             "    ((report_path WorkReport))",
             "    -> ChecksResult",
-            "    :effects ((uses-command run_checks))",
-            "    :lowering inline",
             "    (command-result run_checks",
             '      :argv ("python" "scripts/run_checks.py" report_path)',
             "      :returns ChecksResult))",
             "  (defproc invoke-checks",
             "    ((report_path WorkReport))",
             "    -> ChecksResult",
-            "    :effects ((uses-command run_checks))",
-            "    :lowering inline",
             "    (run-checks report_path))",
             "  (defworkflow entry",
             "    ((report_path WorkReport))",
@@ -2909,17 +2608,13 @@ def test_procedure_calls_keep_callee_effects_out_of_body_local_direct_effects(tm
     assert invoke.direct_effect_summary.direct_effects == frozenset()
 
 
-
-
-
-
 def test_direct_provider_result_procedure_effects_do_not_require_hidden_bundle_writes(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "procedure_direct_provider_result.orc",
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -2931,7 +2626,6 @@ def test_direct_provider_result_procedure_effects_do_not_require_hidden_bundle_w
             "    -> ChecksResult",
             "    :effects",
             "      ((uses-provider providers.execute))",
-            "    :lowering inline",
             "    (provider-result providers.execute",
             "      :prompt prompts.implementation.execute",
             "      :inputs (report_path)",
@@ -3163,23 +2857,13 @@ def test_private_workflow_call_rejects_review_loop_boundary_before_allocator_reu
     _assert_diagnostic_code(excinfo, "procedure_effect_mismatch")
 
 
-
-
-
-
-
-
-
-
-
-
 def test_procedure_effect_validation_includes_nested_workflow_effects(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "procedure_nested_workflow_effects.orc",
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -3198,7 +2882,6 @@ def test_procedure_effect_validation_includes_nested_workflow_effects(tmp_path: 
             "    :effects",
             "      ((calls-workflow run-checks)",
             "       (uses-command run_checks))",
-            "    :lowering inline",
             "    (call run-checks :report_path report_path))",
             "  (defworkflow orchestrate",
             "    ((report_path WorkReport))",
@@ -3216,8 +2899,6 @@ def test_procedure_effect_validation_includes_nested_workflow_effects(tmp_path: 
             UsesCommandEffect(subject=("run_checks",)),
         }
     )
-
-
 
 
 def test_compile_stage3_entrypoint_registers_imported_procedure_signatures(tmp_path: Path) -> None:
@@ -3255,7 +2936,7 @@ def test_compile_stage3_imported_generic_loop_state_seed_specializes_completed_f
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule stdlib/types)",
             "  (export ReviewReportPath ReviewFindings)",
             "  (defpath ReviewReportPath",
@@ -3272,7 +2953,7 @@ def test_compile_stage3_imported_generic_loop_state_seed_specializes_completed_f
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule stdlib/loop_state)",
             "  (import stdlib/types :only (ReviewFindings ReviewReportPath))",
             "  (export seed-completed)",
@@ -3283,8 +2964,6 @@ def test_compile_stage3_imported_generic_loop_state_seed_specializes_completed_f
             "     (report_path ReviewReportPath))",
             "    :where ((CompletedT is-record))",
             "    -> CompletedT",
-            "    :effects ()",
-            "    :lowering inline",
             "    (let* ((state",
             "             (loop-state",
             "               (completed CompletedT completed)",
@@ -3298,7 +2977,7 @@ def test_compile_stage3_imported_generic_loop_state_seed_specializes_completed_f
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule entry)",
             "  (import stdlib/types :only (ReviewFindings ReviewReportPath))",
             "  (import stdlib/loop_state :as loop-state :only (seed-completed))",
@@ -3352,7 +3031,7 @@ def test_compile_stage3_imported_generic_loop_state_update_reuses_specialized_ca
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule stdlib/types)",
             "  (export ReviewReportPath ReviewFindings)",
             "  (defpath ReviewReportPath",
@@ -3369,7 +3048,7 @@ def test_compile_stage3_imported_generic_loop_state_update_reuses_specialized_ca
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule stdlib/loop_state)",
             "  (import stdlib/types :only (ReviewFindings ReviewReportPath))",
             "  (export update-completed)",
@@ -3381,8 +3060,6 @@ def test_compile_stage3_imported_generic_loop_state_update_reuses_specialized_ca
             "     (report_path ReviewReportPath))",
             "    :where ((CompletedT is-record))",
             "    -> CompletedT",
-            "    :effects ()",
-            "    :lowering inline",
             "    (let* ((state",
             "             (loop-state",
             "               (completed CompletedT completed)",
@@ -3398,7 +3075,7 @@ def test_compile_stage3_imported_generic_loop_state_update_reuses_specialized_ca
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule entry)",
             "  (import stdlib/types :only (ReviewFindings ReviewReportPath))",
             "  (import stdlib/loop_state :as loop-state :only (update-completed))",
@@ -3453,7 +3130,7 @@ def test_compile_stage3_imported_generic_loop_state_consumer_specializes_without
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule stdlib/types)",
             "  (export WorkReport ReviewReportPath ReviewFindingsJsonPath ReviewFindings BlockerClass ReviewDecision ReviewReportResult ReviewLoopResult)",
             "  (defpath WorkReport",
@@ -3506,7 +3183,7 @@ def test_compile_stage3_imported_generic_loop_state_consumer_specializes_without
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule stdlib/review_loop_consumer)",
             "  (import stdlib/types :only (BlockerClass ReviewDecision ReviewReportPath ReviewFindings ReviewLoopResult))",
             "  (export consume-review-loop)",
@@ -3522,8 +3199,6 @@ def test_compile_stage3_imported_generic_loop_state_consumer_specializes_without
                 "    :where ((CompletedT is-record)",
                 "            (InputsT is-record))",
                 "    -> ReviewLoopResult",
-                "    :effects ()",
-                "    :lowering inline",
                 "    (loop/recur",
                 "      :max max_iterations",
             "      :state (loop-state",
@@ -3572,7 +3247,7 @@ def test_compile_stage3_imported_generic_loop_state_consumer_specializes_without
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule entry)",
                 "  (import stdlib/types :only (BlockerClass WorkReport ReviewReportPath ReviewFindingsJsonPath ReviewFindings ReviewDecision ReviewReportResult ReviewLoopResult))",
             "  (import stdlib/review_loop_consumer :as review-loop :only (consume-review-loop))",
@@ -3585,8 +3260,6 @@ def test_compile_stage3_imported_generic_loop_state_consumer_specializes_without
                 "    ((completed CompletedSurface)",
                 "     (inputs InputsSurface))",
                 "    -> ReviewDecision",
-                "    :effects ((uses-provider providers.execute))",
-                "    :lowering inline",
                 "    (let* ((review-report",
                 "             (provider-result providers.execute",
                 "               :prompt prompts.implementation.execute",
@@ -3602,8 +3275,6 @@ def test_compile_stage3_imported_generic_loop_state_consumer_specializes_without
                     "     (inputs InputsSurface)",
                     "     (findings ReviewFindings))",
                     "    -> CompletedSurface",
-                    "    :effects ()",
-                    "    :lowering inline",
                     "    (let* ((state",
                     "             (loop-state",
                     "               (completed CompletedSurface completed)",
@@ -3663,12 +3334,6 @@ def test_compile_stage3_imported_generic_loop_state_consumer_specializes_without
     )
 
 
-
-
-
-
-
-
 def test_compile_stage3_imported_std_phase_review_loop_specialization_keeps_owner_env_and_loop_state_types(
     tmp_path: Path,
 ) -> None:
@@ -3681,7 +3346,7 @@ def test_compile_stage3_imported_std_phase_review_loop_specialization_keeps_owne
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule helper)",
             "  (import std/phase :only (ReviewDecision ReviewFindings ReviewFindingsJsonPath ReviewLoopResult ReviewReportPath review-revise-loop-proc))",
             "  (export CallCtx CompletedSurface InputsSurface run-review)",
@@ -3703,8 +3368,6 @@ def test_compile_stage3_imported_std_phase_review_loop_specialization_keeps_owne
             "    ((completed CompletedSurface)",
             "     (inputs InputsSurface))",
             "    -> ReviewDecision",
-            "    :effects ()",
-            "    :lowering inline",
             "    (let* ((subject",
             "             (record PlanReviewPromptSubject",
             "               :execution_report_path completed.execution_report_path",
@@ -3719,16 +3382,12 @@ def test_compile_stage3_imported_std_phase_review_loop_specialization_keeps_owne
             "     (inputs InputsSurface)",
             "     (findings ReviewFindings))",
             "    -> CompletedSurface",
-            "    :effects ()",
-            "    :lowering inline",
             "    completed)",
             "  (defproc run-review",
             "    ((ctx CallCtx)",
             "     (completed CompletedSurface)",
             "     (inputs InputsSurface))",
             "    -> ReviewLoopResult",
-            "    :effects ((uses-command validate_review_findings_v1))",
-            "    :lowering inline",
             "    (review-revise-loop-proc",
             "      ctx",
             "      completed",
@@ -3747,7 +3406,7 @@ def test_compile_stage3_imported_std_phase_review_loop_specialization_keeps_owne
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule entry)",
             "  (import std/phase :only (ReviewLoopResult))",
             "  (import helper :as helper :only (CallCtx CompletedSurface InputsSurface run-review))",
@@ -3788,7 +3447,7 @@ def test_compile_stage3_imported_std_phase_review_loop_managed_write_root_bundle
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule helper)",
             "  (import std/phase :only (ReviewDecision ReviewFindings ReviewFindingsJsonPath ReviewLoopResult ReviewReportPath review-revise-loop-proc))",
             "  (export CallCtx CompletedSurface InputsSurface run-review)",
@@ -3807,8 +3466,6 @@ def test_compile_stage3_imported_std_phase_review_loop_managed_write_root_bundle
             "    ((completed CompletedSurface)",
             "     (inputs InputsSurface))",
             "    -> ReviewDecision",
-            "    :effects ()",
-            "    :lowering inline",
             "    (variant ReviewDecision REVISE",
             "      :review_report inputs.review_report_path",
             "      :findings (record ReviewFindings",
@@ -3819,16 +3476,12 @@ def test_compile_stage3_imported_std_phase_review_loop_managed_write_root_bundle
             "     (inputs InputsSurface)",
             "     (findings ReviewFindings))",
             "    -> CompletedSurface",
-            "    :effects ()",
-            "    :lowering inline",
             "    completed)",
             "  (defproc run-review",
             "    ((ctx CallCtx)",
             "     (completed CompletedSurface)",
             "     (inputs InputsSurface))",
             "    -> ReviewLoopResult",
-            "    :effects ((uses-command validate_review_findings_v1))",
-            "    :lowering inline",
             "    (review-revise-loop-proc",
             "      ctx",
             "      completed",
@@ -3847,7 +3500,7 @@ def test_compile_stage3_imported_std_phase_review_loop_managed_write_root_bundle
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule entry)",
             "  (import std/phase :only (ReviewLoopResult))",
             "  (import helper :as helper :only (CallCtx CompletedSurface InputsSurface run-review))",
@@ -3871,9 +3524,6 @@ def test_compile_stage3_imported_std_phase_review_loop_managed_write_root_bundle
     )
 
 
-
-
-
 def test_compile_stage3_imported_std_phase_review_loop_multiple_specializations_keep_distinct_loop_state_carriers(
     tmp_path: Path,
 ) -> None:
@@ -3886,7 +3536,7 @@ def test_compile_stage3_imported_std_phase_review_loop_multiple_specializations_
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule helper)",
             "  (import std/phase :only (ReviewDecision ReviewFindings ReviewFindingsJsonPath ReviewLoopResult ReviewReportPath review-revise-loop-proc))",
             "  (export CallCtx PlanCompleted PlanInputs ImplCompleted ImplInputs plan-run-review impl-run-review)",
@@ -3911,8 +3561,6 @@ def test_compile_stage3_imported_std_phase_review_loop_multiple_specializations_
             "    ((completed PlanCompleted)",
             "     (inputs PlanInputs))",
             "    -> ReviewDecision",
-            "    :effects ()",
-            "    :lowering inline",
             "    (variant ReviewDecision REVISE",
             "      :review_report inputs.review_report_path",
             "      :findings (record ReviewFindings",
@@ -3923,15 +3571,11 @@ def test_compile_stage3_imported_std_phase_review_loop_multiple_specializations_
             "     (inputs PlanInputs)",
             "     (findings ReviewFindings))",
             "    -> PlanCompleted",
-            "    :effects ()",
-            "    :lowering inline",
             "    completed)",
             "  (defproc impl-review-once",
             "    ((completed ImplCompleted)",
             "     (inputs ImplInputs))",
             "    -> ReviewDecision",
-            "    :effects ()",
-            "    :lowering inline",
             "    (variant ReviewDecision REVISE",
             "      :review_report inputs.review_report_path",
             "      :findings (record ReviewFindings",
@@ -3942,16 +3586,12 @@ def test_compile_stage3_imported_std_phase_review_loop_multiple_specializations_
             "     (inputs ImplInputs)",
             "     (findings ReviewFindings))",
             "    -> ImplCompleted",
-            "    :effects ()",
-            "    :lowering inline",
             "    completed)",
             "  (defproc plan-run-review",
             "    ((ctx CallCtx)",
             "     (completed PlanCompleted)",
             "     (inputs PlanInputs))",
             "    -> ReviewLoopResult",
-            "    :effects ((uses-command validate_review_findings_v1))",
-            "    :lowering inline",
             "    (review-revise-loop-proc",
             "      ctx",
             "      completed",
@@ -3968,8 +3608,6 @@ def test_compile_stage3_imported_std_phase_review_loop_multiple_specializations_
             "     (completed ImplCompleted)",
             "     (inputs ImplInputs))",
             "    -> ReviewLoopResult",
-            "    :effects ((uses-command validate_review_findings_v1))",
-            "    :lowering inline",
             "    (review-revise-loop-proc",
             "      ctx",
             "      completed",
@@ -3988,7 +3626,7 @@ def test_compile_stage3_imported_std_phase_review_loop_multiple_specializations_
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule entry)",
             "  (import std/phase :only (ReviewLoopResult))",
             "  (import helper :as helper :only (CallCtx PlanCompleted PlanInputs ImplCompleted ImplInputs plan-run-review impl-run-review))",
@@ -4035,7 +3673,7 @@ def test_compile_stage3_imported_generic_loop_state_consumer_preserves_custom_sc
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule stdlib/types)",
             "  (export WorkReport ReviewReportPath ReviewFindingsJsonPath CustomFindings ReviewDecision ReviewReportResult ReviewLoopResult)",
             "  (defpath WorkReport",
@@ -4077,7 +3715,7 @@ def test_compile_stage3_imported_generic_loop_state_consumer_preserves_custom_sc
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule stdlib/review_loop_consumer)",
             "  (import stdlib/types :only (ReviewDecision ReviewReportPath CustomFindings ReviewLoopResult))",
             "  (export consume-review-loop)",
@@ -4093,8 +3731,6 @@ def test_compile_stage3_imported_generic_loop_state_consumer_preserves_custom_sc
             "    :where ((CompletedT is-record)",
             "            (InputsT is-record))",
             "    -> ReviewLoopResult",
-            "    :effects ()",
-            "    :lowering inline",
             "    (loop/recur",
             "      :max max_iterations",
             "      :state (loop-state",
@@ -4135,7 +3771,7 @@ def test_compile_stage3_imported_generic_loop_state_consumer_preserves_custom_sc
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule entry)",
             "  (import stdlib/types :only (WorkReport ReviewReportPath ReviewFindingsJsonPath CustomFindings ReviewDecision ReviewReportResult ReviewLoopResult))",
             "  (import stdlib/review_loop_consumer :as review-loop :only (consume-review-loop))",
@@ -4148,8 +3784,6 @@ def test_compile_stage3_imported_generic_loop_state_consumer_preserves_custom_sc
             "    ((completed CompletedSurface)",
             "     (inputs InputsSurface))",
             "    -> ReviewDecision",
-            "    :effects ((uses-provider providers.execute))",
-            "    :lowering inline",
             "    (let* ((review-report",
             "             (provider-result providers.execute",
             "               :prompt prompts.implementation.execute",
@@ -4165,8 +3799,6 @@ def test_compile_stage3_imported_generic_loop_state_consumer_preserves_custom_sc
             "     (inputs InputsSurface)",
             "     (findings CustomFindings))",
             "    -> CompletedSurface",
-            "    :effects ()",
-            "    :lowering inline",
             "    (let* ((state",
             "             (loop-state",
             "               (completed CompletedSurface completed)",
@@ -4208,15 +3840,13 @@ def test_compile_stage3_imported_generic_loop_state_consumer_preserves_custom_sc
     assert result.entry_result.lowering_schema_version == 2
 
 
-
-
 def test_procedures_can_call_pure_helpers_without_introducing_extra_effects(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "procedure_helper_call.orc",
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -4232,7 +3862,6 @@ def test_procedures_can_call_pure_helpers_without_introducing_extra_effects(tmp_
             "  (defproc wrap-summary",
             "    ((input ChecksResult))",
             "    -> ImplementationSummary",
-            "    :effects ()",
             "    (summarize input))",
             "  (defworkflow orchestrate",
             "    ((input ChecksResult))",
@@ -4255,7 +3884,7 @@ def test_compile_stage3_elaborates_authored_union_variant_constructor_to_union_v
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -4294,7 +3923,7 @@ def test_typecheck_authored_union_variant_constructor_rejects_non_union_target(t
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -4324,7 +3953,7 @@ def test_typecheck_authored_union_variant_constructor_rejects_unknown_variant(tm
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -4357,7 +3986,7 @@ def test_typecheck_authored_union_variant_constructor_rejects_missing_required_f
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -4389,7 +4018,7 @@ def test_typecheck_authored_union_variant_constructor_rejects_unknown_field(tmp_
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -4421,7 +4050,7 @@ def test_typecheck_authored_union_variant_constructor_rejects_duplicate_field(tm
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -4453,7 +4082,7 @@ def test_typecheck_authored_union_variant_constructor_rejects_field_type_mismatc
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -4486,7 +4115,7 @@ def test_compile_stage3_supports_pure_helper_authored_union_variant_constructor(
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -4517,7 +4146,6 @@ def test_compile_stage3_supports_pure_helper_authored_union_variant_constructor(
     result = _compile(path, tmp_path=tmp_path)
 
     assert 'entry::entry' in {workflow.definition.name for workflow in result.typed_workflows}
-
 
 
 def test_compile_stage3_supports_forwarded_workflow_ref_procedure_calls(tmp_path: Path) -> None:
@@ -4597,7 +4225,7 @@ def test_let_proc_generated_names_change_when_local_body_changes(tmp_path: Path)
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -4610,14 +4238,10 @@ def test_let_proc_generated_names_change_when_local_body_changes(tmp_path: Path)
                 "    ((runner ProcRef[WorkflowInput -> WorkflowOutput])",
                 "     (input WorkflowInput))",
                 "    -> WorkflowOutput",
-                "    :effects ()",
-                "    :lowering inline",
                 "    (runner input))",
                 f"  (defproc {helper_name}",
                 "    ((item WorkflowInput))",
                 "    -> WorkflowOutput",
-                "    :effects ()",
-                "    :lowering inline",
                 "    (record WorkflowOutput :report item.report))",
                 "  (defworkflow entry",
                 "    ((input WorkflowInput))",
@@ -4650,7 +4274,7 @@ def test_let_proc_generated_names_are_stable_across_workspace_roots(tmp_path: Pa
     lines = [
         "(workflow-lisp",
         '  (:language "0.1")',
-        '  (:target-dsl "2.35")',
+        '  (:target-dsl "2.40")',
         "  (defpath WorkReport",
         "    :kind relpath",
         '    :under "artifacts/work"',
@@ -4663,8 +4287,6 @@ def test_let_proc_generated_names_are_stable_across_workspace_roots(tmp_path: Pa
         "    ((runner ProcRef[WorkflowInput -> WorkflowOutput])",
         "     (input WorkflowInput))",
         "    -> WorkflowOutput",
-        "    :effects ()",
-        "    :lowering inline",
         "    (runner input))",
         "  (defworkflow entry",
         "    ((input WorkflowInput))",
@@ -4703,7 +4325,7 @@ def test_failed_compile_cannot_contaminate_fresh_generated_local_state(
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -4715,8 +4337,6 @@ def test_failed_compile_cannot_contaminate_fresh_generated_local_state(
             "  (defproc build-runner",
             "    ()",
             "    -> WorkflowOutput",
-            "    :effects ()",
-            "    :lowering inline",
             "    (let-proc (run-local ((item WorkflowInput)) -> WorkflowOutput",
             "                :captures ()",
             "                (record WorkflowOutput :report item.report))",
@@ -4757,145 +4377,6 @@ def test_stage3_materializes_proc_ref_specializations_before_lowering_and_preser
         isinstance(effect, (UsesCommandEffect, UsesProviderEffect))
         for effect in specialized_invoke_runner.direct_effect_summary.direct_effects
     )
-
-
-@pytest.mark.parametrize(
-    "case_name",
-    [
-        "run_provider_phase",
-        "produce_one_of",
-        "resume_or_start",
-        "resource_transition",
-        "finalize_selected_item",
-    ],
-)
-def test_stage3_discovery_walks_nested_proc_ref_specializations_in_owner_forms(
-    tmp_path: Path,
-    case_name: str,
-) -> None:
-    module, procedure_defs, typed_procedures, procedure_catalog, type_env = _proc_ref_discovery_context(tmp_path)
-    span = procedure_defs[0].span
-    form_path = ("workflow-lisp", "defworkflow", f"walk-{case_name}")
-    workflow_return_type = type_env.resolve_type(
-        "WorkflowOutput",
-        span=module.span,
-        form_path=("workflow-lisp",),
-    )
-    nested_expr = _nested_proc_ref_specialization_expr(span=span, form_path=form_path)
-    wrapped_expr = _wrap_proc_ref_discovery_expr(case_name, nested_expr, span=span, form_path=form_path)
-    typed_workflow = TypedWorkflowDef(
-        definition=WorkflowDef(
-            name=f"walk-{case_name}",
-            params=(),
-            return_type_name="WorkflowOutput",
-            body=procedure_defs[0].body,
-            span=span,
-            form_path=form_path,
-        ),
-        signature=WorkflowSignature(
-            name=f"walk-{case_name}",
-            params=(),
-            return_type_ref=workflow_return_type,
-            span=span,
-            form_path=form_path,
-        ),
-        typed_body=TypedExpr(
-            expr=wrapped_expr,
-            type_ref=workflow_return_type,
-            span=span,
-            form_path=form_path,
-        ),
-    )
-
-    compiler_module = _compiler_module()
-    discovered = compiler_module._discover_proc_ref_specializations(
-        typed_procedures=typed_procedures,
-        typed_workflows=(typed_workflow,),
-        procedure_catalog=procedure_catalog,
-        type_env=type_env,
-    )
-
-    assert [
-        procedure.definition.name
-        for procedure in discovered
-        if procedure.definition.name.startswith("%proc-ref-call.invoke_runner.")
-    ]
-
-
-def test_stage3_preserves_nested_proc_ref_effects_inside_run_provider_phase(tmp_path: Path) -> None:
-    path = _write_module(
-        tmp_path / "proc_ref_nested_run_provider_phase.orc",
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
-            "  (defpath WorkReport",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist true)",
-            "  (defrecord RunCtx",
-            "    (run-id RunId)",
-            "    (state-root Path.state-root)",
-            "    (artifact-root Path.artifact-root))",
-            "  (defrecord PhaseCtx",
-            "    (run RunCtx)",
-            "    (phase-name Symbol)",
-            "    (state-root Path.state-root)",
-            "    (artifact-root Path.artifact-root))",
-            "  (defrecord WorkflowInput",
-            "    (report WorkReport))",
-            "  (defrecord WorkflowOutput",
-            "    (report WorkReport))",
-            "  (defunion ImplementationAttempt",
-            "    (COMPLETED",
-            "      (report WorkReport)))",
-            "  (defproc build-inputs-helper",
-            "    ((fixed String)",
-            "     (input WorkflowInput))",
-            "    -> WorkflowInput",
-            "    :effects ((uses-command run_checks))",
-            "    :lowering inline",
-            "    (command-result run_checks",
-            '      :argv ("python" "scripts/run_checks.py" input.report fixed)',
-            "      :returns WorkflowInput))",
-            "  (defproc invoke-runner",
-            "    ((runner ProcRef[WorkflowInput -> WorkflowInput])",
-            "     (input WorkflowInput))",
-            "    -> WorkflowInput",
-            "    :effects ()",
-            "    :lowering inline",
-            "    (runner input))",
-            "  (defworkflow entry",
-            "    ((phase-ctx PhaseCtx)",
-            "     (input WorkflowInput))",
-            "    -> WorkflowOutput",
-            "    (with-phase phase-ctx implementation",
-            "      (let* ((attempt",
-            "               (run-provider-phase implementation",
-            "                 :ctx phase-ctx",
-            "                 :inputs",
-            "                   (let* ((runner (bind-proc (proc-ref build-inputs-helper)",
-            '                                    :fixed "nested")))',
-            "                     (invoke-runner runner input))",
-            "                 :provider providers.execute",
-            "                 :prompt prompts.implementation.execute",
-            "                 :returns ImplementationAttempt)))",
-            "        (match attempt",
-            "          ((COMPLETED completed)",
-            "           (record WorkflowOutput",
-            "             :report completed.report)))))",
-            "))",
-        ],
-    )
-
-    typed_procedures, typed_workflows, _ = _infer_stage3_proc_ref_effects(path)
-    entry = next(workflow for workflow in typed_workflows if workflow.definition.name == "entry")
-
-    assert any(
-        procedure.definition.name.startswith("%proc-ref-call.invoke_runner.")
-        for procedure in typed_procedures
-    )
-    assert UsesCommandEffect(subject=("run_checks",)) in entry.effect_summary.transitive_effects
 
 
 def test_compile_stage3_supports_let_proc_proc_ref_forwarding_and_shared_validation(
@@ -4953,7 +4434,7 @@ def test_compile_rejects_let_proc_return_type_mismatch_with_v1_code(tmp_path: Pa
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -5005,7 +4486,7 @@ def test_compile_rejects_let_proc_scope_escape_wrapped_in_if(tmp_path: Path) -> 
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -5017,8 +4498,6 @@ def test_compile_rejects_let_proc_scope_escape_wrapped_in_if(tmp_path: Path) -> 
             "  (defproc build-runner",
             "    ()",
             "    -> ProcRef[WorkflowInput -> WorkflowOutput]",
-            "    :effects ()",
-            "    :lowering inline",
             "    (let-proc (run-local ((item WorkflowInput)) -> WorkflowOutput",
             "                :captures ()",
             "                (record WorkflowOutput :report item.report))",
@@ -5040,7 +4519,7 @@ def test_compile_rejects_let_proc_scope_escape_nested_in_bind_proc_binding(tmp_p
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -5053,14 +4532,10 @@ def test_compile_rejects_let_proc_scope_escape_nested_in_bind_proc_binding(tmp_p
             "    ((runner ProcRef[WorkflowInput -> WorkflowOutput])",
             "     (input WorkflowInput))",
             "    -> WorkflowOutput",
-            "    :effects ()",
-            "    :lowering inline",
             "    (runner input))",
             "  (defproc build-runner",
             "    ()",
             "    -> ProcRef[WorkflowInput -> WorkflowOutput]",
-            "    :effects ()",
-            "    :lowering inline",
             "    (let-proc (run-local ((item WorkflowInput)) -> WorkflowOutput",
             "                :captures ()",
             "                (record WorkflowOutput :report item.report))",
@@ -5081,7 +4556,7 @@ def test_compile_rejects_let_proc_scope_escape_forwarded_through_proc_return(tmp
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -5093,14 +4568,10 @@ def test_compile_rejects_let_proc_scope_escape_forwarded_through_proc_return(tmp
             "  (defproc id-runner",
             "    ((runner ProcRef[WorkflowInput -> WorkflowOutput]))",
             "    -> ProcRef[WorkflowInput -> WorkflowOutput]",
-            "    :effects ()",
-            "    :lowering inline",
             "    runner)",
             "  (defproc build-runner",
             "    ()",
             "    -> ProcRef[WorkflowInput -> WorkflowOutput]",
-            "    :effects ()",
-            "    :lowering inline",
             "    (let-proc (run-local ((item WorkflowInput)) -> WorkflowOutput",
             "                :captures ()",
             "                (record WorkflowOutput :report item.report))",
@@ -5123,7 +4594,7 @@ def test_compile_rejects_let_proc_scope_escape_forwarded_through_helper_return(
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -5139,8 +4610,6 @@ def test_compile_rejects_let_proc_scope_escape_forwarded_through_helper_return(
             "  (defproc build-runner",
             "    ()",
             "    -> ProcRef[WorkflowInput -> WorkflowOutput]",
-            "    :effects ()",
-            "    :lowering inline",
             "    (let-proc (run-local ((item WorkflowInput)) -> WorkflowOutput",
             "                :captures ()",
             "                (record WorkflowOutput :report item.report))",
@@ -5181,7 +4650,7 @@ def test_compile_stage3_rejects_bind_proc_unknown_keywords(tmp_path: Path) -> No
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -5194,8 +4663,6 @@ def test_compile_stage3_rejects_bind_proc_unknown_keywords(tmp_path: Path) -> No
             "    ((fixed String)",
             "     (input WorkflowInput))",
             "    -> WorkflowOutput",
-            "    :effects ()",
-            "    :lowering inline",
             "    (record WorkflowOutput",
             "      :report input.report))",
             "  (defworkflow entry",
@@ -5219,7 +4686,7 @@ def test_compile_stage3_rejects_bind_proc_duplicate_keywords(tmp_path: Path) -> 
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -5232,8 +4699,6 @@ def test_compile_stage3_rejects_bind_proc_duplicate_keywords(tmp_path: Path) -> 
             "    ((fixed String)",
             "     (input WorkflowInput))",
             "    -> WorkflowOutput",
-            "    :effects ()",
-            "    :lowering inline",
             "    (record WorkflowOutput",
             "      :report input.report))",
                 "  (defworkflow entry",
@@ -5258,7 +4723,7 @@ def test_compile_stage3_rejects_nested_bind_proc_duplicate_keywords(tmp_path: Pa
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -5271,8 +4736,6 @@ def test_compile_stage3_rejects_nested_bind_proc_duplicate_keywords(tmp_path: Pa
             "    ((fixed String)",
             "     (input WorkflowInput))",
             "    -> WorkflowOutput",
-            "    :effects ()",
-            "    :lowering inline",
             "    (record WorkflowOutput",
             "      :report input.report))",
             "  (defworkflow entry",
@@ -5298,7 +4761,7 @@ def test_compile_stage3_rejects_bind_proc_mistyped_bound_values(tmp_path: Path) 
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -5311,8 +4774,6 @@ def test_compile_stage3_rejects_bind_proc_mistyped_bound_values(tmp_path: Path) 
             "    ((fixed String)",
             "     (input WorkflowInput))",
             "    -> WorkflowOutput",
-            "    :effects ()",
-            "    :lowering inline",
             "    (record WorkflowOutput",
             "      :report input.report))",
             "  (defworkflow entry",
@@ -5346,8 +4807,6 @@ def test_stage3_effect_inference_rejects_proc_ref_specialization_cycles_before_l
     _assert_proc_ref_cycle_diagnostics_at_authored_call_sites(excinfo)
 
 
-
-
 def test_compile_stage3_accepts_variant_projection_match(tmp_path: Path) -> None:
     bundle = _compile_validated(
         FIXTURES / "valid" / "parametric_variant_projection_match.orc",
@@ -5366,8 +4825,6 @@ def test_compile_stage3_rejects_variant_projection_match_mismatch(tmp_path: Path
     assert "SELECTED" in excinfo.value.diagnostics[0].message
 
 
-
-
 def test_wcc_anonymous_effect_terminal_pure_op_compiles_cleanly(tmp_path: Path) -> None:
     """A pure op over an unbound (anonymous) effect result compiles without diagnostics."""
     path = _write_module(
@@ -5375,7 +4832,7 @@ def test_wcc_anonymous_effect_terminal_pure_op_compiles_cleanly(tmp_path: Path) 
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -5383,8 +4840,6 @@ def test_wcc_anonymous_effect_terminal_pure_op_compiles_cleanly(tmp_path: Path) 
             "  (defproc bump-count",
             "    ((report_path WorkReport))",
             "    -> Int",
-            "    :effects ((uses-provider providers.execute))",
-            "    :lowering inline",
             "    (+ (provider-result providers.execute",
             "         :prompt prompts.implementation.execute",
             "         :inputs (report_path)",

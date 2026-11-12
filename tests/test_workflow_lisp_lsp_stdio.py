@@ -987,7 +987,7 @@ def test_single_root_initialize_and_shutdown_are_frame_clean(
         process.close()
 
 
-def test_document_symbol_protocol_exposes_ten_kinds_and_selection_ranges(
+def test_document_symbol_protocol_exposes_eight_kinds_and_selection_ranges(
     tmp_path: Path,
 ) -> None:
     workspace = tmp_path / "workspace"
@@ -1104,8 +1104,6 @@ def test_document_symbol_protocol_exposes_ten_kinds_and_selection_ranges(
             ("CommonFields", 11),
             ("ReviewState", 23),
             ("ReviewOutcome", 10),
-            ("review-state", 19),
-            ("record-review", 24),
             ("default-status", 12),
             ("review", 12),
             ("render-and-preserve", 12),
@@ -1144,7 +1142,7 @@ def test_document_symbol_protocol_exposes_ten_kinds_and_selection_ranges(
             (
                 "review",
                 3,
-                "procedure (status: String) -> String effects ()",
+                "procedure (status: String) -> String restriction: (); inferred effects: (); effect status: complete",
             ),
             (
                 "review",
@@ -1160,7 +1158,7 @@ def test_document_symbol_protocol_exposes_ten_kinds_and_selection_ranges(
             (
                 "default-status",
                 3,
-                "procedure () -> String effects ()",
+                "procedure () -> String restriction: (); inferred effects: (); effect status: complete",
             ),
             ("defproc", 14, "form"),
         }
@@ -1184,7 +1182,7 @@ def test_document_symbol_protocol_exposes_ten_kinds_and_selection_ranges(
                 "textDocument/definition",
                 {
                     "textDocument": {"uri": entry_path.as_uri()},
-                    "position": {"line": 75, "character": 5},
+                    "position": {"line": 47, "character": 5},
                 },
             ),
             (

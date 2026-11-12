@@ -280,32 +280,19 @@ def build_command_boundary_environment(
                 )
                 continue
             if binding.transition_binding is not None:
-                if binding.behavior_class != "resource_transition":
-                    diagnostics.append(
-                        LispFrontendDiagnostic(
-                            code="command_adapter_missing_contract",
-                            message=(
-                                f"certified adapter `{name}` uses `transition_binding` but must declare "
-                                "`behavior_class` `resource_transition`"
-                            ),
-                            span=_environment_span(),
-                            phase="typecheck",
-                        )
+                diagnostics.append(
+                    LispFrontendDiagnostic(
+                        code="command_adapter_missing_contract",
+                        message=(
+                            f"certified adapter `{name}` declares `transition_binding`, which no command "
+                            "adapter may carry: resource transitions were removed (git tag "
+                            "archive/pre-one-target-2026-11-12)"
+                        ),
+                        span=_environment_span(),
+                        phase="typecheck",
                     )
-                    continue
-                if binding.transition_binding.contract_role != "migration_backend":
-                    diagnostics.append(
-                        LispFrontendDiagnostic(
-                            code="command_adapter_missing_contract",
-                            message=(
-                                f"certified adapter `{name}` uses `transition_binding` but must declare "
-                                "`contract_role` `migration_backend`"
-                            ),
-                            span=_environment_span(),
-                            phase="typecheck",
-                        )
-                    )
-                    continue
+                )
+                continue
             if binding.view_binding is not None:
                 if binding.retirement_label != "retire_to_view":
                     diagnostics.append(

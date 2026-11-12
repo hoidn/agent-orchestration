@@ -11,14 +11,12 @@ from ..conditionals import (
     fold_pure_short_circuit,
     _normalize_operand,
     prepare_closed_condition_expr,
-    _wrap_bindings,
 )
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, records_defect_provenance
 from ..effects import EMPTY_EFFECT_SUMMARY, EffectSummary
 from ..expression_traversal import (
     is_pure_projection_expr,
     map_command_operands,
-    map_expr,
     walk_expr,
 )
 from ..expressions import (
@@ -31,7 +29,6 @@ from ..expressions import (
     DoneExpr,
     EnumMemberExpr,
     FieldAccessExpr,
-    FinalizeSelectedItemExpr,
     GeneratedRelpathSeedExpr,
     IfExpr,
     LetStarExpr,
@@ -42,27 +39,22 @@ from ..expressions import (
     LoopStateSeedExpr,
     LoopStateUpdateExpr,
     LoopRecurExpr,
-    MaterializeViewExpr,
     MatchExpr,
     NameExpr,
     PathJoinUnderExpr,
     PhaseTargetExpr,
     ProcRefLiteralExpr,
     PureOpExpr,
-    ProduceOneOfExpr,
     ProcedureCallExpr,
     ProviderBundlePathExpr,
     ProviderResultExpr,
     RequestInputExpr,
     RecordUpdateExpr,
     RecordExpr,
-    ResourceTransitionExpr,
-    ResumeOrStartExpr,
     RunRefBundleProgram,
     RunRefExpr,
     RunRefPathProgram,
     RunRefWorkflowProgram,
-    RunProviderPhaseExpr,
     UnionVariantExpr,
     UnionVariantTagExpr,
     WithLiveProviderPeersExpr,
@@ -150,16 +142,13 @@ from .model import (
     WccProviderSupervision,
     WccProviderSupervisionMember,
     WccPureOp,
-    WccProduceOneOfPayload,
     WccRecJoin,
     WccParallelMap,
     WccRecordAtom,
     WccSelect,
     WccSelectArm,
-    WccResumeOrStartPayload,
     WccRunRefPayload,
     WccRunRefWorkflowPayload,
-    WccRunProviderPhasePayload,
     WccSpecializationCapture,
     WccValue,
     map_perform_payload_values,
@@ -1987,12 +1976,6 @@ def _elaborate_expr_to_body(
             RequestInputExpr,
             AgentExpr,
             RunRefExpr,
-            RunProviderPhaseExpr,
-            ProduceOneOfExpr,
-            ResumeOrStartExpr,
-            ResourceTransitionExpr,
-            MaterializeViewExpr,
-            FinalizeSelectedItemExpr,
             CallExpr,
             ProcedureCallExpr,
             WithLiveProviderPeersExpr,
@@ -2107,9 +2090,7 @@ def _bind_effectful_loop_state_fields(
 
     state = expr.state_expr
     # `request-input` is an effect here but not in the shared `_EFFECT_NODE_TYPES`.
-    direct_effect = isinstance(state, (*_EFFECT_NODE_TYPES, RequestInputExpr, MatchExpr)) and not isinstance(
-        state, ResourceTransitionExpr
-    )
+    direct_effect = isinstance(state, (*_EFFECT_NODE_TYPES, RequestInputExpr, MatchExpr))
     if not (
         direct_effect
         or (isinstance(state, LoopStateUpdateExpr) and any(_contains_effect(field_expr) for _, field_expr in state.overrides))
@@ -2660,11 +2641,6 @@ def _elaborate_let_star(
                 RequestInputExpr,
                 AgentExpr,
                 RunRefExpr,
-                RunProviderPhaseExpr,
-                ProduceOneOfExpr,
-                ResumeOrStartExpr,
-                ResourceTransitionExpr,
-                FinalizeSelectedItemExpr,
                 CallExpr,
                 ProcedureCallExpr,
             ),
@@ -3833,26 +3809,6 @@ def _elaborate_expr_to_value(
                 source_span=expr.body_expr.span, form_path=expr.body_expr.form_path,
                 expansion_stack=expr.body_expr.expansion_stack),
             binding_label=expr.binding_label, binding_identity=expr.binding_identity)
-    if isinstance(expr, ResourceTransitionExpr):
-        return (
-            (),
-            WccOpaqueFrontendValue(
-                metadata=scope.atom_metadata(
-                    role=f"opaque:{type(expr).__name__}",
-                    type_ref=_infer_expr_type(
-                        expr,
-                        type_env=type_env,
-                        value_env=value_env,
-                        workflow_return_types=workflow_return_types,
-                        procedure_return_types=procedure_return_types,
-                    ),
-                    source_span=expr.span,
-                    form_path=expr.form_path,
-                    expansion_stack=expr.expansion_stack,
-                ),
-                expr=expr,
-            ),
-        )
     if isinstance(expr, FieldAccessExpr):
         base_type = value_env[expr.base.name]
         return (
@@ -4466,11 +4422,6 @@ def _elaborate_match_to_body(
             CommandResultExpr,
             RequestInputExpr,
             AgentExpr,
-            RunProviderPhaseExpr,
-            ProduceOneOfExpr,
-            ResumeOrStartExpr,
-            ResourceTransitionExpr,
-            FinalizeSelectedItemExpr,
             CallExpr,
             ProcedureCallExpr,
         ),
@@ -5550,56 +5501,6 @@ def _prebind_effect_argument_matches(
             ),
             tuple(match_bindings),
         )
-    if isinstance(expr, RunProviderPhaseExpr):
-        return (
-            replace(
-                expr,
-                ctx_expr=replace_arg(expr.ctx_expr, role="run-provider-phase:ctx"),
-                inputs_expr=replace_arg(expr.inputs_expr, role="run-provider-phase:inputs"),
-                provider=replace_arg(expr.provider, role="run-provider-phase:provider"),
-                prompt=replace_arg(expr.prompt, role="run-provider-phase:prompt"),
-            ),
-            tuple(match_bindings),
-        )
-    if isinstance(expr, ProduceOneOfExpr):
-        producer = replace(
-            expr.producer,
-            provider_expr=(
-                replace_arg(expr.producer.provider_expr, role="produce-one-of:provider")
-                if expr.producer.provider_expr is not None
-                else None
-            ),
-            prompt_expr=(
-                replace_arg(expr.producer.prompt_expr, role="produce-one-of:prompt")
-                if expr.producer.prompt_expr is not None
-                else None
-            ),
-            inputs=tuple(
-                replace_arg(input_expr, role=f"produce-one-of:input:{index}")
-                for index, input_expr in enumerate(expr.producer.inputs)
-            ),
-        )
-        candidates = tuple(
-            replace(
-                candidate,
-                fields=tuple(
-                    replace(
-                        field,
-                        target_expr=(
-                            replace_arg(field.target_expr, role=f"produce-one-of:{candidate.variant_name}:{field.field_name}")
-                            if field.target_expr is not None
-                            else None
-                        ),
-                    )
-                    for field in candidate.fields
-                ),
-            )
-            for candidate in expr.candidates
-        )
-        return (
-            replace(expr, ctx_expr=replace_arg(expr.ctx_expr, role="produce-one-of:ctx"), producer=producer, candidates=candidates),
-            tuple(match_bindings),
-        )
     if isinstance(expr, CallExpr):
         return (
             replace(
@@ -6271,175 +6172,6 @@ def _elaborate_effect_expr_to_binding_value(
             procedure_return_types=procedure_return_types, effect_summary=effect_summary,
             procedure_edges_by_site=procedure_edges_by_site, compile_time_bindings=compile_time_bindings,
             active_phase_scope=active_phase_scope)
-    if isinstance(expr, RunProviderPhaseExpr):
-        ctx_value = _elaborate_atomic_value(
-            expr.ctx_expr,
-            scope=scope.child_scope("run-provider-phase", authored_binding_name="ctx"),
-            type_env=type_env,
-            value_env=value_env,
-            workflow_return_types=workflow_return_types,
-            procedure_return_types=procedure_return_types,
-            effect_summary=effect_summary,
-            procedure_edges_by_site=procedure_edges_by_site,
-            compile_time_bindings=compile_time_bindings,
-            active_phase_scope=active_phase_scope,
-        )
-        inputs_value = _elaborate_atomic_value(
-            expr.inputs_expr,
-            scope=scope.child_scope("run-provider-phase", authored_binding_name="inputs"),
-            type_env=type_env,
-            value_env=value_env,
-            workflow_return_types=workflow_return_types,
-            procedure_return_types=procedure_return_types,
-            effect_summary=effect_summary,
-            procedure_edges_by_site=procedure_edges_by_site,
-            compile_time_bindings=compile_time_bindings,
-            active_phase_scope=active_phase_scope,
-        )
-        return WccPerform(
-            metadata=scope.value_metadata(role="perform:run_provider_phase", **metadata_kwargs),
-            perform_kind="run_provider_phase",
-            target_name=_require_name_expr(expr.provider),
-            prompt_name=_require_name_expr(expr.prompt),
-            positional_args=(ctx_value, inputs_value),
-            keyword_args=(),
-            returns_type_name=expr.returns_type_name,
-            operation_payload=WccRunProviderPhasePayload(
-                phase_name=expr.phase_name,
-                ctx_expr=ctx_value,
-                inputs_expr=inputs_value,
-                provider_name=_require_name_expr(expr.provider),
-                prompt_name=_require_name_expr(expr.prompt),
-            ),
-        )
-    if isinstance(expr, ProduceOneOfExpr):
-        ctx_value = _elaborate_atomic_value(
-            expr.ctx_expr,
-            scope=scope.child_scope("produce-one-of", authored_binding_name="ctx"),
-            type_env=type_env,
-            value_env=value_env,
-            workflow_return_types=workflow_return_types,
-            procedure_return_types=procedure_return_types,
-            effect_summary=effect_summary,
-            procedure_edges_by_site=procedure_edges_by_site,
-            compile_time_bindings=compile_time_bindings,
-            active_phase_scope=active_phase_scope,
-        )
-        producer_inputs = tuple(
-            _elaborate_atomic_value(
-                item,
-                scope=scope.child_scope("produce-one-of-input", authored_binding_name=str(index)),
-                type_env=type_env,
-                value_env=value_env,
-                workflow_return_types=workflow_return_types,
-                procedure_return_types=procedure_return_types,
-                effect_summary=effect_summary,
-                procedure_edges_by_site=procedure_edges_by_site,
-                compile_time_bindings=compile_time_bindings,
-                active_phase_scope=active_phase_scope,
-            )
-            for index, item in enumerate(expr.producer.inputs)
-        )
-        return WccPerform(
-            metadata=scope.value_metadata(role="perform:produce_one_of", **metadata_kwargs),
-            perform_kind="produce_one_of",
-            target_name=_require_name_expr(expr.producer.provider_expr),
-            prompt_name=_require_name_expr(expr.producer.prompt_expr),
-            positional_args=(ctx_value, *producer_inputs),
-            keyword_args=(),
-            returns_type_name=expr.returns_type_name,
-            operation_payload=WccProduceOneOfPayload(
-                ctx_expr=ctx_value,
-                provider_name=_require_name_expr(expr.producer.provider_expr),
-                prompt_name=_require_name_expr(expr.producer.prompt_expr),
-                producer_inputs=producer_inputs,
-                candidates=expr.candidates,
-            ),
-        )
-    if isinstance(expr, ResumeOrStartExpr):
-        return WccPerform(
-            metadata=scope.value_metadata(role="perform:resume_or_start", **metadata_kwargs),
-            perform_kind="resume_or_start",
-            target_name=expr.resume_name,
-            prompt_name=None,
-            positional_args=(),
-            keyword_args=(),
-            returns_type_name=expr.returns_type_name,
-            operation_payload=WccResumeOrStartPayload(
-                resume_name=expr.resume_name,
-                ctx_expr=_elaborate_atomic_value(
-                    expr.ctx_expr,
-                    scope=scope.child_scope("resume-or-start", authored_binding_name="ctx"),
-                    type_env=type_env,
-                    value_env=value_env,
-                    workflow_return_types=workflow_return_types,
-                    procedure_return_types=procedure_return_types,
-                    effect_summary=effect_summary,
-                    procedure_edges_by_site=procedure_edges_by_site,
-                    compile_time_bindings=compile_time_bindings,
-                    active_phase_scope=active_phase_scope,
-                ),
-                resume_from_expr=_elaborate_atomic_value(
-                    expr.resume_from_expr,
-                    scope=scope.child_scope("resume-or-start", authored_binding_name="resume-from"),
-                    type_env=type_env,
-                    value_env=value_env,
-                    workflow_return_types=workflow_return_types,
-                    procedure_return_types=procedure_return_types,
-                    effect_summary=effect_summary,
-                    procedure_edges_by_site=procedure_edges_by_site,
-                    compile_time_bindings=compile_time_bindings,
-                    active_phase_scope=active_phase_scope,
-                ),
-                valid_when=expr.valid_when,
-                start_value=_elaborate_effect_expr_to_binding_value(
-                    expr.start_expr,
-                    scope=scope.child_scope("resume-or-start", authored_binding_name="start"),
-                    type_env=type_env,
-                    value_env=value_env,
-                    workflow_return_types=workflow_return_types,
-                    procedure_return_types=procedure_return_types,
-                    effect_summary=effect_summary,
-                    procedure_edges_by_site=procedure_edges_by_site,
-                    compile_time_bindings=compile_time_bindings,
-                    active_phase_scope=active_phase_scope,
-                ),
-                validation_spec=expr.validation_spec,
-            ),
-        )
-    if isinstance(expr, FinalizeSelectedItemExpr):
-        return WccPerform(
-            metadata=scope.value_metadata(role="perform:finalize_selected_item", **metadata_kwargs),
-            perform_kind="finalize_selected_item",
-            target_name="finalize-selected-item",
-            prompt_name=None,
-            positional_args=(),
-            keyword_args=(),
-            returns_type_name=None,
-            operation_payload=expr,
-        )
-    if isinstance(expr, ResourceTransitionExpr):
-        return WccPerform(
-            metadata=scope.value_metadata(role="perform:resource_transition", **metadata_kwargs),
-            perform_kind="resource_transition",
-            target_name=expr.spec.transition_ref_name or expr.spec.transition_name or "resource-transition",
-            prompt_name=None,
-            positional_args=(),
-            keyword_args=(),
-            returns_type_name=None,
-            operation_payload=expr,
-        )
-    if isinstance(expr, MaterializeViewExpr):
-        return WccPerform(
-            metadata=scope.value_metadata(role="perform:materialize_view", **metadata_kwargs),
-            perform_kind="materialize_view",
-            target_name=expr.view_name,
-            prompt_name=None,
-            positional_args=(),
-            keyword_args=(),
-            returns_type_name=expr.returns_type_name,
-            operation_payload=expr,
-        )
     if isinstance(expr, CallExpr):
         resolved_workflow_ref, _ = _unwrap_compile_time_alias(
             compile_time_bindings.get(expr.callee_name),
@@ -6707,9 +6439,6 @@ def _elaborate_workflow_call_binding_value(
             RequestInputExpr,
             AgentExpr,
             RunRefExpr,
-            RunProviderPhaseExpr,
-            FinalizeSelectedItemExpr,
-            ResourceTransitionExpr,
             CallExpr,
         ),
     ):
@@ -7198,46 +6927,10 @@ def _infer_expr_type(
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
         )
-    if isinstance(
-        expr,
-        (
-            CommandResultExpr,
-            RunProviderPhaseExpr,
-            ProduceOneOfExpr,
-            ResumeOrStartExpr,
-            MaterializeViewExpr,
-        ),
-    ):
+    if isinstance(expr, CommandResultExpr):
         return _resolve_wcc_type_name(
             expr.returns_type_name,
             type_env=type_env,
-            span=expr.span,
-            form_path=expr.form_path,
-            expansion_stack=expr.expansion_stack,
-        )
-    if isinstance(expr, FinalizeSelectedItemExpr):
-        return type_env.resolve_type(
-            "SelectedItemResult",
-            span=expr.span,
-            form_path=expr.form_path,
-            expansion_stack=expr.expansion_stack,
-        )
-    if isinstance(expr, ResourceTransitionExpr):
-        if getattr(expr.spec, "mode", None) == "declared_transition":
-            transition_def = type_env.resolve_transition_declaration(
-                expr.spec.transition_ref_name or "",
-                span=expr.span,
-                form_path=expr.form_path,
-                expansion_stack=expr.expansion_stack,
-            )
-            return type_env.resolve_type(
-                transition_def.result_type_name,
-                span=expr.span,
-                form_path=expr.form_path,
-                expansion_stack=expr.expansion_stack,
-            )
-        return type_env.resolve_type(
-            "ResourceTransitionResult",
             span=expr.span,
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,

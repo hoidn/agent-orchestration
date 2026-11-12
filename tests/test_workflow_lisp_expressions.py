@@ -9,15 +9,54 @@ import pytest
 from orchestrator.workflow_lisp.compiler import PRELUDE_TYPE_NAMES, compile_stage1_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.parametric_constraints import SharedUnionFieldCapability
-from orchestrator.workflow_lisp.expressions import AgentExpr, BindProcExpr, CommandResultExpr, CondExpr, ContinueExpr, EnumMemberExpr, FinalizeSelectedItemExpr, FieldAccessExpr, FunctionCallExpr, IfExpr, LetProcExpr, LetProcBinding, LetStarExpr, ListExpr, ListMapEffectExpr, ListMapExpr, LiteralExpr, LoopBodyFnExpr, LoopRecurExpr, LoopStateSeedExpr, LoopStateUpdateExpr, MaterializeViewExpr, MatchArm, MatchExpr, NameExpr, ProcedureCallExpr, ProduceOneOfExpr, ProviderResultExpr, RecordExpr, DoneExpr, ResourceTransitionExpr, ResumeOrStartExpr, RunRefExpr, RunProviderPhaseExpr, UnionVariantExpr, UnionVariantTagExpr, WithLiveProviderPeersExpr, WithLiveProvidersExpr, WithPhaseExpr, WorkflowRefLiteralExpr, ProcRefLiteralExpr, PhaseTargetExpr, PathJoinUnderExpr, ProviderBundlePathExpr, PureOpExpr, RecordUpdateExpr, GeneratedRelpathSeedExpr, CallExpr, CompilerListNonemptyHeadExpr, elaborate_expression
-from orchestrator.workflow_lisp.phase_stdlib import (
-    ProduceOneOfCandidateFieldSpec,
-    ProduceOneOfCandidateSpec,
-    ProduceOneOfProducerSpec,
+from orchestrator.workflow_lisp.expressions import (
+    AgentExpr,
+    BindProcExpr,
+    CommandResultExpr,
+    CondExpr,
+    ContinueExpr,
+    EnumMemberExpr,
+    FieldAccessExpr,
+    FunctionCallExpr,
+    IfExpr,
+    LetProcExpr,
+    LetProcBinding,
+    LetStarExpr,
+    ListExpr,
+    ListMapEffectExpr,
+    ListMapExpr,
+    LiteralExpr,
+    LoopBodyFnExpr,
+    LoopRecurExpr,
+    LoopStateSeedExpr,
+    LoopStateUpdateExpr,
+    MatchArm,
+    MatchExpr,
+    NameExpr,
+    ProcedureCallExpr,
+    ProviderResultExpr,
+    RecordExpr,
+    DoneExpr,
+    RunRefExpr,
+    UnionVariantExpr,
+    UnionVariantTagExpr,
+    WithLiveProviderPeersExpr,
+    WithLiveProvidersExpr,
+    WithPhaseExpr,
+    WorkflowRefLiteralExpr,
+    ProcRefLiteralExpr,
+    PhaseTargetExpr,
+    PathJoinUnderExpr,
+    ProviderBundlePathExpr,
+    PureOpExpr,
+    RecordUpdateExpr,
+    GeneratedRelpathSeedExpr,
+    CallExpr,
+    CompilerListNonemptyHeadExpr,
+    elaborate_expression,
 )
 from orchestrator.workflow_lisp.reader import read_sexpr_text
 from orchestrator.workflow_lisp.reader import read_sexpr_file
-from orchestrator.workflow_lisp.resource_stdlib import FinalizeSelectedItemSpec, ResourceTransitionSpec
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.syntax import SyntaxNode, build_syntax_module
 from orchestrator.workflow_lisp.type_env import (
@@ -332,7 +371,7 @@ def test_enum_member_computed_equality_does_not_create_variant_proof(tmp_path: P
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defenum Status",
             "    DONE",
             "    WAITING)",
@@ -729,13 +768,7 @@ def test_expression_traversal_direct_child_classification_matches_exprnode_union
         LoopRecurExpr,
         LoopStateSeedExpr,
         LoopStateUpdateExpr,
-        RunProviderPhaseExpr,
-        ProduceOneOfExpr,
         ProviderBundlePathExpr,
-        MaterializeViewExpr,
-        ResumeOrStartExpr,
-        ResourceTransitionExpr,
-        FinalizeSelectedItemExpr,
         RunRefExpr,
     }
 
@@ -802,85 +835,6 @@ def test_expression_traversal_direct_child_classification_matches_exprnode_union
             ),
             id="loop-recur",
         ),
-        pytest.param(
-            ProduceOneOfExpr(
-                returns_type_name="SelectionResult",
-                ctx_expr=_name("ctx"),
-                producer=ProduceOneOfProducerSpec(
-                    kind="provider",
-                    provider_expr=_name("providers.execute"),
-                    prompt_expr=_name("prompts.implementation.execute"),
-                    inputs=(_name("producer-input"),),
-                ),
-                candidates=(
-                    ProduceOneOfCandidateSpec(
-                        variant_name="APPROVED",
-                        fields=(
-                            ProduceOneOfCandidateFieldSpec(
-                                field_name="result",
-                                target_expr=_name("candidate-target"),
-                            ),
-                            ProduceOneOfCandidateFieldSpec(
-                                field_name="sidecar",
-                                target_expr=None,
-                            ),
-                        ),
-                    ),
-                ),
-                span=_test_span("produce-one-of"),
-                form_path=FORM_PATH,
-            ),
-            (
-                "ctx_expr",
-                "producer.provider_expr",
-                "producer.prompt_expr",
-                "producer.inputs[0]",
-                "candidate.target_expr",
-            ),
-            id="produce-one-of",
-        ),
-        pytest.param(
-            ResourceTransitionExpr(
-                spec=ResourceTransitionSpec(
-                    mode="legacy_queue_move",
-                    transition_name="complete",
-                    ctx_expr=_name("ctx"),
-                    when_expr=_name("when-ready"),
-                    resource_expr=_name("resource"),
-                    from_queue_name="queued",
-                    to_queue_name="done",
-                    ledger_expr=_name("ledger"),
-                    event_name="completed",
-                ),
-                span=_test_span("resource-transition"),
-                form_path=FORM_PATH,
-            ),
-            ("spec.ctx_expr", "spec.when_expr", "spec.resource_expr", "spec.ledger_expr"),
-            id="resource-transition",
-        ),
-        pytest.param(
-            FinalizeSelectedItemExpr(
-                spec=FinalizeSelectedItemSpec(
-                    ctx_expr=_name("ctx"),
-                    selected_expr=_name("selected"),
-                    queue_transition_expr=_name("queue-transition"),
-                    roadmap_expr=_name("roadmap"),
-                    plan_expr=_name("plan"),
-                    implementation_expr=_name("implementation"),
-                ),
-                span=_test_span("finalize-selected-item"),
-                form_path=FORM_PATH,
-            ),
-            (
-                "spec.ctx_expr",
-                "spec.selected_expr",
-                "spec.queue_transition_expr",
-                "spec.roadmap_expr",
-                "spec.plan_expr",
-                "spec.implementation_expr",
-            ),
-            id="finalize-selected-item",
-        ),
     ],
 )
 def test_expression_traversal_iter_child_exprs_preserves_locked_order(
@@ -906,35 +860,6 @@ def test_expression_traversal_iter_child_exprs_preserves_locked_order(
             labels.append("on_exhausted_result_expr")
         elif child == getattr(expr, "ctx_expr", object()):
             labels.append("ctx_expr")
-        elif child == getattr(getattr(expr, "producer", None), "provider_expr", object()):
-            labels.append("producer.provider_expr")
-        elif child == getattr(getattr(expr, "producer", None), "prompt_expr", object()):
-            labels.append("producer.prompt_expr")
-        elif child in getattr(getattr(expr, "producer", None), "inputs", ()):
-            labels.append("producer.inputs[0]")
-        elif (
-            isinstance(expr, ProduceOneOfExpr)
-            and child == expr.candidates[0].fields[0].target_expr
-        ):
-            labels.append("candidate.target_expr")
-        elif child == getattr(getattr(expr, "spec", None), "ctx_expr", object()):
-            labels.append("spec.ctx_expr")
-        elif child == getattr(getattr(expr, "spec", None), "when_expr", object()):
-            labels.append("spec.when_expr")
-        elif child == getattr(getattr(expr, "spec", None), "resource_expr", object()):
-            labels.append("spec.resource_expr")
-        elif child == getattr(getattr(expr, "spec", None), "ledger_expr", object()):
-            labels.append("spec.ledger_expr")
-        elif child == getattr(getattr(expr, "spec", None), "selected_expr", object()):
-            labels.append("spec.selected_expr")
-        elif child == getattr(getattr(expr, "spec", None), "queue_transition_expr", object()):
-            labels.append("spec.queue_transition_expr")
-        elif child == getattr(getattr(expr, "spec", None), "roadmap_expr", object()):
-            labels.append("spec.roadmap_expr")
-        elif child == getattr(getattr(expr, "spec", None), "plan_expr", object()):
-            labels.append("spec.plan_expr")
-        elif child == getattr(getattr(expr, "spec", None), "implementation_expr", object()):
-            labels.append("spec.implementation_expr")
         elif child == getattr(getattr(expr, "spec", None), "providers_expr", object()):
             labels.append("spec.providers_expr")
         elif child == getattr(getattr(expr, "spec", None), "max_iterations_expr", object()):
@@ -1267,7 +1192,7 @@ def test_typecheck_expression_accepts_pure_ops_and_computed_if(tmp_path: Path) -
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defrecord CounterState",
             "    (count Int)",
             "    (label String)",
@@ -1314,7 +1239,7 @@ def test_shared_union_field_capability_allows_branch_free_projection_only_for_va
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -1358,7 +1283,7 @@ def test_shared_union_field_capability_does_not_allow_variant_specific_field_wit
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',

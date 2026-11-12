@@ -76,8 +76,7 @@ Implementation forms:
 - certified command adapter;
 - existing DSL surface such as `output_bundle`, `variant_output`,
   `select_variant_output`, `materialize_artifacts`, or `match`;
-- frontend procedure such as `provider-result`, `resume-or-start`,
-  `resource-transition`, or `finalize-selected-item`;
+- frontend form such as `provider-result` or `command-result`;
 - runtime-native effect.
 
 Migration decisions should be based on the behavior class. The implementation
@@ -426,49 +425,26 @@ Do not allowlist inline glue only because it is inconvenient to migrate.
 | --- | --- |
 | Pointer writes and path txt files | `materialize_artifacts` or runtime-owned optional pointer materialization. |
 | Status assertions | Typed union result plus `match`. |
-| Plan-gate recovery | `resume-or-start` with canonical reusable-state validation. |
-| Queue movement and ledger update | `resource-transition`, with runtime-native as the target backend and certified adapters only as migration backends when needed. |
-| Final completed/blocked fan-in scripts | `finalize-selected-item` typed outcome router. |
+| Plan-gate recovery | Public memo-backed `resume`: committed effects are reused. |
+| Queue movement and ledger update | No authored form; see [Resource movement and reusable state](#resource-movement-and-reusable-state). |
+| Final completed/blocked fan-in scripts | A typed union result plus `match`. |
 | JSON rewrite and field checking | `output_bundle`, `variant_output`, `command-result`, or `provider-result`. |
 | Exactly-one report selection | `pre_snapshot` plus `select_variant_output`. |
 | Provider prose parsed for decisions | Structured provider output protocol. |
 
-## `resume-or-start` Requirement
+## Resource Movement And Reusable State
 
-`resume-or-start` is not a nicer name for recovery glue.
+`resource-transition`, `resume-or-start` and `finalize-selected-item` were
+removed on 2026-11-12 (git tag `archive/pre-one-target-2026-11-12`); no
+evaluated target admitted them. Certified adapters are not a way around that:
 
-It requires a canonical reusable-state validation contract:
+- a `command-result` call of an adapter classified `resource_transition` or
+  `ledger_update` is refused with `resource_move_without_transition`, and one
+  classified `resume_state_reuse` with `recovery_gate_without_resume_or_start`;
+- a manifest row carrying `transition_binding` is refused when the command
+  boundaries are loaded (`command_adapter_missing_contract`).
 
-- where prior state is stored;
-- which schema/version it uses;
-- which terminal variants are reusable;
-- which referenced artifacts must still exist;
-- how stale or invalid prior state fails;
-- how resumed and fresh branches normalize to the same typed result.
-
-Without that contract, recovery remains a legacy adapter or explicit workflow
-logic.
-
-High-level `.orc` must not bypass this form with direct
-`command-result :adapter` calls to adapters classified as
-`resume_state_reuse`.
-
-## Dedicated High-Level Forms
-
-Certified adapters are not a loophole around established high-level semantic
-forms.
-
-- Resource or queue movement remains `resource-transition`, even if the current
-  lowering path still uses a certified adapter backend.
-- Reusable-state gating remains `resume-or-start`, even if the current
-  implementation still depends on certified adapters behind that surface.
-
-Repeated semantically critical `resource-transition` surfaces should target the
-runtime-native backend. Certified adapters remain the migration backend when a
-family has not retired its legacy state mutation path yet.
-
-Direct promoted adapter calls for those semantic classes are rejected so the
-authored `.orc` surface keeps the semantic transition visible.
+Recovery is the public memo-backed `resume`, which reuses committed effects.
 
 ## Runtime-Native Promotion Criteria
 
@@ -506,9 +482,10 @@ If a certified adapter is testable, explicit, and rare, keep it as an adapter.
    they fit.
 
 5. Replace recurring semantic patterns with typed procedures.
-   Add frontend/library forms such as `provider-result`, `command-result`,
-   `resume-or-start`, `resource-transition`, `review-revise-loop`,
-   `finalize-selected-item`, and `backlog-drain`.
+   Use frontend/library forms such as `provider-result`, `command-result` and
+   `review-revise-loop`. (`resume-or-start`, `resource-transition`,
+   `finalize-selected-item` and `backlog-drain` were removed on 2026-11-12, git
+   tag `archive/pre-one-target-2026-11-12`.)
 
 6. Promote only fundamental repeated transitions into runtime-native effects.
    Use the promotion criteria above.
@@ -522,12 +499,10 @@ or certified adapters.
 The target authoring model is:
 
 ```text
-resume-or-start
-resource-transition
 provider-result
 command-result
-finalize-selected-item
-backlog-drain
+match
+review-revise-loop
 ```
 
 not inline code that reads pointer files, rewrites JSON, parses markdown, shells

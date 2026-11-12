@@ -67,7 +67,7 @@ def _replace_name_span(source, replacement_span: SourceSpan):
     return replace(source, syntax_module=syntax_module)
 
 
-def test_projection_emits_all_ten_direct_kinds_with_exact_name_spans(
+def test_projection_emits_all_eight_direct_kinds_with_exact_name_spans(
     compiled_fixture,
 ) -> None:
     text, source, compiled_result = compiled_fixture
@@ -81,8 +81,6 @@ def test_projection_emits_all_ten_direct_kinds_with_exact_name_spans(
         "schema",
         "record",
         "union",
-        "resource",
-        "transition",
         "procedure",
         "procedure",
         "procedure",
@@ -90,7 +88,7 @@ def test_projection_emits_all_ten_direct_kinds_with_exact_name_spans(
         "workflow",
         "workflow",
     ]
-    assert [row.source_ordinal for row in rows] == list(range(14))
+    assert [row.source_ordinal for row in rows] == list(range(12))
     assert {field.name for field in fields(rows[0])} == {
         "kind",
         "name",
@@ -127,34 +125,15 @@ def test_projection_emits_all_ten_direct_kinds_with_exact_name_spans(
         "(defunion ReviewOutcome\n"
         "    (DONE\n"
         "      (status String)))",
-        "(defresource review-state\n"
-        "    :state-type ReviewState\n"
-        "    :backing state-layout)",
-        "(deftransition record-review\n"
-        "    :resource review-state\n"
-        "    :request-type ReviewState\n"
-        "    :result-type ReviewState\n"
-        '    :preconditions ((!= request.status ""))\n'
-        "    :updates ((set-field status request.status))\n"
-        "    :write-set (status)\n"
-        "    :idempotency-fields (status)\n"
-        "    :result (record ReviewState\n"
-        "      :status request.status)\n"
-        "    :audit (record ReviewState\n"
-        "      :status request.status)\n"
-        "    :conflict-policy fail_closed\n"
-        "    :backend runtime_native)",
         "(defproc default-status\n"
         "    ()\n"
         "    -> String\n"
         "    :effects ()\n"
-        "    :lowering inline\n"
         '    "ready")',
         "(defproc normalize-status\n"
         "    ((status String))\n"
         "    -> String\n"
         "    :effects ()\n"
-        "    :lowering inline\n"
         "    status)",
         "(defproc render-and-preserve\n"
         "    ((reports List[Optional[Map[String, ReportPath]]])\n"
@@ -162,16 +141,7 @@ def test_projection_emits_all_ten_direct_kinds_with_exact_name_spans(
         "     (target ReportPath))\n"
         "    -> List[Optional[Map[String, ReportPath]]]\n"
         "    :effects ((writes status-view))\n"
-        "    :lowering inline\n"
-        "    (let* ((rendered\n"
-        "             (materialize-view status-view\n"
-        "               :value (record ReviewState\n"
-        "                        :status status)\n"
-        "               :renderer canonical-json\n"
-        "               :renderer-version 1\n"
-        "               :target target\n"
-        "               :returns ReportPath)))\n"
-        "      reports))",
+        "    reports)",
         "(defworkflow default-review\n"
         "    ()\n"
         "    -> ReviewState\n"
