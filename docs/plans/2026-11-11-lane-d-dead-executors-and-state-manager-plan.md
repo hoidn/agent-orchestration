@@ -1,6 +1,6 @@
 # Lane D Stages 1 And 2: Dead Executors, `StateManager` Methods And CLI Vestiges
 
-**Status: Plan, accepted 2026-11-11.** This page plans stages 1 and 2 of [Lane
+**Status: Plan, executed 2026-11-12 except Task 5, which is on hold.** This page plans stages 1 and 2 of [Lane
 D](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#lane-d-delete-and-unify-background-time-boxed)
 (owner decision 4, approved 2026-11-11): delete the trial, adjudication, provider-peer-group and
 provider-supervision executors with their commands, source forms, specs and tests, then the
