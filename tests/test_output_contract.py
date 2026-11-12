@@ -1331,6 +1331,44 @@ def test_validate_output_bundle_rejects_malformed_union_projection_metadata(
 
 
 @pytest.mark.parametrize(
+    ("malformation", "reason"),
+    (
+        ("missing_discriminant", "group_discriminant_count_invalid"),
+        ("ambiguous_discriminant", "group_discriminant_count_invalid"),
+        ("metadata_not_object", "metadata_not_object"),
+    ),
+)
+def test_validate_output_bundle_rejects_union_group_without_one_discriminant_or_object_metadata(
+    tmp_path: Path,
+    malformation: str,
+    reason: str,
+) -> None:
+    result_path = tmp_path / "state" / "result.json"
+    result_path.parent.mkdir(parents=True)
+    result_path.write_text(
+        json.dumps({"choice": {"variant": "UNKNOWN"}}),
+        encoding="utf-8",
+    )
+    bundle = deepcopy(_union_projected_output_bundle())
+    discriminant, payload = bundle["fields"]
+    if malformation == "missing_discriminant":
+        bundle["fields"] = [payload]
+    elif malformation == "ambiguous_discriminant":
+        bundle["fields"].append({**discriminant, "name": "choice__other_variant"})
+    else:
+        payload["projection"] = "union_workflow_boundary"
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_output_bundle(bundle, workspace=tmp_path)
+
+    assert {
+        violation["context"]["reason"]
+        for violation in exc_info.value.violations
+        if violation["type"] == "invalid_output_projection"
+    } == {reason}
+
+
+@pytest.mark.parametrize(
     "discriminant_schema",
     (
         {"type": "enum", "allowed": ["KNOWN", "UNKNOWN", "OTHER"]},
