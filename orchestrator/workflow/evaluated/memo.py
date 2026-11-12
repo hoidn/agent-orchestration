@@ -58,10 +58,23 @@ def read_memo(path: Path, site_classes: Mapping[str, str], *, run_files: Workspa
     """
     path = Path(path)
     raw = _read_bytes(path, run_files)
-    records = rebased_records(raw)
+    records = rebased_records(raw, _unscanned(raw))
     if not records:
         return reduce_memo(raw, site_classes)
     return reduce_memo(raw, site_classes, _lineage_tables(path.parent, records, site_classes, run_files))
+
+
+def _unscanned(raw: bytes) -> int:
+    """Where a `rebased` record can begin: after the process's last fold, when that fold met none.
+
+    `read_memo` runs at every effect start; without this, a run that never switched program would rescan its whole
+    journal each time. The fold reduced exactly `cached[1]`, and any record there is in its `record_offsets`.
+    """
+    from . import memo_reducer
+    cached = memo_reducer._LAST
+    if cached is not None and not cached[0].record_offsets and raw.startswith(cached[1]):
+        return len(cached[1])
+    return 0
 
 
 # A program's site table is a pure function of its verified digest. Each run root verifies its own copy once per

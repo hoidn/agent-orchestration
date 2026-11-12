@@ -44,7 +44,12 @@ class Lineage:
     record_offsets: tuple[int, ...]
 
     def class_at(self, offset: int, identity: str) -> str:
-        return class_at(self.tables, self.record_offsets, offset, identity)
+        # One frame: views call this once per identity per published view.
+        table = self.tables[bisect.bisect_right(self.record_offsets, offset)] if self.record_offsets else self.tables[0]
+        kind = table.get(identity) or table.get(_DYNAMIC_INDEX.sub("[*]", identity))
+        if kind not in _CLASSES:
+            raise _inconsistent(f"identity does not resolve to a checked effect site: {identity}")
+        return kind
 
     def keeps_class(self, offset: int, identity: str) -> bool:
         """Whether the row at `offset` has the class the last program gives its identity (none: False)."""
@@ -99,13 +104,14 @@ def _check_cut(reducer, cut) -> None:
     agents.check_invalidation_cut(reducer, cut)
 
 
-def rebased_records(raw: bytes) -> list[tuple[int, str]]:
-    """(offset, program digest) of each complete `rebased` record, in journal order.
+def rebased_records(raw: bytes, start: int = 0) -> list[tuple[int, str]]:
+    """(offset, program digest) of each complete `rebased` record from byte `start` on, in journal order.
 
     Only lines holding the text `rebased` are decoded, so a journal without it costs one scan; a torn tail is not a
-    record (M3). The digest is checked before any caller turns it into a file name.
+    record (M3). The digest is checked before any caller turns it into a file name. A caller passes `start` only
+    when it knows the bytes before it hold no record.
     """
-    records, at = [], raw.find(b"rebased")
+    records, at = [], raw.find(b"rebased", start)
     while at != -1:
         start, end = raw.rfind(b"\n", 0, at) + 1, raw.find(b"\n", at)
         if end == -1:

@@ -40,7 +40,7 @@ def cmd(name: str, arg: str, tool: str = "step") -> str:
 
 
 def source(lets: list[str], result: str) -> str:
-    return ('(workflow-lisp (:language "0.1") (:target-dsl "2.39")\n  (defmodule pipe) (export run)\n'
+    return ('(workflow-lisp (:language "0.1") (:target-dsl "2.40")\n  (defmodule pipe) (export run)\n'
             '  (defworkflow run ((n Int :default 0)) -> Int\n    (let* (' + "\n           ".join(lets)
             + f')\n      {result})))\n')
 
@@ -310,7 +310,7 @@ def test_host_reply_committed_before_a_record_is_kept(tmp_path):
     assert fx.rows(run_root)[-1] == {"record": "terminal", "outcome": "completed", "value": 12}
 
 
-AGENT = '''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+AGENT = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule main) (export run)
   (defrecord Feedback (notes List[String]))
   (defprompt review (:fills (text :text)) -> Feedback "Review: {text}")
