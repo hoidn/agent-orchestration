@@ -1,5 +1,12 @@
 # Roadmap Thread M: Zero-Spend Measurement Plan
 
+> **2026-11-11 owner direction: scaled down.** The near-term research goal is a
+> small number of simple workflows that work well on a calibrated task set, to
+> seed genetic search, with calibration first. Step 0 is done and stays. Items 1
+> to 3 are not selected for now. Item 4 is optional background. Item 5 (the 60 to
+> 190 task pool) is replaced by the smaller task set of the
+> [seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md).
+
 **Status: Plan (not started).** This page plans Thread M of the
 [current roadmap](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#thread-m-zero-spend-measurement-starts-in-phase-0):
 five measurements that spend no provider calls. The roadmap owns the

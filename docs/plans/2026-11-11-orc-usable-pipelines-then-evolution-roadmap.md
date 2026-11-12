@@ -8,6 +8,15 @@ each experiment budget is requested when its phase starts. The
 keeps its own remaining work as [Dispositions](#dispositions) states. This
 page is not a source of copyable examples.
 
+**Owner direction, 2026-11-11 (after selection):** scale the research work
+down. Its near-term goal is a small number of simple workflows that work well
+on a calibrated task set and can seed genetic search; initial calibration
+comes first, and every later research or practical use depends on it. The
+[seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md) replaces
+Thread M item 5 and the Phase 5 benchmark as written below; Thread M items 1
+to 3 are not selected for now. Where this paragraph and the text below
+disagree, this paragraph governs.
+
 **Goal:** make typed, resumable agent pipelines usable for one real long
 pipeline, measure what the runtime's distinctive mechanism buys, and price the
 quality and program-evolution questions honestly before any spend on them.
@@ -391,6 +400,7 @@ the owner can amend any of them.
 | 5 | Dynamic branch: tag it and stop porting main into it; reopen if the authoring check shows typed authoring is the agents' bottleneck. Its adoption lane was already stopped (simplification record, Task 4) | Approved 2026-11-11 |
 | 6 | Phase 5 size: none, small or full | Open; no spend authorized; decided when Thread M item 5 reports |
 | 7 | Phase 6 form | Option B approved 2026-11-11; no spend authorized; generic search not selected |
+| 8 | Research scope | Scaled down by the owner 2026-11-11: find a few simple workflows that work well on a calibrated task set, as seeds for genetic search; calibration first. Supersedes decision 6 as posed |
 
 ## Process rules
 
@@ -435,5 +445,7 @@ This roadmap has no manifest, selector or workflow that drains it; selection
 is manual. Phase plans are linked here as they start:
 
 - Phase 0: [records and baseline plan](2026-11-11-roadmap-phase-0-records-and-baseline-plan.md).
+- Phase 1: [first hour and long run plan](2026-11-11-roadmap-phase-1-first-hour-plan.md).
 - Thread M: [zero-spend measurement plan](2026-11-11-roadmap-thread-m-zero-spend-measurement-plan.md).
+- Seed set: [seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md).
 - Lane D, tests: [low-value test removal plan](2026-11-11-low-value-test-removal-plan.md).
