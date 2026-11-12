@@ -176,10 +176,12 @@ def test_cap_counts_a_run_recorded_before_metering_as_unmetered(tmp_path):
     assert (resumed.returncode, _calls(root), "[spend_cap_unmetered]" in resumed.stderr) == (1, 1, True)
 
 
-def test_run_reference_under_a_cap_stops_before_its_child(tmp_path):
+def test_run_reference_under_a_cap_stops_before_its_child(tmp_path, monkeypatch):
+    from tests.agent_session_shims import closed_path
     from tests.test_workflow_evaluated_cli import _run_cli
     from tests.test_workflow_evaluated_run_ref import _public_fixture
 
+    monkeypatch.setenv("PATH", closed_path(tmp_path / "bin"))      # `_run_cli` inherits the environment
     parent, source, refs = _public_fixture(tmp_path)
     result = _run_cli(parent, str(source), "--run-ref-root", str(refs), "--max-cost-usd", "1")
     children = list(refs.rglob("child-request.json")) if refs.exists() else []

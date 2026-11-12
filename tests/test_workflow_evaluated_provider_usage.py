@@ -14,6 +14,7 @@ import sys
 
 import pytest
 
+from tests.agent_session_shims import closed_path
 from tests.workflow_evaluated_consumer_sources import PROGRAMS, install
 
 
@@ -106,7 +107,7 @@ def _workspace(root: Path, template: str, model: str = "claude-haiku-5-5") -> Pa
 
 
 def _env(root: Path, **standin) -> dict:
-    return {**os.environ, "PATH": str(root / "bin") + os.pathsep + os.environ["PATH"],
+    return {**os.environ, "PATH": closed_path(root / "bin"),
             "PYTHONPATH": str(ROOT), "PYTHONDONTWRITEBYTECODE": "1",
             **{f"STANDIN_{key.upper()}": value for key, value in standin.items()}}
 
@@ -292,6 +293,22 @@ def test_wrong_shape_transport_never_fails_a_call_that_wrote_its_result(tmp_path
 def test_a_failed_usage_write_never_fails_a_call_that_wrote_its_result(tmp_path):
     root = _workspace(tmp_path / "w", "claude_metered")
     _completed_once_and_resumes_without_a_launch(root, _run(root, mode="squat"))
+
+
+def test_a_run_never_resolves_a_provider_cli_outside_its_stand_ins(tmp_path, monkeypatch):
+    inherited = tmp_path / "inherited"
+    inherited.mkdir()
+    for tool in ("claude", "codex"):
+        (inherited / tool).write_text(f"#!/bin/sh\ntouch '{inherited}/{tool}.ran'\n", encoding="utf-8")
+        (inherited / tool).chmod(0o700)
+    monkeypatch.setenv("PATH", str(inherited) + os.pathsep + os.environ["PATH"])
+    root = _workspace(tmp_path / "w", "claude_metered")
+    for tool in ("claude", "codex", "gemini"):
+        (root / "bin" / tool).unlink()
+    result = _run(root)
+    # The launch fails (the runtime reports a missing executable as `provider_exit_nonzero`); the planted CLI never ran.
+    assert (result.returncode, _memo(root)[-1].get("code"), "No such file or directory: 'claude'" in result.stderr,
+            sorted(inherited.glob("*.ran"))) == (1, "provider_exit_nonzero", True, []), result.stderr
 
 
 def test_timed_out_turn_records_incomplete_usage(tmp_path):
