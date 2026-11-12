@@ -460,8 +460,11 @@ merges.
 boxes 2 and 3; Task 5, all five; Task 6 boxes 1 to 3; Task 7 box 1 (these
 document edits). Open: run figures against the serial specimen (Task 6 box
 4); the live smoke, which needs provider spend (Task 6 box 5); the
-pinned-controller compatibility campaign (Task 7 box 3); a full suite on the
-qualified code (Task 7 box 4); the pending reviews (Task 7 boxes 2 and 5).
+pinned-controller compatibility campaign (Task 7 box 3); the push delivery
+(Task 7 box 5). The full suite on the qualified code (Task 7 box 4) ran at the
+closeout branch head `a42efbd9`: 14,511 passed, 4 failed (the nanoBragg tests
+that fail in any worktree), with the JUnit record kept outside the repository;
+the plan's box gives the command and the deviations.
 
 **The run-reference rule.** A path run reference in a parallel item keeps the
 outer workspace as its `parent_workspace` and runs its child in its own clone.
