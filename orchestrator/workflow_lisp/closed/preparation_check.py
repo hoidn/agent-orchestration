@@ -170,7 +170,6 @@ def _closed_perform_payload(perform, builder):
 def assert_closed_preparation(body, children, *, context, builder):
     """Check the completed entry/request graph, without consulting executable source."""
     from ..diagnostics import records_defect_provenance
-    from ..expressions import ResourceTransitionExpr
     from orchestrator.workflow.pure_expr import PURE_EXPR_OPERATOR_CATALOG
     from .command_templates import _wcc_semantic_children
 
@@ -183,8 +182,6 @@ def assert_closed_preparation(body, children, *, context, builder):
         "arm": {w.WccCaseArm, w.WccSelectArm}, "capture": {w.WccSpecializationCapture}}
     @records_defect_provenance("closed-program")
     def operand(node, domain="value", *, children, inventory, seen, variants=()):
-        if type(node) is w.WccOpaqueFrontendValue and isinstance(node.expr, ResourceTransitionExpr):
-            raise builder.gap("resource-transition", "resource transitions are translated by the runtime adapter", node.expr)
         if type(node) not in domains[domain]:
             raise ValueError(f"prepared executable {domain} operand has unknown or unclosed shape {type(node).__name__}")
         coordinate = (id(node), variants)

@@ -22,7 +22,6 @@ from .expressions import (
     EnumMemberExpr,
     ExprNode,
     FieldAccessExpr,
-    FinalizeSelectedItemExpr,
     FunctionCallExpr,
     IfExpr,
     LetStarExpr,
@@ -32,7 +31,6 @@ from .expressions import (
     LiveProviderPeerBinding,
     LiveProviderBinding,
     LiteralExpr,
-    MaterializeViewExpr,
     LoopStateField,
     LoopStateSeedExpr,
     LoopStateUpdateExpr,
@@ -45,14 +43,10 @@ from .expressions import (
     PureOpExpr,
     ProcRefLiteralExpr,
     ProcedureCallExpr,
-    ProduceOneOfExpr,
     ProviderResultExpr,
     RecordUpdateExpr,
     RecordExpr,
-    ResourceTransitionExpr,
-    ResumeOrStartExpr,
     RunRefExpr,
-    RunProviderPhaseExpr,
     UnionVariantExpr,
     WithLiveProviderPeersExpr,
     WithLiveProvidersExpr,
@@ -856,7 +850,7 @@ def normalize_resolved_inline_procedure_calls(
                 ):
                     return True
             elif isinstance(candidate, _EFFECT_EXPRS + (
-                ResumeOrStartExpr, WithLiveProvidersExpr,
+                WithLiveProvidersExpr,
                 WithLiveProviderPeersExpr, ListMapEffectExpr,
             )):
                 return True
@@ -2107,22 +2101,10 @@ def _find_purity_violation(
         return "with-phase"
     if isinstance(expr, PhaseTargetExpr):
         return "phase-target"
-    if isinstance(expr, RunProviderPhaseExpr):
-        return "run-provider-phase"
-    if isinstance(expr, ProduceOneOfExpr):
-        return "produce-one-of"
-    if isinstance(expr, ResumeOrStartExpr):
-        return "resume-or-start"
-    if isinstance(expr, ResourceTransitionExpr):
-        return "resource-transition"
-    if isinstance(expr, MaterializeViewExpr):
-        return "materialize-view"
     if isinstance(expr, WithLiveProvidersExpr):
         return "with-live-providers"
     if isinstance(expr, WithLiveProviderPeersExpr):
         return "with-live-provider-peers"
-    if isinstance(expr, FinalizeSelectedItemExpr):
-        return "finalize-selected-item"
     if isinstance(expr, LoopRecurExpr):
         return "loop/recur"
     if isinstance(expr, ListMapEffectExpr):

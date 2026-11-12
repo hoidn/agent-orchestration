@@ -2159,7 +2159,7 @@ def test_graph_source_producer_passes_one_trace_through_delegation_and_reads(
     assert all(trace is supplied_trace for trace in recorded_traces)
 
 
-def test_graph_source_producer_rejects_conflicting_repeated_reads(
+def test_graph_source_producer_reads_each_source_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     entry = tmp_path / "cp" / "entry.orc"
@@ -2200,17 +2200,17 @@ def test_graph_source_producer_rejects_conflicting_repeated_reads(
 
     monkeypatch.setattr(Path, "read_bytes", change_second_child_read)
     trace = SourceReadTrace()
-    with pytest.raises(RuntimeError):
-        compile_stage3_module(
-            entry,
-            entry_workflow="run",
-            validate_shared=True,
-            workspace_root=tmp_path,
-            source_read_trace=trace,
-        )
+    # One read per source: a change after the module graph is read cannot reach the program.
+    compile_stage3_module(
+        entry,
+        entry_workflow="run",
+        validate_shared=True,
+        workspace_root=tmp_path,
+        source_read_trace=trace,
+    )
 
-    assert child_reads == 2
-    assert trace.revision_conflict_paths == (child.resolve(),)
+    assert child_reads == 1
+    assert trace.revision_conflict_paths == ()
 
 
 

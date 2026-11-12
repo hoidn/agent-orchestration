@@ -33,23 +33,11 @@
   (defproc render-selection-summary-path
     ((selection SelectionPayload))
     -> SummaryPath
-    :effects ((writes rendered-selection-summary))
+    :effects ((uses-command run_checks))
     :lowering inline
-    (let* ((summary-path
-             (__generated-relpath-seed__
-               SummaryPath
-               "artifacts/work/imported-stdlib-macro-payload-helper-effect-position.json"
-               "imported_stdlib_macro_payload_helper_effect_position_seed"))
-           (rendered-path
-             (materialize-view rendered-selection-summary
-               :value (record imported_stdlib_macro_payload_helper_effect_position_invalid/std_payload_helpers/SelectionPayload
-                        :item-id selection.item-id
-                        :item-state-root selection.item-state-root)
-               :renderer canonical-json
-               :renderer-version 1
-               :target summary-path
-               :returns SummaryPath)))
-      rendered-path))
+    (command-result run_checks
+      :argv ("python" "scripts/run_checks.py" selection.item-id)
+      :returns SummaryPath))
   (defmacro emit-run-drain-like (name selector)
     (defworkflow name
       ()

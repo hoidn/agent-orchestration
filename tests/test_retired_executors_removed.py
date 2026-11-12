@@ -2,7 +2,10 @@
 
 Also the modules of the bundle-era IR stack, removed in Lane D stage 3 (2026-11-12, local tag
 `archive/old-ir-stack-2026-11-12`): first the ones nothing imported, then the core chain from
-`loaded_bundle` to `state_layout`."""
+`loaded_bundle` to `state_layout`.
+
+Also the source forms that no target admitted, removed in Lane D stage 4 (local tag
+`archive/pre-one-target-2026-11-12`), with the modules and library files only they reached."""
 
 from __future__ import annotations
 
@@ -51,6 +54,15 @@ REMOVED_PACKAGES = [
     "orchestrator.workflow.statements",
     "orchestrator.workflow.identity",
     "orchestrator.workflow.state_layout",
+    "orchestrator.workflow_lisp.typecheck_resume",
+    "orchestrator.workflow_lisp.typecheck_resource_view",
+    "orchestrator.workflow_lisp.resource",
+    "orchestrator.workflow_lisp.resource_stdlib",
+    "orchestrator.workflow_lisp.adapters.apply_resource_transition",
+    "orchestrator.workflow_lisp.adapters.normalize_drain_result",
+    "orchestrator.workflow_lisp.adapters.load_canonical_phase_result",
+    "orchestrator.workflow_lisp.adapters.validate_reusable_phase_state",
+    "orchestrator.workflow_lisp.adapters.write_reusable_phase_state_v1",
 ]
 # A module that held one former public name of each removed package or module.
 FORMER_PUBLIC_MODULES = [
@@ -89,7 +101,17 @@ FORMER_PUBLIC_MODULES = [
     "orchestrator.workflow.statements",
     "orchestrator.workflow.identity",
     "orchestrator.workflow.state_layout",
+    "orchestrator.workflow_lisp.typecheck_resume",
+    "orchestrator.workflow_lisp.typecheck_resource_view",
+    "orchestrator.workflow_lisp.resource",
+    "orchestrator.workflow_lisp.resource_stdlib",
+    "orchestrator.workflow_lisp.adapters.apply_resource_transition",
+    "orchestrator.workflow_lisp.adapters.normalize_drain_result",
+    "orchestrator.workflow_lisp.adapters.load_canonical_phase_result",
+    "orchestrator.workflow_lisp.adapters.validate_reusable_phase_state",
+    "orchestrator.workflow_lisp.adapters.write_reusable_phase_state_v1",
 ]
+REMOVED_LIBRARY_MODULES = ["std/drain", "std/resource"]
 REMOVED_COMMANDS = [
     ["peer-ready"], ["peer-send", "b", "m"], ["peer-ack", "m1"], ["peer-finish"],
     ["trial", "w.orc", "--entry-workflow", "e"],
@@ -198,9 +220,22 @@ RETIRED_FORM_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "{target}
 '''
 
 
+# Each retired expression head and the tag of the last version that had it.
+RETIRED_EXPRESSION_FORMS = {
+    "trial": "archive/dead-executors-2026-11-11",
+    **dict.fromkeys(
+        (
+            "resource-transition", "materialize-view", "finalize-selected-item", "backlog-drain",
+            "resume-or-start", "run-provider-phase", "produce-one-of", "provider",
+        ),
+        "archive/pre-one-target-2026-11-12",
+    ),
+}
+
+
 @pytest.mark.parametrize("target", ["2.35", "2.40"])
 @pytest.mark.parametrize("reached", [True, False], ids=["reached", "unreached"])
-@pytest.mark.parametrize("form", ["trial"])
+@pytest.mark.parametrize("form", sorted(RETIRED_EXPRESSION_FORMS))
 def test_retired_form_refuses_with_located_retirement_diagnostic(
     tmp_path: Path, form: str, target: str, reached: bool
 ) -> None:
@@ -212,7 +247,39 @@ def test_retired_form_refuses_with_located_retirement_diagnostic(
 
     lines = [line for line in result.stderr.splitlines() if "[form_retired]" in line]
     assert (result.returncode, len(lines), lines and "main.orc:4:" in lines[0],
-            lines and "archive/dead-executors-2026-11-11" in lines[0]) == (2, 1, True, True), result.stderr
+            lines and RETIRED_EXPRESSION_FORMS[form] in lines[0]) == (2, 1, True, True), result.stderr
+
+
+@pytest.mark.parametrize("target", ["2.35", "2.40"])
+@pytest.mark.parametrize("form", ["defresource", "deftransition"])
+def test_retired_declaration_refuses_with_located_retirement_diagnostic(
+    tmp_path: Path, form: str, target: str
+) -> None:
+    (tmp_path / "main.orc").write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
+  (defmodule main) (export run)
+  (defworkflow run () -> Int 1)
+  ({form} item :state-type Int))
+''', encoding="utf-8")
+
+    result = cli(tmp_path, "compile", "main.orc")
+
+    lines = [line for line in result.stderr.splitlines() if "[form_retired]" in line]
+    assert (result.returncode, len(lines), lines and "main.orc:4:" in lines[0],
+            lines and "archive/pre-one-target-2026-11-12" in lines[0]) == (2, 1, True, True), result.stderr
+
+
+@pytest.mark.parametrize("module", REMOVED_LIBRARY_MODULES)
+def test_removed_library_modules_are_not_found(tmp_path: Path, module: str) -> None:
+    (tmp_path / "main.orc").write_text(f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
+  (defmodule main) (import {module} :only (WorkReport)) (export run)
+  (defworkflow run () -> Int 1))
+''', encoding="utf-8")
+
+    result = cli(tmp_path, "compile", "main.orc")
+
+    lines = [line for line in result.stderr.splitlines() if "[module_not_found]" in line]
+    assert (result.returncode, len(lines), lines and f"`{module}`" in lines[0],
+            lines and "archive/pre-one-target-2026-11-12" in lines[0]) == (2, 1, True, True), result.stderr
 
 
 def test_user_definition_named_like_a_retired_form_still_compiles(tmp_path: Path) -> None:

@@ -19,7 +19,7 @@ schema notation, not authored workflow files.
   - Recovery is runtime control, not provider guidance. It emits
     `provider_attempt_interrupted_rerun` to the operator and does not add an
     instruction to the prompt.
-  - Managed-job recovery, declared resource-transition replay, provider
+  - Managed-job recovery, provider
     isolation transfer reconciliation, root/callee checksum guards, checkpoint
     validation, and atomic structured-result publication remain governed by
     their existing contracts.

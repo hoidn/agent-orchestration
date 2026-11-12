@@ -759,12 +759,6 @@ def test_each_selected_effect_outside_the_release_is_a_located_gap(
     tmp_path: Path,
 ) -> None:
     fixture_cases = (
-        ("materialize-view", "materialize-view/materialize_view_runtime.orc", "orchestrate"),
-        ("resource-transition", "resource-transition/resource_transition_effects.orc", "move-selected-item"),
-        ("run-provider-phase", "run-provider-phase/phase_stdlib_run_provider_phase.orc", "run-provider-phase-demo"),
-        ("produce-one-of", "produce-one-of/phase_stdlib_run_provider_phase.orc", "produce-one-of-demo"),
-        ("resume-or-start", "resume-or-start/phase_stdlib_resume_or_start.orc", "resume-record-phase"),
-        ("finalize-selected-item", "finalize-selected-item/resource_stdlib_finalize_selected_item.orc", "run-selected-item"),
         ("with-live-providers", "with-live-providers/provider_supervision_continue.orc", "orchestrate"),
         ("with-live-provider-peers", "with-live-provider-peers/provider_peer_group_three.orc", "orchestrate"),
         ("provider-result", "provider-result/root.orc", "run"),

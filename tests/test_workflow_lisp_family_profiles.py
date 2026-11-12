@@ -19,12 +19,25 @@ GENERIC_FAMILY_PROFILE_FIXTURE = (
     / "family_profiles"
     / "generic_phase_family_profile.json"
 )
-VALID_WORKFLOW_LISP_FIXTURES = (
-    REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "valid"
-)
-TYPED_PROMPT_INPUT_PHASE_FIXTURE = (
-    VALID_WORKFLOW_LISP_FIXTURES / "typed_prompt_input_phase.orc"
-)
+# The profile fixture's prompt rows name this workflow and its `providers.execute` call.
+TYPED_PROMPT_INPUT_PHASE_SOURCE = """(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.40")
+  (defmodule typed_prompt_input_phase)
+  (defpath DesignDocPath :kind relpath :under "docs/design" :must-exist true)
+  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)
+  (defrecord PromptContext (design DesignDocPath) (focus String))
+  (defrecord ImplementationInputs (prompt_context PromptContext))
+  (defrecord ImplementationSummary (report_path WorkReport))
+  (defworkflow run-typed-prompt-phase-demo
+    ((inputs ImplementationInputs))
+    -> ImplementationSummary
+    (let* ((prompt_context inputs.prompt_context))
+      (provider-result providers.execute
+        :prompt prompts.implementation.execute
+        :inputs (prompt_context)
+        :returns ImplementationSummary))))
+"""
 def _family_profiles_module():
     return importlib.import_module("orchestrator.workflow_lisp.family_profiles")
 
@@ -200,9 +213,12 @@ def test_compile_rejects_profile_prompt_row_for_missing_provider_call(
     )
     path = _write_profile(tmp_path / "missing-provider-binding.json", payload)
 
+    source_path = tmp_path / "typed_prompt_input_phase.orc"
+    source_path.write_text(TYPED_PROMPT_INPUT_PHASE_SOURCE, encoding="utf-8")
+
     with pytest.raises(LispFrontendCompileError) as excinfo:
         compile_stage3_module(
-            TYPED_PROMPT_INPUT_PHASE_FIXTURE,
+            source_path,
             provider_externs={"providers.execute": "fake-execute"},
             prompt_externs={
                 "prompts.implementation.execute": "prompts/implementation/execute.md",

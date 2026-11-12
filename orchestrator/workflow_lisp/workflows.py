@@ -62,9 +62,7 @@ from .type_env import (
 )
 from .typecheck import (
     TypedExpr,
-    clear_active_reusable_state_producer_context,
     clear_active_workflow_signature,
-    set_active_reusable_state_producer_context,
     set_active_workflow_signature,
     typecheck_expression,
 )
@@ -193,31 +191,6 @@ def normalize_prompt_extern_bindings(
     return {
         name: normalize_prompt_extern_binding(name, raw_value)
         for name, raw_value in (prompt_externs or {}).items()
-    }
-
-
-def prompt_extern_source_bindings_payload(
-    prompt_externs: Mapping[str, PromptExtern | str | Mapping[str, object]] | None,
-) -> dict[str, dict[str, str]]:
-    """Return canonical source-aware payloads keyed by authored prompt name."""
-
-    bindings = normalize_prompt_extern_bindings(prompt_externs)
-    return {
-        name: prompt_extern_source_payload(binding)
-        for name, binding in sorted(bindings.items())
-    }
-
-
-def prompt_extern_legacy_bindings(
-    prompt_externs: Mapping[str, PromptExtern | str | Mapping[str, object]] | None,
-) -> dict[str, str]:
-    """Return the legacy string-valued asset-backed prompt binding view."""
-
-    bindings = normalize_prompt_extern_bindings(prompt_externs)
-    return {
-        name: binding.path
-        for name, binding in sorted(bindings.items())
-        if binding.source_kind == "asset_file"
     }
 
 
@@ -2526,7 +2499,6 @@ def typecheck_workflow_definitions(
     workflow_name_resolver=None,
     prompt_catalog: object | None = None,
     proc_ref_resolution_context: ProcRefResolutionContext | None = None,
-    reusable_state_producer_context: Mapping[str, object] | None = None,
     selected_entry_workflow_name: str | None = None,
     compiler_session: CompilerSession | None = None,
     session_artifact_entry_workflow_allowed: bool = False,
@@ -2693,10 +2665,6 @@ def typecheck_workflow_definitions(
         signature = workflow_catalog.signatures_by_name[workflow_def.name]
         body_expr = elaborated_bodies[workflow_def.name]
         set_active_workflow_signature(compiler_session.typecheck, signature)
-        set_active_reusable_state_producer_context(
-            compiler_session.typecheck,
-            reusable_state_producer_context,
-        )
         try:
             typed_body = typecheck_expression(
                 body_expr,
@@ -2719,7 +2687,6 @@ def typecheck_workflow_definitions(
                 allow_provisional_procedure_calls=allow_provisional_procedure_calls,
             )
         finally:
-            clear_active_reusable_state_producer_context(compiler_session.typecheck)
             clear_active_workflow_signature(compiler_session.typecheck)
         if not type_refs_compatible(signature.return_type_ref, typed_body.type_ref):
             raise LispFrontendCompileError(

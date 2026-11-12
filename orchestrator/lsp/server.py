@@ -64,8 +64,6 @@ _DOCUMENT_SYMBOL_KIND_BY_INTERNAL_KIND: dict[str, types.SymbolKind] = {
     "record": types.SymbolKind.Struct,
     "union": types.SymbolKind.Enum,
     "schema": types.SymbolKind.Interface,
-    "resource": types.SymbolKind.Object,
-    "transition": types.SymbolKind.Event,
 }
 
 _COMPLETION_ITEM_KIND_BY_INTERNAL_KIND: dict[

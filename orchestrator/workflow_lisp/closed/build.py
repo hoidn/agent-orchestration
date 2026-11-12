@@ -59,7 +59,7 @@ from orchestrator.workflow_lisp.wcc.model import (
     WccValue,
 )
 
-from . import EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+from orchestrator.contracts.closed_program.targets import PATH_MODE_RUN_REF_TARGET_DSL_VERSION
 from .context import phase_context_value, run_context_value
 from .effects import require_command_closures, translate_perform
 from orchestrator.contracts.closed_program.names import canonical_callee_name_from_key
@@ -1645,7 +1645,7 @@ class Builder:
                 inputs=tuple(input_rows),
                 result_descriptor=result_descriptor,
                 result_digest=result_digest,
-                target_dsl_version=EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION,
+                target_dsl_version=PATH_MODE_RUN_REF_TARGET_DSL_VERSION,
             )
             producer.node["config"] = b64encode(encode_run_ref_static_config(config)).decode("ascii")
             self._register_types(envelope)
