@@ -605,7 +605,10 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   root and render its [derived view](state.md#derived-view-statejson)
   (`steps` keyed by identity, `current_step`, `next_effect`, `error`,
   `workflow_outputs`, and `interrupted` from writer-lock liveness). `report`
-  previews a row as the `repr` of its committed value from the view. The
+  previews a row as the `repr` of its committed value from the view; the view
+  reads nothing under `effects/`, and `report` additionally reads only
+  `attempt-<n>/usage.json` of provider-class steps, never a recipe, prompt,
+  stdout or result file. The
   dashboard shows each effect's attempt, start, completion and duration,
   links each failed effect with its error code, and links the files of the
   row's attempt directory: the `result_path` file first, then the other

@@ -105,7 +105,10 @@ derives solely from the validated `.orc` executable and `state.json`.
 - Status/report surfaces
   - `report` and the dashboard read evaluated runs only: the checked authority
     (`run.json`, `closed_program.json`, `memo.jsonl`) and the view derived from
-    it, without reopening the workflow source. A run directory with a
+    it, without reopening the workflow source. The view reads nothing under
+    `effects/`; `report` additionally reads only `attempt-<n>/usage.json` of
+    provider-class steps ([usage](#report-usage)), never a recipe, prompt,
+    stdout or result file. A run directory with a
     `state.json` entry and no evaluated authority was written by the retired
     runtime; both refuse it with `workflow_execution_profile_retired` and the
     git tag `archive/retired-run-readers-2026-11-11` that keeps the old readers (see
