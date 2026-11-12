@@ -3,8 +3,9 @@
 Every workload runs in process with self-checks: each continued memo reduction must equal a
 fresh reduction of the same bytes (which also catches a consumer mutating a shared row), and
 each published ``state.json`` must equal the bytes the reference path publishes for the same
-record. A deterministic loop is also run twice, fast and with every reference path forced, and
-must give the same memo rows, views, report and program.
+record. Each workload is also run twice, fast and with every reference path forced
+(``force_reference_paths``), and must give the same program, memo rows and published views
+(times and run ids removed, as the profiler compared them) and the same report.
 """
 
 from __future__ import annotations
@@ -12,13 +13,17 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
 import pytest
 
 from orchestrator.cli.main import main
+from orchestrator.workflow import pure_expr
 from orchestrator.workflow.evaluated import memo_reducer, views
+from orchestrator.workflow_lisp import procedure_typecheck
+from orchestrator.workflow_lisp.closed import command_templates
 from orchestrator.workflow.evaluated.machine import site_classes
 from orchestrator.workflow.evaluated.memo import append_record
 from tests.test_workflow_evaluated_command_lifecycle import _publish
@@ -83,6 +88,58 @@ def _run_root(root: Path) -> Path:
     return run
 
 
+def force_reference_paths(monkeypatch) -> None:
+    """Take the pre-optimization path at every fast path: full reductions, replayed start
+    views, the full demand walk, the full let-proc rewrite and the copying JSON encoder."""
+    monkeypatch.setattr(memo_reducer, "_resume_cached_prefix", lambda reducer, raw: 0)
+    publish = views.publish_evaluated_view
+    monkeypatch.setattr(views, "publish_evaluated_view", lambda authority, entry, **_: publish(authority, entry))
+    monkeypatch.setattr(command_templates, "_DEMAND_FREE_TYPES", frozenset())
+    rewrite = procedure_typecheck._replace_eliminated_let_procs
+    monkeypatch.setattr(procedure_typecheck, "_replace_eliminated_let_procs",
+        lambda node, *, let_proc_rewrite_results=None: rewrite(node, let_proc_rewrite_results=let_proc_rewrite_results or {0: None}))
+    monkeypatch.setattr(pure_expr, "_encodes_unchanged", lambda value: False)
+
+
+def _loop(monkeypatch, root: Path) -> None:
+    assert _cli(monkeypatch, _workspace(root, TICK), "run", "tick.orc", "--input", "n=12") == 0
+
+
+def _fanout(monkeypatch, root: Path) -> None:
+    assert _cli(monkeypatch, _workspace(root, FANOUT), "run", "fanout.orc") == 0
+
+
+def _killed(monkeypatch, root: Path) -> None:
+    _workspace(root, TICK)
+    (root / "kill.py").write_text(KILL_AFTER)
+    env = {**os.environ, "PYTHONPATH": str(Path(__file__).parents[1]), "KILL_AFTER": "5"}
+    killed = subprocess.run([sys.executable, "kill.py", "run", "tick.orc", "--input", "n=10"],
+                            cwd=root, env=env, capture_output=True, text=True)
+    assert killed.returncode == 75, killed.stderr
+    assert _cli(monkeypatch, root, "resume", _run_root(root).name) == 0
+
+
+def _scrub(value, names):
+    if isinstance(value, dict):
+        return {key: _scrub(item, names) for key, item in value.items()
+                if key not in {"time", "duration_ms", "memo_offset"} and not key.endswith("_at")}
+    if isinstance(value, list):
+        return [_scrub(item, names) for item in value]
+    return names.sub("ID", value) if isinstance(value, str) else value
+
+
+def _observed(monkeypatch, capsys, root: Path, workload, seen: list[bytes]) -> dict:
+    workload(monkeypatch, root)
+    run = _run_root(root)
+    names = re.compile(re.escape(run.name) + "|" + re.escape(str(root)))
+    capsys.readouterr()
+    assert _cli(monkeypatch, root, "report", "--run-id", run.name, "--format", "json") == 0
+    return {"program": names.sub("ID", (run / "closed_program.json").read_text()),
+            "memo": [_scrub(json.loads(line), names) for line in (run / "memo.jsonl").read_bytes().splitlines()],
+            "views": [_scrub(json.loads(view), names) for view in seen],
+            "report": _scrub(json.loads(capsys.readouterr().out), names)}
+
+
 class _Checks:
     """Self-checks installed for one test; ``full`` counts reductions from byte 0."""
 
@@ -130,8 +187,7 @@ def checks(monkeypatch):
 
 
 def test_loop_run_continues_folds_that_equal_fresh_reductions(tmp_path, monkeypatch, checks):
-    root = _workspace(tmp_path / "loop", TICK)
-    assert _cli(monkeypatch, root, "run", "tick.orc", "--input", "n=12") == 0
+    _loop(monkeypatch, tmp_path / "loop")
     _assert_cached_rows_are_the_journal_bytes()
     assert checks.continued > 12 * 3
     assert checks.shortcuts == 12
@@ -143,24 +199,35 @@ def test_loop_run_continues_folds_that_equal_fresh_reductions(tmp_path, monkeypa
 
 
 def test_parallel_map_run_continues_folds_that_equal_fresh_reductions(tmp_path, monkeypatch, checks):
-    root = _workspace(tmp_path / "fanout", FANOUT)
-    assert _cli(monkeypatch, root, "run", "fanout.orc") == 0
+    _fanout(monkeypatch, tmp_path / "fanout")
     _assert_cached_rows_are_the_journal_bytes()
     assert checks.continued
     assert checks.shortcuts == 4
 
 
 def test_killed_loop_resume_continues_folds_that_equal_fresh_reductions(tmp_path, monkeypatch, checks):
-    root = _workspace(tmp_path / "killed", TICK)
-    (root / "kill.py").write_text(KILL_AFTER)
-    env = {**os.environ, "PYTHONPATH": str(Path(__file__).parents[1]), "KILL_AFTER": "5"}
-    killed = subprocess.run([sys.executable, "kill.py", "run", "tick.orc", "--input", "n=10"],
-                            cwd=root, env=env, capture_output=True, text=True)
-    assert killed.returncode == 75, killed.stderr
-    assert _cli(monkeypatch, root, "resume", _run_root(root).name) == 0
+    _killed(monkeypatch, tmp_path / "killed")
     _assert_cached_rows_are_the_journal_bytes()
     assert checks.continued
     assert checks.shortcuts == 5
+
+
+@pytest.mark.parametrize("workload", [_loop, _fanout, _killed], ids=["loop", "parallel_map", "killed_resume"])
+def test_fast_and_reference_paths_give_the_same_program_memo_views_and_report(tmp_path, monkeypatch, capsys, workload):
+    memo_reducer._LAST = None
+    fast = _observed(monkeypatch, capsys, tmp_path / "fast", workload, _Checks(monkeypatch).views)
+    memo_reducer._LAST = None
+    with monkeypatch.context() as reference:
+        force_reference_paths(reference)
+        slow = _observed(reference, capsys, tmp_path / "slow", workload, _Checks(reference).views)
+    if workload is _fanout:
+        # Two items run at once, so record order and the intermediate views depend on timing;
+        # the self-check above already compared every view with the reference one for its prefix.
+        for observed in (fast, slow):
+            observed["memo"] = sorted(observed["memo"], key=json.dumps)
+            observed["views"] = observed["views"][-1:]
+            observed["report"]["steps"] = sorted(observed["report"]["steps"], key=json.dumps)
+    assert fast == slow
 
 
 BRANCH = '''(workflow-lisp (:language "0.1") (:target-dsl "2.39")
