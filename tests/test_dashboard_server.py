@@ -22,6 +22,7 @@ from orchestrator.workflow.evaluated.views import load_evaluated_view
 from tests.test_workflow_evaluated_cli import _run_cli
 from tests.test_workflow_evaluated_invalidate import _completed_run, _tree_bytes
 from tests.test_workflow_evaluated_readers import _pure_run, _scalar_run
+from tests.test_run_lock import _subprocess_writer
 from tests.workflow_inprocess_cli_helpers import cli_inprocess
 
 
@@ -529,3 +530,51 @@ def test_run_directory_with_non_utf8_name_is_skipped_with_a_warning(tmp_path: Pa
     assert f">{run_root.name}</a>" in body
     assert "bad\\xff" in body and "not UTF-8" in body
     assert _tree_bytes(tmp_path) == before
+
+
+def _elapsed_cell(body: str, run_name: str) -> str:
+    match = re.search(rf'>{re.escape(run_name)}</a></td>(?:<td>[^<]*</td>){{5}}<td>(?P<elapsed>[^<]*)</td>', body)
+    assert match is not None
+    return match.group("elapsed")
+
+
+def test_runs_with_the_same_name_in_two_workspaces_are_kept_apart(tmp_path: Path):
+    first, second = tmp_path / "first", tmp_path / "second"
+    first.mkdir()
+    second.mkdir()
+    run_root = _completed_run(first)
+    retired = second / ".orchestrate" / "runs" / run_root.name
+    retired.mkdir(parents=True)
+    (retired / "state.json").write_text('{"status": "running"}', encoding="utf-8")
+    app = DashboardApp(RunScanner([first, second]))
+
+    index = app.handle("GET", "/runs").body.decode()
+    pages = {workspace_id: app.handle("GET", f"/runs/{workspace_id}/{quote(run_root.name)}").body.decode()
+             for workspace_id in ("w0", "w1")}
+
+    assert index.count(f">{run_root.name}</a>") == 2
+    assert f'href="/runs/w0/{quote(run_root.name)}"' in index and f'href="/runs/w1/{quote(run_root.name)}"' in index
+    assert "<dt>Status</dt><dd>completed</dd>" in pages["w0"] and str(first.resolve()) in pages["w0"]
+    assert "<dt>Status</dt><dd>retired</dd>" in pages["w1"] and str(second.resolve()) in pages["w1"]
+
+
+def test_elapsed_column_is_start_to_last_record_or_to_request_time_while_running(tmp_path: Path):
+    (tmp_path / "done").mkdir()
+    (tmp_path / "live").mkdir()
+    completed = _completed_run(tmp_path / "done")
+    view = load_evaluated_view(completed)
+    started = datetime.fromisoformat(view["started_at"])
+    finished = int((datetime.fromisoformat(view["updated_at"]) - started).total_seconds())
+    later = DashboardApp(RunScanner([tmp_path / "done"]), now=started + timedelta(hours=5))
+    assert _elapsed_cell(later.handle("GET", "/runs").body.decode(), completed.name) == f"{finished}s"
+
+    running = _completed_run(tmp_path / "live")
+    memo = running / "memo.jsonl"
+    memo.write_bytes(b"".join(memo.read_bytes().splitlines(keepends=True)[:3]))   # a crash after one start
+    start = datetime.fromisoformat(load_evaluated_view(running)["started_at"])
+    with _subprocess_writer(running):
+        pages = {seconds: DashboardApp(RunScanner([tmp_path / "live"]), now=start + timedelta(seconds=seconds))
+                 .handle("GET", "/runs").body.decode() for seconds in (59, 3725)}
+    assert "<td>running</td>" in pages[59]
+    assert {seconds: _elapsed_cell(body, running.name) for seconds, body in pages.items()} == {
+        59: "59s", 3725: "1h 2m"}
