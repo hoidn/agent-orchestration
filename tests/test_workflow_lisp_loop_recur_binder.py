@@ -121,6 +121,53 @@ def test_binder_form_builds_the_fn_form_program(tmp_path: Path, case: str) -> No
     assert (binder_program.digest, binder_program.sites) == (fn_program.digest, fn_program.sites)
 
 
+# Inside a `defmacro` template (B1 of the I2a review): the initial state is renamed hygienically in
+# both forms, and the binder name is renamed in neither, so the two templates expand to one program.
+SEEDED_FN = "(let* ((tmp (seed x))) (loop/recur :max 2 :state tmp :on-exhausted s (fn (s) (if (check s) (done s) (continue (step s))))))"
+SEEDED_BINDER = "(let* ((tmp (seed x))) (loop/recur ((s tmp)) :max 2 :on-exhausted s (if (check s) (done s) (continue (step s)))))"
+NESTED_FN_TEMPLATE = ("(let* ((tmp (seed x))) (loop/recur :max 2 :state tmp :on-exhausted s (fn (s) (if (check s) (done s) "
+                      "(continue (loop/recur :max 1 :state (+ s tmp) :on-exhausted u (fn (u) (done (step u)))))))))")
+NESTED_BINDER_TEMPLATE = ("(let* ((tmp (seed x))) (loop/recur ((s tmp)) :max 2 :on-exhausted s (if (check s) (done s) "
+                          "(continue (loop/recur ((u (+ s tmp))) :max 1 :on-exhausted u (done (step u)))))))")
+
+
+def _macro_module(template: str, body: str, *, outer: bool = False) -> str:
+    extra = f"(defmacro grow (x) {template})"
+    if outer:
+        extra += " (defmacro twice (y) (let* ((tmp (budget y))) (+ tmp (grow tmp))))"
+    return _module(body, extra=extra)
+
+
+MACRO_CASES = {
+    "template_local_initial_state": (SEEDED_FN, SEEDED_BINDER, "(grow 1)", False),
+    "caller_name_equal_to_template_name": (SEEDED_FN, SEEDED_BINDER, "(let* ((tmp (budget 100))) (+ tmp (grow 1)))", False),
+    "caller_name_equal_to_binder_name": (SEEDED_FN, SEEDED_BINDER, "(let* ((s (budget 7))) (+ s (grow 1)))", False),
+    # A nested loop expanded straight into an operand, `(+ tmp (grow 1))`, is a compiler_defect in both
+    # forms on `main` too (KeyError on the inner binder); bound by `let*`, it builds.
+    "nested_loops_in_template": (NESTED_FN_TEMPLATE, NESTED_BINDER_TEMPLATE, "(let* ((tmp (budget 3)) (r (grow 1))) (+ tmp r))", False),
+    "template_used_by_another_template": (SEEDED_FN, SEEDED_BINDER, "(twice 2)", True),
+}
+
+
+@pytest.mark.parametrize("case", sorted(MACRO_CASES))
+def test_binder_form_in_a_macro_template_builds_the_fn_form_program(tmp_path: Path, case: str) -> None:
+    fn_template, binder_template, body, outer = MACRO_CASES[case]
+    fn_program = _program(tmp_path / "fn", _macro_module(fn_template, body, outer=outer))
+    binder_program = _program(tmp_path / "binder", _macro_module(binder_template, body, outer=outer))
+
+    assert (binder_program.digest, binder_program.sites) == (fn_program.digest, fn_program.sites)
+
+
+def test_template_cond_test_is_hygienic(tmp_path: Path) -> None:
+    """A `cond` clause test is the first item of its clause, as the binder pair is (same root cause)."""
+    from orchestrator.workflow.evaluated.machine import evaluate_closed_program
+
+    extra = "(defmacro pick (x) (let* ((tmp 5)) (cond ((= tmp 5) 1) (true 0))))"
+    program = _program(tmp_path, _module("(let* ((tmp 100)) (pick 1))", extra=extra))
+
+    assert evaluate_closed_program(program, {}).value == 1
+
+
 def test_binder_form_runs_the_source_before_max(tmp_path: Path) -> None:
     """With an effect in both, the fn form written `:max` first runs the budget first; the binder form the seed."""
     fn_program = _program(tmp_path / "fn", _module(

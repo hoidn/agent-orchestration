@@ -561,11 +561,13 @@ def _hygienic_generic_list(
     expansion_id: str,
     env: Mapping[str, str],
 ) -> SyntaxList:
+    # Item 0 is skipped only as a head name. A list there is data, not a head: the `(name init)`
+    # pair of a `loop/recur` binder or a `cond` clause's test, and it is renamed like any operand.
     return replace(
         datum,
         items=tuple(
             item
-            if index == 0
+            if index == 0 and not isinstance(item, SyntaxList)
             else _apply_hygiene(
                 item,
                 macro_name=macro_name,
