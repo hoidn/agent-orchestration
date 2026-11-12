@@ -104,7 +104,7 @@ def test_package_hash_changes_when_a_file_changes(tmp_path):
 
 def test_leak_check_rejects_a_statement_naming_a_hidden_test(tmp_path):
     text = "Fix the sum so that test_add_is_sum passes again, and keep every other operand pair working too."
-    assert b.leak_reason(text, ["test_add_is_sum"], [], tmp_path) == "statement names a hidden test"
+    assert b.leak_reason(text, ["test_add_is_sum"], tmp_path) == "statement names a hidden test"
 
 
 @pytest.fixture(scope="module")
@@ -174,7 +174,13 @@ def test_evaluate_leaves_the_callers_temporary_directory_and_path_unchanged(hist
     assert (os.environ.get("TMPDIR"), os.environ["PATH"], tempfile.gettempdir()) == before
 
 
-def test_outcome_that_differs_from_an_earlier_build_is_rejected():
-    rows = {"a": {"commit": "a", "reason": None}, "b": {"commit": "b", "reason": None}}
-    b.disagree(rows, {"a": {"reason": "a hidden node fails on the fix (run 2)"}, "b": {"reason": None}})
-    assert [rows[k]["reason"] for k in "ab"] == ["outcome differs from an earlier build", None]
+def test_statement_repeating_an_added_line_is_rejected():
+    text = "Fix the sum: the function now reads return a + b and returns the true sum of both operands."
+    assert b.statement_reason(text, ["return a + b and returns"]) == "statement repeats a line the fix adds"
+
+
+def test_withheld_form_of_the_package_passes_the_oracle(history, tmp_path):
+    from experiments.seed_set import forms
+    repo, _ = history
+    row = b.evaluate(b.mine(repo, "HEAD")[0][0], tmp_path, runs=1, withheld=forms.withhold)
+    assert (row["reason"], bool(row["withheld_sha256"])) == (None, True)
