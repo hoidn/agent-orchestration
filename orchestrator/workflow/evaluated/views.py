@@ -101,14 +101,21 @@ class ViewPublicationError(OSError):
     code = "view_write_failed"
 
 
-def publish_evaluated_view(authority, entry):
-    """Publish exactly the synchronized prefix using the writer's borrowed owner."""
+def publish_evaluated_view(authority, entry, *, start_reached=False):
+    """Publish exactly the synchronized prefix using the writer's borrowed owner.
+
+    ``start_reached`` is the writer's statement that ``entry`` is a ``started`` row its own
+    evaluation of this program reached over these commits (``runtime.prepare_effect``). The
+    replay could then only find that start pending: no value, no halt, and a ``next_effect``
+    that ``_view`` clears for the in-flight start, so the view is published without it.
+    """
     try:
         files = authority.run_files
         snapshot = reduce_memo(files.read(MEMO_FILENAME)[:entry.end], site_classes(authority.program))
         if snapshot.complete_bytes != entry.end or snapshot.entries[-1] != entry:
             raise MemoError("memo_inconsistent", "published prefix differs from synchronized append")
-        value, next_effect, halted = _replay(authority, snapshot)
+        reached = start_reached and entry.data["record"] == "started"
+        value, next_effect, halted = (None, None, False) if reached else _replay(authority, snapshot)
         terminal = _checked_terminal(snapshot, value, halted)
         publishing_host_reply = entry.data.get('effect_class') == 'request_input' and entry.data.get('host_reply', {}).get('origin') == 'host'
         view = _view(authority, snapshot, terminal, next_effect, halted, not publishing_host_reply)

@@ -193,7 +193,7 @@ def _install_fault_scenario(monkeypatch, parent, source, refs, boundaries, phase
     elif phase == "settled-view":
         real_publish = views.publish_evaluated_view
 
-        def publish(authority, entry):
+        def publish(authority, entry, **kwargs):
             if entry.data["record"] == "settled":
                 _capture_fault_bytes(
                     state,
@@ -201,7 +201,7 @@ def _install_fault_scenario(monkeypatch, parent, source, refs, boundaries, phase
                     state["requests"][0].ledger_path,
                 )
                 raise ViewPublicationError("injected settled-view publication failure")
-            return real_publish(authority, entry)
+            return real_publish(authority, entry, **kwargs)
 
         monkeypatch.setattr(views, "publish_evaluated_view", publish)
     else:
