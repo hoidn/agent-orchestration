@@ -7,12 +7,15 @@ from dataclasses import dataclass, field
 import json
 import math
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from orchestrator.workflow.evaluated import memo_reducer_agents as agents
 from orchestrator.workflow.evaluated.closure_evidence import validate_implementation_evidence
 
-_RECORDS = {"started", "committed", "failed", "suspended", "settled", "invalidated", "terminal"}
+if TYPE_CHECKING:
+    from orchestrator.workflow.evaluated.memo_reducer_lineage import Lineage
+
+_RECORDS = {"started", "committed", "failed", "suspended", "settled", "invalidated", "terminal", "rebased"}
 
 _CLASSES = {"command", "provider", "provider_phased", "run_ref", "agent", "agent_turn", "request_input"}
 
@@ -51,12 +54,18 @@ class MemoSnapshot:
     settlements: frozenset[tuple[str, int]]
     unsettled_coordinators: dict[tuple[str, int], JournalEntry]
     terminal: JournalEntry | None
+    lineage: Lineage        # the class of any row, by the program that wrote it
     suspensions: dict[str, JournalEntry] = field(default_factory=dict)
 
 
 def is_coordinator_class(name: str) -> bool:
     """Coordinator commits carry an inline proof and need a `settled` row before a terminal (K8)."""
     return name in COORDINATOR_CLASSES
+
+
+def class_in(table: Mapping[str, str], identity: str) -> str | None:
+    """An identity's class in a site table, a `[*]` site matching its instantiated indices."""
+    return table.get(identity) or table.get(_DYNAMIC_INDEX.sub("[*]", identity))
 
 
 def _inconsistent(detail: str) -> MemoError:
@@ -149,13 +158,11 @@ def _implementation_files(value: Any) -> None:
 class _Reducer:
     inconsistent = staticmethod(_inconsistent)
 
-    def __init__(self, site_classes: Mapping[str, str]) -> None:
-        if not isinstance(site_classes, Mapping) or any(
-            not isinstance(site, str) or not site or not isinstance(kind, str) or kind not in _CLASSES
-            for site, kind in site_classes.items()
-        ):
-            raise _inconsistent("checked site table is malformed")
-        self.site_classes = dict(site_classes)
+    def __init__(self, site_classes: Mapping[str, str], earlier=()) -> None:
+        from .memo_reducer_lineage import checked_tables
+        self.tables = checked_tables(site_classes, earlier)     # lineage order; the caller's table is the last
+        self.record_offsets: list[int] = []                    # offsets of the `rebased` records folded so far
+        self.site_classes = self.tables[0]                     # the table in force at the fold's position
         self.entries: list[JournalEntry] = []
         self.active: dict[str, JournalEntry] = {}
         self.latest: dict[str, JournalEntry] = {}
@@ -171,6 +178,7 @@ class _Reducer:
         complete_bytes = raw.rfind(b"\n") + 1
         complete, tail = raw[:complete_bytes], raw[complete_bytes:]
         offset = start
+        from .memo_reducer_lineage import Lineage
         for record in complete[start:].split(b"\n")[:-1]:
             line = record + b"\n"
             data = _decode_line(line, offset)
@@ -189,6 +197,7 @@ class _Reducer:
             frozenset(self.settlements),
             dict(self.unsettled),
             self.terminal,
+            Lineage(self.tables, tuple(self.record_offsets)),
             dict(self.suspensions),
         )
 
@@ -197,7 +206,7 @@ class _Reducer:
         kind = row.get("record")
         if not isinstance(kind, str) or kind not in _RECORDS:
             raise _inconsistent("record kind is missing or unknown")
-        if self.terminal is not None and kind not in {"started", "invalidated"}:
+        if self.terminal is not None and kind not in {"started", "invalidated", "rebased"}:
             raise _inconsistent("record follows a terminal without reopening it")
         handlers = {
             "started": self.started,
@@ -207,6 +216,7 @@ class _Reducer:
             "settled": self.settled,
             "invalidated": self.invalidated,
             "terminal": self.finish,
+            "rebased": self.rebased,
         }
         handlers[kind](entry)
 
@@ -218,9 +228,7 @@ class _Reducer:
     def site_class(self, identity: str) -> str:
         if "[*]" in identity:
             raise _inconsistent("identity contains an uninstantiated checked-site wildcard")
-        kind = self.site_classes.get(identity)
-        if kind is None:
-            kind = self.site_classes.get(_DYNAMIC_INDEX.sub("[*]", identity))
+        kind = class_in(self.site_classes, identity)
         if kind not in _CLASSES:
             raise _inconsistent(f"identity does not resolve to a checked effect site: {identity}")
         return kind
@@ -432,6 +440,14 @@ class _Reducer:
             raise _inconsistent("invalidation range contains a committed coordinator")
         agents.check_invalidation_cut(self, anchor)
 
+    def class_at(self, offset: int, identity: str) -> str:
+        from .memo_reducer_lineage import class_at
+        return class_at(self.tables, self.record_offsets, offset, identity)
+
+    def rebased(self, entry: JournalEntry) -> None:
+        from .memo_reducer_lineage import apply_rebased
+        apply_rebased(self, entry)
+
     def finish(self, entry: JournalEntry) -> None:
         row = entry.data
         outcome = row.get("outcome")
@@ -452,33 +468,38 @@ class _Reducer:
         self.terminal = entry
 
 
-def reduce_memo(raw: bytes, site_classes: Mapping[str, str]) -> MemoSnapshot:
-    """Reduce complete newline-terminated records without touching journal bytes."""
+def reduce_memo(raw: bytes, site_classes: Mapping[str, str], earlier=()) -> MemoSnapshot:
+    """Reduce complete records without touching journal bytes; `earlier`: one site table per `rebased` record."""
     if not isinstance(raw, bytes):
         raise TypeError("raw memo must be bytes")
-    reducer = _Reducer(site_classes)
+    reducer = _Reducer(site_classes, earlier)
     snapshot = reducer.reduce(raw, _resume_cached_prefix(reducer, raw))
+    if len(reducer.record_offsets) != len(reducer.tables) - 1:
+        raise _inconsistent("journal's rebased records do not end at the caller's program")
     global _LAST
     _LAST = (reducer, raw[:snapshot.complete_bytes])
     return snapshot
 
 
-# Reduction is a pure left fold over (checked site table, complete record bytes): no
+# Reduction is a pure left fold over (checked site tables, complete record bytes): no
 # validator reads files or clocks. The last reducer of this process therefore stands
 # for every memo whose complete records start with the same bytes, and a later
 # reduction folds only the records after them. Any other memo (replaced, truncated,
-# another site table) is reduced in full, as before. The saved reducer is never
+# another table at any position the fold used) is reduced in full, as before. The saved reducer is never
 # mutated again; snapshots share its JournalEntry rows, which consumers only read.
 _LAST: tuple[_Reducer, bytes] | None = None
-_STATE = ("entries", "active", "latest", "pending", "suspensions", "settlements", "unsettled", "next_ordinal")
+_STATE = ("entries", "active", "latest", "pending", "suspensions", "settlements", "unsettled", "next_ordinal",
+          "record_offsets")
 
 
 def _resume_cached_prefix(reducer: _Reducer, raw: bytes) -> int:
     """Load the saved fold into ``reducer`` when ``raw`` extends its bytes; return where to continue."""
+    from .memo_reducer_lineage import fold_continues
     cached = _LAST
-    if cached is None or not raw.startswith(cached[1]) or cached[0].site_classes != reducer.site_classes:
+    if cached is None or not raw.startswith(cached[1]) or not fold_continues(cached[0], reducer):
         return 0
     for name in _STATE:
         setattr(reducer, name, getattr(cached[0], name).copy())
     reducer.terminal = cached[0].terminal
+    reducer.site_classes = reducer.tables[len(reducer.record_offsets)]
     return len(cached[1])
