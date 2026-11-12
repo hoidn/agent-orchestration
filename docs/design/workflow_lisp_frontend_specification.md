@@ -4541,7 +4541,6 @@ The original resource/drain example is a historical design sketch, not an admitt
 - `workflow_call_signature_erased`
 - `macro_hidden_effect`
 - `loop_missing_on_exhausted`
-- `effect_site_positional`
 
 ## 93. Lint Levels
 
@@ -4561,12 +4560,6 @@ Examples:
   language server select it. One per authored `loop/recur` without
   `:on-exhausted` after macro expansion, in workflows and procedures, located
   at the loop; the loop that `list/map-effect` lowers to is not warned
-- `effect_site_positional`: warn, error under the strict profile. One per
-  scope (a definition body, branch arm, or loop body or exhaustion result)
-  holding two or more effects that no authored `let*` binder names, located at
-  the second and naming the first. Those effects get the positional site labels
-  `#1`, `#2`, which an inserted unnamed effect renames; binding each with
-  `let*` fixes its label. The lint changes no program
 
 The boundary lints `low_level_state_path_in_high_level_module` and
 `variant_output_without_variant_specific_fields` treat structurally effect-free
