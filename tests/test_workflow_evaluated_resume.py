@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+from types import SimpleNamespace
 import subprocess
 import sys
 
@@ -24,7 +26,19 @@ def _snapshot(root: Path) -> dict[str, bytes | None]:
     }
 
 
-def _completed(root: Path) -> tuple[Path, Path]:
+@pytest.fixture(scope='module')
+def completed_tree(tmp_path_factory):
+    """One real completed run, built once per module; tests receive private copies."""
+    root = tmp_path_factory.mktemp('completed')
+    _completed(root)
+    return root
+
+
+def _completed(root: Path, pristine: Path | None = None) -> tuple[Path, Path]:
+    if pristine is not None:
+        shutil.copytree(pristine, root, dirs_exist_ok=True)
+        (run_root,) = (root / '.orchestrate' / 'runs').iterdir()
+        return root / 'evaluated' / 'inputs.orc', run_root
     source, _ = _build(root)
     result = _run_cli(root, str(source), '--input', 'score=0.75')
     assert result.returncode == 0, result.stderr
@@ -36,8 +50,8 @@ def _completed(root: Path) -> tuple[Path, Path]:
     return source, run_root
 
 
-def test_public_completed_resume_uses_authority_without_state_view(tmp_path, monkeypatch):
-    _, run_root = _completed(tmp_path)
+def test_public_completed_resume_uses_authority_without_state_view(tmp_path, monkeypatch, completed_tree):
+    _, run_root = _completed(tmp_path, completed_tree)
     (run_root / 'state.json').unlink()
     assert not (run_root / 'state.json').exists()
     monkeypatch.chdir(tmp_path)
@@ -55,8 +69,8 @@ def _resume_cli(root: Path, run_id: str):
     )
 
 
-def test_completed_resume_cli_keeps_stale_view_and_torn_tail(tmp_path):
-    _, run_root = _completed(tmp_path)
+def test_completed_resume_cli_keeps_stale_view_and_torn_tail(tmp_path, completed_tree):
+    _, run_root = _completed(tmp_path, completed_tree)
     (run_root / 'state.json').write_text('{"schema_version":"2.1","status":"failed"}')
     with (run_root / 'memo.jsonl').open('ab') as stream:
         stream.write(b'{"partial":')
@@ -73,8 +87,8 @@ def test_completed_resume_cli_keeps_stale_view_and_torn_tail(tmp_path):
     ('schema', 'memo_inconsistent'), ('profile', 'memo_inconsistent'),
     ('missing-header', 'memo_inconsistent'), ('artifact', 'memo_inconsistent'),
 ])
-def test_preflight_refusals_preserve_all_evidence(tmp_path, monkeypatch, caplog, change, code):
-    source, run_root = _completed(tmp_path)
+def test_preflight_refusals_preserve_all_evidence(tmp_path, monkeypatch, caplog, change, code, completed_tree):
+    source, run_root = _completed(tmp_path, completed_tree)
     header_path = run_root / 'run.json'
     header = json.loads(header_path.read_text())
     if change == 'program':
@@ -107,8 +121,24 @@ def test_preflight_refusals_preserve_all_evidence(tmp_path, monkeypatch, caplog,
     assert _snapshot(tmp_path / '.orchestrate') == before
 
 
-def _configured_completed(tmp_path, monkeypatch):
+@pytest.fixture(scope='module')
+def configured_tree(tmp_path_factory):
+    """One real configured completed run, built once per module; tests receive private copies."""
+    root = tmp_path_factory.mktemp('configured')
+    with pytest.MonkeyPatch.context() as patch:
+        _, result, _ = _configured_completed(root, patch)
+    return root, result.run_id
+
+
+def _configured_completed(tmp_path, monkeypatch, pristine=None):
     from orchestrator.cli.commands.run import run_workflow
+    if pristine is not None:
+        root, run_id = pristine
+        shutil.copytree(root, tmp_path, dirs_exist_ok=True)
+        monkeypatch.chdir(tmp_path)
+        run_root = tmp_path / '.orchestrate' / 'runs' / run_id
+        return (tmp_path / 'evaluated' / 'inputs.orc', SimpleNamespace(run_id=run_id, run_root=run_root),
+                tmp_path / 'inputs.json')
     from orchestrator.cli.main import create_parser
     source, _ = _build(tmp_path)
     for name in ('providers', 'prompts', 'commands', 'imports'):
@@ -136,8 +166,8 @@ def _configured_completed(tmp_path, monkeypatch):
     return source, result, file
 
 
-def test_namespace_recipe_preserves_effective_request_and_file_binding(tmp_path, monkeypatch):
-    _, result, file = _configured_completed(tmp_path, monkeypatch)
+def test_namespace_recipe_preserves_effective_request_and_file_binding(tmp_path, monkeypatch, configured_tree):
+    _, result, file = _configured_completed(tmp_path, monkeypatch, configured_tree)
     header = json.loads((result.run_root / 'run.json').read_text())
     assert header['workflow_file'] == 'evaluated/inputs.orc'
     assert header['resume_request'] == {
@@ -160,9 +190,9 @@ def test_namespace_recipe_preserves_effective_request_and_file_binding(tmp_path,
     assert _snapshot(tmp_path / '.orchestrate') == before
 
 
-def test_stored_authority_without_recipe_remains_readable(tmp_path, monkeypatch):
+def test_stored_authority_without_recipe_remains_readable(tmp_path, monkeypatch, completed_tree):
     from orchestrator.workflow.evaluated.authority import load_run_authority
-    _, run_root = _completed(tmp_path)
+    _, run_root = _completed(tmp_path, completed_tree)
     header_path = run_root / 'run.json'
     header = json.loads(header_path.read_text())
     header.pop('resume_request', None)
@@ -172,9 +202,9 @@ def test_stored_authority_without_recipe_remains_readable(tmp_path, monkeypatch)
     assert resume_workflow(run_root.name) == 2
 
 
-def test_fresh_preparation_uses_stored_instance_and_rebound_carrier(tmp_path, monkeypatch):
+def test_fresh_preparation_uses_stored_instance_and_rebound_carrier(tmp_path, monkeypatch, completed_tree):
     import orchestrator.cli.commands.evaluated as module
-    _, run_root = _completed(tmp_path)
+    _, run_root = _completed(tmp_path, completed_tree)
     monkeypatch.chdir(tmp_path)
     seen = []
     bindings = []
@@ -207,8 +237,8 @@ def test_fresh_preparation_uses_stored_instance_and_rebound_carrier(tmp_path, mo
 
 
 @pytest.mark.parametrize('target,mode', [(t, m) for t in ('source', 'providers', 'prompts', 'commands', 'imports', 'producer') for m in ('invalid', 'missing', 'cycle')] + [('root', 'cycle')])
-def test_fresh_files_missing_or_invalid_refuse_without_publication(tmp_path, monkeypatch, target, mode):
-    source, result, _ = _configured_completed(tmp_path, monkeypatch)
+def test_fresh_files_missing_or_invalid_refuse_without_publication(tmp_path, monkeypatch, target, mode, configured_tree):
+    source, result, _ = _configured_completed(tmp_path, monkeypatch, configured_tree)
     path = tmp_path / 'lib' if target == 'root' else source if target == 'source' else tmp_path / (target + ('.orc' if target == 'producer' else '.json'))
     if target == 'root':
         path.rename(tmp_path / 'saved-root')
@@ -232,8 +262,8 @@ def test_fresh_files_missing_or_invalid_refuse_without_publication(tmp_path, mon
     ('prompts', {'unused': {'asset_file': 'unused.txt'}}),
     ('commands', {'unused': {'stable_command': ['python', 'unused.py'], 'closure': ['unused.py']}}),
 ])
-def test_unused_manifest_binding_changes_are_semantic(tmp_path, monkeypatch, caplog, name, payload):
-    _, result, _ = _configured_completed(tmp_path, monkeypatch)
+def test_unused_manifest_binding_changes_are_semantic(tmp_path, monkeypatch, caplog, name, payload, configured_tree):
+    _, result, _ = _configured_completed(tmp_path, monkeypatch, configured_tree)
     before = _snapshot(tmp_path / '.orchestrate')
     (tmp_path / (name + '.json')).write_text(json.dumps(payload))
     assert resume_workflow(result.run_id) == 2
@@ -296,9 +326,9 @@ def test_requested_input_file_is_required_when_fully_overridden(tmp_path, monkey
 
 
 @pytest.mark.parametrize('change', ['source-locator', 'unknown', 'missing', 'nonfinite', 'entry', 'roots', 'overrides'])
-def test_present_malformed_recipe_is_not_a_historical_header(tmp_path, monkeypatch, change):
+def test_present_malformed_recipe_is_not_a_historical_header(tmp_path, monkeypatch, change, completed_tree):
     from orchestrator.workflow.evaluated.authority import load_run_authority, RunAuthorityError
-    _, run_root = _completed(tmp_path)
+    _, run_root = _completed(tmp_path, completed_tree)
     path = run_root / 'run.json'
     header = json.loads(path.read_text())
     recipe = header['resume_request']
@@ -324,8 +354,8 @@ def test_present_malformed_recipe_is_not_a_historical_header(tmp_path, monkeypat
     assert _snapshot(tmp_path / '.orchestrate') == before
 
 
-def test_program_comparison_precedes_invalid_file_inputs_and_artifact(tmp_path, monkeypatch, caplog):
-    source, result, file = _configured_completed(tmp_path, monkeypatch)
+def test_program_comparison_precedes_invalid_file_inputs_and_artifact(tmp_path, monkeypatch, caplog, configured_tree):
+    source, result, file = _configured_completed(tmp_path, monkeypatch, configured_tree)
     source.write_text(source.read_text().replace('(threshold Float :default 0.5)', '(threshold Float :default 0.6)'))
     file.unlink()
     (result.run_root / 'closed_program.json').write_text('corrupt')
@@ -373,8 +403,8 @@ def test_c3_checks_all_emitted_interpreters_before_memo(tmp_path, monkeypatch, c
     assert _snapshot(tmp_path / '.orchestrate') == before
 
 
-def test_force_restart_evaluated_is_an_explicit_refusal(tmp_path, monkeypatch, caplog):
-    _, run_root = _completed(tmp_path)
+def test_force_restart_evaluated_is_an_explicit_refusal(tmp_path, monkeypatch, caplog, completed_tree):
+    _, run_root = _completed(tmp_path, completed_tree)
     monkeypatch.chdir(tmp_path)
     before = _snapshot(tmp_path / '.orchestrate')
     assert resume_workflow(run_root.name, force_restart=True) == 2
@@ -387,8 +417,8 @@ def test_force_restart_evaluated_is_an_explicit_refusal(tmp_path, monkeypatch, c
     '{"schema_version":"2.1","result_persistence_profile":null,"x":NaN}',
     '{"schema_version":"2.1","result_persistence_profile":null,"x":1e999}',
 ])
-def test_malformed_selector_refuses_before_evaluated_dispatch(tmp_path, monkeypatch, selector):
-    _, run_root = _completed(tmp_path)
+def test_malformed_selector_refuses_before_evaluated_dispatch(tmp_path, monkeypatch, selector, completed_tree):
+    _, run_root = _completed(tmp_path, completed_tree)
     (run_root / 'run.json').write_text(selector)
     monkeypatch.chdir(tmp_path)
     def forbidden(*args, **kwargs):
@@ -415,8 +445,8 @@ def test_explicit_entry_and_prebinding_typed_override_are_preserved(tmp_path):
         assert 'threshold' not in authority.header['resume_request']['input_overrides']
 
 
-def test_omitted_entry_is_not_recovered_from_historical_selected_entry(tmp_path, monkeypatch):
-    source, run_root = _completed(tmp_path)
+def test_omitted_entry_is_not_recovered_from_historical_selected_entry(tmp_path, monkeypatch, completed_tree):
+    source, run_root = _completed(tmp_path, completed_tree)
     text = source.read_text().replace('(export run)', '(export run alternate)')
     source.write_text(text.replace('(defrecord Result', '(defworkflow alternate () -> String "other") (defrecord Result'))
     monkeypatch.chdir(tmp_path)
@@ -425,9 +455,9 @@ def test_omitted_entry_is_not_recovered_from_historical_selected_entry(tmp_path,
     assert _snapshot(tmp_path / '.orchestrate') == before
 
 
-def test_fresh_defaults_and_overrides_are_not_seeded_from_stored_bound_inputs(tmp_path, monkeypatch, caplog):
+def test_fresh_defaults_and_overrides_are_not_seeded_from_stored_bound_inputs(tmp_path, monkeypatch, caplog, completed_tree):
     from orchestrator.workflow.run_ref.contracts import canonical_sha256
-    _, run_root = _completed(tmp_path)
+    _, run_root = _completed(tmp_path, completed_tree)
     path = run_root / 'run.json'
     header = json.loads(path.read_text())
     header['bound_inputs']['threshold'] = 0.9
@@ -460,8 +490,8 @@ def test_input_file_locator_retains_resolved_target_of_initial_symlink(tmp_path,
     assert _snapshot(tmp_path / '.orchestrate') == before
 
 
-def test_explicit_invalid_run_ref_root_is_still_validated(tmp_path, monkeypatch):
-    _, run_root = _completed(tmp_path)
+def test_explicit_invalid_run_ref_root_is_still_validated(tmp_path, monkeypatch, completed_tree):
+    _, run_root = _completed(tmp_path, completed_tree)
     monkeypatch.chdir(tmp_path)
     before = _snapshot(tmp_path / '.orchestrate')
     assert resume_workflow(run_root.name, run_ref_root='relative') == 2
