@@ -92,6 +92,10 @@ Runtime-focused smoke selector:
 pytest -q tests/test_workflow_evaluated_invalidate_smoke.py
 ```
 
+Closed structural-search campaign tests (`tests/experiments/test_orc_structural_search_*`)
+are skipped by default, except the fast `pricing`, `metering`, `records` and `pareto` modules,
+whose code live studies still import; set `ORCHESTRATE_CAMPAIGN_TESTS=1` to run them all.
+
 E2E infrastructure selector:
 
 ```bash

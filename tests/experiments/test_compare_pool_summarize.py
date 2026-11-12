@@ -12,9 +12,10 @@ from pathlib import Path
 import pytest
 
 from experiments.compare import pool as pooling, prepare, repos, summarize
-from tests.experiments.compare_harness_support import (  # noqa: F401 (world and pooled are fixtures)
-    REPO, call, drive, edit, pooled, skip_without_sandbox, start, world, write_memo, write_task,
+from tests.experiments.compare_harness_support import (
+    REPO, call, drive, edit, skip_without_sandbox, start, write_memo, write_task,
 )
+from tests.experiments.compare_pooled_snapshot import _template, pooled, world  # noqa: F401 (fixtures)
 
 skip_without_sandbox()
 

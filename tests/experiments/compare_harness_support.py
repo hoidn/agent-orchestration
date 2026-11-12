@@ -125,6 +125,11 @@ def open_up(directory):
 
 @pytest.fixture
 def world(tmp_path, monkeypatch):
+    yield from make_world(tmp_path, monkeypatch)
+
+
+def make_world(tmp_path, monkeypatch):
+    """Generator behind the `world` fixture: yields the world, then removes the trees outside tmp_path."""
     main = tmp_path / "main"
     main.mkdir()
     git(main, "init", "-q")
@@ -227,6 +232,10 @@ def edit(cand, body, design=False):
 
 @pytest.fixture
 def pooled(world):
+    return make_pooled(world)
+
+
+def make_pooled(world):
     """One best_of_n run (two candidates, the second with a design file), two reviewed_change runs
     (one whose final patch equals its first), one control run and one failed control run."""
     implement = edit("$PWD", "a + b")
