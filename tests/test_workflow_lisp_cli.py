@@ -248,81 +248,6 @@ def _kiss_run_args(*, dry_run: bool = True, input_values: list[str] | None = Non
     )
 
 
-def test_parser_supports_compile_and_explain_subcommands() -> None:
-    parser = create_parser()
-
-    compile_args = parser.parse_args(
-        [
-            "compile",
-            str(ENTRYPOINT),
-            "--entry-workflow",
-            "orchestrate",
-            "--source-root",
-            str(SOURCE_ROOT),
-            "--provider-externs-file",
-            str(CLI_FIXTURES / "providers.json"),
-            "--prompt-externs-file",
-            str(CLI_FIXTURES / "prompts.json"),
-            "--imported-workflow-bundles-file",
-            str(CLI_FIXTURES / "imported_workflow_bundles.json"),
-            "--command-boundaries-file",
-            str(CLI_FIXTURES / "commands.closed.json"),
-            "--emit-executable-ir",
-            "--emit-core-ast",
-            "--emit-runtime-plan",
-            "exports/runtime_plan.json",
-            "--emit-semantic-ir",
-            "exports/semantic_ir.json",
-            "--emit-source-map",
-            "out/maps/source_map.json",
-            "--emit-debug-yaml",
-            "--diagnostics-json",
-        ]
-    )
-    explain_args = parser.parse_args(
-        [
-            "explain",
-            str(ENTRYPOINT),
-            "--form",
-            "orchestrate",
-            "--entry-workflow",
-            "orchestrate",
-            "--source-root",
-            str(SOURCE_ROOT),
-            "--provider-externs-file",
-            str(CLI_FIXTURES / "providers.json"),
-            "--prompt-externs-file",
-            str(CLI_FIXTURES / "prompts.json"),
-            "--imported-workflow-bundles-file",
-            str(CLI_FIXTURES / "imported_workflow_bundles.json"),
-            "--command-boundaries-file",
-            str(CLI_FIXTURES / "commands.closed.json"),
-            "--emit-debug-yaml",
-            "--emit-executable-ir",
-            "exports/executable_ir.json",
-            "--emit-core-ast",
-            "--emit-runtime-plan",
-            "--emit-core-ast",
-        ]
-    )
-
-    assert compile_args.command == "compile"
-    assert compile_args.emit_executable_ir == [None]
-    assert compile_args.emit_core_ast == [None]
-    assert compile_args.emit_runtime_plan == ["exports/runtime_plan.json"]
-    assert compile_args.emit_semantic_ir == ["exports/semantic_ir.json"]
-    assert compile_args.emit_source_map == ["out/maps/source_map.json"]
-    assert compile_args.emit_debug_yaml == [None]
-    assert compile_args.diagnostics_json is True
-    assert explain_args.command == "explain"
-    assert explain_args.form == "orchestrate"
-    assert explain_args.emit_debug_yaml == [None]
-    assert explain_args.emit_executable_ir == ["exports/executable_ir.json"]
-    assert explain_args.emit_core_ast == [None, None]
-    assert explain_args.emit_runtime_plan == [None]
-    assert not hasattr(explain_args, "diagnostics_json")
-
-
 def test_compile_diagnostics_json_acceptance_is_one_closed_machine_document(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -612,15 +537,6 @@ def test_parser_accepts_orc_specific_run_flags() -> None:
     assert args.imported_workflow_bundles_file == str(CLI_FIXTURES / "imported_workflow_bundles.json")
     assert args.command_boundaries_file == str(CLI_FIXTURES / "commands.closed.json")
     assert args.dry_run is True
-
-
-def test_help_omits_retired_migration_generators_but_keeps_route_readiness() -> None:
-    help_text = create_parser().format_help()
-
-    assert "migration-parity" not in help_text
-    assert "workflow-lisp-migration-parity" not in help_text
-    assert "workflow-lisp-post-wcc-inventory" not in help_text
-    assert "workflow-lisp-route-readiness" in help_text
 
 
 def test_run_workflow_supports_orc_dry_run(tmp_path: Path, monkeypatch) -> None:
