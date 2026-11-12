@@ -23,6 +23,7 @@ from tests.experiments.compare_harness_support import skip_without_sandbox
 from orchestrator.providers.registry import ProviderRegistry
 from tests.experiments.orc_structural_search_support import (  # noqa: F401 (pyright and world are fixtures)
     I3_CONFIG, PYTHON_PARENT, SCRIPTED, capped_copy, pyright, script, world)
+from tests.agent_session_shims import closed_path
 
 CONFIG = ExperimentConfig(
     mutable_files=("direct.orc",), mutable_definitions=("run",), condition="topology-only", interface="I1",
@@ -42,7 +43,7 @@ def sandboxed():
 
 
 def run(world, timeout_sec=NO_KILL_SEC, candidate=None, config=CONFIG):
-    env = {**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}", "SCRIPTED_RESULTS_FILE": str(world.results)}
+    env = {**os.environ, "PATH": closed_path(world.fakebin), "SCRIPTED_RESULTS_FILE": str(world.results)}
     record = evaluate(candidate or world.candidate, launch_config(world, config), task_package=world.task, work_root=world.evidence,
                       replicate=1, runtime=world.runtime, env=env, timeout_sec=timeout_sec, criterion=world.criterion)
     return record, env
@@ -261,8 +262,7 @@ def fake_cli(directory: Path, name: str, output: str) -> Path:
 def test_env_manifest_digest_changes_with_cli_versions(tmp_path):
     shim = fake_cli(tmp_path / "shim", "claude", "the shim")  # a directory holding model-guard is skipped
     (shim / "model-guard").write_text("")
-    digests = [record_env_manifest(tmp_path / "work", {"PATH": f"{shim}:{fake_cli(tmp_path / v, 'claude', v)}:"
-                                                               f"{os.environ['PATH']}"})
+    digests = [record_env_manifest(tmp_path / "work", {"PATH": closed_path(shim, fake_cli(tmp_path / v, 'claude', v))})
                for v in ("claude 1.0.0", "claude 1.0.1")]
     manifest = json.loads((tmp_path / "work" / "env-manifests" / f"{digests[1].removeprefix('sha256:')}.json").read_text())
     assert (digests[0] != digests[1], manifest["cli"]["claude"], sorted(manifest["cli"])) == (

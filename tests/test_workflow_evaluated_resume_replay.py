@@ -25,6 +25,7 @@ from tests.test_workflow_evaluated_resume_kills import (
     _kill_after_first_commit,
 )
 from tests.test_workflow_evaluated_cli import _run_cli
+from tests.agent_session_shims import closed_path
 
 
 def _create_completed_three_command_run(tmp_path: Path) -> Path:
@@ -261,7 +262,7 @@ def test_completed_provider_resume_reuses_deleted_must_exist_result_twice(tmp_pa
     artifact = tmp_path / "artifacts" / "work" / "saved.txt"
     artifact.parent.mkdir(parents=True)
     artifact.write_text("committed output\n", encoding="utf-8")
-    monkeypatch.setenv("PATH", str(tmp_path / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(tmp_path / "bin"))
     result = _provider_cli(tmp_path, fixture, payload='"artifacts/work/saved.txt"')
 
     assert result.returncode == 0, result.stderr

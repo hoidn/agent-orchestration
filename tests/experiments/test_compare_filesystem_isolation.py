@@ -12,6 +12,7 @@ import pytest
 from tests.experiments.compare_harness_support import call, git, skip_without_sandbox, start, world  # noqa: F401
 from tests.experiments.orc_structural_search_support import world as structural_world  # noqa: F401
 from tests.experiments.test_orc_structural_search_scoring import evaluations as structural_evaluations  # noqa: F401
+from tests.agent_session_shims import closed_path
 
 skip_without_sandbox()
 
@@ -484,7 +485,7 @@ def selected_environment(world):
     pointer.write_text(json.dumps(dependencies))
     environment = {**os.environ, 'HOME': str(source), 'CODEX_HOME': str(source / '.codex'),
         'CLAUDE_CONFIG_DIR': str(source / '.claude'), 'COMPARE_SANDBOX': str(pointer),
-        'PATH': f'{world.fakebin}:{os.environ["PATH"]}'}
+        'PATH': closed_path(world.fakebin)}
     environment.pop('COMPARE_CLAUDE_MODELS', None)
     return environment
 
@@ -624,7 +625,7 @@ def test_codex_only_episode_models_never_prepare_claude_state(structural_world):
     (structural_world.fakebin / 'codex').write_text('#!/bin/sh\ncat >/dev/null\nexit 0\n')
     evidence = structural_world.tmp / 'privacy-evidence'
     _, parent = archive(structural_world.candidate, evidence, structural_world.runtime)
-    environment = {**os.environ, 'PATH': f'{structural_world.fakebin}:{os.environ["PATH"]}'}
+    environment = {**os.environ, 'PATH': closed_path(structural_world.fakebin)}
     config = launch_config(structural_world, config_of(models={'gpt-5.6-terra': ['high']}))
     row = run_episode(parent, config, interface='I1', mode='unguided',
         agent_cmd=['codex', '--model', 'gpt-5.6-terra', 'exec', '-c', 'model_reasoning_effort=high', '-'],

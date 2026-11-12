@@ -8,6 +8,7 @@ Purpose: Central place for how to run, scope, and reason about E2E tests in this
 - Prefer the narrowest relevant `pytest` selector first. Expand to broader suites only when the changed surface justifies it.
 - For the broad check after narrow selectors, run a random tenth of the suite: `pytest -q -n 16 --dist=worksteal --sample 10` (about two minutes). Run the whole suite, the same command without `--sample` (about eight minutes), before merging to `main`; keep long runs in tmux. Install `.[dev]` for the required pytest-xdist plugin.
 - If you add or rename tests, run `pytest --collect-only` on those modules before claiming coverage exists.
+- Tests never reach a real provider CLI. The session puts blocking `claude`, `codex`, `omp` and `pi` stubs first on `PATH` and fails the run if one is invoked (`tests/conftest.py`; the summary lists each hit with its test). Install a stand-in and pass `closed_path(...)` from `tests/agent_session_shims.py` to the subprocess; do not append the inherited `PATH`. The opt-in live smoke tests need `ORC_TEST_ALLOW_REAL_PROVIDERS=1`, which turns the guard off and spends provider calls.
 - Do not weaken verification just to get green. If a test or smoke check is wrong, fix the test or the implementation and document the reason.
 - Changes that affect workflow execution, provider prompting, artifact contracts, or demo trial mechanics should rerun at least one orchestrator/demo smoke check in addition to unit tests.
 

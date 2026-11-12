@@ -16,6 +16,7 @@ from tests.test_workflow_evaluated_provider_lifecycle import (
 from tests.test_workflow_evaluated_provider_io import (
     WREF, _checked, _reader_path, _stages, _typed,
 )
+from tests.agent_session_shims import closed_path
 
 
 @pytest.mark.parametrize(
@@ -158,7 +159,7 @@ def test_supplied_staged_provider_selection_reaches_real_performer(tmp_path, mon
         return providers
 
     monkeypatch.setattr(ProviderRegistry, "_load_builtin_providers", templates)
-    monkeypatch.setenv("PATH", str(tmp_path / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(tmp_path / "bin"))
     monkeypatch.setenv("PROVIDER_SHIM_RESULT", '{"n":7}')
     built = SimpleNamespace(program=checked, provider_io=provider_io)
     with publish_run_authority(tmp_path / ".state" / "run-1", checked, run_id="run-1",

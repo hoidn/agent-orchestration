@@ -14,6 +14,7 @@ from tests.test_workflow_evaluated_providers import (
     _orchestrate_snapshot,
     _requests,
 )
+from tests.agent_session_shims import closed_path
 
 
 def test_public_cli_selects_distinct_import_assets_without_redispatch(tmp_path, monkeypatch):
@@ -40,7 +41,7 @@ def test_public_cli_selects_distinct_import_assets_without_redispatch(tmp_path, 
                          "entry_workflow": "get"}
     imports_path = tmp_path / "imports.json"
     imports_path.write_text(json.dumps(imports))
-    monkeypatch.setenv("PATH", str(tmp_path / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(tmp_path / "bin"))
     monkeypatch.setenv("PROVIDER_SHIM_RESULTS", json.dumps([
         '1', '2',
     ]))

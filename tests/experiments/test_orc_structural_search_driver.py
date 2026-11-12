@@ -25,6 +25,7 @@ from experiments.orc_structural_search.sites import eligible_sites, site_manifes
 from tests.experiments.compare_harness_support import skip_without_sandbox
 from tests.experiments.orc_structural_search_support import (  # noqa: F401 (world: fixture)
     MUTATOR, MUTATOR_I2, REPO, SEEDS, script, world)
+from tests.agent_session_shims import closed_path
 
 CATALOG = ["direct", "plan_then_implement", "implement_review_revise", "best_of_n", "implement_check_diagnose_repair"]
 CONFIG = {"mutable_files": ["direct.orc"], "mutable_definitions": ["run"], "condition": "topology-only",
@@ -65,7 +66,7 @@ def mode1(world, seeds, **launch):
     (world.tmp / "config.json").write_text(json.dumps(CONFIG | {"criterion_sha256": sha256_file(world.criterion)}))
     mutator = world.outside / "mutator.py"
     mutator.write_text(MUTATOR)
-    env = {**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}", "SCRIPTED_RESULTS_FILE": str(world.results)}
+    env = {**os.environ, "PATH": closed_path(world.fakebin), "SCRIPTED_RESULTS_FILE": str(world.results)}
     evidence = world.tmp / "evidence"
     readout = run_mode1(world.tmp / "config.json", seeds=[world.candidate / f"{name}.orc" for name in seeds], tasks=[world.task],
                         work_root=world.outside / "work", evidence_root=evidence, episodes=3,
@@ -265,7 +266,7 @@ subprocess.run(["claude", "-p"], input=Path("EPISODE.md").read_text(), text=True
 
 def fake_claude(world, source):
     (world.fakebin / "claude").write_text(source)
-    return {**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}"}
+    return {**os.environ, "PATH": closed_path(world.fakebin)}
 
 
 def test_mutator_runs_behind_shims_and_guard(sandboxed, world):
@@ -291,7 +292,7 @@ def test_an_episode_session_naming_the_work_roots_evaluation_records_is_scan_pen
 
 def test_concurrent_catalog_logs_each_evaluation_once(sandboxed, world):
     script(world, [{"match": "Plan this task", "sleep": 15, "result": {"steps": ["edit pkg"]}}, *ANSWERS])
-    env = {**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}", "SCRIPTED_RESULTS_FILE": str(world.results)}
+    env = {**os.environ, "PATH": closed_path(world.fakebin), "SCRIPTED_RESULTS_FILE": str(world.results)}
     evidence = world.tmp / "evidence"
     rows = enumerate_catalog([world.candidate / "plan_then_implement.orc", world.candidate / "direct.orc"], launch_config(world, config_of()), tasks=[world.task],
                              work_root=world.outside / "work", evidence_root=evidence, replicates=1,
@@ -451,7 +452,7 @@ def test_i2_refuses_a_replacement_whose_type_the_manifest_cannot_report(world):
 def test_two_structurally_different_i2_replacements_both_compile_and_execute(sandboxed, world):
     rows = [i2_episode(world, index)[0] for index in (0, 2)]
     script(world, ANSWERS)
-    env = {**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}", "SCRIPTED_RESULTS_FILE": str(world.results)}
+    env = {**os.environ, "PATH": closed_path(world.fakebin), "SCRIPTED_RESULTS_FILE": str(world.results)}
     evaluations = evaluate_all([(Path(row["candidate_root"]), launch_config(world, config_of()), {}) for row in rows], tasks=[world.task],
                                replicates=1, concurrency=2, work_root=world.outside / "work",
                                evidence_root=world.tmp / "evidence", runtime=world.runtime, env=env, timeout_sec=600,

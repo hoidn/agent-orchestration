@@ -11,6 +11,7 @@ from orchestrator.contracts.closed_program.program import ClosedProgram
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.workflows import PromptExtern
 from tests.workflow_lisp_closed_program_helpers import TARGET, install
+from tests.agent_session_shims import closed_path
 
 
 @pytest.mark.parametrize("imported", (False, True))
@@ -374,7 +375,7 @@ def test_public_imported_boundary_projects_once_only_operand_values(tmp_path, mo
     install(tmp_path, producer)
     files["imports"] = tmp_path / "imports.json"
     files["imports"].write_text(json.dumps({"dep": {"kind": "compiled", "path": "producer.orc"}}))
-    monkeypatch.setenv("PATH", str(tmp_path / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(tmp_path / "bin"))
     monkeypatch.setenv("PROVIDER_SHIM_RESULTS",
                        json.dumps(["11", '{"x":"reports/left.txt","y":"reports/right.txt"}', "5"]))
     compile_public(files)
