@@ -1,6 +1,6 @@
 # Roadmap Phase 0: Records And Baseline Plan
 
-**Status: Plan, in execution.** Implements Phase 0 of the
+**Status: Plan, executed 2026-11-11.** Implements Phase 0 of the
 [current roadmap](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#phase-0-records-and-baseline).
 It changes documents and housekeeping only: no runtime, language or spec
 behavior, and no provider spend.
@@ -104,3 +104,8 @@ stale Phase 4 text, which gets a correction note beside it.
 | Date | Entry |
 | --- | --- |
 | 2026-11-11 | Owner approved roadmap revision 2; Phase 0 started. No provider spend is planned or authorized in this phase. |
+| 2026-11-11 | Task 1 done: audit notes, roadmap reviews, the experiments page and the adversarial DAQ record are committed and indexed (`aaa2ea51`, `95afde32`, `506e4d47`). |
+| 2026-11-11 | Task 2 done: 16 records carry a dated disposition note (`80c69892`, `a2835f42`); index, status matrix and design README aligned (`e69c224b`, `d72304f1`); the two dynamic branches are tagged `archive/dynamic-core-2026-11-11` and `archive/dynamic-2026-11-11`, nothing pushed. |
+| 2026-11-11 | Task 3 done: 390 leftover temp directories removed (about 16 KB of content; none held evidence); 29 `tmp_*`/`tmp-*` root directories removed on the owner's instruction; 18 merged, clean, idle worktrees removed and 9 stale entries pruned; about 7 GB freed. Incident: removing `.worktrees/omp-i1-prerequisites` broke the base environment's editable install for a few minutes; the worktree was re-created at the same commit. |
+| 2026-11-11 | Task 4 done: see the [test baseline report](../reports/2026-11-11-test-baseline.md). The two runs share seven failing ids (three fixed since, four an artifact of the worktree recipe); four further ids appeared in one run only and are recorded as load-sensitive. |
+| 2026-11-11 | Phase 0 closed. Exit test: the roadmap is the single page that states the next work, and the failing ids are reproduced or explained. |
