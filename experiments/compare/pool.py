@@ -283,12 +283,14 @@ def validate_natural_attempts(criterion, runs):
 
 def build_batches(out, task, ref, batches, rule, criterion=None, review_exclude=()):
     clones, members, references = {}, [], []
-    anchors = anchor_paths(task, criterion)
+    anchors, rng = anchor_paths(task, criterion), random.SystemRandom()
     for batch in batches:
-        made = [add_clone(out, task, ref, patch_bytes(path, rec, labels[0]),
-                          {"run": path, "arm": rec["arm"], "labels": labels}, review_exclude) for path, rec, labels in batch]
-        made += [add_clone(out, task, ref, a.read_bytes(), {"run": None, "arm": "anchor", "labels": [a.stem]}, review_exclude)
-                 for a in anchors]
+        planned = [(patch_bytes(path, rec, labels[0]), {"run": path, "arm": rec["arm"], "labels": labels})
+                   for path, rec, labels in batch]
+        planned += [(a.read_bytes(), {"run": None, "arm": "anchor", "labels": [a.stem]}) for a in anchors]
+        order = rng.sample(range(len(planned)), len(planned))  # build order shows in file timestamps: it must
+        built = {k: add_clone(out, task, ref, *planned[k], review_exclude) for k in order}  # not reveal arms
+        made = [built[k] for k in range(len(planned))]  # the mapping keeps the planned member order
         clones.update(made)
         members.append([cid for cid, _ in made])
         if rule["reference"]:
