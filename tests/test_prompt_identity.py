@@ -537,6 +537,17 @@ def _retained_v1(
     return _record_seal(record)
 
 
+def _valid_v2(module=None) -> tuple[dict[str, Any], dict[str, Any]]:
+    module = module or _identity_module()
+    retained = _retained_v1()
+    record = module.build_prompt_fragment_snapshot_v2(
+        validated_retained_v1=retained,
+        prompt_attempt_identity=_attempt_identity(module),
+        compiler_fragment_identity_schema_version=COMPILED_V1,
+    )
+    return retained, _thaw(record)
+
+
 def _reseal_role(role: dict[str, Any]) -> None:
     role["sha256"] = _sha_json(role["payload"])
 
