@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import bisect
 from datetime import datetime, timezone
 import json
 import os
@@ -159,6 +160,8 @@ def _view(authority, snapshot, terminal, next_effect, halted, active):
     view.update(updated_at=_timestamp(times[-1]) if times else header["started_at"],
                 status=_status(snapshot, halted, active), memo_offset=snapshot.complete_bytes,
                 steps=_effect_rows(snapshot), next_effect=next_effect)
+    if snapshot.lineage.record_offsets:
+        view["programs"] = _programs(header, snapshot)
     in_flight = [*snapshot.pending_starts.values(), *snapshot.unsettled_coordinators.values()]
     view["current_step"] = None
     if in_flight:
@@ -202,7 +205,34 @@ def _effect_rows(snapshot):
         if identity not in rows or row.get("attempt") != rows[identity]["attempt"]:
             continue
         _update_effect_row(rows[identity], row, snapshot)
+    if snapshot.lineage.record_offsets:
+        _lineage_rows(rows, snapshot)
     return rows
+
+
+def _programs(header, snapshot):
+    """The run's programs in lineage order (C10): the first from the header, then one per `rebased` record."""
+    records = [entry.data for entry in snapshot.entries if entry.data["record"] == "rebased"]
+    return [{"digest": header["program_digest"], "time": header["started_at"], "cut": None},
+            *({"digest": row["program_digest"], "time": _timestamp(row["time"]), "cut": row["from_offset"]}
+              for row in records)]
+
+
+def _lineage_rows(rows, snapshot):
+    """A run with several programs: each row's `program` (in force at its latest start); a start a cut or range
+    retired shows `invalidated`; a row whose attempts have more than one class lists its provider-class ones."""
+    lineage, metered = snapshot.lineage, {}
+    for entry in snapshot.entries:
+        row = entry.data
+        if row["record"] == "started" and lineage.class_at(entry.offset, row["identity"]) in PROVIDER_CLASSES:
+            metered.setdefault(row["identity"], []).append(row["attempt"])
+    for identity, target in rows.items():
+        target["program"] = bisect.bisect_right(lineage.record_offsets, snapshot.latest_starts[identity].offset)
+        if target["status"] == "running" and identity not in snapshot.pending_starts:
+            target["status"] = "invalidated"
+        attempts = metered.get(identity, [])
+        if attempts != (list(range(1, target["attempt"] + 1)) if target["effect_class"] in PROVIDER_CLASSES else []):
+            target["metered_attempts"] = attempts
 
 
 def _update_effect_row(target, row, snapshot):
@@ -253,7 +283,7 @@ def report_snapshot(view: dict[str, Any], run_root: Path, table: dict | None = N
               "output": {"output_preview": repr(row.get("output")),
                          "duration_ms": row.get("duration_ms")}}
              for row in view["steps"].values()]
-    metered = [step for step in steps if step["kind"] in PROVIDER_CLASSES]
+    metered = [step for step in steps if step["kind"] in PROVIDER_CLASSES or "metered_attempts" in step]
     per_step, total = run_usage(run_root, metered, table)
     for step in metered:
         step["usage"] = per_step[step["identity"]]

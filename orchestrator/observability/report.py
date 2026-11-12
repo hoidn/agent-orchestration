@@ -48,6 +48,15 @@ def _render_step_usage(step: Mapping[str, Any]) -> list[str]:
 
 
 
+def _render_programs(programs) -> list[str]:
+    """A run with several programs (a `rebased` record): one line per program, index as the rows name it."""
+    if not programs:
+        return []
+    return ["## Programs", *(f"- {index}: `{item['digest']}` since `{item['time']}`"
+                             + ("" if item["cut"] is None else f", cut at byte `{item['cut']}`")
+                             for index, item in enumerate(programs)), ""]
+
+
 def render_status_markdown(snapshot: Dict[str, Any]) -> str:
     """Render an evaluated run's report snapshot without invented audit data."""
     return _render_evaluated_status_markdown(snapshot)
@@ -79,12 +88,13 @@ def _render_evaluated_status_markdown(snapshot: Dict[str, Any]) -> str:
         for pending in run['run_ref_cleanup']:
             lines.append(_render_kv_lines(pending.items()))
             lines.append('')
+    lines.extend(_render_programs(run.get("programs")))
     lines.extend(_render_run_usage(run.get("usage")))
     lines.extend(["## Progress", _render_kv_lines(snapshot["progress"].items()), "", "## Steps"])
     for step in snapshot["steps"]:
         lines.extend([f"### {step['name']} ({step['status']})", _render_kv_lines(
             (key, step.get(key)) for key in ("kind", "attempt", "result_path", "started_at", "completed_at",
-                                         "agent", "predecessor", "continuation", "locator_present"))])
+                                         "agent", "predecessor", "continuation", "locator_present", "program"))])
         lines.extend(_render_step_usage(step))
         if "value" in step:
             lines.append(_render_json_fence(step["value"]))

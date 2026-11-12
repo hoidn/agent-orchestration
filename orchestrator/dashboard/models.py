@@ -96,6 +96,7 @@ class DashboardStep:
     attempt: Optional[int] = None
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
+    program: Optional[int] = None       # index into the view's `programs`; None for a run with one program
 
 
 @dataclass(frozen=True)

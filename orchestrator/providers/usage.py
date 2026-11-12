@@ -226,13 +226,15 @@ def run_usage(run_root: Path, steps: Iterable[dict], table: dict) -> tuple[dict[
     """`report`'s usage: one summary per step (keyed by `identity`) and one over all their attempts.
 
     A step is a report row with `identity`, `attempt` and its run-relative `result_path`
-    (`effects/<sha>/attempt-<n>/result.json`); its attempts are `attempt-1` to `attempt-<attempt>` beside it.
+    (`effects/<sha>/attempt-<n>/result.json`); its attempts are `attempt-1` to `attempt-<attempt>` beside it, or
+    the ordinals its `metered_attempts` lists (a row whose identity changed class across a `rebased` record).
     Reads each attempt's `usage.json` as `spent` does; writes nothing (`summed_usage` gives the shape).
     """
     per_step, every = {}, []
     for step in steps:
         effect = (Path(run_root) / step["result_path"]).parent.parent
-        usages = [_regular_json(effect / f"attempt-{n}" / "usage.json") for n in range(1, step["attempt"] + 1)]
+        attempts = step.get("metered_attempts", range(1, step["attempt"] + 1))     # a step that changed class (C10)
+        usages = [_regular_json(effect / f"attempt-{n}" / "usage.json") for n in attempts]
         per_step[step["identity"]] = summed_usage(usages, table)
         every.extend(usages)
     return per_step, summed_usage(every, table)
