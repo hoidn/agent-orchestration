@@ -159,6 +159,21 @@ def test_a_script_fix_after_a_failure_prints_a_fresh_run_and_never_invalidate(tm
     assert " run main.orc " in printed[-1]
 
 
+def test_a_shared_script_edit_after_invalidating_later_steps_offers_invalidate_that_recovers(tmp_path: Path) -> None:
+    write_pipeline(tmp_path)
+    run_id = run_id_of(run_pipeline(tmp_path).stderr)
+    assert cli(tmp_path, "invalidate", run_id, IDENTITIES[1]).returncode == 0
+    edit_script(tmp_path)
+
+    result = refused(tmp_path, run_id, "effect_input_diverged")
+
+    invalidate, resume = commands(result.stderr)
+    assert shell(tmp_path, invalidate).returncode == 0
+    resumed = shell(tmp_path, resume)
+    assert resumed.returncode == 0, resumed.stderr
+    assert resumed.stdout.splitlines()[-1] == RESULT_LINE
+
+
 BRANCHED = '''\
 (workflow-lisp (:language "0.1") (:target-dsl "2.35")
   (defmodule main) (export run)
