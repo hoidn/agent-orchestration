@@ -348,6 +348,11 @@ The following preserve typed/shared component contracts and historical flat
 architecture. They do not define a missing executor to restore; current
 execution follows the evaluated design and retirement cutoff:
 
+The code of items 1 to 4 and 9 (`orchestrator/workflow/{core_ast,semantic_ir,executable_ir,state_layout}.py`,
+with `surface_ast.py`, `loaded_bundle.py`, `runtime_plan.py` and the rest of the bundle-era IR stack)
+was removed on 2026-11-12; the local git tag `archive/old-ir-stack-2026-11-12` holds it, and those four documents
+are historical records.
+
 1. [Core Workflow AST](workflow_lisp_core_workflow_ast.md)  
    Retained syntax-neutral dataclasses for typed analysis/imports and historical readers; executable flat projection is retired.
 
@@ -2798,7 +2803,8 @@ This is a generic correction to the existing owners:
 - `orchestrator/contracts/output_contract.py`:
   `validate_expected_outputs`, `validate_output_bundle`, and
   `validate_variant_output_bundle`;
-- the existing Surface/Core/Semantic/Executable/persisted/runtime carriers in
+- the then-existing Surface/Core/Semantic/Executable/persisted/runtime carriers
+  (removed by 2026-11-12; local git tag `archive/old-ir-stack-2026-11-12`) in
   `orchestrator/workflow/surface_ast.py`,
   `orchestrator/workflow/core_ast.py`,
   `orchestrator/workflow/semantic_ir.py`,

@@ -746,8 +746,8 @@ These rules apply across `.orc`, generated Core AST, the JSON-rendered
 
 For evaluated execution, the checked closed program is execution authority and
 the memo owns committed effect results. State, runtime plans, source maps,
-summaries and reports are views. Semantic/Executable IR retain their component
-contracts for older compiler routes; they do not replace evaluated authority.
+summaries and reports are views. Semantic/Executable IR described older compiler
+routes; their code was removed on 2026-11-12 (local tag `archive/old-ir-stack-2026-11-12`).
 
 ### 3.1 Structured State Is Authority
 
@@ -3118,8 +3118,9 @@ stdout/stderr and validated result bundles. The complete lifecycle recipe and
 [State contract](../specs/state.md#evaluated-execution-persistence-profile-target-235)
 own their exact layout and authority.
 
-Older Core/Semantic/Executable IR and `expanded.debug.yaml` are retained
-historical projections/read formats. Their emitters/executors are retired;
+Older Core/Semantic/Executable IR and `expanded.debug.yaml` are historical
+projections. Their emitters/executors are retired, and the Core/Semantic/Executable
+IR code was removed on 2026-11-12 (local tag `archive/old-ir-stack-2026-11-12`);
 inspect current checked artifacts and memo evidence rather than requesting an
 old flat build.
 

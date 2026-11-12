@@ -220,8 +220,7 @@ schema notation, not authored workflow files.
     description and format hint, but never a `Value` example, invented fields,
     the compiler-owned `__result__` name, or a `{"value": ...}` envelope.
   - `provider_session` command selection changes only the provider command template. It preserves the applicable runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding on the prepared invocation; OMP JSON transport uses the parent-materialization exception above.
-  - v2.13 provider steps may declare `managed_jobs` as a step modifier. The provider template remains ordinary; after existing provider and provider-session command selection, the runtime wraps the selected invocation with the managed-job guard and owns audit/recovery state.
-  - `managed_jobs` wrapping preserves any preexisting runtime-owned `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` binding while adding `MANAGED_JOB_*` transport metadata. Guard state, audit files, and provider-session spools are not alternate structured-output authorities.
+  - The v2.13 `managed_jobs` step modifier and its guard were removed on 2026-11-12 (local git tag `archive/old-ir-stack-2026-11-12`).
   - In argv mode, `${PROMPT}` is replaced by the composed prompt (see below).
   - In stdin mode, the composed prompt is piped to the child stdin; provider templates MUST NOT include `${PROMPT}`.
   - Provider prompt sources are distinct from workflow-boundary `inputs` / `outputs`, runtime dependencies (`depends_on`, `consumes`), and artifact storage / lineage (`artifacts`, `expected_outputs`, `output_bundle`, `publishes`).
@@ -480,47 +479,9 @@ schema notation, not authored workflow files.
     The [plan](../docs/plans/2026-10-14-run-ref-expression-environments-plan.md#task-10-provider-transport)
     owns the remaining qualification evidence and blocking disposition.
 
-- Managed provider job policy JSON (v2.13)
-  - `managed_jobs.policy` points to workspace-relative JSON that classifies payloads launched by the guarded provider process. It is separate from provider-template configuration.
-  - Minimal explicit-metadata shape:
-    ```json
-    {
-      "backend_defaults": {
-        "backend": "local"
-      },
-      "entries": [
-        {
-          "id": "train_model",
-          "mode": "force_managed",
-          "path": "scripts/training/train.py",
-          "backend": "slurm",
-          "job": {
-            "name_template": "train-{job_identity_hash}",
-            "state_root_template": "state/managed_jobs/{entry_id}/{job_identity_hash}",
-            "output_root_arg": "--output-dir",
-            "verify_files": [
-              "{output_root}/metrics.json"
-            ],
-            "snapshot_roots": [
-              "scripts/training"
-            ],
-            "config_globs": [
-              "configs/training/*.yaml"
-            ]
-          }
-        }
-      ]
-    }
-    ```
-    `backend` accepts `auto`, `local`, or `slurm`; `mode` accepts
-    `force_managed`, `auto_managed`, `force_local`, or `unmanaged`.
-  - Named extractors may be declared under top-level `extractors` and referenced from an entry with `extractor: <name>` instead of inline `job` metadata.
-  - Managed modes (`force_managed`, `auto_managed`) require complete `job` metadata or an `extractor` that derives the same metadata. Missing state root, verification targets, snapshot inputs, or extractor output is invalid before launch.
-  - Unmanaged modes (`force_local`, `unmanaged`) run locally through the original payload path and do not append managed-job audit events.
-  - `state_root_template` and snapshot/config paths are workspace-relative and path-safe. `state_root_template` may use `{entry_id}` and `{job_identity_hash}`.
-  - Job identity includes normalized payload arguments, source hashes, config hashes, extractor identity/version, policy-entry hash, and snapshot manifest inputs.
-  - `backend: local` executes the payload from the immutable snapshot workspace and records the same identity metadata as Slurm. `backend: slurm` generates a snapshot-bound submission script or a script with preflight source/config hash checks.
-  - Supported shim payloads are direct `python`, `python3`, and `torchrun`; `conda run ... python|torchrun ...`; and `uv run python|torchrun ...`. Unsupported `conda`/`uv` forms fail closed unless explicitly classified unmanaged.
+- Managed provider job policy JSON (v2.13): removed on 2026-11-12 with `orchestrator/managed_jobs/`,
+  which read it; no `.orc` form or provider template reaches it. The local git tag
+  `archive/old-ir-stack-2026-11-12` holds the code.
 
 - Prompt composition
   - Read exactly one base prompt source:
@@ -682,7 +643,8 @@ schema notation, not authored workflow files.
     bundle remains result authority.
   - The compiler carries one closed `CompilerPromptFragmentContract` and one
     `compiled_prompt_fragment_identity.v1` SHA-256 identity through Semantic
-    and Executable IR. The attempt publishes
+    and Executable IR (the flat route's carriers; their code was removed on
+    2026-11-12, local git tag `archive/old-ir-stack-2026-11-12`). The attempt publishes
     `workflow_prompt_fragment_snapshot.functional.v1` as
     `record_kind: prompt_snapshot` through the schema-2.1 attempt allocator.
     The fragment-contract, Semantic, Executable, and attempt identities must be
