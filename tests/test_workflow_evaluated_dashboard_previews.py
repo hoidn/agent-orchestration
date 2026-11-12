@@ -54,7 +54,7 @@ def _assert_provider_preview(workspace, run_root, attempt):
     step, = detail.steps
     row = detail.state["steps"][step.ref]
     assert row["attempt"] == attempt
-    assert set(step.file_refs) == {"result.json", "prompt.txt", "stdout.txt", "stderr.txt"}
+    assert set(step.file_refs) == {"result.json", "prompt.txt", "stdout.txt", "stderr.txt", "usage.json"}
     app = DashboardApp(RunScanner([workspace]))
     for name in ("prompt.txt", "stdout.txt", "stderr.txt"):
         reference = step.file_refs[name]
