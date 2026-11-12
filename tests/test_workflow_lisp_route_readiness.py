@@ -68,7 +68,7 @@ def _base_entry(**overrides: object) -> dict[str, object]:
         "lowering_schema_version": 2,
         "copy_safety": "preferred_current_guidance",
         "evidence": [
-            "tests/test_workflow_lisp_route_readiness.py"
+            "tests/test_workflow_lisp_expressions.py"
         ],
     }
     entry.update(overrides)
@@ -202,7 +202,7 @@ def test_self_referential_registry_evidence_is_rejected(tmp_path: Path) -> None:
             tmp_path,
             [
                 _base_entry(
-                    evidence=["python -m pytest tests/test_workflow_lisp_route_readiness.py -q"]
+                    evidence=["python -m pytest tests/test_workflow_lisp_expressions.py -q"]
                 )
             ],
         )
@@ -219,7 +219,7 @@ def test_registry_evidence_accepts_cli_command(tmp_path: Path) -> None:
             [
                 _base_entry(
                     evidence=[
-                        "python -m pytest tests/test_workflow_lisp_route_readiness.py -q",
+                        "python -m pytest tests/test_workflow_lisp_expressions.py -q",
                         "git diff --check",
                     ]
                 )
@@ -360,7 +360,7 @@ def test_registry_evidence_rejects_missing_pytest_node(tmp_path: Path) -> None:
             [
                 _base_entry(
                     evidence=[
-                        "tests/test_workflow_lisp_route_readiness.py::"
+                        "tests/test_workflow_lisp_expressions.py::"
                         "test_route_readiness_node_does_not_exist"
                     ]
                 )
