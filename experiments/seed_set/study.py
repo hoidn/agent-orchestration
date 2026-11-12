@@ -367,7 +367,7 @@ def parser():
     top.add_argument("--work", type=Path, default=Path("/home/ollie/seedset-work"))
     top.add_argument("--pools", type=Path, default=Path("/home/ollie/seedset-pools"))
     top.add_argument("--results", type=Path, help="default: <runtime>/experiments/seed_set/results")
-    top.add_argument("--tasks", type=Path, help="default: <runtime>/experiments/seed_set/tasks.jsonl")
+    top.add_argument("--task-list", type=Path, help="default: <runtime>/experiments/seed_set/tasks.jsonl")
     top.add_argument("--criterion", type=Path, help="default: <runtime>/experiments/seed_set/judge-calibration.json")
     sub = top.add_subparsers(dest="command", required=True)
     for name in ("candidates", "pool", "judge", "summarize"):
@@ -387,7 +387,7 @@ def parser():
 def study_of(a):
     runtime, seed_set = a.runtime.resolve(), a.runtime.resolve() / "experiments" / "seed_set"
     return Study(runtime, a.work.resolve(), a.pools.resolve(), (a.results or seed_set / "results").resolve(),
-                 (a.tasks or seed_set / "tasks.jsonl").resolve(),
+                 (a.task_list or seed_set / "tasks.jsonl").resolve(),
                  (a.criterion or seed_set / "judge-calibration.json").resolve())
 
 

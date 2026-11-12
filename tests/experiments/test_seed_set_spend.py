@@ -187,3 +187,12 @@ def test_a_third_live_pool_refuses(runner):
 def test_a_retest_takes_only_the_tranches_first_tasks(runner):
     with pytest.raises(SystemExit, match="takes tasks among"):
         study.build_pools(runner, "smoke", "retest", ["r2"])
+
+
+def test_the_command_line_refuses_an_unauthorized_launch_before_preparing_anything(runner, monkeypatch):
+    monkeypatch.delenv(AUTH, raising=False)
+    args = ["--runtime", str(runner.runtime), "--work", str(runner.work), "--pools", str(runner.pools),
+            "--results", str(runner.results), "--task-list", str(runner.tasks_file), "--criterion", str(runner.criterion)]
+    with pytest.raises(SystemExit, match="provider spend refused"):
+        study.main([*args, "candidates", "--tranche", "calibration", "--arm", "direct", "t1", "t2"])
+    assert not runner.work.exists()
