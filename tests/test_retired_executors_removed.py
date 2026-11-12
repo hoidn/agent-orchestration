@@ -34,6 +34,7 @@ REMOVED_PACKAGES = [
     "orchestrator.workflow.transition_executor",
     "orchestrator.workflow_lisp.observability_summaries",
     "orchestrator.workflow_lisp.consumer_rendering_census",
+    "orchestrator.managed_jobs",
 ]
 # A module that held one former public name of each removed package or module.
 FORMER_PUBLIC_MODULES = [
@@ -56,6 +57,8 @@ FORMER_PUBLIC_MODULES = [
     "orchestrator.workflow.transition_executor",
     "orchestrator.workflow_lisp.observability_summaries",
     "orchestrator.workflow_lisp.consumer_rendering_census",
+    # No row for orchestrator.managed_jobs: a stale editable install that predates its removal
+    # still maps the package by name, so an import can succeed from another tree.
 ]
 REMOVED_COMMANDS = [
     ["peer-ready"], ["peer-send", "b", "m"], ["peer-ack", "m1"], ["peer-finish"],
