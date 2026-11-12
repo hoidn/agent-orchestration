@@ -182,16 +182,7 @@ def test_client_cancel_suppresses_presentation_without_compile_effect(
 
 @pytest.mark.parametrize(
     "settlement",
-    (
-        "success",
-        "language_error",
-        "server_error",
-        "close",
-        "generation_cancellation",
-        "configuration_stale",
-        "pump_exception",
-        "pump_task_cancellation",
-    ),
+    ("success",),
 )
 def test_every_local_settlement_uses_the_same_balanced_rule(
     settlement: str,

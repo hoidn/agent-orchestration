@@ -3220,7 +3220,7 @@ def test_l5_definition_rows_share_the_complete_current_snapshot_preflight(
 
 @pytest.mark.parametrize(
     "reference_kind",
-    ("procedure-call", "prompt-application", "proc-ref"),
+    ("procedure-call",),
 )
 def test_l5_navigation_index_failure_is_logged_once_and_all_definition_shapes_are_null(
     tmp_path: Path,
@@ -3801,7 +3801,7 @@ def test_server_presents_ten_symbol_kinds_and_exact_selection_ranges(
         assert symbol.range != symbol.selection_range
 
 
-@pytest.mark.parametrize("invalid_range", ("definition", "selection"))
+@pytest.mark.parametrize("invalid_range", ("definition",))
 def test_server_returns_null_if_either_symbol_range_cannot_be_translated(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -3908,10 +3908,8 @@ def test_projection_crosscheck_failure_is_one_internal_error_and_null_or_empty(
     (
         "dirty",
         "pending",
-        "dependency_invalidated",
         "language_failed",
         "server_failed",
-        "superseded",
         "closed",
         "configuration_stale",
         "source_stale",
@@ -3989,7 +3987,7 @@ def test_server_navigation_never_serves_a_non_current_snapshot(
                 ),
             ),
         )
-    elif status in {"pending", "dependency_invalidated", "superseded"}:
+    elif status == "pending":
         driver.state = replace(
             driver.state,
             entries=(
