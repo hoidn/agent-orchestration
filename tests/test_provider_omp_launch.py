@@ -37,6 +37,7 @@ from orchestrator.providers.omp_write_confinement import (
     main as helper_main,
 )
 from orchestrator.providers.types import OmpTransportExpectation
+from tests.agent_session_shims import closed_path
 
 FAKE_VERSION = "17.3.4"
 MODEL = "openai-codex/gpt-5.6-sol"
@@ -1210,7 +1211,7 @@ def test_real_pinned_binary_no_tools_transient_completes(tmp_path) -> None:
     })
     bindir = _real_binary_resolver(tmp_path)
     assert bindir is not None
-    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["PATH"] = closed_path(bindir)
     argv = _adapter_argv("omp_no_tools")
     expectation, run_env = _frozen_profile_expectation(
         OMP_BINARY_PIN, argv, lane="no-tools", env=env,
@@ -1253,7 +1254,7 @@ def test_real_pinned_binary_conf_fresh_completes(tmp_path) -> None:
     })
     bindir = _real_binary_resolver(tmp_path)
     assert bindir is not None
-    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["PATH"] = closed_path(bindir)
     conf_root = _make_conf(tmp_path)
     conf_bytes = (conf_root / "config.yml").read_bytes()
     session_dir = _live_dir(tmp_path, "real-conf__v1")
@@ -1321,7 +1322,7 @@ def test_real_pinned_binary_ambient_transient_completes(tmp_path) -> None:
     env["HOME"] = _real_auth_home()
     bindir = _real_binary_resolver(tmp_path)
     assert bindir is not None, "real pinned build must be installed at ~/.local/bin/omp"
-    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["PATH"] = closed_path(bindir)
     out, err = io.BytesIO(), io.StringIO()
     rc = _run(
         argv=_adapter_argv("omp"),
@@ -1361,7 +1362,7 @@ def test_real_pinned_binary_ambient_fresh_completes(tmp_path) -> None:
     env["HOME"] = _real_auth_home()
     bindir = _real_binary_resolver(tmp_path)
     assert bindir is not None, "real pinned build must be installed at ~/.local/bin/omp"
-    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["PATH"] = closed_path(bindir)
     live = tmp_path / "visits" / "v1"
     live.mkdir(parents=True)
     live.chmod(0o700)
@@ -2524,7 +2525,7 @@ def _path_resolver_env(tmp_path, binary: Path, *, name: str = "omp") -> tuple[Pa
     (bindir / name).write_bytes(binary.read_bytes())
     (bindir / name).chmod(0o555)
     env = _std_env(_make_home(tmp_path), tmp_path)
-    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["PATH"] = closed_path(bindir)
     return bindir, env
 
 

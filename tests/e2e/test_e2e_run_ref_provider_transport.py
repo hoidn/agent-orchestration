@@ -18,6 +18,7 @@ from orchestrator.workflow.run_ref.holder_scope import populated, SLOT_EMPTY_SEC
 from tests.e2e.run_ref_image_fixture import launch, sealed_image, leaf  # noqa: F401
 from tests.e2e.run_ref_provider_fixture import LocalBackend, actual_native_pids, offline_worker, request, synthetic_home
 from tests.test_run_ref_provider_allowance import _allocate, _projection
+from tests.agent_session_shims import closed_path
 
 pytestmark = pytest.mark.e2e
 
@@ -364,7 +365,7 @@ def test_external_controller_sigkill_stops_actual_worker_native_and_leaf_then_re
     code = ('from tests.e2e.run_ref_provider_fixture import lost_controller;'
             'import sys;lost_controller(sys.argv[1],int(sys.argv[2]),sys.argv[3],int(sys.argv[4]))')
     process = subprocess.Popen([sys.executable,'-c',code,str(tmp_path),str(sealed_image.root_fd),str(record),str(child.fileno())],
-        cwd=ROOT,env={key:value for key,value in os.environ.items() if key in {'PATH','HOME','XDG_RUNTIME_DIR','DBUS_SESSION_BUS_ADDRESS'}},
+        cwd=ROOT,env={**{key:value for key,value in os.environ.items() if key in {'HOME','XDG_RUNTIME_DIR','DBUS_SESSION_BUS_ADDRESS'}},'PATH':closed_path()},
         pass_fds=(child.fileno(),sealed_image.root_fd),stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     child.close()
     channel = PrivateChannel(host,TransportGate(deadline_ns=boottime_ns()+12_000_000_000))

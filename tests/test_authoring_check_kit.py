@@ -19,9 +19,10 @@ import sys
 
 import pytest
 
+from tests.agent_session_shims import closed_path
+
 REPO = Path(__file__).resolve().parents[1]
 KIT = REPO / "experiments" / "authoring_check"
-NO_PROVIDER = REPO / "experiments" / "thread_m" / "no_provider"
 MODEL = "claude-haiku-5-5"
 
 HEADER = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
@@ -112,7 +113,7 @@ readout = _load_readout()
 @pytest.fixture(scope="module")
 def arm_env(tmp_path_factory) -> Path:
     out = tmp_path_factory.mktemp("arm") / "before"
-    env = {**os.environ, "PATH": os.pathsep.join([str(NO_PROVIDER), os.environ["PATH"]])}
+    env = {**os.environ, "PATH": closed_path()}
     env.pop("PYTHONPATH", None)
     built = subprocess.run([sys.executable, str(KIT / "build_env.py"), "before", str(out)],
                            env=env, capture_output=True, text=True, timeout=600, check=False)
@@ -136,7 +137,7 @@ def _launch(tmp: Path, arm_env: Path, solution: dict, *, root: str = "sessions",
             **extra: str) -> subprocess.CompletedProcess[str]:
     (tmp / "fake-bin" / "solution.json").write_text(json.dumps(solution))
     env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
-    env.update(PATH=os.pathsep.join([str(tmp / "fake-bin"), str(NO_PROVIDER), os.environ["PATH"]]),
+    env.update(PATH=closed_path(tmp / "fake-bin"),
                HOME=str(tmp / "home"), CLAUDE_CODE_MESSAGING_TOKEN="canary", **extra)
     if authorized:
         env["AUTHORING_CHECK_SPEND_AUTHORIZED"] = "yes"
@@ -155,7 +156,7 @@ def _check(arm_env: Path, tmp: Path, solution: dict) -> dict:
     for name, text in solution.items():
         (directory / name).write_text(text)
     shutil.copy2(KIT / "line_count.sh", directory)
-    env = {**os.environ, "PATH": os.pathsep.join([str(arm_env / "venv" / "bin"), str(NO_PROVIDER), os.environ["PATH"]])}
+    env = {**os.environ, "PATH": closed_path(arm_env / "venv" / "bin")}
     env.pop("PYTHONPATH", None)
     checked = subprocess.run([sys.executable, str(KIT / "check.py"), str(directory)], env=env,
                              capture_output=True, text=True, timeout=600, check=False)

@@ -73,6 +73,7 @@ from tests.test_provider_omp_launch import (
     _sha256_file,
     _std_env,
 )
+from tests.agent_session_shims import closed_path
 
 _REPLY_PROMPT = b"Reply with exactly: INTEGRATION-OK\n"
 
@@ -181,7 +182,7 @@ def test_real_preset_canary_exact_observation_topology(
     home = _make_home(tmp_path)
     env = _std_env(home, tmp_path)
     env.update({"OMP_AUTH_BROKER_URL": broker_url, "OMP_AUTH_BROKER_TOKEN": broker_token})
-    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["PATH"] = closed_path(bindir)
 
     session_dir = _live_dir(tmp_path, f"preset-{name}__v1")
     argv = _adapter_argv("omp_conf", conf_root=str(conf_root), session_dir=str(session_dir))
@@ -285,7 +286,7 @@ def test_real_no_tools_workspace_negative_and_attempt_cleanup(
     home = _make_home(tmp_path)
     env = _std_env(home, tmp_path)
     env.update({"OMP_AUTH_BROKER_URL": broker_url, "OMP_AUTH_BROKER_TOKEN": broker_token})
-    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["PATH"] = closed_path(bindir)
 
     argv = _adapter_argv("omp_no_tools", conf_root=str(conf_root))
     expectation, run_env = _frozen_profile_expectation(
@@ -360,7 +361,7 @@ def test_real_unrestricted_yolo_lane_transient(tmp_path: Path, _workspace: Path)
     home = _make_home(tmp_path)
     env = _std_env(home, tmp_path)
     env["HOME"] = str(auth_home)
-    env["PATH"] = f"{bindir}:{env['PATH']}"
+    env["PATH"] = closed_path(bindir)
 
     argv = _adapter_argv("omp_unrestricted_workspace")
     expectation = _expectation(OMP_BINARY_PIN, argv, lane="ambient-unrestricted")

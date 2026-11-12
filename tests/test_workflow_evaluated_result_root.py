@@ -37,6 +37,7 @@ from tests.workflow_evaluated_totality_helpers import (
 from tests.workflow_inprocess_cli_helpers import (
     cli_inprocess, compile_public_inprocess as compile_public,
 )
+from tests.agent_session_shims import closed_path
 
 
 NESTED = ".orchestrate/runs/custom"
@@ -88,7 +89,7 @@ def _x4_workspace(root, monkeypatch, source=PROVIDER_PATH_SOURCE, commands=None)
     if commands is not None:
         files["commands"].write_text(json.dumps(commands))
     compile_public(files)
-    monkeypatch.setenv("PATH", str(root / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(root / "bin"))
     monkeypatch.chdir(root)
     return files, inputs
 
@@ -233,7 +234,7 @@ def test_paused_workspace_relocation_dispatches_under_the_moved_root(tmp_path, m
     moved = tmp_path / "moved"
     shutil.move(tmp_path / "ws", moved)
     monkeypatch.chdir(moved)
-    monkeypatch.setenv("PATH", str(moved / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(moved / "bin"))
     assert resume_workflow(run_id) == 0
     _, snapshot = checked_run(moved)
     second = max(snapshot.active_commits.values(), key=lambda entry: entry.offset).data
