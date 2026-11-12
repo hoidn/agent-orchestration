@@ -1,0 +1,15 @@
+fix: clear a result path through no-follow descriptors and give a failed clear its own code
+
+The pre-launch removal of a stale result file validated the bundle parent and
+then unlinked a path that was resolved again, so a parent replaced by a link
+between the two steps made the runtime delete a file outside the workspace. The
+removal now opens each parent without following a link, relative to the
+descriptor of the one before, and unlinks the leaf relative to the last one,
+as the OMP JSON transport creates its leaf.
+
+A path that cannot be cleared now fails before launch with the output-contract
+violation stale_bundle_removal_failed and the step's source origin, through the
+same failure builder as missing_bundle_file.
+
+A strict xfail pins the open defect that two concurrent runs share the result
+path of a loop body promoted to a call.

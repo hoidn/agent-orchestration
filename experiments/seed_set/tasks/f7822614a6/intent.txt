@@ -1,0 +1,3 @@
+fix: check phase target path root refinements
+
+The change is in orchestrator/workflow_lisp/closed/check.py.

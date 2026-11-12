@@ -1,0 +1,3 @@
+fix(providers): close isolation policy validation gaps
+
+The change is in orchestrator/providers/isolation.py.

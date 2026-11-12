@@ -1,0 +1,3 @@
+tests/test_provider_isolation_policy.py::test_future_manifest_relpaths_reject_nul
+tests/test_provider_isolation_policy.py::test_integral_float_is_reported_as_a_stable_policy_issue_before_load
+tests/test_provider_isolation_policy.py

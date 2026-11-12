@@ -1,0 +1,10 @@
+Fix cond dead-body typing and mid-list exhaustiveness
+
+- Unify dead clause and else bodies so a statically-dead body with a
+  mismatched type raises type_mismatch instead of a WCC TypeError.
+- Initialize terminal_facts before the cond clause loop.
+- Thread a residual_unreachable flag so a mid-list statically-true
+  clause makes a no-else cond exhaustive while preserving enclosing
+  variant facts for dead trailing clauses.
+
+A check (`dev-check.json`, run by `python dev_check.py`) runs a test that is kept out of the repository; it fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

@@ -1,0 +1,13 @@
+fix: keep imported procedure effects in effect inference from target 2.33
+
+A local procedure that calls an imported effectful procedure lost the callee's
+effects after the first round of the effect inference fixpoint, because the
+effect map was rebuilt from local procedures only. The wrapper was then
+inferred effect-free and inlined as pure, and a match subject or let* binding
+of its result failed after typecheck. From target 2.33 the summaries of
+procedures compiled in earlier modules stay in every round, so the wrapper
+must declare the imported effect, and a std/improve helper specialized with an
+imported hook lists that hook's effects. Targets up to 2.32 are unchanged.
+
+The wrapper in the std/improve test that relied on the defect now declares
+its effect.

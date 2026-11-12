@@ -1,0 +1,2 @@
+tests/test_workflow_lisp_strict_boolean_control_flow.py::test_cond_else_after_exhaustive_chain_gets_no_erased_facts
+tests/test_workflow_lisp_strict_boolean_control_flow.py

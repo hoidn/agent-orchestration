@@ -1,0 +1,9 @@
+fix(providers): escape isolation issue paths
+
+The change is in orchestrator/providers/isolation.py.
+
+The check currently fails with:
+    E       assert [('provider_i...bad\ud800"]')] == [('provider_i...ad\\ud800"]')]
+    E
+    E         At index 0 diff: ('provider_isolation_policy_invalid', '$.workspace["bad\ud800"]') != ('provider_isolation_policy_invalid', '$.workspace["bad\\ud800"]')
+    E         Use -v to get more diff

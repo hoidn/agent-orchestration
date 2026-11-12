@@ -1,0 +1,4 @@
+feat(experiments): add lean pilot records
+fix(experiments): package lean pilot schema
+
+A check (`dev-check.json`, run by `python dev_check.py`) runs a test that is kept out of the repository; it fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

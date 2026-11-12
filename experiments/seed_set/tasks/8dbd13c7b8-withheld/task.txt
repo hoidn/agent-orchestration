@@ -1,0 +1,28 @@
+Fix strict-boolean control-flow review findings
+
+Behavioral fixes (P1/P2):
+- WCC value-path elaboration: narrow branch proof contexts in
+  _infer_expr_type IfExpr branch and _elaborate_if_to_value so a
+  typecheck-legal pure variant-narrowed conditional no longer raises a
+  raw TypeError (elaborate.py).
+- Preserve true/false_proof_context when rebuilding nested ifs in
+  _normalize_if_value and _normalize_loop_body_if via dataclasses.replace
+  (conditionals.py).
+- Loop-body normalizer: handle ListMap forms and add a terminal
+  self-describing TypeError instead of an implicit-None fall-off.
+- Gate restore match descriptors on the __match_ step marker, not the
+  literal subject spelling (defunctionalize.py).
+- Publish variant/return__variant artifacts on the synthetic overlay
+  match-join result (executor.py).
+
+Hygiene:
+- Delete orphaned _EFFECT_EXPRS_WITH_ARG_CHILDREN and dead step-name
+  fallback in capture_restore_payload.
+- Factor _require_exact_bool helper; cross-reference the and/or->if
+  twin folds; add LoopBodyFnExpr to iter_child_exprs; mark WccIf proof
+  contexts compare=False/repr=False; comment the ProviderBundlePathExpr
+  leaf divergence.
+
+Adds RED/regression coverage in the strict boolean control-flow module.
+
+A check (`dev-check.json`, run by `python dev_check.py`) runs a test that is kept out of the repository; it fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

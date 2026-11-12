@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "--tb=short",
+    "tests/test_workflow_lisp_generic_unions_runtime.py::test_uncalled_generic_with_applied_union_parameter_compiles"
+  ],
+  "timeout_sec": 600,
+  "withheld": true
+}

@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_lisp_run_ref.py::test_run_ref_fixed_catalog_and_result_contract_reject_enum_like_primitives"
+  ],
+  "timeout_sec": 600
+}

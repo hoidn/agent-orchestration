@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "--tb=short",
+    "tests/test_workflow_result_file_freshness.py::test_a_stale_file_on_an_ordinary_nested_bundle_path_is_removed"
+  ],
+  "timeout_sec": 600,
+  "withheld": true
+}

@@ -1,0 +1,3 @@
+Key pure projection source cache by content
+
+The change is in orchestrator/workflow_lisp/lowering/pure_projection.py.

@@ -1,0 +1,5 @@
+Activate pure replay for fresh call frames
+
+The change is in orchestrator/workflow/calls.py.
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_subworkflow_calls.py::test_fresh_noniterative_replay_profile_uses_typed_callee_not_parent` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

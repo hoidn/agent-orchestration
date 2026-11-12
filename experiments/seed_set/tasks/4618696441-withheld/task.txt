@@ -1,0 +1,18 @@
+fix: keep the source scope of hoisted and generated bindings at 2.33
+
+A binding that the elaborator hoists out of a match subject or out of a let*
+binding value, and that the code it is hoisted over refers to, gets a fresh
+name; its own references follow it. This repairs the capture of an outer name
+by a match subject's let* and by an if condition's let* (the strict boolean
+normalizer binds the condition whole). Other bindings keep their names, so
+programs without such a clash keep their step identities.
+
+Generated loop-state field bindings are chosen apart from every identifier in
+scope and in the continue form, and are named by the case arms that enclose
+them, so two continues in different arms no longer share a name.
+
+An effectful if or match whose value is bound in a loop body is refused with
+the located diagnostic compiler_defect_loop_control_value instead of an
+internal exception. Targets below 2.33 are unchanged.
+
+A check (`dev-check.json`, run by `python dev_check.py`) runs a test that is kept out of the repository; it fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

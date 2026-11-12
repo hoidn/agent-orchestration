@@ -1,0 +1,3 @@
+Activate pure replay for fresh call frames
+
+The change is in orchestrator/workflow/calls.py.

@@ -1,0 +1,2 @@
+tests/test_provider_isolation_policy.py::test_top_level_unknown_surrogate_property_has_ascii_safe_issue_path
+tests/test_provider_isolation_policy.py

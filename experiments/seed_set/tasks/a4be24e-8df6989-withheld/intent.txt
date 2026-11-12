@@ -1,0 +1,2 @@
+feat(experiments): add lean pilot records
+fix(experiments): package lean pilot schema

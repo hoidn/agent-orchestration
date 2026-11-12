@@ -1,0 +1,11 @@
+fix: derive the replay index of every called workflow in --dry-run and keep a replay rejection when its source location is unavailable
+
+--dry-run now derives the pure-result replay index of the root and of each
+callee a fresh run opens under the replay profile, once each, resolved as
+execute_call resolves it; a callee rejection names its call sites. The
+rejection is placed from the root build's source map, scoped to the
+rejected workflow; a map that cannot place it becomes a note, and the
+rejection is printed at the workflow file without a line. resume renders
+the rejection with the same function as run.
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_workflow_dry_run_replay_index.py::test_dry_run_rejects_a_called_workflow_as_the_run_does` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

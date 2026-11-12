@@ -1,0 +1,702 @@
+diff --git a/orchestrator/workflow_lisp/build_manifest_io.py b/orchestrator/workflow_lisp/build_manifest_io.py
+index 05b78904647e525b461cc3e70c50d02a8726349d..f14ef424686f2351c037738070a3819571d6a231 100644
+--- a/orchestrator/workflow_lisp/build_manifest_io.py
++++ b/orchestrator/workflow_lisp/build_manifest_io.py
+@@ -317,10 +317,20 @@ def _parse_command_boundaries_manifest(
+                     ),
+                 )
+             )
++        closure = (
++            _require_closure_array(
++                raw_entry["closure"],
++                binding_name=name,
++                manifest_path=manifest_path,
++            )
++            if "closure" in raw_entry
++            else None
++        )
+         if kind == "external_tool":
+             bindings[name] = ExternalToolBinding(
+                 name=name,
+                 stable_command=stable_command,
++                closure=closure,
+                 must_not_repeat=_require_boolean_field(
+                     raw_entry.get("must_not_repeat", False),
+                     field_name="must_not_repeat",
+@@ -380,6 +390,7 @@ def _parse_command_boundaries_manifest(
+             bindings[name] = CertifiedAdapterBinding(
+                 name=name,
+                 stable_command=stable_command,
++                closure=closure,
+                 must_not_repeat=_require_boolean_field(
+                     raw_entry.get("must_not_repeat", False),
+                     field_name="must_not_repeat",
+@@ -542,6 +553,27 @@ def _parse_command_boundaries_manifest(
+     return bindings
+ 
+ 
++def _require_closure_array(
++    value: object,
++    *,
++    binding_name: str,
++    manifest_path: Path | None,
++) -> tuple[str, ...]:
++    if not isinstance(value, (list, tuple)) or any(
++        not isinstance(path, str) or not path or "\x00" in path for path in value
++    ):
++        raise LispFrontendCompileError(
++            (
++                _cli_request_diagnostic(
++                    code="command_boundary_manifest_invalid",
++                    message=f"`closure` for `{binding_name}` must be an array of nonempty literal paths without NUL",
++                    path=manifest_path or Path(binding_name),
++                ),
++            )
++        )
++    return tuple(value)
++
++
+ def _require_string_array(
+     value: object,
+     *,
+@@ -935,6 +967,8 @@ def _json_data(value: Any) -> Any:
+         payload: dict[str, Any] = {}
+         for field in fields(value):
+             item = getattr(value, field.name)
++            if field.metadata.get("json_omit_legacy"):
++                continue
+             if field.metadata.get("json_omit_always"):
+                 continue
+             # ``request_input`` did not exist in the frozen pre-2.32 Surface
+diff --git a/orchestrator/workflow_lisp/closed/frontend.py b/orchestrator/workflow_lisp/closed/frontend.py
+index 97d561435ef5d560a1738827c78325cf6e6ff56c..d338ce296b432e99b92b064bee4444f08bb87370 100644
+--- a/orchestrator/workflow_lisp/closed/frontend.py
++++ b/orchestrator/workflow_lisp/closed/frontend.py
+@@ -527,6 +527,11 @@ def typed_program_from_graph(
+             for module_name, bindings in used_boundaries.items()
+             if isinstance(bindings, Mapping)
+         }
++    effective_origins = (
++        command_boundary_environment.origins_by_name
++        if command_boundary_origins is None
++        else command_boundary_origins
++    )
+     return TypedProgram(
+         entry=None,
+         workflows=workflows,
+@@ -536,7 +541,10 @@ def typed_program_from_graph(
+         workflow_type_envs=workflow_type_envs,
+         module_type_envs=module_type_envs,
+         command_boundaries=command_boundaries,
+-        command_boundary_origins=dict(command_boundary_origins or {}),
++        command_boundary_origins={
++            name: effective_origins.get(name, "workspace")
++            for name in command_boundaries
++        },
+         externs=dict(extern_environment.bindings_by_name),
+         module_externs=module_externs,
+         configuration_bindings=_freeze_configuration_mapping(frozen_configuration),
+diff --git a/orchestrator/workflow_lisp/closed/program.py b/orchestrator/workflow_lisp/closed/program.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..e86d9c5ee751b2f8a6f112eddf4529e84063d181
+--- /dev/null
++++ b/orchestrator/workflow_lisp/closed/program.py
+@@ -0,0 +1,363 @@
++"""Canonical artifacts and command configuration for closed programs."""
++
++from __future__ import annotations
++
++from collections.abc import Mapping
++from copy import deepcopy
++from dataclasses import dataclass
++from hashlib import sha256
++import json
++from typing import Any
++
++from .check import CheckedFormError, validate
++from .sites import _ast_nodes, _definition_order
++
++
++SCHEMA = "workflow-lisp/closed-program/1"
++REPRESENTATION = "table/1"
++
++
++class ClosedProgramInvalid(ValueError):
++    """A stored closed program failed strict parsing or checked-form validation."""
++
++    def __init__(self, rule: str, message: str, *, location: str = "<artifact>") -> None:
++        super().__init__(f"closed_program_invalid ({rule}) at {location}: {message}")
++        self.code = "closed_program_invalid"
++        self.rule = rule
++        self.location = location
++
++
++@dataclass(frozen=True)
++class ClosedProgram:
++    tree: dict[str, Any]
++    sites: tuple[tuple[str, str], ...]
++    digest: str
++
++    def artifact(self) -> str:
++        """Return canonical JSON with source provenance and one final newline."""
++
++        return _canonical_json(self.tree) + "\n"
++
++    @classmethod
++    def from_artifact(cls, text: str) -> ClosedProgram:
++        try:
++            tree = json.loads(
++                text,
++                object_pairs_hook=_unique_object,
++                parse_constant=_reject_non_json_constant,
++            )
++        except (json.JSONDecodeError, TypeError, ValueError) as exc:
++            line = getattr(exc, "lineno", None)
++            column = getattr(exc, "colno", None)
++            location = f"<artifact>:{line}:{column}" if line is not None else "<artifact>"
++            raise ClosedProgramInvalid("json", f"invalid strict JSON: {exc}", location=location) from exc
++
++        if not isinstance(tree, dict) or tree.get("schema") != SCHEMA:
++            raise ClosedProgramInvalid(
++                "representation",
++                f"expected closed-program schema {SCHEMA!r}",
++            )
++        if tree.get("representation") != REPRESENTATION:
++            raise ClosedProgramInvalid(
++                "representation",
++                f"expected representation {REPRESENTATION!r}, got {tree.get('representation')!r}",
++        )
++        try:
++            _canonical_json(tree)
++            validate(tree)
++        except CheckedFormError as exc:
++            rule = "sites" if exc.rule.startswith(("site_", "site_table")) else exc.rule
++            raise ClosedProgramInvalid(rule, str(exc), location=exc.location or "<artifact>") from exc
++        except (TypeError, ValueError, UnicodeError, RecursionError) as exc:
++            raise ClosedProgramInvalid("checked_form", str(exc)) from exc
++
++        rows = _sites_from_nodes(tree)
++        declared = tuple(tuple(row) for row in tree["sites"])
++        if rows != declared:
++            raise ClosedProgramInvalid("sites", "site rows differ from perform node annotations")
++        try:
++            digest = program_digest(tree)
++        except (TypeError, ValueError, UnicodeError, RecursionError) as exc:
++            raise ClosedProgramInvalid("json", str(exc)) from exc
++        return cls(tree=tree, sites=rows, digest=digest)
++
++
++def canonical_digest(value: Any) -> str:
++    """Hash canonical, finite JSON without a trailing newline."""
++
++    return "sha256:" + sha256(_canonical_json(value).encode("utf-8")).hexdigest()
++
++
++def program_digest(tree: dict[str, Any]) -> str:
++    """Hash program semantics while excluding only source-node provenance."""
++
++    return canonical_digest(strip_provenance(tree))
++
++
++def strip_provenance(node: Any) -> Any:
++    """Copy a closed program and omit `@` only at schema-authorized AST rows."""
++
++    result = deepcopy(node)
++    if not isinstance(result, dict):
++        return result
++    bodies = [result.get("body")]
++    definitions = result.get("definitions")
++    if isinstance(definitions, Mapping):
++        bodies.extend(
++            definition.get("body")
++            for definition in definitions.values()
++            if isinstance(definition, Mapping)
++        )
++    for body in bodies:
++        if not isinstance(body, dict):
++            continue
++        for ast_node in _ast_nodes(body):
++            ast_node.pop("@", None)
++            if ast_node.get("k") == "case":
++                for arm in ast_node.get("arms", ()):
++                    if isinstance(arm, dict):
++                        arm.pop("@", None)
++            elif ast_node.get("k") == "select":
++                for branch_name in ("then", "else"):
++                    branch = ast_node.get(branch_name)
++                    if not isinstance(branch, dict):
++                        continue
++                    branch.pop("@", None)
++                    for row in branch.get("prefix", ()):
++                        if isinstance(row, dict):
++                            row.pop("@", None)
++    return result
++
++
++def canonical_command_configuration(
++    bindings: Mapping[str, object],
++    *,
++    origins: Mapping[str, str],
++) -> dict[str, dict[str, Any]]:
++    """Project every supplied command binding into the closed semantic schema."""
++
++    from ..command_boundaries import CertifiedAdapterBinding, ExternalToolBinding
++
++    rows: dict[str, dict[str, Any]] = {}
++    for lookup_name, binding in sorted(bindings.items()):
++        if isinstance(binding, ExternalToolBinding):
++            row = _common_command_row(lookup_name, binding, origins, kind="external_tool")
++        elif isinstance(binding, CertifiedAdapterBinding):
++            row = _common_command_row(lookup_name, binding, origins, kind="certified_adapter")
++            row.update(
++                input_contract=_json_value(binding.input_contract),
++                output_type_name=binding.output_type_name,
++                effects=list(binding.effects),
++                path_safety=_json_value(binding.path_safety),
++                source_map_behavior=binding.source_map_behavior,
++                fixture_ids=list(binding.fixture_ids),
++                negative_fixture_ids=list(binding.negative_fixture_ids),
++                behavior_class=binding.behavior_class,
++                input_signature=[
++                    {
++                        "name": item.name,
++                        "type_name": item.type_name,
++                        "required": item.required,
++                        "transport_key": item.transport_key,
++                    }
++                    for item in binding.input_signature
++                ],
++                artifact_contracts=list(binding.artifact_contracts),
++                state_writes=list(binding.state_writes),
++                error_codes=list(binding.error_codes),
++                owner_module=binding.owner_module,
++                replacement_path=binding.replacement_path,
++                invocation_protocol=binding.invocation_protocol,
++                transition_binding=(
++                    None
++                    if binding.transition_binding is None
++                    else {
++                        "transition_name": binding.transition_binding.transition_name,
++                        "resource_kind": binding.transition_binding.resource_kind,
++                        "contract_role": binding.transition_binding.contract_role,
++                        "backend_selector": binding.transition_binding.backend_selector,
++                    }
++                ),
++                view_binding=(
++                    None
++                    if binding.view_binding is None
++                    else {
++                        "view_name": binding.view_binding.view_name,
++                        "renderer_id": binding.view_binding.renderer_id,
++                        "renderer_version": binding.view_binding.renderer_version,
++                        "contract_role": binding.view_binding.contract_role,
++                    }
++                ),
++                declared_promoted_fields=sorted(binding.declared_promoted_fields),
++            )
++        else:
++            raise ValueError(f"unsupported command boundary binding at {lookup_name!r}")
++        rows[lookup_name] = row
++    _canonical_json(rows)
++    return rows
++
++
++def canonical_extern_configuration(
++    externs: Mapping[str, object],
++    *,
++    asset_base: str,
++) -> dict[str, dict[str, dict[str, str]]]:
++    """Project resolved provider and prompt bindings into the closed schema.
++
++    ``asset_base`` is the logical source-owner directory, supplied by the caller;
++    a physical entry directory must not be used here.
++    """
++
++    from ..workflows import PromptExtern, ProviderExtern
++
++    providers: dict[str, dict[str, str]] = {}
++    prompts: dict[str, dict[str, str]] = {}
++    for name, binding in sorted(externs.items()):
++        if isinstance(binding, ProviderExtern):
++            if not isinstance(binding.provider_id, str) or not binding.provider_id.strip():
++                raise ValueError(f"resolved provider extern {name!r} has an invalid provider id")
++            providers[name] = {"provider_id": binding.provider_id}
++        elif isinstance(binding, PromptExtern):
++            if (
++                not isinstance(binding.path, str)
++                or not binding.path.strip()
++                or binding.source_kind not in {"asset_file", "input_file"}
++            ):
++                raise ValueError(f"resolved prompt extern {name!r} is malformed")
++            row = {"source_kind": binding.source_kind, "path": binding.path}
++            if binding.source_kind == "asset_file":
++                if not isinstance(asset_base, str) or not asset_base.strip():
++                    raise ValueError("asset prompt projection requires a logical asset base")
++                row["asset_base"] = asset_base
++            prompts[name] = row
++        else:
++            raise ValueError(f"unsupported resolved extern at {name!r}")
++    result = {"providers": providers, "prompts": prompts}
++    _canonical_json(result)
++    return result
++
++
++def canonical_configuration(
++    bindings: Mapping[str, object],
++    *,
++    origins: Mapping[str, str],
++    externs: Mapping[str, object],
++    asset_base: str,
++) -> dict[str, dict[str, Any]]:
++    """Project one owner's exact command/provider/prompt configuration maps."""
++
++    return {
++        "commands": canonical_command_configuration(bindings, origins=origins),
++        **canonical_extern_configuration(externs, asset_base=asset_base),
++    }
++
++
++def logical_asset_base_for_module(module_name: str) -> str:
++    """Return the logical directory encoded by a canonical Workflow Lisp module."""
++
++    if not isinstance(module_name, str) or not module_name or module_name.startswith("/"):
++        raise ValueError("module name must be a nonempty relative logical path")
++    parts = module_name.split("/")
++    if any(part in {"", ".", ".."} or "\\" in part for part in parts):
++        raise ValueError("module name must use canonical logical path components")
++    return "/".join(parts[:-1]) or "."
++
++
++def _common_command_row(
++    lookup_name: str,
++    binding: Any,
++    origins: Mapping[str, str],
++    *,
++    kind: str,
++) -> dict[str, Any]:
++    origin = origins.get(lookup_name, "workspace")
++    if origin not in {"workspace", "package:orchestrator"}:
++        raise ValueError(f"unsupported trusted command origin for {lookup_name!r}: {origin!r}")
++    return {
++        "kind": kind,
++        "name": binding.name,
++        "stable_command": list(binding.stable_command),
++        "must_not_repeat": binding.must_not_repeat,
++        "closure": _canonical_closure(binding.closure, origin=origin),
++        "retirement_class": binding.retirement_class,
++        "retirement_label": binding.retirement_label,
++        "replacement_surface": binding.replacement_surface,
++        "bridge_owner": binding.bridge_owner,
++        "expiry_condition": binding.expiry_condition,
++        "evidence_refs": list(binding.evidence_refs),
++        "retirement_status": binding.retirement_status,
++    }
++
++
++def _canonical_closure(value: Any, *, origin: str) -> list[dict[str, str]]:
++    if value is None:
++        raise ValueError("command boundary closure is missing")
++    if not isinstance(value, (tuple, list)):
++        raise ValueError("command boundary closure must be an array of literal paths")
++    rows = set()
++    for path in value:
++        if not isinstance(path, str) or not path or "\x00" in path:
++            raise ValueError("command boundary closure paths must be nonempty strings without NUL")
++        path = path.replace("\\", "/")
++        absolute = path.startswith("/")
++        parts = [part for part in (path[1:] if absolute else path).split("/") if part not in {"", "."}]
++        normalized = ("/" if absolute else "") + "/".join(parts)
++        if not parts:
++            normalized = "/" if absolute else "."
++        rows.add(("absolute" if absolute else origin, normalized))
++    return [{"base": base, "path": path} for base, path in sorted(rows)]
++
++
++def _json_value(value: Any) -> Any:
++    if value is None or isinstance(value, (str, int, float, bool)):
++        return value
++    if isinstance(value, Mapping):
++        if any(not isinstance(key, str) for key in value):
++            raise ValueError("command metadata object keys must be strings")
++        return {key: _json_value(item) for key, item in value.items()}
++    if isinstance(value, (tuple, list)):
++        return [_json_value(item) for item in value]
++    raise ValueError(f"command metadata is not JSON data: {type(value).__name__}")
++
++
++def _sites_from_nodes(tree: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
++    definitions = tree["definitions"]
++    owners = [(tree["entry"], tree["body"])]
++    owners.extend(
++        (name, definitions[name]["body"])
++        for name in _definition_order(tree, definitions)
++    )
++    return tuple(
++        (owner, node["site"])
++        for owner, body in owners
++        for node in _ast_nodes(body)
++        if node.get("k") == "perform"
++    )
++
++
++def _canonical_json(value: Any) -> str:
++    text = json.dumps(
++        value,
++        sort_keys=True,
++        separators=(",", ":"),
++        ensure_ascii=False,
++        allow_nan=False,
++    )
++    try:
++        text.encode("utf-8")
++    except UnicodeEncodeError as exc:
++        raise ValueError("canonical JSON contains an unpaired Unicode surrogate") from exc
++    return text
++
++
++def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
++    result: dict[str, Any] = {}
++    for key, value in pairs:
++        if key in result:
++            raise ValueError(f"duplicate JSON object key {key!r}")
++        result[key] = value
++    return result
++
++
++def _reject_non_json_constant(value: str) -> Any:
++    raise ValueError(f"non-JSON numeric constant {value!r}")
+diff --git a/orchestrator/workflow_lisp/command_boundaries.py b/orchestrator/workflow_lisp/command_boundaries.py
+index 48bc9d0bd573f962233a5d7a52a68e5410cb3ade..be966b91a60f46344d73d33b24d02bf106466bda 100644
+--- a/orchestrator/workflow_lisp/command_boundaries.py
++++ b/orchestrator/workflow_lisp/command_boundaries.py
+@@ -93,6 +93,11 @@ class ExternalToolBinding:
+         default=False,
+         metadata={"json_omit_if_empty": True},
+     )
++    closure: tuple[str, ...] | None = field(
++        default=None,
++        repr=False,
++        metadata={"json_omit_if_none": True, "json_omit_legacy": True},
++    )
+ 
+ 
+ @dataclass(frozen=True)
+@@ -160,6 +165,11 @@ class CertifiedAdapterBinding:
+         default=False,
+         metadata={"json_omit_if_empty": True},
+     )
++    closure: tuple[str, ...] | None = field(
++        default=None,
++        repr=False,
++        metadata={"json_omit_if_none": True, "json_omit_legacy": True},
++    )
+ 
+ 
+ @dataclass(frozen=True)
+@@ -167,6 +177,11 @@ class CommandBoundaryEnvironment:
+     """Named commands available to `command-result` forms."""
+ 
+     bindings_by_name: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding]
++    origins_by_name: Mapping[str, str] = field(
++        default_factory=dict,
++        repr=False,
++        metadata={"json_omit_always": True},
++    )
+ 
+ 
+ def certified_adapter_supports_promoted_calls(binding: CertifiedAdapterBinding) -> bool:
+@@ -184,11 +199,27 @@ def certified_adapter_supports_promoted_calls(binding: CertifiedAdapterBinding)
+ 
+ def build_command_boundary_environment(
+     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
++    *,
++    origins_by_name: Mapping[str, str] | None = None,
+ ) -> CommandBoundaryEnvironment:
+     """Validate named command bindings supplied by the build caller."""
+ 
+     diagnostics: list[LispFrontendDiagnostic] = []
+     bindings: dict[str, ExternalToolBinding | CertifiedAdapterBinding] = {}
++    origins = {name: "workspace" for name in (command_boundaries or {})}
++    for name, origin in (origins_by_name or {}).items():
++        if name in origins:
++            if origin not in {"workspace", "package:orchestrator"}:
++                diagnostics.append(
++                    LispFrontendDiagnostic(
++                        code="command_adapter_missing_contract",
++                        message=f"command boundary `{name}` has an unsupported trusted origin",
++                        span=_environment_span(),
++                        phase="typecheck",
++                    )
++                )
++                continue
++            origins[name] = origin
+ 
+     for name, binding in (command_boundaries or {}).items():
+         if not isinstance(name, str) or not name.strip():
+@@ -325,7 +356,10 @@ def build_command_boundary_environment(
+ 
+     if diagnostics:
+         raise LispFrontendCompileError(tuple(diagnostics))
+-    return CommandBoundaryEnvironment(bindings_by_name=bindings)
++    return CommandBoundaryEnvironment(
++        bindings_by_name=bindings,
++        origins_by_name={name: origins[name] for name in bindings},
++    )
+ 
+ 
+ def _environment_span() -> SourceSpan:
+diff --git a/orchestrator/workflow_lisp/compiler.py b/orchestrator/workflow_lisp/compiler.py
+index 4757c5fb5d0ef21ff4e275d1d58065c10fb54dfd..89f6483657bf690ca874492762ed359e400a321d 100644
+--- a/orchestrator/workflow_lisp/compiler.py
++++ b/orchestrator/workflow_lisp/compiler.py
+@@ -1132,6 +1132,7 @@ def compile_stage3_module(
+             type_env=state.type_env,
+             extern_environment=state.extern_environment,
+             command_boundary_environment=state.command_boundary_environment,
++            command_boundary_origins=state.command_boundary_environment.origins_by_name,
+             typed_workflows=state.typed_workflows,
+             resolved_combined_procedures=state.typed_procedures,
+             typed_workflows_by_name={},
+@@ -3007,6 +3008,7 @@ def _compile_stage3_graph(
+     module_type_envs: dict[str, FrontendTypeEnvironment] = {}
+     module_externs: dict[str, Mapping[str, object]] = {}
+     module_command_boundaries: dict[str, Mapping[str, object]] = {}
++    module_command_boundary_origins: dict[str, Mapping[str, str]] = {}
+     module_workflow_signatures: dict[str, Mapping[str, WorkflowSignature]] = {}
+     local_definition_keys: dict[str, object] = {}
+     local_definition_dids: dict[str, tuple[str, str, object]] = {}
+@@ -3307,6 +3309,9 @@ def _compile_stage3_graph(
+         module_command_boundaries[module_name] = dict(
+             command_boundary_environment.bindings_by_name
+         )
++        module_command_boundary_origins[module_name] = dict(
++            command_boundary_environment.origins_by_name
++        )
+         reusable_state_producer_context = _derive_reusable_state_producer_context(
+             definition_module=definition_module,
+             source_file_digests={
+@@ -3751,6 +3756,7 @@ def _compile_stage3_graph(
+                 type_env=type_env,
+                 extern_environment=extern_environment,
+                 command_boundary_environment=command_boundary_environment,
++                command_boundary_origins=command_boundary_environment.origins_by_name,
+                 typed_workflows=typed_workflows,
+                 resolved_combined_procedures=resolved_combined_procedures,
+                 typed_workflows_by_name=typed_workflows_by_name,
+@@ -3767,6 +3773,10 @@ def _compile_stage3_graph(
+                         name: dict(bindings)
+                         for name, bindings in module_command_boundaries.items()
+                     },
++                    "used_command_boundary_origins": {
++                        name: dict(origins)
++                        for name, origins in module_command_boundary_origins.items()
++                    },
+                     "resolved_externs": {
+                         name: dict(bindings)
+                         for name, bindings in module_externs.items()
+@@ -5245,10 +5255,13 @@ def _augment_resume_command_boundaries(
+     """Install resume/state-reuse adapters only when code uses `resume-or-start`."""
+ 
+     bindings = dict(command_boundary_environment.bindings_by_name)
++    origins = dict(command_boundary_environment.origins_by_name)
+     resume_exprs = list(expressions)
+     if not any(_workflow_contains_resume_or_start(expr) for expr in resume_exprs):
+         return command_boundary_environment
+-    bindings.update(_fixed_resume_command_boundary_bindings())
++    fixed_bindings = _fixed_resume_command_boundary_bindings()
++    bindings.update(fixed_bindings)
++    origins.update({name: "package:orchestrator" for name in fixed_bindings})
+     for return_type_name in sorted(
+         {
+             return_type_name
+@@ -5260,6 +5273,7 @@ def _augment_resume_command_boundaries(
+         bindings[loader_name] = CertifiedAdapterBinding(
+             name=loader_name,
+             stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.load_canonical_phase_result"),
++            closure=(".",),
+             input_contract={"type": "object"},
+             output_type_name=return_type_name,
+             effects=("structured_result",),
+@@ -5271,7 +5285,8 @@ def _augment_resume_command_boundaries(
+             owner_module="std/phase",
+             replacement_path="resume-or-start",
+         )
+-    return build_command_boundary_environment(bindings)
++        origins[loader_name] = "package:orchestrator"
++    return build_command_boundary_environment(bindings, origins_by_name=origins)
+ 
+ 
+ def _fixed_resume_command_boundary_bindings() -> dict[str, CertifiedAdapterBinding]:
+@@ -5281,6 +5296,7 @@ def _fixed_resume_command_boundary_bindings() -> dict[str, CertifiedAdapterBindi
+         "validate_reusable_phase_state": CertifiedAdapterBinding(
+             name="validate_reusable_phase_state",
+             stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.validate_reusable_phase_state"),
++            closure=(".",),
+             input_contract={"type": "object"},
+             output_type_name="ResumeReuseDecision",
+             effects=("resume_state_reuse", "structured_result"),
+@@ -5299,6 +5315,7 @@ def _fixed_resume_command_boundary_bindings() -> dict[str, CertifiedAdapterBindi
+         "write_reusable_phase_state_v1": CertifiedAdapterBinding(
+             name="write_reusable_phase_state_v1",
+             stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.write_reusable_phase_state_v1"),
++            closure=(".",),
+             input_contract={"type": "object"},
+             output_type_name="ReusablePhaseStateWriteAck",
+             effects=("resume_state_reuse", "structured_result"),
+@@ -5326,11 +5343,13 @@ def _augment_resource_transition_command_boundaries(command_boundary_environment
+     """
+ 
+     bindings = dict(command_boundary_environment.bindings_by_name)
++    origins = dict(command_boundary_environment.origins_by_name)
+     if "apply_resource_transition" in bindings:
+         return command_boundary_environment
+     bindings["apply_resource_transition"] = CertifiedAdapterBinding(
+         name="apply_resource_transition",
+         stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.apply_resource_transition"),
++        closure=(".",),
+         input_contract={"type": "object"},
+         output_type_name="ResourceTransitionResult",
+         effects=("resource_transition", "ledger_update"),
+@@ -5379,7 +5398,8 @@ def _augment_resource_transition_command_boundaries(command_boundary_environment
+         invocation_protocol="json_object_positional_arg",
+         declared_promoted_fields=PROMOTED_CALL_REQUIRED_METADATA_FIELDS,
+     )
+-    return build_command_boundary_environment(bindings)
++    origins["apply_resource_transition"] = "package:orchestrator"
++    return build_command_boundary_environment(bindings, origins_by_name=origins)
+ 
+ 
+ def _augment_builtin_command_boundaries(
+@@ -5396,6 +5416,7 @@ def _augment_builtin_command_boundaries(
+         else _builtin_command_binding_names_in_expr
+     )
+     bindings = dict(command_boundary_environment.bindings_by_name)
++    origins = dict(command_boundary_environment.origins_by_name)
+     required_binding_names = {
+         binding_name
+         for root_expr in expressions
+@@ -5415,9 +5436,11 @@ def _augment_builtin_command_boundaries(
+         return command_boundary_environment
+     for binding_name in missing_binding_names:
+         bindings[binding_name] = STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME[binding_name]
++        origins[binding_name] = "package:orchestrator"
+     for binding_name in replacement_binding_names:
+         bindings[binding_name] = STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME[binding_name]
+-    return build_command_boundary_environment(bindings)
++        origins[binding_name] = "package:orchestrator"
++    return build_command_boundary_environment(bindings, origins_by_name=origins)
+ 
+ 
+ def _builtin_command_binding_names_in_expr(expr) -> frozenset[str]:
+diff --git a/orchestrator/workflow_lisp/stdlib_contracts.py b/orchestrator/workflow_lisp/stdlib_contracts.py
+index 9e68333f30d5179f5309725bcb99111a05492d2d..0b69fa4304f26947a1b48350010222ea17a8c94d 100644
+--- a/orchestrator/workflow_lisp/stdlib_contracts.py
++++ b/orchestrator/workflow_lisp/stdlib_contracts.py
+@@ -286,6 +286,7 @@ STDLIB_CERTIFIED_ADAPTER_BINDINGS_BY_NAME: Mapping[str, CertifiedAdapterBinding]
+                 "-m",
+                 "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
+             ),
++            closure=(".",),
+             input_contract={"type": "object"},
+             output_type_name="ReviewFindings",
+             effects=("structured_result",),

@@ -1,0 +1,67 @@
+diff --git a/orchestrator/workflow_lisp/closed/frontend.py b/orchestrator/workflow_lisp/closed/frontend.py
+index 952c4f1279c6c02c529af21a1c0677766607e434..9ae20a86a8593b0cfe806be982d877382b64f5b7 100644
+--- a/orchestrator/workflow_lisp/closed/frontend.py
++++ b/orchestrator/workflow_lisp/closed/frontend.py
+@@ -55,6 +55,7 @@ class TypedProgram:
+     local_definition_dids: Mapping[str, tuple[str, str, object]]
+     imported_programs: Mapping[str, "TypedProgram"]
+     module_workflow_signatures: Mapping[str, Mapping[str, WorkflowSignature]]
++    producer_lowering_schema: int
+     _compiled_bundle_boundaries: Mapping[
+         str,
+         tuple[
+@@ -67,6 +68,14 @@ class TypedProgram:
+     def __post_init__(self) -> None:
+         from ..build import _freeze_configuration_value
+ 
++        if (
++            type(self.producer_lowering_schema) is not int
++            or self.producer_lowering_schema not in (1, 2)
++        ):
++            raise ValueError(
++                "producer_lowering_schema must be the integer 1 or 2"
++            )
++
+         immutable_value = _freeze_configuration_value
+ 
+         for name in (
+@@ -444,6 +453,7 @@ def typed_program_from_graph(
+     configuration_bindings: Mapping[str, object] | None = None,
+     imported_programs: Mapping[str, TypedProgram] | None = None,
+     module_workflow_signatures: Mapping[str, Mapping[str, WorkflowSignature]] | None = None,
++    producer_lowering_schema: int,
+ ) -> TypedProgram:
+     from ..build import _freeze_command_boundaries, _freeze_configuration_mapping
+ 
+@@ -556,6 +566,7 @@ def typed_program_from_graph(
+         local_definition_dids=local_definition_dids,
+         imported_programs=direct_imported_programs,
+         module_workflow_signatures=module_workflow_signatures,
++        producer_lowering_schema=producer_lowering_schema,
+     )
+ 
+ 
+diff --git a/orchestrator/workflow_lisp/compiler.py b/orchestrator/workflow_lisp/compiler.py
+index df72f277fd5d1a0aee21b2fcac8b5d2a40427445..834e3d5e368c097bf43dc723bd1c178cf2740af0 100644
+--- a/orchestrator/workflow_lisp/compiler.py
++++ b/orchestrator/workflow_lisp/compiler.py
+@@ -1171,6 +1171,9 @@ def compile_stage3_module(
+             module_workflow_signatures={
+                 module_name: state.workflow_catalog.signatures_by_name
+             },
++            producer_lowering_schema=lowering_schema_for_route(
++                normalized_lowering_route
++            ),
+         )
+         if standalone_source_path is None:
+             raise RuntimeError("standalone module probe was not recorded in the source trace")
+@@ -3785,6 +3788,9 @@ def _compile_stage3_graph(
+                 imported_programs=imported_programs,
+                 module_workflow_signatures=module_workflow_signatures,
+                 local_definition_dids=local_definition_dids,
++                producer_lowering_schema=lowering_schema_for_route(
++                    normalized_lowering_route
++                ),
+             )
+         result = Stage3CompileResult(
+             module=definition_module,

@@ -1,0 +1,134 @@
+diff --git a/docs/capability_status_matrix.md b/docs/capability_status_matrix.md
+index 34174f6e17136782c73e79c2b540e45b15b05979..541e04cd0cf77e5f8bdba63fbace212424fb1ca1 100644
+--- a/docs/capability_status_matrix.md
++++ b/docs/capability_status_matrix.md
+@@ -29,8 +29,8 @@ Status labels:
+ 
+ | Surface / feature | Status | Normal for new authoring? | Authority lane | Evidence | Example / reference | Notes |
+ | --- | --- | --- | --- | --- | --- | --- |
+-| YAML fresh-load deprecation surface | Retired | No; this is historical Task-4 migration evidence, not a current runtime surface | `docs/plans/2026-07-17-yaml-deprecation-surface-design.md`; `docs/plans/2026-07-07-yaml-retirement-program.md` | Historical loader event `3871099b`; normalization guard `4e0a700d`; persisted-read suppression `30b1bd48`; fresh-route integration `ee0e520a`; author routing `b329c4b3`; Task-4 specification PASS and quality APPROVED; Task-7 specification PASS and quality APPROVED at `d9baa120` | Historical Task-4 design and commits only; current authoring starts from the Workflow Lisp drafting guide and registry-approved `.orc` examples | Task 7 removed the warning boundary together with the authored YAML loader. Fresh non-`.orc` execution now rejects before state creation, so no advisory event is emitted. Completed legacy YAML/YML runs retain state-only resume/report/dashboard compatibility without source parsing; executable or nonterminal legacy resume rejects. Stage 6 is complete after its focused gate, non-mutating `.orc` smoke, zero-new-failure scoped broad comparison, and two ordered independent reviews. |
+-| YAML DSL v2.x | Retired | No; `.orc` is the only authored workflow frontend | `specs/dsl.md`; `docs/plans/2026-07-07-yaml-retirement-program.md` | Frozen inventory and five drained queue projections in `docs/plans/2026-07-13-procedure-first-reuse-inventory.json`; `docs/workflow_yaml_estate_triage.md`; `docs/workflow_yaml_orc_gap_list.md`; `tests/test_yaml_frontend_retirement.py`; Task-7 focused gate: 1,020 passed and 5 skipped; scoped broad comparison: 6,386 passed, 15 skipped, and four exact retained owner-baseline failures with zero new failures; specification PASS and quality APPROVED at `d9baa120` | Historical YAML/YML sources remain available through Git history and frozen evidence; there is no live YAML authoring example | All five content-addressed queues are drained and the authored `workflows/**/*.yaml` / `workflows/**/*.yml` estate is empty. Fresh run is ORC-only and rejects other suffixes before state creation; nonterminal or restarted legacy execution also rejects. The user-facing loader and project PyYAML dependency are removed. Completed legacy runs remain observable through digest-bound persisted, state-only resume/report/dashboard paths. Stage 6 is complete; Stage 7's target-2.16 provider supervision and additive target-2.17 peer-group surfaces are implemented only in `.orc`. |
++| YAML fresh-load deprecation surface | Retired | No; this is historical Task-4 migration evidence, not a current runtime surface | `docs/plans/2026-07-17-yaml-deprecation-surface-design.md`; `docs/plans/2026-07-07-yaml-retirement-program.md` | Historical loader event `3871099b`; normalization guard `4e0a700d`; persisted-read suppression `30b1bd48`; fresh-route integration `ee0e520a`; author routing `b329c4b3`; Task-4 specification PASS and quality APPROVED; Task-7 specification PASS and quality APPROVED at `d9baa120` | Historical Task-4 design and commits only; current authoring starts from the Workflow Lisp drafting guide and registry-approved `.orc` examples | Task 7 removed the warning boundary together with the authored YAML loader. Fresh non-`.orc` execution now rejects before state creation, so no advisory event is emitted. `resume` loads the selected persisted state, then every recorded non-`.orc` suffix fails closed with `.orc required`, regardless of run terminality or force-restart selection. Legacy state remains viewable only through state-only report/dashboard observability without source parsing. Stage 6 is complete after its focused gate, non-mutating `.orc` smoke, zero-new-failure scoped broad comparison, and two ordered independent reviews. |
++| YAML DSL v2.x | Retired | No; `.orc` is the only authored workflow frontend | `specs/dsl.md`; `docs/plans/2026-07-07-yaml-retirement-program.md` | Frozen inventory and five drained queue projections in `docs/plans/2026-07-13-procedure-first-reuse-inventory.json`; `docs/workflow_yaml_estate_triage.md`; `docs/workflow_yaml_orc_gap_list.md`; `tests/test_yaml_frontend_retirement.py`; Task-7 focused gate: 1,020 passed and 5 skipped; scoped broad comparison: 6,386 passed, 15 skipped, and four exact retained owner-baseline failures with zero new failures; specification PASS and quality APPROVED at `d9baa120` | Historical YAML/YML sources remain available through Git history and frozen evidence; there is no live YAML authoring example | All five content-addressed queues are drained and the authored `workflows/**/*.yaml` / `workflows/**/*.yml` estate is empty. Fresh run is ORC-only and rejects other suffixes before state creation. `resume` loads the selected persisted state, then every recorded non-`.orc` suffix fails closed with `.orc required`, regardless of run terminality or force-restart selection. The user-facing loader and project PyYAML dependency are removed. Legacy state remains observable only through digest-bound, state-only report/dashboard paths. Stage 6 is complete; Stage 7's target-2.16 provider supervision and additive target-2.17 peer-group surfaces are implemented only in `.orc`. |
+ | Workflow Lisp `.orc` | Partial | Yes, when the needed frontend forms are supported and parity evidence is not being claimed prematurely | `docs/lisp_workflow_drafting_guide.md`; `docs/design/workflow_lisp_frontend_specification.md`; `docs/design/workflow_lisp_core_calculus_middle_end.md` | `tests/test_workflow_lisp_*.py`; `.orc` examples in `workflows/examples/`; `docs/workflow_lisp_route_readiness_registry.json` | `workflows/examples/review_revise_design_docs.orc`; `workflows/examples/review_revise_parametric_design_docs.orc`; `workflows/examples/kiss_backlog_item.orc` | Prefer fresh review/fix `.orc` examples: `review_revise_design_docs.orc` for the generalized target design-doc shape and `review_revise_parametric_design_docs.orc` as the real-life-tested parametric-design provenance. WCC/schema-2 is the current default lowering route for migrated-route evidence; legacy schema-1 is compatibility evidence. Read `kiss_backlog_item.orc` as the smallest teaching reference, not as a direct template. |
+ | Workflow Lisp language server v1 + L0 reliability | Implemented | Yes as optional editor tooling; it is not a second authoring or execution surface | `docs/design/workflow_lisp_frontend_specification.md` §76.1; `docs/design/workflow_lisp_language_server.md`; L-series in `docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md` | `tests/test_workflow_lisp_lsp_*.py`; Stage-8 Tasks 1–9 and Gate S8 in `docs/plans/2026-07-25-workflow-lisp-language-server-implementation-plan.md`; completed L0 plan `docs/plans/2026-07-26-workflow-lisp-language-server-l0-implementation-plan.md` | `docs/workflow_lisp_language_server_setup.md`; launch with `python -m orchestrator.lsp` after installing `[lsp]` | Read-only, frame-clean stdio over exactly one canonical workspace root. Clean disk-equal open/save drives one serialized full Stage-3 compile; compiler diagnostics, exact direct-call definition, module/procedure/workflow symbols, and visibility/registry completion are implemented. L0 adds content-keyed pure-projection export reuse, one-probe saves with no-watcher reverse invalidation, structured compiler initialization failures, and visible ordered notes/expansion roles without changing diagnostic identity. Dirty, pending, failed, invalidated, or stale navigation returns null. Production compile policy is fixed, source/config freshness is content-addressed, root/config drift requires restart, and the server writes no workspace files. P1–P5 and runtime debugging remain deferred. |
+ | Workflow Lisp language server L1 authored symbols/signatures | Implemented | Yes as optional read-only editor tooling; it is not a second analyzer | `docs/design/workflow_lisp_language_server.md`; `docs/design/workflow_lisp_frontend_specification.md` §76.1; L1 in `docs/plans/2026-07-26-workflow-lisp-language-quality-domain-semantics-roadmap.md` | Ordered design and plan reviews; implementation `f1eecf65`, `ec2328dd`, `d174faf2`, and `66163dc0`; compiler-projection, navigation, stdio, freshness, repository-real E2E, and ordered final reviews under `docs/plans/2026-07-26-workflow-lisp-language-server-l1-implementation-plan.md` | `docs/workflow_lisp_language_server_setup.md`; checked-in `workflows/examples/kiss_backlog_item.orc` repository-real stdio evidence | Compiler-owned original-syntax projection ships ten symbol kinds with exact full/name ranges. Procedure, workflow, and form completion namespaces remain distinct and callable details come from resolved compiler signatures. Generated/ambiguous shapes and definition/document symbols for every non-current snapshot fail closed. L2 adds only the implemented recovery-static form completion exception. |
+diff --git a/docs/lisp_workflow_drafting_guide.md b/docs/lisp_workflow_drafting_guide.md
+index 7668143ad5ecc484401f3957d4a7ab7ce971b9a0..e753483afdaf483653787a08a03b8d54aaebdc1d 100644
+--- a/docs/lisp_workflow_drafting_guide.md
++++ b/docs/lisp_workflow_drafting_guide.md
+@@ -55,9 +55,11 @@ Fresh workflow execution is ORC-only. `run` accepts a path whose suffix
+ compares case-insensitively as `.orc` and rejects every other source with
+ `.orc required` before creating state. The production YAML parser and PyYAML
+ runtime dependency are removed. Persisted legacy runs retain state-only
+-report/dashboard compatibility without source parsing. Normal resume may
+-acknowledge a completed YAML/YML run as already complete; nonterminal legacy
+-resume fails closed.
++report/dashboard compatibility without source parsing. `resume` loads the
++selected persisted state, then every recorded non-`.orc` suffix fails closed
++with `.orc required`, regardless of run terminality or force-restart
++selection. Legacy state is viewable only through state-only report/dashboard
++observability.
+ 
+ If new work needs a form that the current `.orc` frontend does not support, do
+ not create a lower-level or YAML workflow as a workaround. Record a capability
+diff --git a/docs/orchestration_start_here.md b/docs/orchestration_start_here.md
+index 0a40ab95b6b47a8e4828cd380adde53644b1c325..e7a2244f04e71cf8e4b14c2100f01dbefbc3df49 100644
+--- a/docs/orchestration_start_here.md
++++ b/docs/orchestration_start_here.md
+@@ -160,8 +160,10 @@ present."
+ - Correction: fresh `run` accepts only a case-insensitive `.orc` suffix and
+   rejects every other source with `.orc required` before state creation.
+   Reports and dashboards may render persisted legacy state without parsing its
+-  source. Normal resume may acknowledge a completed YAML/YML run as already
+-  complete; nonterminal legacy resume fails closed.
++  source. `resume` loads the selected persisted state, then every recorded
++  non-`.orc` suffix fails closed with `.orc required`, regardless of run
++  terminality or force-restart selection. Legacy state remains viewable only
++  through state-only report/dashboard observability.
+ 
+ Confusion: "Execution runs the authored source tree directly."
+ - Correction: execution runs validated executable IR. Persisted/reporting
+diff --git a/docs/runtime_execution_lifecycle.md b/docs/runtime_execution_lifecycle.md
+index 328de0c27ec42897ff4dcc7b033df52e860490a4..c44d2eef24604b1fa752843f1db3d61f5523731a 100644
+--- a/docs/runtime_execution_lifecycle.md
++++ b/docs/runtime_execution_lifecycle.md
+@@ -12,12 +12,12 @@ case-insensitively as `.orc`. YAML/YML and every other non-`.orc` path fail
+ with `.orc required` before a run root or `state.json` is created. There is no
+ production YAML parser.
+ 
+-`resume` reads the selected run's persisted state first. A completed run
+-recorded against `.yaml` or `.yml` may return the existing already-completed
+-result without reopening the source. A nonterminal run recorded against any
+-non-`.orc` source fails closed. `report` and dashboard views may render legacy
+-state, but do not parse its authored source or reconstruct executable workflow
+-structure from it.
++`resume` loads the selected run's persisted state first. Once state is loaded,
++every recorded workflow suffix other than `.orc` fails closed with `.orc
++required`, regardless of run terminality or force-restart selection. A
++non-`.orc` source is neither compiled nor executed. `report` and dashboard
++views remain state-only observability for legacy runs; they do not parse
++authored source or reconstruct executable workflow structure from it.
+ 
+ ## Execution Timeline
+ 
+diff --git a/docs/workflow_drafting_guide.md b/docs/workflow_drafting_guide.md
+index 51e463a15c5370bd11f6068c82611f99a08d65d3..365908a7cddeb26d80daca0db96d5a2ac1c9a778 100644
+--- a/docs/workflow_drafting_guide.md
++++ b/docs/workflow_drafting_guide.md
+@@ -12,9 +12,11 @@ their behavior into Workflow Lisp. Its YAML snippets are historical schema
+ notation, not runnable examples or maintenance instructions.
+ 
+ Reports and dashboards may show persisted legacy state without parsing its
+-source. Normal resume may acknowledge a completed YAML/YML run as already
+-complete; nonterminal legacy resume fails closed. Those compatibility reads do
+-not restore an authored YAML surface.
++source. `resume` loads the selected persisted state, then every recorded
++non-`.orc` suffix fails closed with `.orc required`, regardless of run
++terminality or force-restart selection. Legacy state remains viewable only
++through state-only report/dashboard observability; those compatibility reads
++do not restore an authored YAML surface.
+ 
+ Companion docs:
+ - Concept model and terminology: `docs/orchestration_start_here.md`
+diff --git a/orchestrator/cli/commands/resume.py b/orchestrator/cli/commands/resume.py
+index 97f034075be2668f314edcfbe78c6988c9d8dc33..4b2aea92220e60ad534263398daf6914dcde9347 100644
+--- a/orchestrator/cli/commands/resume.py
++++ b/orchestrator/cli/commands/resume.py
+@@ -368,13 +368,6 @@ def resume_workflow(
+         return 1
+     workflow_path = Path(workflow_file)
+     workflow_suffix = workflow_path.suffix.lower()
+-    if (
+-        workflow_suffix in {".yaml", ".yml"}
+-        and state.status == "completed"
+-        and not force_restart
+-    ):
+-        print(f"Run {run_id} has already completed successfully")
+-        return 0
+     if workflow_suffix != ".orc":
+         print(
+             "Error: .orc required: authored workflows must use the Workflow Lisp frontend",
+diff --git a/specs/dsl.md b/specs/dsl.md
+index 4e5a62b60f3ece635d10d1980d12b56c269a5e51..9fc099b16ca4b5af901ab9a8b1b529ac21f4f22e 100644
+--- a/specs/dsl.md
++++ b/specs/dsl.md
+@@ -7,13 +7,11 @@ compared case-insensitively, is `.orc`. `run` rejects YAML/YML and every other
+ non-`.orc` path with a diagnostic containing `.orc required` before creating
+ run state. The production YAML parser is retired.
+ 
+-`resume` reads persisted state before applying the frontend boundary. Normal
+-resume (without force restart) of a completed run whose recorded workflow path
+-ends in `.yaml` or `.yml` returns the existing terminal-success result without
+-parsing or reopening that source. Every other resume against a non-`.orc`
+-source—including any nonterminal legacy run or force-restart request—fails
+-closed with `.orc required`; it is not reparsed, restarted, or silently
+-skipped. `report` and dashboard surfaces may render persisted state for legacy
++`resume` loads the selected run's persisted state before applying the frontend
++boundary. Once state is loaded, every recorded workflow suffix other than
++`.orc` fails closed with `.orc required`, regardless of run terminality or
++force-restart selection. A non-`.orc` source is neither compiled nor executed.
++`report` and dashboard surfaces remain state-only observability for legacy
+ runs, but must not parse authored YAML to reconstruct workflow semantics.
+ 
+ The schema below remains the normative Core workflow contract produced by the

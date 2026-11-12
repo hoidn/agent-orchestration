@@ -1,0 +1,13 @@
+fix: bind Claude final messages split across content-block rows
+
+CLI 2.1.300 writes a final assistant message with a thinking block as one row per
+content block (same message.id, chained, each stop_reason end_turn). The Claude
+adapter now collapses rows sharing a message.id into one logical final ending at
+its last row; distinct message ids remain two finals, and a split message whose
+rows disagree on stop_reason or promptId, or do not chain, is rejected. The fake
+Claude CLI writes the split shape on a file's first turn. Offline, the three
+Task 6a snapshots bind at end lines 34, 48, 62.
+
+wc -l: native_store.py 482
+
+A check (`dev-check.json`, run by `python dev_check.py`) runs a test that is kept out of the repository; it fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

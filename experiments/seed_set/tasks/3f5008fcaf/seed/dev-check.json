@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_yaml_frontend_retirement.py::test_completed_legacy_resume_fails_closed_when_source_is_missing"
+  ],
+  "timeout_sec": 600
+}

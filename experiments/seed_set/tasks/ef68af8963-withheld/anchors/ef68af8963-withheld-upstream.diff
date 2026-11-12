@@ -1,0 +1,13 @@
+diff --git a/orchestrator/providers/isolation.py b/orchestrator/providers/isolation.py
+index 390fbab8af3f44f50eef0c3c3162c330d559420b..203c576752eec710d4aab8bf9ff27a0c0bf398b2 100644
+--- a/orchestrator/providers/isolation.py
++++ b/orchestrator/providers/isolation.py
+@@ -614,7 +614,7 @@ def _json_path(parts: tuple[object, ...]) -> str:
+ def _append_json_path(parent: str, name: str) -> str:
+     if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+         return f"{parent}.{name}"
+-    return f"{parent}[{json.dumps(name, ensure_ascii=False)}]"
++    return f"{parent}[{json.dumps(name, ensure_ascii=True)}]"
+ 
+ 
+ __all__ = [

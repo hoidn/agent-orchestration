@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_lisp_procedures.py::test_compile_generic_identity_with_description_only_return_guidance"
+  ],
+  "timeout_sec": 600
+}

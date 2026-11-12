@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_lisp_closed_program_frontend.py::test_source_manifest_compilation_keeps_the_supplied_legacy_schema"
+  ],
+  "timeout_sec": 600
+}

@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "--tb=short",
+    "tests/test_run_lock.py::test_run_with_a_run_id_whose_writer_lock_another_process_holds_is_refused_with_exit_2"
+  ],
+  "timeout_sec": 600,
+  "withheld": true
+}

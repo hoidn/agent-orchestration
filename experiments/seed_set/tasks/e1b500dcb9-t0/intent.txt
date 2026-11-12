@@ -1,0 +1,6 @@
+Validate run-ref config authority
+
+The change is in orchestrator/workflow/run_ref/config.py.
+
+The check currently fails with:
+    E   ImportError: cannot import name 'validate_run_ref_static_config_authority' from 'orchestrator.workflow.run_ref.config' (orchestrator/workflow/run_ref/config.py)

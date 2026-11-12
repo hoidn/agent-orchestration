@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "--tb=short",
+    "tests/test_workflow_evaluated_agent_turns.py::test_failed_unknown_receipt_write_still_keeps_started_pending"
+  ],
+  "timeout_sec": 600,
+  "withheld": true
+}

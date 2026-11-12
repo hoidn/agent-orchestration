@@ -1,0 +1,9 @@
+feat: declare generic unions and apply them in type positions at target 2.33
+
+Admit `defunion Name :forall (T ...)` and applications such as
+`Outcome[Int String]` in procedure signatures, ProcRef signatures, record
+and union fields, and `variant` constructors. An applied union keeps the
+generic declaration as constructor identity plus ordered argument types,
+and compatibility checks compare those instead of rendered names. Reject
+wrong arity, unapplied generic unions, non-generic heads, unresolved
+arguments, recursive instantiation, and any of this syntax below 2.33.

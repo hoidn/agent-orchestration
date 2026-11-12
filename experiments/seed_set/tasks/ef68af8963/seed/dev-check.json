@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_provider_isolation_policy.py::test_nested_unknown_surrogate_property_has_ascii_safe_issue_path"
+  ],
+  "timeout_sec": 600
+}

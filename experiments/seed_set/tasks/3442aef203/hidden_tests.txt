@@ -1,0 +1,3 @@
+tests/test_workflow_lisp_pure_result_replay.py::test_public_run_activates_replay_profile_with_value_free_pure_results
+tests/test_resume_command.py
+tests/test_workflow_lisp_pure_result_replay.py

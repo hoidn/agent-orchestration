@@ -1,0 +1,331 @@
+diff --git a/orchestrator/contracts/closed_program/check.py b/orchestrator/contracts/closed_program/check.py
+index 15ad7354b88ec7d1525c4be7232b2a7baa6d7bd7..37a17e478ab9058c6aa417e2c4065884a2515a6c 100644
+--- a/orchestrator/contracts/closed_program/check.py
++++ b/orchestrator/contracts/closed_program/check.py
+@@ -321,6 +321,7 @@ class _Checker:
+         self._check_call_graph()
+         self._compute_effectful_definitions()
+         self._check_effect_configurations()
++        check_agents.check_parallel_agents(self)
+         self._validate_run_ref_origins()
+         self._check_run_ref_signatures_and_digests()
+         self._check_pending_boundaries()
+@@ -3357,7 +3358,7 @@ class _Checker:
+             self._validate_descriptor(result, node=node)
+             self.performs.setdefault(owner, []).append(node)
+             self._check_effect_node(node, env, owner=owner, loops=loops, scope=scope, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
+-            return result, node.get("class") == "provider"
++            return result, node.get("class") in {"provider", "agent_turn"}
+         if kind == "call":
+             return self._call(node, env, owner=owner, loops=loops, scope=scope, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index), False
+         return self._value(node, env, owner=owner, loops=loops, scope=scope, allow_effect=True, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index), False
+@@ -3481,7 +3482,7 @@ class _Checker:
+                     branch_origins = (branch_origins - {name}) | ({name} if provider else set())
+                 branch_types.append(self._value(arm.get("value"), branch_env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=frozenset(branch_origins), command_roots=command_roots, command_index=command_index))
+             self._require_type(branch_types[1], branch_types[0], "type_mismatch", node)
+-            return branch_types[0]
++            return dict(branch_types[0])  # a fresh descriptor: a selected agent is untraced (check_agents)
+         if kind == "list":
+             descriptor = node.get("type")
+             self._validate_descriptor(descriptor, node=node)
+diff --git a/orchestrator/contracts/closed_program/check_agents.py b/orchestrator/contracts/closed_program/check_agents.py
+index c2f3f3c3689854543bb1a241418935966c3391d4..73cd38bce43436023cef3e96d578ca7ac15f38ae 100644
+--- a/orchestrator/contracts/closed_program/check_agents.py
++++ b/orchestrator/contracts/closed_program/check_agents.py
+@@ -5,7 +5,10 @@ uses its `fail`, `_value`, `_require_type`, `_same`, `_check_effect_node` and `t
+ An `agent` perform's result descriptor object is recorded by identity, so an
+ `agent_turn` whose operand names a `let` bound to that perform (directly or by
+ alias; the checker's environment carries the same descriptor object) must list
+-that perform's provider among its `origins` (`agent_origin_mismatch`).
++that perform's provider among its `origins`; any other operand (parameter, field,
++`select` result, join) must list every allocation provider in the tree
++(`agent_origin_mismatch`). No `par-map` worker may reach an agent effect through
++any call edge (`parallel_agent_boundary`).
+ """
+ 
+ from __future__ import annotations
+@@ -13,6 +16,7 @@ from __future__ import annotations
+ from collections.abc import Mapping
+ from typing import Any
+ 
++from .node_walk import _ast_nodes
+ from .targets import target_dsl_supports_agent_sessions
+ 
+ AGENT_DESCRIPTOR = {"kind": "primitive", "name": "Agent"}
+@@ -27,6 +31,58 @@ def _allocated_providers(checker) -> dict[int, str]:
+     return vars(checker).setdefault("_agent_result_providers", {})
+ 
+ 
++def _all_allocation_providers(checker) -> set[str]:
++    """Providers of every `agent` perform in the tree: the bound for an untraced operand."""
++
++    cached = vars(checker).get("_all_allocation_providers")
++    if cached is None:
++        cached = {node.get("provider") for node in _tree_nodes(checker.tree)
++                  if node.get("k") == "perform" and node.get("class") == "agent"}
++        checker._all_allocation_providers = cached
++    return cached
++
++
++def _tree_nodes(tree):
++    for body in (tree["body"], *(definition["body"] for definition in tree["definitions"].values())):
++        yield from _ast_nodes(body)
++
++
++def find_parallel_agent(tree) -> tuple[Mapping[str, Any], Mapping[str, Any]] | None:
++    """The first `par-map` whose worker reaches an agent effect, with that effect.
++
++    Calls are followed through `tree["definitions"]` transitively (memoised).
++    """
++
++    definitions = tree["definitions"]
++    reached: dict[str, Mapping[str, Any] | None] = {}
++
++    def reach(body):
++        for node in _ast_nodes(body):
++            if node.get("k") == "perform" and node.get("class") in {"agent", "agent_turn"}:
++                return node
++            if node.get("k") == "call" and node.get("callee") in definitions:
++                callee = node["callee"]
++                if callee not in reached:
++                    reached[callee] = None  # cycle guard; the call graph is acyclic once checked
++                    reached[callee] = reach(definitions[callee]["body"])
++                if reached[callee] is not None:
++                    return reached[callee]
++        return None
++
++    for node in _tree_nodes(tree):
++        if node.get("k") == "par-map" and (found := reach(node["body"])) is not None:
++            return node, found
++    return None
++
++
++def check_parallel_agents(checker) -> None:
++    """Backstop: no agent may be allocated or turned inside a parallel worker."""
++
++    found = find_parallel_agent(checker.tree)
++    if found is not None:
++        checker.fail("parallel_agent_boundary", "a parallel worker reaches an agent effect", found[0])
++
++
+ def _configured(providers: Any, provider: Any) -> bool:
+     return provider in providers or any(
+         isinstance(row, Mapping) and row.get("provider_id") == provider for row in providers.values())
+@@ -92,10 +148,10 @@ def _check_agent_turn(checker, node, env, walk) -> None:
+         checker.fail("effect_shape", "agent turn policy may only carry timeout_sec", node)
+     agent = node["agent"]
+     checker._require_type(checker._value(agent, env, allow_effect=False, **walk), AGENT_DESCRIPTOR, "type_mismatch", node)
+-    if isinstance(agent, Mapping) and agent.get("k") == "name" and agent.get("n") in env:
+-        allocated = _allocated_providers(checker).get(id(env[agent["n"]]))
+-        if allocated is not None and allocated not in origins:
+-            checker.fail("agent_origin_mismatch", f"agent turn origins {origins!r} omit its agent's provider "
+-                         f"{allocated!r}", node)
++    traced = agent.get("k") == "name" and _allocated_providers(checker).get(id(env.get(agent.get("n"))))
++    required = {traced} if traced else _all_allocation_providers(checker)
++    if not required <= set(origins):
++        checker.fail("agent_origin_mismatch", f"agent turn origins {origins!r} omit reachable providers "
++                     f"{sorted(required - set(origins))!r}", node)
+     provider_view = {key: value for key, value in node.items() if key not in {"agent", "origins"}}
+     checker._check_effect_node({**provider_view, "class": "provider", "provider": origins[0]}, env, **walk)
+diff --git a/orchestrator/workflow_lisp/closed/agent_effects.py b/orchestrator/workflow_lisp/closed/agent_effects.py
+index 88c988f407913855654b922aab20b33ab06e2e32..f4df108db026cffd4fd76a15cb71dcc40758df25 100644
+--- a/orchestrator/workflow_lisp/closed/agent_effects.py
++++ b/orchestrator/workflow_lisp/closed/agent_effects.py
+@@ -69,3 +69,29 @@ def _translate_agent_turn(builder: Any, perform: WccPerform, d: Any, env: Mappin
+     node.update(provenance)
+     builder.retain_generated_result_contract(node, perform, d)
+     return node
++
++
++def refuse_parallel_agents(tree: Mapping[str, Any]) -> None:
++    """Refuse a parallel worker that reaches an agent allocation or turn through any callee.
++
++    The closed tree is the one place where macro expansion, specialized helpers, ProcRef
++    callees and child workflows are all explicit `call` edges.
++    """
++
++    from orchestrator.contracts.closed_program.check_agents import find_parallel_agent
++    from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
++    from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
++
++    found = find_parallel_agent(tree)
++    if found is None:
++        return
++    worker, _effect = found
++    path, line, column = worker["@"]["span"].rsplit(":", 2)
++    position = SourcePosition(path=path, line=int(line), column=int(column), offset=0)
++    raise LispFrontendCompileError((LispFrontendDiagnostic(
++        code="parallel_agent_boundary",
++        message="a parallel worker cannot allocate or turn an `Agent`, including through called helpers or workflows",
++        span=SourceSpan(start=position, end=position),
++        form_path=tuple(worker["@"]["form"]),
++        phase="lowering",
++    ),))
+diff --git a/orchestrator/workflow_lisp/closed/build.py b/orchestrator/workflow_lisp/closed/build.py
+index f34b3c8c9345fc6caa232ff5bc8dfd578ee3e1c0..2a156af58773167325e8b80392d694aa7bbe6ee1 100644
+--- a/orchestrator/workflow_lisp/closed/build.py
++++ b/orchestrator/workflow_lisp/closed/build.py
+@@ -75,6 +75,7 @@ from orchestrator.contracts.closed_program.program import (
+ )
+ from .program import canonical_configuration, logical_asset_base_for_module
+ from orchestrator.contracts.closed_program.sites import assign_sites
++from .agent_effects import refuse_parallel_agents
+ from orchestrator.contracts.closed_program.check import validate
+ 
+ 
+@@ -4681,6 +4682,7 @@ def _build_with_builder(typed: Any, builder: Builder) -> ClosedProgram:
+     }
+     if command_params is not None:
+         tree["command_params"] = command_params
++    refuse_parallel_agents(tree)
+     tree["sites"] = [list(row) for row in assign_sites(tree)]
+     builder.finalize_run_refs(tree)
+     validate(tree)
+diff --git a/orchestrator/workflow_lisp/contracts.py b/orchestrator/workflow_lisp/contracts.py
+index 29aaee2b65fe966150e944eff9b787e8cdd1bb6b..034ad8df30c89015be08ef4633c0bb658afea774 100644
+--- a/orchestrator/workflow_lisp/contracts.py
++++ b/orchestrator/workflow_lisp/contracts.py
+@@ -155,6 +155,10 @@ def is_transportable_result_type(
+     express it as one direct JSON root value.
+     """
+ 
++    from .typecheck_agents import contains_agent
++
++    if contains_agent(type_ref):
++        return False
+     if isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
+         return True
+     target = target_dsl_version or getattr(type_env, "target_dsl_version", None)
+@@ -170,7 +174,7 @@ def is_transportable_result_type(
+             type_env=type_env,
+             allow_nested_structures=allow_nested_structures,
+         )
+-    except (LispFrontendCompileError, TypeError, ValueError):
++    except (LispFrontendCompileError, TypeError):
+         return False
+     return True
+ 
+diff --git a/orchestrator/workflow_lisp/procedure_refs.py b/orchestrator/workflow_lisp/procedure_refs.py
+index a2cdd1e730a67a318293270d7fe4cfc615c46c76..2cd8058eea643e482c144dbe318e6e0a54e640eb 100644
+--- a/orchestrator/workflow_lisp/procedure_refs.py
++++ b/orchestrator/workflow_lisp/procedure_refs.py
+@@ -406,6 +406,9 @@ def resolve_proc_ref_value(
+                         ),
+                     )
+                 )
++            from .typecheck_agents import require_no_agent
++            require_no_agent(type_ref, where=f"`bind-proc` argument `:{binding.name}`", span=binding.keyword_span,
++                             form_path=binding.keyword_form_path, code="let_proc_capture_agent_forbidden")
+             if binding.name in bound_args_by_name:
+                 raise LispFrontendCompileError(
+                     (
+diff --git a/orchestrator/workflow_lisp/typecheck_agents.py b/orchestrator/workflow_lisp/typecheck_agents.py
+index d96a24579e3bfa27d364f9abe002adf7d02dc2c2..b7e9a8e7330db89616d6780390318922bc025dfb 100644
+--- a/orchestrator/workflow_lisp/typecheck_agents.py
++++ b/orchestrator/workflow_lisp/typecheck_agents.py
+@@ -187,70 +187,26 @@ def require_no_agent(type_ref, *, where: str, span, form_path, expansion_stack=(
+         )
+ 
+ 
+-def agent_return_boundary_diagnostic(workflow_def, return_type_ref: TypeRef):
+-    """A record/union workflow return carrying an `Agent` cannot cross the workflow boundary."""
+-
+-    from .diagnostics import LispFrontendDiagnostic
+-
+-    if not contains_agent(return_type_ref):
+-        return None
+-    return LispFrontendDiagnostic(
+-        code="workflow_boundary_type_invalid",
+-        message=f"workflow `{workflow_def.name}` return `{workflow_def.return_type_name}` carries an `Agent`",
+-        span=workflow_def.span, form_path=workflow_def.form_path, expansion_stack=workflow_def.expansion_stack,
+-    )
+-
+-
+ def check_parallel_body(expr, typed_body, context) -> None:
+-    """Refuse a parallel worker that receives, allocates, turns or returns an `Agent`.
++    """Refuse a parallel worker that receives, allocates, turns or returns an `Agent` in its own body.
+ 
+-    Allocation is searched in the typed body and, syntactically, in every
+-    procedure the body reaches through `context.procedure_catalog.call_graph`.
++    Allocation reached through callees (helpers, workflows, ProcRefs, macro output) is
++    refused on the closed tree by `closed.agent_effects.refuse_parallel_agents`.
+     """
+ 
+     from .expression_traversal import free_expr_names, walk_expr
+-    from .expressions import ProcedureCallExpr, ProviderResultExpr
++    from .expressions import ProviderResultExpr
+ 
+     free = free_expr_names(expr.body_expr, bound=frozenset({expr.binder_name}))
+-    nodes = list(walk_expr(typed_body.expr))
+-    callees = {node.callee_name for node in nodes if isinstance(node, ProcedureCallExpr)}
+     if (
+         contains_agent(typed_body.type_ref)
+         or any(contains_agent(context.value_env[name]) for name in free if name in context.value_env)
+         or any(isinstance(node, AgentExpr)
+-               or isinstance(node, ProviderResultExpr) and node.agent_origins is not None for node in nodes)
+-        or _procedures_allocate(callees, context.procedure_catalog)
++               or isinstance(node, ProviderResultExpr) and node.agent_origins is not None
++               for node in walk_expr(typed_body.expr))
+     ):
+         raise_error(
+             "a parallel worker cannot receive, allocate, turn or return an `Agent`",
+             code="parallel_agent_boundary",
+             span=expr.span, form_path=expr.form_path, expansion_stack=expr.expansion_stack,
+         )
+-
+-
+-def _procedures_allocate(names: set[str], catalog) -> bool:
+-    """Whether any procedure reachable from `names` writes an `agent` form."""
+-
+-    if catalog is None:
+-        return False
+-    pending, seen = list(names), set()
+-    while pending:
+-        name = pending.pop()
+-        definition = catalog.definitions_by_name.get(name)
+-        if name in seen or definition is None:
+-            continue
+-        seen.add(name)
+-        if _datum_allocates(definition.body.datum):
+-            return True
+-        pending.extend(catalog.call_graph.get(name, ()))
+-    return False
+-
+-
+-def _datum_allocates(datum) -> bool:
+-    items = getattr(datum, "items", None)
+-    if items is None:
+-        return False
+-    head = items[0] if items else None
+-    if getattr(head, "display_name", getattr(head, "name", None)) == "agent":
+-        return True
+-    return any(_datum_allocates(item) for item in items)
+diff --git a/orchestrator/workflow_lisp/typecheck_run_ref.py b/orchestrator/workflow_lisp/typecheck_run_ref.py
+index 9df4d5a997b27bd95808bdead129869950b9bef9..891228e7e5af84b326c2a0f5a5a21de37a98aacf 100644
+--- a/orchestrator/workflow_lisp/typecheck_run_ref.py
++++ b/orchestrator/workflow_lisp/typecheck_run_ref.py
+@@ -707,9 +707,8 @@ def _require_transportable(type_ref, *, expr, role: str, type_env) -> None:
+     # Import lazily: contracts owns workflow-signature projection and therefore
+     # reaches this dispatch module through the workflow compiler at import time.
+     from .contracts import is_transportable_result_type
+-    from .typecheck_agents import contains_agent
+ 
+-    if is_transportable_result_type(type_ref, type_env=type_env) and not contains_agent(type_ref):
++    if is_transportable_result_type(type_ref, type_env=type_env):
+         return
+     raise_error(
+         f"`run-ref` {role} type `{type_ref.name}` is not transportable",
+diff --git a/orchestrator/workflow_lisp/workflows.py b/orchestrator/workflow_lisp/workflows.py
+index f5d101b9aed6433bf130c5a16bc9b7a73e41e438..73890894f8aa7a8bdf627cae384e97bd8459f271 100644
+--- a/orchestrator/workflow_lisp/workflows.py
++++ b/orchestrator/workflow_lisp/workflows.py
+@@ -2960,8 +2960,7 @@ def _workflow_return_boundary_diagnostic(
+             )
+         return None
+     if closed_program:
+-        from .typecheck_agents import agent_return_boundary_diagnostic
+-        return agent_return_boundary_diagnostic(workflow_def, return_type_ref)
++        return None
+     return_analysis = analyze_workflow_boundary_type(
+         return_type_ref,
+         source_path=("return",),

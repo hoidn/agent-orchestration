@@ -1,0 +1,5 @@
+Activate pure replay for new roots
+
+The change is in orchestrator/cli/commands/resume.py and orchestrator/cli/commands/run.py.
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_resume_command.py::test_replay_profile_force_restart_activates_deterministic_new_root_without_mutating_source` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

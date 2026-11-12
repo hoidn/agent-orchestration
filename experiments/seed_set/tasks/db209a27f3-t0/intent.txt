@@ -1,0 +1,6 @@
+fix(closed): validate activity before boundary contract equality
+
+The change is in orchestrator/workflow_lisp/closed/check.py.
+
+The check currently fails with:
+    E       Failed: DID NOT RAISE <class 'orchestrator.workflow_lisp.closed.program.ClosedProgramInvalid'>

@@ -1,0 +1,9 @@
+Reject malformed run-ref primitive bindings
+
+The change is in orchestrator/workflow_lisp/typecheck_run_ref.py.
+
+The check currently fails with:
+    E       Failed: DID NOT RAISE <class 'orchestrator.workflow_lisp.typecheck_context.TypecheckSessionStateCollisionError'>
+    E       Failed: DID NOT RAISE <class 'orchestrator.workflow_lisp.typecheck_context.TypecheckSessionStateCollisionError'>
+    E       Failed: DID NOT RAISE <class 'orchestrator.workflow_lisp.typecheck_context.TypecheckSessionStateCollisionError'>
+    E       Failed: DID NOT RAISE <class 'orchestrator.workflow_lisp.typecheck_context.TypecheckSessionStateCollisionError'>

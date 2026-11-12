@@ -1,0 +1,529 @@
+diff --git a/docs/design/workflow_lisp_language_server.md b/docs/design/workflow_lisp_language_server.md
+index f458c9bb737e23f6c97fcc8065e3f26fd795a310..59fe2ae376325e74eae80d1c048de703f9403e72 100644
+--- a/docs/design/workflow_lisp_language_server.md
++++ b/docs/design/workflow_lisp_language_server.md
+@@ -941,7 +941,16 @@ The metadata seam is exact:
+ - WCC-to-frontend reconstruction in
+   `orchestrator/workflow_lisp/wcc/defunctionalize.py`, and every
+   generated/expanded/ambiguous call construction, sets `None` rather than
+-  copying a whole-form or generated span; and
++  copying a whole-form or generated span;
++- before execution normalization erases direct calls, the compiler retains
++  immutable `AuthoredDirectCall` facts on `Stage3CompileResult`, carrying
++  the owner kind/name, callee kind/canonical name, and exact authored callee
++  span. Only non-generated, non-specialized, unexpanded authored owners
++  and unexpanded call occurrences contribute these facts. The LSP projects
++  them through the same namespace lookup, duplicate/conflict checks and
++  current-success preflight, and checks
++  that the final owner is still eligible. Prompt applications and proc-refs
++  continue to require their supported final retained AST shapes; and
+ - the LSP indexes only a non-null `authored_callee_span`. A null value, a
+   cursor elsewhere in the whole-form span, or any unsupported call shape
+   returns null.
+diff --git a/docs/plans/2026-10-16-remaining-test-suite-failures.md b/docs/plans/2026-10-16-remaining-test-suite-failures.md
+new file mode 100644
+index 0000000000000000000000000000000000000000..26e0d677c901cd55da8d3bf307932e7311d0443a
+--- /dev/null
++++ b/docs/plans/2026-10-16-remaining-test-suite-failures.md
+@@ -0,0 +1,71 @@
++# Remaining test suite failures
++
++## Objective and authority
++
++Repair the remaining failures in the current working tree and verify the full
++default pytest population. This plan selects repairs, not new language features
++or changes to historical qualification claims. Current contracts are routed by
++`docs/index.md`, `docs/capability_status_matrix.md`, and `docs/design/README.md`.
++
++The previous full result (15,874 passed, 71 failed) is diagnostic input only.
++Current main starts at `be3e3040` with pre-existing uncommitted work. Preserve it.
++Initial diff, status, hashes, failure traces and new verification receipts live
++in `/tmp/orc-suite-repair-20261016/`.
++
++## Execution
++
++1. Reproduce representative failures, then run the complete default suite with
++   `PYTHONPATH=$PWD pytest -q -n 16 --dist=worksteal` in tmux. The explicit path
++   prevents subprocesses importing the unrelated installed omp worktree.
++   Preserve all failures and distinguish obsolete cache entries from live tests.
++2. Repair compiler causes against current 2.35–2.39 contracts: typed union tags,
++   lexical scope, procedure effects, loop carrier identity, and transport checks.
++   Delegate bounded implementation slices after root-cause diagnosis; reproduce
++   each regression before editing and inspect affected callers and contracts.
++3. Restore compiler-owned navigation facts lost through inline normalization;
++   preserve the LSP current-snapshot and namespace checks. Verify direct calls,
++   imported calls, and real stdio editor sessions.
++4. Diagnose and repair remaining runtime, isolation, probe, documentation and
++   test-harness failures. Preserve external prerequisite checks and historical
++   evidence. Do not skip, xfail, delete or weaken tests to conceal defects.
++5. Run focused owner tests after each repair. Collect modified modules when tests
++   are added or renamed. Run public workflow smoke checks for compiler/runtime
++   changes, then repeat the full default suite in tmux with 16 workers. Record
++   node populations, skips, failures, source drift and any genuine limitations.
++6. Obtain independent contract and code-quality review of implementation changes,
++   inspect the final diff and verification personally, and close the goal only
++   with a passing full suite on the final integrated source.
++
++## Constraints and tradeoffs
++
++Use existing implementations and narrowly scoped fixes. Do not restore retired
++execution paths, add compatibility layers, or run paid/live providers. Retaining
++the full test population makes diagnosis more expensive than suppressing failing
++checks, but preserves the contracts the suite is meant to enforce. Changes to
++files with existing local work must preserve those edits; no blanket staging,
++reset, stash or push is part of this repair plan. The user subsequently requested
++staging and committing the completed repairs; commit only the reviewed task files.
++
++## Partial repair checkpoint
++
++The fresh baseline on unchanged main source finished with 15,897 passed,
++106 failed, 117 skipped, two xfailed and one collection error. Source/test hashes
++showed no drift during that run. This supersedes the earlier 71-failure input.
++
++Reviewed repairs retain authored direct-call facts for LSP navigation, preserve
++generic union discriminants during re-typechecking, canonicalize concrete
++workflow effects across admitted origins, reject forbidden leaves in structured
++workflow returns, and recognize the current replay handler in growth-test tracing.
++The repair files were integrated into main with byte-for-byte checks against the
++reviewed worktree, preserving all pre-existing edits.
++
++Focused evidence includes 152 LSP/editor checks, 130 adjacent compiler checks,
++36 return-contract checks, one public compile smoke and the exhaustive growth
++check passing. The broader type-owner run passed 519 cases and retained two
++known loop-carrier failures. These are partial results, not a passing full suite.
++The integrated main checkpoint collected 325 cases in the changed test modules;
++its combined compiler, LSP/editor and public CLI check passed 665 cases with only
++the same two loop-carrier failures. Hash comparison confirmed that every file
++outside this checkpoint remained unchanged from the initial snapshot.
++Loop carriers, preparation values, process handling, documentation tests and the
++additional failures from the fresh baseline remain to be repaired and verified.
+diff --git a/orchestrator/lsp/navigation.py b/orchestrator/lsp/navigation.py
+index 78ff602c06ce0055337aa8ddd1c30f95bb1cb830..fd31200b129d5ac3340aaf310f64e6ea5a6b957a 100644
+--- a/orchestrator/lsp/navigation.py
++++ b/orchestrator/lsp/navigation.py
+@@ -18,8 +18,6 @@ from orchestrator.workflow_lisp.form_registry import (
+     target_dsl_version_at_least,
+ )
+ from orchestrator.workflow_lisp.expressions import (
+-    CallExpr,
+-    ProcedureCallExpr,
+     ProcRefLiteralExpr,
+     ProviderResultExpr,
+ )
+@@ -42,7 +40,7 @@ from orchestrator.workflow_lisp.syntax import (
+     ensure_syntax_datum,
+ )
+ from orchestrator.workflow_lisp.type_env import TypeRef, render_type_ref
+-from orchestrator.workflow_lisp.workflows import WorkflowSignature
++from orchestrator.workflow_lisp.workflows import AuthoredDirectCall, WorkflowSignature
+ 
+ from .coordinates import CoordinateTranslationError, source_span_to_lsp_range
+ 
+@@ -194,6 +192,11 @@ def build_navigation_index(
+                 continue
+             for link in _reference_links_for_authored_owner(
+                 typed_procedure.typed_body.expr,
++                direct_calls=tuple(
++                    call for call in compiled.authored_direct_calls
++                    if (call.owner_kind, call.owner_name)
++                    == ("procedure", definition.name)
++                ),
+                 definition_spans=definition_spans,
+                 syntax_lists=syntax_lists,
+                 prompt_catalog=prompt_catalog,
+@@ -210,6 +213,11 @@ def build_navigation_index(
+                 continue
+             for link in _reference_links_for_authored_owner(
+                 typed_workflow.typed_body.expr,
++                direct_calls=tuple(
++                    call for call in compiled.authored_direct_calls
++                    if (call.owner_kind, call.owner_name)
++                    == ("workflow", definition.name)
++                ),
+                 definition_spans=definition_spans,
+                 syntax_lists=syntax_lists,
+                 prompt_catalog=prompt_catalog,
+@@ -643,21 +651,18 @@ def _prompt_application_assertions(
+ def _reference_links_for_authored_owner(
+     expr: object,
+     *,
++    direct_calls: tuple[AuthoredDirectCall, ...] = (),
+     definition_spans: Mapping[tuple[str, str], SourceSpan],
+     syntax_lists: tuple[SyntaxList, ...],
+     prompt_catalog: object,
+     procedure_definitions: Mapping[str, ProcedureDef],
+ ) -> tuple[DefinitionLink, ...]:
+     links: list[DefinitionLink] = []
+-    for node in walk_expr(expr):
+-        if type(node) not in {CallExpr, ProcedureCallExpr}:
+-            continue
++    for node in direct_calls:
+         callee_span = node.authored_callee_span
+         if callee_span is None:
+             continue
+-        callable_kind = (
+-            "workflow" if type(node) is CallExpr else "procedure"
+-        )
++        callable_kind = node.callee_kind
+         definition_span = definition_spans.get(
+             (callable_kind, node.callee_name)
+         )
+diff --git a/orchestrator/workflow_lisp/compiler.py b/orchestrator/workflow_lisp/compiler.py
+index 9ba9f023bb2afe6ceda2150501027bfed66ac511..c3bdd48576eba8a7b457b863b5f157473d15d57f 100644
+--- a/orchestrator/workflow_lisp/compiler.py
++++ b/orchestrator/workflow_lisp/compiler.py
+@@ -183,6 +183,7 @@ from .validation import (
+     run_validation_pipeline,
+ )
+ from .workflows import (
++    AuthoredDirectCall,
+     CertifiedAdapterBinding,
+     CommandBoundaryEnvironment,
+     ExternalToolBinding,
+@@ -2032,6 +2033,28 @@ def _compile_stage3_graph(
+             },
+         )
+         typed_procedures = resolved_state.typed_procedures
++        # Inline normalization erases direct calls but must retain their authored identity.
++        authored_direct_calls = tuple(
++            AuthoredDirectCall(
++                owner_kind=owner_kind,
++                owner_name=owner.definition.name,
++                callee_kind="workflow" if type(node) is CallExpr else "procedure",
++                callee_name=node.callee_name,
++                authored_callee_span=node.authored_callee_span,
++            )
++            for owner_kind, owners in (
++                ("procedure", typed_procedures),
++                ("workflow", typed_workflows),
++            )
++            for owner in owners
++            if owner.specialization is None
++            and not owner.definition.expansion_stack
++            and getattr(owner.definition, "generated_local_procedure", None) is None
++            for node in walk_expr(owner.typed_body.expr)
++            if type(node) in {CallExpr, ProcedureCallExpr}
++            and node.authored_callee_span is not None
++            and not node.expansion_stack
++        )
+         resolved_procedures_by_name = {
+             **typed_procedures_by_name,
+             **{
+@@ -2289,6 +2312,7 @@ def _compile_stage3_graph(
+             command_boundary_environment=command_boundary_environment,
+             typed_procedures=typed_procedures,
+             typed_workflows=typed_workflows,
++            authored_direct_calls=authored_direct_calls,
+             prompt_catalog=prompt_catalog,
+             diagnostics=diagnostics,
+             validation_profile=normalized_validation_profile,
+diff --git a/orchestrator/workflow_lisp/procedures.py b/orchestrator/workflow_lisp/procedures.py
+index ac0703667f3d88665cfff3fe7d82ba33e655cd1e..f0cc6ab3aa860a15ce9bb850661cb356e3bc1081 100644
+--- a/orchestrator/workflow_lisp/procedures.py
++++ b/orchestrator/workflow_lisp/procedures.py
+@@ -626,7 +626,7 @@ def resolve_procedure_effect_restrictions(
+     procedure_defs, *, procedure_catalog, workflow_catalog, workflow_effects_by_name,
+     extern_environment, workflow_name_resolver,
+ ):
+-    """Resolve new authored symbols once in their defining compiler environment."""
++    """Canonicalize concrete workflow effects and validate target-2.39 restrictions."""
+     from .effects import CallsWorkflowEffect, UsesProviderEffect
+     from .type_env import WorkflowRefTypeRef
+     from .workflows import ProviderExtern
+@@ -636,11 +636,12 @@ def resolve_procedure_effect_restrictions(
+     resolved_definitions = dict(procedure_catalog.definitions_by_name)
+     known_workflows = {*workflow_catalog.signatures_by_name, *workflow_effects_by_name}
+     for definition in procedure_defs:
+-        if isinstance(definition, TypedProcedureDef) or not target_dsl_supports_effect_ceilings(
+-            definition.effect_contract_target or ""
+-        ) or definition.declared_effects is None:
++        if isinstance(definition, TypedProcedureDef) or definition.declared_effects is None:
+             definitions.append(definition)
+             continue
++        enforce_ceiling = target_dsl_supports_effect_ceilings(
++            definition.effect_contract_target or ""
++        )
+         signature = signatures[definition.name]
+         formals = {name for name, ref in signature.params if isinstance(ref, WorkflowRefTypeRef)}
+         effects = set()
+@@ -650,11 +651,12 @@ def resolve_procedure_effect_restrictions(
+                 resolved = name if name in known_workflows else (
+                     workflow_name_resolver(name, definition.effects_clause_span or definition.span,
+                         definition.form_path) if workflow_name_resolver is not None else name)
+-                if resolved not in known_workflows:
++                if resolved in known_workflows:
++                    canonical = workflow_catalog.signatures_by_name.get(resolved)
++                    effect = CallsWorkflowEffect(subject=(canonical.name if canonical is not None else resolved,))
++                elif enforce_ceiling:
+                     _raise_invalid_restriction_subject(definition, "workflow", name)
+-                canonical = workflow_catalog.signatures_by_name.get(resolved)
+-                effect = CallsWorkflowEffect(subject=(canonical.name if canonical is not None else resolved,))
+-            elif isinstance(effect, UsesProviderEffect) and not isinstance(
++            elif enforce_ceiling and isinstance(effect, UsesProviderEffect) and not isinstance(
+                 extern_environment.bindings_by_name.get(name), ProviderExtern
+             ):
+                 _raise_invalid_restriction_subject(definition, "provider", name)
+diff --git a/orchestrator/workflow_lisp/typecheck_dispatch.py b/orchestrator/workflow_lisp/typecheck_dispatch.py
+index ce908d8edbf250a1199607e5f04dac6ed48205da..e51dce07d645388115d77c80c6223387dc44d97c 100644
+--- a/orchestrator/workflow_lisp/typecheck_dispatch.py
++++ b/orchestrator/workflow_lisp/typecheck_dispatch.py
+@@ -55,6 +55,7 @@ from .expressions import (
+     RunRefExpr,
+     TrialExpr,
+     UnionVariantExpr,
++    UnionVariantTagExpr,
+     WithLiveProviderPeersExpr,
+     WithLiveProvidersExpr,
+     WithPhaseExpr,
+@@ -135,6 +136,7 @@ def _is_pure_or_provisional_procedure_call(
+         (allow_provisional_procedure_calls) and (effect_summary_is_procedure_edge_only(summary))
+     )
+ from .type_env import (
++    DiscriminantTypeRef,
+     FrontendTypeEnvironment,
+     OptionalTypeRef,
+     PathTypeRef,
+@@ -374,6 +376,22 @@ def _typecheck(
+     if typed_structural_value is not None:
+         return typed_structural_value
+ 
++    if isinstance(expr, UnionVariantTagExpr):
++        owner = expr.discriminant_owner
++        union_owner = owner if isinstance(owner, UnionTypeRef) else None
++        return _typed(
++            expr=expr,
++            type_ref=DiscriminantTypeRef(
++                union_name=expr.union_name,
++                variant_names=expr.variant_names,
++                applied_union=(
++                    union_owner if union_owner is not None and union_owner.type_args else None
++                ),
++                owner_union=union_owner,
++            ),
++            effect=EMPTY_EFFECT_SUMMARY,
++        )
++
+     if isinstance(expr, LiteralExpr):
+         return _typed(
+             expr=expr,
+diff --git a/orchestrator/workflow_lisp/workflows.py b/orchestrator/workflow_lisp/workflows.py
+index 9be0841e45d3ef203924e754cbe05c6a2717a128..e373297d48907a6635b1b6e86b1ef36fb0dc9893 100644
+--- a/orchestrator/workflow_lisp/workflows.py
++++ b/orchestrator/workflow_lisp/workflows.py
+@@ -417,6 +417,17 @@ class ExpressionCompileContext:
+     module_import_scope: "ModuleImportScope | None" = field(default=None, compare=False, repr=False)
+ 
+ 
++@dataclass(frozen=True, slots=True)
++class AuthoredDirectCall:
++    """Resolved authored call evidence retained across execution normalization."""
++
++    owner_kind: Literal["procedure", "workflow"]
++    owner_name: str
++    callee_kind: Literal["procedure", "workflow"]
++    callee_name: str
++    authored_callee_span: SourceSpan | None
++
++
+ @dataclass(frozen=True)
+ class Stage3CompileResult:
+     """Typed module result with retained source and configuration evidence."""
+@@ -444,6 +455,8 @@ class Stage3CompileResult:
+         repr=False,
+     )
+ 
++    authored_direct_calls: tuple[AuthoredDirectCall, ...] = ()
++
+ 
+ @dataclass(frozen=True)
+ class WorkflowBoundaryAnalysis:
+@@ -460,6 +473,18 @@ class WorkflowBoundaryAnalysis:
+     offending_type_name: str | None = None
+ 
+ 
++def _has_forbidden_workflow_return_leaf(analysis: WorkflowBoundaryAnalysis) -> bool:
++    return (
++        analysis.contains_json
++        or analysis.contains_workflow_ref
++        or analysis.contains_proc_ref
++        or (
++            analysis.contains_provider_or_prompt
++            and analysis.offending_type_name != "Agent"
++        )
++    )
++
++
+ def _phase_family_hidden_context_requirements(
+     signature: WorkflowSignature,
+     requirements: Mapping[str, PromotedEntryHiddenContextRequirement],
+@@ -551,6 +576,7 @@ def analyze_workflow_boundary_type(
+     allow_nested_unions: bool = False,
+     inside_collection: bool = False,
+     allow_top_level_workflow_ref: bool = False,
++    scan_forbidden_leaves: bool = False,
+ ) -> WorkflowBoundaryAnalysis:
+     """Return whether one workflow-boundary type can lower to shared contracts."""
+ 
+@@ -599,6 +625,18 @@ def analyze_workflow_boundary_type(
+             contains_collection=False,
+         )
+     if isinstance(type_ref, WorkflowRefTypeRef):
++        if scan_forbidden_leaves:
++            return WorkflowBoundaryAnalysis(
++                lowerable=False,
++                contains_json=False,
++                contains_provider_or_prompt=False,
++                contains_workflow_ref=True,
++                contains_proc_ref=False,
++                contains_union=False,
++                contains_collection=False,
++                offending_path=source_path,
++                offending_type_name=type_ref.name,
++            )
+         for index, param_type_ref in enumerate(type_ref.param_type_refs):
+             analysis = analyze_workflow_boundary_type(
+                 param_type_ref,
+@@ -607,6 +645,7 @@ def analyze_workflow_boundary_type(
+                 allow_nested_unions=False,
+                 inside_collection=False,
+                 allow_top_level_workflow_ref=False,
++                scan_forbidden_leaves=scan_forbidden_leaves,
+             )
+             if analysis.contains_collection:
+                 return WorkflowBoundaryAnalysis(
+@@ -629,6 +668,7 @@ def analyze_workflow_boundary_type(
+             allow_nested_unions=False,
+             inside_collection=False,
+             allow_top_level_workflow_ref=False,
++            scan_forbidden_leaves=scan_forbidden_leaves,
+         )
+         if return_analysis.contains_collection:
+             return WorkflowBoundaryAnalysis(
+@@ -685,8 +725,11 @@ def analyze_workflow_boundary_type(
+             allow_nested_unions=allow_nested_unions,
+             inside_collection=True,
+             allow_top_level_workflow_ref=False,
++            scan_forbidden_leaves=scan_forbidden_leaves,
+         )
+-        if not analysis.lowerable:
++        if not analysis.lowerable and (
++            not scan_forbidden_leaves or _has_forbidden_workflow_return_leaf(analysis)
++        ):
+             return analysis
+         return WorkflowBoundaryAnalysis(
+             lowerable=True,
+@@ -705,8 +748,11 @@ def analyze_workflow_boundary_type(
+             allow_nested_unions=allow_nested_unions,
+             inside_collection=True,
+             allow_top_level_workflow_ref=False,
++            scan_forbidden_leaves=scan_forbidden_leaves,
+         )
+-        if not analysis.lowerable:
++        if not analysis.lowerable and (
++            not scan_forbidden_leaves or _has_forbidden_workflow_return_leaf(analysis)
++        ):
+             return analysis
+         return WorkflowBoundaryAnalysis(
+             lowerable=True,
+@@ -725,8 +771,12 @@ def analyze_workflow_boundary_type(
+             allow_nested_unions=False,
+             inside_collection=False,
+             allow_top_level_workflow_ref=False,
++            scan_forbidden_leaves=scan_forbidden_leaves,
+         )
+-        if not key_analysis.lowerable:
++        if not key_analysis.lowerable and (
++            not scan_forbidden_leaves
++            or _has_forbidden_workflow_return_leaf(key_analysis)
++        ):
+             return key_analysis
+         value_analysis = analyze_workflow_boundary_type(
+             type_ref.value_type_ref,
+@@ -735,8 +785,12 @@ def analyze_workflow_boundary_type(
+             allow_nested_unions=allow_nested_unions,
+             inside_collection=True,
+             allow_top_level_workflow_ref=False,
++            scan_forbidden_leaves=scan_forbidden_leaves,
+         )
+-        if not value_analysis.lowerable:
++        if not value_analysis.lowerable and (
++            not scan_forbidden_leaves
++            or _has_forbidden_workflow_return_leaf(value_analysis)
++        ):
+             return value_analysis
+         return WorkflowBoundaryAnalysis(
+             lowerable=True,
+@@ -759,8 +813,13 @@ def analyze_workflow_boundary_type(
+                 allow_nested_unions=allow_nested_unions,
+                 inside_collection=inside_collection,
+                 allow_top_level_workflow_ref=False,
++                scan_forbidden_leaves=scan_forbidden_leaves,
+             )
+-            if not analysis.lowerable or analysis.contains_collection:
++            if scan_forbidden_leaves and _has_forbidden_workflow_return_leaf(analysis):
++                return analysis
++            if not scan_forbidden_leaves and (
++                not analysis.lowerable or analysis.contains_collection
++            ):
+                 return analysis
+         return WorkflowBoundaryAnalysis(
+             lowerable=True,
+@@ -772,19 +831,27 @@ def analyze_workflow_boundary_type(
+             contains_collection=False,
+         )
+     if isinstance(type_ref, UnionTypeRef):
+-        if allow_union:
++        if allow_union or scan_forbidden_leaves:
+             for variant in type_ref.definition.variants:
+                 for field in variant.fields:
+                     field_type = type_ref.variant_field_types[variant.name][field.name]
+                     analysis = analyze_workflow_boundary_type(
+                         field_type,
+                         source_path=source_path + (variant.name, field.name),
+-                        allow_union=allow_nested_unions and inside_collection,
++                        allow_union=(
++                            scan_forbidden_leaves
++                            or (allow_nested_unions and inside_collection)
++                        ),
+                         allow_nested_unions=allow_nested_unions,
+                         inside_collection=inside_collection,
+                         allow_top_level_workflow_ref=False,
++                        scan_forbidden_leaves=scan_forbidden_leaves,
+                     )
+-                    if not analysis.lowerable or analysis.contains_collection:
++                    if scan_forbidden_leaves and _has_forbidden_workflow_return_leaf(analysis):
++                        return analysis
++                    if not scan_forbidden_leaves and (
++                        not analysis.lowerable or analysis.contains_collection
++                    ):
+                         return analysis
+             return WorkflowBoundaryAnalysis(
+                 lowerable=True,
+@@ -891,6 +958,27 @@ def build_workflow_catalog(
+             form_path=workflow_def.form_path,
+             expansion_stack=workflow_def.expansion_stack,
+         )
++        # Structured roots take a transportability fast path that must inspect
++        # their leaves here; scalar and collection roots retain their existing
++        # transportability diagnostics below.
++        if isinstance(return_type_ref, (RecordTypeRef, UnionTypeRef)):
++            return_analysis = analyze_workflow_boundary_type(
++                return_type_ref,
++                allow_union=True,
++                allow_nested_unions=True,
++                scan_forbidden_leaves=True,
++            )
++            if _has_forbidden_workflow_return_leaf(return_analysis):
++                diagnostic = _boundary_diagnostic(
++                    workflow_name=workflow_def.name,
++                    analysis=return_analysis,
++                    span=workflow_def.return_spec.span,
++                    form_path=workflow_def.form_path,
++                    expansion_stack=workflow_def.expansion_stack,
++                )
++                if diagnostic is not None:
++                    diagnostics.append(diagnostic)
++                    continue
+         if not is_transportable_result_type(
+             return_type_ref,
+             type_env=type_env,

@@ -1,0 +1,5 @@
+Key pure projection source cache by content
+
+The change is in orchestrator/workflow_lisp/lowering/pure_projection.py.
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_workflow_lisp_pure_projection_cache.py::test_untraced_export_cache_reloads_same_path_when_exact_bytes_change` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

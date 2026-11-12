@@ -1,0 +1,3 @@
+fix: retain failed holder quiescence before clone repair
+
+The change is in orchestrator/workflow/run_ref/confined_session.py and orchestrator/workflow/run_ref/holder_scope.py.

@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "--tb=short",
+    "tests/test_provider_attempt_allocation.py::test_provider_attempt_barrier_failure_prevents_allocator_commit"
+  ],
+  "timeout_sec": 600,
+  "withheld": true
+}

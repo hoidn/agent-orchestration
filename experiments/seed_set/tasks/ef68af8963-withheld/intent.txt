@@ -1,0 +1,3 @@
+fix(providers): escape isolation issue paths
+
+The change is in orchestrator/providers/isolation.py.

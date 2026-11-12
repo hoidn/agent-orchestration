@@ -1,0 +1,5 @@
+Persist evaluated run-reference root and validate resume selection
+
+The change is in orchestrator/cli/commands/evaluated.py and orchestrator/workflow/evaluated/authority.py.
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_workflow_evaluated_run_ref_root.py::test_new_header_fixes_default_without_creating_root` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

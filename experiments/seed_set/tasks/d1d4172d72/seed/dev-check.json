@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_lisp_agent_turn_admission.py::test_turn_result_admits_its_provider_bundle_path"
+  ],
+  "timeout_sec": 600
+}

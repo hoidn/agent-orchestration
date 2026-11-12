@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_lisp_closed_program_sites.py::test_provider_prompt_fill_values_are_walked_for_call_targets"
+  ],
+  "timeout_sec": 600
+}

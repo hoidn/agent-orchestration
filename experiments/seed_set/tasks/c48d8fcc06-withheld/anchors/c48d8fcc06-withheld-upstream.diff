@@ -1,0 +1,101 @@
+diff --git a/orchestrator/workflow/run_ref/confined_session.py b/orchestrator/workflow/run_ref/confined_session.py
+index cdbd5263231a8392b535b9986f032f49a2c32aa4..b84747de76a33efdbbd59c05a315136d8ca50f4c 100644
+--- a/orchestrator/workflow/run_ref/confined_session.py
++++ b/orchestrator/workflow/run_ref/confined_session.py
+@@ -121,6 +121,7 @@ class ConfinedChildSession:
+         self._wall_started = self._clock() if started_at is None else started_at
+         self._finished_at: float | None = None
+         self._stop_record: dict[str, Any] | None = None
++        self._stop_error: RunRefRuntimeError | None = None
+         self.failure: tuple[str, str] | None = None
+         self.prerelease_error: RunRefRuntimeError | None = None
+         self._clone_fd: int | None = None
+@@ -145,15 +146,28 @@ class ConfinedChildSession:
+             self._fail(code, detail)
+         raise _performer_error(code, detail)
+ 
++    def _stop_holder(self) -> None:
++        if self._stop_error is not None:
++            raise self._stop_error
++        if self.holder is None:
++            return
++        try:
++            self.holder.stop()
++        except Exception as exc:
++            detail = exc.detail if isinstance(exc, RunRefRuntimeError) else f"{type(exc).__name__}: {exc}"
++            if self.failure is not None:
++                code, cause = self.failure
++                self.failure = (code, f"{cause}; holder stop failed: {detail}")
++                self._stop_error = RunRefRuntimeError(*self.failure)
++            else:
++                self._stop_error = RunRefRuntimeError(getattr(exc, "code", LOST), detail)
++            raise self._stop_error from exc
++
+     def _fail(self, code: str, detail: str) -> tuple[str, str]:
+-        """End the session like a holder death: no later leaf, the holder stopped now."""
++        """End the session; a failed scope stop aborts before any clone repair or settlement."""
+         if self.failure is None:
+             self.failure = (code, detail)
+-            if self.holder is not None:
+-                try:
+-                    self.holder.stop()
+-                except RunRefRuntimeError as exc:  # the failure stays the reported cause
+-                    self.failure = (code, f"{detail}; holder stop failed: {exc.detail}")
++        self._stop_holder()
+         return self.failure
+ 
+     # -- evaluated child runtime interface ---------------------------------------------------------
+@@ -283,8 +297,7 @@ class ConfinedChildSession:
+         if self._stop_record is not None:
+             return self._stop_record
+         try:
+-            if self.holder is not None:
+-                self.holder.stop()
++            self._stop_holder()
+         finally:
+             if self._clone_fd is not None:
+                 os.close(self._clone_fd)
+diff --git a/orchestrator/workflow/run_ref/holder_scope.py b/orchestrator/workflow/run_ref/holder_scope.py
+index 8c60e6241756bcbbf0ea2803aed1b2336fc8cccf..8759408db0c1fc6f6905a7f92d247cca11ca8344 100644
+--- a/orchestrator/workflow/run_ref/holder_scope.py
++++ b/orchestrator/workflow/run_ref/holder_scope.py
+@@ -168,6 +168,7 @@ class HolderScope:
+         self._buffer = b""
+         self._released = False
+         self._stopped = False
++        self._stop_error: Exception | None = None
+ 
+     # -- launch -------------------------------------------------------------------------------
+     def launch(self) -> None:
+@@ -400,9 +401,18 @@ class HolderScope:
+ 
+     def stop(self) -> None:
+         """Kill and empty the scope, reap the launcher, close every descriptor (idempotent)."""
++        if self._stop_error is not None:
++            raise self._stop_error
+         if self._stopped:
+             return
++        try:
++            self._stop()
++        except Exception as exc:
++            self._stop_error = exc  # an incomplete teardown never becomes an idempotent success
++            raise
+         self._stopped = True
++
++    def _stop(self) -> None:
+         for fd in self.roots.values():
+             os.close(fd)
+         self.roots = {}
+@@ -418,10 +428,10 @@ class HolderScope:
+         for sock in (self.ctrl, self.gate_socket):
+             if sock is not None:
+                 sock.close()
++        if not emptied:
++            raise RunRefRuntimeError(LOST, f"holder scope {self.unit} did not empty")
+         try:  # a unit stopped by systemd stays listed as failed; non-zero when already gone
+             subprocess.run(["systemctl", "--user", "reset-failed", self.unit], capture_output=True, timeout=15)
+         except subprocess.TimeoutExpired:
+             pass  # cosmetic unit listing only; the scope itself was proven empty above
+         shutil.rmtree(self.runref, ignore_errors=True)
+-        if not emptied:
+-            raise RunRefRuntimeError(LOST, f"holder scope {self.unit} did not empty")

@@ -1,0 +1,3 @@
+Retain producer lowering schema in typed snapshots
+
+The change is in orchestrator/workflow_lisp/closed/frontend.py and orchestrator/workflow_lisp/compiler.py.

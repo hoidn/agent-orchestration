@@ -1,0 +1,8 @@
+fix: share repeated pure let bindings and report the size of a refused payload
+
+A binding used more than once is emitted once and referred to, from target
+2.30; evaluation order and laziness are kept. A payload over the size bound
+is refused with its node count, the bound and the three subexpressions that
+contribute most, each with its source location.
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_workflow_lisp_shared_pure_bindings.py::test_hundred_uses_run_through_the_public_entrypoint` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "--tb=short",
+    "tests/test_provider_interactive_terminal_recovery.py::test_server_exit_wait_reaps_only_matching_children_and_never_assumes_absence"
+  ],
+  "timeout_sec": 600,
+  "withheld": true
+}

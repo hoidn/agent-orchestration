@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "--tb=short",
+    "tests/test_workflow_result_file_freshness.py::test_a_call_that_writes_its_result_only_in_the_first_iteration_fails_in_the_second"
+  ],
+  "timeout_sec": 600,
+  "withheld": true
+}

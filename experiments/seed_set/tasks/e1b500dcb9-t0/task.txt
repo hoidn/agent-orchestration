@@ -1,0 +1,8 @@
+Validate run-ref config authority
+
+The change is in orchestrator/workflow/run_ref/config.py.
+
+The check currently fails with:
+    E   ImportError: cannot import name 'validate_run_ref_static_config_authority' from 'orchestrator.workflow.run_ref.config' (orchestrator/workflow/run_ref/config.py)
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_workflow_run_ref_config.py::test_static_config_authority_rejects_forged_cached_canonical_bytes` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

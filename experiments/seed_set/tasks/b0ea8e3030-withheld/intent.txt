@@ -1,0 +1,1 @@
+feat: the closed program artifact with its digest, and the command boundary closure field

@@ -1,0 +1,20 @@
+Keep __pycache__ out of command closure evidence
+
+A declared directory's walk skips entries named __pycache__ at every level,
+so bytecode another process writes into a declared Python package between a
+commit and a resume, or during an attempt, no longer diverges the effect or
+fails it as a closure write. Python ignores a __pycache__ file whose source
+is missing, so those files derive from bound sources; a .pyc outside
+__pycache__ (the sourceless layout Python does load) and any explicit entry
+naming a file stay bound. C5 lists __pycache__ contents as outside the
+promise.
+
+The change is in orchestrator/workflow/evaluated/closure.py.
+
+The check currently fails with:
+    E       assert (1, None) == (0, 5)
+    E
+    E         At index 0 diff: 1 != 0
+    E         Use -v to get more diff
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_workflow_evaluated_closure_bytecode.py::test_bytecode_written_during_the_attempt_does_not_fail_the_commit` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

@@ -1,0 +1,14 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "--tb=short",
+    "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_cond_else_gets_no_facts_from_dead_discriminant_clause"
+  ],
+  "timeout_sec": 600,
+  "withheld": true
+}

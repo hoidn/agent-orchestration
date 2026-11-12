@@ -1,0 +1,9 @@
+fix: reject unsupported payloads in applied generic unions
+
+Apply the declared-union payload rules (proc refs in payloads, workflow and
+proc refs nested in collections) to the substituted payload of an applied
+union at its use site, instead of crashing later in contract derivation.
+Compare discriminant union names token by token so applied names keep their
+head, reject comma-separated application arguments as invalid syntax, and
+keep the new union fields out of repr and empty build JSON so existing
+specialization identities and build bytes are unchanged.

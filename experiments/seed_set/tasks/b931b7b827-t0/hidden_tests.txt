@@ -1,0 +1,3 @@
+tests/test_subworkflow_calls.py::test_nested_pure_replay_resume_preserves_exact_effects_and_surfaces
+tests/test_subworkflow_calls.py::test_fresh_noniterative_replay_profile_clean_child_elides_pure_surfaces
+tests/test_subworkflow_calls.py
