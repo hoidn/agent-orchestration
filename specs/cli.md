@@ -666,7 +666,9 @@ authority, memo, attempts or views, in this order:
     and need the flag: its declared files, rehashed now, differ from its
     `started` evidence, or replay does not reach it yet, so they cannot be
     rehashed before it runs. Otherwise `resume_preflight_failed`: a killed
-    step whose files did not change resumes without the flag.
+    step whose files did not change resumes without the flag. When such an
+    unreached attempt exists, `[accept_changes_unreached]` is logged and the
+    attempts it covers are listed, as in the refusal's list.
 11. Only then is a torn tail repaired (a failure there is still a refusal,
     exit `2`) and evaluation continued. A condition of step 10 that is first
     reached after continuation has committed new effects fails the run with
@@ -704,7 +706,7 @@ the `resume` command.
 | `resume_inputs_changed` | the inputs whose bound value differs | `resume` after restoring them; or a fresh `run` with the new values |
 | `effect_input_diverged`, a step the memo shows committed, when no step whose latest attempt is pending or failed uses a changed file (a step invalidated and not yet run again does not count) | the identity, the changed input parts and implementation files | `invalidate RUN_ID 'IDENTITY'` then `resume`; this step and all later ones run again and workspace files are not rolled back |
 | `effect_input_diverged`, a committed step whose changed files are also used by a step whose latest attempt is pending or failed (or the changed files are unknown and such a step exists) | the identity, the changed parts and files, and the unfinished steps; with the flag, every attempt it would accept and why, as in the next row | `invalidate RUN_ID 'IDENTITY'` then `resume`, with `--accept-changes` when an unfinished step is not proven clean (no `closure: unchanged` failure, or a parallel-map item); the same warning |
-| `effect_input_diverged`, a step without an active commit (failed or pending) whose files changed | the identity and the changed files; then, before the command that offers the flag, every unfinished command attempt the flag would accept (this one and any other, such as a sibling item), each with why it is not proven clean: interrupted, changed its own files or left a process running, no record, or a parallel-map item | `resume --accept-changes`; `resume` after restoring the files; or a fresh `run` |
+| `effect_input_diverged`, a step without an active commit (failed or pending) whose files changed | the identity and the changed files; then, before the command that offers the flag, every unfinished command attempt the flag would accept (this one and any other, such as a sibling item), each with why it is not proven clean: interrupted, changed its own files or a process of the run was still running, no record, or a parallel-map item; at most 20, then `... and N more` | `resume --accept-changes`; `resume` after restoring the files; or a fresh `run` |
 | `effect_input_diverged`, a step without an active commit whose files are missing or unreadable, or whose other inputs changed | that its inputs changed | `resume` after restoring what changed; otherwise a fresh `run` |
 | `invalidate_not_committed` | whether the step has an unfinished attempt, its latest attempt failed, it was invalidated, or no step has that identity | `resume` for an unfinished, failed or invalidated step; then, after the warning that a step and every later one run again and workspace files are not rolled back, one `invalidate` command per committed identity in journal order (at most 20) |
 | `invalidate_coordinator_committed` | the committed run references or agent turns in the suffix | a fresh `run` |
@@ -753,6 +755,7 @@ the `resume` command.
 | `view_write_failed` | derived-view replacement after an append | `run`/`resume` 1; `invalidate` 2 | The appended record stays authority; no `failed` row or terminal; readers reconstruct the view |
 | `memo_torn_tail`, `memo_write_failed`, `memo_sync_failed`, `memo_changed` | journal append or tail repair | 1 during execution; 2 in `resume` tail repair and in `invalidate` | No partial record is authority; a complete row that survived a failed sync still consumes its ordinal |
 | (no code) | an I/O failure during initial authority publication | 1 | Nothing dispatched; printed as `Unexpected error` with the errno (a named code is a recorded follow-up) |
+| `accept_changes_unreached` | `resume --accept-changes` at the end of preflight, when an unproven command attempt that replay has not reached yet (as after an `invalidate`) will be accepted without a rehash | diagnostic | Logged before execution, followed by one `  <identity>: <reason>` line per attempt (at most 20, then `  ... and N more`) |
 | `effect_rerun` | `resume` retrying an uncommitted attempt | diagnostic | Logged with the earlier attempt ordinals once the retry's `started` row is durable, so after its `run` and `start` lines; a retry whose declared files changed (accepted under step 10) ends with ` changed_files=<names>`, comma-separated |
 | `parallel_workspace_shared` | a later release | — | Not raised |
 

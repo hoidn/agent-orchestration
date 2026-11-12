@@ -123,6 +123,32 @@ def unproven_command_retries(snapshot: MemoSnapshot, site_classes: Mapping[str, 
             and _retry_baseline(snapshot, identity, start) is not None and not proven_unchanged(snapshot, start)]
 
 
+_LISTED_ATTEMPTS = 20
+
+
+def accepted_attempt_lines(snapshot: MemoSnapshot, identities: list[str]) -> list[str]:
+    """`  <identity>: <why it is not proven clean>` per attempt, at most 20, then `  ... and N more`."""
+    shown = identities[:_LISTED_ATTEMPTS]
+    more = [f"  ... and {len(identities) - len(shown)} more"] if len(identities) > len(shown) else []
+    return [*(f"  {identity}: {unproven_reason(snapshot, identity)}" for identity in shown), *more]
+
+
+def unproven_reason(snapshot: MemoSnapshot, identity: str) -> str:
+    """Why an uncommitted command attempt is not proven clean, from its latest `failed` row (or none)."""
+    start = snapshot.latest_starts[identity]
+    failure = next((entry.data for entry in reversed(snapshot.entries) if entry.data["record"] == "failed"
+                    and entry.data.get("identity") == identity and entry.data.get("attempt") == start.data["attempt"]),
+                   None)
+    if failure is None:
+        return "its last attempt was interrupted, so it may have changed them itself"
+    closure = failure.get("closure")
+    if closure == "changed":
+        return "its last attempt changed its own declared files, or a process of the run was still running"
+    if closure is None:
+        return "its last attempt has no record of whether it changed them"
+    return "it is an item of a parallel map, where another item may have changed them after the failure"
+
+
 def changed_files_note(before: Mapping[str, Any], after: Mapping[str, Any]) -> str:
     """` changed_files=<names>` for the `[effect_rerun]` line of a retry whose declared files changed."""
     names = sorted({json.loads(key)[1] for key in set(before) | set(after) if before.get(key) != after.get(key)})

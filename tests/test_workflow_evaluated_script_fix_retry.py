@@ -547,3 +547,46 @@ def test_failure_after_observed_agent_turns_records_unchanged(tmp_path: Path, mo
     assert "[provider_observation] agent view" in result.stderr
     assert [(row["identity"], row["closure"]) for row in failed_rows(tmp_path)] == [
         ("workflow:main::run / c", "unchanged")]
+
+
+def test_accept_changes_after_invalidate_prints_the_unreached_attempts_it_accepts(tmp_path: Path) -> None:
+    write_four_steps(tmp_path, {"s3": SLEEP_ONCE})
+    (tmp_path / "slow").write_text("", encoding="utf-8")
+    kill_when_started(tmp_path, [tmp_path / "started-s3"],
+                      ["run", "main.orc", "--command-boundaries-file", "commands.json", "--input", "n=1"])
+    (tmp_path / "slow").unlink()
+    assert cli(tmp_path, "invalidate", run_id(tmp_path), IDENTITIES["s1"]).returncode == 0
+
+    accepted = cli(tmp_path, "resume", run_id(tmp_path), "--accept-changes")
+
+    assert accepted.returncode == 0, accepted.stderr
+    lines = accepted.stderr.splitlines()
+    first_start = next(index for index, line in enumerate(lines) if line.startswith("start "))
+    assert any(line.startswith(f"  {IDENTITIES['s3']}: ") for line in lines[:first_start]), accepted.stderr
+
+
+MANY = '''\
+(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+  (defmodule main) (export run)
+  (defworkflow run () -> List[Int]
+    (list/map-effect ((repo (list {items}))) :max 22 :parallel 4
+      :workspace (string/concat repo "/work")
+      (command-result fetch :argv ("python" "probe.py" "${{loop.index}}") :returns Int))))
+'''
+
+
+def test_the_list_of_accepted_attempts_stops_at_twenty(tmp_path: Path) -> None:
+    names = [f"i{index:02d}" for index in range(22)]
+    (tmp_path / "main.orc").write_text(MANY.format(items=" ".join(f'"{name}"' for name in names)), encoding="utf-8")
+    for name in names:
+        (tmp_path / name / "work").mkdir(parents=True)
+        (tmp_path / name / "work" / "probe.py").write_text(SELF_WRITE, encoding="utf-8")
+    (tmp_path / "commands.json").write_text(json.dumps(
+        {"fetch": {"stable_command": ["python", "probe.py"], "closure": []}}), encoding="utf-8")
+    assert run_parallel(tmp_path).returncode == 1
+    assert len(failed_rows(tmp_path)) == 22
+
+    refused = refuses_without_writes(tmp_path, "effect_input_diverged")
+
+    listed = [line for line in refused.stderr.splitlines() if line.startswith("  workflow:main::run / par-map:")]
+    assert (len(listed), "  ... and 2 more" in refused.stderr.splitlines()) == (20, True)

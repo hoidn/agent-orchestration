@@ -165,7 +165,7 @@ def _unfinished_step(identity: str, changed: list[str], files: str, context: _Co
 
 def _flag_accepts(context: _Context, named: list[str]) -> list[str]:
     """Every attempt `--accept-changes` would accept, each with why it is not proven clean (all, not only `named`)."""
-    from orchestrator.workflow.evaluated.attempts import unproven_command_retries
+    from orchestrator.workflow.evaluated.attempts import accepted_attempt_lines, unproven_command_retries
     from orchestrator.workflow.evaluated.machine import site_classes
 
     snapshot = context.snapshot
@@ -173,22 +173,7 @@ def _flag_accepts(context: _Context, named: list[str]) -> list[str]:
              else unproven_command_retries(snapshot, site_classes(context.stored_program)))
     listed = [*named, *(identity for identity in every if identity not in named)]
     return ["with --accept-changes, each of these unfinished steps is retried with its files as they are now:",
-            *(f"  {identity}: {_why_unproven(snapshot, identity)}" for identity in listed)]
-
-
-def _why_unproven(snapshot, identity: str) -> str:
-    start = snapshot.latest_starts[identity]
-    failure = next((entry.data for entry in reversed(snapshot.entries) if entry.data["record"] == "failed"
-                    and entry.data.get("identity") == identity and entry.data.get("attempt") == start.data["attempt"]),
-                   None)
-    if failure is None:
-        return "its last attempt was interrupted, so it may have changed them itself"
-    closure = failure.get("closure")
-    if closure == "changed":
-        return "its last attempt changed its own declared files, or left a process running"
-    if closure is None:
-        return "its last attempt has no record of whether it changed them"
-    return "it is an item of a parallel map, where another item may have changed them after the failure"
+            *accepted_attempt_lines(snapshot, listed)]
 
 
 _NOT_COMMITTED = {
