@@ -643,8 +643,9 @@ Before Q2, the generic owners assumed one output-contract surface:
   `orchestrator/workflow/executable_ir.py`,
   `orchestrator/workflow/lowering.py`,
   `orchestrator/workflow/elaboration.py`, and
-  `orchestrator/workflow/runtime_step.py` carry the existing
-  `expected_outputs` and structured-result contracts into runtime.
+  `orchestrator/workflow/runtime_step.py` carried the
+  `expected_outputs` and structured-result contracts into runtime (these
+  modules were removed by 2026-11-12; local git tag `archive/old-ir-stack-2026-11-12`).
 
 Q2 implemented the following generic correction in those owners. It is not a
 review-consumer special case:

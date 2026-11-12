@@ -233,33 +233,6 @@ def load_design_delta_boundary_authority_registry(
     }
 
 
-def checked_design_delta_public_input_names(
-    workflow_name: str,
-    *,
-    boundary_authority_registry: Mapping[str, object] | None = None,
-    family_profile_catalog: WorkflowFamilyProfileCatalog | None = None,
-) -> frozenset[str]:
-    """Return checked public-authored inputs for one Design Delta workflow."""
-
-    if family_profile_catalog is None or not is_design_delta_parent_drain_target_workflow(
-        workflow_name,
-        family_profile_catalog=family_profile_catalog,
-    ):
-        return frozenset()
-    registry_payload = boundary_authority_registry
-    if isinstance(registry_payload, Mapping):
-        return frozenset(
-            str(row.get("field_name"))
-            for row in registry_payload.get("rows", [])
-            if isinstance(row, Mapping)
-            and row.get("workflow_name") == workflow_name
-            and row.get("surface_kind") == "public_input"
-            and row.get("authority_class") == "public_authored"
-            and isinstance(row.get("field_name"), str)
-        )
-    return family_profile_catalog.checked_public_inputs(workflow_name)
-
-
 def _require_registry_string(
     row: dict[str, object],
     field_name: str,

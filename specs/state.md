@@ -128,10 +128,8 @@ and demonstrated family, under the [retirement recovery policy](../docs/design/w
     - Live and frozen journal bytes remain sensitive, model-authored local
       observations. They never replace typed result bundles, state, scaffold
       source, or artifact lineage as semantic authority.
-  - v2.13 managed provider observability:
-    - runtime-owned audit and recovery sidecars live under `.orchestrate/runs/<run_id>/managed_jobs/<step-id-or-name>/`
-    - managed provider step results may expose `steps.<Step>.managed_jobs = {phase, audit_path, outcome, recovery_status, jobs, ...}`
-    - outstanding managed jobs leave the provider step in a resumable recovery state so `resume <run_id>` re-enters recovery without relaunching the provider
+  - v2.13 managed provider observability: removed with its runtime on
+    2026-11-12 (local git tag `archive/old-ir-stack-2026-11-12`).
   - v2.17 provider-peer-group evidence: removed with its executor on
     2026-11-11 (git tag `archive/dead-executors-2026-11-11`).
   - v2.14 declared resource-transition sidecars:
@@ -811,7 +809,8 @@ creates or asks a replacement question.
   the paired `CompilerPromptFragmentContract` and
   `compiled_prompt_fragment_identity`. Construction, bundle validation, and
   pre-provider preparation reject an absent, malformed, or mismatched pair and
-  reject disagreement with the Semantic IR carrier.
+  reject disagreement with the Semantic IR carrier. (Semantic and Executable IR were the flat
+  route's carriers; their code was removed on 2026-11-12, local git tag `archive/old-ir-stack-2026-11-12`.)
 - The receiving attempt publishes one closed
   `workflow_prompt_fragment_snapshot.functional.v1` record with
   `record_kind: prompt_snapshot`. It extends the established functional
@@ -835,7 +834,8 @@ creates or asks a replacement question.
 - A fragment application containing `:out` retains the paired
   `compiled_prompt_fragment_identity.v2` and
   `compiler_prompt_fragment_contract.v2` through Semantic IR, Executable IR,
-  persisted configuration, lexical checkpoint, and runtime preparation.
+  persisted configuration, lexical checkpoint, and runtime preparation (the
+  flat route's carriers, removed on 2026-11-12).
 - The carrier's declaration-ordered
   `output_positions[*].expected_output` objects must equal the provider
   configuration's `expected_outputs` rows exactly. Missing, extra, reordered,
