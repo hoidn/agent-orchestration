@@ -278,7 +278,7 @@ def test_typecheck_rejects_resume_state_adapter_authored_outside_resume_or_start
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defpath StateFile",
                 "    :kind relpath",
                 '    :under "state"',
@@ -471,7 +471,7 @@ def test_typecheck_accepts_review_loop_result_contract_with_equivalent_findings_
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule phase_stdlib_review_loop_alias)",
                 "  (import std/phase :as phase :only (ReviewFindings))",
                 "  (defrecord WrappedFindings",
@@ -519,7 +519,7 @@ def test_linked_builtin_std_phase_owner_lane_resolves_exported_review_loop_types
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule phase_stdlib_owner_lane)",
                 "  (import std/phase :as phase :only (",
                 "    ReviewDecision",
@@ -625,7 +625,7 @@ def test_linked_builtin_std_phase_owner_lane_fails_closed_on_review_loop_result_
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule phase_owner)",
                 "  (import std/phase :only (ReviewLoopResult))",
                 "  (defrecord ResultHolder (result ReviewLoopResult))",
@@ -655,7 +655,7 @@ def test_typecheck_rejects_non_alias_path_type_substitution(tmp_path: Path) -> N
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule path_type_substitution_invalid)",
                 "  (defpath ReportA",
                 "    :kind relpath",
@@ -691,7 +691,7 @@ def test_typecheck_rejects_review_findings_json_path_substitution(tmp_path: Path
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule review_findings_path_substitution_invalid)",
                 "  (import std/phase :as phase :only (ReviewFindingsJsonPath))",
                 "  (defpath WorkReport",

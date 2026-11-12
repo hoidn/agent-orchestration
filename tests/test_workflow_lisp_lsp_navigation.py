@@ -1887,7 +1887,7 @@ def test_same_raw_callable_names_resolve_by_canonical_compiler_identity(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/types)",
                 "  (export WorkReport ChecksResult)",
                 "  (defpath WorkReport",
@@ -1907,13 +1907,11 @@ def test_same_raw_callable_names_resolve_by_canonical_compiler_identity(
                 (
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.35")',
+                    '  (:target-dsl "2.40")',
                     f"  (defmodule demo/{module_name})",
                     "  (import demo/types :only (WorkReport ChecksResult))",
                     "  (export same)",
                     "  (defproc same ((report_path WorkReport)) -> ChecksResult",
-                    "    :effects ()",
-                    "    :lowering inline",
                     "    (record ChecksResult",
                     "      :report report_path)))",
                     "",
@@ -1927,7 +1925,7 @@ def test_same_raw_callable_names_resolve_by_canonical_compiler_identity(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/entry)",
                 "  (import demo/types :only (WorkReport ChecksResult))",
                 "  (import demo/a :as a)",
@@ -1982,7 +1980,7 @@ def test_same_canonical_name_resolves_in_distinct_callable_namespaces(
             (
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule same-name)",
                 "  (defpath WorkReport",
                 "    :kind relpath",
@@ -1991,8 +1989,6 @@ def test_same_canonical_name_resolves_in_distinct_callable_namespaces(
                 "  (defrecord ChecksResult",
                 "    (report WorkReport))",
                 "  (defproc shared ((report_path WorkReport)) -> ChecksResult",
-                "    :effects ()",
-                "    :lowering inline",
                 "    (record ChecksResult :report report_path))",
                 "  (defworkflow shared ((report_path WorkReport)) -> ChecksResult",
                 "    (record ChecksResult :report report_path))",
@@ -4082,7 +4078,7 @@ def test_notification_free_configuration_drift_emits_one_restart_notice(
     text = (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.35"))\n'
+        '  (:target-dsl "2.40"))\n'
     )
     entry_path.write_text(text, encoding="utf-8")
     provider_path = root / "providers.json"

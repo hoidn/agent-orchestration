@@ -371,7 +371,7 @@ def test_enum_member_computed_equality_does_not_create_variant_proof(tmp_path: P
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defenum Status",
             "    DONE",
             "    WAITING)",
@@ -1192,7 +1192,7 @@ def test_typecheck_expression_accepts_pure_ops_and_computed_if(tmp_path: Path) -
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defrecord CounterState",
             "    (count Int)",
             "    (label String)",
@@ -1239,7 +1239,7 @@ def test_shared_union_field_capability_allows_branch_free_projection_only_for_va
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',
@@ -1283,7 +1283,7 @@ def test_shared_union_field_capability_does_not_allow_variant_specific_field_wit
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defpath WorkReport",
             "    :kind relpath",
             '    :under "artifacts/work"',

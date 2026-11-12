@@ -879,14 +879,14 @@ def test_path_site_through_a_serial_list_map_effect_call_is_still_admitted(tmp_p
 # Fix round 2: the map placement walk runs only for programs with confined
 # sites, follows imported programs, and skips callees resolved elsewhere.
 
-PRODUCER_238 = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+PRODUCER_238 = f'''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule producer) (export get)
   (defworkflow leaf ((n Int)) -> Int (+ n 1))
   (defworkflow get ((n Int)) -> Int
     (let* ((child (run-ref :source (:repo "file:///srv/p.git" :commit "{"a" * 40}")
                     :program (:workflow leaf) :inputs (:n n) :policy {POLICY.replace(":model-only", ":none")})))
       (match child ((COMPLETED c) c.result.value) ((FAILED f) 0)))))'''
-PLAIN_PRODUCER = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+PLAIN_PRODUCER = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
   (defmodule producer) (export get)
   (defworkflow get ((n Int)) -> Int (+ n 1)))'''
 MAP_DEP = "(let* ((xs (list/map-effect ((x (list 1 2))) :max 2 (call dep :n x)))) 1)"
@@ -899,7 +899,7 @@ def _bundle_build(tmp_path, producer: str, body: str):
     tmp_path.mkdir(parents=True, exist_ok=True)
     (tmp_path / "producer.orc").write_text(producer)
     (tmp_path / "imports.json").write_text(json.dumps({"dep": {"kind": "compiled", "path": "producer.orc"}}))
-    (tmp_path / "consumer.orc").write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.38")
+    (tmp_path / "consumer.orc").write_text('''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
       (defmodule consumer) (export run)
       (defworkflow run () -> Int BODY))'''.replace("BODY", body))
     return build_closed_program_bundle(FrontendBuildRequest(

@@ -299,10 +299,10 @@ def test_traversal_does_not_visit_session_artifact_spec() -> None:
 
 def test_stage3_procedure_placement_rejected(tmp_path: Path) -> None:
     source = (
-        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\") "
+        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.40\") "
         "(defmodule procedure) "
         "(defproc worker () -> String "
-        ":effects ((uses-provider providers.session)) "
+        " "
         "(provider-result providers.session :prompt prompts.session "
         ":inputs () :session-artifact omp_session :returns String)) "
         "(defworkflow run () -> String \"ok\"))"
@@ -361,7 +361,7 @@ def test_stage3_loop_placement_rejected(tmp_path: Path) -> None:
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule loop)",
             "  (export gate)",
             "  (defworkflow gate () -> Bool",
@@ -395,7 +395,7 @@ def test_stage3_imported_workflow_placement_rejected(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule lib)",
                 "  (export helper)",
                 "  (defworkflow helper () -> String",
@@ -414,7 +414,7 @@ def test_stage3_imported_workflow_placement_rejected(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule main)",
                 "  (import lib :only (helper))",
                 "  (export run)",
@@ -443,7 +443,7 @@ def test_stage3_function_placement_rejected_by_purity_enforcement(
     tmp_path: Path,
 ) -> None:
     source = (
-        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\") "
+        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.40\") "
         "(defmodule fn_placement) "
         "(defun helper () -> String "
         "(provider-result providers.session :prompt prompts.session "
@@ -457,7 +457,7 @@ def test_stage3_function_placement_rejected_by_purity_enforcement(
 
 def test_stage3_if_branch_placement_rejected(tmp_path: Path) -> None:
     source = (
-        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\") "
+        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.40\") "
         "(defmodule if_placement) "
         "(defworkflow run () -> String "
         "(if true "
@@ -481,7 +481,7 @@ def test_stage3_live_provider_boundary_placement_rejected(
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule live_placement)",
             "  (defworkflow orchestrate () -> String",
             "    (with-live-providers",
@@ -527,7 +527,7 @@ def test_stage3_two_exports_never_get_implicit_selection(
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule two_exports)",
             "  (export bridge session_run)",
             "  (defrecord WorkflowInput (value String))",
@@ -553,7 +553,7 @@ def test_stage3_two_exports_never_get_implicit_selection(
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule entry_selection_reject)",
             "  (export run)",
             "  (defworkflow helper () -> String",

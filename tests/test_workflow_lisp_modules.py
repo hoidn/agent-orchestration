@@ -145,7 +145,7 @@ def test_compile_stage1_entrypoint_preserves_guidance_through_schema_reexports(t
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/entry)",
                 "  (import demo/middle :only (ExtendedReviewFields))",
                 "  (defrecord ReviewResult",
@@ -159,7 +159,7 @@ def test_compile_stage1_entrypoint_preserves_guidance_through_schema_reexports(t
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/middle)",
                 "  (import demo/base :only (ReviewFields))",
                 "  (export ExtendedReviewFields)",
@@ -174,7 +174,7 @@ def test_compile_stage1_entrypoint_preserves_guidance_through_schema_reexports(t
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/base)",
                 "  (export ReviewFields)",
                 "  (defschema ReviewFields",
@@ -211,7 +211,7 @@ def test_compile_stage1_entrypoint_accepts_exported_local_macros(tmp_path: Path)
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/entry)",
                 "  (import demo/helper :only (m))",
                 "  (export EntryOut)",
@@ -226,7 +226,7 @@ def test_compile_stage1_entrypoint_accepts_exported_local_macros(tmp_path: Path)
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/helper)",
                 "  (export m)",
                 "  (defmacro m ()",
@@ -301,7 +301,7 @@ def test_compile_stage1_entrypoint_resolves_builtin_stdlib_imports_without_manua
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/entry)",
                 "  (import std/phase :only (ReviewDecision))",
                 "  (export LocalDecision)",
@@ -406,7 +406,7 @@ def test_w3_graph_accepts_older_type_only_std_improve_import(
         source_root / "demo" / "legacy.orc",
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule demo/legacy)
   (import std/improve :only (Decision))
   (export LegacyResult)
@@ -417,7 +417,7 @@ def test_w3_graph_accepts_older_type_only_std_improve_import(
         source_root / "demo" / "entry.orc",
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.36")
+  (:target-dsl "2.40")
   (defmodule demo/entry)
   (import demo/legacy :only (LegacyResult))
   (export Outcome run)
@@ -501,16 +501,15 @@ def test_old_five_argument_improve_source_is_refused_under_new_entry_graph(
         source_root / "grt" / "legacy.orc",
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule grt/legacy)
   (import std/improve :only (Decision improve))
   (export run)
   (defrecord State (n Int))
   (defproc review ((state State) (input Int)) -> Decision[String String]
-    :effects () :lowering inline
     (variant Decision[String String] APPROVE :evidence "ok"))
   (defproc revise ((state State) (input Int) (feedback String)) -> State
-    :effects () :lowering inline state)
+ state)
   (defworkflow run () -> Int
     (let* ((result (improve (record State :n 0)
                             1
@@ -524,7 +523,7 @@ def test_old_five_argument_improve_source_is_refused_under_new_entry_graph(
         source_root / "grt" / "entry.orc",
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.36")
+  (:target-dsl "2.40")
   (defmodule grt/entry)
   (import grt/legacy :as old :only (run))
   (export run)
@@ -566,7 +565,7 @@ def test_compile_stage1_entrypoint_exposes_review_loop_macro_from_builtin_stdlib
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/entry)",
                 "  (import std/phase :only (review-revise-loop))",
                 "  (export EntryOut)",
@@ -611,7 +610,7 @@ def test_project_std_improve_shadow_remains_ambiguous(
         source_root / "std" / "improve.orc",
         '''(workflow-lisp
   (:language "0.1")
-  (:target-dsl "2.35")
+  (:target-dsl "2.40")
   (defmodule std/improve)
   (export Decision)
   (defunion Decision :forall (F B)
@@ -639,7 +638,7 @@ def test_compile_stage1_entrypoint_rejects_project_local_stdlib_shadowing(tmp_pa
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/entry)",
                 "  (import std/phase :only (ReviewDecision))",
                 "  (export LocalDecision)",
@@ -654,7 +653,7 @@ def test_compile_stage1_entrypoint_rejects_project_local_stdlib_shadowing(tmp_pa
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule std/phase)",
                 "  (export ReviewDecision)",
                 "  (defenum ReviewDecision",
@@ -765,7 +764,7 @@ def test_compile_stage3_entrypoint_resolves_imported_bind_proc_bases_to_canonica
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule proc_refs/helper)",
                 "  (export helper)",
                 "  (defpath WorkReport",
@@ -776,8 +775,6 @@ def test_compile_stage3_entrypoint_resolves_imported_bind_proc_bases_to_canonica
                 "    ((fixed String)",
                 "     (input String))",
                 "    -> String",
-                "    :effects ()",
-                "    :lowering inline",
                 "    fixed))",
             ]
         ),
@@ -788,7 +785,7 @@ def test_compile_stage3_entrypoint_resolves_imported_bind_proc_bases_to_canonica
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule proc_refs/entry)",
                 '  (import proc_refs/helper :as helper)',
                 "  (defpath WorkReport",
@@ -804,7 +801,6 @@ def test_compile_stage3_entrypoint_resolves_imported_bind_proc_bases_to_canonica
                 "    ((runner ProcRef[String -> String])",
                 "     (input String))",
                 "    -> WorkflowOutput",
-                "    :effects ((uses-command run_checks))",
                 "    (command-result run_checks",
                 '      :argv ("python" "scripts/run_checks.py" input)',
                 "      :returns WorkflowOutput))",
@@ -841,7 +837,7 @@ def test_compile_stage3_entrypoint_specializes_imported_parametric_proc_defs(tmp
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule parametric/helper)",
                 "  (export WorkflowInput apply-runner echo-input)",
                 "  (defrecord WorkflowInput",
@@ -851,14 +847,10 @@ def test_compile_stage3_entrypoint_specializes_imported_parametric_proc_defs(tmp
                 "    ((runner ProcRef[T -> T])",
                 "     (value T))",
                 "    -> T",
-                "    :effects ()",
-                "    :lowering inline",
                 "    (runner value))",
                 "  (defproc echo-input",
                 "    ((value WorkflowInput))",
                 "    -> WorkflowInput",
-                "    :effects ()",
-                "    :lowering inline",
                 "    (record WorkflowInput",
                 "      :report value.report)))",
             ]
@@ -870,7 +862,7 @@ def test_compile_stage3_entrypoint_specializes_imported_parametric_proc_defs(tmp
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule parametric/entry)",
                 "  (import parametric/helper :only (WorkflowInput apply-runner echo-input))",
                 "  (export entry)",
@@ -945,7 +937,7 @@ def test_compile_stage3_module_supports_builtin_stdlib_imports(tmp_path: Path) -
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/entry)",
                 "  (import std/phase :only (ReviewDecision))",
                 "  (export WorkflowOutput run)",
@@ -1024,7 +1016,7 @@ def test_compile_stage3_entrypoint_prefers_local_names_over_only_imports(tmp_pat
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/entry)",
                 "  (import demo/helper :only (Out run))",
                 "  (export run entry Out)",
@@ -1050,7 +1042,7 @@ def test_compile_stage3_entrypoint_prefers_local_names_over_only_imports(tmp_pat
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/helper)",
                 "  (export Out run)",
                 "  (defrecord Out",
@@ -1086,7 +1078,7 @@ def test_compile_stage3_entrypoint_prefers_local_macros_over_only_imports(tmp_pa
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/entry)",
                 "  (import demo/helper :only (m))",
                 "  (export LocalOut)",
@@ -1103,7 +1095,7 @@ def test_compile_stage3_entrypoint_prefers_local_macros_over_only_imports(tmp_pa
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/helper)",
                 "  (export m)",
                 "  (defmacro m ()",
@@ -1128,7 +1120,7 @@ def test_compile_stage3_entrypoint_accepts_imported_macros_via_alias_and_module_
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/entry)",
                 "  (import demo/helper :as helper)",
                 "  (export AliasOut ModuleOut)",
@@ -1143,7 +1135,7 @@ def test_compile_stage3_entrypoint_accepts_imported_macros_via_alias_and_module_
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/helper)",
                 "  (export m)",
                 "  (defmacro m (name)",
@@ -1171,7 +1163,7 @@ def test_compile_stage3_entrypoint_keeps_ambiguous_imported_macro_names_owned_by
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/entry)",
                 "  (import demo/first :only (m))",
                 "  (import demo/second :only (m))",
@@ -1187,7 +1179,7 @@ def test_compile_stage3_entrypoint_keeps_ambiguous_imported_macro_names_owned_by
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.35")',
+                    '  (:target-dsl "2.40")',
                     f"  (defmodule demo/{module_name})",
                     "  (export m)",
                     "  (defmacro m (name)",
@@ -1215,7 +1207,7 @@ def test_compile_stage3_entrypoint_rejects_mixed_direct_qualified_workflow_refer
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/entry)",
                 "  (import demo/helper :only (Out run))",
                 "  (export entry)",
@@ -1232,7 +1224,7 @@ def test_compile_stage3_entrypoint_rejects_mixed_direct_qualified_workflow_refer
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/helper)",
                 "  (export run Out)",
                 "  (defrecord Out",
@@ -1274,7 +1266,7 @@ def test_compile_stage3_entrypoint_rejects_imported_callable_name_collisions(tmp
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/types)",
                 "  (export WorkReport ImplementationSummary)",
                 "  (defpath WorkReport",
@@ -1292,7 +1284,7 @@ def test_compile_stage3_entrypoint_rejects_imported_callable_name_collisions(tmp
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/helpers)",
                 "  (import demo/types :only (WorkReport ImplementationSummary))",
                 "  (export shared)",
@@ -1309,14 +1301,13 @@ def test_compile_stage3_entrypoint_rejects_imported_callable_name_collisions(tmp
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/procedures)",
                 "  (import demo/types :only (WorkReport ImplementationSummary))",
                 "  (export shared)",
                 "  (defproc shared",
                 "    ((report_path WorkReport))",
                 "    -> ImplementationSummary",
-                "    :effects ()",
                 "    (record ImplementationSummary :report report_path)))",
             ]
         ),
@@ -1327,7 +1318,7 @@ def test_compile_stage3_entrypoint_rejects_imported_callable_name_collisions(tmp
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/entry)",
                 "  (import demo/types :only (WorkReport ImplementationSummary))",
                 "  (import demo/helpers :only (shared))",

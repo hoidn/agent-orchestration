@@ -37,7 +37,7 @@ def _module_source(module_name: str, *, imported_module: str | None = None) -> b
     return (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.35")\n'
+        '  (:target-dsl "2.40")\n'
         f"  (defmodule {module_name})\n"
         f"{import_form}"
         "  (export Result)\n"
@@ -50,7 +50,7 @@ def _invalid_export_module_source(module_name: str) -> bytes:
     return (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.35")\n'
+        '  (:target-dsl "2.40")\n'
         f"  (defmodule {module_name})\n"
         "  (export MissingDefinition))\n"
     ).encode("utf-8")
@@ -76,7 +76,7 @@ def _workflow_module_source(module_name: str) -> bytes:
     return (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.35")\n'
+        '  (:target-dsl "2.40")\n'
         f"  (defmodule {module_name})\n"
         "  (export entry Result)\n"
         "  (defpath Report\n"
@@ -97,7 +97,7 @@ def _single_file_workflow_source() -> bytes:
     return (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.35")\n'
+        '  (:target-dsl "2.40")\n'
         "  (defpath Report\n"
         "    :kind relpath\n"
         '    :under "artifacts/reports"\n'
@@ -116,7 +116,7 @@ def _wcc_effect_workflow_source() -> bytes:
     return (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.35")\n'
+        '  (:target-dsl "2.40")\n'
         "  (defpath Report\n"
         "    :kind relpath\n"
         '    :under "artifacts/reports"\n'
@@ -140,7 +140,7 @@ def _nominal_guidance_workflow_source() -> bytes:
     return (
         "(workflow-lisp\n"
         '  (:language "0.1")\n'
-        '  (:target-dsl "2.35")\n'
+        '  (:target-dsl "2.40")\n'
         "  (defmodule nominal_guidance)\n"
         "  (export entry Decision)\n"
         "  (defrecord Decision\n"
@@ -164,7 +164,7 @@ def test_read_sexpr_file_reads_once_and_retains_exact_and_parser_views(
     payload = (
         b"(workflow-lisp\r\n"
         b'  (:language "0.1")\r\n'
-        b'  (:target-dsl "2.35"))\r\n'
+        b'  (:target-dsl "2.40"))\r\n'
     )
     calls: list[Path] = []
 
@@ -210,7 +210,7 @@ def test_read_sexpr_file_preserves_legacy_universal_newline_ast_and_spans(
         (
             b"(workflow-lisp",
             b'  (:language "0.1")',
-            b'  (:target-dsl "2.35"))',
+            b'  (:target-dsl "2.40"))',
             b"",
         )
     )
@@ -238,7 +238,7 @@ def test_read_sexpr_file_preserves_legacy_universal_newline_diagnostics(
         (
             b"(workflow-lisp",
             b'  (:language "0.1")',
-            b'  (:target-dsl "2.35")',
+            b'  (:target-dsl "2.40")',
             b"",
         )
     )

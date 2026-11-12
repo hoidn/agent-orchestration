@@ -216,7 +216,7 @@ def test_compile_stage1_rejects_macro_expansions_that_emit_top_level_defmacro(tm
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (emit-generated-macro generated)",
                 "  (defmacro emit-generated-macro (name)",
                 "    (defmacro name ()",
@@ -241,7 +241,7 @@ def test_compile_stage1_allows_macro_emitted_defschema_forms(tmp_path: Path) -> 
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -296,7 +296,7 @@ def test_compile_stage3_allows_caller_authored_effect_spliced_through_macro_alia
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -359,7 +359,7 @@ def test_compile_stage3_allows_macro_introduced_letstar_binding_field_access(tmp
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord Payload",
                 "    (status String))",
                 "  (defrecord Summary",
@@ -367,8 +367,6 @@ def test_compile_stage3_allows_macro_introduced_letstar_binding_field_access(tmp
                 "  (defproc load-payload",
                 "    ()",
                 "    -> Payload",
-                "    :effects ()",
-                "    :lowering inline",
                 "    (record Payload",
                 '      :status "ok"))',
                 "  (emit-summary summarize)",
@@ -426,7 +424,7 @@ def test_compile_stage3_rejects_macro_introduced_provider_effects_as_macro_hidde
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord ImplementationSummary",
                 "    (report String))",
                 "  (emit-provider-workflow generated)",
@@ -497,7 +495,7 @@ def test_compile_stage3_rejects_macro_emitted_malformed_match_with_owned_diagnos
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',
@@ -537,7 +535,7 @@ def test_compile_stage3_rejects_macro_emitted_malformed_defworkflow_with_owned_d
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (emit-bad-workflow broken)",
                 "  (defmacro emit-bad-workflow (name)",
                 "    (defworkflow name)))",
@@ -599,7 +597,7 @@ def test_compile_stage1_rejects_defun_as_a_reserved_macro_name(tmp_path: Path) -
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmacro defun ()",
                 "    42))",
             ]
@@ -622,7 +620,7 @@ def test_compile_stage3_module_accepts_macro_emitted_top_level_defun(tmp_path: P
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defpath WorkReport",
                 "    :kind relpath",
                 '    :under "artifacts/work"',

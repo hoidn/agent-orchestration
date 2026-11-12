@@ -93,7 +93,7 @@ def test_wcc_m4_accepts_imported_procedure_calling_owner_module_workflow(tmp_pat
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule pkg/helpers)",
                 "  (export WorkReport Outcome route)",
                 '  (defpath WorkReport :kind relpath :under "artifacts/work" :must-exist true)',
@@ -108,8 +108,6 @@ def test_wcc_m4_accepts_imported_procedure_calling_owner_module_workflow(tmp_pat
                 "  (defproc route",
                 "    ((summary-path WorkReport))",
                 "    -> Outcome",
-                "    :effects ((calls-workflow pkg/helpers::finalize))",
-                "    :lowering inline",
                 "    (call finalize",
                 "      :summary-path summary-path)))",
             ]
@@ -123,7 +121,7 @@ def test_wcc_m4_accepts_imported_procedure_calling_owner_module_workflow(tmp_pat
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule pkg/entry)",
                 "  (import pkg/helpers :only (WorkReport Outcome route))",
                 "  (export drain)",
@@ -203,14 +201,12 @@ def test_wcc_m4_rejects_runtime_proc_ref_in_loop_state(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord Output",
                 "    (value String))",
                 "  (defproc echo",
                 "    ((value String))",
                 "    -> String",
-                "    :effects ()",
-                "    :lowering inline",
                 "    value)",
                 "  (defworkflow carry-proc-ref () -> Output",
                 "    (loop/recur",

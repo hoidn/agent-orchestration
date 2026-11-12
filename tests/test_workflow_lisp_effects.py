@@ -24,7 +24,7 @@ def _write_effect_module(path: Path, *, effect_kind: str) -> Path:
             f"""
             (workflow-lisp
               (:language "0.1")
-              (:target-dsl "2.35")
+              (:target-dsl "2.40")
               (defrecord Result
                 (ok Bool))
               (defproc sample
@@ -32,7 +32,6 @@ def _write_effect_module(path: Path, *, effect_kind: str) -> Path:
                 -> Result
                 :effects
                   (({effect_kind} backlog.item))
-                :lowering inline
                 (record Result
                   :ok true))
               (defworkflow orchestrate

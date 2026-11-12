@@ -189,7 +189,7 @@ def test_target_239_accepts_packaged_phase_template_nested_under_user_macro(
     tmp_path: Path,
 ) -> None:
     source = PHASE_SCOPE_FIXTURE.read_text(encoding="utf-8").replace(
-        '(:target-dsl "2.35")', '(:target-dsl "2.39")'
+        '(:target-dsl "2.40")', '(:target-dsl "2.40")'
     )
     source = source.replace(
         "  (export PhaseScopeSurface phase-scope-demo)",
@@ -271,7 +271,7 @@ def test_target_239_refuses_user_macro_private_head_synthesis_with_origin_span(
 ) -> None:
     source = f'''(workflow-lisp
       (:language "0.1")
-      (:target-dsl "2.39")
+      (:target-dsl "2.40")
       (defmodule user_macro)
       (export run)
       (defmacro {macro_name} ({params}) {macro_body})
@@ -291,7 +291,7 @@ def test_target_239_refuses_caller_spliced_private_head_inside_real_stdlib_macro
 ) -> None:
     source = '''(workflow-lisp
       (:language "0.1")
-      (:target-dsl "2.39")
+      (:target-dsl "2.40")
       (defmodule caller_splice)
       (import std/phase :only (with-phase))
       (export run)
@@ -315,7 +315,7 @@ def test_target_239_refuses_caller_spliced_private_head_inside_real_stdlib_macro
 def test_target_239_rejects_fake_std_phase_private_form_origin(tmp_path: Path) -> None:
     source = '''(workflow-lisp
       (:language "0.1")
-      (:target-dsl "2.39")
+      (:target-dsl "2.40")
       (defmodule std/phase)
       (export run)
       (defmacro with-phase (ctx phase body) (__with-phase__ ctx phase body))
@@ -333,7 +333,7 @@ def test_target_239_refuses_fake_std_module_shadowing_packaged_phase(
 ) -> None:
     fake_phase = '''(workflow-lisp
       (:language "0.1")
-      (:target-dsl "2.39")
+      (:target-dsl "2.40")
       (defmodule std/phase)
       (export with-phase)
       (defmacro with-phase (ctx phase body) (__with-phase__ ctx phase body)))'''
@@ -343,7 +343,7 @@ def test_target_239_refuses_fake_std_module_shadowing_packaged_phase(
         "entry",
         '''(workflow-lisp
           (:language "0.1")
-          (:target-dsl "2.39")
+          (:target-dsl "2.40")
           (defmodule entry)
           (import std/phase :only (with-phase))
           (export run)

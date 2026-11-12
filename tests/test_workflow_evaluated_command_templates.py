@@ -63,7 +63,7 @@ def test_public_templates_keep_legacy_literals_and_runtime_strings_as_data(tmp_p
     source = tmp_path / "evaluated" / "templates.orc"
     source.parent.mkdir(parents=True)
     source.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule evaluated/templates) (export run)
           (defworkflow run ((n Int) (opaque String)) -> Int
             (command-result emit :argv ("python" "probe.py"
@@ -88,12 +88,11 @@ def test_public_templates_keep_legacy_literals_and_runtime_strings_as_data(tmp_p
     _assert_two_public_resumes(tmp_path, tmp_path / "argv.jsonl")
 
 
-SURFACE_COMPOSITION_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+SURFACE_COMPOSITION_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
 (defmodule r12/entry) (export run)
 (defrecord Result (seen String))
 (defunion Choice (A) (B))
 (defproc helper ((state_root String)) -> Result
- :effects ((uses-command echo)) :lowering inline
  (command-result echo :argv ("python" "probe.py" state_root "${inputs.state_root}" ) :returns Result))
 (defworkflow run ((state_root String :default "WORKFLOW") (other String :default "PROCEDURE") (choice Choice) (flag Bool :default true)) -> Result
  (loop/recur :max 1 :state (loop-state (i Int 0))
@@ -137,14 +136,12 @@ def test_public_surface_composition_keeps_exact_argv(tmp_path: Path) -> None:
     )
 
 
-GUARDED_COMPOSITION_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+GUARDED_COMPOSITION_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
 (defmodule r12/entry) (export run)
 (defrecord Result (seen String)) (defunion Choice (A) (B))
 (defproc helper ((state_root String)) -> Result
- :effects ((uses-command echo)) :lowering inline
  (command-result echo :argv ("python" "probe.py" state_root "${inputs.state_root}") :returns Result))
 (defproc brancher ((state_root String) (flag Bool)) -> Result
- :effects ((uses-command echo) (uses-command choose)) :lowering inline
  (let* ((choice (command-result choose :argv ("python" "choose.py") :returns Choice)))
  (match choice
   ((A a) (if flag (helper state_root) (helper state_root)))
@@ -196,7 +193,7 @@ def test_union_slot_selects_active_field_before_suffix_or_dispatch(
     source = tmp_path / "evaluated" / "union_slot.orc"
     source.parent.mkdir(parents=True)
     source.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule evaluated/union_slot) (export run)
           (defunion Choice (A (i Int)) (B))
           (defworkflow run ((choice Choice)) -> Int
@@ -228,7 +225,7 @@ def test_public_command_uses_explicit_workspace_when_state_dir_is_external(tmp_p
     source = tmp_path / "evaluated" / "external_state.orc"
     source.parent.mkdir(parents=True)
     source.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule evaluated/external_state) (export run)
           (defworkflow run () -> Int
             (command-result emit :argv ("python" "probe.py") :returns Int)))
@@ -280,7 +277,7 @@ def test_public_certified_adapter_uses_package_closure_without_bytecode_cache(tm
     source = tmp_path / "evaluated" / "certified_adapter.orc"
     source.parent.mkdir(parents=True)
     source.write_text(
-        '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
+        '''(workflow-lisp (:language "0.1") (:target-dsl "2.40")
           (defmodule evaluated/certified_adapter) (export run)
           (defpath ReviewFindingsJsonPath :kind relpath :under "artifacts/work" :must-exist true)
           (defrecord ReviewFindings (schema_version String) (items_path ReviewFindingsJsonPath))
