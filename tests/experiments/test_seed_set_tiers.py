@@ -32,9 +32,9 @@ def test_t1_statement_names_the_changed_file():
     assert tiers.tier_statement("T1", cand).endswith("The change is in orchestrator/a.py.\n")
 
 
-def test_t2_bodyless_short_statement_adds_the_file_names():
+def test_a_t2_statement_is_the_message_alone_even_when_short():  # review2 M8: the drop rule handles it, no padding
     cand = {"message": "fix: x", "source_files": ["orchestrator/a.py", "orchestrator/b.py"]}
-    assert tiers.tier_statement("T2", cand) == "fix: x\n\nThe change is in orchestrator/a.py and orchestrator/b.py.\n"
+    assert tiers.tier_statement("T2", cand) == "fix: x\n"
 
 
 def test_t2_statement_with_a_body_is_the_message():

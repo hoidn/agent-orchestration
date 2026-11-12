@@ -11,7 +11,7 @@ count files and added plus deleted lines under `orchestrator/` (`tier_of`, first
 | T6 | a run adding 1,000-3,000 source lines | the run's subjects in order | withheld |
 | T4 | 6-15 files or 200-600 lines (at most 15 files and 600 lines) | message | both |
 | T1 | one file, at most 20 lines | message plus "The change is in <file>." | both |
-| T2 | at most two files and 60 lines | message; a body-less one under 80 characters adds the file names | both |
+| T2 | at most two files and 60 lines | message (one under 80 characters is dropped, review2 M8) | both |
 | T3 | the tasks of the first build (`tasks.jsonl`), unchanged; one failing the leak audit gets `rejected` | message | both |
 | T0 | a variant of each T1 package whose statement also quotes the visible check's failing `E` lines, identical in all five oracle base runs | | in-tree |
 
@@ -27,7 +27,9 @@ probe tasks.
 
 Outputs: `tasks/<id>/` (in-tree), `tasks/<id>-withheld/`, `tasks/<id>-t0/`; `tasks.jsonl` (one row per task,
 with tier, form and both forms' sha256; `verify` rechecks them); `ladder_screening.jsonl` (every commit and run
-considered, its tier and reason, and wall times). Depends on `build_tasks`, `forms` and git.
+considered, its tier and reason, and wall times). `rebuild --tier T` evaluates one tier again and replaces only
+its packages, rows and screening records (T2 after review2 M8; the smoke moves to the new T2's first task that is
+not a probe task, ruling 1). Depends on `build_tasks`, `forms` and git.
 """
 
 import argparse
@@ -70,9 +72,7 @@ def tier_statement(tier, cand):
     text = cand.get("statement") or b.statement(cand["message"])
     if tier == "T1":
         return text + f"\nThe change is in {cand['source_files'][0]}.\n"
-    if tier == "T2" and len(text.strip()) < b.MIN_TEXT and "\n" not in text.strip():
-        return text + f"\nThe change is in {' and '.join(cand['source_files'])}.\n"
-    return text
+    return text  # T2 and up: the message alone (coordinator ruling on review2 M8: no file names for T2)
 
 
 def topic_runs(repo=b.ROOT, tip=b.TIP):
@@ -294,18 +294,62 @@ def build(work, workers, runs, out=b.HERE, repo=b.ROOT, tip=b.TIP, prior=()):
                     lines.append({**lines[-1], "id": tid, "tier": "T0", "variant_of": cand["id"],
                                   "package_sha256": b.package_hash(staged / tid),
                                   "withheld_id": None, "withheld_sha256": None})
-        for cand in tiered:
-            row = {k: v for k, v in rows.get(cand["id"], {}).items() if k not in ("base_outputs", "clone")}
-            reason = skipped.get(cand["id"]) or row.get("reason") or (
-                "admitted" if cand["id"] in taken else "beyond the tier's cap" if row else "not evaluated: tier full")
-            record.append({**row, "id": cand["id"], "commit": cand["commit"], "tier": tier,
-                           "stage": row.get("stage", "evaluate"), "rank": cand["rank"], "reason": reason,
-                           "source_lines": cand["source_lines"], "source_files": len(cand["source_files"])})
+        record += tier_records(tier, tiered, taken, skipped, rows)
     b.remove(out / "tasks")
     staged.rename(out / "tasks")
     (out / "tasks.jsonl").write_text("".join(json.dumps(line, sort_keys=True) + "\n" for line in lines))
     (out / "ladder_screening.jsonl").write_text("".join(json.dumps({"tip": tip, **r}, sort_keys=True) + "\n"
                                                         for r in record))
+    verify(out)
+
+
+def tier_records(tier, tiered, taken, skipped, rows):
+    """The screening record of each of a tier's candidates: its row, reason and size."""
+    found = []
+    for cand in tiered:
+        row = {k: v for k, v in rows.get(cand["id"], {}).items() if k not in ("base_outputs", "clone")}
+        reason = skipped.get(cand["id"]) or row.get("reason") or (
+            "admitted" if cand["id"] in taken else "beyond the tier's cap" if row else "not evaluated: tier full")
+        found.append({**row, "id": cand["id"], "commit": cand["commit"], "tier": tier,
+                      "stage": row.get("stage", "evaluate"), "rank": cand["rank"], "reason": reason,
+                      "source_lines": cand["source_lines"], "source_files": len(cand["source_files"])})
+    return found
+
+
+def rebuild(tier, work, workers, runs, out=b.HERE, repo=b.ROOT, tip=b.TIP, prior=()):
+    """Evaluate T2 or T4 again; replace its packages (both forms), its manifest rows and its
+    screening records, keep every other tier as built. A T2 rebuild moves the smoke to its first non-probe task."""
+    if not os.environ.get("PATH", "").startswith(str(b.GUARD)):
+        raise SystemExit(f"put {b.GUARD} first on PATH")
+    if tier not in ("T2", "T4"):
+        raise SystemExit(f"rebuild takes T2 or T4, not {tier} (T1 carries T0; T3 is the first build's; T5 runs)")
+    old = [json.loads(line) for line in (out / "tasks.jsonl").read_text().splitlines()]
+    pool = [c for c in candidates(repo, tip, {r["id"] for r in old if r.get("tier") == "T3"}, []) if c["tier"] == tier]
+    worded = [c for c in pool if b.FIX_WORDS.search(c["message"])] if tier == "T2" else pool
+    rows = {}
+    admitted, skipped = evaluate_tier(worded, rows, load_prior(prior), work, workers, runs)
+    widened = len(admitted) < CAP and worded is not pool
+    if widened:
+        admitted, skipped = evaluate_tier(pool, rows, load_prior(prior), work, workers, runs)
+    staged = out / "tasks_new"
+    b.remove(staged)
+    gone = {pid for r in old if r.get("tier") == tier for pid in (r["id"], r.get("withheld_id")) if pid}
+    shutil.copytree(out / "tasks", staged, ignore=lambda d, names: [n for n in names if Path(d) == out / "tasks"
+                                                                     and n in gone])
+    lines = [r for r in old if r["id"] not in gone]
+    for index, cand in enumerate(admitted):
+        for name in (cand["id"], f"{cand['id']}-withheld"):
+            shutil.copytree(work / "pkgs" / name, staged / name)
+        line = manifest_row(cand, rows[cand["id"]], tier, index, widened)
+        lines.append(line | ({"set": "smoke"} if tier == "T2" and index == PROBE else {}))
+    b.remove(out / "tasks")
+    staged.rename(out / "tasks")
+    (out / "tasks.jsonl").write_text("".join(json.dumps(line, sort_keys=True) + "\n" for line in lines))
+    screening = [json.loads(line) for line in (out / "ladder_screening.jsonl").read_text().splitlines()]
+    kept = [r for r in screening if r.get("tier") != tier or r.get("stage") in ("mine", "run")]
+    new = tier_records(tier, pool, {c["id"] for c in admitted}, skipped, rows)
+    (out / "ladder_screening.jsonl").write_text("".join(json.dumps({"tip": tip, **r}, sort_keys=True) + "\n"
+                                                        for r in kept + new))
     verify(out)
 
 
@@ -325,10 +369,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="cmd", required=True)
     cmd = sub.add_parser("build")
-    cmd.add_argument("--work", type=Path, required=True)
-    cmd.add_argument("--workers", type=int, default=3)
-    cmd.add_argument("--runs", type=int, default=b.RUNS)
-    cmd.add_argument("--prior", action="append", default=[], help="screening.jsonl or rows.jsonl of an earlier build")
+    again = sub.add_parser("rebuild")
+    again.add_argument("--tier", required=True)
+    for command in (cmd, again):
+        command.add_argument("--work", type=Path, required=True)
+        command.add_argument("--workers", type=int, default=3)
+        command.add_argument("--runs", type=int, default=b.RUNS)
+        command.add_argument("--prior", action="append", default=[],
+                             help="screening.jsonl or rows.jsonl of an earlier build")
     sub.add_parser("verify")
     args = parser.parse_args()
-    build(args.work.resolve(), args.workers, args.runs, prior=args.prior) if args.cmd == "build" else verify()
+    if args.cmd == "verify":
+        verify()
+    elif args.cmd == "build":
+        build(args.work.resolve(), args.workers, args.runs, prior=args.prior)
+    else:
+        rebuild(args.tier, args.work.resolve(), args.workers, args.runs, prior=args.prior)
