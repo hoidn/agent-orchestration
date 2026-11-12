@@ -384,6 +384,21 @@ local names; never use object addresses, line numbers or global counters as
 semantic names. Emit ordered `let*` bindings so reuse and discarded effects have
 ordinary `.orc` meaning.
 
+A binder names its callee, so inserting a step renames only later uses of the
+same callee. Within one workflow function, the first use of a command, prompt
+(through its provider call), called definition, `when`, `match`, `loop`, `ask`,
+`all_of` or `any_of` binds `_<callee>`; later uses bind `_<callee>_2`,
+`_<callee>_3` and so on, skipping names already taken. Characters outside
+`[A-Za-z0-9_]` become `_`. Every effect call, `when`, `match`, `loop` and `ask`
+accept `name="x"`, which is the binder verbatim; a name already used in the
+function, including a parameter, fails at its Python line with
+`python_binder_name_taken`. A called definition whose own parameter is `name`
+receives `name=` as that argument. The Python variable never names a binder.
+Match payload and loop state binders keep their `_case<n>`, `_loop<n>` and
+`_exhausted<n>` counters. A changed rule changes the program digest of an
+unchanged source once, so a rebuild starts a new run; an existing run resumes
+from its retained `.orc` snapshot.
+
 ## Modules And The `.orc` Bridge
 
 Each defining Python module owns its declarations. Generated module identities

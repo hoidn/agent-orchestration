@@ -160,7 +160,9 @@ class ImportedCallable:
     def __call__(self, *args, **kwargs):
         from .trace import active_trace
         trace = active_trace()
+        from .declarations import binder_keyword
         signature, _annotations, result = self.signature()
+        name = binder_keyword(signature, kwargs)
         try:
             bound = signature.bind_partial(*args, **kwargs)
             defaults = getattr(self.compiler_signature, "param_defaults", {})
@@ -170,7 +172,8 @@ class ImportedCallable:
         except TypeError as exc:
             raise PythonFrontendError("python_call_arguments", str(exc), site=author_site()) from exc
         trace.generator.require_definition(self)
-        return trace.bind(trace.expression("call", (self, dict(bound.arguments)), result))
+        return trace.bind(trace.expression("call", (self, dict(bound.arguments)), result),
+                          callee=self.name, name=name)
 
 
 @dataclass(eq=False)

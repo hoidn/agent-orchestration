@@ -9,6 +9,7 @@ from types import UnionType
 from typing import Union, get_args, get_origin
 
 from .diagnostics import PythonFrontendError, PythonSite, author_site
+from .names import NameAllocator
 
 
 _ACTIVE: ContextVar[Trace | None] = ContextVar("workflow_python_trace", default=None)
@@ -99,7 +100,7 @@ class Expr:
             raise PythonFrontendError("python_symbolic_attribute", f"No readable symbolic field `{name}`; runtime values are immutable", site=author_site())
         base = self
         if base._kind not in {"ref", "field", "case_ref"}:
-            base = trace.bind(base, prefix="v")
+            base = trace.bind(base, callee="v")
         return trace.expression("field", (base, name), annotation)
 
 
@@ -136,26 +137,11 @@ class TraceScope:
 
 
 @dataclass
-class _NameAllocator:
-    reserved: set[str] = field(default_factory=set)
-    counters: dict[str, int] = field(default_factory=dict)
-
-    def next(self, prefix):
-        index = self.counters.get(prefix, 0)
-        while f"_{prefix}{index}" in self.reserved:
-            index += 1
-        name = f"_{prefix}{index}"
-        self.counters[prefix] = index + 1
-        self.reserved.add(name)
-        return name
-
-
-@dataclass
 class Trace:
     generator: object
     definition: object
     scope: TraceScope = field(default_factory=TraceScope)
-    names: _NameAllocator | None = None
+    names: NameAllocator | None = None
     bindings: list[tuple[str, Expr]] = field(default_factory=list)
     loop_owner: object | None = None
     loop_state_type: object = None
@@ -163,7 +149,7 @@ class Trace:
 
     def __post_init__(self):
         if self.names is None:
-            self.names = _NameAllocator(set(inspect.signature(self.definition.function).parameters))
+            self.names = NameAllocator(set(inspect.signature(self.definition.function).parameters))
 
     def child(self, *, loop_owner=_INHERIT_LOOP_OWNER,
               loop_state_type=_INHERIT_LOOP_STATE):
@@ -267,7 +253,8 @@ class Trace:
         result = child.run(function, arguments)
         return child, result, binder
 
-    def bind(self, expression: Expr, *, prefix="e") -> Expr:
+    def bind(self, expression: Expr, *, callee: str, name: str | None = None) -> Expr:
+        """Bind `expression` as `name`, or as the next binder of `callee` (see names.py)."""
         self.validate_value(expression)
         if _contains_loop_control(expression):
             raise PythonFrontendError(
@@ -275,7 +262,8 @@ class Trace:
                 "Loop transfers must remain in the tail position of a loop body",
                 site=expression._site,
             )
-        name = self.fresh(prefix)
+        name = (self.names.callee(callee) if name is None
+                else self.names.explicit(name, expression._site))
         self.bindings.append((name, expression))
         return self.reference(name, expression._annotation, site=expression._site)
 
@@ -380,7 +368,7 @@ def _closed_union(annotation):
             all(getattr(case, "_orc_kind", None) == "variant" for case in args))
 
 
-def when(condition, *, then, else_):
+def when(condition, *, then, else_, name=None):
     trace = active_trace()
     trace.validate_value(condition)
     then_region = trace.region(then)
@@ -389,10 +377,10 @@ def when(condition, *, then, else_):
         "when", (condition, then_region[:2], else_region[:2]),
         _branch_annotation(trace.generator, (then_region[1], else_region[1])),
     )
-    return expression if _contains_loop_control(expression) else trace.bind(expression)
+    return expression if _contains_loop_control(expression) else trace.bind(expression, callee="when", name=name)
 
 
-def match(value, **cases):
+def match(value, *, name=None, **cases):
     trace = active_trace()
     trace.validate_value(value)
     annotation = value._annotation if isinstance(value, Expr) else None
@@ -412,7 +400,7 @@ def match(value, **cases):
         arms.append((variant, binder, child, result))
     annotation = _branch_annotation(trace.generator, [result for _, _, _, result in arms])
     expression = trace.expression("match", (value, tuple(arms)), annotation)
-    return expression if _contains_loop_control(expression) else trace.bind(expression)
+    return expression if _contains_loop_control(expression) else trace.bind(expression, callee="match", name=name)
 
 
 def _require_host_input_target(generator, *, site=None):
@@ -420,19 +408,20 @@ def _require_host_input_target(generator, *, site=None):
         raise PythonFrontendError("python_host_input_target", "ask and HostReply require explicit TARGET = '2.40'", site=site)
 
 
-def ask(question, *, returns, timeout_sec=None, show=()):
+def ask(question, *, returns, timeout_sec=None, show=(), name=None):
     from .declarations import HostReply, PromptApplication
     trace = active_trace()
     _require_host_input_target(trace.generator)
     if isinstance(question, PromptApplication) and question.prompt.extern_name is not None:
         raise PythonFrontendError("python_host_prompt_extern", "Host questions require a declared prompt application, not Prompt.extern")
-    return trace.bind(trace.expression("ask", (question, returns, timeout_sec, tuple(show)), HostReply[returns]))
+    return trace.bind(trace.expression("ask", (question, returns, timeout_sec, tuple(show)), HostReply[returns]),
+                      callee="ask", name=name)
 
 
 def _boolean_thunks(kind, thunks):
     trace = active_trace()
     regions = tuple(trace.region(thunk)[:2] for thunk in thunks)
-    return trace.bind(trace.expression(kind, regions, bool))
+    return trace.bind(trace.expression(kind, regions, bool), callee=kind)
 
 
 def all_of(*thunks): return _boolean_thunks("all_of", thunks)
@@ -444,7 +433,7 @@ def concat(*values): return declaration_expression("op", ("string/concat", *valu
 def not_(value): return declaration_expression("op", ("not", value), bool)
 
 
-def loop(*, state, max, body, on_exhausted):
+def loop(*, state, max, body, on_exhausted, name=None):
     trace = active_trace()
     trace.validate_value(max)
     trace.validate_value(state)
@@ -465,7 +454,7 @@ def loop(*, state, max, body, on_exhausted):
     annotation = _branch_annotation(trace.generator, result_values)
     return trace.bind(trace.expression(
         "loop", (max, state, body_region, exhausted_region, owner), annotation,
-    ))
+    ), callee="loop", name=name)
 
 
 def cont(state):

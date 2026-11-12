@@ -71,7 +71,7 @@ def test_match_requires_exact_cases_and_scopes_binders(tmp_path):
     Outcome = Good | Bad
 
     @workflow
-    def run(_case0: str, _e0: str, value: Outcome) -> str:
+    def run(_case0: str, _match: str, value: Outcome) -> str:
         return match(value,
             Good=lambda good: good.text,
             Bad=lambda bad: bad.reason)
@@ -79,12 +79,12 @@ def test_match_requires_exact_cases_and_scopes_binders(tmp_path):
     _, _, built = compile_source(tmp_path / "valid", source)
     assert evaluate_closed_program(
         built.program,
-        {"_case0": "authored-case", "_e0": "authored-effect",
+        {"_case0": "authored-case", "_match": "authored-effect",
          "value": {"variant": "Good", "text": "done"}},
     ).value == "done"
     assert evaluate_closed_program(
         built.program,
-        {"_case0": "authored-case", "_e0": "authored-effect",
+        {"_case0": "authored-case", "_match": "authored-effect",
          "value": {"variant": "Bad", "reason": "blocked"}},
     ).value == "blocked"
 
