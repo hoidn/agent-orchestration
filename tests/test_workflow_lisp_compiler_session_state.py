@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import inspect
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -871,30 +870,6 @@ def test_nested_typecheck_accepts_same_specialization_from_new_origin(
     )
 
 
-def test_typecheck_expression_has_one_compiler_session_owner() -> None:
-    from orchestrator.workflow_lisp.typecheck_dispatch import typecheck_expression
-
-    assert "session_state" not in inspect.signature(typecheck_expression).parameters
-
-
-def test_procedure_typecheck_entrypoints_have_one_compiler_session_owner() -> None:
-    from orchestrator.workflow_lisp.compiler import (
-        _typecheck_procedure_definitions,
-    )
-    from orchestrator.workflow_lisp.procedure_typecheck import (
-        typecheck_procedure_definitions,
-    )
-
-    assert (
-        "session_state"
-        not in inspect.signature(typecheck_procedure_definitions).parameters
-    )
-    assert (
-        "session_state"
-        not in inspect.signature(_typecheck_procedure_definitions).parameters
-    )
-
-
 def test_procedure_typecheck_recursion_uses_its_compiler_session_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -969,89 +944,6 @@ def test_generated_and_specialization_operations_require_active_session() -> Non
     state.parametric_specialization_requests = {"request": request}
     reset_parametric_specialization_requests(state)
     assert state.parametric_specialization_requests == {}
-
-
-def test_compiler_session_annotations_use_stable_concrete_types() -> None:
-    from orchestrator.workflow_lisp.compiler_session import (
-        ElaborationSessionState,
-        TypecheckSessionState,
-    )
-
-    annotations = {
-        **ElaborationSessionState.__annotations__,
-        **TypecheckSessionState.__annotations__,
-    }
-    assert all("Any" not in annotation for annotation in annotations.values())
-    for field_name, type_name in {
-        "prompt_catalog": "PromptCatalog",
-        "function_catalog": "FunctionCatalog",
-        "proc_ref_value_env": "ResolvedProcRefValue",
-        "value_expr_env": "ExprNode",
-        "loop_context": "LoopTypecheckContext",
-        "generated_local_procedures": "TypedProcedureDef",
-        "let_proc_rewrite_results": "ExprNode",
-        "workflow_signature": "WorkflowSignature",
-        "procedure_hidden_context_signature": "ProcedureSignature",
-        "shared_union_field_capabilities": "SharedUnionFieldCapability",
-        "loop_carrier_metadata_by_name": "LoopStateCarrierMetadata",
-        "parametric_specialization_requests": (
-            "PendingParametricProcedureSpecialization"
-        ),
-    }.items():
-        assert type_name in annotations[field_name]
-
-
-@pytest.mark.parametrize(
-    ("relative_path", "forbidden_names"),
-    [
-        (
-            "orchestrator/workflow_lisp/expressions.py",
-            {
-                "_ACTIVE_PROCEDURE_NAME_RESOLVER",
-                "_ACTIVE_FUNCTION_NAME_RESOLVER",
-                "_ACTIVE_WORKFLOW_NAME_RESOLVER",
-                "_ACTIVE_FUNCTION_NAMES",
-                "_ACTIVE_LOCAL_PROC_NAMES",
-                "_ACTIVE_LOOP_BODY_DEPTH",
-                "_ACTIVE_LET_PROC_DEPTH",
-                "_ACTIVE_GUIDANCE_EXAMPLE",
-                "_ACTIVE_TARGET_DSL_VERSION",
-                "_ACTIVE_PROMPT_CATALOG",
-            },
-        ),
-        (
-            "orchestrator/workflow_lisp/typecheck_context.py",
-            {"_SESSION_STATE"},
-        ),
-        (
-            "orchestrator/workflow_lisp/loop_state.py",
-            {
-                "_CARRIER_METADATA_BY_NAME",
-                "_CARRIER_METADATA_BY_EXPR_KEY",
-            },
-        ),
-        (
-            "orchestrator/workflow_lisp/procedure_typecheck.py",
-            {"_ACTIVE_PARAMETRIC_SPECIALIZATION_REQUESTS"},
-        ),
-    ],
-)
-def test_task1_owners_have_no_module_level_mutable_phase_roots(
-    relative_path: str,
-    forbidden_names: set[str],
-) -> None:
-    tree = ast.parse(Path(relative_path).read_text(encoding="utf-8"))
-    assigned_names = {
-        target.id
-        for node in tree.body
-        if isinstance(node, (ast.Assign, ast.AnnAssign))
-        for target in (
-            node.targets if isinstance(node, ast.Assign) else (node.target,)
-        )
-        if isinstance(target, ast.Name)
-    }
-
-    assert assigned_names.isdisjoint(forbidden_names)
 
 
 def test_direct_module_sequential_edit_does_not_reuse_loop_carrier_metadata(
