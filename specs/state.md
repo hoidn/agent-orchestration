@@ -448,7 +448,14 @@ anchor may not cover, and any commit or pending start that stays but is not a
 site of the new program with the same class. A journal whose last record's
 program does not have the reader's site table is `memo_inconsistent`. Interpreter pins are the
 first program's bare interpreters; a later program may use only pinned ones
-and need not use all of them (`memo_inconsistent` otherwise). A parent never
+and need not use all of them (`memo_inconsistent` otherwise). Every later
+program binds the header's `bound_inputs` in checked form, the same
+parameters with the same types (`memo_inconsistent`, "cannot bind the run's
+inputs", otherwise). A reader without the run writer lock that loaded
+authority before reading the journal can meet a record appended in between;
+it loads the lineage again once, and if the journal then ends at yet another
+program it reports `memo_inconsistent` saying that the run is being rebased.
+It never writes. A parent never
 accepts a run-reference child's terminal or recovery evidence whose journal
 holds a `rebased` record: those reductions use the child's one program.
 
@@ -572,7 +579,8 @@ these keys:
 | `updated_at` | ISO timestamp of the last record that carries `time`, else `started_at` |
 | `status` | `suspended` for an active durable host request before the writer-lock cases; `completed` or `failed` from a terminal; otherwise `settling` (a writer holds the lock and replay reaches `halt`), `running` (a writer holds the lock) or `interrupted` (no writer). Execution writers publish as active. Suspension publishes `suspended` even while its writer holds the lock; external host settlement publishes `interrupted` because it requires resume. Other `interrupted` projections use the reader's `run.lock` probe, never a heartbeat, PID or modification time |
 | `memo_offset` | Exclusive end byte offset of the complete journal prefix the view represents (`0` for an empty journal) |
-| `steps` | Object keyed by identity, one row per identity for its latest attempt, in order of first `started`. Row keys: `name` and `identity` (both the identity), `status`, `effect_class`, `attempt`, `result_path`, `started_at`; a committed attempt adds `value` and `output` (the same value), `completed_at`, `duration_ms` and `result_digest`, with status `completed`, `invalidated` (covered by a range record) or `settling` (a coordinator between `committed` and `settled`); a failed attempt adds `error: {type, code, exit_info}` with status `failed` (an `agent_turn` row's `exit_info` omits the journal's `locator`); a start without an outcome has status `running`, except an active host suspension is `suspended` and an invalidated host start is `invalidated`; a committed `agent_turn` row adds `agent` (allocation identity), `predecessor` (turn identity or `null`), `continuation` (`initial` when `predecessor` is `null`, else `continued`) and `locator_present: true` from its proof; a committed `agent` row adds `agent` (its own identity); no locator, position, native path or tmux target ever enters the view |
+| `steps` | Object keyed by identity, one row per identity for its latest attempt, in order of first `started`. Row keys: `name` and `identity` (both the identity), `status`, `effect_class`, `attempt`, `result_path`, `started_at`; a committed attempt adds `value` and `output` (the same value), `completed_at`, `duration_ms` and `result_digest`, with status `completed`, `invalidated` (covered by a range record or a cut) or `settling` (a coordinator between `committed` and `settled`); a failed attempt adds `error: {type, code, exit_info}` with status `failed` (an `agent_turn` row's `exit_info` omits the journal's `locator`); a start without an outcome has status `running`, except an active host suspension is `suspended` and an invalidated host start is `invalidated`; a committed `agent_turn` row adds `agent` (allocation identity), `predecessor` (turn identity or `null`), `continuation` (`initial` when `predecessor` is `null`, else `continued`) and `locator_present: true` from its proof; a committed `agent` row adds `agent` (its own identity); no locator, position, native path or tmux target ever enters the view. Only when the journal has a `rebased` record: every row adds `program`, the index in `programs` of the program in force when its latest attempt started; a start without an outcome that a range or cut retired has status `invalidated`; a row whose attempts were written under programs that give its identity different classes adds `metered_attempts`, the ordinals of its provider-class attempts, which `report` meters instead of `1` to `attempt`. Rows stay for identities the current program no longer has |
+| `programs` | Present only when the journal has a `rebased` record: one `{digest, time, cut}` per program in lineage order, the first with the header's `program_digest`, `started_at` and `cut: null`, each later one with its record's `program_digest`, `time` as an ISO timestamp and `from_offset` |
 | `pending_host_input` | Present only for an active host suspension; frozen request plus `identity`, `attempt`, `result_path` and observational `deadline_elapsed`; absent otherwise |
 | `current_step` | `{name, identity, attempt, result_path}` of the latest pending start or unsettled coordinator, else `null` |
 | `next_effect` | The identity of the first uncommitted effect replay reaches when nothing is in flight, else `null` |
@@ -587,7 +595,7 @@ Projection is one read-only pure replay of the checked program over the
 active commits, using stored values only: it performs no fresh build,
 locator IO, C4 or C6 preparation, dispatch, reconciliation or tail repair,
 and it reads nothing under `effects/`. `report_snapshot` additionally reads
-only `effects/<sha>/attempt-<n>/usage.json` of provider-class steps (the
+only `effects/<sha>/attempt-<n>/usage.json` of provider-class steps, or of the attempts a row's `metered_attempts` lists (the
 [usage rules](observability.md#report-usage)), never a recipe, prompt,
 stdout or result file.
 A completed terminal must agree with replay's `halt` value and every

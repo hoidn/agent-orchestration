@@ -462,13 +462,13 @@ def _report_outcome(reporter: TerminalReporter, authority, exit_code: int, value
 
 
 def _stored_context(exc, run_root, run_files) -> dict[str, Any]:
-    """The recorded header, and for a program change the stored program, for the recovery lines.
+    """The recorded header, and for a program change the run's current program, for the recovery lines.
 
     Read only after the refusal is decided, and never as authority: an unreadable header drops the
-    commands that need it, and a stored program that does not match the header digest drops the diff.
+    commands that need it. The current program is the one step 7 compared with (the last `rebased` record's,
+    else the header's), verified to its digest by the loader's check; any failure drops the diff.
     """
-    from orchestrator.contracts.closed_program.program import ClosedProgram
-    from orchestrator.workflow.evaluated.authority import PROGRAM_FILENAME, _read_file
+    from orchestrator.workflow.evaluated.authority import PROGRAM_FILENAME, _read_file, verified_program
 
     try:
         header = load_run_header(run_root, run_files=run_files)
@@ -477,10 +477,12 @@ def _stored_context(exc, run_root, run_files) -> dict[str, Any]:
     if getattr(exc, "code", None) != "resume_program_changed":
         return {"header": header}
     try:
-        stored = ClosedProgram.from_artifact(_read_file(run_root / PROGRAM_FILENAME, run_files).decode("utf-8"))
-    except Exception:  # a hostile artifact (deep nesting included) only drops the diff
+        digest = current_digest(run_root, header["program_digest"], run_files=run_files)
+        name = PROGRAM_FILENAME if digest == header["program_digest"] else None
+        stored = verified_program(lambda file: _read_file(run_root / file, run_files), digest, name)
+    except Exception:  # a hostile or missing artifact (deep nesting included) only drops the diff
         return {"header": header}
-    return {"header": header, "stored_program": stored if stored.digest == header["program_digest"] else None}
+    return {"header": header, "stored_program": stored}
 
 
 def _show_compile_warnings(built, args) -> None:

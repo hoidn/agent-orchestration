@@ -104,8 +104,11 @@ derives solely from the validated `.orc` executable and `state.json`.
 
 - Status/report surfaces
   - `report` and the dashboard read evaluated runs only: the checked authority
-    (`run.json`, `closed_program.json`, `memo.jsonl`) and the view derived from
-    it, without reopening the workflow source. The view reads nothing under
+    (`run.json`, `closed_program.json`, `memo.jsonl`, and the
+    `closed_program.<digest>.json` its `rebased` records name) and the view
+    derived from it, without reopening the workflow source. For a run with
+    several programs both list the view's `programs` (markdown `## Programs`,
+    the dashboard's Programs section) and each row's `program`. The view reads nothing under
     `effects/`; `report` additionally reads only `attempt-<n>/usage.json` of
     provider-class steps ([usage](#report-usage)), never a recipe, prompt,
     stdout or result file. A run directory with a
@@ -149,7 +152,9 @@ derives solely from the validated `.orc` executable and `state.json`.
     `run_ref`) has `usage`, summed over all its attempts (`attempt-1` to its
     latest, beside its `result_path`), and the run has `run.usage`, the same sum
     over every such step's attempts plus `price_table: {source, date}` of the
-    table used:
+    table used. A step whose identity changed class across a `rebased` record
+    (State, "Derived view") sums the attempts its `metered_attempts` lists,
+    whatever its latest class, so a cut refunds nothing:
     `{"tokens": {"input", "output", "cache_read", "cache_write"} | null,
     "cost_usd": float | null, "attempts": n, "unknown_attempts": k,
     "partial": bool}`. Other steps have no `usage`; a run with no

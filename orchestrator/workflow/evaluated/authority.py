@@ -264,8 +264,8 @@ def verified_program(read_artifact: Callable[[str], bytes], digest: str, name: s
 def _lineage(header, first: ClosedProgram, memo_bytes, read_artifact):
     """(earlier programs with the offset of the record that ended each, current program) (C10).
 
-    Each later program is the artifact its `rebased` record names, verified to that name, with command transport
-    and only pinned bare interpreters. Without journal bytes (a child's captured authority) the first program is
+    Each later program is the artifact its `rebased` record names, verified to that name, with command transport,
+    only pinned bare interpreters, and parameters that bind the header's inputs in checked form. Without journal bytes (a child's captured authority) the first program is
     the current one, and a record there fails closed in the child's reductions.
     """
     from .memo_reducer_lineage import lineage_digests, rebased_records
@@ -279,6 +279,10 @@ def _lineage(header, first: ClosedProgram, memo_bytes, read_artifact):
         if not _has_command_transport(program):
             raise ValueError("stored command is missing argv transport")
         _validate_interpreter_pins(program, header["interpreters"], later=True)
+        try:        # resume binds the header's inputs to the program in force; one that cannot is no lineage
+            _validated_bound_inputs(program, header["bound_inputs"])
+        except (TypeError, ValueError) as exc:
+            raise RunAuthorityError(f"a later program of the run cannot bind the run's inputs: {exc}") from exc
     return tuple(zip(programs, (offset for offset, _digest in records))), programs[-1]
 
 
