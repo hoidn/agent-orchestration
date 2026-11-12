@@ -236,9 +236,13 @@ identity":
 1. One target is admitted. `:target-dsl` names the source language, nothing else. Every build
    compiles source at that target, including the rebuild of an existing run and an accepted edit of
    one.
-2. A change to what existing source means, or to whether it compiles, adds a target; the same change
-   migrates all tracked source and removes the previous target. Two source dialects never coexist
-   in the compiler.
+2. A change to what source that compiles means, or one that makes it stop compiling, adds a
+   target; the same change migrates all tracked source and removes the previous target. Two source
+   dialects never coexist in the compiler. A change that only admits source refused before, and
+   moves no identity of source that compiles, adds no target; it gets an entry in the spec's
+   change list. The cut of Task 4b is the one release that removes source forms without adding a
+   target: it removes the older targets and, with them, the `fn` loop form
+   ([surface coherence](../design/workflow_lisp_surface_coherence.md) I2b).
 3. A change that moves an identity without changing what source means (a program digest, an effect
    identity, a memo row, the checked representation) **adds no target**. It either keeps recorded
    runs resumable, and proves it with a run root recorded before the change by the build that
@@ -592,3 +596,4 @@ ledger records the real ones.
 | --- | --- |
 | 2026-11-12 | First draft committed as written (`61f34f8f`). Independent review: accept with changes, 1 blocker, 6 major, 12 minor. Coordinator's rulings recorded as R3 to R7, R13, R15, R16; all minors applied (R18). The planner verified R4's condition: the build `c3bdd14d` records all five Phase 3b run roots at 2.40, and the 39 recorded-run tests of `79f04947` pass on them unedited. No provider spend. |
 | 2026-11-12 | Plan accepted by the coordinator | Independent review: accept with changes, 1 blocker, 6 majors, 12 minors; all applied in the revision. The blocker (the rebuild path compiles the workspace, so labels under one semantics would not keep old runs resumable and would open an edit back door) is resolved by read-only labels: `report`, dashboard and monitor read runs of every recorded target; `resume`, `invalidate`, `input` and REPL attach refuse a run not at 2.40 with one code naming the tagged release. The planner checked the one risk of that ruling by experiment: the pre-T2 build `c3bdd14d` records the five Phase 3b fixtures at 2.40 and the current tests accept them. Coordinator rulings on the planner's notes: the checker keeps its per-label gates while old run roots are readable (R14 stands; their removal is a leftover); `invalidate` is refused for old-target runs although it does not compile; the two 2.35 delivery fixtures are a named exception. Order of execution: Tasks 0 and 1 now; Task 2 after Task 1; Tasks 3b and 3c wait for the surface-coherence design's verdict so the loop-binder rewrite and the target rewrite touch each test file once; Task 4b lands at a Phase 3b task boundary. |
+| 2026-11-12 | Ruling: versioning rule 2 is about source that compiles | The surface-coherence design (accepted today) admits source that is refused now (effects in fields, any-expression map bodies, a local called by name) and moves no identity of compiling source: no target is added for those. Removing the `fn` loop form does stop compiling source from compiling: it lands inside Task 4b, the one breaking release, as a coordinator default the owner may overturn before the cut. Task 3's sweep rewrites loops to the binder form in the same pass as the headers, after the compiler accepts both forms (design change I2a). Tasks 3b and 3c are released from their hold once I2a is merged. |
