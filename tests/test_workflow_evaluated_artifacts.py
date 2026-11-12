@@ -23,32 +23,13 @@ from tests.test_workflow_evaluated_invalidate import _tree_bytes
 from tests.test_workflow_evaluated_providers import _spy_provider_prepare
 from tests.test_workflow_evaluated_resume import _resume_cli
 from tests.workflow_evaluated_artifact_helpers import (
-    COMPAT, PACKAGE, PUBLISHED, REPORT, WATCH, WATCH_PART, TARGET_SOURCE, attempt_files, counts,
-    dependency_block, field_type, install_watchdog, rows, run_argv, stop_after_start,
+    COMPAT, PACKAGE, PUBLISHED, REPORT, WATCH, WATCH_PART, attempt_files, counts,
+    dependency_block, field_type, rows, run_argv, stop_after_start, watchdog_workspace,
 )
 from tests.workflow_evaluated_consumer_sources import (
     BUNDLE, SITE, checked_run, requests, resume_to_completion, sha256, stop_after,
 )
 from tests.workflow_evaluated_totality_helpers import assert_commit_bytes
-from tests.workflow_evaluated_consumer_sources import install_shims
-from tests.workflow_inprocess_cli_helpers import cli_inprocess
-
-
-def watchdog_workspace(tmp_path, monkeypatch, plan, *, failed=True, provider="codex"):
-    """Shims, an evaluated target and the compiled 2.35 watchdog; setup runs in-process (not the behavior under test)."""
-    install_shims(tmp_path / "bin", monkeypatch, plan)
-    target_root = tmp_path / "target"
-    target_root.mkdir()
-    (target_root / "watched_target.orc").write_text(TARGET_SOURCE, encoding="utf-8")
-    ran = cli_inprocess(target_root, "run", "watched_target.orc", "--input", f"divisor={0 if failed else 2}")
-    assert ran.returncode == (1 if failed else 0), ran.stderr
-    (target,) = [path.name for path in (target_root / ".orchestrate" / "runs").iterdir()]
-    root = tmp_path / "watchdog"
-    frontend = install_watchdog(root, target_root, target, provider)
-    compiled = cli_inprocess(root, "compile", *frontend)
-    (root / "compile.stdout").write_text(compiled.stdout, encoding="utf-8")
-    assert compiled.returncode == 0, compiled.stderr
-    return root, frontend, target
 
 
 PROVIDERS = {"codex": [REPAIR], "claude": [REPAIR]}

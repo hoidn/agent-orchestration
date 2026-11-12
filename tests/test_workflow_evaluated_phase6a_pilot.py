@@ -50,7 +50,6 @@ from tests.workflow_evaluated_consumer_sources import (
     ROOT,
 )
 from tests.workflow_evaluated_totality_helpers import assert_commit_bytes
-from tests.workflow_inprocess_cli import run_cli_in_process
 
 
 VARIANT = ROOT / "experiments/orc_repetition_census/variants/phase6a_proposal.orc.txt"
@@ -87,14 +86,6 @@ def _capture(root: Path, argv: list[str], extra_env: dict[str, str] | None = Non
             "stderr": result.stderr,
         }) + "\n")
     return result
-
-
-def _compile_and_dry_run(root: Path, frontend: list[str]) -> None:
-    # Setup for the staged public run below, so these two steps run in-process.
-    compiled = run_cli_in_process(root, ["compile", *frontend, "--diagnostics-json"])
-    assert compiled.returncode == 0, compiled.stderr
-    dry_run = run_cli_in_process(root, ["run", *frontend, "--input-file", "inputs.json", "--dry-run"])
-    assert dry_run.returncode == 0, dry_run.stderr
 
 
 def _effective_request(request: dict) -> tuple:
@@ -185,7 +176,12 @@ def _assert_focus_normalized_requests_match(first: Route, second: Route) -> None
 
 
 def _run_variant(root: Path, frontend: list[str], focus: str, marker: str) -> Route:
-    _compile_and_dry_run(root, frontend)
+    compiled = _capture(root, [sys.executable, "-m", "orchestrator", "compile", *frontend,
+                               "--diagnostics-json"])
+    assert compiled.returncode == 0, compiled.stderr
+    dry_run = _capture(root, [sys.executable, "-m", "orchestrator", "run", *frontend,
+                              "--input-file", "inputs.json", "--dry-run"])
+    assert dry_run.returncode == 0, dry_run.stderr
     stopped = _capture(root, [sys.executable, "-c", STOP_AFTER_COMMIT,
                               "run", *frontend, "--input-file", "inputs.json"],
                        {"STOP_AFTER_COMMIT": marker})
@@ -289,7 +285,12 @@ REVIEWED_CASES.extend([
 
 
 def _run_reviewed_variant(root: Path, frontend: list[str], marker: str, paused_count: int = 2) -> Route:
-    _compile_and_dry_run(root, frontend)
+    compiled = _capture(root, [sys.executable, "-m", "orchestrator", "compile", *frontend,
+                               "--diagnostics-json"])
+    assert compiled.returncode == 0, compiled.stderr
+    dry_run = _capture(root, [sys.executable, "-m", "orchestrator", "run", *frontend,
+                              "--input-file", "inputs.json", "--dry-run"])
+    assert dry_run.returncode == 0, dry_run.stderr
     stopped = _capture(root, [sys.executable, "-c", STOP_AFTER_COMMIT,
                               "run", *frontend, "--input-file", "inputs.json"],
                        {"STOP_AFTER_COMMIT": marker})
