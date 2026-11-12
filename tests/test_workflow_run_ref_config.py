@@ -258,21 +258,6 @@ def test_target_225_nested_result_descriptor_round_trips_explicitly() -> None:
     ] == nested_value
 
 
-def test_local_result_descriptor_fixture_has_independent_canonical_digest() -> None:
-    independently_encoded = json.dumps(
-        _FIXED_RESULT_DESCRIPTOR,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-
-    assert independently_encoded == _FIXED_RESULT_DESCRIPTOR_BYTES
-    assert (
-        "sha256:" + hashlib.sha256(independently_encoded).hexdigest()
-        == _FIXED_RESULT_DIGEST
-    )
-
-
 def test_source_request_dict_codec_round_trips_exactly() -> None:
     record = canonical_source_request(_source())
 

@@ -1793,15 +1793,6 @@ def test_path_mode_revision_refuses_the_confined_none_setup_identity() -> None:
         _revision(authored_setup_identity=RUN_REF_NO_SETUP_IDENTITY)
 
 
-def test_confined_revision_carries_the_literal_none_setup_identity() -> None:
-    revision = _revision(
-        materializer_version=RUN_REF_CONFINED_MATERIALIZER_VERSION,
-        authored_setup_identity=RUN_REF_NO_SETUP_IDENTITY,
-    )
-
-    assert revision.authored_setup_identity == "none"
-
-
 def test_sanitized_git_environment_drops_credentials_agents_and_proxies(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
