@@ -5,8 +5,9 @@
 a run continues under an edited workflow and keeps the committed results
 whose identity and inputs the edit did not change.
 
-**Status.** Proposed revision of [evaluated execution](workflow_lisp_evaluated_execution.md).
-Not accepted and not implemented. It applies rulings 2 to 8 of the
+**Status.** Proposed revision of [evaluated execution](workflow_lisp_evaluated_execution.md),
+accepted by the coordinator on 2026-11-12 as the basis for an implementation plan after two
+review rounds. Not implemented: the contract changes only when the plan lands them. It applies rulings 2 to 8 of the
 [feasibility spike](workflow_lisp_edit_and_continue_spike.md#coordinator-rulings-2026-11-11)
 and the rulings recorded under [Decisions](#decisions).
 
@@ -241,7 +242,10 @@ and the earlier programs' tables in order.
 - A record whose table was not supplied is `memo_inconsistent`; so is a
   journal whose records do not end at the caller's table. Nothing is guessed.
 - The snapshot keeps the records' offsets and the tables. A class lookup over
-  a historical row asks the snapshot for the class at that row. Four lookups
+  a historical row asks the snapshot for the class at that row. The row's own
+  position decides, never the identity's latest row: an identity can change
+  class across a record, and a pending agent turn whose identity is a command
+  in the next program still falls under the agent rule of C8. Four lookups
   change: `check_invalidation_cut` (`memo_reducer_agents.py`), `_site_class`
   (`agent_guards.py`), `unproven_command_retries` (`attempts.py`) and
   `_effect_rows` (`views.py`).
@@ -255,19 +259,31 @@ passes. A union of tables is also wrong: it answers `memo_inconsistent:
 effect class disagrees with the checked site` when a step changes class.
 
 **Call sites.** The tree has 36 reductions: 27 calls of `read_memo` and 9 of
-`reduce_memo`. Four of the 36 change, all calls of `reduce_memo`. The one
-inside `read_memo` changes: `read_memo` resolves the earlier tables itself
-from the artifacts beside the journal it reads, each verified to its name,
-so its 27 callers and the 26 derivations of a site table
-(`site_classes(...)`) stay as they are. The three direct reductions of
-captured bytes for a run that can be edited (`views.py` twice, `capture.py`
-once) pass the tables of the authority they hold, because they must not read
-the run root again. The five reductions of a child run
-(`run_ref/evaluated_child.py`, `run_ref/confined_recovery.py`) do not change:
-an edit never reaches a child (§5), and a `rebased` record there fails
-closed. Not fewer than four: the three captured-bytes callers cannot go
-through `read_memo`. Not more: passing tables through 27 callers adds nothing
-that the artifacts do not already fix.
+`reduce_memo`. Four of them change, all calls of `reduce_memo`, and the
+planner adds a fifth.
+
+- The one inside `read_memo` changes: `read_memo` resolves the earlier tables
+  itself from the artifacts beside the journal it reads, each verified to its
+  name. Its 27 callers and the 26 derivations of a site table
+  (`site_classes(...)`) stay as they are.
+- The three direct reductions of captured bytes for a run that can be edited
+  (`views.py` twice, `capture.py` once) pass the tables of the authority they
+  hold, because they must not read the run root again.
+- New: the in-memory pass of §6 reduces the journal as it will be, in
+  `rebase.py`, with tables it supplies itself, because the edited program's
+  artifact is stored only at the write.
+- The five reductions of a child run (`run_ref/evaluated_child.py`,
+  `run_ref/confined_recovery.py`) pass one table as today: an edit never
+  reaches a child (§5), and a `rebased` record there fails closed.
+
+Not fewer: the captured-bytes callers and the planner cannot go through
+`read_memo`. Not more: passing tables through 27 callers adds nothing that
+the artifacts do not already fix. `read_memo` runs at every effect start, so
+it must not load an artifact twice: a program's table is cached in the
+process under its verified digest, of which it is a pure function. The plan
+measures this before it builds on it: the time per effect of a run of a few
+hundred command steps after one accepted edit, against the same run with no
+edit.
 
 **The reduction cache** (`_LAST` in `memo_reducer.py`) compares the caller's
 table and a byte prefix and saves the fold without its table. Under a lineage
@@ -300,6 +316,17 @@ No state has the program switched and the cut not applied: one record does
 both. A durable record always has a durable artifact, because the record is
 appended after the directory sync.
 
+**Readers without the lock** (`input get`, `report`, the dashboard, the
+monitor) can run while an acceptance writes. They can see the old lineage, an
+artifact that no record names yet (which they ignore), or the new record. A
+reader that captures the journal once and then resolves the artifacts it
+names sees one consistent run, since each artifact is durable before its
+record. A reader that loaded authority first and reads the journal later can
+meet a `rebased` record that its tables do not end at. It then loads the
+lineage again, once, and reduces again; if that also fails it reports
+`memo_inconsistent` with the reason that the run is being rebased. It never
+writes.
+
 **Older builds.** Profile and schema do not change; journals are read forward
 only, as for the `closure` field (decision 8). A build without this design
 answers `memo_inconsistent` ("record kind is missing or unknown") from
@@ -320,13 +347,13 @@ give the condition below as the reason no plan can be accepted.
 | The entry workflow's canonical name, the target or the representation differs from the current program's | `resume_program_changed`, naming which; a run keeps its entry and target |
 | The bound inputs differ, also when the edit adds, removes or retypes an entry input | `resume_inputs_changed`; no token accepts inputs |
 | The edit uses a bare interpreter the header did not pin (decision 1) | `resume_program_changed`, naming it. An edit may stop using a pinned interpreter. A recorded pin that is missing: `resume_interpreter_missing` |
-| The recomputed plan is not the plan the token names (decision 9) | The refusal plain `resume` gives now, with the new plan; `resume_preflight_failed` when nothing needs accepting |
+| The recomputed plan is not the plan the token names (decision 9) | The refusal plain `resume` gives now, with what changed and the new plan (§6); `resume_preflight_failed` when nothing needs accepting |
 | A committed run reference, agent turn or phased provider call at or after the cut (K8) | `invalidate_coordinator_committed` |
 | An agent turn attempt at or after the cut that is pending, dispatched, advanced or of uncertain outcome | `invalidate_agent_session_advanced` |
 | A pending run-reference or phased-provider attempt that is not kept (§3); a kept one is recovered by K4 and the phased rules, unchanged | `resume_program_changed`: restore the source and resume, so the attempt settles under the program that started it |
 | A confined child with a committed effect whose parent attempt is at or after the cut | The refusal of `guard_confined_invalidation` |
 | An uncommitted attempt with a retry baseline, anywhere in the journal, at a site that declares `must_not_repeat` in the program that wrote the attempt or in the edited program (decision 3a) | `lexical_restore_pending_effect_unsafe` |
-| A commit in the cancelled range at a site that declared `must_not_repeat` in the program that wrote it (decision 3b) | `lexical_restore_pending_effect_unsafe`; the recovery lines print `invalidate RUN_ID 'IDENTITY'` |
+| A commit in the cancelled range at a site that declares `must_not_repeat` in the program that wrote the commit or in the edited program (decision 3b) | `lexical_restore_pending_effect_unsafe`; the recovery lines print `invalidate RUN_ID 'IDENTITY'` |
 | A pure fault in the strict replay under the edited program | That `pure_expr_*` code |
 | A header without a rebuild recipe; the other header and root checks | Unchanged (preflight steps 1 to 6) |
 
@@ -338,16 +365,20 @@ give the condition below as the reason no plan can be accepted.
   current node when the step is reached. Under an edit a renamed step is a
   new identity, and a manifest that drops the declaration makes the node
   repeatable; in both cases the tree's strict replay passes and would run the
-  step again (probe). So both rows above read the journal and the program
-  that wrote the row. A committed such step is never cancelled by a plan,
+  step again (probe). So both rows above read the journal, the program that
+  wrote the row and the edited program. The edited program counts for a
+  commit too: an edit that adds the declaration to a committed step and
+  changes an earlier one is caught only by that reading (probe). A committed
+  such step is never cancelled by a plan,
   for a `rebased` record or for the `invalidated` record of §6. The author's
   route is the explicit command: `invalidate RUN_ID 'IDENTITY'`, then the
   resume, which prints a new plan. Probe: after the tree's `invalidate` the
   step is no longer in the cancelled range and has no retry baseline.
   `_retry_baseline` (`attempts.py`) treats a commit that a cut cancels as it
   treats one a range cancels: the baseline is lifted. Since a cut cancels
-  only repeatable commits, and the strict replay of §6 runs before the
-  write, no `must_not_repeat` refusal can occur after the record.
+  only commits that neither program declares `must_not_repeat`, and the
+  strict replay of §6 runs before the write, no `must_not_repeat` refusal can
+  occur after the record.
 - **Host input (spike ruling 6).** A `request_input` commit at or after the
   cut is cancelled like any commit, the plan lists it under "asked again",
   and the next resume issues a new request with a new ID; the old ID is
@@ -379,60 +410,93 @@ with an optional value (argparse `nargs="?"`; probe).
 - `--accept-changes=TOKEN` accepts the plan that token names, and nothing
   else: the program switch, the cancellations, the questions asked again and
   the unfinished command attempts the plan lists.
-- A value that is not a token is a usage error, so `--accept-changes RUN_ID`
-  cannot take the run id for a token. Printed commands write the flag last,
-  with `=`.
+- The flag is written after the run id. `resume --accept-changes RUN_ID`,
+  which is accepted today, becomes a usage error (exit 2): the parser prints
+  `argument --accept-changes: expected a plan token; write the run id before
+  --accept-changes` and never takes a run id for a token. Printed commands
+  already write the flag last, with `=`.
 
-**Token.** `plan-` and the first 16 hex digits of the SHA-256 of the
-canonical JSON of: `v` (1); the run id; the current program's digest; the
-fresh program's digest; the journal's complete byte length and the digest of
-its last complete record; the record kind to write (`rebased` or
-`invalidated`); the cut; the cancelled commits, the retired pending starts
-and the unproven command attempts, each as identity and attempt in journal
-order; the requests asked again, with their request IDs. It is not stored and
-is not a secret. It is recomputed under the writer lock and compared before
-any write. Probe: equal when recomputed; different after a declared script
-changed (the plan then cancelled 4 commits, not 2), after the source was
-edited again, and after another process appended a record.
+**Token.** `plan-` and four fields of eight hex digits, each the start of a
+SHA-256 over canonical JSON:
+
+1. *journal:* the run id, the journal's complete byte length and the digest
+   of its last complete record;
+2. *program:* the current program's digest and the fresh program's;
+3. *cut:* the record kind to write (`rebased` or `invalidated`) and the cut;
+4. *sets:* the cancelled commits and the retired pending starts, as identity
+   and attempt in journal order; the requests asked again, with their request
+   IDs; the unproven command attempts, each with the digest of its declared
+   files as rehashed now when replay reaches it, and with identity and
+   attempt alone when it does not.
+
+All four must match. The token is not stored and is not a secret. It is
+recomputed under the writer lock and compared at one place, immediately
+before the write. A field that differs names what changed, and the refusal
+says so before it prints the new plan: the journal has new records; the
+program changed again; the cut moved, with the commit now at the cut and
+what differed there (a declared file, an input part); the cancelled steps,
+the questions, or the unfinished steps or their files changed. An unproven
+attempt that replay does not reach cannot be rehashed before it runs: the
+acceptance covers its files as they are when it is reached, and the plan
+says exactly that. Probe: all fields equal when recomputed; the cut and sets
+fields differ after a declared script changed (the plan then cancelled 4
+commits, not 2); the program, cut and sets fields after the source was
+edited again; the journal field after another process appended a record; the
+sets field after an unfinished attempt's script was rewritten.
 
 | Situation | Plain `resume` | `--accept-changes` | `--accept-changes=TOKEN` |
 | --- | --- | --- | --- |
 | Nothing to accept | Runs | Refused, `resume_preflight_failed`, as today | Refused, `resume_preflight_failed` |
 | Only unproven command attempts with changed files | `effect_input_diverged`; prints the bare flag | Accepts them, as today | Refused: the token names no current plan; prints that refusal |
-| An edited program, or a committed step's changed input | Refuses and prints the plan with its token | The same refusal: the bare flag accepts no plan | Accepts when the recomputed plan matches |
-| Both | Refuses; the plan lists the attempts in a section of their own | The same refusal | Accepts both when it matches |
+| An edited program | Refuses at step 7 and prints the plan with its token | The same refusal: the bare flag accepts no plan | Accepts when the recomputed plan matches |
+| A committed step's changed input, program unchanged | Refuses at step 10, as today, and prints the plan with its token | The same refusal | Accepts when the recomputed plan matches |
+| An edit or a changed input, and unproven attempts | Refuses; the plan lists the attempts in a section of their own | The same refusal | Accepts both when it matches |
 
 **Steps.** 1 to 6 of "Resume preflight precedence" are unchanged. Then:
 
 7. Fresh build; compile errors refuse. Decode only the journal's complete
    lines of kind `rebased`: the current program's digest is the last one
-   named, else the header's. No artifact is loaded. Equal: continue as today.
-   Different: the fresh program is the candidate; check its entry, target,
-   representation and bare interpreters. This scan precedes the journal's
-   validation, so a malformed earlier line can yield `resume_program_changed`
-   before step 10 yields `memo_inconsistent`; both refuse without a write,
-   and with a token step 10 always runs before the write.
+   named, else the header's. No artifact is loaded. Equal digest: continue as
+   today.
+   - *Different, without a token* (plain `resume`, the bare flag, and
+     `input answer`): refuse `resume_program_changed` here, as today, before
+     inputs, stored programs or any other record is read. The plan is then
+     computed for the refusal's text, read-only, by running steps 8 to 10 on
+     the fresh program. If one of them fails, the refusal says why no plan
+     can be shown, with that step's code and message, and prints no token.
+     Its own code and exit status do not change.
+   - *Different, with a token:* the fresh program is the candidate; check its
+     entry, target, representation and bare interpreters, and go on.
+
+   This scan precedes the journal's validation, so a malformed earlier line
+   can yield `resume_program_changed` before step 10 yields
+   `memo_inconsistent`. Both refuse without a write, and with a token step 10
+   always runs before the write.
 8. Fresh inputs against the fresh program; `resume_inputs_changed` against the
-   header's digest, with or without a token.
+   header's digest.
 9. Stored authority: every program of the lineage, command transport and
    interpreter pins (§5).
-10. Memo replay. With an unchanged program and no divergence at a committed
-    effect: as today. Otherwise compute the plan: for a candidate program by
-    §3; for an unchanged program the cut is the first diverged commit and the
-    record is the `invalidated` range that `invalidate` would write. Check §5
-    on the plan. Reduce the journal in memory as it will be after the record
-    and run today's strict replay on it, under the program that will be
-    current; that pass includes the retry-baseline rule for unfinished
-    commands. Without a token that equals the plan's, refuse and print the
-    plan. Last, the not-needed refusal of the table above.
+10. Memo replay.
+    - *Unchanged program, no divergence at a committed effect:* as today.
+    - *Unchanged program, a committed effect diverged, no token:* refuse
+      `effect_input_diverged`, as today; the plan is printed with it.
+    - *With a token:* compute the plan. For a candidate program it is §3's.
+      For an unchanged program the cut is the first diverged commit and the
+      record is the `invalidated` range that `invalidate` would write. Check
+      §5 on the plan. Reduce the journal in memory as it will be after the
+      record and run today's strict replay on it, under the program that will
+      be current; that pass includes the retry-baseline rule for unfinished
+      commands. Then the single gate: the token must equal the plan's, else
+      refuse as the table above says, naming what changed.
+    - Last, the not-needed refusal of the table above.
 11. Write (§4, or the `invalidated` record), log `[changes_accepted]` with the
     token and the plan, then evaluate.
 
+Nothing but step 10's gate stands between a request and the write, and the
+bare flag never reaches it with a plan.
+
 **The plan** follows the refusal's first line and is logged again on
-acceptance. It is computed after the refusal is decided, read-only; if it
-cannot be computed (a corrupt stored artifact, an unreadable journal) today's
-generic lines are printed and the exit code is unchanged. Lists stop at 20
-lines, then `... and N more`.
+acceptance. Lists stop at 20 lines, then `... and N more`.
 
 ```text
 [resume_program_changed] current program differs from the run's program
@@ -446,19 +510,21 @@ if accepted, this run continues under the edited program:
     workflow:four::run / s4
   the cut is at workflow:four::run / s2: the edited program runs x before it
   asked again: none
-  unfinished steps retried with their files as they are now: none
+  unfinished steps retried: none
   runs first: workflow:four::run / x
   files that cancelled steps wrote in the workspace are not rolled back
-    orchestrator resume RUN_ID --accept-changes=plan-4cab7aa33a31a4af
+    orchestrator resume RUN_ID --accept-changes=plan-d4c8d05d-d53925b1-e032a8fe-1831ac40
 ```
 
 Cost is the cancelled attempts' `usage.json`, priced as `report` prices it,
 where metered. The "unfinished steps" section lists every unproven command
 attempt the acceptance covers, with the reason line the present refusal
-gives, including starts the cut retires. The lines for restoring the source
-and for a new run follow as today. When §5 refuses, its code and reason
-replace the plan and no token is printed. The `effect_input_diverged` refusal
-for a committed step prints the same plan and token beside `invalidate`.
+gives. One that replay reaches is listed "with its files as they are now";
+one it does not reach, such as a start the cut retires, "with its files as
+they are when it is reached". The lines for restoring the source and for a
+new run follow as today. When §5 refuses, its code and reason replace the
+plan and no token is printed. The `effect_input_diverged` refusal for a
+committed step prints the same plan and token beside `invalidate`.
 
 **Idempotence.** After acceptance the fresh build equals the current program:
 plain `resume` continues or returns the recorded terminal with no write, and
@@ -479,21 +545,26 @@ tree, on its 20 edits (§3), and it passed each time.
 **What the prefix guarantees.** Kept commits are downward closed: an effect P′
 evaluates before a kept one is itself kept, and it lies earlier in the
 journal. So **every kept commit was committed before any cancelled commit
-was**. In serial code a kept effect also finished before any cancelled effect
-started, and cannot have read a cancelled effect's files.
+was**. In serial code a kept effect's attempt also ended before any cancelled
+effect started, so it cannot have read a cancelled effect's files. The
+exception is a process that outlives its attempt, which C4 and C5 already
+place outside the promise.
 
 **Not covered.**
 
 - **A parallel map's attempts in flight.** A kept commit can have been made
   while a now-cancelled sibling was running, and can have read its files. In
-  the probe's fixture `[1].f` committed at byte 4343 while `[0].f` ran from
-  byte 2028 to byte 13020; an edit to `[0].f` cuts at 13020 and keeps
-  `[1].f`. An uninterrupted run of the edited program would have run the new
-  `[0].f` beside it. `invalidate` has this property today. The alternative
-  rule moves the cut back to the earliest `started` offset of a cancelled
-  attempt, repeated until stable: then every kept commit was committed before
-  any cancelled attempt started. It costs nothing in serial code and one more
-  commit in the fixture. It is not chosen (decision 2); H-G3 compares the two.
+  the probe's fixture item `a`'s `f` is slow: it starts first and commits
+  after every step of the other two items. An edit to that step alone cuts
+  at its commit and keeps the four commits of the other items, all made
+  while the old step was running (review probe). An uninterrupted run of the
+  edited program would have run the new step beside them. `invalidate` has
+  this property today. The alternative rule moves the cut back to the
+  earliest `started` offset of a cancelled attempt, repeated until stable:
+  then every kept commit was committed before any cancelled attempt started.
+  It costs nothing in serial code. In the fixture it costs one more commit
+  for the edit to `g` of §3 and all four sibling commits for the edit to item
+  `a`'s `f`. It is not chosen (decision 2); H-G3 compares the two.
 - **Workspace files of cancelled effects.** A step that runs again sees files
   a cancelled later step left, and repeats its own writes (the spike's case:
   102 after the edit, 2 from a fresh run). This is `invalidate`'s limit made
@@ -552,15 +623,19 @@ through the public `run` and `resume` entries with stand-in scripts.
 | Insert before step two (exit case b) | A completed four-step run; insert an effect before step two. Plain `resume` exits 2 with `resume_program_changed`, prints the plan and its token and changes no byte. The printed command exits 0; started are the new step and steps two to four at attempt 2; step one was dispatched once. One `rebased` record and a second artifact. A second `resume` exits 0 with no write; the same token is refused |
 | A file dependence under an edit (exit case c) | `a` writes a file that `b` reads by name; edit `a`'s argument and accept. The result equals a fresh run of the edited program in a clean clone; `a`, `b` and `c` ran again |
 | Each edit kind | Every row of §3's tables: the kept and cancelled sets, and for command-only fixtures the final value against a fresh run in a clean clone. No kept commit has a cancelled one before it in the journal |
-| The printed plan is the accepted plan | After the refusal, change a declared script so that the cut moves, edit the source again, or append a record from another process: the old token is refused before any write and the new plan is printed. The bare flag never accepts an edited program or a cancellation, with or without an unproven attempt |
+| Where an edit refuses | An edited program without a token refuses `resume_program_changed` before inputs, stored programs or other records are read, also when the stored artifact is corrupt or the input file is missing; the refusal then says why no plan is shown. With a token those states refuse with their own codes |
+| The printed plan is the accepted plan | After the refusal, change a declared script so that the cut moves, edit the source again, append a record from another process, or rewrite an unfinished step's script: the old token is refused before any write, and the refusal names what changed and prints the new plan. The bare flag never accepts an edited program or a cancellation, with or without an unproven attempt |
 | Positions | A comment line above a provider, accepted: the provider is not dispatched |
 | Runs in flight | A journal recorded before the `declaration` change with a committed provider, a committed agent turn and a committed phased provider resumes with no edit and dispatches nothing |
 | Record durability | Kill at W1 to W5 of §4: each recovered run is entirely under the old program, or entirely under the new one with the cut applied; nothing is dispatched before the record is durable. An artifact left at W2 is reused after the source is reformatted |
 | Lineage | Three accepted edits, one returning to the first program: `report`, the dashboard, `invalidate` and a completed resume read the run; a deleted or altered artifact is `memo_inconsistent` |
 | Old rows under a later program | After an edit that renames a step: `invalidate` of a commit that lies before the record succeeds and the run resumes; a second edit whose cut lies before the first record is accepted |
+| A class change across a record | A pending agent turn under one program whose identity is a command in the next: a later cut or `invalidate` over that attempt refuses `invalidate_agent_session_advanced`. Each row is classified by the program that wrote it |
+| A reader without the lock | `input get`, `report` and the dashboard, run while an acceptance writes: each returns the old run or the new one, or reports that the run is being rebased; none writes |
+| The flag's position | `resume --accept-changes RUN_ID` is a usage error (exit 2) that names the fix; every printed command parses |
 | Interpreters | An edit that removes the only step of a pinned interpreter is accepted and the run stays readable; one that adds a bare interpreter refuses |
 | Refusals | Each row of §5, with a token and without: its code, exit 2, run tree bytes unchanged |
-| `must_not_repeat` | A committed such step at or after the cut refuses; after `invalidate` of that step the new plan is accepted and the step runs once more. An uncommitted attempt of such a step refuses after a rename and after the declaration is dropped. No refusal follows a durable record |
+| `must_not_repeat` | A committed such step at or after the cut refuses; after `invalidate` of that step the new plan is accepted and the step runs once more. An edit that adds the declaration to a committed step and changes an earlier step refuses the same way. An uncommitted attempt of such a step refuses after a rename and after the declaration is dropped. No refusal follows a durable record |
 | Host input | An edit after a committed reply keeps it; an edit before it asks again, lists it in the plan and refuses the old request ID |
 | One command | An edit together with a failed step's fixed script: one resume with the token. A committed step's changed prompt file: one resume, and the journal that `invalidate` then `resume` writes |
 | Kills under an edited program | The kill suite's windows on a run that has a `rebased` record: the final value of the uninterrupted edited run, and no kept commit dispatched twice |
@@ -585,13 +660,16 @@ files in the same order. Every test of the bare flag passes unchanged.
 - `tests/memo_fold_guard.py`, the guard those suites run under: it re-reduces
   with all of a fold's tables (§4). Its checks on journals without a record
   do not change.
-- `tests/test_workflow_evaluated_resume.py`:
-  `test_preflight_refusals_preserve_all_evidence` (case `program`) and
-  `test_program_comparison_precedes_invalid_file_inputs_and_artifact` keep
-  their code, exit status and unchanged-bytes assertions. What they pin
-  narrows from "no memo record or artifact is read before the refusal" to
-  "the refusal is decided from the header and the journal's `rebased` records;
-  the plan reads the stored programs and the memo afterwards".
+- `tests/test_workflow_evaluated_resume.py`, both edited-program tests keep
+  their code, exit status and unchanged-bytes assertions, because without a
+  token the refusal is still decided at step 7.
+  `test_program_comparison_precedes_invalid_file_inputs_and_artifact` passes
+  as written: its missing input file stops the plan's step 8, before any
+  stored program is loaded, and the refusal says why no plan is shown.
+  `test_preflight_refusals_preserve_all_evidence` (case `program`) forbids
+  `load_run_authority` for the whole call; the plan loads the stored
+  programs after the decision, finds the corrupt artifact and says so. Its
+  guard is restated to end at the decision.
 - Tests that unpack or compare the exact commands a refusal prints; each
   refusal gains the token command. In `tests/test_cli_recovery_messages.py`:
   `test_program_edit_refusal_names_the_changed_step_and_a_run_command_that_works`,
@@ -665,11 +743,11 @@ quoted text follows it. Rows without a document name are evaluated execution.
 | §12, codes | (new row) | "`changes_accepted`. A diagnostic at resume, once the record of an accepted plan is durable (C10)" |
 | §17 | (new rows) | The rows of §9 above |
 | `specs/cli.md`, synopsis | "[--accept-changes]" | "[--accept-changes[=TOKEN]]" |
-| `specs/cli.md`, the flag | "accepts, for this invocation, the changed declared files of every unfinished command attempt that no clean failure covers (step 10 below); it is refused when there is none." | + "`--accept-changes=TOKEN` accepts the plan that token names: an edited program, the commits it cancels, the questions asked again and the unfinished command attempts it lists (steps 7 and 10). It is refused when the recomputed plan is another one. The bare flag accepts no edited program and no cancellation." |
-| `specs/cli.md`, step 7 | "compile errors refuse; `resume_program_changed` when the fresh digest differs." | "compile errors refuse. The run's current program is the header's, or the one named by the journal's last `rebased` record, the only records read here. When the fresh digest differs, the fresh program is the candidate of step 10; `resume_program_changed` when its entry, target, representation or bare interpreters do not fit the run." |
+| `specs/cli.md`, the flag | "accepts, for this invocation, the changed declared files of every unfinished command attempt that no clean failure covers (step 10 below); it is refused when there is none." | + "`--accept-changes=TOKEN` accepts the plan that token names: an edited program, the commits it cancels, the questions asked again and the unfinished command attempts it lists (steps 7 and 10). It is refused when the recomputed plan is another one. The bare flag accepts no edited program and no cancellation. The flag is written after `RUN_ID`: `resume --accept-changes RUN_ID` is a usage error (exit `2`) that prints `expected a plan token; write the run id before --accept-changes`." |
+| `specs/cli.md`, step 7 | "compile errors refuse; `resume_program_changed` when the fresh digest differs." | "compile errors refuse. The run's current program is the header's, or the one named by the journal's last `rebased` record, the only records read here. `resume_program_changed` when the fresh digest differs and no plan token is given; the plan is then computed read-only and printed with the refusal, or the reason no plan can be shown. With `--accept-changes=TOKEN` the fresh program is the candidate of step 10; `resume_program_changed` when its entry, target, representation or bare interpreters do not fit the run." |
 | `specs/cli.md`, step 9 | "Stored authority: the artifact's checked form and header digest" | "Stored authority: the checked form of every program of the lineage, the first against the header digest and each later one against the `rebased` record that names it (a missing or unverified artifact is `memo_inconsistent`)" |
 | `specs/cli.md`, step 9 | "and interpreter pins (`resume_interpreter_missing`;" | "and interpreter pins (equal to the first program's bare interpreters, a superset of every later program's; `resume_interpreter_missing`;" |
-| `specs/cli.md`, step 10 | "Memo replay: reduce the journal (`memo_inconsistent`), replay the active committed prefix in journal order re-resolving every input" | "Memo replay: reduce the journal (`memo_inconsistent`). With a candidate program, or at the first divergence of a committed effect, compute the plan (rule C10) and its refusals, and check it by this step's replay over the journal as it will be; then refuse `resume_program_changed` or `effect_input_diverged` and print the plan, unless `--accept-changes=TOKEN` names it. Otherwise replay the active committed prefix in journal order re-resolving every input" |
+| `specs/cli.md`, step 10 | "Memo replay: reduce the journal (`memo_inconsistent`), replay the active committed prefix in journal order re-resolving every input" | "Memo replay: reduce the journal (`memo_inconsistent`). With `--accept-changes=TOKEN`, for a candidate program or a divergence at a committed effect: compute the plan (rule C10) and its refusals, check it by this step's replay over the journal as it will be, and compare its token; a token that names another plan refuses, with what changed and the new plan. Without a token a divergence at a committed effect refuses `effect_input_diverged` as today, and the plan is printed with it. Otherwise replay the active committed prefix in journal order re-resolving every input" |
 | `specs/cli.md`, step 11 | "Only then is a torn tail repaired (a failure there is still a refusal, exit `2`) and evaluation continued." | "Only then is an accepted plan written (the program artifact, a torn-tail repair, then the `rebased` or `invalidated` record) or a torn tail repaired, and evaluation continued. A failure there still exits `2`; after the artifact is stored the message says that the change may be in force." |
 | `specs/cli.md`, Diagnostics, `resume_program_changed` | "`resume` after restoring the source; or a fresh `run`, in which every step runs again" | "`resume --accept-changes=TOKEN` when a plan can be accepted; `resume` after restoring the source; or a fresh `run`, in which every step runs again". The names column adds: "then the plan (kept, cancelled with recorded cost, the commit at the cut and what differed, asked again, unfinished steps retried, what runs first), or the reason no plan can be accepted" |
 | `specs/cli.md`, Diagnostics, committed `effect_input_diverged` (both rows) | "`invalidate RUN_ID 'IDENTITY'` then `resume`" | "`resume --accept-changes=TOKEN`, which does both; or `invalidate RUN_ID 'IDENTITY'` then `resume`" |
@@ -691,8 +769,9 @@ storing the edited program's artifact beside the first, one synchronized
 `rebased` record names the program and the cut. It cancels every active
 commit and retires every pending start at or after the cut, as a C8 range
 does, and reopens the terminal. Every C8 refusal applies to that range. A
-plan never cancels a committed `must_not_repeat` step and is never accepted
-while such a step has an uncommitted attempt. A plan is accepted only by the
+plan never cancels a commit of a step that is `must_not_repeat` under the
+program that wrote the commit or under the edited program, and is never
+accepted while such a step has an uncommitted attempt. A plan is accepted only by the
 token the refusal printed for it, and only when the strict replay of §8.4
 passes under the edited program on the journal as it will be. Journal
 records are validated against the program in force when they were written.
@@ -701,9 +780,14 @@ The header and the first program are never replaced."
 ## Probes
 
 No model was called: `experiments/thread_m/no_provider` was first on `PATH`
-and logged no attempt. The planning steps wrote nothing in a run root
-(asserted by byte comparison) and nothing in the repository. The reviewer
-reran `plan_probe.py` and `inflight_probe.py` and got the same tables.
+and logged no attempt. The one exception is the suite test that wrote the
+Agent Sessions journal: it sets its own closed `PATH` with the suite's fake
+CLIs. The planning steps write nothing (asserted by byte comparison in
+`plan_probe.py`); three probes also run the tree's `invalidate` or
+`input answer` on their own scratch runs. Nothing was written in the
+repository. The reviewer reran `plan_probe.py` and `inflight_probe.py`, got
+the same tables, and reproduced the lineage, agent-turn and `must_not_repeat`
+results with probes of their own.
 
 | Claim | Probe | Result |
 | --- | --- | --- |
@@ -712,10 +796,10 @@ reran `plan_probe.py` and `inflight_probe.py` and got the same tables.
 | A provider run in flight; the rule under an edit | `inflight_probe.py`: a journal written by the current tree, a script named `gemini` as stand-in | The recorded digest equals the old rule. With the rule: all kept with no edit; the provider kept after a comment line; cancelled after a model change |
 | An Agent Sessions run in flight, no edit | `agent_probe.py`: the tmp tree of the suite's `test_clean_run_commits_four_turns_on_two_native_sessions`, run with the suite's fake `codex` and `claude` on its closed `PATH` | Recorded digests equal the old rule over `provider_view(node, agent)`, not over the site node. New rule alone, or the rule over the site node: `effect_input_diverged` at the first turn. The rule over the subject: all six commits reused |
 | The cut and the strict replay after the record | `plan_probe.py`, 20 edits | §3's tables. The tree's `discover_prefix` and `_validate_discovered_prefix` pass under the edited program each time. A union of tables fails on a class change |
-| Old rows under a later program | `round2_probe.py` | `invalidate` before a record after a rename, and a second edit cutting before the first record: `memo_inconsistent` with one table switched per record; both reduce, and the strict replay passes, with each row read under its own program. A record with no table supplied fails closed |
-| The plan token and the flag's form | `round2_probe.py` | The token is equal when recomputed and differs after a declared script changes, the source is edited again, or a record is appended. argparse reads the bare flag, the flag with `=TOKEN`, and rejects `--accept-changes RUN_ID` |
+| Old rows under a later program | `round2_probe.py` | `invalidate` before a record after a rename, and a second edit cutting before the first record: `memo_inconsistent` with one table switched per record; both reduce, and the strict replay passes, with each row read under its own program. A record with no table supplied fails closed. The probe's cut rule classifies by an identity's latest row, so a class change across a record is not shown |
+| The plan token and the flag's form | `round3_probe.py`; `round2_probe.py` | All four fields are equal when recomputed. After a declared script changes the cut and sets fields differ; after the source is edited again the program, cut and sets fields; after a record is appended the journal field; after an unfinished attempt's script is rewritten the sets field. argparse reads the bare flag, the flag with `=TOKEN`, and rejects `--accept-changes RUN_ID` |
 | Interpreter pins; artifact bytes | `round2_probe.py` | Removing the only `sh` step fails today's equality and passes the subset rule. One program with and without a comment line: equal digest, different artifact bytes |
-| `must_not_repeat` | `repeat_probe.py`; `round2_probe.py` | An uncommitted attempt: after a rename or a dropped declaration the strict replay passes and would run the step; the designed check names it. A committed step in the cancelled range is found by the check; after the tree's `invalidate` it is not, and its retry baseline is lifted |
+| `must_not_repeat` | `repeat_probe.py`; `round2_probe.py` | An uncommitted attempt: after a rename or a dropped declaration the strict replay passes and would run the step; the designed check names it. A committed step in the cancelled range is found by the check; after the tree's `invalidate` it is not, and its retry baseline is lifted. An edit that adds the declaration to a committed step is caught only when the edited program is read too (`round3_probe.py`) |
 | What an older build does | `older_build_probe.sh` | `memo_inconsistent` from `resume`, `report` and `invalidate`; tree bytes unchanged |
 | Host replies under an edit; asking again | `host_probe.py`, target 2.40 | Today the reply is lost under any edit. With the ID checked against the writing program it is kept after a later edit, also with shifted lines. A cut at the reply asks again; the old ID is `host_input_stale` |
 
@@ -732,8 +816,11 @@ reran `plan_probe.py` and `inflight_probe.py` and got the same tables.
 - The accepting command cannot be typed from memory or scripted ahead: it
   carries a token from the latest refusal, and any change in between means
   reading a new plan.
-- One flag has two forms with different reach, and the bare form is refused
-  whenever a plan is pending.
+- One flag has two forms with different reach, the bare form is refused
+  whenever a plan is pending, and `resume --accept-changes RUN_ID` stops
+  being valid.
+- A reader without the lock can meet a record written between its two reads
+  and must load the lineage again.
 - The old `declaration` rule stays at every comparison point until old runs
   age out, and host request IDs depend on which program wrote the request.
 - A committed `must_not_repeat` step blocks every edit that reaches it until
@@ -759,38 +846,79 @@ Rulings of the coordinator on the questions this design raised.
 | 6 | The plan is printed on every refusal | The author decides from it, and it costs about what resume's replay costs today | A slow refusal on a long journal |
 | 7 | Hygiene-generated names stay in provider inputs; the guide states the limit | None found in 178 provider-class sites of 182 retained programs | A provider runs again after an unrelated shadowing edit |
 | 8 | No version signal; `specs/versioning.md` gets the sentence above | An older build fails closed, and a schema bump would cut every new run off from older builds | An older build reports `memo_inconsistent` and not "written by a newer build" |
-| 9 | A program switch or a cancellation is accepted only with the plan token the refusal printed; a changed plan is refused before any write. The bare flag keeps its present meaning | Between the refusal and the acceptance the source, a declared file or another process can move the cut, and automation that passes the bare flag for a script fix must not accept an edit | One more refusal when anything changed in between. The token has 64 bits: a changed plan passes with a chance of 1 in 2^64 |
+| 9 | A program switch or a cancellation is accepted only with the plan token the refusal printed; a changed plan is refused before any write. The bare flag keeps its present meaning | Between the refusal and the acceptance the source, a declared file or another process can move the cut, and automation that passes the bare flag for a script fix must not accept an edit | One more refusal when anything changed in between. Each of the token's four fields has 32 bits: a change confined to one field passes with a chance of 1 in 2^32 |
+
+## What the implementation plan's first task must prove
+
+Each item is a claim. A test or probe shows it before the code that relies
+on it is written; an item that fails returns its question to design. The
+order puts first what could send the design back.
+
+1. **The lineage form in the tree.** `read_memo` resolves tables from
+   verified artifacts without an import cycle. Reading each row under its own
+   program covers every class lookup over historical rows: the four named in
+   §4, any other a search finds, and an identity that changes class across a
+   record. The `_LAST` key and `tests/memo_fold_guard.py` change as §4 says.
+   The planner's own reduction works before the artifact exists. A rebased
+   run pays no more per effect than an unedited one after the first read.
+2. **The old-digest rule at all three comparison points,** on journals the
+   tree writes, resumed with no edit and dispatching nothing: a committed
+   provider; a committed agent turn; a pending agent turn through
+   `_recovered_attempt`; a committed phased provider; a kept pending
+   coordinator attempt.
+3. **Coordinators under an edit,** with the suite's stand-ins: a run
+   reference, an agent turn and a phased provider, each before the cut (kept
+   and reconciled) and at or after it (refused with the C8 codes); a cut at a
+   pending start's offset; `guard_confined_invalidation`.
+4. **Preflight precedence.** Without a token an edited program refuses at
+   step 7 with `resume_program_changed`, as the two resume tests of §9 pin.
+   With a token the write has exactly one gate, and the bare flag never
+   passes it with a plan.
+5. **The token's coverage.** Every input of the planning function is bound by
+   a field or derived from something that is, including the files of unproven
+   attempts that replay reaches; a mismatch names what changed.
+6. **Publication without replacing,** which the tree's atomic write does not
+   offer, and then the outcomes of §4 under a kill at each of W1 to W5.
+7. **The `must_not_repeat` rows of §5,** with the declaration read from the
+   writing program and from the edited one, for committed and uncommitted
+   attempts, and no refusal after a durable record.
+8. **Readers on runs with several programs:** views, `report`, the dashboard,
+   the REPL, `input answer` and `input get`, including a reader without the
+   lock racing an acceptance.
+9. **Metering and cost.** Cancelled attempts stay counted by the spend cap and
+   by `report`, shown with a metered stand-in; the plan's cost on a long
+   journal.
 
 ## Not verified
 
-Each item is an open prerequisite: the implementation plan proves it with a
-probe or test, or returns the question to design, before the code that
-depends on it.
+What this design states without having run it. Each item is an open
+prerequisite; the list above says which claim the plan must show for it.
 
-- **Coordinators under an edit.** No probe edited a program whose journal
-  holds a run reference, agent turn or phased provider. That a committed one
-  before the cut is reused, and that the C8 guards work at an offset that is
-  not a commit's, was read (`validate_evaluated_run_ref`, `validate_turn`,
-  `validate_phased_commit`, `check_invalidation_cut`,
+- **Coordinators under an edit** (item 3). No probe edited a program whose
+  journal holds a run reference, agent turn or phased provider. That a
+  committed one before the cut is reused, and that the C8 guards work at an
+  offset that is not a commit's, was read (`validate_evaluated_run_ref`,
+  `validate_turn`, `validate_phased_commit`, `check_invalidation_cut`,
   `guard_confined_invalidation`). Only the host request ID was found to bind
   the parent program's digest.
-- **The old-digest rule** at `_recovered_attempt` (a pending agent turn) and
-  for a phased provider: read, not run. That it stays within about ten lines
-  per comparison point is an estimate.
-- **Crash windows W1 to W5:** argued from M2, M3 and a no-replace publication,
-  which the tree's atomic write does not offer yet; not fault-injected.
-- **The lineage form in the tree.** The probe subclasses the reducer. That
-  `read_memo` can resolve tables without an import cycle, that four call
-  sites and four lookups are all that change, and the cache and fold-guard
-  changes, were read and counted, not built.
-- **Views, `report`, the dashboard, the REPL and `input answer`** on a run
-  with several programs: designed, not prototyped.
-- **Metering:** that cancelled attempts stay counted was read from `spent`
-  and `run_usage`, not run; the stand-in provider of the probes is unmetered.
-- **The token's inputs** were probed for three kinds of change; that they
+- **The old-digest rule** at `_recovered_attempt` and for a phased provider
+  (item 2): read, not run. That it stays within about ten lines per
+  comparison point is an estimate.
+- **The lineage form in the tree** (item 1). The probes subclass the reducer
+  and classify by an identity's latest row. The import structure, the count
+  of call sites and lookups, the cache and fold-guard changes and the cost
+  per effect were read and counted, not built or measured.
+- **The refusal point** (item 4): that
+  `test_program_comparison_precedes_invalid_file_inputs_and_artifact` passes
+  as written is reasoned from its fixture.
+- **The token** (item 5) was probed for four kinds of change; that its fields
   cover every way a plan can change is argued, not shown.
-- The plan's cost on a long journal; parallel interleavings other than the
-  one fixture; the start-offset cut, which was not run.
-- Python-built runs, read only. The probes used command steps, one stand-in
-  provider and one Agent Sessions journal; for the workspace-leftover limit
-  the spike's case is the evidence.
+- **Crash windows W1 to W5** (item 6): argued from M2, M3 and a no-replace
+  publication; not fault-injected.
+- **Readers** (item 8): views, `report`, the dashboard, the REPL,
+  `input answer` and the unlocked race are designed, not prototyped.
+- **Metering** (item 9): that cancelled attempts stay counted was read from
+  `spent` and `run_usage`; the probes' stand-in provider is unmetered.
+- The start-offset cut and parallel interleavings other than the fixture's
+  were not run. Python-built runs were read only. For the workspace-leftover
+  limit the spike's case is the evidence.
