@@ -1178,6 +1178,8 @@ def _real_binary_resolver(tmp_path):
     are rejected by the resolver, so the test stages a hard link exactly like
     a deployed install.
     """
+    if os.environ.get("ORC_TEST_ALLOW_REAL_PROVIDERS") != "1":
+        pytest.skip("live OMP runs need ORC_TEST_ALLOW_REAL_PROVIDERS=1 (tests/conftest.py provider guard)")
     installed = Path.home() / ".local" / "bin" / "omp"
     bindir = tmp_path / "real-bin"
     bindir.mkdir()

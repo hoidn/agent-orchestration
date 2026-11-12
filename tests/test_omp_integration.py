@@ -94,6 +94,8 @@ def _workspace(tmp_path: Path) -> Path:
 
 def live_pinned_binary(tmp_path: Path) -> Path:
     """Stage the installed pinned OMP build as a resolver PATH dir, or skip."""
+    if os.environ.get("ORC_TEST_ALLOW_REAL_PROVIDERS") != "1":
+        pytest.skip("live OMP runs need ORC_TEST_ALLOW_REAL_PROVIDERS=1 (tests/conftest.py provider guard)")
     installed = Path.home() / ".local" / "bin" / "omp"
     if not installed.is_file():
         pytest.skip("real pinned OMP binary not installed at ~/.local/bin/omp")
