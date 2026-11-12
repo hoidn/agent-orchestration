@@ -116,7 +116,8 @@ and the [open items](../reports/2026-10-07-evaluated-execution-phase-5-closeout.
 Target 2.38 separately implements bounded [Agent Sessions](workflow_lisp_agent_sessions.md):
 run-local allocation and typed native turns. [PQ-1a](../reports/2026-10-14-agent-sessions-pq1a-qualification.md)
 records deterministic proofs and bounded adapter smokes; the real-provider consumer
-comparison (PQ-1c) has not run and requires separate owner authorization.
+comparison (PQ-1c) priced the agent variant at 1.4 to 1.7 times the plain handoff on one
+four-turn pattern and made no quality claim ([result](../../experiments/pq1c/README.md#result)).
 
 Design principles: this specification follows the language-wide principles in
 [Workflow Language Design Principles](workflow_language_design_principles.md).
@@ -2024,11 +2025,11 @@ Effect kinds:
 - `uses-command(command)`
 - `calls-workflow(workflow)`
 - `updates-state(context)`
-- `writes-snapshot(snapshot-kind)`
-- `reads-snapshot(snapshot-ref)`
-- `moves-resource(resource, from, to)`
-- `updates-ledger(ledger)`
-- `materializes-pointer(optional)`
+- `runs-ref(child-workflow)`
+- `host-input` (no subject)
+
+The compiler accepts exactly these kinds and refuses any other with
+`unsupported procedure effect kind`.
 
 Example:
 

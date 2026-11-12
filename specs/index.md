@@ -73,7 +73,7 @@ dashboard read evaluated runs only and refuse historical ones. See
     [capability matrix](../docs/capability_status_matrix.md) own their distinct limits.
     See the [Agent authoring guide](../docs/lisp_workflow_drafting_guide.md#agent-sessions-target-238)
     and [PQ-1a evidence](../docs/reports/2026-10-14-agent-sessions-pq1a-qualification.md).
-    The real-provider acceptance comparison (PQ-1c) has not run and requires separate owner authorization.
+    The real-provider acceptance comparison (PQ-1c) priced the agent variant at 1.4 to 1.7 times the plain handoff on one four-turn pattern and made no quality claim ([result](../experiments/pq1c/README.md#result)).
   - Target 2.39 adds inference-default procedure contracts, optional checked
     restrictions, caller-owned composition and finite source admission.
     Imported 2.35–2.38 definitions retain their original contracts; see the

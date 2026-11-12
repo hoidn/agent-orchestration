@@ -1496,8 +1496,11 @@ its executable route is retired, with no evaluated capture port selected.
 
 Status: allocation, turns, recovery, C8 guards and instance views are implemented
 at target 2.38. The [qualification record](reports/2026-10-14-agent-sessions-pq1a-qualification.md)
-contains deterministic proofs and bounded adapter smokes; the clean and failed/resumed
-comparison (PQ-1c) has not run and requires separate owner authorization. The
+contains deterministic proofs and bounded adapter smokes. The clean and failed/resumed
+comparison (PQ-1c) ran once per cell on a four-turn pattern: both variants completed and
+resumed, the agent variant cost 1.4 to 1.7 times the plain handoff, and a committed agent
+turn could not be invalidated ([result](../experiments/pq1c/README.md#result)). It made no
+quality claim. The
 [Agent Sessions design](design/workflow_lisp_agent_sessions.md) owns the contract.
 
 Choose an agent when later calls should continue the same native conversation; use independent
@@ -1587,7 +1590,7 @@ replay needs no native session. See the normative
 [resume contract](../specs/cli.md#evaluated-execution-target-235) and
 [Agent persistence/recovery limits](design/workflow_lisp_agent_sessions.md#persistence-recovery-and-invalidation)
 for refusal/invalidation rules. This example remains opt-in with bounded evidence;
-the recipe earns no further qualification or PQ-1c acceptance. REPL remains
+the recipe earns no further qualification, and the PQ-1c comparison made no quality claim for it. REPL remains
 2.35/2.36; use `report` here.
 
 Refused at compile time:
@@ -3071,20 +3074,18 @@ Procedural abstraction must not hide effects.
   ...)
 ```
 
-Effect kinds include:
+The compiler accepts exactly these effect kinds and refuses any other with
+`unsupported procedure effect kind`:
 
 - `reads`
 - `writes`
-- `moves`
-- `updates-ledger`
+- `publishes`
 - `updates-state`
 - `uses-provider`
-- `executes-command`
+- `uses-command`
 - `calls-workflow`
-- `captures-snapshot`
-- `commits-bundle`
-- `publishes`
-- `materializes-artifact`
+- `runs-ref` (one child workflow name)
+- `host-input` (no subject)
 
 If a procedure's effects are hard to explain, the procedure is probably too
 broad.
