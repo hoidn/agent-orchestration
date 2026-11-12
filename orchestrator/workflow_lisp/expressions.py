@@ -3431,14 +3431,27 @@ def _elaborate_loop_recur(
     procedure_names: frozenset[str],
     session_state: ElaborationSessionState,
 ) -> LoopRecurExpr:
-    if len(datum.items) > 1 and isinstance(datum.items[1], SyntaxList):
-        return _elaborate_loop_recur_binder(
-            datum,
-            form_path=form_path,
-            bound_names=bound_names,
-            procedure_names=procedure_names,
-            session_state=session_state,
-        )
+    """Elaborate either spelling of `loop/recur`: the binder form or the `fn` form."""
+
+    binder_form = len(datum.items) > 1 and isinstance(datum.items[1], SyntaxList)
+    elaborate = _elaborate_loop_recur_binder if binder_form else _elaborate_loop_recur_fn
+    return elaborate(
+        datum,
+        form_path=form_path,
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+        session_state=session_state,
+    )
+
+
+def _elaborate_loop_recur_fn(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+    session_state: ElaborationSessionState,
+) -> LoopRecurExpr:
     if len(datum.items) < 6:
         _raise_error(
             "`loop/recur` requires :max, :state, and one loop-body `fn`",
