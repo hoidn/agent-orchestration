@@ -26,10 +26,6 @@ from .run_ref.config import (
     RunRefStaticConfig,
     validate_run_ref_static_config_authority,
 )
-from .trial.config import (
-    TrialStaticConfig,
-    validate_trial_static_config_authority,
-)
 from .state_layout import GeneratedPathAllocation
 from .surface_ast import (
     ImportedWorkflowMetadata,
@@ -41,7 +37,6 @@ from .surface_ast import (
     SurfaceRepeatUntilBlock,
     SurfaceStep,
     SurfaceStepKind,
-    TrialSurfaceStep,
     SurfaceWorkflow,
     WorkflowProvenance,
     empty_frozen_mapping,
@@ -197,23 +192,6 @@ class CoreRunRefStep:
         if self.meta.step_kind != SurfaceStepKind.RUN_REF.value:
             raise ValueError("run_ref core step kind must be run_ref")
         validate_run_ref_static_config_authority(self.run_ref)
-
-
-@dataclass(frozen=True)
-class CoreTrialStep:
-    meta: CoreStmtMeta
-    common: Any
-    trial: TrialStaticConfig
-    _surface_step: SurfaceStep | None = field(
-        default=None,
-        repr=False,
-        compare=False,
-    )
-
-    def __post_init__(self) -> None:
-        if self.meta.step_kind != SurfaceStepKind.TRIAL.value:
-            raise ValueError("trial core step kind must be trial")
-        validate_trial_static_config_authority(self.trial)
 
 
 @dataclass(frozen=True)
@@ -527,32 +505,6 @@ def validate_core_workflow_ast(
                         ),
                     )
                 )
-        if isinstance(statement, CoreTrialStep):
-            if statement.meta.step_kind != SurfaceStepKind.TRIAL.value:
-                errors.append(
-                    ValidationError(
-                        message="core_workflow_ast_invalid: trial step kind must be trial",
-                        subject_refs=_subject_refs_for_meta(
-                            core_workflow_ast.workflow_name,
-                            meta,
-                        ),
-                    )
-                )
-            try:
-                validate_trial_static_config_authority(statement.trial)
-            except (TypeError, ValueError) as exc:
-                errors.append(
-                    ValidationError(
-                        message=(
-                            "core_workflow_ast_invalid: "
-                            f"trial config authority is invalid: {exc}"
-                        ),
-                        subject_refs=_subject_refs_for_meta(
-                            core_workflow_ast.workflow_name,
-                            meta,
-                        ),
-                    )
-                )
         if isinstance(statement, CoreCallStep):
             alias = statement.call_alias
             if isinstance(alias, str) and alias and alias not in core_workflow_ast.imports and alias not in imports:
@@ -742,13 +694,6 @@ def _build_statement(
             meta=meta,
             common=step.common,
             run_ref=step.run_ref,
-            _surface_step=step,
-        )
-    if step.kind is SurfaceStepKind.TRIAL:
-        return CoreTrialStep(
-            meta=meta,
-            common=step.common,
-            trial=step.trial,
             _surface_step=step,
         )
     if step.kind is SurfaceStepKind.ADJUDICATED_PROVIDER:
@@ -1190,8 +1135,6 @@ def _surface_step_from_core_statement(statement: Any) -> SurfaceStep:
         )
     elif isinstance(statement, CoreRunRefStep):
         kwargs["run_ref"] = statement.run_ref
-    elif isinstance(statement, CoreTrialStep):
-        kwargs["trial"] = statement.trial
     elif isinstance(statement, CoreAdjudicatedProviderStep):
         kwargs["adjudicated_provider"] = statement.adjudicated_provider
     elif isinstance(statement, CoreRequestInputStep):
@@ -1245,10 +1188,7 @@ def _surface_step_from_core_statement(statement: Any) -> SurfaceStep:
         kwargs["repeat_until"] = _surface_repeat_until_from_core(statement)
     else:
         raise TypeError(f"Unsupported core statement type `{type(statement).__name__}`")
-    surface_step_type = (
-        TrialSurfaceStep if isinstance(statement, CoreTrialStep) else SurfaceStep
-    )
-    return surface_step_type(**kwargs)
+    return SurfaceStep(**kwargs)
 
 
 def _normalized_surface_step_id(step_id: str) -> str:
@@ -1417,15 +1357,6 @@ def _statement_to_json(statement: Any) -> dict[str, Any]:
             {
                 "kind": "run_ref",
                 "run_ref": statement.run_ref.record,
-            }
-        )
-        return payload
-    if isinstance(statement, CoreTrialStep):
-        validate_trial_static_config_authority(statement.trial)
-        payload.update(
-            {
-                "kind": "trial",
-                "trial": statement.trial.record,
             }
         )
         return payload

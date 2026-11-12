@@ -16,6 +16,9 @@ REMOVED_PACKAGES = [
     "orchestrator.workflow.provider_supervision",
     "orchestrator.workflow.legacy_provider_quarantine",
     "orchestrator.cli.commands.peer",
+    "orchestrator.workflow.trial",
+    "orchestrator.workflow.adjudication",
+    "orchestrator.cli.commands.trial",
 ]
 # A module that held one former public name of each removed package or module.
 FORMER_PUBLIC_MODULES = [
@@ -23,9 +26,13 @@ FORMER_PUBLIC_MODULES = [
     "orchestrator.workflow.provider_supervision.contracts",
     "orchestrator.workflow.legacy_provider_quarantine",
     "orchestrator.cli.commands.peer",
+    "orchestrator.workflow.trial.config",
+    "orchestrator.workflow.adjudication.scoring",
+    "orchestrator.cli.commands.trial",
 ]
 REMOVED_COMMANDS = [
     ["peer-ready"], ["peer-send", "b", "m"], ["peer-ack", "m1"], ["peer-finish"],
+    ["trial", "w.orc", "--entry-workflow", "e"],
 ]
 
 

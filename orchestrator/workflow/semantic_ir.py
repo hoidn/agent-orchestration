@@ -28,7 +28,6 @@ from .executable_ir import (
     ProviderStepConfig,
     RequestInputStepConfig,
     RunRefStepConfig,
-    TrialStepConfig,
 )
 from .prompt_dependency_contract import (
     CompilerPromptDependencyContract,
@@ -48,10 +47,6 @@ from .runtime_plan import WorkflowRuntimePlan
 from .run_ref.config import (
     RunRefStaticConfig,
     validate_run_ref_static_config_authority,
-)
-from .trial.config import (
-    TrialStaticConfig,
-    validate_trial_static_config_authority,
 )
 from .state_layout import (
     GeneratedPathAllocationRequest,
