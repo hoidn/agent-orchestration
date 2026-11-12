@@ -442,6 +442,7 @@ the owner can amend any of them.
 | 9 | Live supervision and peer groups | Kept as a future direction by the owner 2026-11-11: not scheduled, no phase owns it. Lane D keeps the two source forms and their frontend support, deletes the old executor packages, and records the reusable design first. A port needs its own design on evaluated execution; the [salvage record](../design/live_provider_supervision_and_peers_salvage.md) is its starting material and finds supervision the closer of the two |
 | 10 | Budget for the Agent Sessions comparison (PQ-1c) | Approved 2026-11-12: the comparison only, at most 20 `claude-haiku-5-5` calls, ceiling USD 10, through the kit's launcher. The live best-of-N smoke is not approved |
 | 11 | Agent Sessions after the comparison | Kept, 2026-11-12. The owner values sessions for versatility in workflow patterns, not efficiency. The comparison's cost finding (1.4 to 1.7 times the plain handoff on a four-turn pattern; a committed turn cannot be invalidated) is the known price, not a reason to retire |
+| 12 | Who approves provider spend | Delegated to the coordinator, 2026-11-12, "within reason": planned-size tranches with a cap recorded in the plan ledger before the first call, Haiku by default and nothing above the Sonnet/Terra ceiling. The coordinator still asks for a tranche above about USD 100, cumulative spend above about USD 300, a new experiment line, or a top-up after a null result ([`AGENTS.md`](../../AGENTS.md), experiment rules) |
 
 ## Process rules
 
@@ -509,9 +510,13 @@ is manual. Phase plans are linked here as they start:
 - Lane D, old IR stack, done: [stage 3 plan](2026-11-12-lane-d-stage-3-old-ir-stack-plan.md).
   The old stack's modules are gone and nothing imports them (code kept at the local tag
   `archive/old-ir-stack-2026-11-12`); a small leftovers list remains in the plan's ledger.
-- Lane D, one target, planned: [stage 4 plan](2026-11-12-lane-d-stage-4-one-target-plan.md),
-  written and under review; not accepted yet.
-- Lane D, surface coherence: design in progress (stage 5).
+- Lane D, one target, in execution: [stage 4 plan](2026-11-12-lane-d-stage-4-one-target-plan.md),
+  accepted. Target 2.40 survives; after the cut a run recorded at an older target is read-only
+  (`report`, dashboard and monitor read it; continuing it needs the tagged release).
+- Lane D, surface coherence (stage 5): [design](../design/workflow_lisp_surface_coherence.md)
+  accepted. A wrong-value defect the review found in constructor fields is fixed first; the
+  changes that only admit refused source follow; the loop binder rewrite rides the stage 4
+  sweep and the `fn` form goes at the stage 4 cut.
 - Side work, done: run and resume cost. A run re-read the whole memo and replayed the whole program
   after every record; memo reduction now continues from the last fold, a start the evaluator has
   just reached is published without a replay, and two compile passes skip work that cannot matter.
