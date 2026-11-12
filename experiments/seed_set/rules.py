@@ -1,36 +1,94 @@
 """Order and stop rules of the seed-set study, the physical audit of its ledger, and the smoke check (plan Step 2,
 Stop rules, Ledger).
 
-Order: no start before a `freeze` event whose criterion, judge-criterion and runtime commit still match; no probe
+Order: no start before a `freeze` event whose identity still matches (`frozen_identity`); no probe
 (the redraw cap) or calibration start before a passing `smoke` event; no calibration start before a `probe_readout`
 event whose chosen list still matches `results/calibration-tasks.json`; no calibration judge outside the early judge
 look's three first pools before a passed `early_look` event, and none after a failed one. Stops (a `stop` event, after which `spend.reserve` refuses
 everything): a forbidden-model answer in a run or a judge, three tasks with a contaminated run or judgment, more
 than 10% of a tranche's planned runs ending as incidents, and a `stop:` decision of the readout. The audit refuses
 when a unit made calls the ledger does not hold (a missing or foreign ledger) or more calls than it reserved.
+
+The freeze (coordinator ruling on review2 M6, 2026-11-12) binds what decides the verdicts and what the agents see:
+the runtime commit, the git tree of the study's and the harness's code (`experiments/seed_set`,
+`experiments/compare`), each task package's tree, the task list's and the five programs' sha256, and the sha256 of
+`criterion.json` and `judge-calibration.json`. It refuses, at the freeze and before every start, when a loaded
+module of either package is not the runtime's file (run with the runtime as the working directory and PYTHONPATH),
+when the task list lies outside the runtime, when the code or the packages hold an untracked file (the criterion
+files and the results directory, written after the commit, excepted), and when
+`criterion.json` does not name, under "sha256", the current sha256 of the task list, every program, the rubric
+`score_functional.orc` and `judge-calibration.json` (plan Step 1f; keys are runtime-relative paths, the judge
+criterion by its file name). A second freeze after a start needs a reason, which the ledger keeps.
 """
 
+import sys
 from pathlib import Path
 
-from experiments.compare.repos import load, runtime_commit, sha256_file
+from experiments.compare.repos import git, load, runtime_commit, sha256_file
 from experiments.seed_set import gates, layout, ladder, spend, units
 from experiments.seed_set.layout import CHOSEN, PLANNED, study_runs, tranche_tasks
 
 JUDGE_EFFORT = "high"  # score_functional.orc's fixed judge effort
 
 
+CODE = ("experiments/seed_set", "experiments/compare")
+RUBRIC_FILE = Path("experiments/compare") / layout.RUBRIC["workflow"]
+
+
 def frozen_identity(study):
     for path in (study.frozen, study.criterion):
         if not path.is_file():
             raise SystemExit(f"{path} is missing: freeze the criterion first (plan Step 1f)")
+    runtime = study.runtime.resolve()
+    if not study.tasks_file.resolve().is_relative_to(runtime):
+        raise SystemExit(f"the task list {study.tasks_file} lies outside the runtime {runtime}")
+    if outside := loaded_elsewhere(runtime):
+        raise SystemExit(f"study or harness modules loaded from outside the runtime {runtime}: {outside[:3]}; run "
+                         "with the runtime as working directory and PYTHONPATH")
+    packages = study.tasks_file.resolve().parent.relative_to(runtime) / "tasks"
+    written = [f":(exclude){path.resolve().relative_to(runtime)}" for path in (study.frozen, study.criterion,
+               study.results) if path.resolve().is_relative_to(runtime)]  # written after the commit (Step 1f)
+    if untracked := git(runtime, "--no-optional-locks", "status", "--porcelain", "--untracked-files=all", "--",
+                        *CODE, str(packages), *written):
+        raise SystemExit(f"untracked files in the runtime's code or task packages:\n{untracked}")
+    named, required = load(study.frozen).get("sha256", {}), required_hashes(study)
+    if wrong := sorted(key for key, digest in required.items() if named.get(key) != digest):
+        raise SystemExit(f"{study.frozen} does not name the current sha256 of {wrong} (plan Step 1f)")
     return {"criterion_sha256": sha256_file(study.frozen), "judge_criterion_sha256": sha256_file(study.criterion),
-            "runtime_commit": runtime_commit(study.runtime)}
+            "runtime_commit": runtime_commit(runtime), "code_tree": tree(runtime, *CODE),
+            "packages": tree(runtime, f"{packages}/"),
+            "tasks_sha256": sha256_file(study.tasks_file),
+            "programs": {path.name: sha256_file(path) for path in sorted(study.programs.glob("*.orc"))}}
 
 
-def record_freeze(study):
-    """Record the frozen criterion's hashes and the runtime commit in the ledger: the first spend needs it."""
+def tree(runtime, *paths):
+    """{path: git object id} of HEAD's entries at `paths`: the identity of their tracked content."""
+    return {line.split("\t")[1]: line.split()[2] for line in git(runtime, "ls-tree", "HEAD", "--", *paths).splitlines()}
+
+
+def loaded_elsewhere(runtime):
+    """Files of loaded `experiments.seed_set` and `experiments.compare` modules that are not under `runtime`."""
+    files = [getattr(module, "__file__", None) for name, module in list(sys.modules.items())
+             if name.startswith(tuple(code.replace("/", ".") for code in CODE))]
+    return sorted(f for f in files if f and not Path(f).resolve().is_relative_to(runtime))
+
+
+def required_hashes(study):
+    """{key: sha256} that criterion.json must name: the task list, every program, the rubric, the judge
+    criterion."""
+    runtime = study.runtime.resolve()
+    paths = [study.tasks_file.resolve(), *sorted(study.programs.resolve().glob("*.orc")), runtime / RUBRIC_FILE]
+    return {str(path.relative_to(runtime)): sha256_file(path) for path in paths} | {
+        study.criterion.name: sha256_file(study.criterion)}
+
+
+def record_freeze(study, reason=None):
+    """Record the freeze's identity in the ledger: the first spend needs it. Once a start exists, a new freeze
+    needs a reason (an apparatus fix the plan's ledger records), which the event keeps."""
     layout.load_criterion(study)
-    return spend.record(study.ledger, "freeze", **frozen_identity(study))
+    if spend.starts(spend.rows(study.ledger)) and not reason:
+        raise SystemExit("starts exist: a new freeze needs --reason (the apparatus fix it records)")
+    return spend.record(study.ledger, "freeze", **frozen_identity(study), **({"reason": reason} if reason else {}))
 
 
 def require_order(study, tranche):

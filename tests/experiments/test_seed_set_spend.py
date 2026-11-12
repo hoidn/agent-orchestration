@@ -13,6 +13,7 @@ import pytest
 
 from experiments.compare.repos import sha256_file
 from experiments.seed_set import host, layout, rules, spend, study, units
+from tests.experiments.seed_set_offline_support import committed_runtime, write_frozen_criterion
 
 H, S = spend.HAIKU, spend.SONNET
 ROOT = Path(__file__).resolve().parents[2]
@@ -104,24 +105,23 @@ def test_a_model_outside_the_two_exact_ids_refuses_and_writes_nothing(ledger, mo
 
 
 @pytest.fixture
-def runner(tmp_path):
-    """A study whose runtime is a git checkout holding only the programs, with a small task list, a frozen
-    criterion pair and its own state directory."""
+def runner(tmp_path, monkeypatch):
+    """A study whose runtime is a git checkout holding the programs, the rubric and a small task list, with a
+    frozen criterion pair and its own state directory."""
     runtime = tmp_path / "runtime"
-    shutil.copytree(ROOT / layout.PROGRAMS, runtime / layout.PROGRAMS, ignore=shutil.ignore_patterns("__pycache__"))
-    for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "rt"]):
-        subprocess.run(["git", "-C", str(runtime), *args], check=True)
-    tasks = tmp_path / "tasks.jsonl"
-    tasks.write_text("".join(json.dumps({"id": i, "set": s, "commit": "f" * 40, "tier": "T3", "form": "in-tree"}) + "\n"
-                             for i, s in (("t1", "drawn"), ("t2", "drawn"), ("r1", "reserve"), ("r2", "smoke"))))
+    tasks = committed_runtime(runtime, [{"id": i, "set": s, "commit": "f" * 40, "tier": "T3", "form": "in-tree"}
+                                        for i, s in (("t1", "drawn"), ("t2", "drawn"), ("r1", "reserve"),
+                                                     ("r2", "smoke"))])
+    monkeypatch.setattr(rules, "loaded_elsewhere", lambda runtime: [])  # the tests import this checkout's modules
     (tmp_path / "results").mkdir()
     (tmp_path / "results" / layout.CHOSEN).write_text(json.dumps({"tasks": [{"id": "t1", "rung": "T3"},
                                                                             {"id": "t2", "rung": "T3"}]}))
     criterion = tmp_path / "judge-calibration.json"
     criterion.write_text(json.dumps({"judges": [H, S], "rubric": layout.RUBRIC}))
-    (tmp_path / "criterion.json").write_text(json.dumps({"plan": "frozen"}))
-    return layout.Study(runtime, tmp_path / "work", tmp_path / "pools", tmp_path / "results", tasks, criterion,
-                        tmp_path / "state")
+    study_ = layout.Study(runtime, tmp_path / "work", tmp_path / "pools", tmp_path / "results", tasks, criterion,
+                          tmp_path / "state")
+    write_frozen_criterion(study_)
+    return study_
 
 
 def ready(runner, smoke=True, chosen=True):
@@ -236,7 +236,7 @@ def test_no_start_before_the_freeze_is_recorded(runner, monkeypatch):
 def test_no_start_once_the_frozen_criterion_changed(runner, monkeypatch):
     monkeypatch.setenv(AUTH, "smoke")
     ready(runner)
-    runner.frozen.write_text(json.dumps({"plan": "edited"}))
+    write_frozen_criterion(runner, plan="edited")  # still names the hashes; its own sha256 changed
     with pytest.raises(SystemExit, match="changed since the freeze"):
         study.candidates(runner, "smoke", "direct", ["r2"])
 
@@ -460,3 +460,103 @@ def test_a_pool_that_ended_as_an_incident_is_never_built_again(runner):
     (runner.results / "pools" / "t1-first" / "incident.json").write_text("{}")
     with pytest.raises(SystemExit, match="a pool is built once"):
         study.build_pools(runner, "calibration", "first", ["t1"])
+
+
+LOADED_ELSEWHERE = rules.loaded_elsewhere
+
+
+def commit_runtime(runner, message="change"):
+    subprocess.run(["git", "-C", str(runner.runtime), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(runner.runtime), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm",
+                    message], check=True)
+
+
+def test_the_freeze_refuses_study_modules_loaded_from_outside_the_runtime(runner, monkeypatch):  # review2 M6
+    monkeypatch.setattr(rules, "loaded_elsewhere", LOADED_ELSEWHERE)  # this test process imports the checkout
+    with pytest.raises(SystemExit, match="loaded from outside the runtime"):
+        rules.record_freeze(runner)
+
+
+def test_modules_loaded_from_the_runtime_itself_pass_the_check():
+    assert LOADED_ELSEWHERE(ROOT.resolve()) == []
+
+
+def test_the_freeze_refuses_a_task_list_outside_the_runtime(runner, tmp_path):
+    outside = tmp_path / "tasks.jsonl"
+    outside.write_bytes(runner.tasks_file.read_bytes())
+    moved = layout.Study(runner.runtime, runner.work, runner.pools, runner.results, outside, runner.criterion,
+                         runner.state)
+    with pytest.raises(SystemExit, match="outside the runtime"):
+        rules.record_freeze(moved)
+
+
+def test_a_start_refuses_an_untracked_file_in_a_packages_seed(runner):
+    ready(runner)
+    seed = layout.task_dir(runner, "t1") / "seed"
+    seed.mkdir(parents=True)
+    (seed / "extra.py").write_text("# seeded into every clone\n")
+    with pytest.raises(SystemExit, match="untracked files"):
+        rules.require_order(runner, "calibration")
+
+
+def test_a_start_refuses_a_package_changed_and_committed_after_the_freeze(runner):
+    ready(runner)
+    (layout.task_dir(runner, "t1")).mkdir(parents=True)
+    (layout.task_dir(runner, "t1") / "task.txt").write_text("a new statement\n")
+    commit_runtime(runner)
+    with pytest.raises(SystemExit, match="changed since the freeze"):
+        rules.require_order(runner, "calibration")
+
+
+@pytest.mark.parametrize("named", [{}, "stale program"])
+def test_the_freeze_refuses_a_criterion_that_does_not_name_the_plans_hashes(runner, named):
+    if named == "stale program":
+        (runner.programs / "direct.orc").write_text(";; edited after criterion.json was written\n")
+        commit_runtime(runner)
+    else:
+        runner.frozen.write_text(json.dumps({"sha256": named}))
+    with pytest.raises(SystemExit, match="does not name the current sha256"):
+        rules.record_freeze(runner)
+
+
+def test_a_second_freeze_after_a_start_needs_a_reason(runner, monkeypatch):
+    ready(runner)
+    spend.reserve(runner.ledger, "smoke", "candidate", H, 1, "/w/run-1", env("smoke"), task="r2")
+    with pytest.raises(SystemExit, match="needs --reason"):
+        rules.record_freeze(runner)
+    assert rules.record_freeze(runner, reason="dev_check.py fix")["reason"] == "dev_check.py fix"
+
+
+def test_criterion_files_and_results_written_into_the_runtime_are_not_untracked_code(runner):
+    seed_set = runner.runtime / "experiments" / "seed_set"
+    moved = layout.Study(runner.runtime, runner.work, runner.pools, seed_set / "results", runner.tasks_file,
+                         seed_set / "judge-calibration.json", runner.state)
+    moved.criterion.write_bytes(runner.criterion.read_bytes())
+    (moved.results / "pools").mkdir(parents=True)
+    (moved.results / "readout.md").write_text("x\n")
+    write_frozen_criterion(moved)  # Step 1f: criterion.json beside judge-calibration.json, after the commit
+    assert rules.record_freeze(moved)["event"] == "freeze"
+
+
+def test_a_launch_gets_neither_the_spend_switch_nor_the_real_home(tmp_path, monkeypatch):  # review2 minor 2
+    monkeypatch.setenv(AUTH, "calibration")
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "real" / ".claude"))
+    env = study.launch_env(H, 1, home=tmp_path / "host-home")
+    assert (AUTH in env, env["HOME"], "CLAUDE_CONFIG_DIR" in env, list((tmp_path / "host-home").iterdir())) == (
+        False, str(tmp_path / "host-home"), False, [])
+
+
+def test_the_prepare_environment_keeps_home_for_the_credential_copy_but_not_the_switch(monkeypatch):
+    monkeypatch.setenv(AUTH, "calibration")
+    env = study.launch_env(H, 1)
+    assert (AUTH in env, env["HOME"]) == (False, str(Path.home()))
+
+
+def test_copied_credentials_are_removed_from_a_private_home(tmp_path):  # review2 minor 7
+    home = tmp_path / "home"
+    for path in (home / ".claude" / ".credentials.json", home / ".codex" / "auth.json"):
+        path.parent.mkdir(parents=True)
+        path.write_text("{}")
+    (home / ".claude" / "projects").mkdir()
+    units.forget_credentials(home)
+    assert sorted(str(p.relative_to(home)) for p in home.rglob("*")) == [".claude", ".claude/projects", ".codex"]

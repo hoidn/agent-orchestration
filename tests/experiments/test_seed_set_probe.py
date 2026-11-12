@@ -11,7 +11,7 @@ import pytest
 
 from experiments.compare.repos import load
 from experiments.seed_set import host, ladder, layout, probing, rules, spend, study
-from tests.experiments.seed_set_offline_support import manifest_rows
+from tests.experiments.seed_set_offline_support import committed_runtime, manifest_rows, write_frozen_criterion
 
 H, S = spend.HAIKU, spend.SONNET
 ROOT = Path(__file__).resolve().parents[2]
@@ -22,16 +22,13 @@ SIZES = {"T0": 8, "T1": 12, "T2": 12, "T3": 12, "T4": 12, "T5": 8}
 def s(tmp_path, monkeypatch):
     """A study with a full ladder of task rows, a freeze and a passed smoke; the redraw tranche authorized."""
     runtime = tmp_path / "runtime"
-    shutil.copytree(ROOT / layout.PROGRAMS, runtime / layout.PROGRAMS, ignore=shutil.ignore_patterns("__pycache__"))
-    for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "rt"]):
-        subprocess.run(["git", "-C", str(runtime), *args], check=True)
-    rows = manifest_rows(SIZES)
-    (tmp_path / "tasks.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+    tasks = committed_runtime(runtime, manifest_rows(SIZES))
     criterion = tmp_path / "judge-calibration.json"
     criterion.write_text(json.dumps({"judges": [H, S], "rubric": layout.RUBRIC}))
-    (tmp_path / "criterion.json").write_text(json.dumps({"plan": "frozen"}))
-    study_ = layout.Study(runtime, tmp_path / "work", tmp_path / "pools", tmp_path / "results",
-                          tmp_path / "tasks.jsonl", criterion, tmp_path / "state")
+    study_ = layout.Study(runtime, tmp_path / "work", tmp_path / "pools", tmp_path / "results", tasks, criterion,
+                          tmp_path / "state")
+    write_frozen_criterion(study_)
+    monkeypatch.setattr(rules, "loaded_elsewhere", lambda runtime: [])  # the tests import this checkout's modules
     rules.record_freeze(study_)
     spend.record(study_.ledger, "smoke", passed=True, bisect=False)
     monkeypatch.setenv(spend.AUTHORIZATION, "redraw")

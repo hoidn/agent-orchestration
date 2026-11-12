@@ -28,7 +28,7 @@ from tests.experiments.compare_harness_support import (
     OUTSIDE_SANDBOX_MOUNTS, commit, git, open_up, skip_without_sandbox, write_test_sandbox_config,
 )
 from tests.agent_session_shims import closed_path
-from tests.experiments.seed_set_offline_support import STUB
+from tests.experiments.seed_set_offline_support import STUB, write_frozen_criterion
 
 REPO = Path(__file__).resolve().parents[2]
 H, S = spend.HAIKU, spend.SONNET
@@ -103,10 +103,12 @@ def world(tmp_path, monkeypatch):
         git(task_repo, "branch", task, fixes[task])
     main, runtime = runtime_of(tmp_path, task_repo, list(TASKS))
     rows, plan = [], {"tasks": {}}
-    for task, row in TASKS.items():
-        listed, plan["tasks"][task] = write_task(tmp_path / "seedset", task, base, fixes[task], task_repo, row)
+    for task, row in TASKS.items():  # the toy task list and packages, committed in the runtime (the freeze's rule)
+        listed, plan["tasks"][task] = write_task(runtime / "seedset", task, base, fixes[task], task_repo, row)
         rows.append(listed)
-    (tmp_path / "seedset" / "tasks.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+    (runtime / "seedset" / "tasks.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+    git(runtime, "add", "-A", "seedset")
+    git(runtime, "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "tasks")
     OUTSIDE_SANDBOX_MOUNTS.mkdir(parents=True, exist_ok=True)
     outside = Path(tempfile.mkdtemp(dir=OUTSIDE_SANDBOX_MOUNTS))
     fakebin = outside / "fakebin"
@@ -129,9 +131,10 @@ def world(tmp_path, monkeypatch):
         monkeypatch.delenv(key, raising=False)
     criterion = tmp_path / "judge-calibration.json"
     criterion.write_text(json.dumps({"judges": [H, S], "rubric": layout.RUBRIC, "primary": [], "secondary": []}))
-    (tmp_path / "criterion.json").write_text(json.dumps({"frozen": "toy"}))  # the freeze's criterion, beside it
     s = study.Study(runtime, outside / "work", outside / "pools", tmp_path / "results",
-                    tmp_path / "seedset" / "tasks.jsonl", criterion, tmp_path / "state", min_free=10**9)
+                    runtime / "seedset" / "tasks.jsonl", criterion, tmp_path / "state", min_free=10**9)
+    write_frozen_criterion(s, frozen="toy")  # the freeze's criterion, beside the judge criterion
+    monkeypatch.setattr(rules, "loaded_elsewhere", lambda runtime: [])  # the test imports this checkout's modules
     rules.record_freeze(s)
     yield SimpleNamespace(study=s, fixes=fixes, plan=stub_plan)
     open_up(outside)

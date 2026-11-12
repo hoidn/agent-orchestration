@@ -10,22 +10,31 @@ study's own ledger is never opened). The stand-in fixes T1 and T2 always, every 
 probe tasks), never T4 or T5; Sonnet fixes everything; on the smoke task Haiku fixes from its second attempt.
 
   PATH=<checkout>/experiments/thread_m/no_provider:$PATH PYTHONPATH=<checkout> \
-      python -m experiments.seed_set.rehearsal ROOT     # ROOT: new, not under /tmp; about two hours
+      python -m experiments.seed_set.rehearsal ROOT [--calibration-tasks N]   # ROOT: new; about two hours at 20
+
+The setup makes ROOT/runtime, a worktree of this checkout's HEAD, and runs the stages from it (working directory
+and PYTHONPATH): the freeze refuses study modules loaded from anywhere else. The agents' trees and the pools live
+in a private directory under the harness tests' sandbox-visible cache (the sandbox binds its own /tmp), named in
+ROOT/study.json and deleted at the end. `--calibration-tasks N` runs the calibration stage on the first N chosen
+tasks only (the readout then reports the missing ones as missing).
 
 Writes ROOT/rehearsal.json (ledger totals per tranche, the smoke check, the probe answer, the readout's decision
 and gates, identity-scan hits, binding failures, the clones' build order, the withheld run) and prints it.
 """
 
+import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from experiments.compare.repos import dump, load
 from experiments.seed_set import ladder, layout, probing, rules, spend, study
 from tests.agent_session_shims import closed_path
-from tests.experiments.compare_harness_support import write_test_sandbox_config
+from tests.experiments.compare_harness_support import OUTSIDE_SANDBOX_MOUNTS, open_up, write_test_sandbox_config
 from tests.experiments.seed_set_offline_support import STUB
 
 CHECKOUT = Path(__file__).resolve().parents[2]
@@ -89,8 +98,18 @@ def setup(root):
         os.environ.pop(key, None)
     criterion = root / "freeze" / "judge-calibration.json"
     dump(criterion, {"judges": [H, S], "rubric": layout.RUBRIC, "primary": [], "secondary": []})
-    dump(root / "freeze" / "criterion.json", {"rehearsal": "stand-in providers only"})
-    return layout.Study(runtime, root / "work", root / "pools", root / "results", tasks_file, criterion,
+    OUTSIDE_SANDBOX_MOUNTS.mkdir(parents=True, exist_ok=True)
+    outside = Path(tempfile.mkdtemp(dir=OUTSIDE_SANDBOX_MOUNTS))
+    dump(root / "study.json", {"work": str(outside / "work"), "pools": str(outside / "pools"), "outside": str(outside)})
+    s = study_at(root)
+    dump(s.frozen, {"sha256": rules.required_hashes(s), "rehearsal": "stand-in providers only"})
+    return s
+
+
+def study_at(root):
+    paths, runtime = load(root / "study.json"), root / "runtime"
+    return layout.Study(runtime, Path(paths["work"]), Path(paths["pools"]), root / "results",
+                        runtime / "experiments" / "seed_set" / "tasks.jsonl", root / "freeze" / "judge-calibration.json",
                         root / "state")
 
 
@@ -115,9 +134,9 @@ def smoke(s):
     return rules.smoke_check(s)
 
 
-def calibration(s):
+def calibration(s, count):
     tranche("calibration")
-    tasks = layout.tranche_tasks(s, "calibration")
+    tasks = layout.tranche_tasks(s, "calibration")[:count]
     for arm in layout.PLANNED["calibration"]:
         study.candidates(s, "calibration", arm, tasks)
     relaunch = study.candidates(s, "calibration", "direct", tasks)  # every planned run started: nothing
@@ -125,11 +144,13 @@ def calibration(s):
     look = rules.early_look(s)
     pools(s, "calibration", "first", tasks[rules.EARLY_TASKS:])
     pools(s, "calibration", "retest", tasks[:layout.RETESTS["calibration"]])
-    try:
-        spend.reserve(s.ledger, "calibration", "judge", H, 1, "/rehearsal/one-more-judge-call")
-        beyond = "reserved"
-    except SystemExit as error:
-        beyond = str(error)
+    beyond = "not tried: fewer than 20 tasks"
+    if count == ladder.CALIBRATION_TASKS:
+        try:
+            spend.reserve(s.ledger, "calibration", "judge", H, 1, "/rehearsal/one-more-judge-call")
+            beyond = "reserved"
+        except SystemExit as error:
+            beyond = str(error)
     return {"relaunched": len(relaunch), "early_look": look["passed"], "judge_beyond_cap": beyond}
 
 
@@ -160,20 +181,38 @@ def withheld_run(root, s):
         "incident": facts.get("incident")}
 
 
-def main(root):
-    root = Path(root).resolve()
-    s = setup(root)
+def main(argv=None):
+    top = argparse.ArgumentParser()
+    top.add_argument("root")
+    top.add_argument("--calibration-tasks", type=int, default=ladder.CALIBRATION_TASKS)
+    top.add_argument("--in-runtime", action="store_true", help=argparse.SUPPRESS)
+    a = top.parse_args(argv)
+    root = Path(a.root).resolve()
+    if not a.in_runtime:  # set up, then run the stages from the runtime's own modules
+        s = setup(root)
+        try:
+            subprocess.run([sys.executable, "-m", "experiments.seed_set.rehearsal", str(root), "--in-runtime",
+                            "--calibration-tasks", str(a.calibration_tasks)], cwd=s.runtime, check=True,
+                           env={**os.environ, "PYTHONPATH": str(s.runtime)})
+        finally:
+            outside = Path(load(root / "study.json")["outside"])
+            open_up(outside)
+            shutil.rmtree(outside)
+        return
+    stages(root, study_at(root), a.calibration_tasks)
+
+
+def stages(root, s, count):
     rules.record_freeze(s)
     out = {"smoke_check": smoke(s)}
     tranche("redraw")
     probing.probe(s)
     out["probe"] = probing.probe_readout(s)
-    out["calibration"] = calibration(s)
+    out["calibration"] = calibration(s, count)
     report = study.write_readout(s)
     gates_ = report["calibration"] or {}
     out |= {"decision": gates_.get("decision"), "anchor_failures": report["anchor_failures"],
-            "judges": {j: {k: c[k]["passed"] for k in ("V1", "V2", "V3", "V4")} for j, c in gates_.get("judges", {}).items()},
-            "task_gates": {g: v["passed"] for g, v in (gates_.get("gates") or {}).items()},
+            "judge_checks": gates_.get("judge_checks"), "gate_checks": gates_.get("gate_checks"),
             "identity_hits": {p.parent.name: len(load(p)["hits"]) for p in (s.results / "pools").glob("*/identity-scan.json")},
             "build_order": build_order(s), "ledger": study.ledger_report(s)}
     out["withheld_run"] = withheld_run(root, s)
@@ -183,4 +222,4 @@ def main(root):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    main()

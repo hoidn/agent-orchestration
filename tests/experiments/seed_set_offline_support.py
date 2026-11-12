@@ -79,3 +79,31 @@ def manifest_rows(sizes, smoke=True):
         rows.append({"id": "smoke", "tier": "T2", "form": "in_tree", "withheld_id": "smoke-withheld", "probe": False,
                      "set": "smoke", "commit": "s" * 40})
     return rows
+
+
+def committed_runtime(root, rows):
+    """A runtime git checkout at `root` holding this checkout's programs and rubric and the task list `rows` at
+    experiments/seed_set/tasks.jsonl, committed: what the freeze reads. Returns the task list's path."""
+    import json
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    from experiments.seed_set import layout, rules
+    checkout = Path(__file__).resolve().parents[2]
+    shutil.copytree(checkout / layout.PROGRAMS, root / layout.PROGRAMS, ignore=shutil.ignore_patterns("__pycache__"))
+    (root / rules.RUBRIC_FILE).parent.mkdir(parents=True)
+    (root / rules.RUBRIC_FILE).write_bytes((checkout / rules.RUBRIC_FILE).read_bytes())
+    tasks = root / "experiments" / "seed_set" / "tasks.jsonl"
+    tasks.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    for args in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "rt"]):
+        subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True)
+    return tasks
+
+
+def write_frozen_criterion(study, **extra):
+    """criterion.json beside the judge criterion, naming the sha256 values the freeze requires (plan Step 1f)."""
+    import json
+
+    from experiments.seed_set import rules
+    study.frozen.write_text(json.dumps({"sha256": rules.required_hashes(study), **extra}))

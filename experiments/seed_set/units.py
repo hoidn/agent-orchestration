@@ -31,6 +31,13 @@ exit 64
 """
 
 
+def forget_credentials(home):
+    """Remove the provider credentials `prepare` copied into a unit's private home, once the unit has ended."""
+    for path in Path(home).rglob("*"):
+        if path.name in (".credentials.json", "auth.json") and path.is_file():
+            path.unlink()
+
+
 def calls(records):
     return sorted((Path(records) / "calls").glob("*"), key=lambda path: int(path.name))
 

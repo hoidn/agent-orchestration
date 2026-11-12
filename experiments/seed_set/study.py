@@ -1,7 +1,7 @@
 """Seed-set calibration runner (plan `docs/plans/2026-11-11-seed-set-calibration-plan.md`, Steps 1d and 2).
 
-  study.py record-freeze                                  hashes of criterion.json, judge-calibration.json and the
-                                                          runtime commit into the ledger (needed before any start)
+  study.py record-freeze [--reason R]                     the freeze's identity into the ledger (needed before any
+                                                          start; `rules.frozen_identity`); after a start, a reason
   study.py probe [--rung R ...]                           the ladder probe (`probing.py`, redraw cap): direct on
                                                           Haiku once on four tasks of each rung the answer asks for
   study.py probe-readout                                  the probe figures and the answer: the next rung, the 20
@@ -10,7 +10,8 @@
   study.py early-look                                     the early judge look on the first three chosen tasks
   study.py candidates --tranche T --arm ARM TASK ...      prepare, launch (four at a time), collect, scan, session
                                                           audit, visible check, metering; delete the agents' tree
-  study.py settle RECORDS ...                             settle runs whose runner was interrupted
+  study.py settle RECORDS ...                             settle runs whose runner was interrupted (not probe
+                                                          runs: rerunning `probe` recovers those)
   study.py pool --tranche T --kind first|retest TASK ...  one blind pool per task: its usable runs and both anchors
   study.py judge --tranche T --kind first|retest TASK ... both judges one after another; verify-pool; scan; audit
   study.py summarize --kind first|retest TASK ...         summarize.py behind the no-provider stubs; records kept in
@@ -19,7 +20,9 @@
   study.py readout                                        anchors first, then V1-V4, G1-G4, incidents, baselines
   study.py ledger                                         calls reserved and made, and the events
 
-Every harness step is the harness's own. Every provider start passes `rules.enforce` (freeze, smoke pass, chosen
+Run every command from the frozen runtime (`cd <runtime> && PYTHONPATH=$PWD python -m experiments.seed_set.study
+--runtime $PWD ...`): the freeze refuses study or harness modules loaded from anywhere else, and a task list
+outside the runtime. Every harness step is the harness's own. Every provider start passes `rules.enforce` (freeze, smoke pass, chosen
 tasks, a sound ledger, no stop) and `spend.reserve` (authorization, caps, planned runs per task and arm, never
 a relaunch), and runs with `COMPARE_MAX_CALLS` at its reservation and `COMPARE_CLAUDE_MODELS` at its exact model;
 the harness's resume scripts are disabled (the study never resumes). Candidate code runs on the host only behind
@@ -54,13 +57,20 @@ WIDTH, FIRST_WAVE, MAX_POOLS = 4, 2, 2  # a tranche's first wave runs two at a t
 CALL_SEC, JUDGE_SEC, SLACK_SEC = 1200, 3600, 600  # the programs' and score_functional.orc's :timeout-sec
 
 
-def launch_env(model, calls, withheld=None):
-    """The launch environment. `withheld` (a check-withheld run's staged test files) is named for dev_check.py,
-    which runs on the host as a command boundary and inherits the controller's environment; the agents' sandbox
+def launch_env(model, calls, home=None, withheld=None):
+    """The environment of a unit's preparation (`home` None: HOME stays, since `prepare` copies the provider's
+    credentials from it into the unit's private home) or its launch (`home`, a new empty directory, replaces HOME,
+    and CLAUDE_CONFIG_DIR and CODEX_HOME go: the orchestrator and the host-side boundaries it runs, such as
+    dev_check.py's pytest of candidate code, see no credentials; review2 minor 2). Neither carries the spend
+    switch. `withheld` (a check-withheld run's staged test files) is named for dev_check.py; the agents' sandbox
     clears its environment, so an agent never sees the path."""
     env = {**os.environ, "COMPARE_CLAUDE_MODELS": model, "COMPARE_MAX_CALLS": str(calls),
            "PYTHONDONTWRITEBYTECODE": "1"}
-    env.pop("SEED_SET_WITHHELD", None)
+    for name in ("SEED_SET_WITHHELD", spend.AUTHORIZATION) + (("CLAUDE_CONFIG_DIR", "CODEX_HOME") if home else ()):
+        env.pop(name, None)
+    if home:
+        Path(home).mkdir()
+        env["HOME"] = str(home)
     return env | ({"SEED_SET_WITHHELD": str(withheld)} if withheld else {})
 
 
@@ -154,7 +164,8 @@ def one_run(study, tranche, arm, spec, task, fix, limit, **extra):
         shutil.rmtree(record["tree"])
         raise SystemExit(f"{records}: prepared for {record['claude_model']}, not {spec['model']}; nothing started")
     boundaries(study, Path(record["candidates"][0]))
-    env = launch_env(spec["model"], spec["max_calls"], stage_withheld(task_dir(study, task), records))
+    env = launch_env(spec["model"], spec["max_calls"], records / "host-home",
+                     stage_withheld(task_dir(study, task), records))
     facts = {"tranche": tranche, "task": task, "arm": arm, "model": spec["model"], "effort": spec["effort"],
              "max_calls": spec["max_calls"], **extra}
     dump(records / "study.json", facts)  # before the reservation: every reserved run has its facts file
@@ -164,6 +175,7 @@ def one_run(study, tranche, arm, spec, task, fix, limit, **extra):
     except SystemExit:
         (records / "study.json").unlink()  # refused: nothing started, nothing left on disk
         shutil.rmtree(record["tree"])
+        units.forget_credentials(record["sandbox"]["home"])
         raise
     facts["exit"] = launch(records / "command.sh", env, records / "run.log", spec["max_calls"] * CALL_SEC + SLACK_SEC)
     dump(records / "study.json", facts)
@@ -212,6 +224,7 @@ def settle(study, records, task, fix, cap, model, status):
     if Path(record["state_root"]).is_dir():
         shutil.copytree(record["state_root"], records / "state")
     shutil.rmtree(record["tree"])
+    units.forget_credentials(record["sandbox"]["home"])  # the transcripts stay for the audits (review2 minor 7)
     return out
 
 
@@ -306,8 +319,9 @@ def one_judge(study, tranche, kind, task, out, mapping, model, fix):
     judged = blinding.judged_patches(out, mapping)  # what this judge reads, bound to its ratings in the readout
     spend.reserve(study.ledger, tranche, "judge", model, batches, f"{out}#{model}", task=task, pool=kind)
     start = time.time()
-    facts = {"judged_patches": judged, "exit": launch(records / f"score-{model}.sh", launch_env(model, batches),
-                            records / f"judge-{model}.log", batches * JUDGE_SEC + SLACK_SEC)}
+    facts = {"judged_patches": judged, "exit": launch(records / f"score-{model}.sh", launch_env(
+        model, batches, records / f"host-home-{model}"), records / f"judge-{model}.log", batches * JUDGE_SEC + SLACK_SEC)}
+    units.forget_credentials(mapping["judges"][model]["sandbox"]["home"])
     facts |= {"wall_clock_sec": time.time() - start, "calls": units.physical_calls(records / "judges" / model)}
     if facts["calls"] > batches:
         raise SystemExit(f"{out}#{model}: {facts['calls']} provider calls exceed the {batches} reserved; stop")
@@ -469,8 +483,9 @@ def parser():
             command.add_argument("--kind", choices=("first", "retest"), required=True)
         command.add_argument("tasks", nargs="+")
     sub.add_parser("settle").add_argument("runs", nargs="+", help="records directories")
-    for name in ("record-freeze", "smoke-check", "probe-readout", "early-look", "readout", "ledger"):
+    for name in ("smoke-check", "probe-readout", "early-look", "readout", "ledger"):
         sub.add_parser(name)
+    sub.add_parser("record-freeze").add_argument("--reason", help="needed once a start exists: the apparatus fix")
     sub.add_parser("probe").add_argument("--rung", action="append", help="repeatable; default: the readout's next")
     transcripts = sub.add_parser("record-transcripts")
     transcripts.add_argument("--fault", choices=("yes", "no"), required=True)
@@ -496,7 +511,7 @@ def main(argv=None):
         "pool": lambda: build_pools(study, a.tranche, a.kind, a.tasks),
         "judge": lambda: judge(study, a.tranche, a.kind, a.tasks),
         "summarize": lambda: summarize_pools(study, a.kind, a.tasks),
-        "record-freeze": lambda: print(json.dumps(rules.record_freeze(study))),
+        "record-freeze": lambda: print(json.dumps(rules.record_freeze(study, a.reason))),
         "smoke-check": lambda: print(json.dumps(rules.smoke_check(study), indent=2)),
         "probe": lambda: probing.probe(study, a.rung),
         "probe-readout": lambda: print(json.dumps(probing.probe_readout(study), indent=2)),
