@@ -431,7 +431,10 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   its first new effect row or failure, so a preflight refusal's `[code]` line
   stays first. `start` and `commit` follow the journal; effects reused from
   the memo print nothing. A `failed` row prints its block, with the stderr
-  lines when the attempt's `stderr.txt` exists. The `resume` line is
+  lines when the attempt's `stderr.txt` exists; when the exception line of
+  the last Python traceback in that file falls before its last ten lines (a
+  long exception message), it takes the place of the first of them and is
+  shown last. The `resume` line is
   printed after a run or resume that exits `1`, unless its error has a row
   in the recovery table (see [Diagnostics](#diagnostics)), whose lines say
   what to run instead; after exit `2` it is printed only when no refusal was
