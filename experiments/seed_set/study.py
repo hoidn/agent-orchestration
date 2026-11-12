@@ -239,8 +239,8 @@ def build_pools(study, tranche, kind, tasks):
     load_criterion(study)
     for task in dict.fromkeys(tasks):
         out = study.pools / task / kind
-        if out.exists():
-            raise SystemExit(f"{out} exists; a pool is built once")
+        if out.exists() or (study.results / "pools" / f"{task}-{kind}").exists():
+            raise SystemExit(f"{out} exists or ended as an incident; a pool is built once")
         require_free(study, study.pools)
         if len(live_pools(study)) >= MAX_POOLS:
             raise SystemExit(f"two pools still hold clones ({live_pools(study)}); summarize one first")

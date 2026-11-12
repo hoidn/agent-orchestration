@@ -302,3 +302,22 @@ def test_offline_withheld_check_runs_through_a_real_launch_and_leaves_no_test_be
             [line for line in patch.splitlines() if line.startswith("diff --git")],
             any("withheld_seen" in p.read_text() for p in home.rglob("*.jsonl"))) == (
         "completed", 2, True, True, ["diff --git a/pkg/calc.py b/pkg/calc.py"], False)
+
+
+def test_offline_pool_with_a_patch_naming_its_model_is_refused_before_any_judge(world, monkeypatch):
+    s, task = world.study, "a0a0a0a0a0"
+    plan = json.loads(Path(world.plan).read_text())
+    entry = plan["tasks"][task]
+    entry["patch"] = re.sub(r"@@ -(\d+),(\d+) \+(\d+),(\d+) @@", lambda m: f"@@ -{m[1]},{m[2]} +{m[3]},{int(m[4]) + 1} @@",
+                            entry["patch"]).replace("+    return a + b", "+    # fixed by claude-haiku-5-5\n+    return a + b")
+    Path(world.plan).write_text(json.dumps(plan))
+    monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
+    choose(s, [task])
+    spend.record(s.ledger, "smoke", passed=True)
+    study.candidates(s, "calibration", "direct", [task])
+    study.build_pools(s, "calibration", "first", [task])
+    study.judge(s, "calibration", "first", [task])
+    incident = json.loads((s.results / "pools" / f"{task}-first" / "incident.json").read_text())
+    assert ("arm-identifying text" in incident["reason"], "claude-haiku-5-5" in incident["reason"],
+            (s.pools / task / "first").exists(), [r["kind"] for r in spend.starts(spend.rows(s.ledger))]) == (
+        True, True, False, ["candidate"] * 4)

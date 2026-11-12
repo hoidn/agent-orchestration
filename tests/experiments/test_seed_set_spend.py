@@ -422,3 +422,10 @@ def test_the_command_line_refuses_an_unauthorized_launch_before_preparing_anythi
     with pytest.raises(SystemExit, match="provider spend refused"):
         study.main([*args, "candidates", "--tranche", "calibration", "--arm", "direct", "t1", "t2"])
     assert not runner.work.exists()
+
+
+def test_a_pool_that_ended_as_an_incident_is_never_built_again(runner):
+    (runner.results / "pools" / "t1-first").mkdir(parents=True)
+    (runner.results / "pools" / "t1-first" / "incident.json").write_text("{}")
+    with pytest.raises(SystemExit, match="a pool is built once"):
+        study.build_pools(runner, "calibration", "first", ["t1"])
