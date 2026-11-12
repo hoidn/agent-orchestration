@@ -166,11 +166,12 @@ class _Reducer:
         self.terminal: JournalEntry | None = None
         self.next_ordinal: dict[str, int] = {}
 
-    def reduce(self, raw: bytes) -> MemoSnapshot:
+    def reduce(self, raw: bytes, start: int = 0) -> MemoSnapshot:
+        """Fold the complete records after ``start``, the end of the prefix already folded."""
         complete_bytes = raw.rfind(b"\n") + 1
         complete, tail = raw[:complete_bytes], raw[complete_bytes:]
-        offset = 0
-        for record in complete.split(b"\n")[:-1]:
+        offset = start
+        for record in complete[start:].split(b"\n")[:-1]:
             line = record + b"\n"
             data = _decode_line(line, offset)
             entry = JournalEntry(offset, offset + len(line), data)
@@ -453,4 +454,29 @@ def reduce_memo(raw: bytes, site_classes: Mapping[str, str]) -> MemoSnapshot:
     """Reduce complete newline-terminated records without touching journal bytes."""
     if not isinstance(raw, bytes):
         raise TypeError("raw memo must be bytes")
-    return _Reducer(site_classes).reduce(raw)
+    reducer = _Reducer(site_classes)
+    snapshot = reducer.reduce(raw, _resume_cached_prefix(reducer, raw))
+    global _LAST
+    _LAST = (reducer, raw[:snapshot.complete_bytes])
+    return snapshot
+
+
+# Reduction is a pure left fold over (checked site table, complete record bytes): no
+# validator reads files or clocks. The last reducer of this process therefore stands
+# for every memo whose complete records start with the same bytes, and a later
+# reduction folds only the records after them. Any other memo (replaced, truncated,
+# another site table) is reduced in full, as before. The saved reducer is never
+# mutated again; snapshots share its JournalEntry rows, which consumers only read.
+_LAST: tuple[_Reducer, bytes] | None = None
+_STATE = ("entries", "active", "latest", "pending", "suspensions", "settlements", "unsettled", "next_ordinal")
+
+
+def _resume_cached_prefix(reducer: _Reducer, raw: bytes) -> int:
+    """Load the saved fold into ``reducer`` when ``raw`` extends its bytes; return where to continue."""
+    cached = _LAST
+    if cached is None or not raw.startswith(cached[1]) or cached[0].site_classes != reducer.site_classes:
+        return 0
+    for name in _STATE:
+        setattr(reducer, name, getattr(cached[0], name).copy())
+    reducer.terminal = cached[0].terminal
+    return len(cached[1])
