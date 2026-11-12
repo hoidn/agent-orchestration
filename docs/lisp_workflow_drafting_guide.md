@@ -3071,20 +3071,18 @@ Procedural abstraction must not hide effects.
   ...)
 ```
 
-Effect kinds include:
+The compiler accepts exactly these effect kinds and refuses any other with
+`unsupported procedure effect kind`:
 
 - `reads`
 - `writes`
-- `moves`
-- `updates-ledger`
+- `publishes`
 - `updates-state`
 - `uses-provider`
-- `executes-command`
+- `uses-command`
 - `calls-workflow`
-- `captures-snapshot`
-- `commits-bundle`
-- `publishes`
-- `materializes-artifact`
+- `runs-ref` (one child workflow name)
+- `host-input` (no subject)
 
 If a procedure's effects are hard to explain, the procedure is probably too
 broad.
