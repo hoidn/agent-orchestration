@@ -286,3 +286,8 @@ def test_readout_refuses_a_retry_of_a_valid_observation(rehearsal, tmp_path):
 def test_retry_check_tells_an_infrastructure_failure_from_a_valid_observation(rehearsal, tmp_path):
     results = _changed(rehearsal, tmp_path, unknown_usage(V0))
     assert (readout(results / V0, "--retry-check").returncode, readout(results / V1, "--retry-check").returncode) == (0, 4)
+
+
+def test_a_call_without_an_init_event_fails_closed(rehearsal, tmp_path):
+    shown = outcome(_changed(rehearsal, tmp_path, init_edited(B1, lambda init: None)))
+    assert any("0 init events" in reason for reason in shown["reasons"]), shown["reasons"]
