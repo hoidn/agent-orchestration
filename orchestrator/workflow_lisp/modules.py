@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .definitions import WorkflowLispModule
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .form_registry import RETIRED_LIBRARY_MODULES
 from .macros import MacroCatalog, MacroDef
 from .reader import SourceReadTrace, read_sexpr_file
 from .spans import SourceSpan
@@ -880,7 +881,11 @@ def _resolve_import_path(module_name: str, *, source_roots: tuple[Path, ...]) ->
         (
             LispFrontendDiagnostic(
                 code="module_not_found",
-                message=f"unable to resolve imported module `{module_name}`",
+                message=f"unable to resolve imported module `{module_name}`" + (
+                    f"; it was removed, and the last version with it is git tag {RETIRED_LIBRARY_MODULES[module_name]}"
+                    if module_name in RETIRED_LIBRARY_MODULES
+                    else ""
+                ),
                 span=_synthetic_span(f"<module:{module_name}>"),
                 form_path=("workflow-lisp", "import"),
             ),

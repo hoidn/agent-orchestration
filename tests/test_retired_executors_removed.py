@@ -277,7 +277,9 @@ def test_removed_library_modules_are_not_found(tmp_path: Path, module: str) -> N
 
     result = cli(tmp_path, "compile", "main.orc")
 
-    assert (result.returncode, "[module_not_found]" in result.stderr) == (2, True), result.stderr
+    lines = [line for line in result.stderr.splitlines() if "[module_not_found]" in line]
+    assert (result.returncode, len(lines), lines and f"`{module}`" in lines[0],
+            lines and "archive/pre-one-target-2026-11-12" in lines[0]) == (2, 1, True, True), result.stderr
 
 
 def test_user_definition_named_like_a_retired_form_still_compiles(tmp_path: Path) -> None:

@@ -724,6 +724,10 @@ RETIRED_FORMS = {
 }
 
 
+# Library modules removed with those forms: module -> the git tag of the last version with it.
+RETIRED_LIBRARY_MODULES = {"std/drain": _ONE_TARGET_TAG, "std/resource": _ONE_TARGET_TAG}
+
+
 def retired_form_message(name: str, display_name: str) -> str | None:
     """The `form_retired` message for a removed head, or None when the head was never removed."""
 
