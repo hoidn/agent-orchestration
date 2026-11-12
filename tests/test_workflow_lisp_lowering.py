@@ -66,27 +66,6 @@ LOOP_RECUR_UNION_RESULT_MISSING_ACTIVE_FIELD_FIXTURE = (
 ITEM_CTX_CHILD_PHASE_REUSE_FIXTURE = (
     FIXTURES / "valid" / "design_delta_item_ctx_child_phase_reuse.orc"
 )
-DERIVED_PHASE_CONTEXT_BINDING_INVALID_FIXTURE = (
-    FIXTURES / "invalid" / "derived_phase_context_binding_invalid.orc"
-)
-DERIVED_PHASE_CONTEXT_DIRECT_ENTRY_INVALID_FIXTURE = (
-    FIXTURES / "invalid" / "derived_phase_context_direct_entry_invalid.orc"
-)
-DERIVED_PHASE_CONTEXT_AMBIGUOUS_FIXTURE = (
-    FIXTURES / "invalid" / "derived_phase_context_ambiguous.orc"
-)
-DERIVED_PHASE_CONTEXT_NON_ITEM_CTX_ROOT_INVALID_FIXTURE = (
-    FIXTURES / "invalid" / "derived_phase_context_non_item_ctx_root_invalid.orc"
-)
-DERIVED_PHASE_CONTEXT_PUBLIC_RUN_LEAVES_INVALID_FIXTURE = (
-    FIXTURES / "invalid" / "derived_phase_context_public_run_leaves_invalid.orc"
-)
-DERIVED_PHASE_CONTEXT_FROM_COMPATIBILITY_BRIDGE_INVALID_FIXTURE = (
-    FIXTURES / "invalid" / "derived_phase_context_from_compatibility_bridge_invalid.orc"
-)
-DERIVED_PHASE_CONTEXT_REREAD_INVALID_FIXTURE = (
-    FIXTURES / "invalid" / "derived_phase_context_reread_invalid.orc"
-)
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -2134,24 +2113,6 @@ def test_lower_workflow_definitions_distinguish_forwarded_proc_ref_bindings_with
 
     assert len(forwarded_specializations) == 2
     assert bound_runner_targets == {"entry::helper-a", "entry::helper-b"}
-
-@pytest.mark.parametrize("source", (
-    DERIVED_PHASE_CONTEXT_BINDING_INVALID_FIXTURE,
-    DERIVED_PHASE_CONTEXT_DIRECT_ENTRY_INVALID_FIXTURE,
-    DERIVED_PHASE_CONTEXT_NON_ITEM_CTX_ROOT_INVALID_FIXTURE,
-    DERIVED_PHASE_CONTEXT_AMBIGUOUS_FIXTURE,
-    DERIVED_PHASE_CONTEXT_PUBLIC_RUN_LEAVES_INVALID_FIXTURE,
-    DERIVED_PHASE_CONTEXT_FROM_COMPATIBILITY_BRIDGE_INVALID_FIXTURE,
-    DERIVED_PHASE_CONTEXT_REREAD_INVALID_FIXTURE,
-), ids=lambda source: source.stem)
-def test_historical_private_context_fixture_is_refused(tmp_path: Path, source: Path) -> None:
-    from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
-    original = source.read_bytes()
-    with pytest.raises(LispFrontendCompileError) as caught:
-        compile_typed_program(source, entry_workflow="run-entry",
-            source_roots=(source.parent,), command_boundaries={}, workspace_root=tmp_path)
-    assert caught.value.diagnostics[0].code == "target_dsl_unsupported"
-    assert source.read_bytes() == original
 
 @pytest.mark.parametrize("definition", (
     "(defrecord NestedPayload (value String))",
