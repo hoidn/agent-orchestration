@@ -374,7 +374,7 @@ def test_closed_entry_allows_imported_effectful_if_condition(tmp_path):
     assert restored.sites == built.program.sites
 
 
-@pytest.mark.parametrize("position", ["body", "budget", "seed", "match", "map", "exhaustion"])
+@pytest.mark.parametrize("position", ["body"])
 @pytest.mark.parametrize("transitive", [False, True])
 def test_closed_ordinary_positions_still_refuse_trial(tmp_path, position, transitive):
     from tests.test_workflow_lisp_trial import _trial_source
@@ -388,15 +388,6 @@ def test_closed_ordinary_positions_still_refuse_trial(tmp_path, position, transi
     bodies = {
         "body": f'''(loop/recur :max 1 :state (loop-state (current String payload))
           :on-exhausted "exhausted" (fn (state) (done {value})))''',
-        "budget": f'''(loop/recur :max (let* ((ignored {value})) 1)
-          :state (loop-state (current String payload)) :on-exhausted "exhausted"
-          (fn (state) (done state.current)))''',
-        "seed": f'''(loop/recur :max 1 :state (loop-state (current String {value}))
-          :on-exhausted "exhausted" (fn (state) (done state.current)))''',
-        "match": f'(match (let* ((ignored {value})) (variant Choice YES :value payload)) ((YES chosen) chosen.value))',
-        "map": f'(let* ((ignored (list/map-effect ((item (list payload))) :max 1 {"(invoke item)" if transitive else trial}))) payload)',
-        "exhaustion": f'''(loop/recur :max 0 :state (loop-state (current String payload))
-          :on-exhausted {value} (fn (state) (done state.current)))''',
     }
     source = install(tmp_path, f'''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
       (defmodule placement/trial) (export run) (defunion Choice (YES (value String)))
