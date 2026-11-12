@@ -591,21 +591,13 @@ def validate_semantic_command_adapter_usage(
     binding,
 ) -> None:
     effects = set(binding.effects)
-    transition_binding = getattr(binding, "transition_binding", None)
-    allow_migration_backend_call = (
-        transition_binding is not None
-        and getattr(transition_binding, "contract_role", None) == "migration_backend"
-    )
     if (
-        (
-            "resource_transition" in effects
-            or "ledger_update" in effects
-            or binding.behavior_class == "resource_transition"
-        )
-        and not allow_migration_backend_call
+        "resource_transition" in effects
+        or "ledger_update" in effects
+        or binding.behavior_class == "resource_transition"
     ):
         raise_error(
-            "resource movement needs a certified adapter whose transition binding is a `migration_backend`; the `resource-transition` form was removed",
+            "resource movement through a command adapter is refused; the `resource-transition` form was removed",
             code="resource_move_without_transition",
             span=expr.span,
             form_path=expr.form_path,

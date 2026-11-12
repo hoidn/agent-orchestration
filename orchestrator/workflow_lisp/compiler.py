@@ -589,7 +589,6 @@ def compile_stage3_entrypoint(
     if compile_result is not None:
         additional_diagnostics = (
             *_filter_profile_checked_linked_diagnostics(compile_result),
-            *_collect_declared_transition_binding_diagnostics_for_linked_result(compile_result),
         )
     diagnostics = _finalize_stage3_diagnostics(
         results,
@@ -953,79 +952,6 @@ def _collect_workflow_provider_bindings(
 
     walk(typed_workflow.typed_body.expr)
     return provider_bindings
-
-
-def _command_boundary_validation_span() -> SourceSpan:
-    position = SourcePosition(path="<command-boundaries>", line=1, column=1, offset=0)
-    return SourceSpan(start=position, end=position)
-
-
-def _collect_declared_transition_binding_diagnostics_for_linked_result(
-    compile_result: LinkedStage3CompileResult,
-) -> tuple[LispFrontendDiagnostic, ...]:
-    modules = tuple(
-        compiled_result.module
-        for compiled_result in compile_result.compiled_results_by_name.values()
-        if compiled_result.module is not None
-    )
-    return _collect_declared_transition_binding_diagnostics(
-        modules=modules,
-        command_boundary_environment=compile_result.entry_result.command_boundary_environment,
-    )
-
-
-def _collect_declared_transition_binding_diagnostics(
-    *,
-    modules: tuple[WorkflowLispModule, ...],
-    command_boundary_environment,
-) -> tuple[LispFrontendDiagnostic, ...]:
-    if command_boundary_environment is None or not modules:
-        return ()
-
-    diagnostics: list[LispFrontendDiagnostic] = []
-    for binding_name, binding in command_boundary_environment.bindings_by_name.items():
-        if not isinstance(binding, CertifiedAdapterBinding) or binding.transition_binding is None:
-            continue
-        transition_binding = binding.transition_binding
-        if transition_binding.contract_role != "migration_backend":
-            diagnostics.append(
-                LispFrontendDiagnostic(
-                    code="command_adapter_missing_contract",
-                    message=(
-                        f"certified adapter `{binding_name}` must keep transition_binding contract_role "
-                        "`migration_backend`"
-                    ),
-                    span=_command_boundary_validation_span(),
-                    phase="typecheck",
-                )
-            )
-            continue
-        if transition_binding.backend_selector != binding_name:
-            diagnostics.append(
-                LispFrontendDiagnostic(
-                    code="command_adapter_missing_contract",
-                    message=(
-                        f"certified adapter `{binding_name}` transition_binding backend selector "
-                        f"`{transition_binding.backend_selector}` must match the binding name"
-                    ),
-                    span=_command_boundary_validation_span(),
-                    phase="typecheck",
-                )
-            )
-            continue
-        # No transition can be declared since `deftransition` was removed.
-        diagnostics.append(
-            LispFrontendDiagnostic(
-                code="command_adapter_missing_contract",
-                message=(
-                    f"certified adapter `{binding_name}` references unknown declared transition "
-                    f"`{transition_binding.transition_name}`"
-                ),
-                span=_command_boundary_validation_span(),
-                phase="typecheck",
-            )
-        )
-    return tuple(diagnostics)
 
 
 def _type_ref_contains_low_level_state_path(type_ref: TypeRef) -> bool:

@@ -94,14 +94,14 @@ REQUIRED_LINT_REGISTRY: dict[str, RequiredLintRule] = {
     ),
     "resource_move_without_transition": RequiredLintRule(
         code="resource_move_without_transition",
-        summary="resource movement needs a certified migration-backend adapter",
+        summary="resource movement through a command adapter is refused",
         owning_pass="authority",
         authority_layer="frontend",
         default_severity="error",
         strict_severity="error",
         surface_status="active",
         primary_surface="command_boundary",
-        replacement_hint="declare a certified adapter whose transition binding is a migration backend",
+        replacement_hint="the `resource-transition` form was removed; no command adapter may move resources",
     ),
     "recovery_gate_without_resume_or_start": RequiredLintRule(
         code="recovery_gate_without_resume_or_start",
