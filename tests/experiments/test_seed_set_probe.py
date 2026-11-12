@@ -288,3 +288,17 @@ def test_the_smoke_calls_for_bisection_above_15_minutes_or_half_a_dollar(tmp_pat
     (tmp_path / "calls" / "1" / "prompt.txt").write_text("p")
     (tmp_path / "record.json").write_text(json.dumps({"wall_clock_sec": wall, "sandbox": {"home": str(home)}}))
     assert rules.bisect_from_start([({}, tmp_path)])["bisect"] is bisect
+
+
+def test_a_t0_draw_filled_from_t2_fits_the_calibration_caps_and_one_more_call_refuses(s, monkeypatch):
+    probed(s, "first", dict.fromkeys(ladder.FLAT, 0))
+    probing.record_transcripts(s, False, "runs sound", [])
+    probed(s, "extension", {"T0": 2})
+    out = probing.probe_readout(s)
+    monkeypatch.setenv(spend.AUTHORIZATION, "calibration")
+    tasks, planned = len(out["chosen"]), layout.PLANNED["calibration"]
+    spend.check(s.ledger, "calibration", "candidate", H, tasks * planned["direct"])  # 80 of 80: no refusal
+    spend.check(s.ledger, "calibration", "candidate", S, tasks * planned["direct_sonnet"])  # 20 of 20
+    with pytest.raises(SystemExit, match="of the cap remain"):
+        spend.check(s.ledger, "calibration", "candidate", H, tasks * planned["direct"] + 1)
+    assert (out["drawn"], tasks) == ({"T0": 8, "T2": 12}, 20)
