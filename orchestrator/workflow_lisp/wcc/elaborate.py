@@ -2093,7 +2093,7 @@ def _bind_effectful_loop_state_fields(
     value_env: Mapping[str, TypeRef],
     compile_time_bindings: Mapping[str, object],
 ) -> LetStarExpr | None:
-    """Bind each effectful `loop-state :like` field before `continue`, as `let*` would.
+    """Bind an effectful `continue` state, or each effectful `loop-state :like` field, as `let*` would.
 
     This returns ``(let* ((g1 e1) ...) (continue (loop-state
     :like base ... :f g1 ...)))`` with one generated binding per field that
@@ -2110,7 +2110,10 @@ def _bind_effectful_loop_state_fields(
     """
 
     state = expr.state_expr
-    direct_effect = isinstance(state, _EFFECT_NODE_TYPES) and not isinstance(state, ResourceTransitionExpr)
+    # `request-input` is an effect here but not in the shared `_EFFECT_NODE_TYPES`.
+    direct_effect = isinstance(state, (*_EFFECT_NODE_TYPES, RequestInputExpr)) and not isinstance(
+        state, ResourceTransitionExpr
+    )
     if not (
         direct_effect
         or (isinstance(state, LoopStateUpdateExpr) and any(_contains_effect(field_expr) for _, field_expr in state.overrides))

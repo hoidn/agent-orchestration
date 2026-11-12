@@ -296,6 +296,37 @@ def test_resume_after_a_commit_inside_direct_continue_never_repeats_it(
     _assert_committed_prefix_resume(tmp_path, monkeypatch, probes, DIRECT_EXPECTED)
 
 
+HOST_INPUT_CONTINUES = {
+    "request-input": '(continue (request-input "again?" :returns Approval))',
+    "let-bound": '(let* ((r (request-input "again?" :returns Approval))) (continue r))',
+}
+
+
+@pytest.mark.parametrize("form", list(HOST_INPUT_CONTINUES))
+def test_a_host_request_given_directly_to_continue_compiles_like_the_let_bound_form(
+    tmp_path: Path, form: str
+) -> None:
+    from orchestrator.workflow_lisp.build import FrontendBuildRequest
+    from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
+
+    source = tmp_path / "ask.orc"
+    source.write_text(
+        '(workflow-lisp (:language "0.1") (:target-dsl "2.40")\n'
+        "  (defmodule ask) (import std/host :only (HostReply)) (export run)\n"
+        "  (defenum Approval APPROVED DENIED)\n"
+        "  (defworkflow run () -> HostReply[Approval]\n"
+        '    (let* ((first (request-input "start?" :returns Approval)))\n'
+        "      (loop/recur :max 2 :state first :on-exhausted state\n"
+        f"        (fn (state) (if false (done state) {HOST_INPUT_CONTINUES[form]}))))))\n",
+        encoding="utf-8",
+    )
+    built = build_closed_program_bundle(
+        FrontendBuildRequest(source_path=source, source_roots=(tmp_path,), workspace_root=tmp_path)
+    )
+
+    assert len(built.program.sites) == 2
+
+
 @pytest.mark.parametrize("form", list(TWO_ARMS_FORMS))
 def test_resume_after_a_committed_command_preserves_each_match_arm_scope(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, form: str
