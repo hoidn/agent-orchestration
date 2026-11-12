@@ -125,6 +125,17 @@ REQUIRED_LINT_REGISTRY: dict[str, RequiredLintRule] = {
         primary_surface="workflow_ref",
         replacement_hint="preserve typed compile-time workflow references instead of erasing them to opaque runtime handles",
     ),
+    "loop_missing_on_exhausted": RequiredLintRule(
+        code="loop_missing_on_exhausted",
+        summary="a loop without :on-exhausted fails the run with `loop_exhausted` when it reaches :max",
+        owning_pass="contract",
+        authority_layer="frontend",
+        default_severity="warn",
+        strict_severity="error",
+        surface_status="active",
+        primary_surface="typed_ast",
+        replacement_hint="add :on-exhausted with the value the loop returns when it reaches :max",
+    ),
     "macro_hidden_effect": RequiredLintRule(
         code="macro_hidden_effect",
         summary="macros cannot hide workflow effects",
