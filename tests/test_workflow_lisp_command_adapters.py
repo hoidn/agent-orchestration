@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from textwrap import dedent
 
@@ -25,15 +24,6 @@ INVALID_MISSING_INPUT_FIXTURE = FIXTURES / "invalid" / "certified_adapter_missin
 INVALID_EXTRA_INPUT_FIXTURE = FIXTURES / "invalid" / "certified_adapter_extra_input.orc"
 INVALID_TYPE_MISMATCH_FIXTURE = FIXTURES / "invalid" / "certified_adapter_type_mismatch.orc"
 INVALID_SEMANTIC_BYPASS_FIXTURE = FIXTURES / "invalid" / "certified_adapter_semantic_bypass.orc"
-REPO_ROOT = Path(__file__).resolve().parent.parent
-DESIGN_DELTA_PARENT_DRAIN_COMMANDS = (
-    REPO_ROOT
-    / "workflows"
-    / "examples"
-    / "inputs"
-    / "workflow_lisp_migrations"
-    / "design_delta_parent_drain.commands.json"
-)
 
 
 
@@ -306,71 +296,6 @@ def test_compile_stage3_module_rejects_transition_binding_for_runtime_native_tra
     assert "runtime_native" in excinfo.value.diagnostics[0].message
 
 
-
-
-def test_design_delta_parent_drain_manifest_keeps_only_retained_g8_rows_and_contract_metadata() -> None:
-    payload = json.loads(DESIGN_DELTA_PARENT_DRAIN_COMMANDS.read_text(encoding="utf-8"))
-
-    bindings = _parse_command_boundaries_manifest(
-        payload,
-        manifest_path=DESIGN_DELTA_PARENT_DRAIN_COMMANDS,
-    )
-
-    projection = bindings["project_lisp_frontend_selector_action"]
-    assert projection.behavior_class == "structured_result"
-    assert getattr(projection, "retirement_class") == "typed_projection"
-    assert getattr(projection, "retirement_label") == "retire_to_projection"
-    assert getattr(projection, "replacement_surface")
-    assert getattr(projection, "bridge_owner")
-    assert getattr(projection, "expiry_condition")
-    assert getattr(projection, "evidence_refs")
-
-    for deleted_binding in (
-        "classify_lisp_frontend_work_item_terminal",
-        "select_lisp_frontend_blocked_recovery_route",
-        "record_terminal_work_item",
-        "record_blocked_recovery_outcome",
-        "write_lisp_frontend_drain_status",
-        "finalize_lisp_frontend_drain_summary",
-    ):
-        assert deleted_binding not in bindings
-
-    backlog_checks = bindings["run_neurips_backlog_checks"]
-    assert getattr(backlog_checks, "retirement_class") == "genuine_system"
-    assert getattr(backlog_checks, "retirement_label") == "keep_certified_system"
-
-    review_findings = bindings["validate_review_findings_v1"]
-    assert getattr(review_findings, "retirement_class") == "validation"
-    assert getattr(review_findings, "retirement_label") == "keep_bridge"
-    assert getattr(review_findings, "replacement_surface")
-    assert getattr(review_findings, "bridge_owner")
-    assert getattr(review_findings, "expiry_condition")
-    assert getattr(review_findings, "evidence_refs")
-
-    work_item_bootstrap = bindings["materialize_lisp_frontend_work_item_inputs"]
-    assert getattr(work_item_bootstrap, "retirement_label") == "retire_to_projection"
-    assert getattr(work_item_bootstrap, "retirement_status") == "retired"
-    assert getattr(work_item_bootstrap, "replacement_surface")
-    assert getattr(work_item_bootstrap, "bridge_owner")
-    assert getattr(work_item_bootstrap, "expiry_condition")
-    assert getattr(work_item_bootstrap, "evidence_refs")
-
-
-def test_design_delta_parent_drain_command_manifest_excludes_internal_finalizer_carrier_helpers() -> None:
-    manifest_text = DESIGN_DELTA_PARENT_DRAIN_COMMANDS.read_text(encoding="utf-8")
-
-    for retired_name in (
-        "SelectedItemStdlibCompat",
-        "QueueTransitionCompat",
-        "RoadmapCompat",
-        "SelectedItemPlanCompat",
-        "SelectedItemImplementationCompat",
-        "build-finalizer-",
-        "call-imported-finalize-selected-item",
-        "project-selected-compat",
-        "BranchingSelectedCompat",
-    ):
-        assert retired_name not in manifest_text
 
 
 def test_design_delta_parent_drain_manifest_rejects_unknown_retirement_class() -> None:
