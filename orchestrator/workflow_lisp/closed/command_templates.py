@@ -87,7 +87,7 @@ class ControlFacts:
 
 def _direct_outputs_available(expr: Any, *, result_type: Any, facts: ControlFacts, local_values: Mapping[str, Any]) -> bool:
     fields = inline_output_boundary_fields(
-        expr, type_ref=result_type, type_env=facts.type_env, signature=facts.signature,
+        expr, type_ref=result_type, type_env=facts.type_env,
     )
     return direct_output_leaves_available(
         is_direct_reference(inline_expr_field_value(
@@ -265,7 +265,7 @@ def _suffix_outputs_available(expr: Any, bindings: tuple[Any, ...], *, result_ty
     if not bindings:
         return _direct_outputs_available(expr.body, result_type=result_type, facts=facts, local_values=local_values)
     boundaries = inline_output_boundary_fields(
-        expr, type_ref=result_type, type_env=facts.type_env, signature=facts.signature,
+        expr, type_ref=result_type, type_env=facts.type_env,
     )
     return direct_output_leaves_available(is_direct_reference(inline_let_field_value(
         bindings, body=expr.body, field_path=boundary.source_path[1:], local_values=local_values, retain_expression_facts=True,
@@ -287,7 +287,7 @@ def _let_control_fact(expr: Any, *, result_type: Any, facts: ControlFacts, local
             facts = replace(facts, local_type_bindings={**facts.local_type_bindings, name: type_ref})
         if _suffix_outputs_available(expr, expr.bindings[index + 1:], result_type=result_type, facts=facts, local_values=values):
             return False, tuple(boundary.generated_name for boundary in inline_output_boundary_fields(
-                expr.body, type_ref=result_type, type_env=facts.type_env, signature=facts.signature,
+                expr.body, type_ref=result_type, type_env=facts.type_env,
             ))
     return _expression_control_fact(expr.body, result_type=result_type, facts=facts, local_values=values)
 
@@ -469,20 +469,16 @@ def helper_capture_names(expr: Any, *, local_type_bindings: Mapping[str, Any]) -
     return tuple(name for name in local_type_bindings if name in used_names)
 
 
-def inline_output_boundary_fields(expr: Any, *, type_ref: Any, type_env: Any, signature: Any):
+def inline_output_boundary_fields(expr: Any, *, type_ref: Any, type_env: Any):
     from dataclasses import replace
     from ..contracts import derive_workflow_boundary_fields, root_workflow_boundary_field
 
     from ..type_env import RecordTypeRef
 
-    allow_direct = (
-        (type_ref == signature.return_type_ref) and (isinstance(getattr(signature, "compiler_direct_result_contract_digest", None), str))
-    )
     if isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
         return derive_workflow_boundary_fields(
             type_ref, generated_name="return", source_path=("return",),
-            span=expr.span, form_path=expr.form_path,
-            allow_transportable_value=allow_direct, type_env=type_env,
+            span=expr.span, form_path=expr.form_path, type_env=type_env,
         )
     return (replace(root_workflow_boundary_field(
         type_ref, span=expr.span, form_path=expr.form_path, type_env=type_env,
