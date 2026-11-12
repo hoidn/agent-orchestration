@@ -512,3 +512,20 @@ def test_real_http_server_refuses_foreign_host_headers_before_any_route(tmp_path
     assert {host: status for host, (status, _) in refused.items()} == dict.fromkeys(refused, 421)
     assert not any(run_json in body or run_root.name.encode() in body for _, body in refused.values())
     assert _tree_bytes(workspace) == before
+
+
+def test_run_directory_with_non_utf8_name_is_skipped_with_a_warning(tmp_path: Path):
+    run_root = _pure_run(tmp_path)
+    bad = os.path.join(os.fsencode(run_root.parent), b"bad\xff")
+    os.mkdir(bad)
+    with open(os.path.join(bad, b"state.json"), "wb") as handle:
+        handle.write(b'{"status": "running"}')
+    before = _tree_bytes(tmp_path)
+
+    response = _app(tmp_path).handle("GET", "/runs")
+
+    body = response.body.decode()
+    assert response.status == 200
+    assert f">{run_root.name}</a>" in body
+    assert "bad\\xff" in body and "not UTF-8" in body
+    assert _tree_bytes(tmp_path) == before

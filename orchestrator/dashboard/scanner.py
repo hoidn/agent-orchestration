@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Iterable
 
+from orchestrator.dashboard.attempt_files import utf8_name
 from orchestrator.dashboard.models import RunRecord, ScanResult, WorkspaceRecord
 from orchestrator.workflow.evaluated.views import has_evaluated_authority, load_evaluated_view
 
@@ -53,6 +55,10 @@ class RunScanner:
                 errors.append(f"failed to scan {runs_root}: {exc}")
                 continue
             for run_root in run_dirs:
+                if not utf8_name(run_root.name):
+                    shown = os.fsencode(run_root.name).decode("utf-8", "backslashreplace")
+                    errors.append(f"run directory {shown} in {runs_root} has a name that is not UTF-8; not listed")
+                    continue
                 state_path = run_root / "state.json"
                 run = self._read_run(workspace, run_root, state_path)
                 if run is not None:
@@ -87,3 +93,4 @@ class RunScanner:
                              parse_error=f"{getattr(exc, 'code', 'memo_inconsistent')}: {exc}")
         return RunRecord(workspace, run_dir_id, run_root, state_path,
                          state=state, state_run_id=state["run_id"])
+

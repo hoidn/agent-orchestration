@@ -26,7 +26,7 @@ from orchestrator.dashboard.file_pages import (
     state_preview,
 )
 from orchestrator.dashboard.projection import RunProjector
-from orchestrator.dashboard.run_page import file_links, run_page
+from orchestrator.dashboard.run_page import file_links, run_page, warnings_section
 from orchestrator.dashboard.scanner import RunScanner
 
 __all__ = ["DashboardApp", "DashboardResponse", "serve_dashboard"]
@@ -96,6 +96,7 @@ class DashboardApp:
             "<main>",
             "<h1>Workflow Runs</h1>",
             '<p><a href="/runs">Refresh</a></p>',
+            *warnings_section(scan.errors),
             "<table>",
             "<thead><tr><th>Workspace</th><th>Run</th><th>State Run ID</th><th>Workflow</th><th>Status</th><th>Cursor</th><th>Started</th><th>Elapsed</th><th>Updated</th><th>Read time</th><th>Failure</th></tr></thead>",
             "<tbody>",

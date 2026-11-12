@@ -42,7 +42,7 @@ def run_page(detail, commands, *, refresh: Optional[int] = None) -> str:
     pending_host_input = detail.state.get("pending_host_input") if isinstance(detail.state, Mapping) else None
     if isinstance(pending_host_input, Mapping):
         lines.extend(_pending_host_input_section(row, pending_host_input))
-    lines.extend(_warnings_section(list(detail.warnings) + list(commands.warnings)))
+    lines.extend(warnings_section(list(detail.warnings) + list(commands.warnings)))
     lines.extend(_commands_section(commands))
     if detail.cursor is not None:
         lines.extend(_cursor_section(detail.cursor))
@@ -102,7 +102,7 @@ def _shown_evidence(row, shown) -> list[str]:
     return lines
 
 
-def _warnings_section(warnings: list[str]) -> list[str]:
+def warnings_section(warnings: list[str]) -> list[str]:
     if not warnings:
         return []
     return ["<section><h2>Warnings</h2><ul>", *(f"<li>{e(warning)}</li>" for warning in warnings),

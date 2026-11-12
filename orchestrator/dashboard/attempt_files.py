@@ -53,7 +53,7 @@ def _listed_names(attempt: Path, hidden, resolver, warnings: list[str]) -> list[
     except OSError as exc:
         warnings.append(f"unreadable attempt directory {attempt}: {exc.strerror}")
         return []
-    names = [name for name in regular if _utf8(name)]
+    names = [name for name in regular if utf8_name(name)]
     _warn_skipped(attempt, len(regular) - len(names), irregular, warnings)
     return names
 
@@ -72,13 +72,13 @@ def _scan(directory: Path, hidden) -> tuple[list[str], list[str]]:
 def _warn_skipped(attempt: Path, undecodable: int, irregular: list[str], warnings: list[str]) -> None:
     if undecodable:
         warnings.append(f"{undecodable} file names in {attempt} are not UTF-8 and are not linked")
-    shown = [name for name in irregular if _utf8(name)][:_NAMED_SKIPS]
+    shown = [name for name in irregular if utf8_name(name)][:_NAMED_SKIPS]
     warnings.extend(f"unsafe {name}: not a regular file, not linked" for name in shown)
     if len(irregular) > len(shown):
         warnings.append(f"{len(irregular) - len(shown)} more entries in {attempt} are not regular files and are not linked")
 
 
-def _utf8(name: str) -> bool:
+def utf8_name(name: str) -> bool:
     try:
         name.encode("utf-8")
     except UnicodeEncodeError:
