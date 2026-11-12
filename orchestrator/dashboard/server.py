@@ -20,6 +20,7 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from orchestrator.dashboard.commands import CommandBuilder
+from orchestrator.dashboard.effect_html import effect_timing, failed_effects_section
 from orchestrator.dashboard.files import FileReferenceResolver, UnsafePathError
 from orchestrator.dashboard.preview import DASHBOARD_CSP
 from orchestrator.dashboard.preview import PreviewRenderer
@@ -652,6 +653,7 @@ class DashboardApp:
                 )
             lines.append("</ul></section>")
 
+        lines.extend(failed_effects_section(row, detail.steps))
         lines.extend(["<section><h2>Summary Hub</h2>"])
         summary_href = f"/runs/{quote(row.workspace_id)}/{quote(row.run_dir_id)}/summaries"
         if (row.run_root / "summaries" / "index.json").exists():
@@ -665,7 +667,7 @@ class DashboardApp:
             href = f"/runs/{quote(row.workspace_id)}/{quote(row.run_dir_id)}/steps/{quote(step.ref)}"
             lines.append(
                 f"<li><a href=\"{href}\">{self._e(step.name)}</a> "
-                f"{self._e(step.status)} {self._e(step.kind)}</li>"
+                f"{self._e(step.status)} {self._e(step.kind)} <small>{effect_timing(step)}</small></li>"
             )
             if step.file_refs:
                 lines.append("<ul>")
@@ -3332,6 +3334,9 @@ class DashboardApp:
             f"<p>Step id: {self._e(step.step_id or '')}</p>",
             f"<p>Visit count: {self._e(step.visit_count if step.visit_count is not None else '')}</p>",
             f"<p>Duration: {self._e(str(step.duration_ms) + ' ms' if step.duration_ms is not None else '')}</p>",
+            f"<p>Attempt: {self._e(step.attempt if step.attempt is not None else '')}</p>",
+            f"<p>Started: {self._e(step.started_at or '')}</p>",
+            f"<p>Completed: {self._e(step.completed_at or '')}</p>",
             "<h2>Output Preview</h2>",
             f"<pre>{self._e(step.output_preview)}</pre>",
             "<h2>Error</h2>",

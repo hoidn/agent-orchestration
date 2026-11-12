@@ -100,6 +100,9 @@ class DashboardStep:
     debug: Mapping[str, Any] = field(default_factory=dict)
     provider_session: Mapping[str, Any] = field(default_factory=dict)
     file_refs: Mapping[str, FileReference] = field(default_factory=dict)
+    attempt: Optional[int] = None
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
 
 
 @dataclass(frozen=True)

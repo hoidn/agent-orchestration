@@ -35,6 +35,28 @@ def _outputs(response):
     return json.loads(html.unescape(match.group(1)))
 
 
+_STEP_LINE = re.compile(r'<li><a href="(?P<href>[^"]*/steps/[^"]*)">(?P<name>[^<]*)</a> '
+                        r'(?P<status>\S+) (?P<kind>\S+) <small>(?P<timing>[^<]*)</small></li>')
+_FILE_LINE = re.compile(r'<li>[^<]*: <a href="(?P<href>[^"]*/files/[^"]*)">')
+
+
+def _timeline(response):
+    """Effect rows of the run page's Step Timeline: name, status, kind, attempt, timing and file links."""
+    section = response.body.decode().split("<h2>Step Timeline</h2>", 1)[1].split("</section>", 1)[0]
+    rows = []
+    for line in section.splitlines():
+        if (step := _STEP_LINE.search(line)) is not None:
+            timing = dict(part.split(" ", 1) for part in html.unescape(step["timing"]).split(", ") if part)
+            rows.append({"name": html.unescape(step["name"]), "status": step["status"], "kind": step["kind"],
+                         "href": html.unescape(step["href"]), "files": [],
+                         "attempt": int(timing["attempt"]) if "attempt" in timing else None,
+                         "started": timing.get("started"), "completed": timing.get("completed"),
+                         "duration": int(timing["duration"].removesuffix(" ms")) if "duration" in timing else None})
+        elif (link := _FILE_LINE.search(line)) is not None:
+            rows[-1]["files"].append(html.unescape(link["href"]))
+    return rows
+
+
 def test_dashboard_discovers_evaluated_root_without_state(tmp_path):
     run_root = _pure_run(tmp_path)
     (run_root / "state.json").unlink()
@@ -370,4 +392,81 @@ def test_dashboard_nested_loop_visits_preserve_committed_values_without_sources(
     assert detail.workflow_outputs is True and detail.cursor.summary == ""
     response = DashboardApp(RunScanner([parent])).handle("GET", f"/runs/w0/{authority.run_root.name}/steps/{quote(identities[1], safe='')}")
     assert response.status == 200
+    assert _tree_bytes(tmp_path) == before
+
+
+def test_run_page_shows_attempt_and_timing_per_effect(tmp_path):
+    run_root = _completed_run(tmp_path)
+    identities = list(_snapshot(run_root).active_commits)
+    assert _cli(tmp_path, "invalidate", run_root.name, identities[1]).returncode == 0
+    assert _cli(tmp_path, "resume", run_root.name).returncode == 0
+    report = _cli(tmp_path, "report", "--run-id", run_root.name, "--runs-root", str(run_root.parent), "--format", "json")
+    assert report.returncode == 0, report.stderr
+    expected = [(row["name"], row["attempt"], row["started_at"], row["completed_at"], row["duration_ms"])
+                for row in json.loads(report.stdout)["steps"]]
+    before = _tree_bytes(tmp_path)
+    app = DashboardApp(RunScanner([tmp_path]))
+    rows = _timeline(app.handle("GET", f"/runs/w0/{run_root.name}"))
+    assert [row["attempt"] for row in rows] == [1, 2, 2]
+    assert [(row["name"], row["attempt"], row["started"], row["completed"], row["duration"]) for row in rows] == expected
+    for name, attempt, started, completed, duration in expected:
+        page = app.handle("GET", f"/runs/w0/{run_root.name}/steps/{quote(name, safe='')}").body.decode()
+        assert f"<p>Attempt: {attempt}</p>" in page and f"<p>Duration: {duration} ms</p>" in page
+        assert f"<p>Started: {html.escape(started)}</p>" in page and f"<p>Completed: {html.escape(completed)}</p>" in page
+    assert _tree_bytes(tmp_path) == before
+
+
+def test_run_page_links_failed_effect_with_error_code(tmp_path):
+    from tests.test_dashboard_server import _failing_run
+    run_root = _failing_run(tmp_path, exit_code=3)
+    before = _tree_bytes(tmp_path)
+    app = DashboardApp(RunScanner([tmp_path]))
+    body = app.handle("GET", f"/runs/w0/{run_root.name}").body.decode()
+    section = body.split("<h2>Failed Effects</h2>", 1)[1].split("</section>", 1)[0]
+    (href, name, code), = re.findall(r'<li><a href="([^"]+)">([^<]+)</a> <code>([^<]+)</code></li>', section)
+    assert code == "command_exit_nonzero" and html.unescape(name).endswith("/ fail")
+    effect = app.handle("GET", html.unescape(href))
+    assert effect.status == 200
+    page = effect.body.decode()
+    assert "command_exit_nonzero" in page and '"exit_code": 3' in page
+    assert _tree_bytes(tmp_path) == before
+
+
+_PARALLEL_SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "2.37")
+  (defmodule parallel/items) (export run)
+  (defworkflow run () -> List[Int]
+    (list/map-effect ((repo (list "a" "b" "c"))) :max 3 :parallel 3
+      :workspace (string/concat repo "/work")
+      (command-result fetch :argv ("python" SCRIPT repo) :returns Int))))
+'''
+
+_PARALLEL_PROBE = '''import os, sys, time
+from pathlib import Path
+item = sys.argv[1]
+if item == "b":
+    time.sleep(0.2)
+    sys.exit(3)
+Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(str("abc".index(item)))
+'''
+
+
+def test_parallel_map_items_are_rows_with_item_index(tmp_path):
+    probe = tmp_path / "probe.py"
+    probe.write_text(_PARALLEL_PROBE)
+    (tmp_path / "parallel").mkdir()
+    (tmp_path / "parallel" / "items.orc").write_text(_PARALLEL_SOURCE.replace("SCRIPT", json.dumps(str(probe))))
+    for item in "abc":
+        (tmp_path / item / "work").mkdir(parents=True)
+    (tmp_path / "commands.json").write_text(json.dumps({"fetch": {"stable_command": ["python", str(probe)], "closure": []}}))
+    result = _cli(tmp_path, "run", "parallel/items.orc", "--command-boundaries-file", "commands.json")
+    assert result.returncode == 1, result.stderr
+    run_root = _run_root(tmp_path)
+    before = _tree_bytes(tmp_path)
+    rows = _timeline(DashboardApp(RunScanner([tmp_path])).handle("GET", f"/runs/w0/{run_root.name}"))
+    by_index = {int(re.search(r"par-map:repo\[(\d+)\]", row["name"])[1]): row for row in rows}
+    assert sorted(by_index) == [0, 1, 2] and len(rows) == 3
+    assert [by_index[index]["status"] for index in range(3)] == ["completed", "failed", "completed"]
+    attempts = [{href.rsplit("/", 1)[0] for href in by_index[index]["files"]} for index in range(3)]
+    assert all(len(directory) == 1 for directory in attempts)
+    assert len(set.union(*attempts)) == 3
     assert _tree_bytes(tmp_path) == before

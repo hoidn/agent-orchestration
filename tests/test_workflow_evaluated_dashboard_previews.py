@@ -10,7 +10,9 @@ import pytest
 
 from orchestrator.dashboard.scanner import RunScanner
 from orchestrator.dashboard.server import DashboardApp
-from tests.test_workflow_evaluated_dashboard import _detail, _forbid_legacy
+from tests.agent_session_shims import install_agent_shims
+from tests.test_workflow_evaluated_agent_turns import PLAN, fixture as agent_fixture
+from tests.test_workflow_evaluated_dashboard import _detail, _forbid_legacy, _timeline
 from tests.test_workflow_evaluated_invalidate import _completed_run, _cli, _tree_bytes, _fixture as _command_fixture
 from tests.test_workflow_evaluated_providers import _fixture, _cli as _provider_cli, _requests
 from tests.test_workflow_evaluated_resume_kills import _run_root
@@ -199,3 +201,45 @@ def _assert_canonical_step_route(workspace, run_root, identity):
     assert response.status == 200
     assert html.escape(identity) in response.body.decode()
     assert _tree_bytes(workspace) == before
+
+
+def _attempt_hrefs(run_root, row):
+    """Dashboard routes of every regular file in the effect's attempt directory, from the disk."""
+    attempt = (run_root / row["result_path"]).parent
+    return {f"/runs/w0/{run_root.name}/files/run/{quote(path.relative_to(run_root).as_posix())}"
+            for path in attempt.rglob("*") if path.is_file() and not path.is_symlink()}
+
+
+def _assert_attempt_links(workspace, run_root, effect_class):
+    state = _detail(workspace, run_root).state
+    rows = {row["name"]: row for row in _timeline(DashboardApp(RunScanner([workspace])).handle("GET", f"/runs/w0/{run_root.name}"))}
+    selected = [(name, row) for name, row in state["steps"].items() if row["effect_class"] == effect_class]
+    assert selected
+    for name, row in selected:
+        assert set(rows[name]["files"]) == _attempt_hrefs(run_root, row)
+    return selected
+
+
+@pytest.mark.parametrize("effect_class", ["provider", "agent_turn"])
+def test_attempt_directory_files_are_linked_for_every_class(tmp_path, monkeypatch, effect_class):
+    if effect_class == "provider":
+        assert _provider_cli(tmp_path, _fixture(tmp_path)).returncode == 0
+    else:
+        install_agent_shims(tmp_path / "bin", monkeypatch, codex_home=tmp_path / "codex",
+                            claude_home=tmp_path / "claude", plan=PLAN)
+        assert _cli(tmp_path, "run", *agent_fixture(tmp_path)).returncode == 0
+    run_root = _run_root(tmp_path)
+    name, row = _assert_attempt_links(tmp_path, run_root, effect_class)[0]
+    names = {path.name for path in (run_root / row["result_path"]).parent.iterdir()}
+    assert {"result.json", "prompt.txt", "stdout.txt", "stderr.txt"} <= names
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.txt"
+    outside.write_text("private outside bytes")
+    planted = (run_root / row["result_path"]).parent / "planted.txt"
+    planted.symlink_to(outside)
+    before = _tree_bytes(tmp_path)
+    detail = _detail(tmp_path, run_root)
+    assert any("unsafe planted" in warning for warning in detail.warnings)
+    response = DashboardApp(RunScanner([tmp_path])).handle("GET", f"/runs/w0/{run_root.name}")
+    assert "planted.txt" not in response.body.decode() and b"private outside bytes" not in response.body
+    _assert_attempt_links(tmp_path, run_root, effect_class)
+    assert _tree_bytes(tmp_path) == before

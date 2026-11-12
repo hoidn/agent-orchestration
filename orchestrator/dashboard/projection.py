@@ -63,15 +63,24 @@ class RunProjector:
             duration_ms=payload.get("duration_ms"), error=payload.get("error"),
             outcome=payload.get("host_settlement"),
             file_refs=self._evaluated_file_refs(payload, resolver, warnings),
-            output_preview=json.dumps(payload["value"], ensure_ascii=False)[:200] if "value" in payload else "")
+            output_preview=json.dumps(payload["value"], ensure_ascii=False)[:200] if "value" in payload else "",
+            attempt=payload.get("attempt"), started_at=payload.get("started_at"),
+            completed_at=payload.get("completed_at"))
 
     def _evaluated_file_refs(self, payload, resolver, warnings):
+        """The result path, then every file in its attempt directory, each through the run-scope resolver.
+
+        Keys are the file name without its suffix (`stdout`, `prompt`, `receipt`), or the path inside the
+        attempt directory when that name is taken. A file that resolves outside the run root is left out
+        with a warning.
+        """
         result = Path(payload["result_path"])
         paths = {"result": result}
-        if payload["effect_class"] in {"command", "provider"}:
-            paths.update(stdout=result.parent / "stdout.txt", stderr=result.parent / "stderr.txt")
-        if payload["effect_class"] == "provider":
-            paths["prompt"] = result.parent / "prompt.txt"
+        for relative in self._attempt_files(result.parent, resolver, warnings):
+            path = result.parent / relative
+            if path != result:
+                key = relative.with_suffix("").as_posix()
+                paths[relative.as_posix() if key in paths else key] = path
         references = {}
         for name, path in paths.items():
             try:
@@ -79,6 +88,21 @@ class RunProjector:
             except UnsafePathError as exc:
                 warnings.append(f"unsafe {name} file: {exc}")
         return references
+
+    def _attempt_files(self, attempt, resolver, warnings):
+        """Paths under one attempt directory, sorted, without following symlinks (listed as files)."""
+        try:
+            directory = resolver.run_ref(attempt, label="attempt directory")
+        except UnsafePathError as exc:
+            warnings.append(f"unsafe attempt directory: {exc}")
+            return []
+        if directory.status != "not_file":
+            return []
+        found = []
+        for parent, directories, files in directory.absolute_path.walk():
+            directories.sort()
+            found.extend((parent / name).relative_to(directory.absolute_path) for name in sorted(files))
+        return found
 
     def _project_legacy_detail(self, run: RunRecord) -> DashboardRunDetail:
         read_time = self.now.isoformat()
