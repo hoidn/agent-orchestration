@@ -20,11 +20,17 @@ METERED_TRANSPORTS = frozenset({ProviderSessionMetadataMode.CLAUDE_STREAM_JSON_S
                                 ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value})
 
 
-class SpendCapRefusal(RuntimeError):
-    """`spend_cap_reached` or `spend_cap_unmetered`; `preflight` keeps the run without a terminal row."""
+# Why a `spend_cap_unmetered` refusal was raised; `orchestrator/cli/recovery.py` names the fix for each.
+TEMPLATE_UNMETERED, MODEL_UNPRICED, STEP_UNCAPPED, ATTEMPT_UNMETERED = (
+    "template_unmetered", "model_unpriced", "step_uncapped", "attempt_unmetered")
 
-    def __init__(self, code: str, message: str, *, spent_usd: float, cap_usd: float, unmetered=()) -> None:
-        self.code, self.preflight = code, True
+
+class SpendCapRefusal(RuntimeError):
+    """`spend_cap_reached` or `spend_cap_unmetered` (with its `cause`); `preflight` keeps the run without a terminal row."""
+
+    def __init__(self, code: str, message: str, *, spent_usd: float, cap_usd: float, unmetered=(),
+                 cause: str | None = None) -> None:
+        self.code, self.preflight, self.cause = code, True, cause
         self.spent_usd, self.cap_usd, self.unmetered = spent_usd, cap_usd, tuple(unmetered)
         super().__init__(message)
 
@@ -39,48 +45,52 @@ def check_spend_cap(authority, snapshot, node: Mapping[str, Any], *, executor=No
     if cap is None or node["class"] not in CAPPED_CLASSES:
         return
     table = load_price_table()
-    reason = _unmeterable(node, executor, policy, template, table)
-    if reason is not None:
-        raise SpendCapRefusal("spend_cap_unmetered", reason, spent_usd=0.0, cap_usd=cap)
-    total, unmetered = spent(authority.run_root, table, in_flight=_started_here(authority, snapshot))
+    refused = _unmeterable(node, executor, policy, template, table)
+    if refused is not None:
+        cause, reason = refused
+        raise SpendCapRefusal("spend_cap_unmetered", reason, spent_usd=0.0, cap_usd=cap, cause=cause)
+    total, unmetered = spent(authority.run_root, table, in_flight=_in_flight(authority, snapshot))
     if unmetered:
         raise SpendCapRefusal(
             "spend_cap_unmetered",
-            f"{len(unmetered)} earlier provider attempt(s) have no complete priced usage (first: {unmetered[0]}); "
-            "a capped run needs metered templates (`<name>_metered`) for its provider steps",
-            spent_usd=total, cap_usd=cap, unmetered=unmetered)
+            f"{len(unmetered)} earlier provider attempt(s) were cut off or have no complete priced usage "
+            f"(first: {unmetered[0]})", spent_usd=total, cap_usd=cap, unmetered=unmetered, cause=ATTEMPT_UNMETERED)
     if total >= cap:
         raise SpendCapRefusal("spend_cap_reached", f"spent {total:.6g} USD of a {cap:.6g} USD cap",
                               spent_usd=total, cap_usd=cap)
 
 
-def _unmeterable(node, executor, policy, template, table) -> str | None:
+def _unmeterable(node, executor, policy, template, table) -> tuple[str, str] | None:
+    """(cause, reason) when this call cannot be metered, else None."""
     kind = node["class"]
     if kind == "run_ref":
-        return "a run reference's child run is not capped"
+        return STEP_UNCAPPED, "a run reference's child run is not capped"
     if kind == "provider_phased":
-        return "a phased provider step reports no usage"
+        return STEP_UNCAPPED, "a phased provider step reports no usage"
     registry = getattr(executor, "registry", None)
     if template is None and registry is not None:
         template = registry.get(node.get("provider"))
     if template is None:
-        return f"provider {node.get('provider')!r} has no template"
+        return TEMPLATE_UNMETERED, f"provider {node.get('provider')!r} has no template"
     session = template.session_support
     transport = session.metadata_mode if kind == "agent_turn" and session is not None else template.command_metadata_mode
     if transport not in METERED_TRANSPORTS:
         metered = f"{template.name}_metered"
         hint = f"`{metered}`" if registry is not None and registry.get(metered) is not None else "a `<name>_metered` template"
-        return f"template {template.name!r} reports no usage; bind the step to {hint}"
+        return TEMPLATE_UNMETERED, f"template {template.name!r} reports no usage; bind the step to {hint}"
     model = (policy or {}).get("model") or template.defaults.get("model")
     if not prices_model(table, model):
-        return f"model {model!r} has no complete rates in the price table"
+        return MODEL_UNPRICED, f"model {model!r} has no complete rates in the price table"
     return None
 
 
-def _started_here(authority, snapshot) -> frozenset[str]:
-    """Attempt directories of pending starts this invocation wrote (a pending start from an earlier one was cut off)."""
-    since = authority.invocation_started_at
-    if since is None:
-        return frozenset()
+def pending_attempts(snapshot) -> frozenset[str]:
+    """Run-relative attempt directories of the memo's pending starts."""
     return frozenset(Path(entry.data["result_path"]).parent.as_posix() for entry in snapshot.pending_starts.values()
-                     if entry.data.get("result_path") and entry.data.get("time", 0) >= since)
+                     if entry.data.get("result_path"))
+
+
+def _in_flight(authority, snapshot) -> frozenset[str]:
+    """Pending attempts this invocation started: those not already pending when it began (`cut_off_attempts`)."""
+    cut_off = authority.cut_off_attempts
+    return frozenset() if cut_off is None else pending_attempts(snapshot) - cut_off

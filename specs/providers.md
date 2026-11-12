@@ -1305,7 +1305,7 @@ process was killed before its evidence was written (it holds only `prompt.txt`),
 Either reads as unmetered under a spend cap. The file is a view: no memo row, input part, effect
 identity or program digest refers to it, and a run recorded before it existed has none and resumes
 unchanged. Like the rest of the run tree it is trusted as found: a hand-edited `usage.json` changes
-what a spend cap counts. It holds either
+what a spend cap counts; a `usage.json` that is not a regular file reads as unmetered. It holds either
 `{"status": "reported", "source", "reported_cost_usd", "complete", "rows": [{"model", "tokens": {"input", "output", "cache_read", "cache_write"}}]}`
 or `{"status": "unknown", "reason": "no_transport" | "no_usage_event" | "malformed"}`. Unknown usage
 is never zero, and `complete: false` marks a lower bound, not a total.

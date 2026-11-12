@@ -10,6 +10,8 @@ import subprocess
 import sys
 import time
 
+import pytest
+
 from tests.test_workflow_evaluated_provider_usage import _attempts, _env, _memo, _orchestrator, _workspace
 
 # One stand-in Claude call reports 0.25 USD (above its highest-tier price); a cap of 5e-6 is reached after one call.
@@ -101,13 +103,20 @@ def test_cap_refuses_a_plain_template_before_its_first_call(tmp_path):
     stopped = _run(root, "--max-cost-usd", "1")
     assert (stopped.returncode, _calls(root), _memo(root), "[spend_cap_unmetered]" in stopped.stderr) == (
         1, 0, [], True), stopped.stderr
-    assert "claude_metered" in stopped.stderr       # the refusal names the metered template to bind
+    assert ("claude_metered" in stopped.stderr,      # the refusal names the metered template to bind
+            "cause template_unmetered" in stopped.stderr) == (True, True), stopped.stderr
 
 
-def test_cap_refuses_an_unpriced_model_before_its_call(tmp_path):
-    root = _capped(tmp_path, template="codex_metered", source=TWO_CALLS.replace("claude-haiku-5-5", "gpt-5.5"))
+@pytest.mark.parametrize("template, model", [
+    ("codex_metered", ':model "gpt-5.5"'), ("claude_metered", ':model "haiku"'),
+    ("claude_haiku_summary_metered", ""),             # the template's default model is the alias `haiku`
+    ("claude_unrestricted_workspace_metered", ""),    # no model at all
+], ids=["unpriced", "alias", "default-alias", "missing"])
+def test_cap_refuses_an_unpriced_model_before_its_call(tmp_path, template, model):
+    root = _capped(tmp_path, template=template, source=TWO_CALLS.replace(':model "claude-haiku-5-5"', model))
     stopped = _run(root, "--max-cost-usd", "1")
-    assert (stopped.returncode, _calls(root), "[spend_cap_unmetered]" in stopped.stderr) == (1, 0, True), stopped.stderr
+    assert (stopped.returncode, _calls(root), "[spend_cap_unmetered]" in stopped.stderr,
+            "cause model_unpriced" in stopped.stderr) == (1, 0, True, True), stopped.stderr
 
 
 def test_cap_refuses_every_unmeterable_parallel_item(tmp_path):
@@ -118,7 +127,17 @@ def test_cap_refuses_every_unmeterable_parallel_item(tmp_path):
     assert (stopped.returncode, _calls(root), "[spend_cap_unmetered]" in stopped.stderr) == (1, 0, True), stopped.stderr
 
 
-def test_killed_call_stops_its_own_retry_under_a_cap(tmp_path):
+def _shift_last_start(root: Path, seconds: float) -> None:
+    """Move the cut-off call's `started` row in time: the cap must not read the clock to tell it from a live call."""
+    (memo,) = root.glob(".orchestrate/runs/*/memo.jsonl")
+    rows = [json.loads(line) for line in memo.read_text(encoding="utf-8").splitlines()]
+    assert rows[-1]["record"] == "started"
+    rows[-1]["time"] = time.time() + seconds
+    memo.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+
+@pytest.mark.parametrize("shift", [0, 3600, -3600], ids=["as-recorded", "future", "past"])
+def test_killed_call_stops_its_own_retry_under_a_cap(tmp_path, shift):
     root = _capped(tmp_path)
     process = subprocess.Popen([sys.executable, "-m", "orchestrator", "run", "main.orc", "--source-root", ".",
                                 "--provider-externs-file", "providers.json", "--prompt-externs-file", "prompts.json",
@@ -133,8 +152,10 @@ def test_killed_call_stops_its_own_retry_under_a_cap(tmp_path):
         os.killpg(process.pid, signal.SIGKILL)
         process.wait()
     assert _calls(root) == 1
+    _shift_last_start(root, shift)
     resumed = _orchestrator(root, "resume", _run_id(root), "--max-cost-usd", "1")
-    assert (resumed.returncode, _calls(root), "[spend_cap_unmetered]" in resumed.stderr) == (1, 1, True), resumed.stderr
+    assert (resumed.returncode, _calls(root), "[spend_cap_unmetered]" in resumed.stderr,
+            "cause attempt_unmetered" in resumed.stderr) == (1, 1, True, True), resumed.stderr
 
 
 def test_cap_of_zero_never_suggests_the_same_cap(tmp_path):
@@ -176,6 +197,18 @@ def test_cap_counts_a_run_recorded_before_metering_as_unmetered(tmp_path):
     assert (resumed.returncode, _calls(root), "[spend_cap_unmetered]" in resumed.stderr) == (1, 1, True)
 
 
+@pytest.mark.parametrize("kind", ["directory", "fifo"])
+def test_cap_reads_a_usage_file_that_is_not_regular_as_unmetered(tmp_path, kind):
+    root = _capped(tmp_path)
+    assert _run(root, "--max-cost-usd", BELOW_ONE_CALL).returncode == 1
+    usage = _attempts(root)[0] / "usage.json"
+    usage.unlink()
+    usage.mkdir() if kind == "directory" else os.mkfifo(usage)
+    resumed = _orchestrator(root, "resume", _run_id(root), "--max-cost-usd", "1")
+    assert (resumed.returncode, _calls(root), "cause attempt_unmetered" in resumed.stderr,
+            "Traceback" in resumed.stderr) == (1, 1, True, False), resumed.stderr
+
+
 def test_run_reference_under_a_cap_stops_before_its_child(tmp_path, monkeypatch):
     from tests.agent_session_shims import closed_path
     from tests.test_workflow_evaluated_cli import _run_cli
@@ -185,7 +218,7 @@ def test_run_reference_under_a_cap_stops_before_its_child(tmp_path, monkeypatch)
     parent, source, refs = _public_fixture(tmp_path)
     result = _run_cli(parent, str(source), "--run-ref-root", str(refs), "--max-cost-usd", "1")
     children = list(refs.rglob("child-request.json")) if refs.exists() else []
-    assert (result.returncode, "[spend_cap_unmetered]" in result.stderr, children) == (1, True, []), result.stderr
+    assert (result.returncode, "cause step_uncapped" in result.stderr, children) == (1, True, []), result.stderr
 
 
 def test_completed_pending_agent_turn_recovers_under_a_cap(tmp_path, monkeypatch):
@@ -203,4 +236,4 @@ def test_completed_pending_agent_turn_recovers_under_a_cap(tmp_path, monkeypatch
     _root, _authority, classes, after = memo_of(tmp_path)
     # b1 commits at its first attempt without a launch; the next turn (an unpriced model) is refused before its call.
     assert (turns(after, classes)["b1"]["attempt"], len(shim_requests(tmp_path)),
-            "[spend_cap_unmetered]" in resumed.stderr) == (1, 2, True), resumed.stderr
+            "cause model_unpriced" in resumed.stderr) == (1, 2, True), resumed.stderr

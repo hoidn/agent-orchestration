@@ -424,12 +424,13 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   of its provider attempts
   ([providers, "Metered templates and usage"](providers.md#metered-templates-and-usage)):
   every attempt with a `usage.json` is counted, pending or not; an attempt
-  without one is skipped only while this invocation started it and it is
-  still running. Any counted attempt whose usage is unknown, `complete: false`
-  (a lower bound, e.g. a killed, timed-out or terminated turn) or unpriced, and
-  any attempt without a `usage.json` that an earlier invocation started (a
-  call cut off by a kill: its own retry stops), stops the run with
-  `spend_cap_unmetered`. Spend at or over the cap stops it with
+  without one is skipped only while it is pending and was not already pending
+  when this invocation began (the invocation records that set once, at its
+  start, and reads no clock). Any counted attempt whose usage is unknown,
+  `complete: false` (a lower bound, e.g. a killed, timed-out or terminated
+  turn), unpriced or not a regular file, and any attempt without a
+  `usage.json` that is not in flight (a call cut off by a kill: its own retry
+  stops), stops the run with `spend_cap_unmetered`. Spend at or over the cap stops it with
   `spend_cap_reached`. The cap prices conservatively: an attempt's figure is
   the larger of the CLI's reported cost and the price at the model's highest
   listed tier (a long-context rate where the table has one), so it can stop
@@ -711,7 +712,7 @@ the `resume` command.
 | `lexical_restore_pending_effect_unsafe` | the step that must not repeat, and that a new run performs it again, so whether the interrupted attempt took effect should be checked first | a fresh `run` |
 | `resume_request_missing` | that the run has no rebuild recipe | none |
 | `spend_cap_reached` | the spent and cap amounts (USD), and that no provider call started | `resume` with `--max-cost-usd` at twice the larger of the two; `resume` without a cap when both are 0 |
-| `spend_cap_unmetered` | why the next call cannot be metered (its template, phased step, unpriced model or run reference), or how many earlier provider attempts have no complete priced usage (the first by attempt directory), and that a capped run needs `<name>_metered` templates | `resume` without a cap |
+| `spend_cap_unmetered` | why the next call cannot be metered (its template, phased step, unpriced model or run reference), or how many earlier provider attempts were cut off or have no complete priced usage (the first by attempt directory); then `cause <code>` and its fix: `template_unmetered` (bind the step to its `<name>_metered` template and start a new run with the cap), `model_unpriced` (an alias or missing model: set the step's `:model` to a model id the price table prices and start a new run with the cap), `step_uncapped` (a run reference or phased provider step cannot run under a cap), `attempt_unmetered` (an earlier attempt was cut off or has no complete priced usage) | `resume` without a cap |
 
 | Code | Raised by | Exit | Effect on evidence |
 | --- | --- | --- | --- |

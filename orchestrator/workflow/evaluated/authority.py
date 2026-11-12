@@ -67,8 +67,9 @@ class RunAuthority:
     observer: Callable[[Mapping[str, Any]], None] | None = field(default=None, compare=False, repr=False)
     # This invocation's `--max-cost-usd` (spend_cap.py); never stored, not authority.
     spend_cap_usd: float | None = field(default=None, compare=False, repr=False)
-    # When this invocation began (`time.time()`); a pending start older than it was cut off, not in flight.
-    invocation_started_at: float | None = field(default=None, compare=False, repr=False)
+    # Attempt directories already pending when this invocation began (spend_cap.pending_attempts): cut off,
+    # never in flight. None when unknown, so every attempt without usage counts as unmetered.
+    cut_off_attempts: frozenset[str] | None = field(default=None, compare=False, repr=False)
 
     @property
     def confined(self) -> bool:

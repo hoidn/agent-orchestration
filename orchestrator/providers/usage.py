@@ -201,8 +201,8 @@ def spent(run_root: Path, table: dict, *, in_flight: frozenset[str] = frozenset(
     A provider attempt is an `effects/<sha>/attempt-<n>/` directory holding a regular `prompt.txt`.
     Every attempt with a regular `usage.json` is counted; one whose usage is unknown, incomplete or
     unpriced is listed, never counted as zero. An attempt without `usage.json` is skipped only when it
-    is in `in_flight` (run-relative directories this invocation started and has not finished), else
-    listed. Symbolic links are never followed.
+    is in `in_flight` (run-relative directories still running), else listed. A `usage.json` that is not
+    a regular file reads as unknown. Symbolic links are never followed.
     """
     total, unmetered = 0.0, []
     for attempt in _attempt_dirs(Path(run_root)):
@@ -252,10 +252,11 @@ def _regular_json(path: Path) -> Any:
         return _ABSENT
     except OSError:
         return None
+    if not stat.S_ISREG(os.fstat(descriptor).st_mode):      # checked before `fdopen`, which raises on a directory
+        os.close(descriptor)
+        return None
     with os.fdopen(descriptor, "rb") as stream:
-        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-            return None
         try:
             return json.loads(stream.read().decode("utf-8"))
-        except (ValueError, RecursionError):
+        except (OSError, ValueError, RecursionError):
             return None

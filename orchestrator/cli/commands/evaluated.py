@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from contextlib import ExitStack
 from dataclasses import replace
 import os
-import time
 import hashlib
 import logging
 from argparse import Namespace
@@ -26,6 +25,7 @@ from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.evaluated.machine import site_classes
 from orchestrator.workflow.evaluated.memo import read_memo
 from orchestrator.workflow.evaluated.runtime import execute_pure_resume, execute_pure_run
+from orchestrator.workflow.evaluated.spend_cap import pending_attempts
 from orchestrator.workflow.evaluated.values import coerce_evaluated_value
 from orchestrator.workflow.signatures import (
     WorkflowSignatureError,
@@ -422,13 +422,22 @@ def _execute_reported(reporter: TerminalReporter, execute, authority, inputs, *,
         reporter.error(exc, header=authority.header, stored_program=stored_program, snapshot=_memo_or_none(authority))
 
     try:
+        cut_off = None if spend_cap_usd is None else _pending_at_start(authority)
         exit_code, value = execute(replace(authority, observer=reporter.record, spend_cap_usd=spend_cap_usd,
-                                           invocation_started_at=time.time()), inputs, on_error=on_error, **kwargs)
+                                           cut_off_attempts=cut_off), inputs, on_error=on_error, **kwargs)
     except KeyboardInterrupt:
         reporter.run_failed()
         raise
     _report_outcome(reporter, authority, exit_code, value)
     return exit_code, value
+
+
+def _pending_at_start(authority) -> frozenset[str] | None:
+    """The attempts a capped invocation finds pending before it runs (cut off); None when the memo cannot be read."""
+    if not os.path.lexists(authority.memo_path):
+        return frozenset()
+    snapshot = _memo_or_none(authority)
+    return None if snapshot is None else pending_attempts(snapshot)
 
 
 def _memo_or_none(authority):

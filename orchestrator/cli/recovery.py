@@ -224,9 +224,18 @@ def _spend_cap_reached(exc, context: _Context) -> list[str]:
             context.command("resume", context.run_id, "--max-cost-usd", f"{higher:.6g}")]
 
 
+_UNMETERED_FIX = {
+    "template_unmetered": "bind the step to its `<name>_metered` template and start a new run with the cap",
+    "model_unpriced": "set the step's `:model` to a model id the price table prices and start a new run with the cap",
+    "step_uncapped": "a run reference or phased provider step cannot run under a cap",
+    "attempt_unmetered": "an earlier attempt was cut off or has no complete priced usage, so the cap cannot be checked",
+}
+
+
 def _spend_cap_unmetered(exc, context: _Context) -> list[str]:
-    return ["the cap prices only metered calls: bind provider steps to `<name>_metered` templates",
-            "to continue without a cap:", context.resume()]
+    cause = getattr(exc, "cause", None) or "unknown"
+    fix = _UNMETERED_FIX.get(cause, "the cap prices only metered calls")
+    return [f"cause {cause}: {fix}", "to continue this run without a cap:", context.resume()]
 
 
 _RECOVERY = {
