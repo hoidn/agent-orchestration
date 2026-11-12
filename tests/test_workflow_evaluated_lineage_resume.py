@@ -30,12 +30,13 @@ Path(os.environ["ORCHESTRATOR_OUTPUT_BUNDLE_PATH"]).write_text(json.dumps(int(sy
 '''
 SHELL_STEP = 'echo "$1" >> log.txt\necho $(( $2 + 1 )) > "$ORCHESTRATOR_OUTPUT_BUNDLE_PATH"\n'
 COMMANDS = {"step": {"stable_command": ["python", "t.py"], "closure": ["t.py"]},
-            "shell": {"stable_command": ["sh", "s.sh"], "closure": ["s.sh"]}}
+            "shell": {"stable_command": ["sh", "s.sh"], "closure": ["s.sh"]},
+            "late": {"stable_command": ["python", "l.py"], "closure": ["l.py"]}}
 RUN_ARGS = ["pipe.orc", "--command-boundaries-file", "commands.json"]
 
 
 def cmd(name: str, arg: str, tool: str = "step") -> str:
-    argv = '"python" "t.py"' if tool == "step" else '"sh" "s.sh"'
+    argv = {"step": '"python" "t.py"', "shell": '"sh" "s.sh"', "late": '"python" "l.py"'}[tool]
     return f'({name} (command-result {tool} :argv ({argv} "{name}" {arg}) :returns Int))'
 
 
@@ -51,6 +52,7 @@ SERIAL = [cmd("s1", "n"), cmd("s2", "s1"), cmd("s3", "s2"), cmd("s4", "s3")]
 def _workspace(root: Path, lets: list[str], result: str) -> Path:
     root.mkdir(parents=True)
     (root / "t.py").write_text(STEP)
+    (root / "l.py").write_text(STEP)
     (root / "s.sh").write_text(SHELL_STEP)
     (root / "commands.json").write_text(json.dumps(COMMANDS))
     (root / "pipe.orc").write_text(source(lets, result))
@@ -426,3 +428,15 @@ def test_a_record_inside_bytes_another_journal_folded_is_still_read(serial_base,
     read_memo(journal, site_classes(authority.program))
     current = load_run_authority(run_root)
     assert len(read_memo(run_root / "memo.jsonl", site_classes(current.program)).lineage.record_offsets) == 1
+
+
+def test_a_cut_commit_runs_again_with_its_changed_script_without_the_flag(tmp_path):
+    """A commit the cut cancels does not pin its next attempt to its old files, as after `invalidate` (§8.1)."""
+    workspace = _workspace(tmp_path / "ws", [*SERIAL[:3], cmd("s4", "s3", "late")], "s4")
+    run_root = _run(workspace)
+    _edit(workspace, [*SERIAL[:3], cmd("s4", "(+ s3 1)", "late")], "s4")
+    (workspace / "l.py").write_text(STEP + "# changed with the edit\n")
+    fx.rebase(run_root, workspace, fx.offset_of(run_root, "committed", "s4"), RUN_ARGS)
+    code, started, stderr = _resume(workspace, run_root)
+    assert (code, started) == (0, ["s4#2"]), stderr
+    assert fx.rows(run_root)[-1] == {"record": "terminal", "outcome": "completed", "value": 5}
