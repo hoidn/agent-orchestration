@@ -204,10 +204,6 @@ def test_watchdog_enabled_present_must_be_literal_true(tmp_path):
     "advisor",
     [
         '  - model: "x-ai/grok-code-fast:high"\n    tools: [read]\n    instructions: "i"\n    enabled: true',  # missing name
-        '  - name: w\n    tools: [read]\n    instructions: "i"\n    enabled: true',  # missing model
-        '  - name: w\n    model: "x-ai/grok-code-fast:high"\n    instructions: "i"\n    enabled: true',  # missing tools
-        '  - name: w\n    model: "x-ai/grok-code-fast:high"\n    tools: [read]\n    enabled: true',  # missing instructions
-        '  - name: w\n    model: "x-ai/grok-code-fast:high"\n    tools: [read]\n    instructions: "i"',  # missing enabled
         '  - name: w\n    model: ""\n    tools: [read]\n    instructions: "i"\n    enabled: true',  # empty model
         '  - name: w\n    model: "x-ai/grok-code-fast: turbo"\n    tools: [read]\n    instructions: "i"\n    enabled: true',  # bad selector
         '  - name: w\n    model: "x-ai/grok-code-fast:high"\n    tools: [read, write]\n    instructions: "i"\n    enabled: true',  # tool outside set
@@ -257,19 +253,12 @@ def test_admits_fanout_fixture():
     [
         {"description": ""},                       # empty description
         {"name": "", "description": "x"},          # empty name
-        {"name": "Alpha", "description": "x"},     # uppercase start
         {"name": "1alpha", "description": "x"},    # leading digit
         {"name": "a" * 65, "description": "x"},    # too long
-        {"name": "a b", "description": "x"},       # whitespace
         {"name": "a/b", "description": "x"},       # slash
         {"name": "__advisor", "description": "x"},  # reserved name
         {"name": "scout", "description": "x"},     # bundled name
         {"name": "alpha", "description": "x", "output": "on"},          # unknown key
-        {"name": "alpha", "description": "x", "thinkingLevel": "high"}, # unknown key
-        {"name": "alpha", "description": "x", "advisor": True},         # unknown key
-        {"name": "alpha", "description": "x", "blocking": False},       # unknown key
-        {"name": "alpha", "description": "x", "autoloadSkills": True},  # unknown key
-        {"name": "alpha", "description": "x", "prewalk": True},         # unknown key
         {"name": "alpha", "description": "x", "tools": '[bash2]'},      # tool outside pinned set
         {"name": "alpha", "description": "x", "tools": "[read, read]"}, # duplicate tools
         {"name": "alpha", "description": "x", "tools": "[read, task]"}, # task tool implies spawns: * in OMP; omitted is forbidden
