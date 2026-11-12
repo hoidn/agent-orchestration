@@ -22,6 +22,7 @@ Repo expectations:
 - For tmux-launched EasySpin, PtychoPINN, or paper workflows, prefer sourcing conda, activating `ptycho311`, and then invoking `python -m orchestrator` directly so tmux shows live output; if you use `conda run`, include `--no-capture-output`.
 - Write plans under `docs/plans/` before large edits.
 - Keep changes scoped to the task; avoid unrelated refactors.
+- No module line limit (owner, 2026-11-12): the 500-line module cap of the general guidelines does not apply in this repository. Split a module when it holds more than one responsibility, not at a line count; do not move code out of a module only to stay under a number. The function complexity limit (12) still applies.
 - Run commands from the repo root so imports, relative paths, and fixture layout stay stable.
 - Treat fresh command output as required verification evidence.
 - Prefer the narrowest relevant `pytest` selectors first.
