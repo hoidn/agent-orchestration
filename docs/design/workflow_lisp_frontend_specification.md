@@ -1894,6 +1894,14 @@ Preferred:
     ...))
 ```
 
+The binder form `(loop/recur ((state initial-state)) :max max-iterations
+:on-exhausted exhausted-result body)`, the shape of the map forms, is accepted
+beside the `fn` form and builds the same closed program, program digest and
+effect identities. Its body is the loop body without `fn`. The initial state is
+evaluated before `:max`, wherever the options are written; the `fn` form keeps
+its written `:max`/`:state` order, so the two differ only when both hold an
+effect. The binder form takes no `:state` and no `fn`, and exactly one binder.
+
 Loop body returns:
 
 - `(continue new-state)`
