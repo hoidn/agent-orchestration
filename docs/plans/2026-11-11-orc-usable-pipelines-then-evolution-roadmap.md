@@ -446,7 +446,7 @@ is manual. Phase plans are linked here as they start:
   known gaps and the friction left for later.
 - Phase 2, started: [qualification, metering and stable names plan](2026-11-11-roadmap-phase-2-qualification-metering-names-plan.md).
 - Phase 3, spike done: [edit and continue feasibility spike](../design/workflow_lisp_edit_and_continue_spike.md);
-  3a and 3b are feasible, 3a is planned first.
+  3a and 3b are feasible; 3a has its [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md), accepted, not started.
 - Phase 5, in preparation: [seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md).
 - Lane D, tests, done: [low-value test removal plan](2026-11-11-low-value-test-removal-plan.md).
 - Lane D, dashboard: [dashboard migration plan](2026-11-11-dashboard-evaluated-runs-migration-plan.md).
