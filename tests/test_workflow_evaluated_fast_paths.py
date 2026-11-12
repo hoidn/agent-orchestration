@@ -20,7 +20,6 @@ import sys
 import pytest
 
 from orchestrator.cli.main import main
-from orchestrator.workflow import pure_expr
 from orchestrator.workflow.evaluated import memo_reducer, views
 from orchestrator.workflow_lisp import procedure_typecheck
 from orchestrator.workflow_lisp.closed import command_templates
@@ -90,7 +89,7 @@ def _run_root(root: Path) -> Path:
 
 def force_reference_paths(monkeypatch) -> None:
     """Take the pre-optimization path at every fast path: full reductions, replayed start
-    views, the full demand walk, the full let-proc rewrite and the copying JSON encoder."""
+    views, the full demand walk and the full let-proc rewrite."""
     monkeypatch.setattr(memo_reducer, "_resume_cached_prefix", lambda reducer, raw: 0)
     publish = views.publish_evaluated_view
     monkeypatch.setattr(views, "publish_evaluated_view", lambda authority, entry, **_: publish(authority, entry))
@@ -98,7 +97,6 @@ def force_reference_paths(monkeypatch) -> None:
     rewrite = procedure_typecheck._replace_eliminated_let_procs
     monkeypatch.setattr(procedure_typecheck, "_replace_eliminated_let_procs",
         lambda node, *, let_proc_rewrite_results=None: rewrite(node, let_proc_rewrite_results=let_proc_rewrite_results or {0: None}))
-    monkeypatch.setattr(pure_expr, "_encodes_unchanged", lambda value: False)
 
 
 def _loop(monkeypatch, root: Path) -> None:

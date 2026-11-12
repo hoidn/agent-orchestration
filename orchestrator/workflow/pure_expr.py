@@ -307,37 +307,16 @@ class PureExprEvaluationError(ValueError):
         self.source = source
 
 
-_CANONICAL_JSON = {"sort_keys": True, "separators": (",", ":"), "ensure_ascii": False, "allow_nan": False}
-_JSON_SCALARS = frozenset({str, int, float, bool, type(None)})
-
-
 def canonical_json_for_pure_value(value: Any) -> str:
-    """Return deterministic canonical JSON for one pure runtime value.
+    """Return deterministic canonical JSON for one pure runtime value."""
 
-    The reference encoding is ``json.dumps(_jsonable(value))``. When ``_jsonable`` would only
-    turn tuples into lists, the C encoder gives the same bytes without that copy; any other
-    value, and any refusal, takes the reference encoding.
-    """
-
-    try:
-        if _encodes_unchanged(value):
-            return json.dumps(value, **_CANONICAL_JSON)
-    except (TypeError, ValueError, RecursionError):
-        pass  # the reference encoding below raises the same refusal as before
-    return json.dumps(_jsonable(value), **_CANONICAL_JSON)
-
-
-def _encodes_unchanged(value: Any) -> bool:
-    """True for exact dicts with exact ``str`` keys, lists, tuples and non-container leaves."""
-
-    kind = type(value)
-    if kind in _JSON_SCALARS:
-        return True
-    if kind is dict:
-        return all(type(key) is str and _encodes_unchanged(item) for key, item in value.items())
-    if kind is list or kind is tuple:
-        return all(map(_encodes_unchanged, value))
-    return not isinstance(value, (Mapping, list, tuple))
+    return json.dumps(
+        _jsonable(value),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
 
 
 def canonical_json_for_pure_payload(payload: Mapping[str, Any]) -> str:
