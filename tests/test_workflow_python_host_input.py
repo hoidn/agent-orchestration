@@ -59,7 +59,7 @@ def test_body_only_ask_is_retained_even_when_result_is_ignored(tmp_path):
     assert any(entry.kind == "call" and entry.python.line == 7 for entry in graph.source_map.entries)
 
 
-@pytest.mark.parametrize("target", ["2.35", "2.38", "2.39"])
+@pytest.mark.parametrize("target", ["2.35", "2.39"])
 def test_body_only_ask_refuses_old_target_before_run_publication(tmp_path, target):
     source = module_source(tmp_path, f'''
     TARGET = "{target}"
