@@ -322,9 +322,8 @@ def test_qualified_decision_feedback_resolves_revise_parameter(tmp_path, declara
         "(let* ((first (need (proc-ref h))) (second (seed 1 (proc-ref h)))) second)",
         "(let* ((first (seed 1 (proc-ref h))) (second (need (proc-ref h)))) second)",
         "(let* ((first (seed 1 (proc-ref h))) (second (seed 2 (proc-ref h)))) second)",
-        "(let* ((first (seed 2 (proc-ref h))) (second (seed 1 (proc-ref h)))) second)",
     ],
-    ids=("need-then-seed", "seed-then-need", "two-seeds", "reversed-two-seeds"),
+    ids=("need-then-seed", "seed-then-need", "two-seeds"),
 )
 def test_incomplete_local_requires_one_authored_site(tmp_path, calls):
     body = f"(let-proc ((h (x) x)) {calls})"

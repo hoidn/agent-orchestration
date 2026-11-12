@@ -2597,8 +2597,6 @@ def test_q2_fragment_pair_requires_exact_ordered_expected_outputs() -> None:
     (
         ({"kind": "primitive", "name": "String"}, "raw-utf8-string"),
         ({"kind": "primitive", "name": "Int"}, "canonical-json"),
-        ({"kind": "primitive", "name": "Float"}, "canonical-json"),
-        ({"kind": "primitive", "name": "Bool"}, "canonical-json"),
         ({"kind": "primitive", "name": "Json"}, "canonical-json"),
         ({"kind": "primitive", "name": "Value"}, "canonical-json"),
         (

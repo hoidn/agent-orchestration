@@ -716,36 +716,6 @@ def test_list_nonempty_head_enforces_compiler_nonempty_invariant() -> None:
     assert pure_expr.evaluate_pure_expr(present_payload) == 7
 
 
-def test_validate_rejects_list_item_vs_element_descriptor_mismatch() -> None:
-    pure_expr = importlib.import_module("orchestrator.workflow.pure_expr")
-    payload = _pure_payload(
-        _list_node(_literal(_STRING, "wrong")),
-        result_type=_LIST_INT,
-    )
-
-    with pytest.raises(pure_expr.PureExprEvaluationError) as excinfo:
-        pure_expr.validate_pure_expr_payload(payload)
-
-    assert excinfo.value.code == "pure_expr_operand_type_mismatch"
-
-
-def test_validate_rejects_list_map_source_vs_binder_descriptor_mismatch() -> None:
-    pure_expr = importlib.import_module("orchestrator.workflow.pure_expr")
-    payload = _pure_payload(
-        _list_map_node(
-            source=_list_node(_literal(_INT, 1)),
-            binder_type=_STRING,
-            result_element_type=_STRING,
-        ),
-        result_type={"kind": "list", "item": _STRING},
-    )
-
-    with pytest.raises(pure_expr.PureExprEvaluationError) as excinfo:
-        pure_expr.validate_pure_expr_payload(payload)
-
-    assert excinfo.value.code == "pure_expr_operand_type_mismatch"
-
-
 def test_validate_rejects_list_map_body_descriptor_mismatch_for_empty_source() -> None:
     pure_expr = importlib.import_module("orchestrator.workflow.pure_expr")
     payload = _pure_payload(

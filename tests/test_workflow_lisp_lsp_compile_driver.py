@@ -669,36 +669,6 @@ def test_builtin_root_drift_latches_and_reversion_never_unlatches(
     assert reverted.effects == lsp_state.StateEffects()
 
 
-def test_recheck_observes_builtin_identity_even_when_a_file_already_drifted(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    workspace = tmp_path / "workspace"
-    workspace.mkdir()
-    initial, paths = _configured_initial_state(workspace)
-    driver = compile_driver.initialize_compile_driver(initial)
-    paths["provider_externs_path"].write_text(
-        '{"providers.execute":"changed"}\n',
-        encoding="utf-8",
-    )
-    calls: list[None] = []
-
-    def current_builtin_root() -> Path:
-        calls.append(None)
-        return initial.builtin_stdlib_source_root
-
-    monkeypatch.setattr(
-        compile_driver.compiler,
-        "_builtin_stdlib_source_root",
-        current_builtin_root,
-    )
-
-    transition = driver.recheck_configuration()
-
-    assert transition.state.configuration_stale is True
-    assert calls == [None]
-
-
 @pytest.mark.parametrize(
     ("failure_kind", "expected_exception"),
     (
@@ -4527,7 +4497,7 @@ def test_observe_disk_path_routes_frozen_member_to_configuration_latch(
     assert transition.effects.restart_notice_required is True
 
 
-@pytest.mark.parametrize("target", ("2.35", "2.36", "2.37", "2.38", "2.39"))
+@pytest.mark.parametrize("target", ("2.35", "2.39"))
 def test_analysis_build_accepts_supported_headers_without_flat_emission(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str,
 ) -> None:

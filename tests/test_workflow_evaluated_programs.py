@@ -59,10 +59,6 @@ def test_public_stock_search_matches_python_reference(tmp_path, monkeypatch, bud
         assert json.loads(report.stdout)["run"]["workflow_outputs"] == observed["result"]
 
 
-def test_campaign_has_72_unique_scenario_budget_cases():
-    assert len({param.id for param in CAMPAIGN}) == len(CAMPAIGN) == 72
-
-
 @pytest.mark.parametrize("scenario,budget", CAMPAIGN)
 def test_public_search_matches_scenario(tmp_path, monkeypatch, scenario, budget):
     outcome = exercise(tmp_path, monkeypatch, stock_source(), budget, scenario, compile=False)

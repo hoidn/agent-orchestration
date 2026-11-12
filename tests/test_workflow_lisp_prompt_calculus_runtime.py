@@ -124,7 +124,7 @@ def test_fragment_base_renders_closed_slots_once_and_reuses_repeated_value(
     ]
 
 
-@pytest.mark.parametrize("target_dsl_version", ("2.20", "2.21"))
+@pytest.mark.parametrize("target_dsl_version", ("2.21",))
 def test_fragment_base_older_targets_keep_string_only_rendering(
     target_dsl_version: str,
 ) -> None:

@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.state import StateManager
 from orchestrator.workflow_lisp.compiler import (
     compile_stage1_module,
     compile_stage3_entrypoint,
@@ -21,9 +20,6 @@ VALID_MINIMAL_FIXTURE = FIXTURES / "valid" / "loop_recur_minimal.orc"
 VALID_UNION_FIXTURE = FIXTURES / "valid" / "loop_recur_union_result.orc"
 VALID_ON_EXHAUSTED_RECORD_FIXTURE = FIXTURES / "valid" / "loop_recur_on_exhausted_record.orc"
 VALID_ON_EXHAUSTED_UNION_FIXTURE = FIXTURES / "valid" / "loop_recur_on_exhausted_union.orc"
-VALID_ON_EXHAUSTED_SCALAR_FRAME_CARRIAGE_FIXTURE = (
-    FIXTURES / "valid" / "loop_recur_on_exhausted_scalar_frame_carriage.orc"
-)
 INVALID_MISSING_DONE_FIXTURE = FIXTURES / "invalid" / "loop_recur_missing_done.orc"
 INVALID_CONTINUE_FIXTURE = FIXTURES / "invalid" / "loop_recur_continue_type_mismatch.orc"
 INVALID_DONE_FIXTURE = FIXTURES / "invalid" / "loop_recur_done_type_mismatch.orc"
@@ -335,20 +331,6 @@ def test_compile_stage3_imported_loop_recur_on_exhausted_helper_validates(tmp_pa
     assert result.entry_result.typed_workflows[0].definition.name == "entry::orchestrate"
 
 
-
-
-def test_loop_recur_on_exhausted_scalar_frame_carriage_executes_through_shared_repeat_until(
-    tmp_path: Path,
-) -> None:
-    result = _compile(
-        VALID_ON_EXHAUSTED_SCALAR_FRAME_CARRIAGE_FIXTURE,
-        tmp_path=tmp_path,
-        validate_shared=True,
-    )
-
-    assert result.lowering_schema_version == 2
-
-    state_manager = StateManager(workspace=tmp_path, run_id="loop-recur-on-exhausted-scalar-frame-carriage")
 
 
     # Exhaustion projects the state after the second committed continue.

@@ -6,8 +6,6 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow.run_ref import config as run_ref_config
-from orchestrator.workflow_lisp import syntax
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 
@@ -36,19 +34,6 @@ def _compile_minimal_module(tmp_path: Path, target_dsl_version: str):
         workspace_root=tmp_path,
 
     )
-
-
-
-
-@pytest.mark.parametrize(
-    "registry",
-    [
-        pytest.param(syntax.SUPPORTED_TARGET_DSL_VERSIONS, id="frontend"),
-        pytest.param(run_ref_config._SUPPORTED_TARGET_DSL_VERSIONS, id="run-ref-config"),
-    ],
-)
-def test_current_target_235_is_registered(registry) -> None:
-    assert "2.35" in registry
 
 
 

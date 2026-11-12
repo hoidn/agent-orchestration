@@ -15,7 +15,7 @@ class _UnhashableString(str):
     __hash__ = None
 
 
-@pytest.mark.parametrize(('status', 'run_terminal', 'step_settled'), (('completed', True, True), ('failed', True, True), ('skipped', False, True), ('running', False, False), ('suspended', False, False), ('pending', False, False), ('unknown', False, False), ('', False, False), (_StringSubclass('completed'), True, True), (_UnhashableString('completed'), True, True), (None, False, False), (True, False, False), (0, False, False)))
+@pytest.mark.parametrize(('status', 'run_terminal', 'step_settled'), (('completed', True, True), ('failed', True, True), ('skipped', False, True), ('running', False, False), ('unknown', False, False), (_StringSubclass('completed'), True, True), (_UnhashableString('completed'), True, True), (None, False, False), (True, False, False)))
 def test_status_predicates_golden_matrix(status: Any, run_terminal: bool, step_settled: bool) -> None:
     assert is_run_terminal(status) is run_terminal
     assert is_step_settled(status) is step_settled

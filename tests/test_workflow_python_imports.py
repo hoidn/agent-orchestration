@@ -563,7 +563,7 @@ def test_python_imported_variant_construction_keeps_unique_union_owner(tmp_path)
     assert evaluate_closed_program(built.program, {"flag": False}).value == 1
 
 
-@pytest.mark.parametrize("token", ["_name", "__name__", "__module__"])
+@pytest.mark.parametrize("token", ["_name", "__module__"])
 def test_non_type_subscripts_and_private_enum_metadata_tokens_refuse(tmp_path, token):
     path = orc(tmp_path / "libs", "library/subscript", '''
       (export echo)

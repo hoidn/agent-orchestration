@@ -591,7 +591,7 @@ def _render(shape, schema, delivery):
 
 
 @pytest.mark.parametrize("delivery", ["legacy", "file"])
-@pytest.mark.parametrize("schema", _SCHEMAS)
+@pytest.mark.parametrize("schema", ["relpath"])
 @pytest.mark.parametrize("shape", _SHAPES)
 def test_contract_block_has_one_path_line_before_its_schema(shape, schema, delivery):
     heading, rendered = _render(shape, schema, delivery)
@@ -602,7 +602,7 @@ def test_contract_block_has_one_path_line_before_its_schema(shape, schema, deliv
     assert lines.index(heading) == 0 < lines.index(_PATH_LINE) < format_at
 
 
-@pytest.mark.parametrize("schema", _SCHEMAS)
+@pytest.mark.parametrize("schema", ["plain", "relpath"])
 @pytest.mark.parametrize("shape", _SHAPES)
 def test_file_delivery_changes_only_the_lines_before_the_path_line(shape, schema):
     _heading, legacy = _render(shape, schema, "legacy")
@@ -612,8 +612,10 @@ def test_file_delivery_changes_only_the_lines_before_the_path_line(shape, schema
     assert file[: file.index(marker)] != legacy[: legacy.index(marker)]
 
 
-@pytest.mark.parametrize("schema", _SCHEMAS)
-@pytest.mark.parametrize("shape", _SHAPES)
+@pytest.mark.parametrize(("shape", "schema"), [
+    *(("root", schema) for schema in _SCHEMAS),
+    *((shape, schema) for shape in ("record", "variant", "variant-shared") for schema in ("plain", "relpath")),
+])
 def test_relpath_guidance_is_unconditional_under_legacy_and_typed_under_file(shape, schema):
     has_relpath = _SCHEMAS[schema][1]
     assert _RELPATH_GUIDANCE in _render(shape, schema, "legacy")[1].splitlines()

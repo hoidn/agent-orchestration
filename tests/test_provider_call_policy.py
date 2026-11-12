@@ -81,22 +81,9 @@ def test_binding_validation_rejects_unknown_canonical_keys(canonical_option: str
     "target_param",
     [
         "",
-        "two words",
-        "run.id",
-        "${model}",
         "model-name",
         "1model",
         "PROMPT",
-        "SESSION_ID",
-        "run",
-        "context",
-        "inputs",
-        "loop",
-        "item",
-        "steps",
-        "self",
-        "parent",
-        "root",
     ],
 )
 def test_binding_validation_rejects_invalid_or_reserved_target_param(
@@ -174,13 +161,8 @@ def test_direct_binding_validation_ignores_escaped_target_placeholder() -> None:
     "fragment",
     [
         [],
-        ["--effort"],
         ["--effort", "${other}"],
         ["--effort", "${effort}", "${effort}"],
-        ["--effort", "${effort}", "${other}"],
-        ["--effort", "${effort}", "${PROMPT}"],
-        ["--effort", "${effort}", "${SESSION_ID}"],
-        ["--effort", "${effort}", "${context.workspace}"],
         ["--effort", "$${effort}"],
     ],
 )

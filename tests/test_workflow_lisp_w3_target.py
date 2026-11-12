@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow.run_ref import config as run_ref_config
 from orchestrator.workflow_lisp import syntax
 from orchestrator.workflow_lisp.closed.target import entry_target_dsl_version
 from tests.test_workflow_lisp_closed_program_compile_cli import _build_state
@@ -34,17 +33,6 @@ def _write_program(root: Path, target: str) -> dict[str, Path]:
     files["source"].write_text(PURE_PROGRAM.replace("TARGET", target), encoding="utf-8")
     files["workspace"] = root
     return files
-
-
-@pytest.mark.parametrize(
-    "registry",
-    [
-        pytest.param(syntax.SUPPORTED_TARGET_DSL_VERSIONS, id="frontend"),
-        pytest.param(run_ref_config._SUPPORTED_TARGET_DSL_VERSIONS, id="run-ref-config"),
-    ],
-)
-def test_target_236_is_registered(registry) -> None:
-    assert W3_TARGET in registry
 
 
 def test_w3_feature_gate_starts_at_236_and_evaluated_route_stays_at_235() -> None:

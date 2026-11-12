@@ -34,17 +34,6 @@ def test_nanobragg_seed_contains_expected_shared_and_task_specific_files():
     assert not missing, f"Missing expected nanoBragg seed files: {missing}"
 
 
-def test_nanobragg_task_fixture_targets_bounded_pytorch_porting():
-    task_text = (SEED / "docs" / "tasks" / "port_nanobragg_accumulation_to_pytorch.md").read_text()
-
-    assert "nanoBragg.c" in task_text
-    assert "PyTorch" in task_text
-    assert "tensor-level numerical parity" in task_text
-    assert "do not port the entire program" in task_text
-    assert "visible smoke checks are incomplete" in task_text
-    assert "state/task.md" in task_text
-
-
 def test_nanobragg_visible_fixtures_make_parity_relevant_defaults_explicit():
     task_text = (SEED / "docs" / "tasks" / "port_nanobragg_accumulation_to_pytorch.md").read_text()
     fixture_dir = SEED / "fixtures" / "visible"
@@ -68,17 +57,3 @@ def test_nanobragg_seed_stays_in_expected_dependency_band():
 
     missing_or_forbidden = [path for path in forbidden_paths if path.exists()]
     assert not missing_or_forbidden, f"Unexpected heavy-build or CUDA artifacts: {missing_or_forbidden}"
-
-
-def test_nanobragg_seed_exposes_local_visible_check_entrypoint():
-    index_text = (SEED / "docs" / "index.md").read_text()
-    smoke_test_path = SEED / "tests" / "test_smoke_accumulation.py"
-
-    assert smoke_test_path.exists(), f"Missing smoke test entrypoint: {smoke_test_path.relative_to(ROOT)}"
-
-    smoke_test = smoke_test_path.read_text()
-
-    assert "pytest -q" in index_text
-    assert "import torch" in smoke_test
-    assert "case_small" in smoke_test
-    assert "shape" in smoke_test

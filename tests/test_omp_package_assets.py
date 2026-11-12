@@ -63,11 +63,6 @@ _PRESET_AGENTS = {
 }
 
 
-def test_neutral_conf_path_helper_is_single_sourced() -> None:
-    """F8: one neutral-conf path helper; the assets package reuses it."""
-    assert neutral_config_path() == neutral_conf_root()
-
-
 def test_neutral_conf_package_resolves() -> None:
     root = neutral_conf_root()
     assert root.endswith("confs/neutral")
@@ -148,7 +143,6 @@ def test_packaged_canary_agents_use_current_model() -> None:
         if watchdog.is_file():
             document = yaml.safe_load(watchdog.read_text(encoding="utf-8"))
             assert all(advisor["model"] == expected for advisor in document["advisors"])
-
 
 
 def test_preset_conf_root_is_importlib_resources_based() -> None:

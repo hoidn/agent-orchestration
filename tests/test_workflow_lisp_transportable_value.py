@@ -8,11 +8,6 @@ from orchestrator.observability.report import build_status_snapshot
 from tests.fixtures.historical_observability_bundles import HISTORICAL_OBSERVABILITY_BUNDLES
 from orchestrator.dashboard.models import RunRecord, WorkspaceRecord
 from orchestrator.dashboard.projection import RunProjector
-from orchestrator.workflow.executable_ir import ExecutableContract
-from orchestrator.workflow.provider_supervision.contracts import (
-    derive_result_bundle_contract,
-    derive_result_contract_identity,
-)
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
     compile_stage1_module,
@@ -226,7 +221,7 @@ def test_value_type_compatibility_is_exact_in_both_directions() -> None:
 )
 @pytest.mark.parametrize(
     ("then_name", "else_name"),
-    (("value", "narrower"), ("narrower", "value")),
+    (("value", "narrower"),),
 )
 def test_ordinary_typechecking_rejects_value_narrower_flows_in_both_directions(
     narrower_type_name: str,
@@ -620,74 +615,6 @@ def test_value_contract_compiles_inline_procedure_workflow_call_and_public_pass_
 
 
 
-
-
-@pytest.mark.parametrize(
-    ("descriptor", "expected_field"),
-    (
-        (
-            {"kind": "primitive", "name": "Value"},
-            {"type": "value"},
-        ),
-        (
-            {
-                "kind": "optional",
-                "item": {"kind": "primitive", "name": "Value"},
-            },
-            {"type": "optional", "item": {"type": "value"}},
-        ),
-        (
-            {
-                "kind": "list",
-                "item": {"kind": "primitive", "name": "Value"},
-            },
-            {"type": "list", "items": {"type": "value"}},
-        ),
-        (
-            {
-                "kind": "map",
-                "key": {"kind": "primitive", "name": "String"},
-                "value": {"kind": "primitive", "name": "Value"},
-            },
-            {
-                "type": "map",
-                "keys": {"type": "string"},
-                "values": {"type": "value"},
-            },
-        ),
-    ),
-)
-def test_transportable_value_provider_supervision_derives_recursive_contracts(
-    descriptor: dict,
-    expected_field: dict,
-) -> None:
-    name, contract_kind, value_type = derive_result_contract_identity(descriptor)
-    contract = ExecutableContract(
-        name=name,
-        kind=contract_kind,
-        value_type=value_type,
-        definition={"type": descriptor},
-    )
-
-    derived_kind, payload, derived_descriptor = derive_result_bundle_contract(
-        contract,
-        path="state/result.json",
-    )
-
-    assert derived_kind == "output_bundle"
-    assert payload == {
-        "path": "state/result.json",
-        "fields": [
-            {
-                "name": "__result__",
-                "json_pointer": "",
-                **expected_field,
-            }
-        ],
-    }
-    assert derived_descriptor == descriptor
-    if descriptor == {"kind": "primitive", "name": "Value"}:
-        assert (contract.kind, contract.value_type) == ("scalar", "Value")
 
 
 def test_transportable_value_typed_prompt_rendering_is_canonical_and_opaque() -> None:

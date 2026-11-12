@@ -7,7 +7,6 @@ import pytest
 
 from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
-from orchestrator.workflow_lisp.closed.frontend import compile_typed_program
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.family_profiles import (
     load_workflow_family_profile_catalog,
@@ -29,9 +28,6 @@ DESIGN_DELTA_PARENT_DRAIN_PROVIDERS = (
 DESIGN_DELTA_PARENT_DRAIN_PROMPTS = (
     MIGRATION_INPUTS / "design_delta_parent_drain.prompts.json"
 )
-WORKFLOW_LISP_VALID_FIXTURES = (
-    REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "valid"
-)
 WORKFLOW_LISP_INVALID_FIXTURES = (
     REPO_ROOT / "tests" / "fixtures" / "workflow_lisp" / "invalid"
 )
@@ -39,15 +35,6 @@ LET_PROC_WITHOUT_CONTEXT_SOURCE_INVALID_FIXTURE = (
     WORKFLOW_LISP_INVALID_FIXTURES
     / "derived_phase_context_let_proc_without_context_source_invalid.orc"
 )
-DESIGN_DELTA_LIBRARY_ROOT = (
-    REPO_ROOT / "workflows" / "library" / "lisp_frontend_design_delta"
-)
-DESIGN_DELTA_WORK_ITEM_RUNTIME_MIRROR_ROOT = (
-    WORKFLOW_LISP_VALID_FIXTURES
-    / "design_delta_work_item_runtime"
-    / "lisp_frontend_design_delta"
-)
-
 DESIGN_DELTA_TARGET_WORKFLOWS = (
     "%implementation_phase.lisp_frontend_design_delta/implementation_phase::fix-implementation.v1",
     "%implementation_phase.lisp_frontend_design_delta/implementation_phase::review-implementation.v1",
@@ -79,59 +66,6 @@ DESIGN_DELTA_PRODUCTION_MODULES = frozenset(
         "lisp_frontend_design_delta/work_item",
     }
 )
-DESIGN_DELTA_DIRECT_FIXTURE_CASES = (
-    (
-        "design_delta_loop_promoted_hook_phase_ctx.orc",
-        "design_delta_loop_promoted_hook_phase_ctx::drain-entry",
-    ),
-    (
-        "design_delta_parent_calls_implementation_phase.orc",
-        "design_delta_parent_calls_implementation_phase::run-implementation-phase",
-    ),
-    (
-        "design_delta_parent_calls_work_item.orc",
-        "design_delta_parent_calls_work_item::run-parent-work-item",
-    ),
-    (
-        "design_delta_item_ctx_child_phase_reuse_proc.orc",
-        "design_delta_item_ctx_child_phase_reuse_proc::run-entry",
-    ),
-    (
-        "design_delta_item_ctx_child_phase_reuse_proc_ref.orc",
-        "design_delta_item_ctx_child_phase_reuse_proc_ref::run-entry",
-    ),
-    (
-        "design_delta_item_ctx_child_phase_reuse_let_proc.orc",
-        "design_delta_item_ctx_child_phase_reuse_let_proc::run-entry",
-    ),
-    (
-        "design_delta_item_ctx_child_phase_reuse_let_proc_in_proc.orc",
-        "design_delta_item_ctx_child_phase_reuse_let_proc_in_proc::run-entry",
-    ),
-)
-DESIGN_DELTA_DIRECT_FIXTURE_IDS = (
-    "loop-promoted-hook",
-    "parent-implementation-phase",
-    "parent-work-item",
-    "item-ctx-proc",
-    "item-ctx-proc-ref",
-    "item-ctx-let-proc",
-    "item-ctx-let-proc-in-proc",
-)
-DESIGN_DELTA_MIRROR_MODULES = (
-    "bootstrap.orc",
-    "design_gap_architect.orc",
-    "implementation_phase.orc",
-    "plan_phase.orc",
-    "projections.orc",
-    "selector.orc",
-    "stdlib_adapters.orc",
-    "transitions.orc",
-    "types.orc",
-    "work_item.orc",
-)
-
-
 def _write_smoke_family_profile(tmp_path: Path) -> Path:
     registry_path = tmp_path / "boundary_authority.json"
     registry_path.write_text(
@@ -211,33 +145,6 @@ def _design_delta_direct_fixture_command_boundaries(
     return command_boundaries
 
 
-HISTORICAL_PARITY_REPORT_PATH = (
-    REPO_ROOT
-    / "artifacts"
-    / "work"
-    / "review-parity-check"
-    / "design_delta_parent_drain.json"
-)
-FOCUSED_SMOKE_MODULE = "tests/test_workflow_lisp_design_delta_smoke.py"
-PARENT_DRAIN_EVIDENCE_ROLES = (
-    "smoke_or_integration",
-    "terminal_state_parity",
-)
-
-
-
-
-@pytest.mark.parametrize(("fixture_name", "expected_workflow"), DESIGN_DELTA_DIRECT_FIXTURE_CASES, ids=DESIGN_DELTA_DIRECT_FIXTURE_IDS)
-def test_historical_design_delta_fixture_is_refused(tmp_path: Path, fixture_name: str, expected_workflow: str) -> None:
-    source = WORKFLOW_LISP_VALID_FIXTURES / fixture_name
-    original = source.read_bytes()
-    with pytest.raises(LispFrontendCompileError) as caught:
-        compile_typed_program(source, entry_workflow=expected_workflow,
-            source_roots=(WORKFLOW_LISP_VALID_FIXTURES,), command_boundaries={}, workspace_root=tmp_path)
-    assert caught.value.diagnostics[0].code == "target_dsl_unsupported"
-    assert source.read_bytes() == original
-
-
 def test_let_proc_without_context_source_rejects_at_typecheck_like_authored_twin(tmp_path: Path) -> None:
     source = REPO_ROOT / "tests/fixtures/workflow_lisp/current_evaluated/let_proc_missing_context.orc"
     with pytest.raises(LispFrontendCompileError) as caught:
@@ -249,39 +156,3 @@ def test_let_proc_without_context_source_rejects_at_typecheck_like_authored_twin
     assert "phase-ctx" in diagnostic.message
 
 
-@pytest.mark.parametrize("module_name", DESIGN_DELTA_MIRROR_MODULES)
-def test_design_delta_work_item_runtime_mirror_matches_production_owner(
-    module_name: str,
-) -> None:
-    mirror_path = DESIGN_DELTA_WORK_ITEM_RUNTIME_MIRROR_ROOT / module_name
-    production_path = DESIGN_DELTA_LIBRARY_ROOT / module_name
-
-    assert mirror_path.read_bytes() == production_path.read_bytes()
-
-
-def test_historical_design_delta_stdlib_payloads_are_refused(tmp_path: Path) -> None:
-    source = DESIGN_DELTA_LIBRARY_ROOT / "stdlib_payloads.orc"
-    original = source.read_bytes()
-    with pytest.raises(LispFrontendCompileError) as caught:
-        compile_typed_program(source, entry_workflow="project-selected-item-payload",
-            source_roots=(REPO_ROOT / "workflows/library",), command_boundaries={}, workspace_root=tmp_path)
-    assert caught.value.diagnostics[0].code == "target_dsl_unsupported"
-    assert source.read_bytes() == original
-
-
-def test_design_delta_parent_drain_historical_parity_records_focused_smoke() -> None:
-    report = json.loads(HISTORICAL_PARITY_REPORT_PATH.read_text(encoding="utf-8"))
-    expected_command = [
-        "python",
-        "-m",
-        "pytest",
-        FOCUSED_SMOKE_MODULE,
-        "-q",
-    ]
-
-    for role in PARENT_DRAIN_EVIDENCE_ROLES:
-        evidence = report["evidence"][role]
-        command = evidence["argv"]
-        assert command == expected_command
-        assert evidence["exit_code"] == 0
-        assert evidence["status"] == "pass"

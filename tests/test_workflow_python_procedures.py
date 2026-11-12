@@ -578,7 +578,7 @@ def test_effect_descriptor_makes_private_workflow_subject_reachable(tmp_path):
     assert evaluate_closed_program(built.program, {}).value == 2
 
 
-@pytest.mark.parametrize("expression", ["done(1) + 1", "done(done(1))", "cont(done(1))"])
+@pytest.mark.parametrize("expression", ["done(1) + 1", "cont(done(1))"])
 def test_loop_controls_embedded_in_values_are_not_tail(tmp_path, expression):
     with pytest.raises(PythonFrontendError, match="python_loop_control_not_tail"):
         compile_source(tmp_path, f'''

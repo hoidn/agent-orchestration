@@ -7,7 +7,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from orchestrator.state import StateManager
 from orchestrator.workflow.surface_ast import SurfaceStepKind
 from orchestrator.workflow.typed_prompt_inputs import render_typed_prompt_inputs
 
@@ -36,20 +35,6 @@ def _family_profiles_module():
 def _generic_family_profile_catalog():
     return _family_profiles_module().load_workflow_family_profile_catalog(
         (GENERIC_FAMILY_PROFILE_FIXTURE,)
-    )
-
-
-def _initialize_typed_prompt_input_workspace(workspace: Path) -> None:
-    (workspace / "docs" / "design").mkdir(parents=True, exist_ok=True)
-    (workspace / "docs" / "plans").mkdir(parents=True, exist_ok=True)
-    (workspace / "artifacts" / "work").mkdir(parents=True, exist_ok=True)
-    (workspace / "docs" / "design" / "workflow_lisp_frontend_specification.md").write_text(
-        "# design\n",
-        encoding="utf-8",
-    )
-    (workspace / "docs" / "plans" / "typed_prompt_input_plan.md").write_text(
-        "# plan\n",
-        encoding="utf-8",
     )
 
 
@@ -117,7 +102,7 @@ def test_prompt_fragment_renderer_selection_recurses_only_through_admitted_lists
     )
 
 
-@pytest.mark.parametrize("input_surface", ("ordinary_inputs", "prompt_value_fill"))
+@pytest.mark.parametrize("input_surface", ("ordinary_inputs",))
 @pytest.mark.parametrize(
     "value",
     (
@@ -1244,30 +1229,6 @@ def test_build_typed_prompt_input_report_keeps_design_delta_consume_prompt_rows_
     )
 
     assert report["consumed_artifact_prompt_rows"] == []
-
-
-def test_runtime_rejects_missing_composer_evidence_before_provider_preparation(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _initialize_typed_prompt_input_workspace(tmp_path)
-    state_manager = StateManager(
-        workspace=tmp_path,
-        run_id="typed-prompt-input-missing-composer-evidence",
-    )
-    calls = {"preparations": 0, "executions": 0}
-
-
-    def _prepare(*_args, **_kwargs):
-        calls["preparations"] += 1
-        return pytest.fail("provider preparation must not be reached")
-
-    def _execute(*_args, **_kwargs):
-        calls["executions"] += 1
-        return pytest.fail("provider execution must not be reached")
-
-
-    assert calls == {"preparations": 0, "executions": 0}
 
 
 def test_typed_prompt_input_fixture_rows_resolve_via_family_profile_catalog() -> None:

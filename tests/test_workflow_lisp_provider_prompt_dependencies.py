@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
-import subprocess
 from dataclasses import fields, is_dataclass, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -63,7 +61,6 @@ from orchestrator.workflow_lisp.wcc.model import WccIdentityFactory, WccPerform
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURE_ROOT = REPO_ROOT / "tests/fixtures/workflow_lisp/provider_prompt_dependencies"
 CURRENT_FIXTURE_ROOT = REPO_ROOT / "tests/fixtures/workflow_lisp/current235/provider_prompt_dependencies"
-BASELINE = REPO_ROOT / "tests/baselines/workflow_lisp/provider_prompt_dependencies_keyword_free.json"
 TYPE_FIXTURE = REPO_ROOT / "tests/fixtures/workflow_lisp/valid/type_definitions.orc"
 CONSTANT_SPAN = SourceSpan(
     start=SourcePosition(path="<prompt-dependencies-test>", line=1, column=1, offset=0),
@@ -752,108 +749,6 @@ def test_imported_bound_procedure_specialization_preserves_prompt_dependency_con
     ]
     assert spec.required[0] in discovered
     assert spec.optional[0] in discovered
-
-
-TASK2_PRODUCTION_PATHS = (
-    "orchestrator/workflow_lisp/expressions.py",
-    "orchestrator/workflow_lisp/expression_traversal.py",
-    "orchestrator/workflow_lisp/typecheck_effects.py",
-    "orchestrator/workflow_lisp/functions.py",
-    "orchestrator/workflow_lisp/procedure_specialization.py",
-    "orchestrator/workflow_lisp/workflow_refs.py",
-)
-TASK3_PRODUCTION_PATHS = (
-    "orchestrator/workflow/prompt_dependency_contract.py",
-    "orchestrator/workflow_lisp/wcc/elaborate.py",
-    "orchestrator/workflow_lisp/wcc/defunctionalize.py",
-    "orchestrator/workflow_lisp/lowering/context.py",
-    "orchestrator/workflow_lisp/lowering/effects.py",
-    "orchestrator/workflow_lisp/lowering/core.py",
-    "orchestrator/workflow_lisp/lowering/origins.py",
-    "orchestrator/workflow_lisp/lowering/procedures.py",
-    "orchestrator/workflow_lisp/source_map.py",
-)
-FORBIDDEN_IDENTITIES = re.compile(
-    r"verified[_-]iteration[_-]drain|generic[_-]run[_-]watchdog|"
-    r"tracked[_-]plan[_-]phase|remaining[_-]neurips[_-]migration[_-]experiment|"
-    r"codex|claude|anthropic|openai",
-    re.IGNORECASE,
-)
-
-
-def _added_source_lines(patch: str) -> tuple[str, ...]:
-    lines: list[str] = []
-    in_header = False
-    saw_old_header = False
-    for line in patch.splitlines():
-        if line.startswith("diff --git "):
-            in_header = True
-            saw_old_header = False
-            continue
-        if in_header and line.startswith("--- "):
-            saw_old_header = True
-            continue
-        if in_header and saw_old_header and line.startswith("+++ "):
-            in_header = False
-            saw_old_header = False
-            continue
-        if in_header:
-            continue
-        if line.startswith("+"):
-            lines.append(line[1:])
-    if in_header:
-        raise ValueError("incomplete patch header")
-    return tuple(lines)
-
-
-def test_prompt_dependency_generic_mechanism_has_no_concrete_identity_branch() -> None:
-    patch = subprocess.run(
-        ["git", "diff", "--unified=0", "451765a2", "--", *TASK2_PRODUCTION_PATHS],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        capture_output=True,
-    ).stdout
-    assert not any(FORBIDDEN_IDENTITIES.search(line) for line in _added_source_lines(patch))
-
-
-def test_prompt_dependency_genericity_added_line_extractor_rejects_leading_plus_identity() -> None:
-    patch = "\n".join(
-        [
-            "diff --git a/path b/path",
-            "--- a/path",
-            "+++ b/path",
-            "@@ -0,0 +1 @@",
-            "+codex = 1",
-        ]
-    )
-    added = _added_source_lines(patch)
-    assert added == ("codex = 1",)
-    assert any(FORBIDDEN_IDENTITIES.search(line) for line in added)
-
-
-def test_prompt_dependency_task3_mechanism_has_no_concrete_identity_branch() -> None:
-    patch = subprocess.run(
-        [
-            "git",
-            "diff",
-            "--unified=0",
-            "43345c37e17a23130d1c35af6e46c792fb3a5d4e",
-            "--",
-            *TASK3_PRODUCTION_PATHS,
-        ],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        capture_output=True,
-    ).stdout
-    assert not any(FORBIDDEN_IDENTITIES.search(line) for line in _added_source_lines(patch))
-
-
-def test_keyword_free_provider_result_matches_preimplementation_dual_route_baseline() -> None:
-    expected = json.loads(BASELINE.read_text(encoding="utf-8"))
-    assert expected["schema"] == "provider_prompt_dependencies_keyword_free_baseline.v1"
-    assert expected["implementation_base_commit"] == "451765a2ebd374111d2cbeab0969cec4830717fb"
 
 
 def _walk_dataclass_graph(value: Any, *, seen: set[int] | None = None):

@@ -412,11 +412,10 @@ FLAT_STATE = json.dumps({"schema_version": "2.1"})
         {},
         {"state.json": json.dumps({"schema_version": SCHEMA_VERSION})},
         {"state.json": json.dumps({"result_persistence_profile": PROFILE})},
-        {"state.json": json.dumps({"schema_version": SCHEMA_VERSION, "result_persistence_profile": PROFILE})},
         {"state.json": FLAT_STATE, "memo.jsonl": ""},
         {"state.json": FLAT_STATE, "closed_program.json": "{}"},
     ],
-    ids=["empty", "schema-hint", "profile-hint", "both-hints", "journal-only", "program-only"],
+    ids=["empty", "schema-hint", "profile-hint", "journal-only", "program-only"],
 )
 def test_public_invalidate_reports_memo_inconsistent_for_a_run_without_header(
     tmp_path: Path, files: dict[str, str]

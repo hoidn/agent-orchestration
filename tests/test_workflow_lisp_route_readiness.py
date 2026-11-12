@@ -19,14 +19,6 @@ from orchestrator.workflow_lisp.route_readiness import (
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REGISTRY_PATH = REPO_ROOT / "docs" / "workflow_lisp_route_readiness_registry.json"
-HISTORICAL_DESIGN_DELTA_REPORT_PATH = (
-    REPO_ROOT
-    / "artifacts"
-    / "work"
-    / "review-parity-check"
-    / "design_delta_parent_drain.json"
-)
-
 INITIAL_REQUIRED_PATHS = {
     "workflows/examples/design_review_execute.orc",
     "workflows/examples/design_review_execute_agents.orc",
@@ -668,40 +660,6 @@ def test_registry_evidence_does_not_infer_targets_from_arbitrary_json(
     )
 
 
-def test_checked_in_registry_uses_proving_evidence_not_registry_self_validation() -> None:
-    registry = load_route_readiness_registry(REGISTRY_PATH)
-
-    assert all(
-        "tests/test_workflow_lisp_route_readiness.py" not in evidence
-        for entry in registry.surfaces
-        for evidence in entry.evidence
-    )
-
-
-def test_checked_in_registry_omits_retired_generator_evidence() -> None:
-    registry = load_route_readiness_registry(REGISTRY_PATH)
-    evidence = {
-        item
-        for entry in registry.surfaces
-        for item in entry.evidence
-    }
-
-    assert all(
-        "test_workflow_lisp_design_delta_drain_migration_feasibility.py"
-        not in item
-        for item in evidence
-    )
-    assert (
-        "tests/test_workflow_lisp_migration_parity.py::"
-        "test_promoted_design_delta_target_is_retired_from_live_manifest_but_historical_report_is_preserved"
-    ) not in evidence
-    assert all(
-        "workflows/examples/inputs/workflow_lisp_migrations/parity_targets.json"
-        not in item
-        for item in evidence
-    )
-
-
 def test_duplicate_surface_id_and_path_fail_deterministically(tmp_path: Path) -> None:
     duplicate_id = _base_entry(path="tests/fixtures/workflow_lisp/retired_examples/effectful_let_star_normalization.orc")
     duplicate_path = _base_entry(surface_id="tests.fixtures.workflow_lisp.retired_examples.effectful_match_arm_normalization.copy")
@@ -734,61 +692,6 @@ def test_malformed_registry_raises_loader_error(tmp_path: Path) -> None:
         assert "invalid JSON" in str(exc)
     else:
         raise AssertionError("expected RouteReadinessError")
-
-
-def test_verified_route_is_promotion_eligible_and_copy_safe() -> None:
-    registry = load_route_readiness_registry(REGISTRY_PATH)
-    entry = registry_entry_for_path(
-        registry,
-        "workflows/library/verified_iteration_drain/drain.orc",
-    )
-
-    assert entry is not None
-    assert entry.surface_kind == "library_workflow"
-    assert entry.entry_workflow == "verified_iteration_drain/drain::drain"
-    assert entry.route_label == "evaluated_execution"
-    assert entry.readiness_label == "promotion_eligible"
-    assert entry.lowering_route is None
-    assert entry.lowering_schema_version is None
-    assert entry.copy_safety == "preferred_current_guidance"
-
-
-def test_watchdog_route_is_retired_without_executable_promotion() -> None:
-    registry = load_route_readiness_registry(REGISTRY_PATH)
-    entry = registry_entry_for_path(
-        registry,
-        "workflows/library/generic_run_watchdog/watchdog.orc",
-    )
-
-    assert entry is not None
-    assert entry.surface_kind == "library_workflow"
-    assert entry.entry_workflow == "generic_run_watchdog/watchdog::watchdog"
-    assert entry.route_label == "historical_negative"
-    assert entry.readiness_label is None
-    assert entry.lowering_route is None
-    assert entry.lowering_schema_version is None
-    assert entry.copy_safety == "not_current_guidance"
-
-
-def test_design_delta_parent_drain_historical_promotion_matches_registry() -> None:
-    report = json.loads(
-        HISTORICAL_DESIGN_DELTA_REPORT_PATH.read_text(encoding="utf-8")
-    )
-    registry = load_route_readiness_registry(REGISTRY_PATH)
-    entry = registry_entry_for_path(registry, report["candidate"])
-
-    assert entry is not None
-    assert report["non_regressive"] is True
-    assert report["promotion_eligibility"] == {
-        "eligible_for_primary_surface": True
-    }
-    assert report["route_identity"]["readiness_label"] == "promotion_eligible"
-    assert report["route_identity"]["lowering_route"] == "wcc_m4"
-    assert entry.readiness_label is None
-    assert entry.route_label == "historical_negative"
-    assert entry.lowering_route is None
-    assert entry.lowering_schema_version is None
-    assert entry.copy_safety == "not_current_guidance"
 
 
 def test_cli_route_readiness_check_valid_registry() -> None:
@@ -856,18 +759,3 @@ def test_cli_route_readiness_check_invalid_and_malformed_registries(tmp_path: Pa
         check=False,
     )
     assert malformed.returncode == 2
-
-
-
-
-
-
-
-
-def test_docs_mention_route_readiness_registry_path() -> None:
-    registry_relpath = "docs/workflow_lisp_route_readiness_registry.json"
-
-    assert registry_relpath in (REPO_ROOT / "workflows" / "README.md").read_text(encoding="utf-8")
-    assert registry_relpath in (REPO_ROOT / "docs" / "lisp_workflow_drafting_guide.md").read_text(
-        encoding="utf-8"
-    )

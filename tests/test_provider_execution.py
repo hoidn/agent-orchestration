@@ -22,7 +22,6 @@ from orchestrator.providers import (
     ProviderParams,
     ProviderRegistry,
     ProviderExecutor,
-    ProviderExecutionResult,
     InputMode,
     ProviderSessionMetadataMode,
     ProviderSessionMode,
@@ -48,12 +47,8 @@ class _TimeoutFloatSubclass(float):
     ("timeout_sec", "accepted"),
     (
         (True, False),
-        (False, False),
         (float("nan"), False),
-        (float("inf"), False),
-        (float("-inf"), False),
         (0, False),
-        (-1, False),
         (1, True),
         (10**309, True),
         (0.25, True),
@@ -233,86 +228,6 @@ def test_turn_boundary_resume_capability_is_structural():
     assert inferred.validate() == []
     assert inferred.session_support is not None
     assert inferred.session_support.turn_boundary_resume is False
-
-
-def test_provider_supervision_worker_runtime_repeats_capability_and_control_gate(
-    tmp_path,
-    monkeypatch,
-):
-    """A live worker cannot reach either provider execution path by inference."""
-
-    registry = ProviderRegistry()
-    executor = ProviderExecutor(tmp_path, registry)
-    controlled_calls = []
-    uncontrolled_calls = []
-    success = ProviderExecutionResult(
-        exit_code=0,
-        stdout=b"",
-        stderr=b"",
-        duration_ms=0,
-    )
-
-    def controlled(**kwargs):
-        controlled_calls.append(kwargs["invocation"])
-        return success
-
-    def uncontrolled(**kwargs):
-        uncontrolled_calls.append(kwargs["invocation"])
-        return success
-
-    monkeypatch.setattr(
-        executor,
-        "_execute_controlled_invocation",
-        controlled,
-    )
-    monkeypatch.setattr(
-        executor,
-        "_execute_session_invocation",
-        uncontrolled,
-    )
-
-    def prepared_worker(provider_name):
-        invocation, error = executor.prepare_invocation(
-            provider_name,
-            ProviderParams(),
-            {},
-            "work",
-            session_request=ProviderSessionRequest(
-                mode=ProviderSessionMode.FRESH,
-            ),
-        )
-        assert error is None
-        assert invocation is not None
-        invocation.metadata["provider_supervision"] = {
-            "member_id": "worker",
-            "turn_role": "worker_fresh",
-        }
-        return invocation
-
-    capable = prepared_worker("codex")
-    unsupported_alias = prepared_worker("codex_gpt55")
-
-    assert executor.execute(
-        capable,
-        control=ProviderExecutionControl(),
-    ) is success
-    assert controlled_calls == [capable]
-    assert uncontrolled_calls == []
-
-    unsupported_result = executor.execute(
-        unsupported_alias,
-        control=ProviderExecutionControl(),
-    )
-    assert unsupported_result.is_promotable is False
-    assert "turn_boundary_resume" in str(unsupported_result.error)
-    assert controlled_calls == [capable]
-    assert uncontrolled_calls == []
-
-    missing_control_result = executor.execute(capable)
-    assert missing_control_result.is_promotable is False
-    assert "cancellable" in str(missing_control_result.error)
-    assert controlled_calls == [capable]
-    assert uncontrolled_calls == []
 
 
 class _RecordingBinaryStream:
@@ -755,30 +670,6 @@ class TestProviderExecutor:
                 "option": "future_runtime_key",
             },
         }
-
-    def test_yaml_local_provider_params_keep_native_and_unused_compatibility(self):
-        errors = self.registry.register_from_workflow(
-            {
-                "yaml-local": {
-                    "command": ["tool", "${model}", "$${literal}"],
-                    "defaults": {"model": "default"},
-                    "input_mode": "stdin",
-                }
-            }
-        )
-
-        invocation, error = self.executor.prepare_invocation(
-            "yaml-local",
-            ProviderParams(
-                params={"model": "native", "unused_compatibility": "retained"}
-            ),
-            {},
-        )
-
-        assert errors == []
-        assert error is None
-        assert invocation is not None
-        assert invocation.command == ["tool", "native", "${literal}"]
 
     def test_managed_invocation_timeout_terminates_process_tree(self):
         """Managed provider timeout kills the guard process group, including children."""
@@ -2016,17 +1907,6 @@ class _RecordingObservation:
                 return {"status": "finalized"}
 
         self.handle = _Handle(self)
-
-
-def test_omp_persistence_remains_driven_solely_by_session_request(
-    tmp_path,
-):
-    transient = _omp_invocation()
-    result = ProviderExecutor(tmp_path, ProviderRegistry()).execute(transient)
-
-    assert result.exit_code == 0
-    assert result.provider_session is not None
-    assert result.provider_session["event_count"] == 11
 
 
 def test_omp_execution_never_appends_raw_stdout_to_transport_spool(

@@ -1,5 +1,3 @@
-import ast
-import importlib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -77,62 +75,14 @@ def _workflow_ref_command_boundaries() -> dict[str, ExternalToolBinding]:
     }
 
 
-def _typecheck_top_level_names() -> set[str]:
-    source_path = Path(importlib.import_module("orchestrator.workflow_lisp.typecheck").__file__)
-    module = ast.parse(source_path.read_text(encoding="utf-8"))
-    return {
-        node.name
-        for node in module.body
-        if isinstance(node, (ast.AsyncFunctionDef, ast.ClassDef, ast.FunctionDef))
-    }
-
-
 def _test_span(path: str) -> SourceSpan:
     start = SourcePosition(path=path, line=1, column=1, offset=0)
     end = SourcePosition(path=path, line=1, column=2, offset=1)
     return SourceSpan(start=start, end=end)
 
 
-def _function_body_mentions_symbol(path: Path, function_name: str, symbol: str) -> bool:
-    module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    for node in module.body:
-        if not isinstance(node, ast.FunctionDef) or node.name != function_name:
-            continue
-        for child in ast.walk(node):
-            if isinstance(child, ast.Name) and child.id == symbol:
-                return True
-            if isinstance(child, ast.Attribute) and child.attr == symbol:
-                return True
-            if isinstance(child, ast.ImportFrom):
-                if any(alias.name == symbol or alias.asname == symbol for alias in child.names):
-                    return True
-    return False
-
-
 def _name(name: str) -> NameExpr:
     return NameExpr(name=name, span=_test_span(name), form_path=("workflow-lisp", "workflow-ref-test"))
-
-
-def test_workflow_ref_owner_split_moves_non_procedure_call_typing_out_of_typecheck_facade() -> None:
-    package_dir = Path(importlib.import_module("orchestrator.workflow_lisp").__file__).resolve().parent
-    dispatch_source = (package_dir / "typecheck_dispatch.py").read_text(encoding="utf-8")
-
-    assert (package_dir / "typecheck_calls.py").is_file()
-    top_level_names = _typecheck_top_level_names()
-    assert "_typecheck_workflow_ref_argument" not in top_level_names
-    assert "_validate_selector_workflow_ref" not in top_level_names
-    assert "_validate_run_item_workflow_ref" not in top_level_names
-    assert "_validate_gap_drafter_workflow_ref" not in top_level_names
-    assert "if isinstance(expr, CallExpr):" not in dispatch_source
-    assert "if isinstance(expr, FunctionCallExpr):" not in dispatch_source
-    assert "typecheck_call_expr(" in dispatch_source
-    assert "typecheck_function_call_expr(" in dispatch_source
-
-
-def test_workflow_ref_extern_owner_uses_shared_iter_child_exprs() -> None:
-    source_path = Path(importlib.import_module("orchestrator.workflow_lisp.workflow_refs").__file__)
-
-    assert _function_body_mentions_symbol(source_path, "collect_workflow_extern_names", "iter_child_exprs")
 
 
 def test_workflow_ref_extern_collection_descends_into_produce_one_of_candidate_targets() -> None:

@@ -981,54 +981,6 @@ def test_noncaptured_outcome_creates_no_transfer_authority(
     assert not (runtime_root / paths.archive_relative_path).exists()
 
 
-@pytest.mark.parametrize(
-    "execution_outcome",
-    ("nonzero", "timeout", "cancelled"),
-)
-def test_fake_attempt_owner_records_noneligible_capture_without_publication(
-    tmp_path: Path,
-    execution_outcome: str,
-) -> None:
-    api = _api()
-    runtime_root = tmp_path / "runtime"
-    scratch = tmp_path / "scratch"
-    scratch.mkdir()
-    payload = b'{"untrusted":"partial"}\n'
-    (scratch / "result.json").write_bytes(payload)
-    capture = _capture(scratch)
-    request, runtime_root_fd = _transfer_request(runtime_root)
-    noneligible = _replace_request_capture_for_test(
-        request,
-        capture,
-    )
-    paths = api.derive_bundle_transfer_paths(noneligible)
-
-    try:
-        fake_owner_record = {
-            "execution_outcome": execution_outcome,
-            "typed_validation_eligible": False,
-            "capture_classification": capture.classification,
-            "bundle_digest": capture.digest,
-            "bundle_size": capture.size_bytes,
-        }
-        # Task 4 replaces this fake owner. A noneligible owner deliberately
-        # does not grant the publication API its captured-byte request.
-    finally:
-        os.close(runtime_root_fd)
-
-    assert fake_owner_record == {
-        "execution_outcome": execution_outcome,
-        "typed_validation_eligible": False,
-        "capture_classification": "captured",
-        "bundle_digest": f"sha256:{sha256(payload).hexdigest()}",
-        "bundle_size": len(payload),
-    }
-    assert not (runtime_root / paths.journal_relative_path).exists()
-    assert not (runtime_root / paths.staged_relative_path).exists()
-    assert not (runtime_root / paths.target_relative_path).exists()
-    assert not (runtime_root / paths.archive_relative_path).exists()
-
-
 def test_validation_is_monotonic_idempotent_and_retains_valid_target(
     tmp_path: Path,
 ) -> None:

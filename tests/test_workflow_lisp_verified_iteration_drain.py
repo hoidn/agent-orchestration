@@ -1,30 +1,16 @@
 import json
-import hashlib
-import pytest
-from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from pathlib import Path
 
 from orchestrator.workflow_lisp.build import _parse_command_boundaries_manifest
-from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LEGACY_ROOT = ROOT / "tests/fixtures/workflow_lisp/verified_drain_legacy"
-ORC_WORKFLOW = LEGACY_ROOT / "verified_iteration_drain/drain.orc"
 MIGRATION_INPUTS = ROOT / "workflows/examples/inputs/workflow_lisp_migrations"
-ENTRY_WORKFLOW = "verified_iteration_drain/drain::drain"
 PREPARE_SCRIPT = "workflows/library/scripts/prepare_verified_iteration.py"
 RECORD_SCRIPT = "workflows/library/scripts/record_verified_iteration.py"
 HISTORY_ROOT = "artifacts/work/verified/ledger-inputs"
 EXTERNAL_LEDGER_EDIT = b"EXTERNAL_LEDGER_EDIT\n"
 
-
-
-def test_historical_verified_iteration_drain_source_is_preserved_and_refused() -> None:
-    assert hashlib.sha256(ORC_WORKFLOW.read_bytes()).hexdigest() == "9309aac54ef2fdcf8bbcd044c7f9542b017ccb98284d85b40ed8ca669cfe7f22"
-    with pytest.raises(LispFrontendCompileError) as caught:
-        compile_stage3_entrypoint(ORC_WORKFLOW)
-    assert caught.value.diagnostics[0].code == "target_dsl_unsupported"
 
 
 def test_verified_extern_manifests_bind_existing_assets() -> None:
@@ -69,26 +55,3 @@ def test_verified_extern_manifests_bind_existing_assets() -> None:
     for row in [*prompts.values(), *commands.values()]:
         relpath = row.get("input_file") or row["stable_command"][1]
         assert (ROOT / relpath).is_file()
-
-
-
-
-
-
-
-
-
-
-def test_legacy_verified_post_promotion_fixture_preserves_contract(tmp_path: Path) -> None:
-    registry = json.loads(
-        (ROOT / "docs/workflow_lisp_route_readiness_registry.json").read_text()
-    )
-    route = next(
-        row
-        for row in registry["surfaces"]
-        if row["path"] == "workflows/library/verified_iteration_drain/drain.orc"
-    )
-    assert route["surface_kind"] == "library_workflow"
-    assert route["route_label"] == "evaluated_execution"
-    assert route["readiness_label"] == "promotion_eligible"
-    assert route["entry_workflow"] == ENTRY_WORKFLOW

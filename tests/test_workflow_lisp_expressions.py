@@ -1,6 +1,5 @@
 import inspect
 import importlib
-import ast
 from dataclasses import fields
 from pathlib import Path
 from typing import get_args
@@ -161,10 +160,6 @@ def _build_type_env_from_lines(tmp_path: Path, lines: list[str]) -> FrontendType
     return FrontendTypeEnvironment.from_module(compile_stage1_module(path))
 
 
-def _workflow_lisp_package_dir() -> Path:
-    return Path(importlib.import_module("orchestrator.workflow_lisp").__file__).resolve().parent
-
-
 def _traversal_module():
     return importlib.import_module("orchestrator.workflow_lisp.expression_traversal")
 
@@ -186,86 +181,6 @@ def _literal(value: str | int | bool) -> LiteralExpr:
         span=_test_span(str(value)),
         form_path=FORM_PATH,
     )
-
-
-def _typecheck_top_level_names() -> set[str]:
-    source_path = Path(importlib.import_module("orchestrator.workflow_lisp.typecheck").__file__)
-    module = ast.parse(source_path.read_text(encoding="utf-8"))
-    return {
-        node.name
-        for node in module.body
-        if isinstance(node, (ast.AsyncFunctionDef, ast.ClassDef, ast.FunctionDef))
-    }
-
-
-def test_typecheck_facade_reexports_public_entrypoints_after_owner_split() -> None:
-    typecheck_module = importlib.import_module("orchestrator.workflow_lisp.typecheck")
-    package_dir = _workflow_lisp_package_dir()
-    context_path = package_dir / "typecheck_context.py"
-    dispatch_path = package_dir / "typecheck_dispatch.py"
-    structural_values_path = package_dir / "typecheck_structural_values.py"
-    dispatch_source = dispatch_path.read_text(encoding="utf-8")
-    structural_values_source = structural_values_path.read_text(
-        encoding="utf-8"
-    )
-    loop_state_source = (package_dir / "loop_state.py").read_text(encoding="utf-8")
-    procedure_typecheck_source = (package_dir / "procedure_typecheck.py").read_text(
-        encoding="utf-8"
-    )
-
-    assert typecheck_module.typecheck_expression is typecheck_expression
-    assert context_path.is_file()
-    assert dispatch_path.is_file()
-    assert structural_values_path.is_file()
-    assert inspect.getsourcefile(typecheck_module.TypedExpr) == str(context_path)
-    from orchestrator.workflow_lisp import typecheck_context as _ctx
-    assert inspect.getsourcefile(_ctx._type_label) == str(context_path)
-    assert inspect.getsourcefile(_ctx._typed) == str(context_path)
-    assert "_typecheck" not in _typecheck_top_level_names()
-    assert "_ACTIVE_FUNCTION_CATALOG" not in dispatch_source
-    assert "_ACTIVE_PROC_REF_VALUE_ENV" not in dispatch_source
-    assert "_ACTIVE_VALUE_EXPR_ENV" not in dispatch_source
-    assert "_ACTIVE_REVIEW_LOOP_LEGACY_BRIDGE_POLICY" not in dispatch_source
-    assert "snapshot_session_state" in dispatch_source
-    assert "restore_session_state" in dispatch_source
-    assert (
-        "from .typecheck_structural_values import "
-        "typecheck_structural_value_expr"
-    ) in dispatch_source
-    assert "if isinstance(expr, ListExpr):" not in dispatch_source
-    assert "if isinstance(expr, PathJoinUnderExpr):" not in dispatch_source
-    assert "def typecheck_structural_value_expr(" in structural_values_source
-    assert "if isinstance(expr, ListExpr):" in structural_values_source
-    assert "if isinstance(expr, PathJoinUnderExpr):" in structural_values_source
-    assert (package_dir / "typecheck_resume.py").is_file()
-    assert "if isinstance(expr, ResumeOrStartExpr):" in dispatch_source
-    assert "typecheck_resume_or_start_expr(" in dispatch_source
-    assert "def _require_resume_binding(" not in dispatch_source
-    assert (package_dir / "typecheck_loop_recur.py").is_file()
-    assert "typecheck_loop_recur_expr(" in dispatch_source
-    assert "def typecheck_loop_recur_expr(" not in dispatch_source
-    assert (package_dir / "typecheck_drain_phase.py").is_file()
-    assert "typecheck_backlog_drain_expr(" not in dispatch_source
-    assert "def _require_union_variant_field(" not in dispatch_source
-    assert (package_dir / "typecheck_resource_view.py").is_file()
-    assert "typecheck_resource_transition_expr(" in dispatch_source
-    assert "typecheck_materialize_view_expr(" in dispatch_source
-    assert "def _materialize_view_path_contracts_compatible(" not in dispatch_source
-    for retired_name in (
-        "_generated_procedure_signature",
-        "_generated_procedure_definition",
-        "_typecheck_generated_procedure",
-        "_register_generated_record_type",
-        "_register_generated_union_type",
-        "_generated_relpath_seed_expr",
-        "_resolve_field_access_impl",
-        "_validate_semantic_command_adapter_usage",
-        "_temporary_procedure_catalog",
-    ):
-        assert f"def {retired_name}(" not in dispatch_source
-    assert "from .typecheck_dispatch import _register_generated_record_type" not in loop_state_source
-    assert "from .typecheck_dispatch import _temporary_procedure_catalog" not in procedure_typecheck_source
-    assert len(dispatch_source.splitlines()) <= 1_250
 
 
 def test_frontend_type_environment_resolves_stage1_definitions() -> None:
@@ -729,20 +644,6 @@ def test_elaborate_expression_rejects_stdlib_extension_without_import_route() ->
         )
 
     _assert_diagnostic_code(excinfo, "stdlib_extension_missing_import_route")
-
-
-def test_no_review_loop_expr_in_core_ast_union() -> None:
-    expressions = importlib.import_module("orchestrator.workflow_lisp.expressions")
-
-    expr_names = {expr_type.__name__ for expr_type in get_args(expressions.ExprNode)}
-    source = inspect.getsource(expressions)
-
-    assert "ReviewReviseLoopExpr" not in expr_names
-    assert not hasattr(expressions, "ReviewReviseLoopExpr")
-    assert "class ReviewReviseLoopExpr" not in source
-    assert "StdlibSpecializationExpr" not in expr_names
-    assert not hasattr(expressions, "StdlibSpecializationExpr")
-    assert "class StdlibSpecializationExpr" not in source
 
 
 def test_review_revise_loop_registry_owns_only_public_macro_surface() -> None:

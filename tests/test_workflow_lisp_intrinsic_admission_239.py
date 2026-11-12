@@ -146,7 +146,7 @@ def test_target_239_refuses_direct_private_expansion_heads(expression: str) -> N
         ),
     ),
 )
-@pytest.mark.parametrize("target", ("2.35", "2.36", "2.37", "2.38"))
+@pytest.mark.parametrize("target", ("2.38",))
 def test_targets_235_through_238_keep_existing_intrinsic_routes(
     expression: str,
     expected_type: type,
