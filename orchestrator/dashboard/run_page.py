@@ -128,8 +128,8 @@ def _programs_section(programs) -> list[str]:
     """A run with several programs (a `rebased` record); timeline rows name them by index."""
     lines = ["<section><h2>Programs</h2><ol start=\"0\">"]
     for item in programs:
-        lines.append(f"<li><code>{e(item.get('digest', ''))}</code> since {e(item.get('time', ''))}, "
-                     f"cut {e(item.get('cut'))}</li>")
+        cut = "" if item.get("cut") is None else f", cut at byte {e(item['cut'])}"
+        lines.append(f"<li><code>{e(item.get('digest', ''))}</code> since {e(item.get('time', ''))}{cut}</li>")
     lines.append("</ol></section>")
     return lines
 

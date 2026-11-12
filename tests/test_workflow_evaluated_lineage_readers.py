@@ -121,10 +121,12 @@ def test_report_and_dashboard_list_programs_and_each_row_program(serial_base, tm
         "s1": (0, "completed"), "s2": (0, "completed"), "s3": (0, "invalidated"), "t3": (1, "completed"),
         "s4": (1, "completed")}
     markdown = _report(workspace, run_root, "md")
-    assert "## Programs" in markdown and record["program_digest"] in markdown
+    listed = markdown.split("## Programs", 1)[1].split("##", 1)[0]
+    assert record["program_digest"] in listed and f"`{record['from_offset']}`" in listed and "None" not in listed
     assert "- program: `1`" in markdown.split("### " + P + "t3", 1)[1].split("###", 1)[0]
     page = DashboardApp(RunScanner([workspace])).handle("GET", f"/runs/w0/{run_root.name}").body.decode()
-    assert "<h2>Programs</h2>" in page and record["program_digest"] in page
+    section = page.split("<h2>Programs</h2>", 1)[1].split("</section>", 1)[0]
+    assert record["program_digest"] in section and str(record["from_offset"]) in section and "None" not in section
     timeline = page.split("<h2>Step Timeline</h2>", 1)[1]
     assert "program 1" in timeline.split(P + "t3", 1)[1].split("</li>", 1)[0]
     assert "program 0" in timeline.split(P + "s1", 1)[1].split("</li>", 1)[0]
@@ -272,6 +274,20 @@ def test_reader_racing_a_record_returns_old_or_new_or_says_rebasing(tmp_path, mo
     assert done.returncode == 0, done.stderr
     assert json.loads(done.stdout)["request_id"] == request
     assert len(calls) == (2 if race == "new-table" else 1)
+
+
+def test_a_corrupt_journal_without_a_record_is_not_blamed_on_a_rebase(tmp_path):
+    """`input get` reloads only when the program in force changed: a corrupt row in a journal that never
+    switched program is reported as it is, not as a rebase in progress."""
+    workspace, run_root = _gate_run(tmp_path)
+    journal = run_root / "memo.jsonl"
+    journal.write_bytes(journal.read_bytes().replace(b'"attempt":1', b'"attempt":2', 1))   # s1's first start
+    assert fx.rows(run_root)[0]["attempt"] == 2 and fx.rows(run_root)[0]["record"] == "started"
+    before = _files(run_root)
+    done = cli_inprocess(workspace, "input", "get", run_root.name)
+    assert done.returncode != 0 and "memo_inconsistent" in done.stderr, done.stderr
+    assert "being rebased" not in done.stderr
+    assert _files(run_root) == before
 
 
 METERED_FIRST = ('(first (provider-result providers.review :prompt prompts.base\n'

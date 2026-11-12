@@ -52,7 +52,8 @@ def _render_programs(programs) -> list[str]:
     """A run with several programs (a `rebased` record): one line per program, index as the rows name it."""
     if not programs:
         return []
-    return ["## Programs", *(f"- {index}: `{item['digest']}` since `{item['time']}`, cut `{item['cut']}`"
+    return ["## Programs", *(f"- {index}: `{item['digest']}` since `{item['time']}`"
+                             + ("" if item["cut"] is None else f", cut at byte `{item['cut']}`")
                              for index, item in enumerate(programs)), ""]
 
 

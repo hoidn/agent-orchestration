@@ -596,8 +596,8 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   `workflow_outputs`, and `interrupted` from writer-lock liveness). `report`
   previews a row as the `repr` of its committed value from the view; the view
   reads nothing under `effects/`, and `report` additionally reads only
-  `attempt-<n>/usage.json` of provider-class steps, never a recipe, prompt,
-  stdout or result file. The
+  `attempt-<n>/usage.json` of provider-class steps, or of the attempts a row's
+  `metered_attempts` lists, never a recipe, prompt, stdout or result file. The
   dashboard shows each effect's attempt, start, completion and duration,
   links each failed effect with its error code, and links the files of the
   row's attempt directory: the `result_path` file first, then the other
@@ -1077,10 +1077,12 @@ and exits `0`; refusal exits `2`. No continuation runs until ordinary resume.
 returns a checked mapping or `None`; the CLI treats `None` as no active request
 and exits `2`. Historical reads retain their original reader. Malformed evaluated
 authority fails closed rather than falling back to historical state. Inspection
-never expires a request, repairs a torn tail or publishes a view. A `rebased`
-record appended between its authority load and its journal read makes it load
-the lineage again, once; a second such record is `memo_inconsistent` saying
-that the run is being rebased.
+never expires a request, repairs a torn tail or publishes a view. When the
+journal it reads no longer ends at the program it loaded (a `rebased` record
+appended in between), it loads the lineage again, once; if the journal then
+fails again under a newer program it reports `memo_inconsistent` saying that
+the run is being rebased. A failure under an unchanged program is reported as
+it is.
 
 The public Python settlement interface is separate from Python authoring:
 
