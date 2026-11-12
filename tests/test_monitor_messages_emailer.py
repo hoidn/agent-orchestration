@@ -15,6 +15,8 @@ from orchestrator.monitor.models import (
     MonitorTiming,
     MonitorWorkspace,
 )
+from orchestrator.workflow.evaluated.views import load_evaluated_view
+from tests.test_workflow_evaluated_invalidate import _completed_run
 
 
 def _config() -> MonitorConfig:
@@ -162,3 +164,20 @@ def test_retired_run_email_gives_the_refusal_instead_of_report_and_resume(tmp_pa
 
     assert "workflow_execution_profile_retired" in body
     assert "orchestrator report" not in body and "orchestrator resume" not in body
+
+
+def test_evaluated_run_email_suggests_report_and_resume(tmp_path: Path):
+    run_root = _completed_run(tmp_path)
+    event = MonitorEvent(
+        kind=MonitorEventKind.COMPLETED,
+        run=MonitorRun(workspace=MonitorWorkspace(name="repo", path=tmp_path), run_dir_id=run_root.name,
+                       run_root=run_root, state_path=run_root / "state.json", state=load_evaluated_view(run_root)),
+        reason="state_completed",
+        observed_at=datetime(2026, 4, 28, 12, 0, tzinfo=timezone.utc).isoformat(),
+    )
+
+    body = render_event_email(event, _config()).get_content()
+
+    assert f"orchestrator report --run-id {run_root.name}" in body
+    assert f"orchestrator resume {run_root.name}" in body
+    assert "workflow_execution_profile_retired" not in body
