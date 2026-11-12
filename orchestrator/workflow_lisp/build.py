@@ -819,10 +819,23 @@ def _select_entry_workflow(
     return _select_entry_workflow_from_surface(
         export_surface,
         requested_name=requested_name,
-        available_names={workflow.definition.name for workflow in compile_result.entry_result.typed_workflows},
+        available_names=[workflow.definition.name for workflow in compile_result.entry_result.typed_workflows],
         source_path=source_path,
         entry_span=entry_module.syntax_module.span,
     )
+
+
+_LISTED_ENTRY_WORKFLOWS = 20
+
+
+def entry_candidates_note(names) -> tuple[str, ...]:
+    """The note of `entry_workflow_required`: names `--entry-workflow` accepts, in the order given, at most 20."""
+    names = list(names)
+    if not names:
+        return ()
+    shown = ", ".join(names[:_LISTED_ENTRY_WORKFLOWS])
+    more = f" and {len(names) - _LISTED_ENTRY_WORKFLOWS} more" if len(names) > _LISTED_ENTRY_WORKFLOWS else ""
+    return (f"workflows, in declaration order: {shown}{more}",)
 
 
 def _select_entry_workflow_from_surface(
@@ -856,6 +869,9 @@ def _select_entry_workflow_from_surface(
             exported_names=exported_workflows,
         )
     if len(exported_workflows) != 1:
+        members = {binding.canonical_name: name for name, binding in export_surface.workflows_by_name.items()}
+        # without exported workflows (a file without `defmodule`), any workflow is named by its full name
+        candidates = [members[name] for name in available_names if name in members] if members else available_names
         raise LispFrontendCompileError(
             (
                 LispFrontendDiagnostic(
@@ -863,6 +879,7 @@ def _select_entry_workflow_from_surface(
                     message="`--entry-workflow` is required when the entry module exports multiple workflows",
                     span=entry_span,
                     form_path=("workflow-lisp",),
+                    notes=entry_candidates_note(candidates),
                     phase="cli_request",
                 ),
             )
