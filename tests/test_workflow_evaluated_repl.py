@@ -15,6 +15,7 @@ import pytest
 from orchestrator.run_lock import run_writer_lock
 from tests.test_workflow_evaluated_providers import _fixture as _provider_fixture
 from tests.test_workflow_evaluated_resume import _snapshot
+from tests.workflow_inprocess_cli import run_cli_in_process
 
 
 SOURCE = '''(workflow-lisp (:language "0.1") (:target-dsl "{target}")
@@ -66,16 +67,14 @@ def _env(root: Path, results=(PLAN, FEEDBACK)):
 
 def _run(root: Path, fixture, *inputs: str, results=(PLAN, FEEDBACK)):
     source, providers, prompts, _request = fixture
-    return subprocess.run(
-        [
-            sys.executable, "-B", "-m", "orchestrator", "run", str(source),
-            "--source-root", str(source.parent),
-            "--provider-externs-file", str(providers),
-            "--prompt-externs-file", str(prompts),
-            *(item for value in inputs for item in ("--input", value)),
-        ],
-        cwd=root, env=_env(root, results), capture_output=True, text=True, check=False,
-    )
+    # Setup for the REPL under test, so it runs in-process.
+    return run_cli_in_process(root, [
+        "run", str(source),
+        "--source-root", str(source.parent),
+        "--provider-externs-file", str(providers),
+        "--prompt-externs-file", str(prompts),
+        *(item for value in inputs for item in ("--input", value)),
+    ], _env(root, results))
 
 
 def _repl(root: Path, lines, *, fixture=None, run_id=None, state_dir=None,
@@ -118,11 +117,9 @@ def _typed_values(stdout: str):
 
 
 def _report(root: Path, run_root: Path) -> dict:
-    result = subprocess.run(
-        [sys.executable, "-B", "-m", "orchestrator", "report", "--run-id", run_root.name,
-         "--runs-root", str(run_root.parent), "--format", "json"],
-        cwd=root, env=_env(root), capture_output=True, text=True, check=False,
-    )
+    result = run_cli_in_process(root, [
+        "report", "--run-id", run_root.name, "--runs-root", str(run_root.parent), "--format", "json",
+    ], _env(root))
     assert result.returncode == 0, result.stderr
     return json.loads(result.stdout)
 
