@@ -167,11 +167,11 @@ def test_failed_record_view_failure_stops_later_writes_until_workers_drain(tmp_p
         return 1
     _install_launcher(monkeypatch, outcome, calls)
     real_publish = views.publish_evaluated_view
-    def publish(authority, entry):
+    def publish(authority, entry, **kwargs):
         if entry.data['record'] == 'failed':
             failed_view.set()
             raise ViewPublicationError('failed record view publication failed')
-        return real_publish(authority, entry)
+        return real_publish(authority, entry, **kwargs)
     monkeypatch.setattr(views, 'publish_evaluated_view', publish)
     with replay_case(tmp_path) as authority:
         with ThreadPoolExecutor(max_workers=1) as pool:
