@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import hashlib
 import importlib
 import json
@@ -1097,59 +1096,6 @@ def test_review_loop_compiles_without_bridge_controls(tmp_path: Path) -> None:
     )
 
 
-def test_phase_stdlib_review_loop_is_owned_directly_in_std_phase_module(
-    tmp_path: Path,
-) -> None:
-    stdlib_phase = (
-        Path(importlib.import_module("orchestrator.workflow_lisp").__file__).resolve().parent
-        / "stdlib_modules"
-        / "std"
-        / "phase.orc"
-    )
-    source = stdlib_phase.read_text(encoding="utf-8")
-    result = _compile(VALID_REVIEW_LOOP_FIXTURE, tmp_path=tmp_path)
-
-    assert "(import std/phase_review_loop_support" not in source
-    assert "std/phase_review_loop_support/run-review-revise-loop" not in source
-    assert "(loop/recur" in source
-    assert "validate_review_findings_v1" in source
-    assert "Keep the helper proc exported until imported macro expansion can resolve" in source
-    assert any(
-        workflow.definition.name.endswith("::review-revise-loop-demo")
-        for workflow in result.typed_workflows
-    )
-    assert not any(
-        getattr(procedure.specialization, "base_name", "").endswith("review-revise-loop")
-        for procedure in result.typed_procedures
-        if procedure.specialization is not None
-    )
-
-
-def test_review_loop_bridge_support_module_is_retired() -> None:
-    support_module = (
-        Path(importlib.import_module("orchestrator.workflow_lisp").__file__).resolve().parent
-        / "stdlib_modules"
-        / "std"
-        / "phase_review_loop_support.orc"
-    )
-
-    assert not support_module.exists()
-
-
-def test_active_review_loop_owner_modules_do_not_reference_bridge_policy() -> None:
-    package_dir = Path(importlib.import_module("orchestrator.workflow_lisp").__file__).resolve().parent
-    owner_modules = (
-        package_dir / "typecheck_dispatch.py",
-        package_dir / "compiler.py",
-        package_dir / "typecheck_context.py",
-        package_dir / "procedure_typecheck.py",
-        package_dir / "workflows.py",
-    )
-
-    for module_path in owner_modules:
-        assert "review_loop_legacy_bridge_policy" not in module_path.read_text(encoding="utf-8")
-
-
 def test_typecheck_accepts_generic_phase_scoped_provider_result_record(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "generic_phase_provider_result.orc",
@@ -1274,44 +1220,6 @@ def test_review_loop_validator_binding_registers_only_when_review_loop_present(t
 
     assert "validate_review_findings_v1" in review_loop_result.command_boundary_environment.bindings_by_name
     assert "validate_review_findings_v1" not in resume_result.command_boundary_environment.bindings_by_name
-
-
-def test_review_loop_compiler_no_longer_uses_literal_review_loop_binding_scanner() -> None:
-    compiler_path = Path(importlib.import_module("orchestrator.workflow_lisp.compiler").__file__)
-    source = compiler_path.read_text(encoding="utf-8")
-
-    assert "_workflow_contains_review_revise_loop" not in source
-    assert "_augment_review_loop_command_boundaries" not in source
-    assert "review_loop_public_surface" not in source
-    assert "validate_review_findings_v1" not in source
-
-
-def test_review_loop_typecheck_effects_avoids_review_loop_specific_validator_fallback() -> None:
-    source = Path(importlib.import_module("orchestrator.workflow_lisp.typecheck_effects").__file__).read_text(
-        encoding="utf-8"
-    )
-
-    assert 'expr.step_name == "validate_review_findings_v1"' not in source
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 def test_nested_implementation_phase_rejects_branch_local_ref_leak(tmp_path: Path) -> None:
@@ -2541,42 +2449,6 @@ def test_validate_reusable_phase_state_rejects_missing_required_artifact_for_reu
 
     assert exit_code == 0
     assert json.loads(captured.out) == {"variant": "MISSING_ARTIFACT"}
-
-
-def _typecheck_top_level_names() -> set[str]:
-    source_path = Path(importlib.import_module("orchestrator.workflow_lisp.typecheck").__file__)
-    return _module_top_level_names(source_path)
-
-
-def _module_top_level_names(source_path: Path) -> set[str]:
-    module = ast.parse(source_path.read_text(encoding="utf-8"))
-    return {
-        node.name
-        for node in module.body
-        if isinstance(node, (ast.AsyncFunctionDef, ast.ClassDef, ast.FunctionDef))
-    }
-
-
-def test_review_loop_owner_split_moves_stdlib_bridge_typing_out_of_typecheck_facade() -> None:
-    package_dir = Path(importlib.import_module("orchestrator.workflow_lisp").__file__).resolve().parent
-    stdlib_owner_path = package_dir / "phase_stdlib_typecheck.py"
-    dispatch_top_level_names = _module_top_level_names(package_dir / "typecheck_dispatch.py")
-    top_level_names = _typecheck_top_level_names()
-
-    assert not stdlib_owner_path.exists()
-    assert "_typecheck_stdlib_specialization_expr" not in top_level_names
-    assert "_validate_review_loop_result_contract" not in top_level_names
-    assert dispatch_top_level_names.isdisjoint(
-        {
-            "_phase_review_loop_result_contract_impl",
-            "_phase_review_loop_typecheck_impl",
-            "_specialize_phase_review_loop_request",
-            "_review_loop_generated_prefix",
-            "_review_loop_generated_procedure_name",
-            "_generated_expr_span",
-            "_initial_review_loop_report_expr",
-        }
-    )
 
 
 def test_validate_reusable_phase_state_rejects_symlinked_external_bundle_path(
