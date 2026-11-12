@@ -17,9 +17,9 @@ from typing import Any
 
 from experiments.compare import scan
 from experiments.orc_structural_search import pricing
-
-UNAVAILABLE = "unavailable"
-CLAUDE_FIELDS = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
+from orchestrator.providers.usage import (
+    UNAVAILABLE, charge_tokens as _charge_tokens, claude_message_rows, known_model as _known_model,
+)
 
 
 def _lines(path: Path) -> Iterator[dict]:
@@ -33,21 +33,8 @@ def _is_int(value: Any) -> bool:
 
 
 def claude_usage(session_jsonl: Path) -> list[dict]:
-    """One row per assistant message (`model` plus CLAUDE_FIELDS); a missing field is "unavailable".
-
-    Claude Code writes one line per content block, repeating the message id and usage, so rows are keyed by
-    `message.id` and the last line of a message wins.
-    """
-    rows: dict[Any, dict] = {}
-    for n, entry in enumerate(_lines(session_jsonl)):
-        if entry.get("type") != "assistant":
-            continue
-        message = entry.get("message") or {}
-        usage = message.get("usage") or {}
-        rows[message.get("id", n)] = {"model": message.get("model", UNAVAILABLE),
-                                      **{k: usage[k] if _is_int(usage.get(k)) else UNAVAILABLE
-                                         for k in CLAUDE_FIELDS}}
-    return list(rows.values())
+    """One row per assistant message (`model` plus CLAUDE_FIELDS); a missing field is "unavailable"."""
+    return claude_message_rows(_lines(session_jsonl))
 
 
 def codex_usage(rollout_dir: Path) -> list[dict] | str:
@@ -133,41 +120,6 @@ def _native_entries(path):
 
 def _hash(path: Path) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _known_model(model: Any) -> bool:
-    return isinstance(model, str) and bool(model.strip()) and model.lower() not in {
-        UNAVAILABLE, "unknown", "default", "auto"}
-
-
-def _charge_tokens(provider: str, usage: dict, model: str) -> dict | str:
-    fields = (CLAUDE_FIELDS if provider == "claude" else
-              ("input_tokens", "output_tokens", "cache_write_input_tokens", "cached_input_tokens"))
-    required = (*fields, "total_tokens") if provider == "codex" else fields
-    if not _known_model(model) or not all(_is_int(usage.get(key)) for key in required):
-        return UNAVAILABLE
-    if any(key.endswith("_tokens") and not _is_int(value) for key, value in usage.items()):
-        return UNAVAILABLE
-    if provider == "claude":
-        return dict(input=usage[fields[0]], output=usage[fields[1]],
-                    cache_write=usage[fields[2]], cache_read=usage[fields[3]])
-    return _codex_charge_tokens(usage)
-
-
-def _codex_charge_tokens(usage: dict) -> dict | str:
-    input_tokens, cache_read, cache_write = (usage["input_tokens"], usage["cached_input_tokens"],
-                                              usage["cache_write_input_tokens"])
-    total = usage["total_tokens"]
-    if total == input_tokens + usage["output_tokens"]:
-        charged_input = input_tokens - cache_read - cache_write
-    elif total == input_tokens + cache_write + usage["output_tokens"]:
-        charged_input = input_tokens - cache_read
-    else:
-        return UNAVAILABLE
-    if charged_input < 0:
-        return UNAVAILABLE
-    return dict(input=charged_input, output=usage["output_tokens"],
-                cache_write=cache_write, cache_read=cache_read)
 
 
 def _claude_rows(session: Path) -> list[dict]:

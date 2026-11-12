@@ -46,9 +46,8 @@ def test_report_handles_orc_run_state_without_yaml_loader_error(
     )
 
     captured = capsys.readouterr()
-    assert exit_code == 0
-    assert "orc-failed-run" in captured.out
-    assert "failed" in captured.out
-    assert "synthetic failed .orc run" in captured.out
-    assert "showing a state-only report" in captured.out
+    assert exit_code == 2
+    assert captured.out == ""
+    assert captured.err.startswith("Error: workflow_execution_profile_retired: run orc-failed-run ")
+    assert "synthetic failed .orc run" not in captured.err
     assert "Workflow must be a YAML object/dictionary" not in captured.err

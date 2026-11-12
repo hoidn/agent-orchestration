@@ -1,6 +1,7 @@
 """Main CLI entry point for orchestrator."""
 
 import argparse
+import math
 import sys
 from typing import Optional
 
@@ -17,6 +18,22 @@ def _hide_flags(parser: argparse.ArgumentParser, prefixes: tuple[str, ...]) -> N
     for action in parser._actions:
         if any(option.startswith(prefixes) for option in action.option_strings):
             action.help = argparse.SUPPRESS
+
+
+def usd(value: str) -> float:
+    cost = float(value)
+    if not math.isfinite(cost) or cost < 0:
+        raise argparse.ArgumentTypeError("must be a finite number of USD, zero or more")
+    return cost
+
+
+def _add_spend_cap(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        '--max-cost-usd',
+        type=usd,
+        metavar='USD',
+        help='Stop before a provider call once the priced usage of the run reaches USD (metered templates only)'
+    )
 
 
 def _add_frontend_flags(
@@ -158,6 +175,7 @@ def _add_run_options(parser: argparse.ArgumentParser) -> None:
         action='store_true',
         help='Stream provider stdout/stderr live without enabling full debug mode'
     )
+    _add_spend_cap(parser)
     parser.add_argument(
         '--dry-run',
         action='store_true',
@@ -495,6 +513,7 @@ def create_parser() -> argparse.ArgumentParser:
         action='store_true',
         help='Enable debug logging and state backups'
     )
+    _add_spend_cap(resume_parser)
     resume_parser.add_argument(
         '--stream-output',
         action='store_true',

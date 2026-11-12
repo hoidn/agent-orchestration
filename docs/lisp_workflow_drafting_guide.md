@@ -69,8 +69,8 @@ Ordinary `run` accepts a path whose suffix
 compares case-insensitively as `.orc` and rejects every other source with
 `.orc required` before creating state. Python authoring uses `py build/check/run`
 to generate and validate ordinary `.orc` first. The production YAML parser and PyYAML
-runtime dependency are removed. Persisted legacy runs retain state-only
-report/dashboard compatibility without source parsing. Old workflow profiles
+runtime dependency are removed. `report` and the dashboard refuse persisted
+legacy runs with `workflow_execution_profile_retired`. Old workflow profiles
 refuse `resume`, force-restart and invalidation with
 `workflow_execution_profile_retired` before changing retained run contents.
 Native `prompt resume` remains separate. The
@@ -406,11 +406,12 @@ references. Portable providers admit extern `asset_file`/`input_file` prompts
 and supported `defprompt` slots, including `:path :out`, but no session,
 context binding/capture, managed job or secrets.
 
-Selected `request-input`, `trial`, phased provider delivery,
+Selected `request-input`, phased provider delivery,
 `run-provider-phase`, `produce-one-of`, `resume-or-start`,
 `finalize-selected-item`, `resource-transition`, `materialize-view`, live
 provider supervision/peer groups and bundle-mode `run-ref` are unavailable
 at both evaluated targets and refuse at build with `closed_program_gap`.
+The `trial` form was removed and refuses with `form_retired`.
 Provider session artifacts and materialization attempts are also excluded.
 Recursive calls and runtime closures remain excluded. Frontend/typechecking
 may reject a source before this admission check; retargeting an old workflow
@@ -1933,8 +1934,9 @@ reader contracts for reports from a 2.35/2.36 run.
 
 ### Inspecting Judgment Views
 
-Q4 judgment views are a bounded read-only diagnostic projection, not provider
-results or workflow-readable state. See the
+Q4 judgment views are removed from `report` with the retired-run readers (kept
+at the git tag `archive/retired-run-readers-2026-11-11`); there is nothing to
+inspect on current runs. See the
 [judgment-view contract](design/workflow_lisp_judgment_views.md) and the
 [capability matrix](capability_status_matrix.md) for the panel's exact scope;
 older-profile snapshot evidence does not qualify evaluated readers.
@@ -2050,8 +2052,9 @@ and the [path-child lifecycle](design/workflow_lisp_evaluated_execution.md#931-p
 for source, pin and root requirements. The public lifecycle recipe above
 records the run-reference root used on resume.
 
-Bundle-mode run references and `trial` are unavailable at both evaluated
-targets and refuse with `closed_program_gap`. The `trial` CLI and old trial SDK
+Bundle-mode run references are unavailable at both evaluated targets and
+refuse with `closed_program_gap`; the `trial` form was removed and refuses
+with `form_retired`. The `trial` CLI and old trial SDK
 are retired; the CLI refuses with `workflow_execution_target_retired` before
 source reads or publication. The [DSL contract](../specs/dsl.md) and
 [CLI contract](../specs/cli.md#evaluated-execution-target-235) own those boundaries.

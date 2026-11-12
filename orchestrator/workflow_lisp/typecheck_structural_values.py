@@ -42,7 +42,6 @@ from .typecheck_context import (
     TypedExpr,
     _type_label,
     _type_refs_compatible,
-    effect_summary_requires_run_ref_placement_refusal,
     raise_error,
     raise_run_ref_placement_invalid,
 )
@@ -69,22 +68,8 @@ def _is_pure_or_provisional_procedure_call(summary, *, context: TypecheckContext
 
 def _check_map_effect_body(expr):
     from .conditionals import _is_helper_expanded
-    from .expression_traversal import walk_expr
-    from .expressions import RunRefExpr, TrialExpr
+    from .expressions import RunRefExpr
 
-    direct_run_ref = next(
-        (
-            candidate
-            for candidate in walk_expr(expr.body_expr)
-            if isinstance(candidate, TrialExpr)
-        ),
-        None,
-    )
-    if direct_run_ref is not None:
-        raise_run_ref_placement_invalid(
-            direct_run_ref,
-            reason="is not permitted in a `list/map-effect` body",
-        )
     allowed_body_types = (
         ProviderResultExpr, CommandResultExpr, CallExpr, ProcedureCallExpr
     )
@@ -440,14 +425,6 @@ def typecheck_structural_value_expr(
             value_env=body_env,
             binding_env=body_binding_env,
         )
-        if effect_summary_requires_run_ref_placement_refusal(
-            typed_body.effect_summary
-        ):
-            raise_run_ref_placement_invalid(
-                typed_body.expr,
-                reason="is not permitted in a `list/map-effect` body",
-                effect_summary=typed_body.effect_summary,
-            )
         if expr.parallel_count is not None:
             from .typecheck_agents import check_parallel_body
             check_parallel_body(expr, typed_body, context)

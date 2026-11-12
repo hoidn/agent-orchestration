@@ -36,9 +36,7 @@ from .type_env import (
 from .typecheck_context import (
     _type_label,
     _unify_loop_control_types,
-    effect_summary_requires_run_ref_placement_refusal,
     raise_error,
-    raise_run_ref_placement_invalid,
 )
 
 
@@ -411,14 +409,6 @@ def typecheck_match_expr(
     from dataclasses import replace
 
     typed_subject = recurse(expr.subject)
-    if effect_summary_requires_run_ref_placement_refusal(
-        typed_subject.effect_summary
-    ):
-        raise_run_ref_placement_invalid(
-            typed_subject.expr,
-            reason="is not permitted in a `match` discriminant",
-            effect_summary=typed_subject.effect_summary,
-        )
     if isinstance(typed_subject.type_ref, TypeParamRef):
         raise_error(
             f"match on type parameter `{typed_subject.type_ref.name}` requires declared `has-union-variant` capabilities",

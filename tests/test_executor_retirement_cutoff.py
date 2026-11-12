@@ -346,7 +346,7 @@ def test_trial_cli_refuses_before_source_reads_or_publication(tmp_path):
     assert tree(tmp_path) == before
 
 
-def test_public_historical_report_derives_status_without_self_healing(tmp_path):
+def test_public_historical_report_refuses_without_self_healing(tmp_path):
     from datetime import datetime, timedelta, timezone
     run = tmp_path / ".orchestrate" / "runs" / "historical"
     run.mkdir(parents=True)
@@ -357,8 +357,9 @@ def test_public_historical_report_derives_status_without_self_healing(tmp_path):
     (run / "state.json").chmod(0o640)
     before = tree(tmp_path)
     result = cli(tmp_path, "report", "--run-id", "historical", "--format", "json")
-    assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout)["run"]["status"] == "failed"
+    assert result.returncode == 2, result.stderr
+    assert result.stdout == ""
+    assert result.stderr.startswith("Error: workflow_execution_profile_retired: run historical ")
     assert tree(tmp_path) == before
 
 
@@ -478,15 +479,14 @@ for label, profile in expected.items():
 
 from orchestrator.cli.main import main
 for label in expected:
-    output = StringIO()
-    with redirect_stdout(output), redirect_stderr(StringIO()):
+    output, errors = StringIO(), StringIO()
+    with redirect_stdout(output), redirect_stderr(errors):
         status = main(["report", "--run-id", "historical-" + label,
             "--runs-root", str(root / ".orchestrate" / "runs"), "--format", "json"])
-    assert status == 0
-    report = json.loads(output.getvalue())
-    assert report["run"]["run_id"] == "historical-" + label
-    assert report["run"]["status"] == "completed"
-    assert report["steps"][0]["name"] == "Kept"
+    assert status == 2
+    assert output.getvalue() == ""
+    assert errors.getvalue().startswith("Error: workflow_execution_profile_retired: run historical-" + label + " ")
+    assert "retained" not in errors.getvalue()
 ''')
     assert tree(tmp_path) == before
     assert result.returncode == 0, result.stdout + result.stderr

@@ -12,7 +12,7 @@ from orchestrator.workflow.provider_phased_delivery.diagnostics import (
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .compiler_session import CompilerSession, TypecheckSessionState
-from .effects import EMPTY_EFFECT_SUMMARY, EffectSummary, RunsTrialEffect
+from .effects import EMPTY_EFFECT_SUMMARY, EffectSummary
 from .expressions import ExprNode, LiteralExpr
 from .lints import required_lint_diagnostic
 from .loops import LoopControlTypeRef
@@ -92,18 +92,6 @@ class TypecheckContext:
     session_state: TypecheckSessionState
     session_artifact_allowed: bool = False
     allow_provisional_procedure_calls: bool = False
-
-
-def effect_summary_requires_run_ref_placement_refusal(
-    summary: EffectSummary,
-) -> bool:
-    """Keep child-run placement pure except path run-ref in a closed program."""
-
-
-    return any(
-        isinstance(effect, RunsTrialEffect)
-        for effect in (*summary.direct_effects, *summary.transitive_effects)
-    )
 
 
 def snapshot_session_state(state: TypecheckSessionState) -> TypecheckSessionState:
@@ -434,33 +422,12 @@ def raise_run_ref_placement_invalid(
     """Reject child-run work at its owning authored form or call boundary."""
 
     from .expression_traversal import walk_expr
-    from .expressions import RunRefExpr, TrialExpr
+    from .expressions import RunRefExpr
 
-    candidates = tuple(walk_expr(expr))
     owner = next(
-        (candidate for candidate in candidates if isinstance(candidate, TrialExpr)),
-        next(
-            (candidate for candidate in candidates if isinstance(candidate, RunRefExpr)),
-            expr,
-        ),
+        (candidate for candidate in walk_expr(expr) if isinstance(candidate, RunRefExpr)),
+        expr,
     )
-    from .effects import RunsTrialEffect
-
-    summary_contains_trial = effect_summary is not None and any(
-        isinstance(effect, RunsTrialEffect)
-        for effect in (
-            *effect_summary.direct_effects,
-            *effect_summary.transitive_effects,
-        )
-    )
-    if isinstance(owner, TrialExpr) or summary_contains_trial:
-        raise_error(
-            f"`trial` {reason}",
-            code="trial_nested_unsupported",
-            span=owner.span,
-            form_path=owner.form_path,
-            expansion_stack=owner.expansion_stack,
-        )
     raise_error(
         f"`run-ref` {reason}",
         code="run_ref_placement_invalid",

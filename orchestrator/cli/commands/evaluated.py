@@ -25,6 +25,7 @@ from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.evaluated.machine import site_classes
 from orchestrator.workflow.evaluated.memo import read_memo
 from orchestrator.workflow.evaluated.runtime import execute_pure_resume, execute_pure_run
+from orchestrator.workflow.evaluated.spend_cap import pending_attempts
 from orchestrator.workflow.evaluated.values import coerce_evaluated_value
 from orchestrator.workflow.signatures import (
     WorkflowSignatureError,
@@ -205,10 +206,11 @@ def prepare_evaluated_resume(run_root: Path, *, workspace: Path, force_restart=F
     return authority, inputs, provider_io
 
 
-def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart: bool = False, run_ref_root: str | None = None, run_files: WorkspaceFiles | None = None, stream_output: bool = True, quiet: bool = False, state_dir: str | None = None, terminal_lines: bool = False, accept_changes: bool = False) -> int:
+def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart: bool = False, run_ref_root: str | None = None, run_files: WorkspaceFiles | None = None, stream_output: bool = True, quiet: bool = False, state_dir: str | None = None, terminal_lines: bool = False, max_cost_usd: float | None = None, accept_changes: bool = False) -> int:
     """Rebuild and compare before loading the stored program, pins or memo.
 
-    `terminal_lines` (the command line sets it) prints progress, recovery lines and the result.
+    `terminal_lines` (the command line sets it) prints progress, recovery lines and the result;
+    `max_cost_usd` is this invocation's spend cap (never stored).
     """
     reporter = TerminalReporter(run_root.name, run_root, quiet=quiet, state_dir=state_dir, enabled=terminal_lines)
     try:
@@ -220,7 +222,7 @@ def resume_evaluated_workflow(run_root: Path, *, workspace: Path, force_restart:
         reporter.announce(lazy=True)
         exit_code, _ = _execute_reported(
             reporter, execute_pure_resume, authority, inputs, stored_program=authority.program,
-            run_id=run_root.name, workspace=workspace, provider_io=provider_io, stream_output=stream_output)
+            spend_cap_usd=max_cost_usd, run_id=run_root.name, workspace=workspace, provider_io=provider_io, stream_output=stream_output)
         return exit_code
     except LispFrontendCompileError as exc:
         for diagnostic in exc.diagnostics:
@@ -297,7 +299,7 @@ def run_evaluated_workflow(
                 reporter.announce()
                 exit_code, value = _execute_reported(
                     reporter, execute_pure_run, authority, bound_inputs,
-                    run_id=state_manager.run_id, workspace=workspace, provider_io=built.provider_io,
+                    spend_cap_usd=getattr(args, "max_cost_usd", None), run_id=state_manager.run_id, workspace=workspace, provider_io=built.provider_io,
                     stream_output=not getattr(args, "quiet", False))
                 return exit_code, state_manager.run_id, state_manager.run_root, _run_outputs(exit_code, value)
     finally:
@@ -412,18 +414,29 @@ def _run_outputs(exit_code, value):
     return dict(value) if isinstance(value, Mapping) else {"__result__": value}
 
 
-def _execute_reported(reporter: TerminalReporter, execute, authority, inputs, *, stored_program=None, **kwargs):
+def _execute_reported(reporter: TerminalReporter, execute, authority, inputs, *, stored_program=None,
+                      spend_cap_usd=None, **kwargs):
     """Run `execute` with the reporter as memo observer and error sink; Ctrl-C also prints the resume line."""
     def on_error(exc: Exception) -> None:
         reporter.error(exc, header=authority.header, stored_program=stored_program, snapshot=_memo_or_none(authority))
 
     try:
-        exit_code, value = execute(replace(authority, observer=reporter.record), inputs, on_error=on_error, **kwargs)
+        cut_off = None if spend_cap_usd is None else _pending_at_start(authority)
+        exit_code, value = execute(replace(authority, observer=reporter.record, spend_cap_usd=spend_cap_usd,
+                                           cut_off_attempts=cut_off), inputs, on_error=on_error, **kwargs)
     except KeyboardInterrupt:
         reporter.run_failed()
         raise
     _report_outcome(reporter, authority, exit_code, value)
     return exit_code, value
+
+
+def _pending_at_start(authority) -> frozenset[str] | None:
+    """The attempts a capped invocation finds pending before it runs (cut off); None when the memo cannot be read."""
+    if not os.path.lexists(authority.memo_path):
+        return frozenset()
+    snapshot = _memo_or_none(authority)
+    return None if snapshot is None else pending_attempts(snapshot)
 
 
 def _memo_or_none(authority):

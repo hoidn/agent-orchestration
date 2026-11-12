@@ -87,11 +87,6 @@ class RunsRefEffect:
 
 
 @dataclass(frozen=True)
-class RunsTrialEffect:
-    """Compiler-inferred execution of one bounded static trial."""
-
-
-@dataclass(frozen=True)
 class HostInputEffect:
     """Compiler-inferred request for one host-mediated text reply."""
 
@@ -148,7 +143,6 @@ EffectAtom = (
     | UsesCommandEffect
     | CallsWorkflowEffect
     | RunsRefEffect
-    | RunsTrialEffect
     | HostInputEffect
     | UpdatesStateEffect
     | MovesResourceEffect
@@ -235,13 +229,13 @@ def effect_summary_from_procedure_call(
 
 
 def effect_summary_contains_runs_ref(summary: EffectSummary) -> bool:
-    """Return whether either membership set contains child-run or trial work."""
+    """Return whether either membership set contains child-run work."""
 
     return any(
-        isinstance(effect, (RunsRefEffect, RunsTrialEffect))
+        isinstance(effect, RunsRefEffect)
         for effect in summary.direct_effects
     ) or any(
-        isinstance(effect, (RunsRefEffect, RunsTrialEffect))
+        isinstance(effect, RunsRefEffect)
         for effect in summary.transitive_effects
     )
 
@@ -393,8 +387,6 @@ def render_effect_atom(effect: EffectAtom) -> str:
         label = "calls-workflow"
     elif isinstance(effect, RunsRefEffect):
         label = "runs-ref"
-    elif isinstance(effect, RunsTrialEffect):
-        return "runs-trial"
     elif isinstance(effect, HostInputEffect):
         return "host-input"
     elif isinstance(effect, UpdatesStateEffect):
@@ -455,15 +447,6 @@ def _parse_effect_group(
                 expansion_stack=expansion_stack,
             )
         return (RunsRefEffect(subject=(names[0],)),)
-    if kind == "runs-trial":
-        if names:
-            _raise_invalid_effect(
-                "`runs-trial` does not accept an authored subject",
-                span=span,
-                form_path=form_path,
-                expansion_stack=expansion_stack,
-            )
-        return (RunsTrialEffect(),)
     if kind == "host-input":
         if names:
             _raise_invalid_effect(

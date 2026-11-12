@@ -53,7 +53,6 @@ from .expressions import (
     ResumeOrStartExpr,
     RunProviderPhaseExpr,
     RunRefExpr,
-    TrialExpr,
     UnionVariantExpr,
     UnionVariantTagExpr,
     WithLiveProviderPeersExpr,
@@ -116,7 +115,6 @@ from .typecheck_resource_view import (
 )
 from .typecheck_resume import typecheck_resume_or_start_expr
 from .typecheck_run_ref import typecheck_run_ref_expr
-from .typecheck_trial import typecheck_trial_expr
 from .typecheck_structural_values import typecheck_structural_value_expr
 from .typecheck_proofs import (
     BindingIdentity,
@@ -1048,13 +1046,6 @@ def _typecheck(
         )
     if type(expr) is RunRefExpr:
         return typecheck_run_ref_expr(
-            expr,
-            context=context,
-            recurse=recurse,
-            typed_factory=_typed,
-        )
-    if type(expr) is TrialExpr:
-        return typecheck_trial_expr(
             expr,
             context=context,
             recurse=recurse,

@@ -69,9 +69,6 @@ def _compile_gap_fixture(path: Path, entry: str, root: Path, source: str):
             source,
         )
     }
-    if "(trial" in source:
-        provider_names.add("scorer")
-        prompt_names.add("trial-rubric")
     return compile_typed_program(
         path,
         entry_workflow=entry,
@@ -79,10 +76,7 @@ def _compile_gap_fixture(path: Path, entry: str, root: Path, source: str):
         workspace_root=root,
         command_boundaries=boundaries,
         provider_externs={name: name for name in provider_names},
-        prompt_externs={
-            name: ("rubrics/trial.md" if name == "trial-rubric" else "prompt.md")
-            for name in prompt_names
-        },
+        prompt_externs={name: "prompt.md" for name in prompt_names},
     )
 
 
@@ -701,11 +695,9 @@ def test_fragment_prompt_still_refuses_redeclared_dependency_source_syntax(
     )
 
 
-def test_unportable_selected_provider_parts_and_trial_are_located_before_keying(
+def test_unportable_selected_provider_parts_are_located_before_keying(
     tmp_path: Path,
 ) -> None:
-    from tests.test_workflow_lisp_trial import _trial_source
-
     cases = (
         (
             "session-artifact",
@@ -729,28 +721,14 @@ def test_unportable_selected_provider_parts_and_trial_are_located_before_keying(
             {"providers.run": "provider"},
             {"prompts.run": "prompt.md"},
         ),
-        (
-            "trial",
-            '''(workflow-lisp (:language "0.1") (:target-dsl "TARGET")
-              (defmodule cp/trial_gap) (export compare first second)
-              (defworkflow first () -> String "first")
-              (defworkflow second () -> String "second")
-              (defworkflow compare () -> Value
-                TRIAL_SOURCE))'''.replace("TRIAL_SOURCE", _trial_source().strip()),
-            "compare",
-            {"scorer": "scorer"},
-            {"trial-rubric": "rubrics/trial.md"},
-        ),
     )
     for name, source, entry_workflow, providers, prompts in cases:
         root = tmp_path / name
         path = install(root, source)
-        (root / "rubrics").mkdir(exist_ok=True)
-        (root / "rubrics" / "trial.md").write_text("rubric", encoding="utf-8")
         expected_line = next(
             index
             for index, line in enumerate(source.splitlines(), start=1)
-            if ("(trial" in line if name == "trial" else "(provider-result" in line)
+            if "(provider-result" in line
         )
         typed = compile_typed_program(
             path,
@@ -769,13 +747,9 @@ def test_unportable_selected_provider_parts_and_trial_are_located_before_keying(
         assert diagnostic.code == "closed_program_gap"
         assert diagnostic.span is not None
         assert diagnostic.span.start.line == expected_line
-        assert diagnostic.notes == (
-            f"form={'trial' if name == 'trial' else 'provider-result'}",
-        )
+        assert diagnostic.notes == ("form=provider-result",)
         assert (
-            "trial" in diagnostic.message
-            if name == "trial"
-            else "session" in diagnostic.message
+            "session" in diagnostic.message
             if name == "session-artifact"
             else "context" in diagnostic.message
         )
@@ -784,8 +758,6 @@ def test_unportable_selected_provider_parts_and_trial_are_located_before_keying(
 def test_each_selected_effect_outside_the_release_is_a_located_gap(
     tmp_path: Path,
 ) -> None:
-    from tests.test_workflow_lisp_trial import _trial_source
-
     fixture_cases = (
         ("materialize-view", "materialize-view/materialize_view_runtime.orc", "orchestrate"),
         ("resource-transition", "resource-transition/resource_transition_effects.orc", "move-selected-item"),
@@ -803,14 +775,6 @@ def test_each_selected_effect_outside_the_release_is_a_located_gap(
         source = (fixture_root / relative).read_text(encoding="utf-8")
         cases.append((form, form, entry, source))
 
-    trial_source = f'''(workflow-lisp
-      (:language "0.1")
-      (:target-dsl "{TARGET}")
-      (defmodule cp/trial_gap) (export compare first second)
-      (defworkflow first () -> String "first")
-      (defworkflow second () -> String "second")
-      (defworkflow compare () -> Value
-        {_trial_source().strip()}))'''
     cases.extend(
         (
             (
@@ -822,7 +786,6 @@ def test_each_selected_effect_outside_the_release_is_a_located_gap(
                   (defworkflow ask ((question String)) -> HumanReply
                     (request-input question)))''',
             ),
-            ("trial", "trial", "compare", trial_source),
             (
                 "provider-result",
                 "capture-context",
@@ -869,8 +832,6 @@ def test_each_selected_effect_outside_the_release_is_a_located_gap(
         path = root / Path(*module.group(1).split("/")).with_suffix(".orc")
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(source, encoding="utf-8")
-        (root / "rubrics").mkdir(exist_ok=True)
-        (root / "rubrics" / "trial.md").write_text("trial rubric", encoding="utf-8")
         selected_lines = [
             number
             for number, line in enumerate(source.splitlines(), start=1)

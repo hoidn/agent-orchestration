@@ -46,8 +46,11 @@ floor rather than bypassing it through a Python or manifest door.
 Current compiler/build calls expose no `lowering_route` selector; retained
 artifact schema fields cannot select historical compilation. LSP evaluated
 semantic qualification remains **OPEN_NOT_WAIVED**, independently of the floor.
-Historical `report`, dashboard and `input get` read retained evidence without
-compiling source or rewriting it. Original run data is preserved. Recovery
+Historical `input get` reads retained evidence without compiling source or
+rewriting it. `report` and the dashboard read evaluated runs only and refuse a
+run written by the retired runtime with `workflow_execution_profile_retired`
+(see the [readers](#evaluated-readers)); the old readers are kept at the git
+tag `archive/retired-run-readers-2026-11-11`. Original run data is preserved. Recovery
 requires the exact complete release/environment qualified for the particular
 family; preserved source or a package pin alone is no universal recovery
 guarantee ([retirement policy](../docs/design/workflow_lisp_executor_retirement.md#7-recovery-policy-and-one-deletion-gate)).
@@ -166,11 +169,16 @@ this locking rule does not retain workflow supervision or watchdog execution.
       remains unchanged. `input get` prints the pending evaluated request or
       retained historical request as JSON (exit 0); absent/invalid request exits 2.
   - `orchestrate report [--run-id <id>] [--runs-root <dir>] [--format md|json] [--output <path>]`
-    - Report output may include advisory lint warnings (`lint.warnings[]` in JSON or an appendix in Markdown); warnings remain informational only.
-    - Report output may include active runtime fields derived from executor sessions, including `run.active_runtime_ms`, `run.active_runtime`, `run.executor_session_count`, and `run.excluded_suspended_ms`. These fields exclude suspended gaps between executor processes and are informational only.
-    - Report output may surface provider-session metadata paths and bounded
-      interrupted-rerun diagnostic context; partial provider evidence remains
-      non-authoritative.
+    - Reads evaluated runs only (see the [readers](#evaluated-readers)). Without
+      `--run-id` it reports the evaluated run with the greatest directory name;
+      retired runs are skipped.
+    - A run directory with a `state.json` entry and no evaluated authority
+      (`run.json`, `closed_program.json`, `memo.jsonl`) was written by the
+      retired runtime: `report` exits 2 with one stderr line
+      `Error: workflow_execution_profile_retired: run <id> was written by the
+      retired runtime; ...` that names the tag holding the old readers, prints
+      nothing on stdout, and reads nothing of the run beyond the view-hint
+      check. A missing run exits 1 with `Error: run not found`.
   - `orchestrate prompt run (--prompt TEXT | --prompt-file PATH) --provider (omp|omp_no_tools|omp_conf|omp_unrestricted_workspace) [--conf PATH] [--model MODEL] [--returns JSON | --output TEXT]`
     - Retired in every default/exact/inferred contract mode: exits 2 with
       `prompt_execution_retired` before reading inputs, inference or writes.
@@ -204,9 +212,10 @@ this locking rule does not retain workflow supervision or watchdog execution.
       does not by itself make provider-phase isolation available.
   - `orchestrate dashboard --workspace <root> [--workspace <root> ...] [--host 127.0.0.1] [--port <port>]`
     - Serves a local, read-only dashboard for explicit workspace roots.
-    - The dashboard scans `<workspace>/.orchestrate/runs/*/state.json` at request time and keys runs by `(resolved workspace root, run directory name)`.
+    - The dashboard scans `<workspace>/.orchestrate/runs/*/` at request time and keys runs by `(resolved workspace root, run directory name)`. A directory with evaluated authority is rendered from its checked view (see the [readers](#evaluated-readers)); a directory with only a `state.json` entry is a retired run, listed with status `retired` and the `workflow_execution_profile_retired` line, its state never read; a run directory that resolves outside the workspace is listed as `unreadable`; other directories are not listed.
     - The default bind host is `127.0.0.1`; binding to another host is an explicit operator choice.
-    - Routes include `/runs`, `/runs/<workspace_id>/<run_dir>`, `/runs/<workspace_id>/<run_dir>/summaries`, `/runs/<workspace_id>/<run_dir>/summaries/live.json`, step detail, state preview, and route-scoped workspace/run file previews.
+    - Every request must carry a `Host` header naming `127.0.0.1`, `localhost`, `[::1]` or the bound host, with the bound port (the port may be omitted only on port 80); any other or missing `Host` gets 421 before any route work, so a DNS-rebinding page cannot read the dashboard. With `--host 0.0.0.0` only the loopback names pass, so a LAN client gets 421; to serve a LAN, bind that interface's address.
+    - Routes: `/runs`, `/runs/<workspace_id>/<run_dir>` (run page), `.../steps/<identity>` (effect page), `.../state` (derived-view preview) and `.../files/<workspace|run>/<path>` (route-scoped previews, `?raw=1` download). The summary, live-summary and tmux routes are removed and return 404. Every route below a retired run's page returns 404 with the refusal line.
     - Dashboard routes must not execute `resume`, `report`, tmux, provider CLIs, shell commands, or child processes. Copyable commands are rendered as inert text only.
   - `orchestrator monitor --config <path> [--once] [--dry-run] [--dry-run-mark-sent] [--ledger <path>]`
     - Monitors explicit workspace roots from the config file and sends email notifications for completed, failed, crashed, or stalled workflow runs.
@@ -240,8 +249,9 @@ this locking rule does not retain workflow supervision or watchdog execution.
     contract must be specified before `ORCHESTRATE_KEEP_RUNS` is activated.
 
 - Safety
-  - `--clean-processed` only operates on the configured `processed_dir` when it resolves within WORKSPACE.
-  - `--archive-processed` destination must not be inside the configured `processed_dir`. Default output is `RUN_ROOT/processed.zip`.
+  - `--clean-processed` and `--archive-processed` are accepted and have no
+    effect: evaluated execution neither cleans nor archives a processed
+    directory.
 
 ## Commands and Examples
 
@@ -256,11 +266,13 @@ followed by `-m orchestrator` when the module was invoked (see
 lists the public commands (`run`, `py`, `compile`, `repl`, `resume`,
 `invalidate`, `input`, `report`, `dashboard`, `monitor`). The retired and
 maintainer commands (`prompt`, `trial`, `explain`,
-`workflow-lisp-route-readiness`, `peer-ready`, `peer-send`, `peer-ack`,
-`peer-finish`, `provider-materialization-submit`,
+`workflow-lisp-route-readiness`, `provider-materialization-submit`,
 `provider-isolation-environment-manifest`) and the flags evaluated execution
 does not read (see [Evaluated execution](#evaluated-execution-target-235))
-are hidden from help and still accepted with their documented behavior.
+are hidden from help and still accepted with their documented behavior. The
+peer-group member commands `peer-ready`, `peer-send`, `peer-ack` and
+`peer-finish` were removed on 2026-11-11 with their executor (git tag
+`archive/dead-executors-2026-11-11`) and get argparse's `invalid choice`.
 
 ```bash
 # Run an admitted evaluated entry (provider execution changes the workspace)
@@ -304,12 +316,12 @@ execution/publication (CLI exit 2), rather than compiling or creating a trial
 run/result. The historical `workflow_trial_run_result.v1` wire remains useful
 for reading retained trial evidence; it does not admit new trials. ES/research
 callers share this retirement, with no evaluated trial port. The current CLI
-report keeps state-only trial rows with identity, kind and status and empty
-input/output payloads; detailed trial budgets, score/ranking and verdict-join
-rendering are withdrawn. Dashboard generic raw/debug inspection is separate
-and does not inherit this redaction. The
+`report` and the dashboard no longer read trial runs: a retained trial run has
+no evaluated authority, so both refuse it with
+`workflow_execution_profile_retired`; the old readers are kept at the git tag
+`archive/retired-run-readers-2026-11-11`. The
 [observability contract](observability.md#target-225-trial-observability) owns
-the historical detail format and retained read-only boundary.
+the historical detail format.
 
 ### Evaluated execution (target 2.35)
 
@@ -359,7 +371,8 @@ orchestrator compile WORKFLOW [--entry-workflow NAME] [--source-root DIR ...]
   [--diagnostics-json]
 orchestrator run WORKFLOW [the same frontend flags] [--input NAME=VALUE ...]
   [--input-file JSON] [--state-dir DIR] [--run-ref-root DIR] [--dry-run] [--quiet]
-orchestrator resume RUN_ID [--state-dir DIR] [--run-ref-root DIR] [--accept-changes] [--quiet]
+  [--max-cost-usd USD]
+orchestrator resume RUN_ID [--state-dir DIR] [--run-ref-root DIR] [--accept-changes] [--quiet] [--max-cost-usd USD]
 orchestrator invalidate RUN_ID IDENTITY [--state-dir DIR]
 orchestrator report [--run-id RUN_ID] [--runs-root DIR] [--format md|json] [--output PATH]
 orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--state-dir DIR]
@@ -420,6 +433,36 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   timestamp prefix. The run's workflow
   outputs are the terminal value, as `{"__result__": value}` for a non-object
   value.
+- Spend cap. `--max-cost-usd USD` (on `run`, `py run` and `resume`; a finite
+  number, zero or more) is a limit of this invocation only: it is not stored,
+  a later `resume` without it has none, and the REPL's `:run` and the Python
+  SDK `orchestrator.py.run()` take no cap. Without the flag no usage is read.
+  With it, before the `started` row of a provider, phased provider, agent-turn
+  or run-reference effect (an agent turn: where a new attempt would be
+  allocated, so a completed pending turn is still recovered), the run stops
+  with `spend_cap_unmetered` when that call cannot be metered: its template
+  reports no usage (a built-in plain template; bind `<name>_metered`), it is a
+  phased provider step, its model (the step's `:model` or the template
+  default) has no complete rates in the packaged price table, or it is a run
+  reference, whose child run is not capped. Otherwise the run sums the spend
+  of its provider attempts
+  ([providers, "Metered templates and usage"](providers.md#metered-templates-and-usage)):
+  every attempt with a `usage.json` is counted, pending or not; an attempt
+  without one is skipped only while it is pending and was not already pending
+  when this invocation began (the invocation records that set once, at its
+  start, and reads no clock). Any counted attempt whose usage is unknown,
+  `complete: false` (a lower bound, e.g. a killed, timed-out or terminated
+  turn), unpriced or not a regular file, and any attempt without a
+  `usage.json` that is not in flight (a call cut off by a kill: its own retry
+  stops), stops the run with `spend_cap_unmetered`. Spend at or over the cap stops it with
+  `spend_cap_reached`. The cap prices conservatively: an attempt's figure is
+  the larger of the CLI's reported cost and the price at the model's highest
+  listed tier (a long-context rate where the table has one), so it can stop
+  earlier than the list price of short prompts would. Neither refusal writes
+  a memo row: the run stops without a terminal and `resume` continues. In a
+  parallel batch every item is checked before it starts, so no unmeterable
+  item starts and a batch overshoots the cap by at most the metered calls
+  already running; command effects and replayed commits are never stopped.
 - Terminal lines of `run` and `resume`. The command-line `run`, `resume` and
   `py run`, and the REPL's `:run`, print them; the Python SDK
   `orchestrator.py.run()` prints none and leaves the caller's streams
@@ -552,16 +595,22 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   supplies its C4/§8.1 retry baseline and `must_not_repeat` restriction when
   its identity is reached again; pending starts before the anchor remain
   pending.
-- Readers: `report`, `dashboard` and `monitor` recognize an evaluated run
+- <a id="evaluated-readers"></a>Readers: `report`, `dashboard` and `monitor` recognize an evaluated run
   root and render its [derived view](state.md#derived-view-statejson)
   (`steps` keyed by identity, `current_step`, `next_effect`, `error`,
   `workflow_outputs`, and `interrupted` from writer-lock liveness). `report`
-  previews a row as the `repr` of its committed value from the view;
-  `dashboard` locates `stdout.txt`, `stderr.txt` and, for a provider,
-  `prompt.txt` beside the row's `result_path`; `monitor` locates
+  previews a row as the `repr` of its committed value from the view. The
+  dashboard shows each effect's attempt, start, completion and duration,
+  links each failed effect with its error code, and links the files of the
+  row's attempt directory: the `result_path` file first, then the other
+  top-level regular files by name, at most 50, never following symlinks;
+  `receipt.json`, and `stdout.txt` of an `agent_turn`, are served by path but
+  not linked, and every skipped entry is a page warning. `monitor` locates
   `stdout.txt` and `stderr.txt` only. `report` exits `1`
   with `memo_inconsistent` when the authority or journal is invalid. Readers
-  never repair, resume or reconcile a run.
+  never repair, resume or reconcile a run. `report` and the dashboard read no
+  other runs: a run with a `state.json` entry and no evaluated authority is
+  refused with `workflow_execution_profile_retired`.
 
 Example, from the public fixture of
 `tests/test_workflow_evaluated_invalidate_smoke.py` (paths relative to its
@@ -714,10 +763,13 @@ the `resume` command.
 | `evaluated_execution_unavailable` | the reason in one sentence | a fresh `run` |
 | `lexical_restore_pending_effect_unsafe` | the step that must not repeat, and that a new run performs it again, so whether the interrupted attempt took effect should be checked first | a fresh `run` |
 | `resume_request_missing` | that the run has no rebuild recipe | none |
+| `spend_cap_reached` | the spent and cap amounts (USD), and that no provider call started | `resume` with `--max-cost-usd` at twice the larger of the two; `resume` without a cap when both are 0 |
+| `spend_cap_unmetered` | why the next call cannot be metered (its template, phased step, unpriced model or run reference), or how many earlier provider attempts were cut off or have no complete priced usage (the first by attempt directory); then `cause <code>` and its fix: `template_unmetered` (bind the step to its `<name>_metered` template and start a new run with the cap), `model_unpriced` (an alias or missing model: set the step's `:model` to a model id the price table prices and start a new run with the cap), `step_uncapped` (a run reference or phased provider step cannot run under a cap), `attempt_unmetered` (an earlier attempt was cut off or has no complete priced usage) | `resume` without a cap |
 
 | Code | Raised by | Exit | Effect on evidence |
 | --- | --- | --- | --- |
 | `closed_program_gap`, `compiled_workflow_source_required`, `compiled_workflow_snapshot_conflict`, `command_boundary_closure_missing`, `command_boundary_manifest_invalid`, `command_result_inputs_invalid` | `compile`; `run`; the fresh build of `resume` | 2 | None; `run` creates no run root |
+| `form_retired` | `compile`; `run`; the fresh build of `resume`: a list head naming a removed form (`trial`) that no user definition or binding shadows, at every target and also where the entry does not reach it; the message names git tag `archive/dead-executors-2026-11-11` | 2 | None; `run` creates no run root |
 | `workflow_lisp_cli_input_unsupported` | `compile` with a flat-route export flag | 2 | None |
 | Workflow input binding failure (a missing, unknown, mistyped or non-finite input): no named code; `run` and `--dry-run` print `Validation error: Workflow input binding failed`, `resume` prints `[resume_preflight_failed] Workflow input binding failed`; a `: <detail>` suffix follows only for a conversion or non-finite failure, a missing or unknown input prints the bare message | `run`; the fresh inputs of `resume` | 2 | None; `run` creates no run root |
 | `resume_preflight_failed` | `resume` refusals without a code of their own: a non-canonical `--run-ref-root`, an input binding failure, an unreadable recipe input file, `--accept-changes` with no unfinished command attempt to accept (last in step 10) | 2 | None |
@@ -726,7 +778,7 @@ the `resume` command.
 | `memo_inconsistent` | `resume` preflight (including stored authority without command transport); `invalidate`; readers; during execution when evidence is unsettled at a start or at `halt` | 2 (`report`: 1; during execution 1 without a terminal) | None; readers report no outputs |
 | `resume_request_missing` | `resume` | 2 | None |
 | `workflow_execution_target_retired` | `compile`, `run`, `run --dry-run` on an entry through 2.34; retired trial CLI/SDK; old path child before child publication; flat/staged child execution (`flat_execution_retired` / `staged_execution_retired`) | 2 at public admission; reached run-reference failure follows the evaluated parent's failure contract | No build/run/child publication at admission; a reached evaluated parent retains its own attempt evidence |
-| `workflow_execution_profile_retired` | `resume` including restart/repair, `invalidate` of a retired profile; historical-profile `input answer`/`cancel` | 2 | None; before locks or writes |
+| `workflow_execution_profile_retired` | `resume` including restart/repair, `invalidate` of a retired profile; historical-profile `input answer`/`cancel`; `report` of a run with no evaluated authority (the dashboard shows the same line as a `retired` row and 404s the routes below its page) | 2 | None; before locks or writes |
 | `prompt_execution_retired` | Every `prompt run` and `prompt import` mode | 2 | None; before inputs, inference, scaffold/run/session writes or effects |
 | `workflow_explain_retired` | `explain`, independent of entry target or export flags | 2 | None; before source/build/export reads or writes |
 | `evaluated_execution_unavailable` | `resume --force-restart` on an admitted evaluated run | 2 | None |
@@ -739,6 +791,7 @@ the `resume` command.
 | `resume_run_ref_root_missing` | a run reference reached in replay; reached after continuation | 2; later 1 | Preflight: none. Later: failed terminal where the journal permits; prior commits kept |
 | `result_root_missing` | a result-path form reached in replay (header without `result_root`); reached after continuation | 2; later 1 | As above; read-only replay stops at the form with no error row |
 | `run_already_active`, `workspace_run_already_active` | `run`, `resume` | 2 | None |
+| `spend_cap_reached`, `spend_cap_unmetered` | `run`, `py run`, `resume` with `--max-cost-usd`, before a provider, phased provider, agent-turn or run-reference `started` | 1 | No row; stops without a terminal; prior commits kept |
 | `memo_busy` | `invalidate` | 2 | None |
 | `invalidate_not_committed`, `invalidate_coordinator_committed` | `invalidate` | 2 | None |
 | `agent_session_unavailable`, `agent_session_diverged`, `agent_policy_mismatch` | a reached agent turn (target 2.38) before its `started` and dispatch of a new turn | 1 during execution; 2 in `resume` preflight | No dispatch; failed terminal where the journal permits |

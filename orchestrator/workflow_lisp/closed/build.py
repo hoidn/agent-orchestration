@@ -1705,7 +1705,7 @@ class Builder:
         """
 
         from ..expression_traversal import iter_child_exprs
-        from ..expressions import LetProcExpr, ProviderResultExpr, TrialExpr
+        from ..expressions import LetProcExpr, ProviderResultExpr
 
         typed_body = getattr(callable_def, "typed_body", None)
         expression = getattr(typed_body, "expr", typed_body)
@@ -1714,8 +1714,6 @@ class Builder:
         pending = [expression]
         while pending:
             node = pending.pop()
-            if isinstance(node, TrialExpr):
-                return self.gap("trial", "trial execution is outside the closed surface", node)
             if isinstance(node, ProviderResultExpr):
                 if node.session_artifact is not None:
                     return self.gap(
