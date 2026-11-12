@@ -415,8 +415,8 @@ def match(value, *, name=None, **cases):
     binder = trace.reserve("match", name)
     arms = []
     for variant in variants:
-        child, result, binder = trace.region(cases[variant.__name__], binder_type=variant)
-        arms.append((variant, binder, child, result))
+        child, result, payload = trace.region(cases[variant.__name__], binder_type=variant)
+        arms.append((variant, payload, child, result))
     annotation = _branch_annotation(trace.generator, [result for _, _, _, result in arms])
     expression = trace.expression("match", (value, tuple(arms)), annotation)
     return _bind_branch(trace, expression, binder, name)

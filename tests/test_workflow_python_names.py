@@ -1,14 +1,20 @@
 """Generated Python binder names follow the callee, so effect sites survive insertions."""
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
+import re
+import sys
 
 import pytest
 
 from orchestrator.py.diagnostics import PythonFrontendError
 from tests.test_workflow_python_cli import _cli, _env
 from tests.test_workflow_python_declarations import compile_source
+
+
+REPO = Path(__file__).parents[1]
 
 
 _HEADER = '''
@@ -179,3 +185,82 @@ def test_all_of_refuses_a_name_at_its_python_line(tmp_path):
     return when(all_of(lambda: task == "x", name="both"), then=lambda: task, else_=lambda: task)
     '''
     assert _refusal(tmp_path, body)[0] == "python_binder_name_unsupported"
+
+
+_MATCH = '''
+@variant
+class Good:
+    text: str
+@variant
+class Bad:
+    reason: str
+@variant
+class Odd:
+    note: str
+Outcome = Good | Bad
+review = Prompt(text="{task}", fills={"task": Text}, returns=str)
+agent = Provider("review")
+@workflow
+def run(value: Outcome) -> str:
+    return match(value, Good=lambda good: agent(review(task=good.text)),
+                 Bad=lambda bad: agent(review(task=bad.reason))NAME)
+'''
+
+
+def _match_sites(root: Path, *, name: str = "", union: str = "Good | Bad", odd: str = "") -> list[str]:
+    source = _MATCH.replace("NAME", name).replace("Good | Bad", union).replace("bad.reason))", "bad.reason))" + odd)
+    _, _, built = compile_source(root, source, providers={"providers.review": "codex"})
+    return [path for _owner, path in built.program.sites]
+
+
+def test_a_match_binds_its_callee_name(tmp_path):
+    assert _match_sites(tmp_path) == ["_match / body / Good / _review", "_match / body / Bad / _review_2"]
+
+
+def test_a_named_match_binds_its_name(tmp_path):
+    assert {path.split(" / ")[0] for path in _match_sites(tmp_path, name=', name="verdict"')} == {"verdict"}
+
+
+def test_adding_a_union_variant_keeps_the_sites_of_untouched_arms(tmp_path):
+    base = _match_sites(tmp_path / "base")
+    widened = _match_sites(tmp_path / "widened", union="Good | Bad | Odd",
+                           odd=", Odd=lambda odd: agent(review(task=odd.note))")
+    assert widened[:2] == base
+
+
+_BINDERS = re.compile(r"(?:\(let\* \(|\n {11})\((\S+) |\(\(\w+ (_\w+)\) |\(fn \((\S+)\)")
+
+
+def _python_examples():
+    return sorted((REPO / "workflows" / "examples").rglob("*.py"))
+
+
+def _generated_definitions(example: Path, out: Path) -> list[str]:
+    from orchestrator.py.emit import generate_graph
+    name = f"names_probe_{example.stem}"
+    spec = importlib.util.spec_from_file_location(name, example)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+        graph = generate_graph(module, out, module_name=f"py/{example.stem}")
+        return graph.source_path.read_text(encoding="utf-8").split("\n  (def")
+    finally:
+        sys.modules.pop(name, None)
+
+
+@pytest.mark.parametrize("example", [p for p in _python_examples() if "orchestrator.py" in p.read_text()],
+                         ids=lambda path: path.name)
+def test_no_binder_is_emitted_twice_in_one_workflow_function(tmp_path, example):
+    for definition in _generated_definitions(example, tmp_path):
+        binders = [next(group for group in match if group) for match in _BINDERS.findall(definition)]
+        assert len(binders) == len(set(binders)), definition.split("\n", 1)[0]
+
+
+def test_the_durable_approval_example_keeps_its_binder_names(tmp_path):
+    example = REPO / "workflows/examples/durable_host_input/approval.py"
+    recover = next(d for d in _generated_definitions(example, tmp_path) if d.startswith("workflow recover"))
+    assert [next(group for group in match if group) for match in _BINDERS.findall(recover)] == [
+        "_diagnose_prompt", "_verify", "_approval", "_match", "_case0", "_when", "_action", "_action_2",
+        "_case1", "_action_3", "_case2", "_action_4",
+    ]
