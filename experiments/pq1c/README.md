@@ -66,6 +66,27 @@ from inside a cell, so the agent's shell cannot start an unmetered session of
 another model. No other directory on the run's `PATH` may hold a `claude` or
 `codex`; `codex` itself is a stub that logs and fails.
 
+No one needs to edit their personal settings. Evidence that the flags leave
+user-level hooks and environment out, gathered on this host without a model
+call:
+
+- `~/.claude/settings.json` has no `hooks` or `env` key (key names read
+  only). Its user-level hooks come from the enabled plugins: ponytail and
+  superpowers both register `SessionStart` hooks for `startup`.
+- The CLI documents that `SessionStart` and `Setup` hook events are always in
+  a stream-json stream (`--include-hook-events` in the CLI reference). The six
+  authoring-check sessions recorded on this host with the same three flags
+  (`/home/ollie/authoring-check/sessions`) have no hook event and none of the
+  plugins' injected text, and their init events list only the built-in
+  plugins: `enabledPlugins`, a user setting, was not applied, so the user
+  settings file, with any `hooks` or `env` it might hold, was not loaded.
+- `--setting-sources` selects which of `user`, `project` and `local` settings
+  load (`claude --help`, CLI reference).
+
+The readout checks this again for every call: a hook event in a call's stream,
+or a hook record (`attachment` with a `hookEvent`) in the cell's session
+transcripts, makes the cell an infrastructure failure.
+
 ## Spend limits
 
 - USD 0.5 per call (`--max-budget-usd 0.5`, in the wrapper): the real bound,
@@ -97,6 +118,9 @@ another model. No other directory on the run's `PATH` may hold a `claude` or
 
 ```bash
 # RUNTIME: a frozen checkout (its orchestrator package and workflow sources are used)
+# PQ1C_MANIFEST_SHA256: the manifest digest recorded in the plan's ledger -- take it from the ledger, never
+# from the kit (sha256sum of the kit's own manifest.json proves nothing)
+export PQ1C_MANIFEST_SHA256=<the ledger's manifest_sha256>
 PQ1C_SPEND_AUTHORIZED=yes bash experiments/pq1c/run_cell.sh RUNTIME variant-clean ~/pq1c-results
 python experiments/pq1c/readout.py ~/pq1c-results   # check variant-clean before going on
 # then variant-resumed, baseline-clean, baseline-resumed, one at a time
@@ -108,7 +132,8 @@ metered transport meet a real CLI for the first time. A failure there is an
 infrastructure failure, and the readout says so.
 
 Before anything is launched, `run_cell.sh` refuses: without the authorization
-variable; a binding other than `claude-haiku-5-5` on the metered template, or
+variable; without `PQ1C_MANIFEST_SHA256`, or when it differs from the kit's
+`manifest.json` (a kit edited consistently and committed cannot run); a binding other than `claude-haiku-5-5` on the metered template, or
 a source that binds `:model` to anything but the two inputs (checked by exact
 id, so no Fable model or model above the ceiling can pass); a kit file whose
 SHA-256 differs from `manifest.json`; a CLI version other than the first
@@ -125,9 +150,10 @@ program that does not compile with these bindings.
   with every model variable pinned to `claude-haiku-5-5`; the advisor,
   CLAUDE.md files, auto memory, the refusal fallback and the auto-updater are
   off. Provider observation (tmux) is off in every cell.
-- Results go to `RESULTS_ROOT/<slot>/`: `cell.json` (bindings, frozen-file
-  hashes, runtime and fixture commits, source digest, criterion hash, exits,
-  stop facts, seconds; written whole), `workspace/` (the clone and its run
+- Results go to `RESULTS_ROOT/<slot>/`: `cell.json` (bindings, the manifest
+  digest and kit-file hashes, runtime and fixture commits, source digest, CLI
+  and Python versions, price-table digest, native sessions and hook records,
+  exits, stop facts, seconds; written whole), `workspace/` (the clone and its run
   tree), `run.log`, `resume.log`, `report.json` (`report --format json`) and,
   for a clean cell, `invalidate.json` from `invalidate <run> <feedback
   identity>` on a copy (`invalidate-copy/`). The fixture repository is
@@ -161,22 +187,28 @@ the readout `undetermined`, when:
   a call (`spend_cap_unmetered`);
 - a provider attempt shows no usage or no output tokens;
 - codex was called, or a `claude` was started inside the cell;
+- a call ended with an API error (an `is_error` result with an
+  `api_error_status`, or text starting `API Error`: overloaded, 5xx, rate
+  limit, login); a failure the model produced stays a workflow outcome;
+- a hook event in a call's stream, or a hook record in the cell's session
+  transcripts;
 - a call's init event is missing, lacks a key the check reads, or lists what
   the isolation flags should have removed: a plugin that is not built in, an
   MCP server, a skill, a slash command, an agent outside the built-in set, or
   another model (the built-in plugins and agents are the ones a real isolated
   session lists on this host);
-- the CLI's transcripts for the workspace (`~/.claude/projects/<path>/`) are
-  not exactly the sessions the attempts name (2 for a variant cell, 4 for a
-  baseline cell): an extra one means a CLI ran outside the journal. This
+- the CLI's sessions for the workspace (`~/.claude/projects/<path>/`: each
+  `<id>.jsonl` transcript and each `<id>/` folder, which is all a call without
+  session persistence leaves) are not exactly the sessions the attempts name
+  (2 for a variant cell, 4 for a baseline cell): an extra one means a CLI ran
+  outside the journal. This
   detects such spend; it cannot prevent it, and its cost is outside every cap;
 - a resumed cell lacks the evidence of its stop and its resume.
 
 Cells that mix rehearsal and real runs, or differ in runtime commit, fixture,
 CLI version, Python version, price table or sources, also read out as
-`undetermined`. `readout.py` refuses
-(exit 2) a criterion or a cell recording another criterion or other frozen
-files, and a retry of a cell whose first attempt is a valid observation; with
+`undetermined`. `readout.py` refuses (exit 2) a kit file that differs from
+`manifest.json`, a cell that ran with another manifest, and a retry of a cell whose first attempt is a valid observation; with
 a retry it names the attempt it used and the one it replaced.
 
 Readings of the protocol, written into the criterion before it was frozen:
@@ -202,5 +234,7 @@ The wrapper's flags are verified against `claude --help` (2.1.322) and a
 recorded fresh isolated session, not in a real `-p --resume` session; the
 readout checks each call's init event afterwards. The agent can still start a
 CLI by its absolute path; only the `PATH` route is closed, and the transcript
-count detects the likely case afterwards. An API error after some output
-(overloaded, 5xx) reads as a workflow failure, not as infrastructure.
+count detects the likely case afterwards. The built-in plugin and agent sets
+are those of CLI 2.1.322; if a built-in plugin leaves a hook record in a real
+transcript, every cell reads out undetermined (fails closed) and the first cell
+shows it.

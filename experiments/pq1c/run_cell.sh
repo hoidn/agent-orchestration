@@ -6,7 +6,8 @@
 #
 # RUNTIME is the frozen checkout whose `orchestrator` package runs the cell and whose workflows/examples
 # sources are compared. CELL is exactly one of variant-clean, variant-resumed, baseline-clean,
-# baseline-resumed. A paid cell makes four claude-haiku-5-5 calls, each through cell_claude.sh (user-level
+# baseline-resumed. PQ1C_MANIFEST_SHA256 must equal the digest of manifest.json (the ledger's value).
+# A paid cell makes four claude-haiku-5-5 calls, each through cell_claude.sh (user-level
 # Claude Code setup left out, USD 0.5 per call), under --max-cost-usd 10 for the run (the cap prices at the
 # highest tier, 5x Haiku's ordinary rate). Before anything is launched it refuses: without
 # PQ1C_SPEND_AUTHORIZED=yes; a binding other than claude-haiku-5-5 on the Claude metered template; a kit file

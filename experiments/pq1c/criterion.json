@@ -32,7 +32,7 @@
     ],
     "rule": "every provider attempt has exactly one stream-json init event with the keys plugins, mcp_servers, skills, slash_commands, agents, model and session_id; it lists no plugin but built-in ones (path builtin, source ending @builtin), no MCP server, skill or slash command, no agent outside builtin_agents, and model claude-haiku-5-5; the built-in set is the one a real isolated 2.1.322 session lists on this host"
   },
-  "sessions": "the CLI's native transcripts for the cell's workspace (~/.claude/projects/<workspace path with every non-alphanumeric character replaced by ->/*.jsonl) are exactly the sessions the attempts' init events name: 2 for a variant cell, 4 for a baseline cell when every turn ran; another count means a CLI ran outside the journal; this detects such spend, it cannot prevent it",
+  "sessions": "the CLI's native transcripts for the cell's workspace (~/.claude/projects/<workspace path with every non-alphanumeric character replaced by ->/: each <id>.jsonl transcript and each <id>/ folder, which is all a call without session persistence leaves) are exactly the sessions the attempts' init events name: 2 for a variant cell, 4 for a baseline cell when every turn ran; another count means a CLI ran outside the journal; this detects such spend, it cannot prevent it",
   "spend": {
     "per_call_ceiling_usd": 0.5,
     "per_run_cap_usd": 10,
@@ -74,8 +74,10 @@
     "the cap could not meter a call (spend_cap_unmetered)",
     "a provider attempt whose usage is not reported or reports no output tokens: the model produced nothing (launch, login or CLI failure) or the metering failed",
     "codex was called, or a claude was started inside the cell (nested-calls.log)",
+    "a call ended with an API error: an is_error result carrying api_error_status, or result text starting 'API Error' (overloaded, 5xx, rate limit, login); a failure the model produced is not one",
+    "a hook event in a call's stream (SessionStart and Setup hook events are always in stream-json output), or a hook record (an attachment with hookEvent or a hook_ type) in the cell's session transcripts",
     "a provider attempt's init event is missing, lacks a key the isolation rule reads, or lists what isolation should have removed",
-    "the native session transcripts for the workspace differ from the sessions the attempts name",
+    "the CLI's sessions for the workspace (each <id>.jsonl transcript and each <id>/ folder) differ from the sessions the attempts name",
     "the fixture commit is not the pinned one",
     "a resumed cell without the evidence of its stop and resume: the wrapper exit 75 right after the reviewer's first turn with nothing in flight, and a resume invocation; or a resumed cell that ran to the end without stopping"
   ],
@@ -102,5 +104,6 @@
     "a cost difference inside the band",
     "how often a cell fails"
   ],
-  "owner_judgment": "whether what was observed justifies losing the ability to invalidate feedback"
+  "owner_judgment": "whether what was observed justifies losing the ability to invalidate feedback",
+  "anchor": "manifest.json lists the SHA-256 of this criterion and of every file that defines a cell; its own SHA-256 is recorded in the plan's ledger, and run_cell.sh refuses unless PQ1C_MANIFEST_SHA256 equals it"
 }
