@@ -472,6 +472,7 @@ is manual. Phase plans are linked here as they start:
   unblocks stage 3, the old IR stack.
 - Lane D, dead executors, done: [dead executors and `StateManager` plan](2026-11-11-lane-d-dead-executors-and-state-manager-plan.md).
   Stages 1 and 2 are merged; the two live-provider source forms stay (decision 9).
+- Lane D, old IR stack, started: [stage 3 plan](2026-11-12-lane-d-stage-3-old-ir-stack-plan.md).
 - Side work, done: run and resume cost. A run re-read the whole memo and replayed the whole program
   after every record; memo reduction now continues from the last fold, a start the evaluator has
   just reached is published without a replay, and two compile passes skip work that cannot matter.
