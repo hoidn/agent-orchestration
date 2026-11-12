@@ -50,6 +50,13 @@ def _short(identity: str) -> str:
     return identity.rsplit(" / ", 1)[-1]
 
 
+def _files(run_root: Path) -> dict[str, tuple[bytes, int, int]]:
+    """Each file's bytes, inode and modification time: a reader that rewrites a file with equal bytes (the view
+    it derived, say) still changes this."""
+    return {name: (data, (run_root / name).stat().st_ino, (run_root / name).stat().st_mtime_ns)
+            for name, data in fx.tree(run_root).items()}
+
+
 def _header(run_root: Path) -> dict:
     return json.loads((run_root / "run.json").read_bytes())
 
@@ -79,6 +86,18 @@ def test_fresh_view_and_report_of_a_run_without_a_record_carry_no_lineage_keys(s
     assert "Programs" not in _report(workspace, run_root, "md")
 
 
+def test_a_start_a_range_retired_keeps_its_status_in_a_run_without_a_record(serial_base, tmp_path):
+    """Only a run with a `rebased` record shows a retired start as `invalidated`; without one the view stays
+    as earlier builds wrote it (`running`), so existing runs read byte for byte as before."""
+    workspace, run_root = _copy(serial_base, tmp_path)
+    journal = run_root / "memo.jsonl"
+    journal.write_bytes(journal.read_bytes()[:fx.offset_of(run_root, "committed", "s4")])   # killed in s4
+    assert cli_inprocess(workspace, "invalidate", run_root.name, P + "s3").returncode == 0
+    rows = _view(run_root)["steps"]
+    assert (rows[P + "s3"]["status"], rows[P + "s4"]["status"]) == ("invalidated", "running")
+    assert not any("program" in row for row in rows.values())
+
+
 def _two_programs(serial_base, tmp_path):
     """s3 renamed t3 under a second program cut at s3's commit, resumed to completion."""
     workspace, run_root = _renamed(serial_base, tmp_path)
@@ -92,7 +111,7 @@ def test_report_and_dashboard_list_programs_and_each_row_program(serial_base, tm
 
     workspace, run_root, record = _two_programs(serial_base, tmp_path)
     header = _header(run_root)
-    before = fx.tree(run_root)
+    before = _files(run_root)
     report = _report(workspace, run_root)
     programs = report["run"]["programs"]
     assert [(item["digest"], item["cut"]) for item in programs] == [
@@ -109,7 +128,7 @@ def test_report_and_dashboard_list_programs_and_each_row_program(serial_base, tm
     timeline = page.split("<h2>Step Timeline</h2>", 1)[1]
     assert "program 1" in timeline.split(P + "t3", 1)[1].split("</li>", 1)[0]
     assert "program 0" in timeline.split(P + "s1", 1)[1].split("</li>", 1)[0]
-    assert fx.tree(run_root) == before
+    assert _files(run_root) == before
 
 
 def test_monitor_scanner_reads_a_rebased_run(serial_base, tmp_path):
@@ -145,7 +164,7 @@ def test_rows_stay_for_steps_the_current_program_dropped(serial_base, tmp_path):
 
 def test_repl_attaches_to_a_rebased_run_under_its_current_program(serial_base, tmp_path):
     workspace, run_root, _record = _two_programs(serial_base, tmp_path)
-    before = fx.tree(run_root)
+    before = _files(run_root)
 
     def repl(*lines: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run([sys.executable, "-m", "orchestrator", "repl", *RUN_ARGS, "--run-id", run_root.name],
@@ -160,7 +179,7 @@ def test_repl_attaches_to_a_rebased_run_under_its_current_program(serial_base, t
     refused = repl()
     assert "resume_program_changed" in refused.stdout + refused.stderr
     assert "current program" in refused.stdout + refused.stderr and "run header" not in refused.stdout + refused.stderr
-    assert fx.tree(run_root) == before
+    assert _files(run_root) == before
 
 
 def test_a_long_lived_reader_checks_the_artifacts_again_at_each_read(serial_base, tmp_path):
@@ -200,14 +219,16 @@ GATE_WITH_S3 = GATE.replace(':returns Int)))\n      s2)))', ':returns Int))\n   
 
 def test_input_pending_and_answer_read_a_rebased_run(tmp_path):
     workspace, run_root = _gate_run(tmp_path)
+    view = _files(run_root)["state.json"]
     request = json.loads(fx.cli(workspace, "input", "get", run_root.name).stdout)["request_id"]
     (workspace / "gate.orc").write_text(GATE_WITH_S3.replace("S2_ARG", "s1"))
     fx.rebase(run_root, workspace, None, GATE_ARGS)                 # the pending request is kept
-    before = fx.tree(run_root)
+    before = _files(run_root)
+    assert before["state.json"] == view
     got = fx.cli(workspace, "input", "get", run_root.name)
     assert got.returncode == 0, got.stderr
     assert json.loads(got.stdout)["request_id"] == request
-    assert fx.tree(run_root) == before
+    assert _files(run_root) == before
     answered = fx.cli(workspace, "input", "answer", run_root.name, request, "--by", "operator", "--value", '"APPROVED"')
     assert answered.returncode == 0, answered.stderr
     assert cli_inprocess(workspace, "resume", run_root.name).returncode == 0
@@ -222,7 +243,9 @@ def test_reader_racing_a_record_returns_old_or_new_or_says_rebasing(tmp_path, mo
     from orchestrator.workflow.evaluated import host_input
 
     workspace, run_root = _gate_run(tmp_path)
+    view = _files(run_root)["state.json"]
     request = json.loads(fx.cli(workspace, "input", "get", run_root.name).stdout)["request_id"]
+    assert _files(run_root)["state.json"] == view
     (workspace / "gate.orc").write_text((GATE if race == "same-table" else GATE_WITH_S3).replace("S2_ARG", "(+ s1 1)"))
     second = fx.store_program(run_root, workspace, GATE_ARGS)
     (workspace / "gate.orc").write_text(GATE.replace("S2_ARG", "(+ s1 2)"))
@@ -237,10 +260,12 @@ def test_reader_racing_a_record_returns_old_or_new_or_says_rebasing(tmp_path, mo
         return real(authority)
 
     monkeypatch.setattr(host_input, "_checked_snapshot", gated)
-    before = fx.tree(run_root)
+    before = _files(run_root)
     done = cli_inprocess(workspace, "input", "get", run_root.name)
     assert len(calls) <= 2                                           # one reload at most, never a loop
-    assert fx.tree(run_root) == {**before, "memo.jsonl": (run_root / "memo.jsonl").read_bytes()}
+    journal = run_root / "memo.jsonl"
+    assert _files(run_root) == {**before, "memo.jsonl": (journal.read_bytes(), journal.stat().st_ino,
+                                                          journal.stat().st_mtime_ns)}
     if race == "second-record":
         assert done.returncode != 0 and "memo_inconsistent" in done.stderr and "being rebased" in done.stderr
         return
@@ -317,12 +342,12 @@ def test_invalidate_on_a_rebased_run_never_changes_the_program(serial_base, tmp_
 def test_program_change_refusal_on_a_rebased_run_compares_with_its_current_program(serial_base, tmp_path):
     workspace, run_root, _record = _two_programs(serial_base, tmp_path)
     _edit(workspace, [*RENAMED[:3], cmd("s4", "(+ t3 1)")], "s4")
-    before = fx.tree(run_root)
+    before = _files(run_root)
     done = cli_inprocess(workspace, "resume", run_root.name)
     assert done.returncode == 2 and "resume_program_changed" in done.stderr
     changed = [line.strip() for line in done.stderr.splitlines() if line.startswith(("  added", "  removed", "  changed"))]
     assert changed == [f"changed {P}s4"], done.stderr
-    assert fx.tree(run_root) == before
+    assert _files(run_root) == before
 
 
 @pytest.mark.parametrize("params", ['((n Int :default 0) (m Int))', '((n String :default "0"))'],
@@ -335,10 +360,10 @@ def test_a_later_program_that_cannot_bind_the_run_inputs_is_named_by_readers(ser
     (workspace / "pipe.orc").write_text(text)
     cut = fx.offset_of(run_root, "committed", "s1")             # every commit cancelled: nothing to replay
     fx.rebase(run_root, workspace, cut, [*RUN_ARGS, "--input", "m=1"] if "(m Int)" in params else RUN_ARGS)
-    before = fx.tree(run_root)
+    before = _files(run_root)
     reported = cli_inprocess(workspace, "report", "--run-id", run_root.name)
     assert reported.returncode == 1 and "memo_inconsistent" in reported.stderr
     assert "cannot bind the run's inputs" in reported.stderr, reported.stderr
     with pytest.raises(ValueError, match="cannot bind the run's inputs"):
         _view(run_root)
-    assert fx.tree(run_root) == before
+    assert _files(run_root) == before
