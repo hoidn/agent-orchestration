@@ -433,8 +433,9 @@ is manual. Phase plans are linked here as they start:
 
 - Phase 0, done: [records and baseline plan](2026-11-11-roadmap-phase-0-records-and-baseline-plan.md)
   and [test baseline](../reports/2026-11-11-test-baseline.md).
-- Phase 1, in execution: [first hour and long run plan](2026-11-11-roadmap-phase-1-first-hour-plan.md);
-  its ledger records which tasks are merged.
+- Phase 1, done: [first hour and long run plan](2026-11-11-roadmap-phase-1-first-hour-plan.md)
+  and the [tutorial](../tutorial_first_pipeline.md); its ledger records the
+  known gaps and the friction left for later.
 - Phase 5, in preparation: [seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md).
 - Lane D, tests, done: [low-value test removal plan](2026-11-11-low-value-test-removal-plan.md).
 - Lane D, dashboard: [dashboard migration plan](2026-11-11-dashboard-evaluated-runs-migration-plan.md).
