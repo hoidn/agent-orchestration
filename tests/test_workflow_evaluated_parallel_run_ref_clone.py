@@ -1,6 +1,7 @@
-"""A parallel item's run-reference child runs in its own clone, never in the item directory.
+"""A parallel item's run-reference child keeps outer authority and runs in its own clone.
 
-Phase 5 Task 3, the D2 coordinator exception: a path run reference keeps outer parent authority and its
+Phase 5 Task 3, the D2 coordinator exception: a path run reference keeps the outer workspace as its
+`parent_workspace` (a typed path input is copied from there, never from the item directory) and its
 child executes in its own clone workspace. A path-mode child is effect-free (a command in it refuses with
 `trial_candidate_environment_not_admissible`), so what it can read is its program and its typed inputs.
 Each item directory and the parent workspace hold a decoy `candidate.orc` that answers the opposite of the
@@ -105,3 +106,32 @@ def test_parallel_run_ref_children_compile_in_their_own_clones_after_kill_and_re
     _assert_values(batch)
     _assert_children_ran_in_their_clones(batch)
     assert child_launches(batch) == len(ITEMS)  # one child per item: no committed child launches again
+
+
+COMMON = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35") (defmodule common)
+  (export WorkPath) (defpath WorkPath :kind relpath :under "artifacts" :must-exist true))'''
+IMPORT = "(import common :only (WorkPath))"
+INVOKE_PATH = ('(defworkflow invoke ((repo String) (payload WorkPath)) -> WorkPath '
+               '(let* ((child CALL)) child.value))')
+MAP_PATH = ('(list/map-effect ((repo (list "a" "b"))) :max 2 :parallel 2 :workspace repo '
+            '(call invoke :repo repo :payload payload))')
+
+
+def test_parallel_run_ref_children_copy_path_inputs_from_the_outer_workspace(tmp_path):
+    """Each child's copy of a `WorkPath` input holds the outer workspace's bytes, not its item's."""
+    from tests.test_workflow_evaluated_cli import _run_cli
+    from tests.test_workflow_evaluated_run_ref import _add_common_source, _public_fixture
+    parent, source, refs = _public_fixture(tmp_path, parent_target="2.37", imports=IMPORT, child_imports=IMPORT,
+        parameters="(payload WorkPath)", inputs="(payload WorkPath)", call_inputs=":payload payload",
+        child_body="payload", returns="WorkPath", definitions=lambda call: INVOKE_PATH.replace("CALL", call),
+        body=lambda _call: f"(let* ((items {MAP_PATH})) (= (list/length items) 2))")
+    _add_common_source(parent, source, tmp_path / "candidate", COMMON)
+    for directory, text in ((parent, "outer"), (parent / "a", "item a"), (parent / "b", "item b")):
+        (directory / "artifacts").mkdir(parents=True)
+        (directory / "artifacts" / "seed.txt").write_text(text)
+    result = _run_cli(parent, str(source), "--input", "payload=artifacts/seed.txt", "--run-ref-root", str(refs))
+    assert result.returncode == 0, result.stdout + result.stderr
+    requests = [json.loads(path.read_text()) for path in refs.rglob("child-request.json")]
+    assert len(requests) == len(ITEMS)
+    copies = [(Path(request["clone_root"]) / request["inputs"]["payload"]).read_text() for request in requests]
+    assert copies == ["outer"] * len(ITEMS)
