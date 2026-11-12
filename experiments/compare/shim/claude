@@ -45,7 +45,10 @@ fi
 if [ -n "${COMPARE_CODEX_MODELS+set}" ]; then
   model_env+=("ORC_ALLOWED_CODEX_MODELS=$COMPARE_CODEX_MODELS")
 fi
-env "${model_env[@]}" CLAUDE_CODE_SUBAGENT_MODEL=claude-sonnet-5-5 CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 \
+# Subagents run the unit's one bound Claude model: Haiku only on the exact opt-in, else Sonnet.
+claude_model=claude-sonnet-5-5
+[ "${COMPARE_CLAUDE_MODELS-}" != claude-haiku-5-5 ] || claude_model=claude-haiku-5-5
+env "${model_env[@]}" CLAUDE_CODE_SUBAGENT_MODEL=$claude_model CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1 \
   python3 -I "$here/../sandbox.py" "$call" "$name" "$@" < "$call/prompt.txt" 2>&3 3>&- | tee "$call/stdout.txt" 3>&-
 status=${PIPESTATUS[0]}
 exec 3>&-; wait "$errors"

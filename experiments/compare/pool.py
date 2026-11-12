@@ -426,6 +426,8 @@ def write_score_inputs(out, mapping, intent, runtime, *, environment=None):
                "COMPARE_BASE": mapping["compare_base"], 'COMPARE_SANDBOX': info['sandbox']['declaration']}
         if judge in contamination.CODEX_MODELS:
             env["COMPARE_CODEX_MODELS"] = judge
+        if judge in contamination.CLAUDE_MODELS:
+            env["COMPARE_CLAUDE_MODELS"] = judge
         command, resume = shim_commands(
             home, runtime, env,
             [str(runtime / "experiments/compare" / rule["workflow"]), "--entry-workflow", rule["entry"],
@@ -459,8 +461,9 @@ def scan_judge(out, judge, solution, home=None):
                *(("agents' trees", root) for root in agent_roots)])
     compiled["judge ran tests"] = contamination.JUDGE_TESTS
     expected = judge if judge in contamination.CODEX_MODELS else "gpt-5.6-terra"
+    claude = {"expected_claude_model": judge} if judge in contamination.CLAUDE_MODELS else {}
     hits = contamination.find_hits(calls_root, workdir, mapping["created_at"], home, compiled,
-                                   expected_codex_model=expected)
+                                   expected_codex_model=expected, **claude)
     dump(calls_root / "scan.json", {"solution": solution, "hits": hits, "verdict": None,
                                     "calls": len(list((calls_root / "calls").glob("*")))})
     for hit in hits:

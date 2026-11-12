@@ -20,7 +20,8 @@ seven characters; any mention of other sessions' transcripts or tmux sockets (.c
 their recorded private-home backing; historical callers retain their original home. Paths
 match as typed: absolute, or under ~, $HOME or ${HOME} (R23).
 
-Model policy: Sonnet/Terra remain the defaults; an explicitly bound Codex run may use Luna or Sol 6.1. Read actual
+Model policy: Sonnet/Terra remain the defaults; an explicitly bound Codex run may use Luna or Sol 6.1 and an
+explicitly bound Claude run or judge Haiku (expected_claude_model). Any other answering model is a hit. Read actual
 Claude assistant message.model and Codex turn_context.model metadata, never printed model names.
 Fable and every other forbidden/unknown model are non-clearable policy hits. Standard library only.
 """
@@ -33,6 +34,7 @@ ARMS = "best_of_n|reviewed_change|design_review_execute|direct_task"
 FABLE = "Fable model"
 FORBIDDEN_MODEL = "Forbidden model"
 CODEX_MODELS = ("gpt-5.6-terra", "gpt-5.6-luna", "gpt-6.1-sol")
+CLAUDE_MODELS = ("claude-sonnet-5-5", "claude-haiku-5-5")
 JUDGE_TESTS = r"\bpytest\b|\bdev_check(?:\.py)?\b"
 BOUNDARY = r"(?![\w.-])"  # a path ends here: what follows is not part of its last component
 POOL_FILES = r"records/(?:mapping\.json|patches/|score-inputs-|(?:score|resume)-\S*\.sh|results\.(?:json|md)|judges/)"
@@ -163,10 +165,13 @@ def refuse_publication_errors(calls_root):
             raise SystemExit(f'{marker}: incomplete or failed sandbox result publication')
 
 
-def find_hits(calls_root, tree, since, home, compiled, *, expected_codex_model="gpt-5.6-terra"):
+def find_hits(calls_root, tree, since, home, compiled, *, expected_codex_model="gpt-5.6-terra",
+              expected_claude_model="claude-sonnet-5-5"):
     refuse_publication_errors(calls_root)
     if expected_codex_model not in CODEX_MODELS:
         raise SystemExit("expected Codex model must be an exact known Codex ID")
+    if expected_claude_model not in CLAUDE_MODELS:
+        raise SystemExit("expected Claude model must be the exact Sonnet or Haiku ID")
     hits = []
     for path, number, text in sources(Path(calls_root), Path(tree), since, Path(home)):
         for name, pattern in compiled.items():
@@ -174,6 +179,6 @@ def find_hits(calls_root, tree, since, home, compiled, *, expected_codex_model="
             if found:
                 hits.append({"file": str(path), "line": number, "pattern": name,
                              "text": text[max(0, found.start() - 80):found.end() + 80]})
-    hits.extend(model_hits(claude_sessions(Path(tree), Path(home)), "claude-sonnet-5-5"))
+    hits.extend(model_hits(claude_sessions(Path(tree), Path(home)), expected_claude_model))
     hits.extend(model_hits(codex_sessions(Path(tree), since, Path(home)), expected_codex_model))
     return hits

@@ -25,6 +25,7 @@ PROTECTED = frozenset(('HOME', 'CODEX_HOME', 'PATH', 'PYTHONPATH', 'OLDPWD', 'BA
 AUTH = {'codex': ('OPENAI_API_KEY',), 'claude': ('ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN')}
 POLICY = ('ORC_ALLOWED_CODEX_MODELS', 'ORC_ALLOWED_CLAUDE_MODELS', 'ORC_SINGLE_CALL_CLI_STATE',
           'CLAUDE_CODE_SUBAGENT_MODEL', 'CLAUDE_CODE_SUBAGENT_MODEL_FORCE')
+CLAUDE_BINDING = '/.compare-claude-model'  # the model guard's read-only Claude binding (shim/model-guard)
 BROAD = frozenset(('/', '/home', '/root', '/etc', '/mnt', '/srv', '/opt', '/run', '/var', '/tmp'))
 DEPENDENCY_FIELDS = frozenset(('codex', 'claude', 'readonly', 'path', 'environment', 'catalog', 'skills'))
 UNIT_FIELDS = frozenset(('tree', 'records', 'home', 'home_path', 'clones', 'providers', 'result_root'))
@@ -296,6 +297,7 @@ def launch(name, argv, environment=None, *, call=None):
         if call is not None:
             _write(call / 'publication-error.json', {'native_exit': None, 'error': str(error)})
         raise
+    binding = None
     try:
         args = ['bwrap', '--die-with-parent', '--new-session', '--unshare-pid', '--unshare-ipc', '--unshare-uts',
                 '--clearenv', '--proc', '/proc', '--dev', '/dev', '--tmpfs', '/var/tmp',
@@ -319,6 +321,14 @@ def launch(name, argv, environment=None, *, call=None):
             elif path.exists():
                 args += ['--ro-bind', str(path), str(path)]
         args += ['--bind', str(tree), str(tree), '--bind', str(tree / 'tmp'), '/tmp']
+        # The candidate can neither edit the guard nor rebind its Claude model: Haiku only on the exact opt-in.
+        claude_model = ('claude-haiku-5-5' if environment.get('ORC_ALLOWED_CLAUDE_MODELS') == 'claude-haiku-5-5'
+                        else 'claude-sonnet-5-5')
+        binding, writer = os.pipe()
+        os.write(writer, claude_model.encode())
+        os.close(writer)
+        args += ['--ro-bind', str(tree / '.model-guard'), str(tree / '.model-guard'),
+                 '--ro-bind-data', str(binding), CLAUDE_BINDING]
         if staging is not None:
             args += ['--bind-fd', str(staged), str(result.parent)]
         for value in data['clones']:
@@ -357,7 +367,7 @@ def launch(name, argv, environment=None, *, call=None):
             with (call / 'publication-error.json').open('x') as pending:
                 json.dump({'pending': True, 'native_exit': None}, pending)
         status = subprocess.run(args, env=environment, close_fds=True,
-                                pass_fds=(() if staged is None else (staged,))).returncode
+                                pass_fds=(() if staged is None else (staged,)) + (binding,)).returncode
         if staging is not None:
             _write(call / 'native-exit.json', {'native_exit': status})
         if staging is not None:
@@ -377,7 +387,7 @@ def launch(name, argv, environment=None, *, call=None):
                 return 70
         return status
     finally:
-        for descriptor in (parent, staged):
+        for descriptor in (parent, staged, binding):
             if descriptor is not None:
                 try:
                     os.close(descriptor)

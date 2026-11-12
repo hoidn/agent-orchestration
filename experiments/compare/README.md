@@ -174,7 +174,8 @@ PY=/home/ollie/miniconda3/bin/python H=$RT/experiments/compare
 
 Model policy: experiment workflows default to the owner's Sonnet/Terra ceiling.
 The generic guard retains Sonnet for legacy Claude callers and Terra by default for Codex;
-explicit per-run Codex bindings may select exactly `gpt-5.6-luna` or `gpt-6.1-sol`.
+explicit per-run Codex bindings may select exactly `gpt-5.6-luna` or `gpt-6.1-sol`, and an
+explicit Claude binding exactly `claude-haiku-5-5`.
 The owner-selected functional calibration uses Luna high versus Sol 6.1 low,
 with Sol 6.1 high judging, and prohibits Claude and native delegation.
 Its bounded provider budget is separate from model selection. `COMPARE_CODEX_MODELS=gpt-6.1-sol`
@@ -190,10 +191,16 @@ Each unit has its own native home; the harness also guards instrumented CLI rout
   and `codex`, first on the sandboxed agent's `PATH`, for top-level and nested CLI calls. Parallel
   installation leaves identical copies alone, creates missing copies by atomic hard link and
   restores edited copies by rename. Arguments, stdin, streams and status reach the real CLI.
-  Claude defaults to Sonnet; the primary model is one exact ID. Explicit and fallback model arguments (separate or `=` forms,
-  including every comma-separated fallback) must use the exact Sonnet ID. Optional
-  `COMPARE_CLAUDE_MODELS`, forwarded as `ORC_ALLOWED_CLAUDE_MODELS`, can narrow this owner cap but
-  cannot raise it. The forced Claude subagent model must also be Sonnet.
+  Each unit has one bound Claude model: Sonnet, or Haiku when `COMPARE_CLAUDE_MODELS` (forwarded
+  as `ORC_ALLOWED_CLAUDE_MODELS`) is exactly `claude-haiku-5-5`; any other value, including a list
+  naming Haiku among others, leaves Sonnet bound and can only narrow it. Claude defaults to the bound
+  model; the primary model is one exact ID. Explicit and fallback model arguments (separate or `=`
+  forms, including every comma-separated fallback) must use the bound ID, and Haiku also needs the
+  opt-in to list it. The forced Claude subagent model must also be the bound one. Inside the sandbox
+  the binding is a read-only file (`/.compare-claude-model`) and `<tree>/.model-guard` is mounted
+  read-only, so a candidate cannot rebind the model through its own environment or edit the guard.
+  `prepare.py run` takes the opt-in from its environment and writes it into `command.sh`,
+  `resume.sh` and `record.json` (`claude_model`); `pool` sets it for a Claude judge.
 - **Codex.** The same guard defaults to Terra and checks long and short model arguments. It
   rejects review subcommands (which can select a separate `review_model`), profile, provider,
   local-model and feature-enabling overrides, and admits only scalar
@@ -214,7 +221,7 @@ Each unit has its own native home; the harness also guards instrumented CLI rout
   by the provider bindings and may select independent server or reviewer models. Orchestrator
   resume remains supported because it invokes a fresh guarded `codex exec` call.
 - **Claude native agents.** The shims and guard set
-  `CLAUDE_CODE_SUBAGENT_MODEL=claude-sonnet-5-5` and `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`.
+  `CLAUDE_CODE_SUBAGENT_MODEL` to the bound Claude model and `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`.
   Explicit settings injection and cloud/environment/desktop/ultrareview/remote-control dispatch
   are refused because they can start independently configured agents. The environment pins cover
   Agent-tool subagents, teammates and workflow agents under the CLI contract
@@ -224,7 +231,8 @@ Each unit has its own native home; the harness also guards instrumented CLI rout
 - **Scan and limits.** Absolute real-CLI paths, a reset `PATH`, dropped environment pins, older
   CLIs and direct APIs bypass prevention. The scan reads actual Claude assistant `message.model`
   and Codex `turn_context.model` metadata in attributed sessions, including nested sessions.
-  Fable or any other forbidden/unknown model produces a non-clearable policy hit. Printed model
+  Any answering model other than the run's or judge's bound one (Sonnet in a Haiku-bound unit
+  included), Fable and any unknown model produce a non-clearable policy hit. Printed model
   names do not count as usage. Direct API calls without a scoped session are invisible, and
   sessions started at literal sandbox `/tmp/...` paths rather than under `TMPDIR` are not
   attributed to the tree. These guards do not claim prevention beyond instrumented routes.

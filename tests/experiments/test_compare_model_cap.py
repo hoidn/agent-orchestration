@@ -268,3 +268,135 @@ def test_codex_policy_uses_exec_scope_without_treating_values_or_prompts_as_comm
     done = guarded("codex", args)
     assert done.returncode == 3, done.stderr
     assert json.loads(done.stdout)["args"] == expected
+
+
+HAIKU = "claude-haiku-5-5"
+
+
+def test_haiku_opt_in_admits_exactly_haiku_and_pins_every_subagent_to_it(guarded):
+    for name, args, expected in (("claude", ["--model", HAIKU, "-p"], ["--model", HAIKU, "-p"]),
+                                 ("claude", ["-p"], ["--model", HAIKU, "-p"]),
+                                 ("codex", ["exec"], ["exec", *DISABLED])):
+        done = guarded(name, args, ORC_ALLOWED_CLAUDE_MODELS=HAIKU)
+        assert done.returncode == 3, done.stderr
+        seen = json.loads(done.stdout)
+        assert (seen["args"][-len(expected):], seen["forced"], seen["force"]) == (expected, HAIKU, "1")
+
+
+@pytest.mark.parametrize("allowed,args", [
+    (None, ["--model", HAIKU]), (SONNET, ["--model", HAIKU]), ("", ["--model", HAIKU]),
+    (f"{SONNET},{HAIKU}", ["--model", HAIKU]), (f"{HAIKU},claude-opus-5-5", ["--model", HAIKU]),
+    (None, ["--fallback-model", HAIKU]),
+    (HAIKU, ["--model", SONNET]), (HAIKU, ["--fallback-model", SONNET]),
+    (HAIKU, ["--model", "claude-opus-5-5"]), (HAIKU, ["--model", "claude-fable-5-1"]),
+    (HAIKU, ["--model", "fable"]), (HAIKU, ["--model", "unknown"]),
+    (HAIKU, ["--model", f"{HAIKU}-preview"]), (HAIKU, ["--model", "claude-haiku"]),
+    (HAIKU, ["--model", "claude-haiku-5"]), (HAIKU, ["--model", "haiku"]),
+    (HAIKU, ["--model", f"{HAIKU},{HAIKU}"]), (HAIKU, [f"--fallback-model={HAIKU},claude-fable-5-1"]),
+    (f"{HAIKU}-preview", ["--model", f"{HAIKU}-preview"]), ("claude-haiku", ["--model", "claude-haiku"]),
+    ("claude-opus-5-5", ["--model", "claude-opus-5-5"]), ("claude-fable-5-1", ["--model", "claude-fable-5-1"]),
+])
+def test_guard_admits_haiku_by_exact_id_only_on_opt_in_and_nothing_else(guarded, allowed, args):
+    env = {} if allowed is None else {"ORC_ALLOWED_CLAUDE_MODELS": allowed}
+    done = guarded("claude", args, **env)
+    assert (done.returncode, done.stdout) == (2, ""), done.stderr
+
+
+@pytest.mark.parametrize("forced", [SONNET, "claude-opus-5-5", "claude-fable-5-1", "unknown"])
+def test_haiku_bound_guard_rejects_any_other_forced_subagent_model(guarded, forced):
+    assert guarded("claude", ["--model", HAIKU], ORC_ALLOWED_CLAUDE_MODELS=HAIKU,
+                   CLAUDE_CODE_SUBAGENT_MODEL=forced).returncode == 2
+
+
+def test_haiku_run_binds_its_shim_and_nested_calls_cannot_change_the_binding(world, monkeypatch):
+    skip_without_sandbox()
+    monkeypatch.setenv("COMPARE_CLAUDE_MODELS", HAIKU)
+    records, record = start(world, "direct_task")
+    for script in ("command.sh", "resume.sh"):
+        assert f"COMPARE_CLAUDE_MODELS={HAIKU}" in (records / script).read_text()
+    done = call(world, record, "echo pin=$CLAUDE_CODE_SUBAGENT_MODEL; "
+                f"claude --model {HAIKU} </dev/null; echo haiku=$?; "
+                f"claude --model {SONNET} </dev/null; echo sonnet=$?; "
+                f"env -u ORC_ALLOWED_CLAUDE_MODELS CLAUDE_CODE_SUBAGENT_MODEL={SONNET} claude --model {SONNET}"
+                " </dev/null; echo dropped=$?", args=("--model", HAIKU, "-p"))
+    assert done.returncode == 0, done.stderr
+    assert [line for line in done.stdout.splitlines() if "=" in line and "PYTHONPATH" not in line] == [
+        f"pin={HAIKU}", "haiku=0", "sonnet=2", "dropped=2"]
+
+
+def test_a_candidate_cannot_admit_haiku_from_inside_a_default_run(world):
+    skip_without_sandbox()
+    _, record = start(world, "direct_task")
+    assert call(world, record, "true", args=("--model", HAIKU, "-p")).returncode == 2
+    guard = Path(record["tree"]) / ".model-guard"
+    done = call(world, record, f"ORC_ALLOWED_CLAUDE_MODELS={HAIKU} CLAUDE_CODE_SUBAGENT_MODEL={HAIKU} "
+                f"claude --model {HAIKU} </dev/null; echo widened=$?; "
+                f"(printf '#!/bin/sh\\n' > {guard}/claude) 2>/dev/null; echo edited=$?")
+    assert done.returncode == 0, done.stderr
+    assert ("widened=2" in done.stdout, "edited=0" in done.stdout) == (True, False), done.stdout
+
+
+@pytest.mark.parametrize("expected,model,pattern", [
+    (HAIKU, SONNET, "Forbidden model"), (HAIKU, "claude-fable-5-1", "Fable model"),
+    (HAIKU, HAIKU, None), (None, HAIKU, "Forbidden model"),
+])
+def test_scan_flags_any_claude_answer_other_than_the_bound_model(tmp_path, expected, model, pattern):
+    tree, home = tmp_path / "tree", tmp_path / "home"
+    tree.mkdir()
+    slug = "".join(c if c.isalnum() else "-" for c in str(tree))
+    path = home / ".claude/projects" / slug / "s.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"type": "assistant", "message": {"model": model}}) + "\n")
+    bound = {} if expected is None else {"expected_claude_model": expected}
+    hits = scan.find_hits(tmp_path / "calls", tree, 0, home, {}, **bound)
+    assert [hit["pattern"] for hit in hits] == ([pattern] if pattern else [])
+    if pattern:
+        with pytest.raises(SystemExit, match="cannot be cleared"):
+            scan.refuse_clearing("cleared", hits, "run")
+
+
+@pytest.mark.parametrize("expected", ["claude-opus-5-5", "claude-fable-5-1", "claude-haiku", "unknown"])
+def test_scan_refuses_an_expected_claude_model_outside_the_cap(tmp_path, expected):
+    with pytest.raises(SystemExit, match="Claude"):
+        scan.find_hits(tmp_path / "calls", tmp_path, 0, tmp_path, {}, expected_claude_model=expected)
+
+
+def claude_session(home, directory, model):
+    slug = "".join(c if c.isalnum() else "-" for c in str(directory))
+    path = Path(home) / ".claude/projects" / slug / f"{model}.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"type": "assistant", "message": {"model": model}}) + "\n")
+
+
+def test_a_sonnet_answer_in_a_haiku_bound_run_is_a_non_clearable_hit(world, monkeypatch):
+    from experiments.compare import prepare
+    monkeypatch.setenv("COMPARE_CLAUDE_MODELS", HAIKU)
+    records, record = start(world, "direct_task")
+    claude_session(record["sandbox"]["home"], record["tree"], HAIKU)
+    assert prepare.scan(records, world.solution) == []
+    claude_session(record["sandbox"]["home"], record["tree"], SONNET)
+    assert [hit["pattern"] for hit in prepare.scan(records, world.solution)] == ["Forbidden model"]
+    with pytest.raises(SystemExit, match="cannot be cleared"):
+        prepare.adjudicate(records, "cleared", "a probe")
+
+
+@pytest.mark.parametrize("judge,other", [(HAIKU, SONNET), (SONNET, HAIKU)])
+def test_a_claude_judge_is_bound_to_its_own_model_and_any_other_answer_is_non_clearable(world, judge, other):
+    from experiments.compare import pool
+    out = world.outside / "pool"
+    (out / "records").mkdir(parents=True)
+    bindings = world.outside / "score-claude.json"
+    bindings.write_text(json.dumps({"providers.judge": "claude_unrestricted_workspace"}))
+    mapping = {"judges": {judge: {"dir": "judge", "providers": str(bindings)}}, "batches": [["a", "b"]],
+               "criterion_sha256": "frozen", "compare_base": "base", "runs": {}, "main": "/main",
+               "runtime": "/runtime", "created_at": 0}
+    (out / "records/mapping.json").write_text(json.dumps(mapping))
+    pool.write_score_inputs(out, mapping, "intent", world.runtime)
+    assert f"COMPARE_CLAUDE_MODELS={judge}" in (out / "records" / f"score-{judge}.sh").read_text()
+    home = mapping["judges"][judge]["sandbox"]["home"]
+    claude_session(home, out / "judges/judge", judge)
+    assert pool.scan_judge(out, judge, "f" * 40) == []
+    claude_session(home, out / "judges/judge", other)
+    assert [hit["pattern"] for hit in pool.scan_judge(out, judge, "f" * 40)] == ["Forbidden model"]
+    with pytest.raises(SystemExit, match="cannot be cleared"):
+        pool.adjudicate_judge(out, judge, "cleared", "a probe")
