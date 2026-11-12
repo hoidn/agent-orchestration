@@ -12,6 +12,8 @@ import logging
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 
 from . import agent_guards, effect_inputs
+from .attempts import accepted_attempt_lines, unproven_command_retries
+from .closure import resolve_command_evidence
 from .memo import MemoError, read_memo
 from .replay import discover_prefix
 
@@ -42,8 +44,38 @@ def checked_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, 
 def _replay_resume_prefix(authority, inputs, *, run_id, workspace, provider_io, site_classes, confined=None):
     snapshot, prefix = checked_resume_prefix(authority, inputs, run_id=run_id, workspace=workspace,
         provider_io=provider_io, site_classes=site_classes, confined=confined)
+    if authority.accept_changes:
+        _require_changes_to_accept(snapshot, prefix, site_classes, workspace)
     commits = sorted(snapshot.active_commits.values(), key=lambda entry: entry.offset)
     return snapshot, commits, len(prefix.commits), prefix.value, not prefix.halted
+
+
+def _require_changes_to_accept(snapshot, prefix, site_classes, workspace) -> None:
+    """The flag needs an unproven command attempt whose declared files differ from its `started` evidence, or one
+    preflight does not reach yet (it runs after other steps, as after an `invalidate`): those cannot be rehashed
+    before they run, so they count, and are printed now as the flag accepts them unseen."""
+    reached = {item.identity: item for item in prefix.frontiers}
+    unproven = unproven_command_retries(snapshot, site_classes)
+    unreached = [identity for identity in unproven if identity not in reached]
+    if unreached:
+        logger.warning("[accept_changes_unreached] --accept-changes also accepts steps resume reaches later, "
+                       "with their files as they are then:")
+        for line in accepted_attempt_lines(snapshot, unreached):
+            logger.warning("%s", line)
+    elif not any(_evidence_differs(reached[identity], snapshot.latest_starts[identity], workspace)
+                 for identity in unproven):
+        raise effect_inputs._PreflightRefusal("resume_preflight_failed",
+            "--accept-changes: no unfinished command attempt needs it; resume without the flag")
+
+
+def _evidence_differs(item, start, workspace) -> bool:
+    recorded = start.data["implementation_files"]
+    try:
+        current = resolve_command_evidence(item.node["command"], item.node["closure"], workspace_root=workspace,
+            prior=recorded, launch_cwd=effect_inputs.resolve_launch_cwd(workspace, item.launch_workspace))
+    except Exception:  # noqa: BLE001 - the boundary check already refused unreadable evidence; count it, so that check decides
+        return True
+    return current != recorded
 
 
 def _prepare_parallel_recovery(authority, inputs, run_id, workspace, provider_io, site_classes, confined=None):
