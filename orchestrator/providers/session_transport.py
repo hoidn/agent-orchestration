@@ -672,6 +672,32 @@ def create_session_transport_accumulator(
     return None
 
 
+def transport_error_fails_call(
+    metadata_mode: str | ProviderSessionMetadataMode | None,
+    session_request: Any,
+) -> bool:
+    """A session turn and an OMP call need their transport; a plain metered call only reads usage from it."""
+    return (
+        session_request is not None
+        or metadata_mode == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value
+    )
+
+
+def decoded_assistant_text(
+    metadata_mode: str | ProviderSessionMetadataMode | None,
+    raw_stdout: bytes,
+) -> str | None:
+    """The assistant text a Claude or Codex transport carried (up to any bad line), else None."""
+    if metadata_mode == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value:
+        return None
+    accumulator = create_session_transport_accumulator(metadata_mode)
+    if accumulator is None:
+        return None
+    accumulator.feed(raw_stdout)
+    accumulator.finalize(expected_session_id=None, require_terminal=False)
+    return accumulator.normalized_stdout
+
+
 def supports_resume_boundary_observation(
     metadata_mode: str | ProviderSessionMetadataMode | None,
 ) -> bool:
@@ -687,5 +713,7 @@ __all__ = [
     "SessionIdentitySnapshot",
     "SessionTransportAccumulator",
     "create_session_transport_accumulator",
+    "decoded_assistant_text",
     "supports_resume_boundary_observation",
+    "transport_error_fails_call",
 ]

@@ -26,7 +26,7 @@ from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.providers.registry import ProviderRegistry
 from orchestrator.workflow.evaluated.provider_io import ProviderIOContext
-from .providers import provider_result
+from .providers import provider_result, provider_transport
 from .agent_sessions import allocation_result
 from . import effect_execution
 from .effect_execution import PreparedAttempt, ExternalOutcome, perform_external
@@ -553,7 +553,8 @@ def _validate_attempt_outcome(attempt, outcome):
             workspace_files=attempt.workspace_files, result_path=outcome.result_path)
     else:
         result, digest = provider_result(attempt.node, attempt.resolved, attempt.attempt_files,
-            attempt.workspace_files, outcome.result_path)
+            attempt.workspace_files, outcome.result_path,
+            transport=provider_transport(attempt.provider_executor, attempt.node))
     return result, digest, None, None
 
 

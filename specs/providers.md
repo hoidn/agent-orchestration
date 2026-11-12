@@ -1294,6 +1294,45 @@ steps:
 | gemini | `gemini -p ${PROMPT}` | argv | Model selection may not be supported via CLI; rely on CLI configuration if applicable. |
 | codex | `codex exec --dangerously-bypass-approvals-and-sandbox --model ${model} --config model_reasoning_effort=${reasoning_effort}` (prompt via stdin) | stdin | Reads prompt from stdin; `${PROMPT}` must not appear in template. Built-in defaults are `model: gpt-5.5`, `reasoning_effort: high` (can be overridden in workflow/defaults/provider_params). Use only for trusted workflow workspaces because it disables Codex's own approval and sandbox layer. |
 | claude_unrestricted_workspace | `claude -p --model ${model} --effort ${effort} --permission-mode bypassPermissions` (prompt via stdin) | stdin | Session-capable (`claude_stream_json_stdout`); used by agent sessions at 2.38. |
+| `<name>_metered` | the plain `claude*`/`codex*` command plus `--output-format stream-json --verbose` (Claude) or `--json` (Codex) | as `<name>` | One per built-in plain `claude*`/`codex*` template (`claude_metered`, `codex_metered`, ...); records usage. See [Metered templates and usage](#metered-templates-and-usage). |
+
+## Metered templates and usage
+
+Every evaluated provider, agent-turn and phased attempt writes `usage.json` beside its `stdout.txt`
+in `effects/<sha>/attempt-<n>/`, failed attempts included. It is a view: no memo row, input part,
+effect identity or program digest refers to it, and a run recorded before it existed has none and
+resumes unchanged. It holds either
+`{"status": "reported", "source", "reported_cost_usd", "rows": [{"model", "tokens": {"input", "output", "cache_read", "cache_write"}}]}`
+or `{"status": "unknown", "reason": "no_transport" | "no_usage_event" | "malformed"}`. Unknown usage
+is never zero.
+
+- Opt-in. Built-in plain templates (`claude`, `codex`, ... and `gemini`) print plain text and record
+  `unknown` / `no_transport`, as do OMP and phased providers. A workflow meters a provider step by
+  binding its provider extern to the metered template, e.g. `{"providers.review": "claude_metered"}`
+  in the `--provider-externs-file` manifest. Each `<name>_metered` is `<name>` with its CLI's
+  structured-output flags and a plain-call `command_metadata_mode` (`claude_stream_json_stdout` or
+  `codex_exec_jsonl_stdout`); defaults, input mode and call-policy bindings are unchanged. Agent-turn
+  attempts already use a transport and record usage from it.
+- A metered attempt's `stdout.txt` is the raw transport JSON. The terminal shows what the decoder
+  streams: every assistant message as it arrives, joined without a separator, and tool activity lines
+  (`Tool started: <name>`), never the transport lines; a plain template shows only the CLI's final
+  message. A missing-result diagnostic quotes the decoded assistant text.
+- Unreadable transport (a line that is not JSON, a failed turn marker) never fails a metered call that
+  exited 0 and wrote its result; its usage is `malformed`. The exit code and the result file decide.
+- Sources (`source`): `result.modelUsage` (Claude's terminal `result` line, one row per model, and its
+  `total_cost_usd` as `reported_cost_usd`); `assistant.message.usage` (a Claude turn without a
+  `result` line, e.g. killed: the last line per message id). The latter is a lower bound on output
+  tokens: stream-json assistant lines carry the output count of the first streamed chunk, so recorded
+  turns showed tens of output tokens where the `result` line showed thousands; input and cache counts
+  matched. `turn.completed.usage` (Codex's last `turn.completed`): the model is the call's policy
+  model, and charged input is input minus cached and cache-write tokens (`turn.completed` reports no
+  total; the rule is unverified for nonzero cache writes).
+- Prices: `orchestrator/providers/price_table.json` (`orchestrator.providers.pricing.load_price_table`,
+  `priced`) is a frozen copy of the vendors' public list prices, with its `source` and `date`; it is a
+  list-price equivalent, not billed spend. Claude `cache_write` is the 1-hour cache-write rate (what
+  Claude Code writes); Claude Haiku 5.5 carries its rates for prompts up to 100,000 tokens, so a call
+  with longer prompts is priced low; OpenAI `cache_write` is the 30-minute rate. A model without four
+  rates (for example `gpt-5.5`, `gpt-5.4`, or an alias such as `haiku`) prices as `None`, never 0.
 
 Exit code mapping:
 - 0 = Success

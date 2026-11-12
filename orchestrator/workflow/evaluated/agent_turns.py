@@ -384,7 +384,8 @@ def project_turn(attempt, outcome):
     resolved: ResolvedTurn = attempt.resolved
     try:
         result, digest = provider_result(resolved.provider_node, resolved.provider, attempt.attempt_files,
-                                         attempt.workspace_files, outcome.result_path)
+                                         attempt.workspace_files, outcome.result_path,
+                                         transport=resolved.adapter.metadata_mode)
         receipt = update_receipt(attempt.attempt_files, result_digest=digest)   # the prepared proof is durable here
     except ProviderPerformerError:
         raise _result_invalid(resolved) from None

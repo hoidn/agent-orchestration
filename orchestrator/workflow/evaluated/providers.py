@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from hashlib import sha256
+import json
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping, Sequence
@@ -22,6 +23,8 @@ from orchestrator.contracts.closed_program.program import strip_provenance
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
 from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.providers.executor import ProviderExecutor
+from orchestrator.providers.session_transport import decoded_assistant_text
+from orchestrator.providers.usage import usage_from_stdout
 from orchestrator.providers.types import ProviderParams, ProviderSessionMetadataMode
 from orchestrator.contracts.output_contract import (
     ContractViolation, OutputContractError, validate_expected_outputs,
@@ -251,7 +254,7 @@ def launch_provider(
     (owned and finalized by the caller) and `control` are forwarded to the executor.
     """
     attempt_files.create("prompt.txt", resolved.prompt.encode("utf-8"), exclusive=True)
-    stdout, stderr = b"", b""
+    stdout, stderr, invocation = b"", b"", None
     try:
         invocation, error = _prepare_provider_invocation(
             node, resolved, str(attempt_files.workspace / "result.json"), executor,
@@ -278,6 +281,9 @@ def launch_provider(
     finally:
         attempt_files.create("stdout.txt", stdout, exclusive=True)
         attempt_files.create("stderr.txt", stderr, exclusive=True)
+        policy = invocation.prepared_provider_policy if invocation is not None else None
+        record_usage(attempt_files, invocation.metadata_mode if invocation is not None else None, stdout,
+                     model=policy.model if policy is not None else None)
     if invocation.metadata_mode == ProviderSessionMetadataMode.OMP_JSON_STDOUT.value:
         if not execution.normalized_stdout:
             raise ProviderPerformerError(
@@ -319,22 +325,41 @@ def _prepare_provider_invocation(node, resolved, result_path, executor, *, sessi
     )
 
 
-def _reply_excerpt(attempt_files):
-    """`; reply began: <head>` from the attempt's stdout for operators, or "" when it is blank.
+def record_usage(attempt_files, metadata_mode, raw_stdout, *, model):
+    """Write `usage.json`, the usage the attempt's transport stdout reports (`unknown` without one).
 
+    A view beside the attempt evidence: no memo row, input part or digest refers to it.
+    """
+    usage = usage_from_stdout(metadata_mode, raw_stdout, model=model)
+    attempt_files.create("usage.json", (json.dumps(usage, sort_keys=True) + "\n").encode("utf-8"), exclusive=True)
+
+
+def provider_transport(executor, node) -> str | None:
+    """The plain-call transport (`command_metadata_mode`) of the template a provider node names."""
+    template = executor.registry.get(node["provider"])
+    return template.command_metadata_mode if template is not None else None
+
+
+def _reply_excerpt(attempt_files, transport=None):
+    """`; reply began: <head>` from the attempt's reply for operators, or "" when it is blank.
+
+    A transport's decoded assistant text is the reply when it has one, else the raw stdout.
     Non-printable characters (NUL, ANSI escapes) become spaces: the memo rejects a NUL in the terminal message.
     """
-    reply = attempt_files.read("stdout.txt").decode("utf-8", errors="replace")
+    raw = attempt_files.read("stdout.txt")
+    reply = decoded_assistant_text(transport, raw) or raw.decode("utf-8", errors="replace")
     head = " ".join("".join(c if c.isprintable() else " " for c in reply).split())[:240]
     return f"; reply began: {head}" if head else ""
 
 
-def provider_result(node, resolved, attempt_files, workspace_files, result_path):
+def provider_result(node, resolved, attempt_files, workspace_files, result_path, *, transport=None):
+    """The validated result; `transport` (the call's metadata mode) decodes the reply quoted when it is missing."""
     try:
         result_bytes = attempt_files.read("result.json")
     except FileNotFoundError as exc:
         raise ProviderPerformerError(
-            "provider_result_missing", f"provider did not create {result_path}{_reply_excerpt(attempt_files)}"
+            "provider_result_missing",
+            f"provider did not create {result_path}{_reply_excerpt(attempt_files, transport)}",
         ) from exc
     except (OSError, ValueError) as exc:
         raise ProviderPerformerError("provider_result_unreadable", str(exc)) from exc
