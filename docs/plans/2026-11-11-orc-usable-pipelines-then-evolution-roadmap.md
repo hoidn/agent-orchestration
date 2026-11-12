@@ -472,4 +472,11 @@ is manual. Phase plans are linked here as they start:
   unblocks stage 3, the old IR stack.
 - Lane D, dead executors, done: [dead executors and `StateManager` plan](2026-11-11-lane-d-dead-executors-and-state-manager-plan.md).
   Stages 1 and 2 are merged; the two live-provider source forms stay (decision 9).
+- Side work, done: run and resume cost. A run re-read the whole memo and replayed the whole program
+  after every record; memo reduction now continues from the last fold, a start the evaluator has
+  just reached is published without a replay, and two compile passes skip work that cannot matter.
+  A loop of 300 commands went from 45.0 s to 9.9 s of CPU (47.2 s to 12.0 s wall), with program
+  digests, memo rows and published views byte-identical. Not done, because each changes a contract:
+  dropping the replay after a commit (the remaining quadratic cost) and a build cache that lets
+  resume skip compiling.
 - Thread M, reduced: [zero-spend measurement plan](2026-11-11-roadmap-thread-m-zero-spend-measurement-plan.md).
