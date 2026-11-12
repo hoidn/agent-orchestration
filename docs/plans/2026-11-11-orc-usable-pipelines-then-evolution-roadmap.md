@@ -435,3 +435,5 @@ This roadmap has no manifest, selector or workflow that drains it; selection
 is manual. Phase plans are linked here as they start:
 
 - Phase 0: [records and baseline plan](2026-11-11-roadmap-phase-0-records-and-baseline-plan.md).
+- Thread M: [zero-spend measurement plan](2026-11-11-roadmap-thread-m-zero-spend-measurement-plan.md).
+- Lane D, tests: [low-value test removal plan](2026-11-11-low-value-test-removal-plan.md).
