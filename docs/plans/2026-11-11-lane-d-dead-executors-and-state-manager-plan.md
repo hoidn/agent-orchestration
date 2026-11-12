@@ -64,6 +64,28 @@ once, in `cli/commands/evaluated.py::run_evaluated_workflow`, for `run_id`, `run
 and `close()`; `workflow/provider_attempts.py` calls `_state_mutation()`. Of the other 55 methods,
 47 have no caller in `orchestrator/` or `tests/` and 8 are called only by retained tests.
 
+## Scope After Owner Decision 9
+
+The owner keeps live supervision and peer groups as a future direction
+([roadmap](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#owner-decisions),
+decision 9). The [ledger](#ledger) has the rulings. Read the rest of this page
+with these changes:
+
+- **Task 5 is on hold.** The forms `with-live-providers` and
+  `with-live-provider-peers` keep their parser, checker and elaboration and
+  keep refusing with `closed_program_gap`. Only `trial` becomes a retired form
+  (Task 4), so `RETIRED_FORMS` has one row.
+- **Task 6** keeps the spec and guide sections of the two forms. It shortens
+  only what describes the deleted executors and the `peer-*` commands, and
+  points the two forms' status at the
+  [salvage record](../design/live_provider_supervision_and_peers_salvage.md).
+- **Tasks 1 and 2 stand:** the old executor packages are deleted; a port
+  would not reuse them.
+- **D4 is "keep":** the flags that do nothing stay parsed, so Task 6 removes no
+  flag lines from `specs/cli.md`; it rewords the lines that still describe
+  processed-directory checks and state backups as accepted with no effect.
+- **Task 7 correction:** `ForEachState` stays, because `RunState` uses it.
+
 ## What A User Sees Afterwards
 
 **Forms (D1, recommended): one retirement line.** Without it a removed form gets
@@ -240,6 +262,8 @@ edits are under `orchestrator/workflow_lisp/`.
 
 ### Task 5: Remove `with-live-providers` and `with-live-provider-peers` (2.5)
 
+**On hold** (see [Scope After Owner Decision 9](#scope-after-owner-decision-9)). Not to be executed without a new owner decision.
+
 Production edits are under `orchestrator/workflow_lisp/`.
 
 | Edit | Remove |
@@ -395,3 +419,6 @@ in stage 1 and 15 in stage 2; about 12 are added. Effort: about 12.75 engineer-d
 | 2026-11-11 | Owner decision (roadmap decision 9): live supervision and peer groups stay a future direction. **Task 5 is on hold**: the forms `with-live-providers` and `with-live-provider-peers` keep their parser, checker and elaboration, and the closed build keeps refusing them. Task 4 covers only the `trial` form; the retired-form table gets one row. Task 6 keeps the spec sections of the two forms and shortens only what describes the deleted executors and commands. Tasks 1 and 2 (the old executor packages) stand. The branch does not merge before the salvage page `docs/design/live_provider_supervision_and_peers_salvage.md` is committed. |
 | 2026-11-11 | The [salvage record](../design/live_provider_supervision_and_peers_salvage.md) is committed, so the merge condition of the previous row is met. It notes that the tag does not hold the step-executor half that hosted the coordinators; the last tree with all of it is `08cdd59b`. |
 | 2026-11-11 | Tasks 0, 1, 2, 7 and 8 done on `chore/lane-d-executors` and reviewed (two reviews: approve with fixes, then approve). From the tag: 11,714 lines deleted, 90 added; `orchestrator/state.py` 1,664 to 573 lines; the shipped-workflow digest snapshot is byte-identical after every task; a run started on the tag's code, killed and resumed on the new code completes. Corrections to this plan: `ForEachState` is kept (`RunState` uses it, Task 7's table is wrong); the test `test_provider_attempt_scope_prefix_like_legacy_ids_remain_opaque_and_canonical` is kept (it covers live code) and is recorded as weak, since it passes with the check it names disabled; `tests/test_retired_executors_removed.py` checks source files, not `find_spec`, so stale `__pycache__` folders do not fail it. For Task 6: with D4 keeping the do-nothing flags, the spec lines that still describe processed-directory checks and state backups (`specs/cli.md`, `specs/queue.md`, `specs/state.md`) are reworded as accepted with no effect. Not yet merged: the full suite runs first. |
+| 2026-11-11 | Tasks 0, 1, 2, 7 and 8 merged as `dcc06435` (38 files, 11,714 lines deleted, 90 added). Full suite on `main` plus the branch: 14,456 passed, only the four worktree-artifact failures; no provider call attempted. Next: Task 6 for what has merged (the `peer-*` commands and the two executors are still described in `specs/`), then Task 4 (`trial` form); Task 3 waits for the dashboard branch. |
+| 2026-11-12 | Task 4 (the `trial` form, as rescoped) and Task 6 for what has merged are done, reviewed (approve with fixes, six minors fixed) and merged. `trial` refuses with a located `form_retired` line at every target; a user's own definition named `trial` still compiles and runs; the two live-provider forms give identical diagnostics before and after. The reviewer compiled all 685 tracked `.orc` files on base and branch with identical output and exit codes. Full suite on the branch with `main` merged, provider stubs first on `PATH`: 14,275 passed, only the four worktree-artifact failures, stub log absent. Outside the plan: `effect_summary_requires_run_ref_placement_refusal` and its six call sites were deleted (it only ever detected trial effects), and `test_list_map_effect_pre_scan_surfaces_unknown_traversal_nodes` went with the pre-scan it covered (an unknown node now gets a located `list_map_effect_body_unsupported` where the base crashed). Known and left: the digest snapshot holds no run-reference program, and a run-reference program's digest changes with any package change, so the snapshot cannot catch a run-reference regression; two unused leftovers (`effect_summary=` of `raise_run_ref_placement_invalid`, `WorkflowSignature.compiler_direct_result_contract_digest`) for a later clean-up. Correction to earlier rows: the tag `archive/dead-executors-2026-11-11` holds the executor packages only; the last tree with the whole runtime is `08cdd59b`. Next: Task 3 (trial and adjudication packages, the `trial` command), after the trial salvage record is committed. |
+| 2026-11-12 | Owner asked why `trial` is removed and for a recommendation. Recommended and applied: delete the form and the packages (a parallel map with a judge call already expresses an in-workflow pick; the form adds only language-level blinding and a budget), and write a salvage record first. The [record](../design/trial_and_adjudication_salvage.md) is committed, so Task 3 may start. It names three things the old design did that the comparison harness does not: clones built in an order that file times reveal (fixed on the seed-set branch, not on `main`), no leak check on the judged patches, and ratings not bound to a digest of what was judged. These go to the seed-set re-review. |

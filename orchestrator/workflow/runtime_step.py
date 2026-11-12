@@ -28,9 +28,7 @@ from .executable_ir import (
     MaterializeViewStepConfig,
     MaterializeArtifactsStepConfig,
     PureProjectionStepConfig,
-    ProviderPeerGroupStepConfig,
     ProviderStepConfig,
-    ProviderSupervisionStepConfig,
     RequestInputStepConfig,
     ResourceTransitionStepConfig,
     RepeatUntilStepConfig,
@@ -40,8 +38,6 @@ from .executable_ir import (
     SetScalarStepConfig,
     StepCommonConfig,
     WaitForStepConfig,
-    provider_supervision_config_to_runtime_dict,
-    provider_peer_group_config_to_runtime_dict,
 )
 
 
@@ -334,16 +330,6 @@ class RuntimeStep(Mapping[str, Any]):
                 }
             raise KeyError(key)
 
-        if isinstance(config, ProviderSupervisionStepConfig):
-            if key == "provider_supervision":
-                return provider_supervision_config_to_runtime_dict(config)
-            raise KeyError(key)
-
-        if isinstance(config, ProviderPeerGroupStepConfig):
-            if key == "provider_peer_group":
-                return provider_peer_group_config_to_runtime_dict(config)
-            raise KeyError(key)
-
         if isinstance(config, RunRefStepConfig):
             if key == "run_ref":
                 return config.run_ref
@@ -502,14 +488,6 @@ class RuntimeStep(Mapping[str, Any]):
                 except KeyError:
                     continue
                 yield key
-            return
-
-        if isinstance(config, ProviderSupervisionStepConfig):
-            yield "provider_supervision"
-            return
-
-        if isinstance(config, ProviderPeerGroupStepConfig):
-            yield "provider_peer_group"
             return
 
         if isinstance(config, RunRefStepConfig):

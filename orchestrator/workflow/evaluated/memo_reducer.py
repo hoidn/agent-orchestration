@@ -371,15 +371,17 @@ class _Reducer:
 
     def failed(self, entry: JournalEntry) -> None:
         row = entry.data
-        _shape(row, {"record", "identity", "attempt", "code", "exit_info"}, {"violations"})
-        identity, attempt, _ = self.identity_attempt(row)
+        _shape(row, {"record", "identity", "attempt", "code", "exit_info"}, {"violations", "closure"})
+        identity, attempt, kind = self.identity_attempt(row)
         self._pending_attempt(identity, attempt)
         _text(row["code"], "failure code")
         _object(row["exit_info"], "exit_info")
         if "violations" in row and not isinstance(row["violations"], list):
             raise _inconsistent("violations must be an array")
-        if self.site_class(identity) == 'request_input':
+        if kind == 'request_input':
             raise _inconsistent('host requests cannot close with failed')
+        if "closure" in row and (kind != "command" or row["closure"] not in ("unchanged", "changed")):
+            raise _inconsistent("closure is `unchanged` or `changed`, on a command's failure only")
         self.pending.pop(identity)
 
     def suspended(self, entry: JournalEntry) -> None:

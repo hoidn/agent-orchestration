@@ -25,6 +25,7 @@ from tests.test_workflow_evaluated_resume_kills import (
     _kill_after_first_commit,
 )
 from tests.test_workflow_evaluated_cli import _run_cli
+from tests.agent_session_shims import closed_path
 
 
 def _create_completed_three_command_run(tmp_path: Path) -> Path:
@@ -167,7 +168,8 @@ def _create_failed_attempt_without_terminal(tmp_path: Path, monkeypatch):
         "import os, sys\nfrom pathlib import Path\n"
         "target = Path(os.environ['ORCHESTRATOR_OUTPUT_BUNDLE_PATH'])\n"
         "Path('dispatches.txt').open('a', encoding='utf-8').write(target.parent.name + '\\n')\n"
-        "if target.parent.name == 'attempt-1': sys.exit(9)\n"
+        "if target.parent.name == 'attempt-1':\n"
+        "    Path(__file__).open('a', encoding='utf-8').write('# changed by its own attempt\\n'); sys.exit(9)\n"
         "target.write_text('5', encoding='utf-8')\n"
     )
     script.write_text(original_script, encoding="utf-8")
@@ -261,7 +263,7 @@ def test_completed_provider_resume_reuses_deleted_must_exist_result_twice(tmp_pa
     artifact = tmp_path / "artifacts" / "work" / "saved.txt"
     artifact.parent.mkdir(parents=True)
     artifact.write_text("committed output\n", encoding="utf-8")
-    monkeypatch.setenv("PATH", str(tmp_path / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(tmp_path / "bin"))
     result = _provider_cli(tmp_path, fixture, payload='"artifacts/work/saved.txt"')
 
     assert result.returncode == 0, result.stderr

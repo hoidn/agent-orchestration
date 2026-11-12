@@ -3,8 +3,6 @@
 import json
 import logging
 import os
-import shutil
-import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -18,7 +16,6 @@ from orchestrator.run_lock import (
     RunAlreadyActiveError,
     WorkspaceAlreadyActiveError,
 )
-from orchestrator.observability.summary import DEFAULT_SUMMARY_TIMEOUT_SEC
 from orchestrator.workflow_lisp.closed.target import (
     entry_target_dsl_version,
     refuse_retired_entry_target,
@@ -102,108 +99,6 @@ def _state_root_symlink_error(workspace: Path) -> str | None:
 
 
 
-def build_observability_config(args: Namespace) -> Optional[Dict[str, Any]]:
-    """Build runtime observability config from CLI flags.
-
-    Observability is runtime-only (not DSL). Summaries default to async when enabled.
-    """
-    step_summaries_enabled = bool(getattr(args, 'step_summaries', False))
-    summary_mode = getattr(args, 'summary_mode', None)
-    summary_profile = getattr(args, 'summary_profile', None)
-    live_agent_notes_enabled = bool(getattr(args, 'live_agent_notes', False))
-
-    if (summary_mode or summary_profile or live_agent_notes_enabled) and not step_summaries_enabled:
-        # Explicit mode should implicitly enable summaries.
-        step_summaries_enabled = True
-
-    if not step_summaries_enabled:
-        return None
-
-    summary_timeout_sec = int(getattr(args, 'summary_timeout_sec', DEFAULT_SUMMARY_TIMEOUT_SEC))
-    summary_max_input_chars = int(getattr(args, 'summary_max_input_chars', 12000))
-    if summary_timeout_sec <= 0:
-        raise ValueError("--summary-timeout-sec must be > 0")
-    if summary_max_input_chars <= 0:
-        raise ValueError("--summary-max-input-chars must be > 0")
-
-    step_summaries = {
-        "enabled": True,
-        "mode": summary_mode or "async",
-        "provider": getattr(args, 'summary_provider', 'claude_sonnet_summary'),
-        "timeout_sec": summary_timeout_sec,
-        "max_input_chars": summary_max_input_chars,
-        "best_effort": True,
-        "profile": summary_profile or "basic",
-    }
-
-    if live_agent_notes_enabled:
-        interval_sec = float(getattr(args, 'live_agent_note_interval_sec', 15.0))
-        live_timeout_sec = int(getattr(args, 'live_agent_note_timeout_sec', 30))
-        max_tail_chars = int(getattr(args, 'live_agent_note_max_tail_chars', 6000))
-        if interval_sec <= 0:
-            raise ValueError("--live-agent-note-interval-sec must be > 0")
-        if live_timeout_sec <= 0:
-            raise ValueError("--live-agent-note-timeout-sec must be > 0")
-        if max_tail_chars <= 0:
-            raise ValueError("--live-agent-note-max-tail-chars must be > 0")
-        step_summaries["live_agent_notes"] = {
-            "enabled": True,
-            "provider": getattr(args, 'live_agent_note_provider', None)
-            or "claude_haiku_summary",
-            "interval_sec": interval_sec,
-            "timeout_sec": live_timeout_sec,
-            "max_tail_chars": max_tail_chars,
-            "source": "tmux",
-        }
-
-    return {
-        "step_summaries": {
-            **step_summaries,
-        }
-    }
-
-
-def parse_context(args: Namespace, workflow_context: Dict[str, Any] | None = None) -> Dict[str, str]:
-    """Parse context variables from workflow defaults and command line arguments.
-
-    Precedence:
-    1. workflow_context defaults
-    2. --context key=value arguments
-    3. --context-file JSON values
-    """
-    context: Dict[str, str] = {}
-
-    # Start with workflow-level defaults so ${context.*} works without CLI overrides.
-    if workflow_context:
-        for key, value in workflow_context.items():
-            context[str(key)] = str(value)
-
-    # Parse context from key=value pairs
-    if args.context:
-        for item in args.context:
-            if '=' not in item:
-                raise ValueError(f"Invalid context format: {item}. Expected KEY=VALUE")
-            key, value = item.split('=', 1)
-            context[key] = value
-
-    # Parse context from JSON file
-    if args.context_file:
-        context_file = Path(args.context_file)
-        if not context_file.exists():
-            raise FileNotFoundError(f"Context file not found: {context_file}")
-
-        with open(context_file, 'r') as f:
-            file_context = json.load(f)
-            if not isinstance(file_context, dict):
-                raise ValueError(f"Context file must contain a JSON object, got {type(file_context).__name__}")
-
-            # Convert all values to strings
-            for key, value in file_context.items():
-                context[str(key)] = str(value)
-
-    return context
-
-
 def parse_inputs(args: Namespace) -> Dict[str, Any]:
     """Parse workflow-boundary inputs from CLI flags."""
     inputs: Dict[str, Any] = {}
@@ -234,113 +129,6 @@ def parse_inputs(args: Namespace) -> Dict[str, Any]:
     return inputs
 
 
-def validate_clean_processed(workflow_path: Path, processed_dir: Path) -> None:
-    """
-    Validate that processed_dir is safe to clean.
-
-    AT-16: CLI Safety - fails if processed dir is outside WORKSPACE
-    """
-    # Determine WORKSPACE (current working directory)
-    workspace = Path.cwd().resolve()
-
-    # Resolve processed_dir to absolute path
-    processed_abs = processed_dir.resolve()
-
-    # Check if processed_dir is within WORKSPACE
-    try:
-        processed_abs.relative_to(workspace)
-    except ValueError:
-        raise ValueError(
-            f"Safety check failed: processed directory '{processed_abs}' is outside WORKSPACE '{workspace}'. "
-            f"The --clean-processed flag can only operate on directories within the workspace."
-        )
-
-    # Additional safety: prevent cleaning root or parent directories
-    if processed_abs == workspace:
-        raise ValueError(
-            "Safety check failed: cannot clean WORKSPACE root directory"
-        )
-
-    if workspace.is_relative_to(processed_abs):
-        raise ValueError(
-            "Safety check failed: cannot clean parent directory of WORKSPACE"
-        )
-
-
-def clean_processed_directory(processed_dir: Path) -> None:
-    """
-    Clean the processed directory.
-
-    AT-11: Clean processed - empties directory
-    """
-    if not processed_dir.exists():
-        logger.info(f"Processed directory does not exist, nothing to clean: {processed_dir}")
-        return
-
-    if not processed_dir.is_dir():
-        raise ValueError(f"Processed path is not a directory: {processed_dir}")
-
-    # Remove all contents but keep the directory itself
-    logger.info(f"Cleaning processed directory: {processed_dir}")
-    for item in processed_dir.iterdir():
-        if item.is_dir():
-            shutil.rmtree(item)
-        else:
-            item.unlink()
-
-    logger.info("Successfully cleaned processed directory")
-
-
-def validate_archive_destination(processed_dir: Path, archive_dest: Path) -> None:
-    """
-    Validate that archive destination is safe.
-
-    Per spec: destination must not be inside the configured processed_dir
-    """
-    processed_abs = processed_dir.resolve()
-    archive_abs = archive_dest.resolve()
-
-    # Check if archive destination is inside processed directory
-    try:
-        archive_abs.relative_to(processed_abs)
-        raise ValueError(
-            f"Safety check failed: archive destination '{archive_abs}' cannot be inside "
-            f"processed directory '{processed_abs}'"
-        )
-    except ValueError as e:
-        if "does not start with" not in str(e) and "is not in the subpath" not in str(e):
-            raise
-
-
-def archive_processed_directory(processed_dir: Path, archive_dest: Path) -> None:
-    """
-    Archive the processed directory to a zip file.
-
-    AT-12: Archive processed - creates zip on success
-    """
-    if not processed_dir.exists():
-        logger.warning(f"Processed directory does not exist, creating empty archive: {processed_dir}")
-        processed_dir.mkdir(parents=True, exist_ok=True)
-
-    if not processed_dir.is_dir():
-        raise ValueError(f"Processed path is not a directory: {processed_dir}")
-
-    # Ensure parent directory exists
-    archive_dest.parent.mkdir(parents=True, exist_ok=True)
-
-    logger.info(f"Archiving processed directory to: {archive_dest}")
-
-    # Create zip archive
-    with zipfile.ZipFile(archive_dest, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for root, dirs, files in os.walk(processed_dir):
-            for file in files:
-                file_path = Path(root) / file
-                arcname = file_path.relative_to(processed_dir.parent)
-                zf.write(file_path, arcname)
-
-    logger.info(f"Successfully archived processed directory to {archive_dest}")
-
-
 def run_workflow(
     args: Namespace,
     *,
@@ -348,10 +136,6 @@ def run_workflow(
     expected_run_identity: Optional[tuple[int, int]] = None,
     reserved_run_fd: Optional[int] = None,
     logical_workflow_path: Optional[Path] = None,
-    no_tools_conf_root: Optional[str] = None,
-    no_tools_conf_identity: Optional[tuple[int, int]] = None,
-    no_tools_conf_manifest_sha256: Optional[str] = None,
-    profile_conf_fd: Optional[int] = None,
 ) -> RunWorkflowResult:
     """
     Run a workflow with safety checks.
@@ -381,7 +165,6 @@ def run_workflow(
         if state_root_error is not None:
             logger.error(state_root_error)
             return RunWorkflowResult(exit_code=1)
-        state_dir_override = Path(args.state_dir).expanduser().resolve() if args.state_dir else None
         run_ref_root = resolve_run_ref_root(getattr(args, "run_ref_root", None))
 
         workflow_path = resolve_path_preserving_fd(args.workflow)
@@ -403,11 +186,10 @@ def run_workflow(
 
         source_read_trace = SourceReadTrace()
         try:
-            selected_target = entry_target_dsl_version(
+            entry_target_dsl_version(
                 workflow_path, source_read_trace=source_read_trace
             )
         except (LispFrontendCompileError, OSError, UnicodeError):
-            selected_target = None
             source_read_trace = None
         from orchestrator.cli.commands.evaluated import run_evaluated_workflow
 

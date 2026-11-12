@@ -21,6 +21,15 @@ from orchestrator.workflow.workspace_files import WorkspaceFiles
 from .replay import MissingCommit as _MissingCommit, discover_prefix
 
 
+RETIRED_READERS_TAG = "archive/retired-run-readers-2026-11-11"
+
+
+def retired_run_refusal(run_id: str) -> str:
+    """The one line `report` and the dashboard give for a run written by the retired runtime."""
+    return (f"workflow_execution_profile_retired: run {run_id} was written by the retired runtime; "
+            f"report and the dashboard read evaluated runs only (old readers: git tag {RETIRED_READERS_TAG})")
+
+
 def has_evaluated_authority(run_root: Path, *, run_files: WorkspaceFiles | None = None) -> bool:
     """Select checked loading from authority or a view hint, never trust the view."""
     names = (HEADER_FILENAME, PROGRAM_FILENAME, MEMO_FILENAME)

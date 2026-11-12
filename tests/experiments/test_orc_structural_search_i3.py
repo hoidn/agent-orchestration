@@ -12,6 +12,7 @@ from experiments.orc_structural_search.driver import archive, evaluate_and_scan,
 from tests.experiments.orc_structural_search_support import (  # noqa: F401 (pyright, world: fixtures)
     I3_CONFIG, PYTHON_PARENT, capped_copy, pyright, script, world)
 from tests.experiments.test_orc_structural_search_driver import sandboxed  # noqa: F401 (fixture)
+from tests.agent_session_shims import closed_path
 
 CODEX_MUTATOR = ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--model",
                  "gpt-5.6-terra", "--config", "model_reasoning_effort=high"]
@@ -40,7 +41,7 @@ def i3_episode(world, codex_source):
     _, parent = archive(world.tmp / "python", evidence, world.runtime)
     row = run_episode(parent, launch_config(world, I3_CONFIG), interface="I3", mode="unguided", agent_cmd=CODEX_MUTATOR,
                       work_root=world.outside / "work", evidence_root=evidence, episode_index=0, runtime=world.runtime,
-                      env={**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}"},
+                      env={**os.environ, "PATH": closed_path(world.fakebin)},
                       solutions={world.task.name: world.solution}, call_cap=160, criterion=world.criterion)
     return row, evidence
 
@@ -67,7 +68,7 @@ def test_an_i3_evaluations_scan_names_other_evaluations_runs(sandboxed, world, p
     evidence = world.tmp / "evidence"
     _, root = archive(world.tmp / "python", evidence, world.runtime)
     row = evaluate_and_scan(root, launch_config(world, I3_CONFIG), task=world.task, replicate=1, work_root=work, evidence_root=evidence,
-                            runtime=world.runtime, env={**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}",
+                            runtime=world.runtime, env={**os.environ, "PATH": closed_path(world.fakebin),
                                                         "SCRIPTED_RESULTS_FILE": str(world.results)},
                             timeout_sec=600, solutions={world.task.name: world.solution}, holdouts=(), fields={},
                             call_cap=160, criterion=world.criterion)

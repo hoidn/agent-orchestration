@@ -22,6 +22,7 @@ import subprocess
 import sys
 
 import pytest
+from tests.agent_session_shims import closed_path
 
 REPO = Path(__file__).resolve().parents[1]
 TUTORIAL = REPO / "docs" / "tutorial_first_pipeline.md"
@@ -79,7 +80,7 @@ def installed(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
     subprocess.run([sys.executable, "-m", "venv", "--system-site-packages", str(venv)], check=True, timeout=TIMEOUT)
     subprocess.run([str(venv / "bin" / "python"), "-m", "pip", "install", "--quiet", "--no-index", "--no-deps",
                     "--no-build-isolation", str(source)], check=True, env=env, cwd=root, timeout=TIMEOUT)
-    env["PATH"] = str(venv / "bin") + os.pathsep + env["PATH"]
+    env["PATH"] = closed_path(venv / "bin")
     located = subprocess.run(["python", "-c", "import orchestrator; print(orchestrator.__file__)"], cwd=root,
                              env=env, capture_output=True, text=True, check=True, timeout=TIMEOUT).stdout.strip()
     assert Path(located).resolve().is_relative_to(venv.resolve()), located
@@ -177,3 +178,87 @@ def test_failed_run_is_diagnosed_and_resumed_from_terminal_output(installed: dic
     resumed = sh(resume, workspace, installed)
     assert resumed.returncode == 0, resumed.stderr
     assert resumed.stdout.splitlines()[-1] == '{"pads":2,"reached":true}'
+
+
+# Phase 3a: a failed step is retried after its script is fixed; a self-written or killed one needs the flag.
+
+def four_steps(root: Path, s3: str) -> None:
+    from tests.test_workflow_evaluated_script_fix_retry import write_four_steps
+    write_four_steps(root, {"s3": s3})
+
+
+def fix_s3(root: Path) -> None:
+    from tests.test_workflow_evaluated_script_fix_retry import fix
+    fix(root, "s3")
+
+
+def runs_tree(root: Path) -> dict[str, bytes]:
+    from tests.test_workflow_evaluated_script_fix_retry import tree_bytes
+    return tree_bytes(root / ".orchestrate")
+
+
+RUN_FOUR = "orchestrator run main.orc --command-boundaries-file commands.json --input n=1"
+STEP_IDS = {step: f"workflow:main::run / {label}" for step, label in zip(("s1", "s2", "s3", "s4"), "abcd")}
+
+
+def log(root: Path) -> list[str]:
+    return (root / "log.txt").read_text(encoding="utf-8").split()
+
+
+def refused_then_accepted(root: Path, env: dict[str, str], resume: str) -> None:
+    before, dispatched = runs_tree(root), log(root)
+    refused = sh(resume, root, env)
+    assert refused.returncode == 2, refused.stderr
+    assert refused.stderr.splitlines()[0].startswith("[effect_input_diverged] "), refused.stderr
+    assert (runs_tree(root), log(root)) == (before, dispatched)
+    (accept,) = [command for command in printed_commands(refused.stderr) if command.endswith(" --accept-changes")]
+    accepted = sh(accept, root, env)
+    assert accepted.returncode == 0, accepted.stderr
+    assert identities(accepted.stderr, "start") == {STEP_IDS["s3"], STEP_IDS["s4"]}
+    assert accepted.stdout.splitlines()[-1] == "5"
+
+
+def test_fixed_script_resumes_the_failed_step_and_the_one_after(installed: dict[str, str], workspace: Path) -> None:
+    four_steps(workspace, "import sys\nsys.exit(3)\n")
+    failed = sh(RUN_FOUR, workspace, installed)
+    assert failed.returncode == 1, failed.stderr
+    fix_s3(workspace)
+
+    (resume,) = rows(failed.stderr, "resume")
+    resumed = sh(resume, workspace, installed)
+
+    assert resumed.returncode == 0, resumed.stderr
+    assert rows(resumed.stderr, "start") == [f"{STEP_IDS['s3']}  attempt 2", f"{STEP_IDS['s4']}  attempt 1"]
+    assert log(workspace) == ["s1", "s2", "s3", "s4"]
+    (rerun,) = [line for line in resumed.stderr.splitlines() if line.startswith("[effect_rerun] ")]
+    assert rerun.endswith(" changed_files=s3.py"), rerun
+    assert resumed.stdout.splitlines()[-1] == "5"
+
+
+def test_step_that_wrote_its_own_script_refuses_until_accepted(installed: dict[str, str], workspace: Path) -> None:
+    four_steps(workspace, 'import sys\nfrom pathlib import Path\nPath(__file__).open("a").write("# mine\\n")\n'
+                          'sys.exit(3)\n')
+    failed = sh(RUN_FOUR, workspace, installed)
+    assert failed.returncode == 1, failed.stderr
+    fix_s3(workspace)
+
+    (resume,) = rows(failed.stderr, "resume")
+    refused_then_accepted(workspace, installed, resume)
+
+
+def test_killed_step_with_an_edited_script_refuses_until_accepted(installed: dict[str, str], workspace: Path) -> None:
+    import signal
+    import time
+    four_steps(workspace, 'import time\nfrom pathlib import Path\nPath("started-s3").write_text("")\ntime.sleep(60)\n')
+    process = subprocess.Popen(["sh", "-c", RUN_FOUR], cwd=workspace, env=installed, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, start_new_session=True)
+    deadline = time.monotonic() + TIMEOUT
+    while not (workspace / "started-s3").exists():
+        assert time.monotonic() < deadline and process.poll() is None
+        time.sleep(0.05)
+    os.killpg(process.pid, signal.SIGKILL)
+    process.wait(timeout=TIMEOUT)
+    fix_s3(workspace)
+    (run_root,) = (workspace / ".orchestrate" / "runs").iterdir()
+
+    refused_then_accepted(workspace, installed, f"orchestrator resume {run_root.name}")

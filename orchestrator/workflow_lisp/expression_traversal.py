@@ -49,7 +49,6 @@ from .expressions import (
     ResourceTransitionExpr,
     ResumeOrStartExpr,
     RunRefExpr,
-    TrialExpr,
     RunProviderPhaseExpr,
     UnionVariantExpr,
     UnionVariantTagExpr,
@@ -255,8 +254,6 @@ def iter_child_exprs(expr: ExprNode) -> tuple[ExprNode, ...]:
         return ((commit,) if not isinstance(commit, str) else ()) + tuple(
             value_expr for _, value_expr in expr.inputs
         )
-    if isinstance(expr, TrialExpr):
-        return tuple(arm.run_ref for arm in expr.arms)
     if isinstance(expr, FunctionCallExpr):
         return expr.args
     if isinstance(expr, ProcedureCallExpr):

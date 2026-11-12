@@ -19,6 +19,7 @@ from orchestrator.host_input import answer, cancel, pending
 from orchestrator.workflow.evaluated.authority import load_run_authority
 from orchestrator.workflow.evaluated.machine import site_classes
 from orchestrator.workflow.evaluated.memo import read_memo
+from tests.agent_session_shims import closed_path
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,7 +33,7 @@ def _cli(root: Path, *arguments: str, env: dict[str, str] | None = None) -> subp
         [sys.executable, "-B", "-m", "orchestrator", *arguments],
         cwd=root,
         env={**os.environ, "PYTHONPATH": os.pathsep.join((str(root), str(ROOT))),
-             "PATH": str(root / "bin") + os.pathsep + os.environ["PATH"], **(env or {})},
+             "PATH": closed_path(root / "bin"), **(env or {})},
         capture_output=True, text=True, check=False,
     )
 
@@ -148,7 +149,7 @@ def _kill_at_gate(workspace: Path, args: list[str], stage: str) -> dict:
     marker = workspace / "host-input-gate.json"
     (workspace / "sitecustomize.py").write_text(_GATE_SITE, encoding="utf-8")
     env = {**os.environ, "PYTHONPATH": os.pathsep.join((str(workspace), str(ROOT))),
-           "PATH": str(workspace / "bin") + os.pathsep + os.environ["PATH"],
+           "PATH": closed_path(workspace / "bin"),
            "ORCH_HOST_INPUT_GATE": stage, "ORCH_HOST_INPUT_MARKER": str(marker)}
     process = subprocess.Popen(
         [sys.executable, "-B", "-m", "orchestrator", *args],

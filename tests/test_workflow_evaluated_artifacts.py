@@ -95,7 +95,7 @@ def _assert_declared_read(root: Path, probe: dict, target: str, tool: str, model
     assert (commit["depends_on"], commit["value"]) == ([probe["identity"]], REPAIRED)
     assert (request["tool"], model in request["argv"]) == (tool, True)
     _assert_request_reads_watch(root, commit, request, attempt, target)
-    assert sorted(attempt) == ["prompt.txt", "result.json", "stderr.txt", "stdout.txt"]
+    assert sorted(attempt) == ["prompt.txt", "result.json", "stderr.txt", "stdout.txt", "usage.json"]
     assert commit["result_digest"] == sha256(attempt["result.json"])
     assert field_type(authority, "ProviderRepairResult", "repair_report_path")["under"] == "artifacts/work"
     assert {path: (root / path).read_text() for path in (REPORT, COMPAT)} == REPAIR["files"]
@@ -153,8 +153,8 @@ def _assert_two_attempts(authority, starts: list[dict], failure: dict, first_evi
     assert [Path(row["result_path"]).parent.name for row in starts] == ["attempt-1", "attempt-2"]
     assert len({Path(row["result_path"]).parent.parent for row in starts}) == 1
     assert attempt_files(authority, first) == first_evidence
-    assert sorted(first_evidence) == ["prompt.txt", "stderr.txt", "stdout.txt"]
-    assert sorted(attempt_files(authority, second)) == ["prompt.txt", "result.json", "stderr.txt", "stdout.txt"]
+    assert sorted(first_evidence) == ["prompt.txt", "stderr.txt", "stdout.txt", "usage.json"]
+    assert sorted(attempt_files(authority, second)) == ["prompt.txt", "result.json", "stderr.txt", "stdout.txt", "usage.json"]
     assert [row["input_parts"]["prompt"] for row in starts] == [
         sha256(attempt_files(authority, row)["prompt.txt"]) for row in starts]
 

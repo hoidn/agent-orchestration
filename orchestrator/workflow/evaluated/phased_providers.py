@@ -43,7 +43,7 @@ from orchestrator.workflow.provider_phased_delivery.coordinator import _runtime_
 from orchestrator.workflow.provider_phased_delivery.diagnostics import _Q2_VALIDATION_CODES
 from orchestrator.workflow.run_ref.contracts import canonical_sha256, canonical_json_bytes
 from orchestrator.workflow.workspace_files import WorkspaceFiles
-from .providers import ProviderPerformerError
+from .providers import NO_TRANSPORT_USAGE, ProviderPerformerError, write_usage
 from .run_header import _reject_duplicate_keys
 from .commands import CommandPerformerError, validate_effect_result
 from .values import EvaluatedValueError
@@ -459,6 +459,7 @@ class EvaluatedPhasedBindings:
             "candidates": [row.to_dict() for row in preflight.bindings],
             "transport": self.reservation.to_dict()}
         attempt.attempt_files.create("prompt.txt", composition.cut.canonical_composed, exclusive=True)
+        write_usage(attempt.attempt_files, NO_TRANSPORT_USAGE)
         if attempt.attempt_files.exists("phased-attempt.json"):
             raise ValueError("phased ownership receipt already exists")
         _store_receipt(attempt.attempt_files, self.receipt)

@@ -1,79 +1,11 @@
 """Readout-only list-price equivalents from frozen criterion rates and native receipts."""
 import math
 from collections.abc import Mapping
-from datetime import date
 
 from experiments.orc_structural_search.records import UNAVAILABLE
-
-FIELDS = ('input', 'output', 'cache_read', 'cache_write')
-
-
-def number(value, *, positive=False):
-    try:
-        return (type(value) in (int, float) and math.isfinite(value) and
-                (value > 0 if positive else value >= 0))
-    except OverflowError:
-        return False
-
-
-def validate(table):
-    """Reject malformed price tables; never guess model aliases or missing cache rates."""
-    if not isinstance(table, Mapping):
-        raise ValueError('criterion price_table required')
-    if table.get('currency') != 'USD' or not number(table.get('tokens_per_unit'), positive=True):
-        raise ValueError('price_table requires USD and a positive finite tokens_per_unit')
-    if not isinstance(table.get('source'), str) or not table['source'].strip():
-        raise ValueError('price_table source required')
-    validate_date(table.get('date'))
-    if not isinstance(table.get('models'), Mapping) or not table['models']:
-        raise ValueError('price_table models required')
-    for model, rates in table['models'].items():
-        if not isinstance(model, str) or not model.strip() or not valid_rates(rates):
-            raise ValueError('each price_table model needs four finite nonnegative rates')
-    return table
-
-
-def validate_date(value):
-    try:
-        if date.fromisoformat(value).isoformat() != value:
-            raise ValueError('invalid date')
-    except (TypeError, ValueError) as error:
-        raise ValueError('price_table date must be YYYY-MM-DD') from error
-
-
-def valid_rates(rates):
-    return isinstance(rates, Mapping) and all(number(rates[key]) for key in FIELDS if key in rates)
-
-
-def usage_cost(usage, table):
-    if not isinstance(usage, Mapping):
-        return UNAVAILABLE
-    if not valid_usage(usage):
-        return UNAVAILABLE
-    rates = table['models'].get(usage['model'])
-    tokens = usage.get('charge_tokens')
-    if rates is None or not isinstance(tokens, Mapping):
-        return UNAVAILABLE
-    if not all(key in rates for key in FIELDS):
-        return UNAVAILABLE
-    if not valid_tokens(tokens):
-        return UNAVAILABLE
-    try:
-        value = sum(tokens[key] * rates[key] / table['tokens_per_unit'] for key in FIELDS)
-        return value if math.isfinite(value) else UNAVAILABLE
-    except OverflowError:
-        return UNAVAILABLE
-
-
-def valid_tokens(tokens):
-    return all(type(tokens.get(key)) is int and tokens[key] >= 0 for key in FIELDS)
-
-
-def valid_usage(usage):
-    model, proof = usage.get('model'), usage.get('provenance')
-    return (isinstance(model, str) and bool(model.strip()) and
-            model.lower() not in ('unknown', 'unavailable', 'auto', 'default') and isinstance(proof, Mapping)
-            and proof.get('complete_native_transcript') is True)
+from orchestrator.providers.pricing import (  # noqa: F401  (re-exported for readers of this module)
+    FIELDS, number, usage_cost, valid_rates, valid_tokens, valid_usage, validate, validate_date,
+)
 
 
 def call_cost(call, table):

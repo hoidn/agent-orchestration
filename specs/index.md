@@ -6,8 +6,8 @@ Current admission: source compilation, transitive source imports, retained
 typed-program capsules, REPL loading and LSP analysis accept only registered
 targets 2.35–2.40 throughout the dependency graph. All use evaluated execution;
 individual effects retain their own admission and qualification gates.
-Pre-2.35 source and old-profile resume/invalidation are retired. Historical
-report/dashboard data access does not compile old source. See
+Pre-2.35 source and old-profile resume/invalidation are retired. `report` and the
+dashboard read evaluated runs only and refuse historical ones. See
 [versioning](versioning.md#executable-support-and-historical-version-gates) and
 [CLI admission](cli.md#executable-support-boundary).
 

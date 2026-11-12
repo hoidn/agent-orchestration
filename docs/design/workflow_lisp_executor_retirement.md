@@ -92,7 +92,7 @@ another candidate's. No new fallback or target-conversion flag is introduced.
 | `prompt run` (default/exact/inferred contract or `--scaffold`) and both `prompt import` branches | Retire new executions from the new package; refuse before scaffold/run/session writes or effects, and direct users to the retained complete release/environment |
 | `prompt resume [--in-place]` on an existing linked session | Retain the native TTY bridge, pins, isolation, lineage and continuation publication without compiler/old-executor imports; this mutates native session journals, not retired workflow execution |
 | Existing evaluated entries/profiles at 2.35/2.36/2.37 | Preserve target registration, admitted compiler/read-back and runtime behavior with current limits; retain rebuild/pin checks, memo authority, writer locking, effect recovery and suffix invalidation |
-| Historical `report`/dashboard state | Retain independent raw-state readers. The CLI keeps redacted state-only trial rows; dashboard generic raw/debug inspection is separate. Detailed trial projection/rendering is withdrawn under the [family disposition](#trial-observability-disposition). |
+| Historical `report`/dashboard state | Readers removed (owner decision 2026-11-11): `report` and the dashboard refuse runs with no evaluated authority with `workflow_execution_profile_retired`; the old readers are kept at the git tag `archive/retired-run-readers-2026-11-11`. Detailed trial projection/rendering was already withdrawn under the [family disposition](#trial-observability-disposition). |
 | Unsupported feature in an evaluated entry | Existing source-located admission refusal; no hidden dispatch to old execution |
 | Public `WorkflowExecutor`, flat lowerer exports, and target-2.25 trial compile-and-run SDK | Retire those executable APIs with named caller dispositions and exact retained-release guidance; preserve supported parser/type/compiler interfaces and shared read contracts where used |
 | `input answer`/`cancel`, workflow watchdog, ES/research trial execution and flat `explain`/IR views | Retire without ports; input settlement and explain refuse before writes (CLI exit 2); keep `input get`, shared probing, REPL/LSP and historical readers |
@@ -137,8 +137,8 @@ transport semantics remain wherever current inputs consume them.
 
 Frozen programs, results, reports, historical route records and run data remain
 unchanged as evidence, outside current compilation. Keep only data readers
-needed by current report/dashboard inspection or compiler-free native-session
-asset verification; they must not reconstruct an old compiler or executable
+needed by compiler-free native-session asset verification (`report` and the
+dashboard no longer read historical runs); they must not reconstruct an old compiler or executable
 route. Unsupported historical formats refuse clearly and identify a qualified
 retained release when one exists. No old artifact conversion, universal
 recovery promise or new pre-2.35 emission is introduced.

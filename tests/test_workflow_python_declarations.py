@@ -14,6 +14,7 @@ import pytest
 from orchestrator.workflow_lisp.build import FrontendBuildRequest
 from orchestrator.workflow_lisp.closed.artifact import build_closed_program_bundle
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from tests.agent_session_shims import closed_path
 
 
 def module_source(root, source, *, name="sample"):
@@ -356,7 +357,7 @@ def test_provider_stub_validates_typed_result(tmp_path, payload, expected):
     result = subprocess.run([sys.executable, "-m", "orchestrator", "run", str(generated.source_path),
         "--source-root", str(generated.source_root), "--provider-externs-file", str(request.provider_externs_path),
         "--entry-workflow", "run", "--input", "task=inspect"], cwd=tmp_path,
-        env={**os.environ, "PATH": str(binary.parent) + os.pathsep + os.environ["PATH"], "PYTHONPATH": str(repo),
+        env={**os.environ, "PATH": closed_path(binary.parent), "PYTHONPATH": str(repo),
              "PROVIDER_SHIM_RESULT": payload}, capture_output=True, text=True)
     assert result.returncode == expected, result.stderr
     (run_root,) = (tmp_path / ".orchestrate/runs").iterdir()
@@ -471,15 +472,15 @@ def test_generated_bindings_do_not_shadow_python_parameters(tmp_path):
         effect: str
         parameter: str
     @workflow
-    def run(_e0: str) -> Pair:
-        value = agent(p(task=_e0))
-        return Pair(effect=value, parameter=_e0)
+    def run(_p: str) -> Pair:
+        value = agent(p(task=_p))
+        return Pair(effect=value, parameter=_p)
     ''', providers={"providers.review": "codex"})
     body = built.program.tree["body"]
-    assert body["name"] != "_e0"
-    assert body["value"]["prompt"]["fills"][0]["value"]["n"] == "_e0"
+    assert body["name"] != "_p"
+    assert body["value"]["prompt"]["fills"][0]["value"]["n"] == "_p"
     fields = dict(body["body"]["value"]["fields"])
-    assert fields["parameter"]["n"] == "_e0"
+    assert fields["parameter"]["n"] == "_p"
     assert fields["effect"]["n"] == body["name"]
 
 

@@ -1,6 +1,6 @@
 # Observability Step-Visit Summaries
 
-Status scope: proposed visit-selection correction. The problem statement below records the design-time observation; it is not a fresh reproduction of a current defect. [Observability](../../specs/observability.md) and retained summary tests own actual emission and reader behavior; acceptance requires the visit-specific checks below.
+Status scope: the dashboard summary pages that read these summaries were removed ([dashboard migration plan](../plans/2026-11-11-dashboard-evaluated-runs-migration-plan.md); old pages at the git tag `archive/retired-run-readers-2026-11-11`); the runtime-side summary observers and their flags remain until their own retirement. Proposed visit-selection correction. The problem statement below records the design-time observation; it is not a fresh reproduction of a current defect. [Observability](../../specs/observability.md) and retained summary tests own actual emission and reader behavior; acceptance requires the visit-specific checks below.
 
 Status: draft implementation design
 

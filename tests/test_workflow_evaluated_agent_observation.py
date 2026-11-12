@@ -13,6 +13,7 @@ from tests.agent_session_shims import install_agent_shims, shim_requests
 from tests.test_provider_observation import _FakeObservationBackend
 from tests.test_workflow_evaluated_agent_turns import PLAN, SOURCE, fixture, memo_of, turns
 from tests.test_workflow_evaluated_invalidate import _cli
+from tests.agent_session_shims import closed_path
 
 ROOT = Path(__file__).parents[1]
 
@@ -142,7 +143,7 @@ def test_agent_free_evaluated_run_keeps_observation_disabled(tmp_path, monkeypat
     """R2: a program without agents constructs no manager (2.35-2.37 behaviour unchanged)."""
     from tests.test_workflow_evaluated_providers import SOURCE as PLAIN_SOURCE, _fixture
     _fixture(tmp_path, PLAIN_SOURCE)
-    monkeypatch.setenv("PATH", str(tmp_path / "bin") + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(tmp_path / "bin"))
     run = _observed(tmp_path, "fake", "run", "main.orc", "--source-root", str(tmp_path), "--provider-externs-file",
                     "providers.json", "--prompt-externs-file", "prompts.json", "--input", "message=typed input")
     assert run.returncode == 0, run.stderr

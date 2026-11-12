@@ -1,6 +1,6 @@
 # Roadmap Phase 3a: Retry A Failed Step After Its Script Is Fixed
 
-**Status: Plan, accepted 2026-11-11.** Implements part 3a of
+**Status: Plan, accepted 2026-11-11; implemented (T1–T3).** Implements part 3a of
 [roadmap Phase 3](2026-11-11-orc-usable-pipelines-then-evolution-roadmap.md#phase-3-edit-and-continue)
 under rulings 1 and 3 of the
 [feasibility spike](../design/workflow_lisp_edit_and_continue_spike.md#coordinator-rulings-2026-11-11).
@@ -123,19 +123,19 @@ one of the two values, on a command site only); create
 `tests/test_workflow_evaluated_script_fix_retry.py` with a four-step,
 four-script fixture. The retry rule does not change in this task.
 
-- [ ] `test_failed_command_records_its_files_unchanged`: step three exits 3;
+- [x] `test_failed_command_records_its_files_unchanged`: step three exits 3;
       the journal's one `failed` row has `closure == "unchanged"`.
-- [ ] `test_failed_command_that_wrote_its_script_records_changed`.
-- [ ] `test_failed_command_that_removed_a_declared_file_records_changed`:
+- [x] `test_failed_command_that_wrote_its_script_records_changed`.
+- [x] `test_failed_command_that_removed_a_declared_file_records_changed`:
       also `code == "command_exit_nonzero"` and run exit 1.
-- [ ] `test_command_without_start_evidence_records_unchanged`: `closure: []`,
+- [x] `test_command_without_start_evidence_records_unchanged`: `closure: []`,
       script absent, `started.implementation_files == {}`.
-- [ ] `test_failed_provider_row_has_no_closure_field` (stand-in provider
+- [x] `test_failed_provider_row_has_no_closure_field` (stand-in provider
       that exits non-zero).
-- [ ] `test_misplaced_or_unknown_closure_value_is_memo_inconsistent`: edit
+- [x] `test_misplaced_or_unknown_closure_value_is_memo_inconsistent`: edit
       the journal on disk (value `maybe`; the key on a provider's row);
       `resume` exits 2 and `report` exits 1 with `memo_inconsistent`.
-- [ ] Controls: `tests/test_workflow_evaluated_{memo,attempts,command_lifecycle,views,recovery_views}.py`,
+- [x] Controls: `tests/test_workflow_evaluated_{memo,attempts,command_lifecycle,views,recovery_views}.py`,
       `tests/test_cli_run_output.py`.
 
 ## T2: the retry rule, the flag and the recovery lines (M)
@@ -154,34 +154,34 @@ unfinished-step branch of `_effect_diverged` becomes its own function).
 
 Installed command line, in `tests/test_first_hour_e2e.py`:
 
-- [ ] `test_fixed_script_resumes_the_failed_step_and_the_one_after`: third
+- [x] `test_fixed_script_resumes_the_failed_step_and_the_one_after`: third
       step exits 3; rewrite its script; run the printed `resume` line. Exit
       0; the steps started are exactly three (attempt 2) and four; steps one
       and two were dispatched once; the rerun line names the script.
-- [ ] `test_step_that_wrote_its_own_script_refuses_until_accepted`: exit 2,
+- [x] `test_step_that_wrote_its_own_script_refuses_until_accepted`: exit 2,
       first line `[effect_input_diverged]`, run tree bytes unchanged, nothing
       dispatched; the printed command ending `--accept-changes` exits 0 and
       starts steps three and four only.
-- [ ] `test_killed_step_with_an_edited_script_refuses_until_accepted`: kill
+- [x] `test_killed_step_with_an_edited_script_refuses_until_accepted`: kill
       the process group while step three sleeps; then as above.
 
 In `tests/test_workflow_evaluated_script_fix_retry.py`:
 
-- [ ] `test_journal_without_the_field_refuses_until_accepted` (strip the key
+- [x] `test_journal_without_the_field_refuses_until_accepted` (strip the key
       from the journal, fix the script).
-- [ ] `test_must_not_repeat_refuses_after_a_fix_with_and_without_the_flag`.
-- [ ] `test_missing_declared_file_refuses_with_and_without_the_flag`; no
+- [x] `test_must_not_repeat_refuses_after_a_fix_with_and_without_the_flag`.
+- [x] `test_missing_declared_file_refuses_with_and_without_the_flag`; no
       printed command contains the flag.
-- [ ] `test_accept_changes_with_nothing_to_accept_is_refused`, over a
+- [x] `test_accept_changes_with_nothing_to_accept_is_refused`, over a
       completed run, a clean failure with a fixed script, and a run whose
       only unfinished attempt is a provider's: exit 2,
       `[resume_preflight_failed]`, tree bytes unchanged; plain `resume` then
       succeeds.
-- [ ] `test_failed_parallel_item_retries_alone_with_its_fixed_script` (three
+- [x] `test_failed_parallel_item_retries_alone_with_its_fixed_script` (three
       items, each with its own script in its item directory) and
       `test_killed_parallel_items_refuse_until_accepted` (one accepted
       resume retries both).
-- [ ] `test_shared_script_fix_recovers_through_printed_invalidate_and_resume`,
+- [x] `test_shared_script_fix_recovers_through_printed_invalidate_and_resume`,
       over a failed and a killed third step: the refusal at the committed
       step prints `invalidate` and `resume` (with the flag for the killed
       case); running them exits 0. It replaces
@@ -214,12 +214,12 @@ Must pass unchanged: `tests/test_workflow_evaluated_{resume_kills,recovery,recov
 
 ## T3: guides and closeout (S)
 
-- [ ] `docs/tutorial_first_pipeline.md`, "Two limits": replace the first
+- [x] `docs/tutorial_first_pipeline.md`, "Two limits": replace the first
       bullet (a script fix after a failure resumes; a killed step needs the
       flag). `test_tutorial_blocks_run_as_written` still passes.
-- [ ] `docs/runtime_execution_lifecycle.md`: "Edit a prompt and continue"
+- [x] `docs/runtime_execution_lifecycle.md`: "Edit a prompt and continue"
       gains the command-script case; "Resume" step 6 names the flag.
-- [ ] The spike page's status, the roadmap's known-limits row and current
+- [x] The spike page's status, the roadmap's known-limits row and current
       state, and this plan's row in `docs/index.md`.
 - [ ] Gates: the T1 and T2 selectors, the sample, then the full suite. The
       installed tests of T2 are the end-to-end check.
@@ -308,3 +308,11 @@ flag (3b); confined children; a closure record for allocation failures;
 | 2026-11-11 | Rulings, decisions 1, 3, 4, 5, 6, 8, 9 | As recommended: the flag with nothing to accept is refused and writes nothing; no schema bump, journals are read forward only and `specs/versioning.md` says so; the rehash also runs with empty evidence; a rehash that cannot complete records `changed`; the shared-script advice is corrected in T2; a retry under changed files adds `changed_files=` to the `[effect_rerun]` line; the flag travels in `RunAuthority` | none |
 | 2026-11-11 | Ruling, decision 2 | The flag covers every uncommitted command attempt not proven clean: interrupted, `closure: changed`, and a `failed` record without the field. This widens ruling 3 of the spike, whose literal reading left restoring the file as the only route in two cases. If wrong: a step that rewrote its own script can be retried by an author who did not read the refusal | none |
 | 2026-11-11 | Ruling, decision 7 | Conservative, against the recommendation: inside a parallel map a changed script is not accepted automatically when a sibling could have written it after the failure; the retry then needs `--accept-changes`. The implementer takes the simpler of two forms (a sibling record follows the failure record, or any item of a parallel map) and records which. Reason: that a sibling cannot write the script after the `unchanged` record is reasoning, not a probe. If wrong: one more flag for parallel authors; relax with evidence | none |
+| 2026-11-12 | Implementation, decision 7 form | Any item of a parallel map: an identity with a `par-map:` segment is never proven clean, so its changed files need the flag and the flag is "needed" for it. Chosen over "a sibling record follows the failure": that form is timing-dependent within a map (flaky to test), and, read as "any later start", it would also refuse the serial shared-script case after `invalidate`, where the plan requires plain `resume` to complete. Test: `test_failed_parallel_item_retries_alone_with_its_fixed_script` | none |
+| 2026-11-12 | Implementation note | A rehash at failure that raises anything records `changed` (not only `ClosureEvidenceError`/`OSError`), so an unexpected error can never drop the `failed` row. The unfinished-step refusal for a missing or unreadable file keeps its text minus the clause "cannot yet be retried with changed files in the same run", which this plan makes false | none |
+| 2026-11-12 | Review fix F1 (major): live processes of a failed attempt | The review reproduced a detached child that rewrote the script after the rehash while the row said `unchanged`. Ruling: `unchanged` also requires that no process of the attempt is alive. Mechanism: before the rehash, scan `/proc` for a same-user process whose environment carries the attempt's own `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` (already set per attempt by the launcher; ends with `<run id>/effects/<digest>/attempt-<n>/result.json`); found, or no `/proc`, records `changed`. Liveness first, then rehash, so no attempt process can write after the proof. Launch, kill and Ctrl-C behavior unchanged (no process group). Cost about 10 ms per failed attempt with 679 processes, nothing on success. Outside: a process that scrubs the variable or changes user (C5). Tests: `test_failed_attempt_with_a_live_detached_child_records_changed_and_resume_refuses`, `test_command_that_waits_for_its_children_records_unchanged` | none |
+| 2026-11-12 | Review fix F2 (major): the refusal lists everything the flag accepts | In a parallel map the refusal named one item while `--accept-changes` also retried a sibling that wrote its own script. Now every unfinished-step refusal, and the committed-shared refusal when it adds the flag, lists before the offering line every attempt the flag would accept (`unproven_command_retries` over the stored program's site classes), each with its reason. Test: `test_parallel_refusal_names_every_attempt_the_flag_accepts` | none |
+| 2026-11-12 | Review fixes F3–F6 (minor) | F3: a parallel item is the compiler segment `par-map:<label>[<n>]` (labels escape brackets), not the substring; a serial binder `par-map:c` retries on plain `resume`. F4: the flag is needed only when an unproven attempt's files differ from its `started` evidence (rehashed in preflight for a reached frontier); an unproven attempt replay does not reach yet (after an `invalidate`) counts, since it cannot be rehashed before it runs. A killed step with unchanged files resumes on plain `resume`, and the flag on it is refused. F5: `specs/cli.md` places the not-needed refusal last in step 10, where the code is. F6: the hand-edited fieldless journal test stays; the reviewer confirmed the same behavior on a journal recorded by the base build (`65cdc6d7`) | none |
+| 2026-11-12 | Re-review R1 (major) and R2 (minor) | R1: the scan matched only the failing attempt's locator, so a writer left by attempt 1 let attempt 2 record `unchanged`. Now any live same-user process whose `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` contains `/<run id>/effects/` makes the row `changed` (any attempt, any step of the run). False positives measured with stand-ins: a failing serial command after a provider step and a completed parallel map, and after two agent turns with the run's tmux observation server alive, both record `unchanged` (the observation server and its panes start from the orchestrator's environment, without the variable), so no narrowing to command-class markers. A sibling still running at a parallel item's failure now makes it `changed` (items are unproven anyway). Real provider CLIs that leave background processes were not measured. R2: C4, C5, §8.1 and `specs/state.md` list what the check does not see (scrubbed environment, work handed to a running service, non-dumpable, another user). Tests: the reviewer's three-attempt sequence, a writer left by an earlier step, and the two false-positive cases | none |
+| 2026-11-12 | Re-review R3 (minor) and nit | R3: when `--accept-changes` is accepted for an unproven attempt replay has not reached (after an `invalidate`), preflight logs `[accept_changes_unreached]` and lists those attempts with their reasons; behavior unchanged. Nit: every printed list of accepted attempts stops at 20 lines, then `... and N more`. The reason text moved to `attempts.unproven_reason`, shared by the refusal and the preflight. Tests: `test_accept_changes_after_invalidate_prints_the_unreached_attempts_it_accepts`, `test_the_list_of_accepted_attempts_stops_at_twenty` | none |
+| 2026-11-12 | Merged as `af93d7a1` | Reviewed three times (approve with fixes each time; two holes and then a third closed: a process left running by an attempt could rewrite the script after the rehash, the flag accepted more attempts than the refusal named, and a writer left by an earlier attempt went unseen). Full suite on the branch with `main` merged, under the provider guard: 14,394 passed, only the four worktree-artifact failures. The last round's fix was not sent to a fourth review: it is the rule the reviewer recommended, with its reproduction as a test. Limits recorded in the design: the check cannot see a scrubbed environment, work handed to a running service, a non-dumpable process or another user; without a readable `/proc` every failure records `changed` | none |

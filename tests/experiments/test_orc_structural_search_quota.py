@@ -23,6 +23,7 @@ from experiments.orc_structural_search.scoring import latest_evaluations, policy
 from tests.experiments.compare_harness_support import skip_without_sandbox
 from tests.experiments.orc_structural_search_support import MUTATOR, SEEDS, launch_config, script, world  # noqa: F401 (fixture)
 from tests.experiments.test_orc_structural_search_driver import ANSWERS, CONFIG
+from tests.agent_session_shims import closed_path
 
 LIMIT = "You've hit your session limit · resets 5:30pm (America/Los_Angeles)"
 LA = ZoneInfo("America/Los_Angeles")
@@ -163,7 +164,7 @@ def test_a_continued_run_relaunches_only_quota_jobs_as_their_next_attempt(tmp_pa
 
 
 def scripted_env(world):
-    return {**os.environ, "PATH": f"{world.fakebin}:{os.environ['PATH']}", "SCRIPTED_RESULTS_FILE": str(world.results)}
+    return {**os.environ, "PATH": closed_path(world.fakebin), "SCRIPTED_RESULTS_FILE": str(world.results)}
 
 
 EVAL_CONFIG = ExperimentConfig(

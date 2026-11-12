@@ -298,7 +298,8 @@ it (`git checkout v0.1.0`) and reinstall. Retiring a target bumps the minor
 version, and the previous release stays tagged.
 Current source compilation, typed imports and REPL/LSP analysis also require
 every module to target 2.35 or newer. Old source and saved run data remain
-historical evidence; report/dashboard readers do not restore old compilation.
+historical evidence; `report` and the dashboard refuse old runs (the old
+readers are kept at the git tag `archive/retired-run-readers-2026-11-11`).
 [`specs/versioning.md`](specs/versioning.md#version-gating-summary) records
 what each target admits.
 

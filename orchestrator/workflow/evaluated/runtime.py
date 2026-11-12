@@ -10,7 +10,8 @@ from pathlib import Path
 import time
 from typing import Any, Callable, Mapping, Sequence
 
-from orchestrator.workflow.evaluated.attempts import allocate_attempt, attempt_paths
+from orchestrator.workflow.evaluated.attempts import (allocate_attempt, attempt_paths, changed_files_note,
+    closure_after_failure)
 from orchestrator.workflow.evaluated.commands import CommandPerformerError, command_result  # noqa: F401 (re-export)
 from orchestrator.workflow.evaluated.confined_dispatch import EFFECT_UNSUPPORTED, ConfinedDispatchRefusal, require_confinable
 from orchestrator.workflow.evaluated.memo import (
@@ -26,7 +27,8 @@ from orchestrator.workflow.workspace_files import WorkspaceFiles
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.providers.registry import ProviderRegistry
 from orchestrator.workflow.evaluated.provider_io import ProviderIOContext
-from .providers import provider_result
+from .providers import provider_result, provider_transport
+from .spend_cap import check_spend_cap
 from .agent_sessions import allocation_result
 from . import effect_execution
 from .effect_execution import PreparedAttempt, ExternalOutcome, perform_external
@@ -388,6 +390,7 @@ def prepare_effect(
             implementation_files=implementation_files, dependencies=dependencies, context=dict(run_files=run_files,
             workspace=workspace, workspace_files=workspace_files, site_classes=site_classes, reader=reader,
             provider_executor=provider_executor, launch_cwd=launch_cwd, stream_output=stream_output, views=views))
+    check_spend_cap(authority, snapshot, node, executor=provider_executor, policy=getattr(resolved, "policy", None))
     if baseline is not None and node.get("repeat") == "never":
         raise effect_inputs._PreflightRefusal("lexical_restore_pending_effect_unsafe",
             f"{identity}: effect declares that it must not be repeated", identity=identity)
@@ -406,7 +409,8 @@ def prepare_effect(
         before_failure=None if confined is None else lambda exc: confined.record_failure(authority, exc),
         # logged once `started` is durable, so the terminal's `run` and `start` lines come before it
         after_started=None if baseline is None else lambda: logger.warning(
-            "[%s] %s attempts=%s", code, identity, list(range(1, ordinal))))
+            "[%s] %s attempts=%s%s", code, identity, list(range(1, ordinal)),
+            changed_files_note(baseline.data["implementation_files"], implementation_files)))
     return PreparedAttempt(authority, node, identity, ordinal, result_path, input_digest,
         parts, implementation_files, tuple(dependencies), resolved, workspace, workspace_files,
         site_classes, provider_executor, attempt_files, launch_cwd, stream_output, confined=leaf_context, views=views,
@@ -504,7 +508,8 @@ def finish_effect(attempt: PreparedAttempt, outcome: ExternalOutcome | None = No
         if projected:
             raise agent_turns.unresolved_after_projection(attempt, exc) from exc
         publication_error = _fail_started_effect(
-            authority, attempt.identity, attempt.ordinal, attempt.site_classes, exc)
+            authority, attempt.identity, attempt.ordinal, attempt.site_classes, exc,
+            closure=closure_after_failure(attempt))
         _raise_if_publication_fatal(publication_error, fatal_publication)
         raise
     finally:
@@ -555,11 +560,12 @@ def _validate_attempt_outcome(attempt, outcome):
             workspace_files=attempt.workspace_files, result_path=outcome.result_path)
     else:
         result, digest = provider_result(attempt.node, attempt.resolved, attempt.attempt_files,
-            attempt.workspace_files, outcome.result_path)
+            attempt.workspace_files, outcome.result_path,
+            transport=provider_transport(attempt.provider_executor, attempt.node))
     return result, digest, None, None
 
 
-def _fail_started_effect(authority, identity, ordinal, site_classes, exc) -> Exception | None:
+def _fail_started_effect(authority, identity, ordinal, site_classes, exc, *, closure=None) -> Exception | None:
     try:
         after = read_memo(authority.memo_path, site_classes, run_files=authority.run_files)
         pending = after.pending_starts.get(identity)
@@ -574,6 +580,8 @@ def _fail_started_effect(authority, identity, ordinal, site_classes, exc) -> Exc
             violations = getattr(exc, "violations", None)
             if violations is not None:
                 failure["violations"] = violations
+            if closure is not None:
+                failure["closure"] = closure
             append_record(authority.memo_path, failure, run_files=authority.run_files, checked_authority=authority)
     except ViewPublicationError:
         raise

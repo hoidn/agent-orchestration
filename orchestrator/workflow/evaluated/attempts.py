@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import re
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from orchestrator.workflow.evaluated.attempt_processes import run_process_alive
+from orchestrator.workflow.evaluated.closure import resolve_command_evidence
 from orchestrator.workflow.evaluated.memo import (
+    _DYNAMIC_INDEX,
+    JournalEntry,
     MemoError,
     MemoSnapshot,
     append_record,
@@ -68,3 +74,115 @@ def allocate_attempt(
             checked_authority=checked_authority,
         )
         raise MemoError(code, str(exc)) from exc
+
+
+def closure_after_failure(attempt) -> str | None:
+    """`unchanged` when no process of any attempt of this run is alive and the failed host command's declared
+    files still equal its `started` evidence, else `changed`.
+
+    The liveness check comes first: once no process of the run is alive, none can write afterwards, so the
+    rehash that follows (as the precommit check does, C4) is final. A rehash that cannot complete counts as
+    `changed`, so its retry still needs the author's acceptance. None for every other effect and inside a
+    confined child.
+    """
+    node = attempt.node
+    if node["class"] != "command" or attempt.confined is not None:
+        return None
+    if run_process_alive(attempt.authority.run_root.name):
+        return "changed"
+    try:
+        after = resolve_command_evidence(node["command"], node["closure"], workspace_root=attempt.workspace,
+                                         prior=attempt.implementation_files, launch_cwd=attempt.launch_cwd)
+    except Exception:  # noqa: BLE001 - any failure to prove the files unchanged is `changed`, never a lost `failed` row
+        return "changed"
+    return "unchanged" if after == attempt.implementation_files else "changed"
+
+
+# The compiler's item segment `par-map:<label>[<n>]`; user labels escape `[` and `]` (sites.py `_escape_label`).
+_PARALLEL_ITEM = re.compile(r"(?:^| / )par-map:[^ ]*\[\d+\](?: / |$)")
+
+
+def proven_unchanged(snapshot: MemoSnapshot, start: JournalEntry) -> bool:
+    """The start's attempt failed with `closure: unchanged`, outside a parallel map (§8.1)."""
+    row = start.data
+    # ponytail: every parallel-map item is unproven (Phase 3a decision 7), since a sibling may write the script
+    # after the failure; relax to "no sibling record follows the failure" once a probe shows it is safe.
+    if _PARALLEL_ITEM.search(row["identity"]):
+        return False
+    return any(entry.data["record"] == "failed" and entry.data.get("identity") == row["identity"]
+               and entry.data.get("attempt") == row["attempt"] and entry.data.get("closure") == "unchanged"
+               for entry in reversed(snapshot.entries))
+
+
+def retry_change_admitted(snapshot: MemoSnapshot | None, baseline: JournalEntry, accept_changes: bool) -> bool:
+    """§8.1: changed retry evidence is accepted after a proven-clean failure, or by `resume --accept-changes`."""
+    return accept_changes or (snapshot is not None and proven_unchanged(snapshot, baseline))
+
+
+def unproven_command_retries(snapshot: MemoSnapshot, site_classes: Mapping[str, str]) -> list[str]:
+    """Uncommitted host commands with a retry baseline that no clean failure covers: what the flag accepts."""
+    def is_command(identity):
+        return (site_classes.get(identity) or site_classes.get(_DYNAMIC_INDEX.sub("[*]", identity))) == "command"
+    return [identity for identity, start in snapshot.latest_starts.items()
+            if identity not in snapshot.active_commits and is_command(identity)
+            and _retry_baseline(snapshot, identity, start) is not None and not proven_unchanged(snapshot, start)]
+
+
+_LISTED_ATTEMPTS = 20
+
+
+def accepted_attempt_lines(snapshot: MemoSnapshot, identities: list[str]) -> list[str]:
+    """`  <identity>: <why it is not proven clean>` per attempt, at most 20, then `  ... and N more`."""
+    shown = identities[:_LISTED_ATTEMPTS]
+    more = [f"  ... and {len(identities) - len(shown)} more"] if len(identities) > len(shown) else []
+    return [*(f"  {identity}: {unproven_reason(snapshot, identity)}" for identity in shown), *more]
+
+
+def unproven_reason(snapshot: MemoSnapshot, identity: str) -> str:
+    """Why an uncommitted command attempt is not proven clean, from its latest `failed` row (or none)."""
+    start = snapshot.latest_starts[identity]
+    failure = next((entry.data for entry in reversed(snapshot.entries) if entry.data["record"] == "failed"
+                    and entry.data.get("identity") == identity and entry.data.get("attempt") == start.data["attempt"]),
+                   None)
+    if failure is None:
+        return "its last attempt was interrupted, so it may have changed them itself"
+    closure = failure.get("closure")
+    if closure == "changed":
+        return "its last attempt changed its own declared files, or a process of the run was still running"
+    if closure is None:
+        return "its last attempt has no record of whether it changed them"
+    return "it is an item of a parallel map, where another item may have changed them after the failure"
+
+
+def changed_files_note(before: Mapping[str, Any], after: Mapping[str, Any]) -> str:
+    """` changed_files=<names>` for the `[effect_rerun]` line of a retry whose declared files changed."""
+    names = sorted({json.loads(key)[1] for key in set(before) | set(after) if before.get(key) != after.get(key)})
+    return f" changed_files={','.join(names)}" if names else ""
+
+
+def _retry_baseline(
+    snapshot: MemoSnapshot,
+    identity: str,
+    latest_start: JournalEntry | None,
+) -> JournalEntry | None:
+    if latest_start is None:
+        return None
+    row = latest_start.data
+    commit = next(
+        (
+            entry
+            for entry in reversed(snapshot.entries)
+            if entry.data.get("record") == "committed"
+            and entry.data.get("identity") == identity
+            and entry.data.get("attempt") == row["attempt"]
+        ),
+        None,
+    )
+    if commit is not None and any(
+        entry.offset > commit.offset
+        and entry.data.get("record") == "invalidated"
+        and entry.data.get("from_commit", commit.offset + 1) <= commit.offset
+        for entry in snapshot.entries
+    ):
+        return None
+    return latest_start
