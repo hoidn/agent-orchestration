@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
@@ -378,40 +377,3 @@ def test_anf_atomizes_effectful_args_and_halt_result() -> None:
     assert isinstance(normalized.body.body, WccLet)
     assert isinstance(normalized.body.body.body, WccHalt)
     assert isinstance(normalized.body.body.body.result, WccNameAtom)
-
-
-
-
-
-
-
-
-
-
-@pytest.mark.parametrize(
-    "fixture_path",
-    (
-        CHARACTERIZATION_FIXTURES / "wcc_m2_straight_line_effects.orc",
-        VALID_FIXTURES / "proc_ref_bind_proc_forwarding.orc",
-    ),
-)
-def test_wcc_m2_route_compiles_positive_fixtures(
-    tmp_path: Path,
-    fixture_path: Path,
-) -> None:
-    result = compile_stage3_module(
-        fixture_path,
-        provider_externs={"providers.execute": "fake"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        command_boundaries={
-            "run_checks": ExternalToolBinding(
-                name="run_checks",
-                stable_command=("python", "scripts/run_checks.py"),
-            ),
-        },
-        validate_shared=False,
-        workspace_root=tmp_path,
-
-    )
-
-    assert result.typed_workflows

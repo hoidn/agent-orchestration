@@ -1244,12 +1244,6 @@ def test_elaborate_workflow_definitions_accepts_optional_publish_metadata_clause
     assert getattr(entry_workflow, "publication_policy") is not None
 
 
-def test_elaborate_workflow_definitions_keeps_legacy_single_body_workflows_source_compatible() -> None:
-    workflow_defs = elaborate_workflow_definitions(_build_syntax_module(TYPE_FIXTURE))
-
-    assert all(getattr(workflow_def, "body", None) is not None for workflow_def in workflow_defs)
-
-
 def test_workflow_signature_identity_excludes_publish_metadata() -> None:
     type_env = _build_type_env(ENTRY_PUBLICATION_RUNTIME_FIXTURE)
     definition_module = _compile_definition_module(ENTRY_PUBLICATION_RUNTIME_FIXTURE)

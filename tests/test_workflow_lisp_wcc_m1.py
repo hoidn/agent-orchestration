@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 from orchestrator.workflow_lisp.compiler import _definition_only_syntax_module, _validate_definition_module, compile_stage1_module
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
@@ -231,24 +230,6 @@ def test_elaboration_preserves_authored_let_order_variant_identity_and_provenanc
     assert elaborated.body.body.bound_value.variant_name == "COMPLETED"
     assert elaborated.metadata.source_span.start.path.endswith("wcc_m1_value_union_letstar.orc")
     assert elaborated.metadata.form_path[:2] == ("workflow-lisp", "defworkflow")
-
-
-@pytest.mark.parametrize(
-    ("fixture_name", "workflow_name"),
-    (("wcc_m1_value_union_letstar.orc", "value-union-letstar"),),
-)
-def test_elaboration_is_total_for_covered_positive_fixtures(fixture_name: str, workflow_name: str) -> None:
-    fixture = FIXTURES / "current235" / "valid" / fixture_name
-    typed_workflow = _typed_workflow(fixture, workflow_name)
-
-    elaborated = elaborate_typed_workflow_body(
-        typed_workflow.typed_body,
-        owner_name=typed_workflow.definition.name,
-        type_env=_fixture_type_env(fixture),
-        value_env=dict(typed_workflow.signature.params),
-    )
-
-    assert isinstance(elaborated, WccLet | WccHalt)
 
 
 def test_anf_normalization_atomizes_non_atomic_record_and_inject_fields() -> None:

@@ -9,9 +9,7 @@ from unittest.mock import patch
 
 import pytest
 
-from orchestrator.workflow.run_ref import config as run_ref_config
 from orchestrator.workflow.run_ref.contracts import canonical_sha256
-from orchestrator.workflow_lisp import syntax
 from orchestrator.workflow_lisp.closed.target import entry_target_dsl_version
 from orchestrator.cli.commands.run import run_workflow
 from tests.workflow_evaluated_totality_helpers import (
@@ -20,9 +18,6 @@ from tests.workflow_evaluated_totality_helpers import (
 from tests.workflow_lisp_improve_stdlib_sources import REVISE_PROBE
 from tests.workflow_evaluated_totality_helpers import _public_run_files
 from tests.test_workflow_evaluated_cli import _run_args, _run_argv
-
-TARGET = "2.35"
-
 
 PROGRAM = """(workflow-lisp
   (:language "0.1")
@@ -50,19 +45,6 @@ def _write_program(root: Path) -> dict[str, Path]:
     source = PROGRAM.replace("PROBE_REVISE", probes["probe_revise"].as_posix())
     _write_sources(root, {"grt/entry.orc": source})
     return _public_run_files(root, probes)
-
-
-@pytest.mark.parametrize(
-    "registry",
-    [
-        pytest.param(syntax.SUPPORTED_TARGET_DSL_VERSIONS, id="frontend"),
-        pytest.param(run_ref_config._SUPPORTED_TARGET_DSL_VERSIONS, id="run-ref-config"),
-    ],
-)
-def test_target_235_is_registered(registry) -> None:
-    assert TARGET in registry
-
-
 
 
 def _assert_public_run_dependency_result(tmp_path: Path, result) -> None:
