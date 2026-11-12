@@ -27,6 +27,7 @@ import pytest
 from tests.workflow_evaluated_consumer_sources import EXEC_LOG, FUTURE, PROGRAMS, install, jsonl, sha256
 from tests.workflow_evaluated_run_ref_helpers import _output
 from tests.workflow_lisp_improve_example_sources import LAUNCH_PROBE
+from tests.agent_session_shims import closed_path
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -215,7 +216,7 @@ def install_standins(bin_dir: Path, monkeypatch, answers: dict[str, dict], repos
     for tool in ("codex", "claude"):
         (bin_dir / tool).write_text(f"#!{sys.executable}\n" + SHIM, encoding="utf-8")
         (bin_dir / tool).chmod(0o700)
-    monkeypatch.setenv("PATH", str(bin_dir) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("PATH", closed_path(bin_dir))
     monkeypatch.setenv("RECOVERY_SHIM_PLAN", json.dumps({"answers": answers, "repos": repos}))
 
 
