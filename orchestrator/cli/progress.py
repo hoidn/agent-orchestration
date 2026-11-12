@@ -105,9 +105,11 @@ def _silence_if_dead(stream, exc: Exception) -> None:
 
 
 def _stderr_tail(lines: list[str]) -> list[str]:
-    """The last lines; when the last Python traceback's exception line falls before them, it replaces the first, last.
+    """The last lines; when the last Python traceback's exception line falls before them, it replaces the first.
 
     A multi-line exception message can push that line out of the tail, which then shows only the message's end.
+    The line comes first, so the block still ends with the real last line. Limit: an exception group's header is
+    indented, so the search finds the plain traceback before it, if any.
     """
     tail = lines[-STDERR_TAIL_LINES:]
     headers = [index for index, line in enumerate(lines) if line.startswith("Traceback (most recent call last):")]
@@ -117,7 +119,7 @@ def _stderr_tail(lines: list[str]) -> list[str]:
                       if lines[index][:1] not in {"", " ", "\t"}), None)
     if exception is None or exception >= len(lines) - len(tail):
         return tail
-    return [*tail[1:], lines[exception]]
+    return [lines[exception], *tail[1:]]
 
 
 class TerminalReporter:

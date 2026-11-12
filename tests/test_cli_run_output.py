@@ -120,7 +120,7 @@ def test_failed_run_prints_the_step_its_stderr_and_the_resume_command(tmp_path: 
     assert result.stdout == ""
 
 
-def test_a_failed_step_shows_its_exception_line_last_when_a_long_message_pushes_it_out_of_the_tail(
+def test_a_failed_step_shows_its_exception_line_first_when_a_long_message_pushes_it_out_of_the_tail(
     tmp_path: Path,
 ) -> None:
     write_pipeline(tmp_path)
@@ -129,7 +129,20 @@ def test_a_failed_step_shows_its_exception_line_last_when_a_long_message_pushes_
 
     shown = printed(run_pipeline(tmp_path).stderr, "|")
 
-    assert (len(shown), shown[-1], shown[-2]) == (10, "ValueError: detail 0", "detail 14")
+    assert (len(shown), shown[0], shown[-1]) == (10, "ValueError: detail 0", "detail 14")
+
+
+def test_a_failed_step_after_a_handled_traceback_ends_with_its_own_last_line(tmp_path: Path) -> None:
+    write_pipeline(tmp_path)
+    (tmp_path / "step.py").write_text(
+        "import sys, traceback\n"
+        "try:\n    {}['cache']\nexcept KeyError:\n    traceback.print_exc()\n"
+        "for i in range(12):\n    print(f'build step {i}', file=sys.stderr)\n"
+        "print('error: link failed (exit 1)', file=sys.stderr)\nsys.exit(1)\n", encoding="utf-8")
+
+    shown = printed(run_pipeline(tmp_path).stderr, "|")
+
+    assert shown[-1] == "error: link failed (exit 1)"
 
 
 def test_quiet_run_prints_only_the_result(tmp_path: Path) -> None:
