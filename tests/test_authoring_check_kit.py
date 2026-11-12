@@ -315,6 +315,13 @@ def test_the_readout_passes_a_clean_session(tmp_path):
     assert _reasons(tmp_path) == []
 
 
+def test_the_readout_allows_the_cli_naming_its_own_saved_tool_output(tmp_path):
+    saved = f"Output too large. Full output saved to: {{home}}/.claude/projects/{WORK.replace('/', '-')}/abc/tool-results/x.txt"
+    rows = json.loads(json.dumps(_rows(command="cat GUIDE.md", output=saved)).replace("{home}", str(tmp_path / "home")))
+    _session(tmp_path, rows)
+    assert _reasons(tmp_path) == []
+
+
 @pytest.mark.parametrize(("rows", "after", "meta", "reason"), [
     (_rows(command="claude -p 'write tally.orc'"), None, {}, "nested_cli"),
     (_rows(command="~/.local/bin/codex exec hi"), None, {}, "nested_cli"),
