@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -63,6 +63,8 @@ class RunAuthority:
     header: Mapping[str, Any]
     program: ClosedProgram
     run_files: WorkspaceFiles | None = field(default=None, compare=False, repr=False)
+    # A view of appended memo rows (the CLI's terminal reporter); not authority.
+    observer: Callable[[Mapping[str, Any]], None] | None = field(default=None, compare=False, repr=False)
 
     @property
     def confined(self) -> bool:

@@ -40,14 +40,22 @@ PROPAGATION = '''(workflow-lisp (:language "0.1") (:target-dsl "2.35")
         :inputs (task) :model "chosen-model" :effort "low" :returns Feedback))))'''
 
 
-def _printed(stdout: str) -> list[str]:
-    return [line for line in stdout.splitlines() if line in LINES]
+RESULT = '{"findings":[]}'
+
+
+def _printed(stdout: str, *, result: str | None = None) -> list[str]:
+    """`print` lines; a run that returns ends stdout with its result line, which is not a `print`."""
+    lines = stdout.splitlines()
+    if result is not None:
+        assert lines[-1] == result
+        lines = lines[:-1]
+    return [line for line in lines if line in LINES]
 
 
 def test_print_writes_each_value_line_and_returns_the_operand(tmp_path):
     result = _run(tmp_path, _fixture(tmp_path, SOURCE.format(target="2.35", body=BODY)), "task=x", "scale=1.5")
     assert result.returncode == 0, result.stderr
-    assert _printed(result.stdout) == LINES
+    assert _printed(result.stdout, result=RESULT) == LINES
     shown = _repl(tmp_path, [":result", "shown", ":quit"], run_id=_run_root(tmp_path).name)
     assert _typed_values(shown.stdout) == [(FEEDBACK, "Feedback"), (PLAN["steps"], "List[String]")]
 
@@ -66,7 +74,7 @@ def test_a_resumed_attempt_prints_replayed_and_new_values_once(tmp_path):
     assert _printed(stopped.stdout) == [LINES[0]]
     resumed = _resume(tmp_path, _run_root(tmp_path).name, (PLAN, BAD, FEEDBACK))
     assert resumed.returncode == 0, resumed.stderr
-    assert _printed(resumed.stdout) == LINES
+    assert _printed(resumed.stdout, result=RESULT) == LINES
     assert len((tmp_path / "requests.jsonl").read_text().splitlines()) == 3
 
 
@@ -79,7 +87,7 @@ def test_readers_replay_the_program_without_printing(tmp_path):
     result = _repl(tmp_path, ["(print feedback.findings)", ":quit"], run_id=run_id)
     assert (result.returncode, result.stdout.splitlines()) == (0, ["[]", ": List[String]"])
     completed = _resume(tmp_path, run_id, (PLAN, FEEDBACK))
-    assert (completed.returncode, _printed(completed.stdout)) == (0, [])
+    assert (completed.returncode, _printed(completed.stdout, result=RESULT)) == (0, [])
     report = subprocess.run(
         [sys.executable, "-B", "-m", "orchestrator", "report", "--run-id", run_id,
          "--runs-root", str(tmp_path / ".orchestrate" / "runs"), "--format", "md"],

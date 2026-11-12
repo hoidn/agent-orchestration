@@ -385,7 +385,7 @@ def test_maintained_python_command_loop_example_runs_two_commands_and_zero(tmp_p
         "workflows/examples/python_command_loop.commands.json", "--input", "limit=0",
     )
     assert zero.returncode == 0, zero.stderr
-    assert zero.stdout == ""
+    assert zero.stdout == "0\n"
     exhausted = _snapshot(_run_root(zero_root))
     assert _rows(exhausted, "started") == []
     assert exhausted.terminal is not None

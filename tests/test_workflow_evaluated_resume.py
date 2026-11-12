@@ -354,11 +354,12 @@ def test_present_malformed_recipe_is_not_a_historical_header(tmp_path, monkeypat
     assert _snapshot(tmp_path / '.orchestrate') == before
 
 
-def test_program_comparison_precedes_invalid_file_inputs_and_artifact(tmp_path, monkeypatch, caplog, configured_tree):
+@pytest.mark.parametrize('artifact', ['corrupt', '[' * 200000], ids=['corrupt', 'deeply-nested'])
+def test_program_comparison_precedes_invalid_file_inputs_and_artifact(tmp_path, monkeypatch, caplog, configured_tree, artifact):
     source, result, file = _configured_completed(tmp_path, monkeypatch, configured_tree)
     source.write_text(source.read_text().replace('(threshold Float :default 0.5)', '(threshold Float :default 0.6)'))
     file.unlink()
-    (result.run_root / 'closed_program.json').write_text('corrupt')
+    (result.run_root / 'closed_program.json').write_text(artifact)
     (result.run_root / 'memo.jsonl').write_text('corrupt')
     def forbidden(*args, **kwargs):
         pytest.fail('artifact loaded before program comparison')

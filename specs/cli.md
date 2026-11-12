@@ -245,26 +245,40 @@ this locking rule does not retain workflow supervision or watchdog execution.
 
 ## Commands and Examples
 
+The program is `orchestrator`, the installed script; `python -m orchestrator`
+runs the same program from a checkout or an environment without the script.
+Help and usage name it `orchestrator`, and every command the CLI prints for
+the user to run starts with the form that was invoked. The spelling
+`orchestrate` elsewhere in this contract names the same program. `--help`
+lists the public commands (`run`, `py`, `compile`, `repl`, `resume`,
+`invalidate`, `input`, `report`, `dashboard`, `monitor`). The retired and
+maintainer commands (`prompt`, `trial`, `explain`,
+`workflow-lisp-route-readiness`, `peer-ready`, `peer-send`, `peer-ack`,
+`peer-finish`, `provider-materialization-submit`,
+`provider-isolation-environment-manifest`) and the flags evaluated execution
+does not read (see [Evaluated execution](#evaluated-execution-target-235))
+are hidden from help and still accepted with their documented behavior.
+
 ```bash
 # Run an admitted evaluated entry (provider execution changes the workspace)
-orchestrate run workflows/examples/plan_review_execute.orc \
+orchestrator run workflows/examples/plan_review_execute.orc \
   --provider-externs-file workflows/examples/inputs/plan_review_execute/providers.json \
   --input task="Describe the repository architecture"
 
 # Resume failed/interrupted run
-orchestrate resume <run_id>
+orchestrator resume <run_id>
 
 # Render status report for latest run
-orchestrate report --format md
+orchestrator report --format md
 
 # Serve local dashboard for one or more explicit workspaces
-orchestrate dashboard --workspace "$(pwd)" --host 127.0.0.1 --port 8765
+orchestrator dashboard --workspace "$(pwd)" --host 127.0.0.1 --port 8765
 
 # Monitor configured workspaces once without sending email
 orchestrator monitor --config ~/.config/orchestrator/monitor.json --once --dry-run
 
 # Build and bind the same source without executing providers
-orchestrate run workflows/examples/plan_review_execute.orc \
+orchestrator run workflows/examples/plan_review_execute.orc \
   --provider-externs-file workflows/examples/inputs/plan_review_execute/providers.json \
   --input task="Describe the repository architecture" \
   --dry-run
@@ -341,13 +355,24 @@ orchestrator compile WORKFLOW [--entry-workflow NAME] [--source-root DIR ...]
   [--imported-workflow-bundles-file JSON] [--command-boundaries-file JSON]
   [--diagnostics-json]
 orchestrator run WORKFLOW [the same frontend flags] [--input NAME=VALUE ...]
-  [--input-file JSON] [--state-dir DIR] [--run-ref-root DIR] [--dry-run]
-orchestrator resume RUN_ID [--state-dir DIR] [--run-ref-root DIR]
+  [--input-file JSON] [--state-dir DIR] [--run-ref-root DIR] [--dry-run] [--quiet]
+orchestrator resume RUN_ID [--state-dir DIR] [--run-ref-root DIR] [--quiet]
 orchestrator invalidate RUN_ID IDENTITY [--state-dir DIR]
 orchestrator report [--run-id RUN_ID] [--runs-root DIR] [--format md|json] [--output PATH]
 orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--state-dir DIR]
 ```
 
+- Frontend flags: when `--command-boundaries-file`, `--provider-externs-file`
+  or `--prompt-externs-file` is absent, a file named `commands.json`,
+  `providers.json` or `prompts.json` in the directory of the source file is
+  used, and `using <file> beside <source>` is printed on stderr (not under
+  `--quiet`). This applies to `run`, `compile`, `repl` and `py build`,
+  `py check` and `py run`; an explicit flag wins. The chosen path is recorded
+  in the resume recipe like an explicit flag; `resume` never looks for
+  defaults. `compile` and `run` print each compile warning on stderr as a
+  rendered diagnostic (`run` not under `--quiet`, `--log-level error`, or
+  any level above warnings); `compile` still exits `0` with its JSON on
+  stdout, and `--diagnostics-json` output is unchanged.
 - `repl` loads and inspects module declarations/types, launches its entry through public `run`, attaches
   read-only to an evaluated run and evaluates pure expressions over captured
   bindings; see [REPL commands and diagnostics](#workflow-lisp-repl-targets-235-and-236).
@@ -363,8 +388,9 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   `--input` overrides over `--input-file` against the fresh program, takes the
   workspace lock, publishes the run authority under the run writer lock and
   evaluates. `--dry-run` builds (still publishing the build directory) and
-  binds without a lock or a run root and exits `0`, `2` for a compile or
-  binding error, or `1` for a missing `--input-file`. `--state-dir DIR` places
+  binds without a lock or a run root, prints one stderr line
+  `checked <entry workflow>  <n> effect sites`, and exits `0`, `2` for a
+  compile or binding error, or `1` for a missing `--input-file`. `--state-dir DIR` places
   the run at `DIR/RUN_ID` and records its relationship to the workspace as the
   header `result_root`; `--run-ref-root DIR`, or its default, is recorded as
   `run_ref_root`. Provider stdout and stderr are streamed to the process's
@@ -378,9 +404,52 @@ orchestrator repl [WORKFLOW] [the same frontend flags] [--run-id RUN_ID] [--stat
   `--retry-delay`, `--step-summaries`, the `--summary-*` and
   `--live-agent-*` flags, `--clean-processed` or `--archive-processed`;
   `--backup-state` has no effect, and `--debug`, `--verbose` and
-  `--log-level` affect logging only. The run's workflow
+  `--log-level` affect logging only. Outside `--debug`, log lines carry no
+  timestamp prefix. The run's workflow
   outputs are the terminal value, as `{"__result__": value}` for a non-object
   value.
+- Terminal lines of `run` and `resume`. The command-line `run`, `resume` and
+  `py run`, and the REPL's `:run`, print them; the Python SDK
+  `orchestrator.py.run()` prints none and leaves the caller's streams
+  untouched. Each line is a view of a memo row as it is appended (or of the
+  outcome), never authority; columns are separated by two spaces:
+
+  ```text
+  run     <run id>  <run root>
+  start   <identity>  attempt <n>
+  commit  <identity>  attempt <n>
+  failed  <identity>  attempt <n>  [<code>]
+          stderr: <path>
+          | <last ten lines of that file>
+  waiting <identity>  <launcher> input get <run id> [--state-dir DIR]
+  resume  <launcher> resume <run id> [--state-dir DIR]
+  ```
+
+  `<launcher>` is `orchestrator`, or `python -m orchestrator` when the
+  program was started as a module. All of these lines go to stderr. The
+  `run` line comes first, once the run root exists; `resume` prints it before
+  its first new effect row or failure, so a preflight refusal's `[code]` line
+  stays first. `start` and `commit` follow the journal; effects reused from
+  the memo print nothing. A `failed` row prints its block, with the stderr
+  lines when the attempt's `stderr.txt` exists. The `resume` line is
+  printed after a run or resume that exits `1`, unless its error has a row
+  in the recovery table (see [Diagnostics](#diagnostics)), whose lines say
+  what to run instead; after exit `2` it is printed only when no refusal was
+  reported (a pending run-ref cleanup); and after Ctrl-C, before the
+  interrupt propagates. A run that suspends on a host request prints one
+  `waiting` line per pending request and no result. A run that returns
+  prints its terminal value (not the `{"__result__": ...}` wrapper) as one
+  line of compact, sorted-key JSON on stdout, after any `print` lines and
+  streamed provider output, starting a new line when that output did not end
+  one, so the last stdout line is the result; a resume of a completed run
+  prints the recorded value the same way. `--quiet` drops the `run`, `start`
+  and `commit` lines and warnings; the failure block, the `[code]` line,
+  recovery lines, the `resume` and `waiting` lines and the result are always
+  printed, so a failed or interrupted quiet run still names its `resume`
+  command. A write error on stderr (for example a closed pipe) stops the
+  stderr lines only, and a process started without stderr prints none of
+  them; the stdout result is still printed, and neither changes the run or
+  its exit code.
 - `resume RUN_ID` recognizes the run by its header before any flat-route
   state check and performs the read-only preflight below under the workspace
   and run writer locks. `--force-restart` is refused with
@@ -582,6 +651,33 @@ that returns the recorded terminal. `run` prints a publication-time refusal
 as `Validation error: <message>` without a code; `resume` prints
 `[<code>] <message>`, using `resume_preflight_failed` for a refusal that has
 no code of its own; `invalidate` prints `[<code>] <detail>`.
+
+That first line is stable. Recovery lines follow it on stderr: sentences that
+name what changed, and the commands that continue, each on its own line
+indented by four spaces and ready to run from the run's workspace (the same
+`<launcher>` and `--state-dir` as the refused command; a fresh `run` command
+repeats the recorded source, roots, entry, manifests, input file and
+`--input` values). Whether a step is committed, failed, pending or
+invalidated is read from the run's memo after the refusal is decided; that
+read, and the read of the stored program for a program change, only shape
+the text, and when either fails the text is the generic one and the exit
+code is unchanged. A code without a row below gets one line pointing to this
+table, except after a failed step's block, which already names the step and
+the `resume` command.
+
+| Code | Recovery lines name | Commands printed |
+| --- | --- | --- |
+| `resume_program_changed` | each effect site added, removed or changed between the recorded and the current program, by identity (provenance ignored), or that only code between effects changed | `resume` after restoring the source; or a fresh `run`, in which every step runs again |
+| `resume_inputs_changed` | the inputs whose bound value differs | `resume` after restoring them; or a fresh `run` with the new values |
+| `effect_input_diverged`, a step the memo shows committed, when no step whose latest attempt did not commit uses a changed file | the identity, the changed input parts and implementation files | `invalidate RUN_ID 'IDENTITY'` then `resume`; this step and all later ones run again and workspace files are not rolled back |
+| `effect_input_diverged`, a committed step whose changed files are also used by a step whose latest attempt did not commit (or the changed files are unknown and such a step exists) | the changed files, the unfinished steps, and that a script fix after a failure cannot be resumed in this run | `resume` after restoring the files; or a fresh `run`; never `invalidate` |
+| `effect_input_diverged`, a step without an active commit (failed or pending) | the identity and the changed files, or that its inputs changed | `resume` after restoring what changed; otherwise a fresh `run`, since a step that did not finish cannot yet be retried with changed files in the same run |
+| `invalidate_not_committed` | whether the step has an unfinished attempt, its latest attempt failed, it was invalidated, or no step has that identity | `resume` for an unfinished, failed or invalidated step; then, after the warning that a step and every later one run again and workspace files are not rolled back, one `invalidate` command per committed identity in journal order (at most 20) |
+| `invalidate_coordinator_committed` | the committed run references or agent turns in the suffix | a fresh `run` |
+| `resume_result_root_changed`, `resume_run_ref_root_changed` | the recorded value | `resume` with the `--state-dir` or `--run-ref-root` value that matches the run |
+| `evaluated_execution_unavailable` | the reason in one sentence | a fresh `run` |
+| `lexical_restore_pending_effect_unsafe` | the step that must not repeat, and that a new run performs it again, so whether the interrupted attempt took effect should be checked first | a fresh `run` |
+| `resume_request_missing` | that the run has no rebuild recipe | none |
 
 | Code | Raised by | Exit | Effect on evidence |
 | --- | --- | --- | --- |

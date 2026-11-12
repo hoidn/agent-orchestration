@@ -90,16 +90,16 @@ def _resume_refusal(exc: Exception) -> tuple[int, None]:
     return 2, None
 
 
-def _replayed_halt_result(snapshot, value, reached_boundary):
+def _replayed_halt_result(snapshot, value, reached_boundary, refuse):
     if reached_boundary:
         return None
     if snapshot.pending_starts:
-        return _runtime()._resume_refusal(
+        return refuse(
             MemoError("memo_inconsistent", "evaluated halt leaves active effect evidence unsettled")
         )
     terminal = snapshot.terminal
     if terminal is None or terminal.data["outcome"] != "completed":
         return None
     if canonical_sha256(value) != canonical_sha256(terminal.data["value"]):
-        return _runtime()._resume_refusal(MemoError("memo_inconsistent", "completed terminal differs from evaluated halt"))
+        return refuse(MemoError("memo_inconsistent", "completed terminal differs from evaluated halt"))
     return 0, terminal.data["value"]

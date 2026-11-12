@@ -135,6 +135,8 @@ def append_record(path: Path, record: Mapping[str, Any], *, run_files: Workspace
     if checked_authority is not None:
         from orchestrator.workflow.evaluated.views import publish_evaluated_view
         publish_evaluated_view(checked_authority, entry)
+        if checked_authority.observer is not None:
+            checked_authority.observer(entry.data)
     return entry
 
 
@@ -157,6 +159,19 @@ def repair_torn_tail(path: Path, snapshot: MemoSnapshot, *, run_files: Workspace
         os.close(fd)
 
 
+def _uncommitted_state(snapshot: MemoSnapshot, identity: str) -> str | None:
+    """`pending`, `failed` (its latest attempt), `invalidated` (committed once, now cancelled) or None (unknown)."""
+    if identity in snapshot.pending_starts:
+        return "pending"
+    latest = snapshot.latest_starts.get(identity)
+    if latest is None:
+        return None
+    rows = [entry.data for entry in snapshot.entries if entry.data.get("identity") == identity]
+    if any(row["record"] == "failed" and row.get("attempt") == latest.data["attempt"] for row in rows):
+        return "failed"
+    return "invalidated" if any(row["record"] == "committed" for row in rows) else None
+
+
 def invalidate_suffix(path: Path, identity: str, site_classes: Mapping[str, str], *, run_files: WorkspaceFiles | None = None,
                       checked_authority=None) -> dict[str, Any]:
     """Append one C8 range after validating its active commit suffix; caller owns the lock."""
@@ -164,10 +179,16 @@ def invalidate_suffix(path: Path, identity: str, site_classes: Mapping[str, str]
     snapshot = read_memo(path, site_classes, run_files=run_files)
     chosen = snapshot.active_commits.get(identity)
     if chosen is None:
-        raise MemoError("invalidate_not_committed", identity)
+        error = MemoError("invalidate_not_committed", identity)
+        error.identity, error.committed = identity, list(snapshot.active_commits)
+        error.state = _uncommitted_state(snapshot, identity)
+        raise error
     suffix = [item for item in snapshot.active_commits.values() if item.offset >= chosen.offset]
-    if any(is_coordinator_class(item.data["effect_class"]) for item in suffix):
-        raise MemoError("invalidate_coordinator_committed", identity)
+    coordinators = [item.data["identity"] for item in suffix if is_coordinator_class(item.data["effect_class"])]
+    if coordinators:
+        error = MemoError("invalidate_coordinator_committed", identity)
+        error.coordinators = coordinators
+        raise error
     if checked_authority is not None:
         from .run_ref import guard_confined_invalidation
         guard_confined_invalidation(checked_authority, snapshot, chosen.offset)
