@@ -5,7 +5,8 @@ row dicts, so a consumer that edits a row in place would corrupt every later rea
 memo. The guard records each fold that becomes the cache and is not continued afterwards
 (the tip of each memo's lineage; earlier folds share the tip's rows) and, at test
 teardown, requires each tip to equal a fresh reduction of its own bytes. One fresh
-reduction per memo lineage per test, never one per reduction.
+reduction per memo lineage per test, never one per reduction. A tip is re-reduced with all of
+its site tables: one per program of the run (memo_reducer_lineage), the current one last.
 
 ``StartViewGuard``: for a ``started`` row published with ``start_reached`` (no replay),
 recompute the view with the replay and require the bytes just published.
@@ -18,11 +19,12 @@ import json
 
 class FoldGuard:
     def __init__(self, monkeypatch):
-        from orchestrator.workflow.evaluated import memo_reducer
+        from orchestrator.workflow.evaluated import memo, memo_reducer
 
         self.memo_reducer = memo_reducer
         self.tips: dict[int, tuple[object, bytes]] = {}
         memo_reducer._LAST = None
+        memo._TABLES.clear()          # the per-digest site tables are process state too
         resume = memo_reducer._resume_cached_prefix
 
         def recording_resume(reducer, raw):
@@ -42,7 +44,7 @@ class FoldGuard:
         if last is not None:
             self.tips[id(last[0])] = last
         for reducer, raw in self.tips.values():
-            fresh = self.memo_reducer._Reducer(reducer.site_classes).reduce(raw)
+            fresh = self.memo_reducer._Reducer(reducer.tables[-1], reducer.tables[:-1]).reduce(raw)
             for cached, entry in zip(reducer.entries, fresh.entries):
                 assert cached == entry, (
                     f"{nodeid} left the memo fold inconsistent: the cached row at byte {entry.offset} is "
@@ -55,7 +57,7 @@ class FoldGuard:
 def install_start_view_guard(monkeypatch) -> None:
     from orchestrator.workflow.evaluated import views
     from orchestrator.workflow.evaluated.machine import site_classes
-    from orchestrator.workflow.evaluated.memo import reduce_memo
+    from orchestrator.workflow.evaluated.memo import earlier_tables, reduce_memo
 
     publish = views.publish_evaluated_view
 
@@ -64,7 +66,8 @@ def install_start_view_guard(monkeypatch) -> None:
         if not kwargs.get("start_reached"):
             return
         files = authority.run_files
-        snapshot = reduce_memo(files.read(views.MEMO_FILENAME)[:entry.end], site_classes(authority.program))
+        snapshot = reduce_memo(files.read(views.MEMO_FILENAME)[:entry.end], site_classes(authority.program),
+                               earlier_tables(authority))
         value, next_effect, halted = views._replay(authority, snapshot)
         terminal = views._checked_terminal(snapshot, value, halted)
         view = views._view(authority, snapshot, terminal, next_effect, halted, True)

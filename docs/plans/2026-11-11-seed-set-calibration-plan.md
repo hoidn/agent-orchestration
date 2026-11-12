@@ -1,6 +1,6 @@
 # Seed-Set Calibration Plan
 
-**Status: Plan (not started).** This page plans the scaled-down research step
+**Status: Plan; zero-spend preparation in progress, no spend yet.** This page plans the scaled-down research step
 the owner set on 2026-11-11: calibrate a small task set and a judge, then find
 two to four simple workflow programs that run reliably and do at least as well
 as one direct call at acceptable cost, and package them as seeds for a later
@@ -13,6 +13,31 @@ model guard, the scan, the blind pool and the clone-id join. This plan owns
 its task set, thresholds, budget and selection rule. Its commands are for this
 machine and are not copyable examples. Spend is authorized only as the
 [ledger](#ledger) records.
+
+**Changes since acceptance (2026-11-12; the [ledger](#ledger) has each ruling).**
+Zero-spend preparation is built on the branch `feat/seed-set-prep` and is
+being fixed after its pre-spend review; nothing is spent. Where the text
+below differs, these hold:
+
+- The task ladder has rungs T0 to T5. T6 is not a rung. Task `a8ffc5997a`
+  failed the leak audit and left the draw; reserve `4da856acda` replaces it.
+- The calibration runs at 20 tasks with the frozen thresholds, or it does not
+  run. A fill rung that adds no new task is replaced by T2; a split side
+  shorter than ten is topped up from the other side; a fill tie goes to the
+  easier rung; a draw that still cannot reach 20, and a probe whose results
+  come out of order, are stops reported to the owner.
+- The ladder probe is the one redraw: its 20 Haiku calls come from the redraw
+  allowance, whose Sonnet and judge allowances stay unused and are set to
+  zero in the runner. A probe run that ends in a provider incident is resumed
+  once from the remaining redraw Haiku allowance and is never counted as a
+  task failure.
+- The five programs declare `(:target-dsl "2.40")` (they build the same
+  program as at 2.39).
+- Blinding: candidates and anchors are built in random order; every pooled
+  patch is scanned for model, arm and program names before any judge call and
+  a hit refuses the pool; each rating is bound to the digest of the patch the
+  judge read.
+- A readout that ends in a stop prints no quality figure.
 
 **Headline exit test (fails today):** `experiments/seed_set/results/seeds.json`
 exists, names its criterion and task-list hashes, and lists either two to four
@@ -514,3 +539,6 @@ Allowance does not move between tranches; there is no top-up after a null.
 | 2026-11-11 | Coordinator rulings recorded with the runner: there is no later redraw (the ladder probe is the one redraw; the redraw cap's 40 Haiku calls serve only the probe, its Sonnet and judge allowances stay unused; a failed calibration gate is a stop with no quality claim). A judge whose agreement with the hidden tests cannot be assessed (fewer than 15 candidates in a class) is not failed for that, and the decision line and the result say in plain words that it passed on V1 to V3 alone. When two rungs are in band the one nearer 2 of 4 wins, ties to the harder. |
 | 2026-11-11 | Known limits of the runner, accepted: the subagent tool cannot be switched off (the provider command is a fixed registry template), so the model pin and the call cap are the bound; the session audit cannot see a session kept only in memory or a direct API request made with the sandbox's copied credential; the detector for "the agent ran the visible test itself" misses wrappers and test files run directly, and over-counts a `-k` filter that deselects the test. |
 | 2026-11-12 | Owner question: which model placement is Pareto-better (plan mid and implement weak, weak for both, mid for both; reviewer strength as another axis), clarified as "1 seed + defining the search dimensions" rather than several seeds. Coordinator ruling: recorded in Step 3 as "Search dimensions around one seed", proposed and not authorized. This study only qualifies the one seed in its all-Haiku form and freezes the space's rules (priced-token cost, equal-price re-roll curve on the front, per-step model check); evaluating placements belongs to the search. Coordinator's reading, to be corrected by the owner if wrong: the four existing programs and their selection rule stay as planned. Spend to date: 0. |
+| 2026-11-12 | Coordinator rulings with the ladder and runner integration (branch `feat/seed-set-prep`, not merged) | The task that fails the leak audit (`a8ffc5997a`) leaves the draw and reserve `4da856acda` replaces it; T6 is dropped as a rung; the three blinding gaps are closed (random build order of candidates and anchors, an identity scan of every pooled patch before any judge call with a hit refusing the pool, each rating bound to the sha256 of the patch read); the network limit is stated on every readout. A zero-spend rehearsal on the real packages with stand-in agent and judges ran the whole path inside the caps (117 of 121 Haiku and 52 of 52 Sonnet reserved for smoke and calibration, 20 of 40 for the probe). Spend to date: 0. |
+| 2026-11-12 | Coordinator ruling: 20 tasks at the frozen thresholds, or no calibration | No scaled gate ever starts spend; the scaling code is deleted. A fill rung that adds no new task (T0 for T1 or the reverse) is replaced by T2 (40 more Haiku and 8 more Sonnet candidate calls, inside the caps); a split side shorter than ten is topped up from the other side; any draw that still cannot reach 20 is a stop with no task list (T4 and T5 together; the four splits that arise only when probe results come out of order). The programs move to target 2.40. Recorded limits, not changed: the visible check runs candidate code on the host; the per-run time limit excludes time in checks; a patch that legitimately contains a scanned token costs its whole task; the withheld check was rehearsed through one run on a separate ledger. |
+| 2026-11-12 | Pre-spend review of the builder and the integration: ready only after fixes (1 blocker, 9 majors, 12 minors) | Confirmed: only the two model ids pass and every launch is reserved before it starts (60 concurrent tries against a 40-call cap granted exactly 40); the probe-to-draw rule matches an independent rebuild over every probe result; 17 sampled packages pass the base and reference checks; the leak audit is clean except the task already rejected. Rulings on the findings: gate comparisons use exact arithmetic (an exact 0.5 gap had failed G3 by float rounding); a fill tie goes to the easier rung; an interrupted or incident probe run is resumed once from the remaining redraw Haiku allowance and is never a task failure, and a rung with fewer than three usable runs stops the probe; the redraw tranche's judge and Sonnet allowances are zero in the runner; judging refuses a pool with no clean identity scan; the freeze covers the study and harness code, the task list, the drawn packages and the programs, and a run refuses code loaded from outside the frozen checkout; a stop readout prints no quality figure; T2 statements are rebuilt as the commit message alone (they carried T1's file-name hint). Fixes in progress; a scoped re-review precedes any spend. Spend to date: 0. |

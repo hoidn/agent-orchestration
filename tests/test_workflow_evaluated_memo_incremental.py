@@ -9,8 +9,8 @@ from orchestrator.workflow.evaluated.memo_reducer import MemoError, reduce_memo
 from tests.test_workflow_evaluated_memo import FETCH, SITES, _committed, _line, _row, _started
 
 
-def _fresh(raw: bytes, sites=SITES):
-    return memo_reducer._Reducer(sites).reduce(raw)
+def _fresh(raw: bytes, sites=SITES, earlier=()):
+    return memo_reducer._Reducer(sites, earlier).reduce(raw)
 
 
 def _journal() -> list[bytes]:
@@ -61,4 +61,35 @@ def test_a_refused_continuation_raises_exactly_what_a_fresh_reduction_raises(bad
 
 def test_the_saved_fold_covers_every_reducer_state_field():
     names = set(vars(memo_reducer._Reducer(SITES)))
-    assert names - {"site_classes", "terminal"} == set(memo_reducer._STATE)
+    assert names - {"tables", "site_classes", "terminal"} == set(memo_reducer._STATE)
+
+
+NEXT = "workflow:demo::run / next"
+
+
+def test_fold_cache_continues_across_a_record_and_refolds_under_other_tables(monkeypatch):
+    """A saved fold continues only under the tables it used at each position; else the bytes are reduced again."""
+    first, second = dict(SITES), {**SITES, NEXT: "command"}
+    head = [_line(_started(FETCH, 1)), _line(_committed(FETCH, 1))]
+    record = _line(_row("rebased", program_digest="sha256:" + "1" * 64, from_offset=len(head[0]), time=2.0))
+    journal = b"".join([*head, record, _line(_started(NEXT, 1)), _line(_committed(NEXT, 1))])
+    starts = []
+    resume = memo_reducer._resume_cached_prefix
+    monkeypatch.setattr(memo_reducer, "_resume_cached_prefix",
+                        lambda reducer, raw: starts.append(resume(reducer, raw)) or starts[-1])
+    memo_reducer._LAST = None
+    reduce_memo(b"".join(head), first)
+    assert reduce_memo(journal, second, (first,)) == _fresh(journal, second, (first,))
+    assert starts[-1] == len(b"".join(head))                           # continued across the record
+    grown = journal + _line(_row("terminal", outcome="completed", value=1))
+    assert reduce_memo(grown, second, (first,)).terminal
+    assert starts[-1] == len(journal)
+    for tables in [({FETCH: "provider"}, second), (first, {**SITES, NEXT: "provider"})]:
+        reduce_memo(journal, second, (first,))                         # the saved fold used both tables
+        with pytest.raises(MemoError) as cached:
+            reduce_memo(grown, tables[1], tables[:1])
+        with pytest.raises(MemoError) as fresh:
+            _fresh(grown, tables[1], tables[:1])
+        assert (starts[-1], str(cached.value)) == (0, str(fresh.value))
+    with pytest.raises(MemoError, match="do not end at the caller's program"):
+        reduce_memo(b"".join(head), second, (first,))

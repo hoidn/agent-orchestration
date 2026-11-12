@@ -72,6 +72,13 @@ class RunAuthority:
     # Attempt directories already pending when this invocation began (spend_cap.pending_attempts): cut off,
     # never in flight. None when unknown, so every attempt without usage counts as unmetered.
     cut_off_attempts: frozenset[str] | None = field(default=None, compare=False, repr=False)
+    # The run's earlier programs (C10), each with the offset of the `rebased` record that ended it; `program` is the
+    # current one. () for a run that never switched program.
+    earlier: tuple[tuple[ClosedProgram, int], ...] = field(default=(), repr=False)
+
+    def program_at(self, offset: int) -> ClosedProgram:
+        """The program in force when the journal row at `offset` was written."""
+        return next((program for program, end in self.earlier if offset < end), self.program)
 
     @property
     def confined(self) -> bool:
@@ -208,10 +215,13 @@ def _pin_emitted_interpreters(program: ClosedProgram, image=None) -> dict[str, d
     return pins
 
 
-def _validate_interpreter_pins(program: ClosedProgram, pins: object) -> None:
+def _validate_interpreter_pins(program: ClosedProgram, pins: object, *, later: bool = False) -> None:
+    """The pins equal the first program's bare interpreters; a later program (C10) uses only pinned ones."""
     image = isinstance(pins, dict) and any(map(is_image_pin, pins.values()))
     tokens = _emitted_bare_interpreters(program, image=image)
-    if not isinstance(pins, dict) or set(pins) != set(tokens) or (
+    if later and isinstance(pins, dict) and not set(tokens) <= set(pins):
+        raise ValueError("a later program of the run uses a bare interpreter the run did not pin")
+    if not isinstance(pins, dict) or not later and set(pins) != set(tokens) or (
             image and not all(map(is_image_pin, pins.values()))):
         raise ValueError("interpreter pins differ from emitted command interpreters")
     for token in tokens:
@@ -221,14 +231,58 @@ def _validate_interpreter_pins(program: ClosedProgram, pins: object) -> None:
 def _checked_authority(run_root: Path, header: dict[str, Any], run_files: WorkspaceFiles | None = None) -> RunAuthority:
     try:
         payload = _read_file(run_root / PROGRAM_FILENAME, run_files)
+        memo = _read_file(run_root / MEMO_FILENAME, run_files)          # only its `rebased` records are decoded
     except (OSError, UnicodeError, TypeError, ValueError) as exc:
         if isinstance(exc, RunAuthorityError):
             raise
         raise RunAuthorityError(f"invalid evaluated authority: {exc}") from exc
-    return _checked_authority_bytes(run_root, header, payload, run_files)
+    return _checked_authority_bytes(run_root, header, payload, run_files, memo_bytes=memo,
+                                    read_artifact=lambda name: _read_file(run_root / name, run_files))
 
 
-def _checked_authority_bytes(run_root, header, program_bytes, run_files=None):
+def program_artifact_name(digest: str) -> str:
+    """The run-root file of a program the run switched to (C10): `closed_program.<64 hex digits>.json`."""
+    return f"closed_program.{digest.removeprefix('sha256:')}.json"
+
+
+def verified_program(read_artifact: Callable[[str], bytes], digest: str, name: str | None = None) -> ClosedProgram:
+    """The checked program stored under `name` (default: `digest`'s artifact name) with that digest.
+
+    Missing, unreadable, unloadable or another digest: `RunAuthorityError` (`memo_inconsistent`); nothing is
+    rebuilt from source. `from_artifact` also refuses any representation but this build's.
+    """
+    name = program_artifact_name(digest) if name is None else name
+    try:
+        program = ClosedProgram.from_artifact(read_artifact(name).decode("utf-8"))
+    except (OSError, UnicodeError, TypeError, ValueError, RecursionError) as exc:
+        raise RunAuthorityError(f"program artifact {name} is missing or does not load: {exc}") from exc
+    if program.digest != digest:
+        raise RunAuthorityError(f"program artifact {name} does not have the digest that names it")
+    return program
+
+
+def _lineage(header, first: ClosedProgram, memo_bytes, read_artifact):
+    """(earlier programs with the offset of the record that ended each, current program) (C10).
+
+    Each later program is the artifact its `rebased` record names, verified to that name, with command transport
+    and only pinned bare interpreters. Without journal bytes (a child's captured authority) the first program is
+    the current one, and a record there fails closed in the child's reductions.
+    """
+    from .memo_reducer_lineage import lineage_digests, rebased_records
+
+    records = [] if memo_bytes is None else rebased_records(memo_bytes)
+    if not records:
+        return (), first
+    digests = lineage_digests(header["program_digest"], [digest for _offset, digest in records])
+    programs = [first, *(verified_program(read_artifact, digest) for digest in digests[1:])]
+    for program in programs[1:]:
+        if not _has_command_transport(program):
+            raise ValueError("stored command is missing argv transport")
+        _validate_interpreter_pins(program, header["interpreters"], later=True)
+    return tuple(zip(programs, (offset for offset, _digest in records))), programs[-1]
+
+
+def _checked_authority_bytes(run_root, header, program_bytes, run_files=None, *, memo_bytes=None, read_artifact=None):
     try:
         program = ClosedProgram.from_artifact(
             program_bytes.decode("utf-8")
@@ -241,22 +295,29 @@ def _checked_authority_bytes(run_root, header, program_bytes, run_files=None):
         if canonical_sha256(bound_inputs) != header["input_digest"]:
             raise ValueError("input digest differs from the run header")
         _validate_header_metadata(run_root, header)
+        earlier, program = _lineage(header, program, memo_bytes, read_artifact)
     except (OSError, UnicodeError, TypeError, ValueError) as exc:
-        if isinstance(exc, RunAuthorityError):
-            raise
+        if isinstance(exc, RunAuthorityError) or getattr(exc, "code", None) == "memo_inconsistent":
+            raise       # its own code and message (a lineage record or artifact), not wrapped again
         raise RunAuthorityError(f"invalid evaluated authority: {exc}") from exc
-    return RunAuthority(run_root, header, program, run_files)
+    return RunAuthority(run_root, header, program, run_files, earlier=earlier)
 
 
-def load_run_authority_from_bytes(run_root: Path, *, header_bytes: bytes, program_bytes: bytes) -> RunAuthority:
-    """Check captured authority using the same validators as path/FD loaders."""
+def load_run_authority_from_bytes(run_root: Path, *, header_bytes: bytes, program_bytes: bytes,
+                                  memo_bytes: bytes | None = None, read_artifact=None) -> RunAuthority:
+    """Check captured authority using the same validators as path/FD loaders.
+
+    With the captured `memo_bytes` the run's lineage is resolved too, each named artifact read once through
+    `read_artifact(name) -> bytes`; without them the first program is the current one.
+    """
     run_root = Path(run_root)
     header = _validate_header_shape(_decode_header_json(header_bytes))
     try:
         _validate_header_metadata(run_root, header)
     except (TypeError, ValueError) as exc:
         raise RunAuthorityError(f"invalid evaluated run header: {exc}") from exc
-    return _checked_authority_bytes(run_root, header, program_bytes)
+    return _checked_authority_bytes(run_root, header, program_bytes, memo_bytes=memo_bytes,
+                                    read_artifact=read_artifact)
 
 
 def load_run_header(run_root: Path, *, run_files: WorkspaceFiles | None = None) -> dict[str, Any]:

@@ -17,7 +17,7 @@ from .authority import (
     load_run_authority_from_bytes,
 )
 from .machine import EffectHandler, _ControlTransfer, _Machine, site_classes
-from .memo import MemoError, reduce_memo
+from .memo import MemoError, earlier_tables, reduce_memo
 from .memo_reducer import MemoSnapshot
 from .values import EvaluatedValue, EvaluatedValueError, LexicalEnvironment
 
@@ -129,14 +129,11 @@ def load_run_for_capture(run_root: Path) -> tuple[RunAuthority, MemoSnapshot]:
     root = Path(os.path.abspath(os.fspath(run_root)))
     files = WorkspaceFiles(root)
     try:
-        authority = load_run_authority_from_bytes(
-            root,
-            header_bytes=files.read(HEADER_FILENAME),
-            program_bytes=files.read(PROGRAM_FILENAME),
-        )
-        snapshot = reduce_memo(
-            files.read(MEMO_FILENAME), site_classes(authority.program)
-        )
+        # One capture of the three files, in this order; the artifacts its records name are read after it.
+        header, program, memo = files.read(HEADER_FILENAME), files.read(PROGRAM_FILENAME), files.read(MEMO_FILENAME)
+        authority = load_run_authority_from_bytes(root, header_bytes=header, program_bytes=program,
+                                                  memo_bytes=memo, read_artifact=files.read)
+        snapshot = reduce_memo(memo, site_classes(authority.program), earlier_tables(authority))
         return authority, snapshot
     except (OSError, OverflowError, TypeError, ValueError) as exc:
         if isinstance(exc, (MemoError, RunAuthorityError)):

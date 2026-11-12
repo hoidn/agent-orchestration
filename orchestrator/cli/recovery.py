@@ -166,11 +166,9 @@ def _unfinished_step(identity: str, changed: list[str], files: str, context: _Co
 def _flag_accepts(context: _Context, named: list[str]) -> list[str]:
     """Every attempt `--accept-changes` would accept, each with why it is not proven clean (all, not only `named`)."""
     from orchestrator.workflow.evaluated.attempts import accepted_attempt_lines, unproven_command_retries
-    from orchestrator.workflow.evaluated.machine import site_classes
 
     snapshot = context.snapshot
-    every = ([] if context.stored_program is None
-             else unproven_command_retries(snapshot, site_classes(context.stored_program)))
+    every = [] if context.stored_program is None else unproven_command_retries(snapshot)
     listed = [*named, *(identity for identity in every if identity not in named)]
     return ["with --accept-changes, each of these unfinished steps is retried with its files as they are now:",
             *accepted_attempt_lines(snapshot, listed)]
