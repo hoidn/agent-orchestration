@@ -301,14 +301,28 @@ class DashboardApp:
         return f"{hours}h {minutes}m"
 
 
-def serve_dashboard(*, scanner: RunScanner, host: str = "127.0.0.1", port: Optional[int] = None) -> int:
-    """Serve the dashboard until interrupted."""
-    bind_port = 8765 if port is None else port
+def host_allowed(host_header: Optional[str], bound_host: str, bound_port: int) -> bool:
+    """DNS-rebinding guard: the `Host` header must name a loopback name or the bound host, with the bound port.
+
+    A missing header is refused: every browser sends one, so only a non-browser client can omit it.
+    """
+    if not host_header:
+        return False
+    names = {"127.0.0.1", "localhost", "[::1]", f"[{bound_host}]" if ":" in bound_host else bound_host}
+    allowed = {f"{name}:{bound_port}" for name in names} | (names if bound_port == 80 else set())
+    return host_header.strip().lower() in {name.lower() for name in allowed}
+
+
+def make_dashboard_server(*, scanner: RunScanner, host: str = "127.0.0.1", port: int = 8765) -> ThreadingHTTPServer:
+    """Bind the dashboard; requests whose `Host` fails `host_allowed` get 421 before any route work."""
     app = DashboardApp(scanner)
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802 - stdlib hook name
-            response = app.handle("GET", self.path)
+            if host_allowed(self.headers.get("Host"), host, self.server.server_address[1]):
+                response = app.handle("GET", self.path)
+            else:
+                response = error_response(421, "Misdirected request: Host header is not this dashboard")
             self.send_response(response.status)
             for name, value in response.headers.items():
                 self.send_header(name, value)
@@ -318,8 +332,13 @@ def serve_dashboard(*, scanner: RunScanner, host: str = "127.0.0.1", port: Optio
         def log_message(self, format: str, *args: object) -> None:
             print(format % args, file=sys.stderr)
 
-    server = ThreadingHTTPServer((host, bind_port), Handler)
-    actual_host, actual_port = server.server_address
+    return ThreadingHTTPServer((host, port), Handler)
+
+
+def serve_dashboard(*, scanner: RunScanner, host: str = "127.0.0.1", port: Optional[int] = None) -> int:
+    """Serve the dashboard until interrupted."""
+    server = make_dashboard_server(scanner=scanner, host=host, port=8765 if port is None else port)
+    actual_host, actual_port = server.server_address[:2]
     print(f"Dashboard listening on http://{actual_host}:{actual_port}/runs")
     try:
         server.serve_forever()

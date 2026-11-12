@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import html
+import http.client
 import json
+import threading
 import os
 import re
 from datetime import datetime, timedelta
@@ -15,7 +17,7 @@ import pytest
 
 from orchestrator.dashboard.projection import RunProjector
 from orchestrator.dashboard.scanner import RunScanner
-from orchestrator.dashboard.server import DashboardApp
+from orchestrator.dashboard.server import DashboardApp, make_dashboard_server
 from orchestrator.workflow.evaluated.views import load_evaluated_view
 from tests.test_workflow_evaluated_cli import _run_cli
 from tests.test_workflow_evaluated_invalidate import _completed_run, _tree_bytes
@@ -470,3 +472,43 @@ def test_dashboard_lists_retired_run_as_one_line_refusal(tmp_path: Path, kind: s
     for body in [index, page.body.decode("utf-8"), *(response.body.decode("utf-8") for response in below)]:
         assert "RETIRED-MARKER" not in body
     assert _tree_bytes(tmp_path) == before
+
+
+def _http_get(port: int, path: str, host_header):
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=30)
+    try:
+        connection.putrequest("GET", path, skip_host=True)
+        if host_header is not None:
+            connection.putheader("Host", host_header)
+        connection.endheaders()
+        response = connection.getresponse()
+        return response.status, response.read()
+    finally:
+        connection.close()
+
+
+def test_real_http_server_refuses_foreign_host_headers_before_any_route(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    run_root = _pure_run(workspace)
+    before = _tree_bytes(workspace)
+    server = make_dashboard_server(scanner=RunScanner([workspace]), host="127.0.0.1", port=0)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    raw_path = f"/runs/w0/{quote(run_root.name)}/files/run/run.json?raw=1"
+    try:
+        accepted = {host: _http_get(port, raw_path, host)
+                    for host in (f"127.0.0.1:{port}", f"localhost:{port}", f"LOCALHOST:{port}", f"[::1]:{port}")}
+        refused = {host: _http_get(port, raw_path, host)
+                   for host in (f"evil.example:{port}", "evil.example", f"127.0.0.1:{port + 1}", "127.0.0.1",
+                                f"[::2]:{port}", None)}
+    finally:
+        server.shutdown()
+        server.server_close()
+    run_json = (run_root / "run.json").read_bytes()
+    assert {host: status for host, (status, _) in accepted.items()} == dict.fromkeys(accepted, 200)
+    assert all(body == run_json for _, body in accepted.values())
+    assert {host: status for host, (status, _) in refused.items()} == dict.fromkeys(refused, 421)
+    assert not any(run_json in body or run_root.name.encode() in body for _, body in refused.values())
+    assert _tree_bytes(workspace) == before
