@@ -101,6 +101,22 @@ def _silence_if_dead(stream, exc: Exception) -> None:
         pass
 
 
+def _stderr_tail(lines: list[str]) -> list[str]:
+    """The last lines; when the last Python traceback's exception line falls before them, it replaces the first, last.
+
+    A multi-line exception message can push that line out of the tail, which then shows only the message's end.
+    """
+    tail = lines[-STDERR_TAIL_LINES:]
+    headers = [index for index, line in enumerate(lines) if line.startswith("Traceback (most recent call last):")]
+    if not headers:
+        return tail
+    exception = next((index for index in range(headers[-1] + 1, len(lines))
+                      if lines[index][:1] not in {"", " ", "\t"}), None)
+    if exception is None or exception >= len(lines) - len(tail):
+        return tail
+    return [*tail[1:], lines[exception]]
+
+
 class TerminalReporter:
     """Print the run line, effect rows, the failure block, the resume line and the result."""
 
@@ -173,7 +189,7 @@ class TerminalReporter:
         with stderr_path.open("rb") as stream:
             stream.seek(max(0, stream.seek(0, os.SEEK_END) - _STDERR_TAIL_BYTES))
             tail = stream.read().decode("utf-8", errors="replace").splitlines()
-        return [*lines, f"        stderr: {stderr_path}", *(f"        | {line}" for line in tail[-STDERR_TAIL_LINES:])]
+        return [*lines, f"        stderr: {stderr_path}", *(f"        | {line}" for line in _stderr_tail(tail))]
 
     def error(self, exc: Exception, *, header: Mapping[str, Any] | None = None, stored_program: Any = None,
               snapshot: Any = None) -> None:

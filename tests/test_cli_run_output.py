@@ -119,6 +119,18 @@ def test_failed_run_prints_the_step_its_stderr_and_the_resume_command(tmp_path: 
     assert result.stdout == ""
 
 
+def test_a_failed_step_shows_its_exception_line_last_when_a_long_message_pushes_it_out_of_the_tail(
+    tmp_path: Path,
+) -> None:
+    write_pipeline(tmp_path)
+    (tmp_path / "step.py").write_text(
+        'raise ValueError("\\n".join(f"detail {i}" for i in range(15)))\n', encoding="utf-8")
+
+    shown = printed(run_pipeline(tmp_path).stderr, "|")
+
+    assert (len(shown), shown[-1], shown[-2]) == (10, "ValueError: detail 0", "detail 14")
+
+
 def test_quiet_run_prints_only_the_result(tmp_path: Path) -> None:
     write_pipeline(tmp_path)
 
