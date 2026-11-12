@@ -26,7 +26,7 @@ import pytest
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "watch_workflow_usage_limit.sh"
-POLL_SECONDS = 2
+POLL_SECONDS = 1
 
 STAND_IN_ORCHESTRATOR = f"""import json, subprocess, sys, time
 from pathlib import Path
