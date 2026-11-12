@@ -721,7 +721,7 @@ the `resume` command.
 | `view_write_failed` | derived-view replacement after an append | `run`/`resume` 1; `invalidate` 2 | The appended record stays authority; no `failed` row or terminal; readers reconstruct the view |
 | `memo_torn_tail`, `memo_write_failed`, `memo_sync_failed`, `memo_changed` | journal append or tail repair | 1 during execution; 2 in `resume` tail repair and in `invalidate` | No partial record is authority; a complete row that survived a failed sync still consumes its ordinal |
 | (no code) | an I/O failure during initial authority publication | 1 | Nothing dispatched; printed as `Unexpected error` with the errno (a named code is a recorded follow-up) |
-| `effect_rerun` | `resume` retrying an uncommitted attempt | diagnostic | Logged with the earlier attempt ordinals |
+| `effect_rerun` | `resume` retrying an uncommitted attempt | diagnostic | Logged with the earlier attempt ordinals once the retry's `started` row is durable, so after its `run` and `start` lines |
 | `parallel_workspace_shared` | a later release | — | Not raised |
 
 <a id="workflow-lisp-repl-targets-235-and-236"></a>
