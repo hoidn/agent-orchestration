@@ -4,9 +4,6 @@
   (defmodule std/improve)
   (export Decision Improvement improve)
   ; Contract: docs/design/workflow_lisp_composition_first.md sections 3 and 4.
-  ; Both hook results are bound with `let*` before use, because the frontend
-  ; does not yet lower an effectful hook call written directly as a `match`
-  ; scrutinee or a `loop-state :like` field (WCC elaboration and pure projection).
   (defunion Decision :forall (F B)
     (APPROVE (evidence F))
     (REVISE (feedback F))

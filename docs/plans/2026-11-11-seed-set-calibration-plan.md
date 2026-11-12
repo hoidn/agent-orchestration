@@ -96,6 +96,15 @@ the vendor's defaults differ). Drafts of the three new ones compiled while
 planning; a loop iteration is its own effect identity, so a retry is a new
 call.
 
+**Size limit (owner, 2026-11-11).** A seed is simple only if it is short:
+every seed program file has fewer than 50 physical lines of `.orc`, counting
+code, comments and blank lines. The shared `common.orc` holds only the two
+result types every seed returns (the interface to the harness); it is not
+counted and is frozen, so a seed cannot move its own definitions there. The
+limit is checked by a test and by the selection step, and it travels with the
+seed set: a later genetic search admits a child only under the same limit.
+The four programs are 22, 31, 40 and 45 lines.
+
 | File | Calls | State |
 | --- | --- | --- |
 | `direct.orc` | 1 | Copy of the catalog seed, rebound |
@@ -332,3 +341,4 @@ Allowance does not move between tranches; there is no top-up after a null.
 | 2026-11-11 | Owner decision, judge calls: "Approve both judges". Authorized in addition: 31 Haiku-judge and 31 Sonnet-judge calls for the smoke and calibration tranches, and up to 15 of each on the one redraw. Authorized in total for calibration: 121 Haiku and 52 Sonnet calls, or 176 and 77 with the redraw. The seed evaluation and its extension remain unauthorized. |
 | 2026-11-11 | Owner decision, judge gate: "Two natural controls". The judge is validated on the untouched base and the reference fix of each task, plus the retest, test-agreement and stronger-arm checks of Step 2. This is a study-local gate computed from the pools' `results.json`; it is recorded in the `AGENTS.md` experiment rules. |
 | 2026-11-11 | Coordinator ruling: both judges are calibrated on the same batches (the planner's alternative of running the Sonnet judge only on a Haiku failure is not taken). Spend to date: 0. |
+| 2026-11-11 | Owner requirement: "part of the seed's simplicity req should be a challenging loc limit (eg <50 lines of orc". Recorded as the size limit in step 1c: under 50 physical lines per seed program, `common.orc` exempt and frozen. Coordinator's reading of the counting rule; the four programs pass at 22, 31, 40 and 45 lines (44 to 67 if `common.orc` were counted). |

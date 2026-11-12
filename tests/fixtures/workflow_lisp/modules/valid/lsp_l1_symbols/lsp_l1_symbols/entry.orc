@@ -65,7 +65,7 @@
     ()
     -> ReviewState
     (loop/recur
-      :max 1
+      :max 1 :on-exhausted state
       :state (record ReviewState
                :status "ready")
       (fn (state)

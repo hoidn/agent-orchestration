@@ -103,7 +103,7 @@ pytest --collect-only -q tests/e2e
 ```
 
 ## Recommended Workflow
-1) Local development: start with narrow owner tests. For the broad non-e2e loop, run `pytest -q -n 16 --dist=worksteal -m "not e2e"` in tmux.
+1) Local development: start with narrow owner tests. For the routine broad check, run a random tenth of the suite: `pytest -q -n 16 --dist=worksteal --sample 10` (a failed run keeps its seed, so the next `--sample` run repeats the same tests; a passing run draws a new seed). Run the whole suite, without `--sample`, before merging to `main`.
 2) Before merging a feature that touches orchestration flow or provider integration, run the relevant E2E checks locally, enabling live cases with their required opt-in, CLI, and authentication.
 3) CI: keep E2E in a separate job or schedule (nightly). Skip when secrets/network are unavailable.
 

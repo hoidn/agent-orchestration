@@ -43,6 +43,13 @@ def _reject_machine_compile(
     return 2
 
 
+def _log_compile_warnings(diagnostics: tuple[LispFrontendDiagnostic, ...] | None) -> None:
+    """Log each diagnostic of an accepted compile (warnings only) on stderr."""
+
+    for diagnostic in diagnostics or ():
+        logger.warning(render_diagnostic(diagnostic))
+
+
 def compile_workflow(args: Namespace) -> int:
     """Compile one `.orc` entrypoint into deterministic frontend artifacts."""
 
@@ -128,6 +135,7 @@ def compile_workflow(args: Namespace) -> int:
             }
         )
     else:
+        _log_compile_warnings(closed_result.compile_diagnostics)
         print(json.dumps(
             {
                 "build_key": closed_result.build_key,
