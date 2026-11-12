@@ -194,10 +194,15 @@ def one_run(study, tranche, arm, spec, task, fix):
         shutil.rmtree(record["tree"])
         raise SystemExit(f"{records}: prepared for {record['claude_model']}, not {spec['model']}; nothing started")
     boundaries(study, Path(record["candidates"][0]))
-    spend.reserve(study.ledger, tranche, "candidate", spec["model"], spec["max_calls"], records, task=task, arm=arm)
     facts = {"tranche": tranche, "task": task, "arm": arm, "model": spec["model"], "effort": spec["effort"],
              "max_calls": spec["max_calls"]}
-    dump(records / "study.json", facts)
+    dump(records / "study.json", facts)  # before the reservation: every reserved run has its facts file
+    try:
+        spend.reserve(study.ledger, tranche, "candidate", spec["model"], spec["max_calls"], records, task=task, arm=arm)
+    except SystemExit:
+        (records / "study.json").unlink()  # refused: nothing started, nothing left on disk
+        shutil.rmtree(record["tree"])
+        raise
     facts["exit"] = launch(records / "command.sh", env, records / "run.log", spec["max_calls"] * CALL_SEC + SLACK_SEC)
     facts |= settle(study, records, task_dir(study, task), fix, spec["max_calls"])
     dump(records / "study.json", facts)
