@@ -156,43 +156,54 @@ redraw caps. Where this section and Step 2 differ, this section governs.
 
 | Probable failure | Why it is likely | Response |
 | --- | --- | --- |
-| Tasks too easy for Haiku: G1 and G2 fail high, G3 has no room, V4 has too few failing candidates | In the Phase 1 authoring check three of three Haiku sessions passed in about 100 seconds; every task hands the agent a failing test it can run | The probe below, and a hard reserve ready before spend |
-| The workflows' check steps never fire, so no workflow differs from `direct` | A single agent session can run the visible test itself and iterate | The probe measures it; the check-withheld form below is ready |
-| Tasks too hard: Haiku cannot find the change from a short commit message | The repository is large and statements are short | An easy reserve ready before spend |
+| Tasks too easy for Haiku: G1 and G2 fail high, G3 has no room, V4 has too few failing candidates | In the Phase 1 authoring check three of three Haiku sessions passed in about 100 seconds; every task hands the agent a failing test it can run | The difficulty ladder and its probe, below |
+| The workflows' check steps never fire, so no workflow differs from `direct` | A single agent session can run the visible test itself and iterate | The probe measures it; the check-withheld form, below |
+| Tasks too hard: Haiku cannot find the change from a short commit message | The repository is large and statements are short | The ladder's easy tiers |
 | A judge cannot tell the fix from no change, or ranks the fix below candidates | October's failures; judges run no tests | An early judge look on three tasks before the rest of the judge calls |
 | Apparatus incidents eat the tranche | About 40% of October's calibration starts were lost to them | The mechanical smoke check; first wave two at a time; the subagent tool off in candidate sessions; launches halt on the incident rule |
 | A candidate can reach the fix | Clones are built from this repository | A zero-spend audit that no clone holds objects after its base commit and that the scan for the fix hash fires on a planted copy |
 
-**Probe (20 Haiku candidate calls from the calibration cap).** Before any
-other calibration call: `direct` once on each of the 20 drawn tasks, hidden
-tests run, no judges. Two figures decide what happens next: the number of
-tasks whose hidden set passes, and the share of runs in which the agent
-itself ran the visible test.
+**Difficulty ladder (owner, 2026-11-11: "by designing significantly harder /
+easier tasks").** Tasks are built in five tiers that differ by design, not by
+a few lines. Every tier holds natural changes from this repository with their
+own tests, admitted through the same oracle, split, leak and provider-guard
+checks. No flaw is ever planted.
 
-| Probe result | Next |
+| Tier | What makes it that hard |
 | --- | --- |
-| 5 to 15 tasks pass and the agent ran the visible test in under 80% of runs | Proceed with Step 2; the probe run is the first of each task's four Haiku runs |
-| The agent ran the visible test in 80% of runs or more | Switch every task to the check-withheld form and probe once more (20 calls); continue from that result on that form |
-| 16 or more pass | Replace the ten drawn tasks with the fewest changed source lines by the ten hard-reserve tasks with the most |
-| 4 or fewer pass | Replace the ten drawn tasks with the most changed source lines by ten easy-reserve tasks |
+| T1, very easy | One source file, at most 20 changed source lines; the statement names the file; the failing test is in the tree |
+| T2, easy | At most two source files and 60 lines; the statement is the commit message; the failing test is in the tree |
+| T3, medium | The 20 tasks already built: at most five files and 200 lines; the failing test is in the tree |
+| T4, hard | Six to fifteen source files or 200 to 600 lines; the statement is the commit message; the failing test is in the tree |
+| T5, very hard | A feature, not a fix: a commit or a run of consecutive commits that adds new behavior with at least 300 added source lines; the statement is the commit message; check-withheld form, so there is no test to run |
 
-A replacement is chosen by changed-line count, never by a task's own probe
-outcome. It is the plan's one redraw, taken early: the replaced tasks' probe
-calls are spent, the ten new tasks take the redraw tranche (40 Haiku, 10
-Sonnet), and no second redraw follows. Worst case in Haiku candidate calls:
-70 of the calibration cap and 40 of the redraw cap.
+At least eight tasks per tier, twelve where the history allows.
 
 **Check-withheld form.** The visible test is not in the candidate's tree; it
 exists only in the check command that a workflow runs, which puts the test in
 place, runs it and removes it. `direct` then has no test to run, and a
-workflow's check step is the only executed signal. This is the form in which
-structure can matter, and it is used only when the probe shows the in-tree
-test makes the check steps redundant. Calibration and seed evaluation always
-use the same form.
+workflow's check step is the only executed signal. T5 always uses it. Any
+tier can be built in it; calibration and seed evaluation always use the same
+form for a task.
 
-**Reserves.** Before spend, at least ten hard-reserve tasks (the size filter
-raised) and at least ten easy-reserve tasks, each through the same oracle and
-leak checks as the drawn tasks.
+**Ladder probe (20 Haiku candidate calls, charged to the redraw tranche).**
+Before any other calibration call: `direct` once on the first four tasks of
+each tier in seed order, hidden tests run, no judges. Per tier it gives the
+number of tasks whose hidden set passes, and the share of runs in which the
+agent itself ran the visible test.
+
+| Probe result | Calibration's 20 tasks |
+| --- | --- |
+| Some tier has 1 to 3 passes of 4 | Drawn in seed order from that tier, filled from the adjacent tier whose count is nearer to 2 |
+| No tier is in that band | Ten from the hardest tier with 3 or 4 passes and ten from the easiest tier with 0 or 1 |
+| The agent ran the visible test in 80% or more of the in-tree runs, and the chosen tier is T1 to T4 | The chosen tasks are used in the check-withheld form |
+
+Tasks are chosen by tier and seed order, never by their own probe outcome; a
+probed task that is drawn keeps its probe run as the first of its four Haiku
+runs unless the form changed. The ladder probe is the plan's one redraw,
+taken before calibration instead of after it: no later redraw follows, and
+Step 2's redraw paragraph does not apply. Worst case in Haiku candidate
+calls: 20 from the redraw cap and 80 from the calibration cap.
 
 **Early judge look (6 judge calls from the calibration cap).** After the
 first three tasks have their runs, pool and judge them with both judges. If,
@@ -395,3 +406,4 @@ Allowance does not move between tranches; there is no top-up after a null.
 | 2026-11-11 | Coordinator ruling: both judges are calibrated on the same batches (the planner's alternative of running the Sonnet judge only on a Haiku failure is not taken). Spend to date: 0. |
 | 2026-11-11 | Owner requirement: "part of the seed's simplicity req should be a challenging loc limit (eg <50 lines of orc". Recorded as the size limit in step 1c: under 50 physical lines per seed program, `common.orc` exempt and frozen. The owner confirmed on 2026-11-11 that `common.orc` does not count; the four programs pass at 22, 31, 40 and 45 lines (44 to 67 if `common.orc` were counted). |
 | 2026-11-11 | Owner instruction: "preempt probable calibration failures". The section "Probable calibration failures and the response to each" is added: a 20-call Haiku probe before anything else, hard and easy reserves mined before spend, a check-withheld task form, an early judge look on three tasks, and apparatus measures. All inside the authorized caps; the early replacement of tasks is the plan's one redraw. Coordinator rulings; the check-withheld form changes what `direct` can do and is used only on the probe's evidence. |
+| 2026-11-11 | Owner clarification: preempt "by designing significantly harder / easier tasks". The reserves and the single-tier probe of the previous row are replaced by a five-tier difficulty ladder (very easy to very hard, the hardest being features in the check-withheld form) and a ladder probe of four tasks per tier that picks the tier calibration draws from. No flaw is planted in any task. |
