@@ -264,8 +264,15 @@ test; the gate throughout is "no test outside the Phase 0 list fails, and
 every removed test is listed with the code it covered".
 
 1. **Dead executors:** trial, adjudication, peer groups and supervision, with
-   their CLI commands, source forms, specs and tests (about 20k lines). This
-   removes accepted source forms, so it is a language change with spec edits.
+   their CLI commands, specs and tests (about 20k lines), and the `trial`
+   source form. Removing an accepted source form is a language change with
+   spec edits. The two live-provider forms (`with-live-providers`,
+   `with-live-provider-peers`) are **not** removed: the owner keeps live
+   supervision and peers as a future direction (decision 9). Their old
+   executor packages are still deleted, since a port to evaluated execution
+   would not reuse them; the code stays under the local tag
+   `archive/dead-executors-2026-11-11`, and the reusable design is recorded in
+   a salvage page before the deletion merges.
 2. **`StateManager` dead methods and CLI vestiges.**
 3. **The old IR stack,** after moving the dozen live types to a small module
    and after the dashboard is migrated to evaluated runs (it reads only the
@@ -388,6 +395,7 @@ the owner can amend any of them.
 | 6 | Phase 5 size | Superseded by decision 8 |
 | 7 | Phase 6 form | Option B approved 2026-11-11; no spend authorized; generic search not selected |
 | 8 | Research scope | Scaled down by the owner 2026-11-11: find a few simple workflows that work well on a calibrated task set, as seeds for genetic search; calibration first. Supersedes decision 6. Same day: judge-primary scoring validated on two natural controls; smoke and calibration spend authorized; seed programs under 50 lines of `.orc`, `common.orc` not counted |
+| 9 | Live supervision and peer groups | Kept as a future direction by the owner 2026-11-11: not scheduled, no phase owns it. Lane D keeps the two source forms and their frontend support, deletes the old executor packages, and records the reusable design first. A port needs its own design on evaluated execution |
 
 ## Process rules
 
