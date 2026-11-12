@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_run_ref_confinement.py::test_an_orphan_clone_without_its_control_root_is_refused_and_kept"
+  ],
+  "timeout_sec": 600
+}

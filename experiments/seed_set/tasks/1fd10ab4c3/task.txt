@@ -1,0 +1,8 @@
+fix: exit 2 when another writer holds the run's lock in run and resume
+
+The refusal by the per-run writer lock (run_already_active) exited 1 while the
+refusal by the workspace lock exited 2. Both are refusals before execution, so
+both now exit 2. The resume test that pinned exit 1 follows, and the CLI
+contract states the status beside the workspace lock's.
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_run_lock.py::test_run_with_a_run_id_whose_writer_lock_another_process_holds_is_refused_with_exit_2` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

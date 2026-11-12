@@ -1,0 +1,9 @@
+fix: keep the typechecked match subject from target 2.33
+
+A generic helper called directly as a match subject was seen unspecialized by
+proc-ref discovery and failed with proc_ref_signature_invalid, while the same
+call bound with let* compiled. The typed match node now carries its
+typechecked subject at target 2.33 or newer; earlier targets keep the authored
+subject, so their acceptance is unchanged.
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_workflow_lisp_match_subject_calls.py::test_generic_helper_over_a_plain_union_runs_like_the_let_bound_call` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

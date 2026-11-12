@@ -1,0 +1,11 @@
+fix: keep one agent view per agent across resumes and never fall back to per-turn panes
+
+Observation display stems now include the manager's session name, so a resumed process no
+longer collides with the earlier process's files (agent views and ordinary panes alike).
+An agent view that cannot open becomes a cached no-op handle: the executor opens no ordinary
+pane for that agent's turns and the open is not retried each turn; the failure is logged.
+AgentViews moves to agent_views.py to keep agent_turns.py's line budget.
+
+wc -l: runtime.py 480, agent_turns.py 442, agent_views.py 74, observation.py 584 (one-line change)
+complexity (stdlib check, >11 shown): execute_pure_run 19 (baseline 19), prepare_effect 13
+(baseline 13), perform_turn 12; agent_views functions <= 4

@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_lisp_match_subject_calls.py::test_generic_helper_over_a_plain_union_runs_like_the_let_bound_call"
+  ],
+  "timeout_sec": 600
+}

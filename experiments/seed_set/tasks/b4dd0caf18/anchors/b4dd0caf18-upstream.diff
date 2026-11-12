@@ -1,0 +1,323 @@
+diff --git a/orchestrator/workflow/evaluated/agent_sessions.py b/orchestrator/workflow/evaluated/agent_sessions.py
+index 777efca00199d85d09367d6818eb419af630091e..104b06e95ae5aef53df5e9416e18f018d05a3ecc 100644
+--- a/orchestrator/workflow/evaluated/agent_sessions.py
++++ b/orchestrator/workflow/evaluated/agent_sessions.py
+@@ -121,14 +121,23 @@ class Receipt:
+     schema: str = RECEIPT_SCHEMA
+ 
+ 
+-_COMPLETION_RANK = {"intent": 0, "launching": 1, "not_dispatched": 2, "unknown": 2, "completed": 2, "abandoned": 3}
++# Allowed `completion` moves; `completed -> completed` adds the prepared `result_digest`. A move into
++# `not_dispatched` is only possible before the adapter saw an advance, so it never licenses a retry over one.
++_TRANSITIONS = {
++    "intent": {"launching", "not_dispatched", "unknown"},
++    "launching": {"unknown", "completed", "not_dispatched"},
++    "unknown": {"completed", "abandoned"},
++    "completed": {"completed", "abandoned"},
++    "not_dispatched": set(),
++    "abandoned": set(),
++}
+ _BINDING_FIELDS = ("run_id", "agent", "turn", "attempt", "input_digest", "predecessor")
+ _TEXT, _OPTIONAL_TEXT, _OPTIONAL_INT = (str,), (str, type(None)), (int, type(None))
+ _FIELD_TYPES = {"run_id": _TEXT, "agent": _TEXT, "turn": _TEXT, "attempt": (int,), "predecessor": _OPTIONAL_TEXT,
+                 "input_digest": _TEXT, "adapter": _TEXT, "config_digest": _TEXT, "mode": _TEXT, "locator": _OPTIONAL_TEXT,
+                 "pgid": _OPTIONAL_INT, "leader_start_time": _OPTIONAL_INT, "completion": _TEXT, "result_digest": _OPTIONAL_TEXT,
+                 "schema": _TEXT}
+-_ENUMS = {"mode": {"fresh", "resume"}, "completion": set(_COMPLETION_RANK), "schema": {RECEIPT_SCHEMA}}
++_ENUMS = {"mode": {"fresh", "resume"}, "completion": set(_TRANSITIONS), "schema": {RECEIPT_SCHEMA}}
+ 
+ 
+ def _check_receipt(receipt: Receipt) -> None:
+@@ -150,14 +159,13 @@ def _check_receipt(receipt: Receipt) -> None:
+ def write_receipt(files: WorkspaceFiles, receipt: Receipt) -> None:
+     """The one receipt writer: creation, or a monotone update of the stored receipt.
+ 
+-    Binding fields never change and `completion` never moves backwards (intent < launching <
+-    not_dispatched | unknown | completed < abandoned).
++    Binding fields never change and `completion` moves only along `_TRANSITIONS`.
+     """
+     _check_receipt(receipt)
+     current = read_receipt(files)
+     if current is not None:
+         changed = [name for name in _BINDING_FIELDS if getattr(current, name) != getattr(receipt, name)]
+-        if changed or _COMPLETION_RANK[receipt.completion] < _COMPLETION_RANK[current.completion]:
++        if changed or receipt.completion not in _TRANSITIONS[current.completion]:
+             raise MemoError("memo_inconsistent", f"receipt update is not monotone: binding {changed}, "
+                             f"completion {current.completion} -> {receipt.completion}")
+     files.write_atomic("receipt.json", canonical_json_bytes(asdict(receipt)))
+diff --git a/orchestrator/workflow/evaluated/agent_turns.py b/orchestrator/workflow/evaluated/agent_turns.py
+index b776e2d278d5223922cf02b4942cc12b7b3272f8..56c77f1af9ca7bf07a11da25e20edfd3b81ad3a6 100644
+--- a/orchestrator/workflow/evaluated/agent_turns.py
++++ b/orchestrator/workflow/evaluated/agent_turns.py
+@@ -136,23 +136,34 @@ def _session_template(provider: str):
+ def resolve_turn_input(authority, node, operands, identity, workspace, reader, *, snapshot, result_path, launch_cwd,
+                        committed_offset: int | None = None, delivery_name: str | None = None) -> ResolvedTurn:
+     """`committed_offset` is the replayed commit's offset (replay and reuse paths): the predecessor is then the agent's
+-    latest turn committed *before* it, and the current template is not re-pinned (a committed turn's proof is its own
+-    authority); `delivery_name` is then the committed rendering."""
++    latest turn committed *before* it, and the current template is neither consulted nor re-pinned (a committed turn's
++    proof is its own authority, design "Committed and settled"); `delivery_name` is then the committed rendering, and
++    `template`/`adapter` are None."""
+     agent = resolve_agent_reference(snapshot, operands[0].json_value(), run_id=authority.header["run_id"])
+-    template, adapter = _session_template(agent.provider)
+-    check_origins(node, agent, template if committed_offset is None else None, effective_cwd(launch_cwd, workspace))
++    if committed_offset is None:
++        template, adapter = _session_template(agent.provider)
++        check_origins(node, agent, template, effective_cwd(launch_cwd, workspace))
++        delivery = provider_delivery_name_for_template(template)
++    else:
++        template = adapter = None
++        check_origins(node, agent)
++        delivery = delivery_name
+     view = provider_view(node, agent)
+-    delivery = delivery_name or provider_delivery_name_for_template(template)
+     provider = resolve_provider_input(view, operands[1:], workspace=workspace, reader=reader,
+                                       result_path=workspace_relative_path(workspace, authority.run_root / result_path),
+                                       delivery_name=delivery, logical_workspace=launch_cwd is not None)
+-    provider = replace(provider, policy={**agent.policy, **provider.policy})
++    provider = replace(provider, policy=turn_policy(agent.policy, provider.policy))
+     predecessor = predecessor_commit(snapshot, agent.identity, before_offset=committed_offset)
+     continuation = None if predecessor is None else {"turn": predecessor.data["identity"], "proof": predecessor.data["proof"]}
+     parts = {**provider.input_parts, "agent": canonical_sha256(agent.record()), "predecessor": canonical_sha256(continuation)}
+     return ResolvedTurn(agent, predecessor, provider, view, template, adapter, parts, delivery)
+ 
+ 
++def turn_policy(allocation_policy, turn_policy_values) -> dict:
++    """Model/effort come from the allocation only: its keys win over anything the turn carries (defense in depth)."""
++    return {**turn_policy_values, **allocation_policy}
++
++
+ def turn_dependencies(resolved: ResolvedTurn, operand_dependencies) -> tuple[str, ...]:
+     """The predecessor is a dependency even when the prompt does not consume its result (design, Identity)."""
+     extra = () if resolved.predecessor is None else (resolved.predecessor.data["identity"],)
+@@ -251,7 +262,7 @@ def perform_turn(attempt, *, views=None):
+         if session.get("is_error"):     # Claude `is_error: true` finalizes as metadata, never as a valid result
+             raise _result_invalid(resolved, f"{attempt.identity}: provider reported is_error ({session.get('result_subtype')})")
+     except ProviderPerformerError as exc:
+-        raise _unresolved_or_failed(attempt, read_receipt(attempt.attempt_files), exc) from exc
++        raise _unresolved_or_failed(attempt, exc) from exc
+     except AgentTurnError:
+         raise                                               # already classified
+     except Exception as exc:
+@@ -286,10 +297,20 @@ def _verify_completion(attempt, resolved, session_id, before):
+ 
+ 
+ def _unresolved(attempt, locator, detail):
+-    update_receipt(attempt.attempt_files, locator=locator, completion="unknown")
++    """Always an unresolved, keep-pending error: failing to record `unknown` never turns uncertainty into `failed`."""
++    try:
++        update_receipt(attempt.attempt_files, locator=locator, completion="unknown")
++    except Exception as err:
++        detail = f"{detail}; recording `unknown` failed: {type(err).__name__}: {err}"
+     return AgentTurnError("agent_turn_unresolved", f"{attempt.identity}: {detail}", keep_pending=True)
+ 
+ 
++def unresolved_after_projection(attempt, exc: Exception) -> AgentTurnError:
++    """Failure table rows 6/7: after confirmed completion, only an invalid typed result may close `failed`."""
++    return AgentTurnError("agent_turn_unresolved", f"{attempt.identity}: {type(exc).__name__} after native completion: {exc}",
++                          keep_pending=True)
++
++
+ def _result_invalid(resolved: ResolvedTurn, detail, *, exit_info=None, violations=None):
+     code = "provider_result_invalid" if resolved.predecessor is None else "agent_turn_result_invalid"
+     return AgentTurnError(code, detail, exit_info=exit_info, violations=violations)
+@@ -297,34 +318,45 @@ def _result_invalid(resolved: ResolvedTurn, detail, *, exit_info=None, violation
+ 
+ def _head_unchanged(resolved: ResolvedTurn, receipt: Receipt) -> bool:
+     """True only when the adapter proves the resumed conversation did not advance."""
+-    located = resolved.adapter.locate(receipt.locator)
+-    if located.path is None:
+-        return False
+     try:
+-        head = resolved.adapter.head(located.path)
++        located = resolved.adapter.locate(receipt.locator)
++        head = None if located.path is None else resolved.adapter.head(located.path)
+     except NativeStoreError:
+         return False
+-    return not head.open_turn and head.position == NativePosition.from_record(receipt.position_before)
++    return head is not None and not head.open_turn and head.position == NativePosition.from_record(receipt.position_before)
+ 
+ 
+-def _unresolved_or_failed(attempt, receipt: Receipt, exc: ProviderPerformerError):
+-    """Design failure table rows 3 and 4: only the adapter can prove non-dispatch; exit codes and stdout never do."""
++def _proves_no_dispatch(resolved: ResolvedTurn, receipt: Receipt, exc: ProviderPerformerError) -> bool:
++    """No child was ever spawned, or the adapter proves the resumed conversation did not advance."""
+     if exc.code == "provider_preparation_failed" and receipt.completion == "intent":
+-        update_receipt(attempt.attempt_files, completion="not_dispatched")
+-        return exc                                       # no child was ever spawned
+-    if receipt.mode == "resume":
+-        if _head_unchanged(attempt.resolved, receipt):
++        return True
++    return receipt.mode == "resume" and _head_unchanged(resolved, receipt)
++
++
++def _unresolved_or_failed(attempt, exc: ProviderPerformerError):
++    """Design failure table rows 3 and 4: only the adapter can prove non-dispatch; exit codes and stdout never do.
++
++    The failure is returned (closing `failed`) only once `not_dispatched` is durable; anything else stays unresolved.
++    """
++    try:
++        receipt = read_receipt(attempt.attempt_files)
++    except MemoError as err:        # receipt evidence is broken: never permission to retry, so keep `started` pending
++        return AgentTurnError(err.code, f"{attempt.identity}: {err}", keep_pending=True)
++    if receipt is not None and _proves_no_dispatch(attempt.resolved, receipt, exc):
++        try:
+             update_receipt(attempt.attempt_files, completion="not_dispatched")
+-            return exc                                   # adapter proves the existing conversation did not advance
+-        return _unresolved(attempt, receipt.locator, f"{exc.code}: the native head advanced, is open, or cannot be read")
+-    locator = _session_from_stdout(attempt)              # fresh: a locator exists only if the CLI created a conversation
+-    return _unresolved(attempt, locator, f"{exc.code} on a fresh turn (locator {locator!r}): uncertainty, not proof of non-dispatch")
++            return exc
++        except Exception as err:
++            return _unresolved(attempt, receipt.locator, f"{exc.code}; recording `not_dispatched` failed: {err}")
++    # fresh: a locator exists only if the CLI created a conversation
++    locator = receipt.locator if receipt is not None and receipt.locator else _session_from_stdout(attempt)
++    return _unresolved(attempt, locator, f"{exc.code}: native advance not disproved (locator {locator!r})")
+ 
+ 
+ def _session_from_stdout(attempt) -> str | None:
+     try:
+         text = attempt.attempt_files.read("stdout.txt").decode("utf-8", "replace")
+-    except FileNotFoundError:
++    except (OSError, ValueError):
+         return None
+     for line in text.splitlines():
+         try:
+@@ -352,8 +384,7 @@ def project_turn(attempt, outcome):
+     except ProviderPerformerError as exc:
+         raise _result_invalid(resolved, str(exc), exit_info=exc.exit_info, violations=exc.violations) from exc
+     except Exception as exc:
+-        raise AgentTurnError("agent_turn_unresolved", f"{attempt.identity}: {type(exc).__name__} during projection: {exc}",
+-                             keep_pending=True) from exc
++        raise unresolved_after_projection(attempt, exc) from exc
+     proof = {"adapter": resolved.adapter.metadata_mode, "locator": receipt.locator, "position": receipt.position_after,
+              "predecessor": receipt.predecessor, "agent": resolved.agent.identity, "config_digest": resolved.agent.config_digest}
+     return result, digest, proof, proof
+@@ -371,11 +402,12 @@ def settle_turn(authority, resolved, identity, attempt, workspace, site_classes,
+ 
+ 
+ def validate_turn(authority, resolved: ResolvedTurn, identity, commit, *, settled) -> None:
+-    """Replay: the committed proof must agree with the resolved agent and its historical predecessor; no native read."""
++    """Replay: the committed proof must agree with the resolved agent and its historical predecessor; no native read
++    and no current template (the proof's `adapter` is its own authority)."""
+     proof = commit.data["proof"]
+     expected = None if resolved.predecessor is None else resolved.predecessor.data["identity"]
+-    if (proof["agent"], proof["predecessor"], proof["adapter"], proof["config_digest"]) != (
+-            resolved.agent.identity, expected, resolved.adapter.metadata_mode, resolved.agent.config_digest):
++    if (proof["agent"], proof["predecessor"], proof["config_digest"]) != (
++            resolved.agent.identity, expected, resolved.agent.config_digest):
+         raise MemoError("memo_inconsistent", f"agent turn proof of {identity} disagrees with its replayed agent or predecessor")
+ 
+ 
+diff --git a/orchestrator/workflow/evaluated/resume_prefix.py b/orchestrator/workflow/evaluated/resume_prefix.py
+index 76b3653c6646773a51522e061fbc1670e40c9e08..a8b5cbb06868e8c694cf68aa92afbc6f0718ee45 100644
+--- a/orchestrator/workflow/evaluated/resume_prefix.py
++++ b/orchestrator/workflow/evaluated/resume_prefix.py
+@@ -14,7 +14,13 @@ from orchestrator.workflow.run_ref.contracts import canonical_sha256
+ from . import effect_inputs
+ from .memo import MemoError, read_memo
+ from .replay import discover_prefix
+-from .run_ref import reconcile_evaluated_run_ref
++
++
++def _runtime():
++    """`reconcile_evaluated_run_ref` and `_resume_refusal` are called through `runtime`, the names existing
++    spies and patches observe (they predate this module)."""
++    from . import runtime
++    return runtime
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -47,7 +53,7 @@ def _prepare_parallel_recovery(authority, inputs, run_id, workspace, provider_io
+     inventory_parallel_run_ref_recovery(authority, run_ref_obligations, workspace)
+     for reached in run_ref_obligations:
+         resolved, _parts = resolve_run_ref_input(reached.node, reached.operands)
+-        reconcile_evaluated_run_ref(authority, resolved, reached.identity, workspace, reached.commit, site_classes)
++        _runtime().reconcile_evaluated_run_ref(authority, resolved, reached.identity, workspace, reached.commit, site_classes)
+     return frozenset(reached.identity for reached in prefix.frontiers)
+ 
+ 
+@@ -75,12 +81,12 @@ def _replayed_halt_result(snapshot, value, reached_boundary):
+     if reached_boundary:
+         return None
+     if snapshot.pending_starts:
+-        return _resume_refusal(
++        return _runtime()._resume_refusal(
+             MemoError("memo_inconsistent", "evaluated halt leaves active effect evidence unsettled")
+         )
+     terminal = snapshot.terminal
+     if terminal is None or terminal.data["outcome"] != "completed":
+         return None
+     if canonical_sha256(value) != canonical_sha256(terminal.data["value"]):
+-        return _resume_refusal(MemoError("memo_inconsistent", "completed terminal differs from evaluated halt"))
++        return _runtime()._resume_refusal(MemoError("memo_inconsistent", "completed terminal differs from evaluated halt"))
+     return 0, terminal.data["value"]
+diff --git a/orchestrator/workflow/evaluated/runtime.py b/orchestrator/workflow/evaluated/runtime.py
+index bc5bc47eb938787489e7654b4852f9faca11b9e9..a4c53e8d3082cf350f56974cbc86fdd130150398 100644
+--- a/orchestrator/workflow/evaluated/runtime.py
++++ b/orchestrator/workflow/evaluated/runtime.py
+@@ -336,10 +336,12 @@ def finish_effect(attempt: PreparedAttempt, outcome: ExternalOutcome | None = No
+                   *, error: Exception | None = None, fatal_publication: bool = False) -> EvaluatedValue:
+     """Validate, rehash, publish and settle on the run's coordinator."""
+     authority, node = attempt.authority, attempt.node
++    projected = False
+     try:
+         if error is not None:
+             raise error
+         result, digest, proof, prepared = _validate_attempt_outcome(attempt, outcome)
++        projected = node['class'] == 'agent_turn'   # prepared proof durable: commit the same attempt later, never `failed`
+         implementation = (_rehash_command_implementation(node, attempt.workspace,
+             attempt.implementation_files, attempt.launch_cwd) if node['class'] == 'command' else {})
+         _require_retained_root(authority.run_files)
+@@ -362,6 +364,8 @@ def finish_effect(attempt: PreparedAttempt, outcome: ExternalOutcome | None = No
+     except Exception as exc:
+         if _keeps_start_unfailed(exc, fatal_publication):
+             raise
++        if projected:
++            raise agent_turns.unresolved_after_projection(attempt, exc) from exc
+         publication_error = _fail_started_effect(
+             authority, attempt.identity, attempt.ordinal, attempt.site_classes, exc)
+         _raise_if_publication_fatal(publication_error, fatal_publication)
+diff --git a/specs/io.md b/specs/io.md
+index 33250b700c5c838adbd3385658debc1932a9b410..d892947295a532fcbbb50b9a43805d8c24e9c698 100644
+--- a/specs/io.md
++++ b/specs/io.md
+@@ -486,8 +486,9 @@ Evidence: `tests/test_workflow_evaluated_command_templates.py`,
+     turn's `timeout_sec`; environment and prompt as for providers, run from
+     the workspace (the allocation pins that directory). The delivery
+     rendering is selected structurally from the template's metadata mode
+-    (`legacy` for OMP JSON, else the current file rendering); a committed
+-    turn replays with its committed rendering.
++    (`legacy` for OMP JSON, else the current file rendering). A committed
++    turn replays with its committed rendering and its inline proof alone: no
++    current template, session support or native store is consulted.
+   - Resolved input parts are the provider parts plus `agent` (digest of the
+     Agent descriptor, which carries the pinned configuration digest) and
+     `predecessor` (digest of `{turn, proof}` of the agent's previous
+@@ -505,8 +506,12 @@ Evidence: `tests/test_workflow_evaluated_command_templates.py`,
+     `completed` with the native locator and position once the store shows
+     exactly one completed turn after the predecessor whose user message
+     carries this attempt's `result.json` path. Receipt updates are monotone:
+-    binding fields never change and `completion` never moves backwards; a
+-    malformed receipt is `memo_inconsistent`.
++    binding fields never change and `completion` moves only `intent` ->
++    `launching` | `not_dispatched` | `unknown`, `launching` -> `unknown` |
++    `completed` | `not_dispatched`, `unknown` -> `completed` | `abandoned`,
++    `completed` -> `completed` (adding the result digest) | `abandoned`
++    (`not_dispatched` and `abandoned` are final); a malformed receipt is
++    `memo_inconsistent`.
+   - Commit requires that exact native completion and the ordinary
+     typed-result validation; a result file alone is never a result, and a
+     Claude `result` with `is_error: true` is an invalid result. An invalid
+@@ -517,8 +522,9 @@ Evidence: `tests/test_workflow_evaluated_command_templates.py`,
+     (receipt `not_dispatched`). Every other exception after `launching`
+     keeps the `started` row pending with `agent_turn_unresolved` (receipt
+     `unknown` before the adapter confirmed completion, `completed` after
+-    it); no `failed` or terminal is appended and resume reconciles the same
+-    ordinal without redispatch.
++    it), including a failure to record that state and a failed memo commit
++    after the prepared proof; no `failed` or terminal is appended and resume
++    reconciles the same ordinal without redispatch.
+ - Run references: the resolved input parts are `config` (the step-config
+   digest) and `inputs`; the child runs in its clone workspace under the
+   ledger of [State](state.md#target-224-run-ref-state-settlement-and-resume)

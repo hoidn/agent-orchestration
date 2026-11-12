@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_prompt_dependency_evidence.py::test_publication_retry_resyncs_chain_after_parent_fsync_left_residue"
+  ],
+  "timeout_sec": 600
+}

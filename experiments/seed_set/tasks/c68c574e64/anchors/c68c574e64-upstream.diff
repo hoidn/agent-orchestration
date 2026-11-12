@@ -1,0 +1,104 @@
+diff --git a/orchestrator/workflow/executor.py b/orchestrator/workflow/executor.py
+index e27a7bb7400ca48d7bf826f619e1db63bc7b8a84..879a35144138fcbb43caa96edd0bd593fc98e10b 100644
+--- a/orchestrator/workflow/executor.py
++++ b/orchestrator/workflow/executor.py
+@@ -7424,6 +7424,35 @@ class WorkflowExecutor:
+ 
+         return None
+ 
++    def _prepare_absent_runtime_output_bundle(
++        self,
++        resolved_output_bundle: Optional[Dict[str, Any]],
++    ) -> Optional[Dict[str, Any]]:
++        """Prepare a command or provider call's bundle path: parent present, file absent.
++
++        A file left by an earlier iteration, run, or interrupted call must never
++        satisfy this call's result contract (specs/io.md). The final path
++        component is unlinked, never a symlink's target. Supervision, peer-group
++        and phased-delivery calls own their paths and reject a pre-existing file.
++        """
++        prepare_error = self._prepare_runtime_output_bundle_parent(resolved_output_bundle)
++        if prepare_error is not None or not isinstance(resolved_output_bundle, dict):
++            return prepare_error
++        bundle_path_value = resolved_output_bundle.get('path')
++        if not isinstance(bundle_path_value, str):
++            return None
++        try:
++            (self.workspace / bundle_path_value).unlink(missing_ok=True)
++        except OSError as exc:
++            return self._contract_violation_result(
++                "Failed to remove a stale structured output bundle",
++                {
++                    "path": bundle_path_value,
++                    "error": str(exc),
++                },
++            )
++        return None
++
+     def _write_prompt_audit(self, step_name: str, prompt_text: str, secrets: Optional[List[str]] = None, env: Optional[Dict[str, str]] = None) -> None:
+         """
+         Write prompt to audit log with secrets masking.
+@@ -8573,8 +8602,8 @@ class WorkflowExecutor:
+                     )
+ 
+             # For structured command contracts, expose the resolved bundle path
+-            # to the command adapter via a reserved env var and ensure the
+-            # runtime-owned bundle parent exists before launch.
++            # to the command adapter via a reserved env var; before launch the
++            # runtime-owned bundle parent exists and the bundle file does not.
+             command_env = step.get('env')
+             _, resolved_output_bundle, path_error = self._resolve_output_contract_paths(
+                 step,
+@@ -8583,7 +8612,7 @@ class WorkflowExecutor:
+             )
+             if path_error is not None:
+                 return path_error
+-            bundle_path_error = self._prepare_runtime_output_bundle_parent(resolved_output_bundle)
++            bundle_path_error = self._prepare_absent_runtime_output_bundle(resolved_output_bundle)
+             if bundle_path_error is not None:
+                 return bundle_path_error
+             command_env = self._env_with_runtime_output_bundle_path(
+@@ -9653,7 +9682,7 @@ class WorkflowExecutor:
+             )
+             if output_position_error is not None:
+                 return None, None, step, output_position_error
+-            bundle_path_error = self._prepare_runtime_output_bundle_parent(
++            bundle_path_error = self._prepare_absent_runtime_output_bundle(
+                 attempt_output_bundle
+             )
+             if bundle_path_error is not None:
+@@ -10938,6 +10967,11 @@ class WorkflowExecutor:
+                     print(f"Provider failed with exit code {exec_result.exit_code}, retrying (attempt {attempt + 1}/{retry_policy.max_retries})")
+                 retry_policy.wait()
+                 attempt += 1
++                bundle_path_error = self._prepare_absent_runtime_output_bundle(
++                    resolved_output_bundle
++                )
++                if bundle_path_error is not None:
++                    return bundle_path_error
+                 continue
+ 
+             # No retry needed or max retries reached
+diff --git a/specs/io.md b/specs/io.md
+index d44930019899a3aab9d829846c3019292f52d572..b79d081a949743614bc2d4c13ee04b57a7fe5a59 100644
+--- a/specs/io.md
++++ b/specs/io.md
+@@ -149,6 +149,18 @@
+       runs. Its Markdown projection contains status labels, role digests, and
+       fixed comparison classifications only; neither report projection is a
+       provider result or execution/resume input.
++  - Result-file freshness (every target):
++    - Before each command or provider call with `output_bundle.path` or
++      `variant_output.path`, including each retry attempt and each call run
++      again on resume, the runtime creates the bundle parent and removes any
++      file at the resolved bundle path. A file left there by an earlier
++      iteration, an earlier run, or an interrupted or failed attempt is never
++      read as the result of the new call.
++    - If the call exits `0` and the bundle file is absent, the step fails with
++      the output-contract violation `missing_bundle_file`.
++    - Provider-supervision and provider-peer-group invocations below keep
++      their own rule: their provisional paths must already be absent, and a
++      pre-existing file fails before launch.
+   - Provider-supervision IO (v2.16):
+     - Provider stdin/stdout/stderr, the selected metadata codec, and validated
+       output bundles remain the execution and result transports. Observation

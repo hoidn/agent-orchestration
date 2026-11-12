@@ -1,0 +1,3 @@
+fix: metering joins calls on user-turn text only, refuses ambiguous joins; drop OMP usage_complete flag
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/experiments/test_orc_structural_search_metering.py::test_coverage_ignores_prompt_text_outside_user_turns` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

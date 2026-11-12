@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_cond_dead_trailing_clause_keeps_enclosing_variant_facts"
+  ],
+  "timeout_sec": 600
+}

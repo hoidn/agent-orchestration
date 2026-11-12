@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_provider_native_store.py::test_claude_inconsistent_split_message_is_rejected"
+  ],
+  "timeout_sec": 600
+}

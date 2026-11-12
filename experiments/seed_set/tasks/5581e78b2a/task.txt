@@ -1,0 +1,11 @@
+fix: fail closed on unconfined image-pinned attempts
+
+An attempt whose run header holds image pins but has no confined leaf
+runner refuses instead of reaching the host route. Tampered or missing
+attempt snapshots refuse with run_ref_evidence_invalid (P30). Stream
+truncation flags are kept as attempt evidence on every leaf and in the
+exit info of failed commands (P31). Image closures resolving into guest
+scratch refuse, and the launch cwd is normalised before mapping it into
+/workspace.
+
+Visible check: `python -m pytest -q -p no:cacheprovider tests/test_workflow_evaluated_confined_dispatch.py::test_image_pinned_attempt_without_a_leaf_runner_fails_closed` (the command in `dev-check.json`). It fails now and should pass once the change is made. Leave `dev-check.json` and the existing tests unchanged; you may add new tests.

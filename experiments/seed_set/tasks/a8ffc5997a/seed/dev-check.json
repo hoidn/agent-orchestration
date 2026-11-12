@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_lisp_strict_boolean_control_flow.py::test_union_variant_tag_retypecheck_preserves_applied_discriminant"
+  ],
+  "timeout_sec": 600
+}

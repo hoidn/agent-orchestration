@@ -1,0 +1,12 @@
+{
+  "argv": [
+    "python",
+    "-m",
+    "pytest",
+    "-q",
+    "-p",
+    "no:cacheprovider",
+    "tests/test_workflow_run_ref_confined_recovery.py::test_a_deep_guest_tree_is_refused_and_the_clone_still_repairs"
+  ],
+  "timeout_sec": 600
+}
