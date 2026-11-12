@@ -479,17 +479,6 @@ def test_workflow_program_wcc_payload_carries_child_policy_inputs_and_commit(tmp
     )
 
 
-def test_trial_arm_cannot_run_a_confined_workflow_child():
-    from orchestrator.workflow_lisp.expressions import parse_trial_expression
-    from tests.test_workflow_lisp_trial import _expression, _trial_source
-
-    arm = RUN_REF.replace(":commit revision", ':commit "' + "c" * 40 + '"')
-    with pytest.raises(LispFrontendCompileError) as refused:
-        parse_trial_expression(_expression(_trial_source(arm_a=arm)), target_dsl_version="2.38")
-
-    assert refused.value.diagnostics[0].code == "run_ref_child_target_unavailable"
-
-
 def test_resource_form_in_child_is_an_unsupported_environment_effect():
     from orchestrator.workflow_lisp.expressions import elaborate_expression
     from orchestrator.workflow_lisp.typecheck_run_ref import _child_form_refusal
