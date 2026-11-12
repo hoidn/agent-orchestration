@@ -662,44 +662,6 @@ def _wait_for_marker(
     pytest.fail(f"timed out waiting for marker: {path.name}")
 
 
-def _peer_socket_paths() -> set[Path]:
-    roots = [Path(tempfile.gettempdir())]
-    if os.name == "posix" and Path("/tmp") not in roots:
-        roots.append(Path("/tmp"))
-    return {
-        path
-        for root in roots
-        if root.is_dir()
-        for pattern in (
-            "orchestrator-peer-*.sock",
-            "orc-peer-*.sock",
-        )
-        for path in root.glob(pattern)
-    }
-
-
-def test_peer_socket_snapshot_covers_endpoint_and_adapter_names(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        tempfile,
-        "gettempdir",
-        lambda: str(tmp_path),
-    )
-    endpoint = tmp_path / "orchestrator-peer-endpoint.sock"
-    adapter = tmp_path / "orc-peer-adapter.sock"
-    unrelated = tmp_path / "other.sock"
-    for path in (endpoint, adapter, unrelated):
-        path.touch()
-
-    snapshot = _peer_socket_paths()
-
-    assert endpoint in snapshot
-    assert adapter in snapshot
-    assert unrelated not in snapshot
-
-
 def _sha256(payload: bytes) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
 
