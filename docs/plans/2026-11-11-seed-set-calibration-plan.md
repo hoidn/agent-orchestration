@@ -398,8 +398,9 @@ may vary, each a binding of that program and not a new program:
 | Implementer | Haiku, Sonnet |
 | Reviewer | absent, Haiku, Sonnet |
 | Revision rounds (reviewer present) | 1, 2 |
+| Conversation (owner decision 11 of the roadmap keeps Agent Sessions) | each later step of a role starts fresh, or continues that role's session; only between steps bound to one model |
 
-That is 18 placements before rounds. `direct.orc` is the point (absent,
+That is 18 placements before rounds and conversation. `direct.orc` is the point (absent,
 Haiku, absent) and `implement_review_revise.orc` is (absent, Haiku, Haiku),
 so the study's existing arms are points of the same space.
 

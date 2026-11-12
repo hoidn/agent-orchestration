@@ -211,7 +211,8 @@ full designs.
   Usage is recorded only for provider steps bound to the opt-in metered
   templates, since switching the built-in templates would change what the
   terminal shows. The Agent Sessions comparison is done: Retire by cost on
-  measure-free figures, owner's judgment open (plan ledger, D3).
+  measure-free figures; the owner keeps Agent Sessions for the workflow
+  patterns it allows (decision 11).
 - **Spend:** small, as gated tranches. **Effort:** 3–5 weeks.
 
 ### Phase 3: Edit and continue
@@ -419,6 +420,7 @@ the owner can amend any of them.
 | 8 | Research scope | Scaled down by the owner 2026-11-11: find a few simple workflows that work well on a calibrated task set, as seeds for genetic search; calibration first. Supersedes decision 6. Same day: judge-primary scoring validated on two natural controls; smoke and calibration spend authorized; seed programs under 50 lines of `.orc`, `common.orc` not counted |
 | 9 | Live supervision and peer groups | Kept as a future direction by the owner 2026-11-11: not scheduled, no phase owns it. Lane D keeps the two source forms and their frontend support, deletes the old executor packages, and records the reusable design first. A port needs its own design on evaluated execution; the [salvage record](../design/live_provider_supervision_and_peers_salvage.md) is its starting material and finds supervision the closer of the two |
 | 10 | Budget for the Agent Sessions comparison (PQ-1c) | Approved 2026-11-12: the comparison only, at most 20 `claude-haiku-5-5` calls, ceiling USD 10, through the kit's launcher. The live best-of-N smoke is not approved |
+| 11 | Agent Sessions after the comparison | Kept, 2026-11-12. The owner values sessions for versatility in workflow patterns, not efficiency. The comparison's cost finding (1.4 to 1.7 times the plain handoff on a four-turn pattern; a committed turn cannot be invalidated) is the known price, not a reason to retire |
 
 ## Process rules
 
@@ -471,8 +473,8 @@ is manual. Phase plans are linked here as they start:
   The headline exit test passes on `main` and the parallel-map closeout is merged. The Agent
   Sessions comparison ran under the budget of decision 10 (16 calls, USD 0.33): outcome
   Retire, by cost (the session variant cost 1.74 and 1.38 times the plain baseline). The
-  owner's judgment on it is open; until then Agent Sessions stays opt-in and gets no further
-  work. The live best-of-N smoke is not approved.
+  owner keeps Agent Sessions (decision 11): its value is the workflow patterns it allows, which
+  the comparison did not measure. The live best-of-N smoke is not approved.
 - Phase 3, in execution: [edit and continue feasibility spike](../design/workflow_lisp_edit_and_continue_spike.md);
   3a and 3b are feasible; 3a is implemented by its [plan](2026-11-11-roadmap-phase-3a-script-fix-retry-plan.md); 3b has its [design](../design/workflow_lisp_edit_and_continue.md) and its [plan](2026-11-12-roadmap-phase-3b-edited-program-resume-plan.md), accepted; its first task proves the design's open claims before any feature code.
 - Phase 5, in preparation: [seed-set calibration plan](2026-11-11-seed-set-calibration-plan.md).
