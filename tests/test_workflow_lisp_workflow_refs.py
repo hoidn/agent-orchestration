@@ -5,13 +5,6 @@ import pytest
 
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
-from orchestrator.workflow_lisp.expressions import NameExpr, ProduceOneOfExpr, ProviderResultExpr
-from orchestrator.workflow_lisp.phase_stdlib import (
-    ProduceOneOfCandidateFieldSpec,
-    ProduceOneOfCandidateSpec,
-    ProduceOneOfProducerSpec,
-)
-from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.workflows import CertifiedAdapterBinding
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
@@ -75,62 +68,6 @@ def _workflow_ref_command_boundaries() -> dict[str, ExternalToolBinding]:
     }
 
 
-def _test_span(path: str) -> SourceSpan:
-    start = SourcePosition(path=path, line=1, column=1, offset=0)
-    end = SourcePosition(path=path, line=1, column=2, offset=1)
-    return SourceSpan(start=start, end=end)
-
-
-def _name(name: str) -> NameExpr:
-    return NameExpr(name=name, span=_test_span(name), form_path=("workflow-lisp", "workflow-ref-test"))
-
-
-def test_workflow_ref_extern_collection_descends_into_produce_one_of_candidate_targets() -> None:
-    from orchestrator.workflow_lisp.workflow_refs import collect_workflow_extern_names
-
-    expr = ProduceOneOfExpr(
-        returns_type_name="SelectionResult",
-        ctx_expr=_name("ctx"),
-        producer=ProduceOneOfProducerSpec(
-            kind="provider",
-            provider_expr=None,
-            prompt_expr=None,
-            inputs=(),
-        ),
-        candidates=(
-            ProduceOneOfCandidateSpec(
-                variant_name="APPROVED",
-                fields=(
-                    ProduceOneOfCandidateFieldSpec(
-                        field_name="result",
-                        target_expr=ProviderResultExpr(
-                            provider=_name("providers.execute"),
-                            prompt=_name("prompts.implementation.execute"),
-                            inputs=(),
-                            returns_type_name="ChecksResult",
-                            span=_test_span("provider-result"),
-                            form_path=("workflow-lisp", "workflow-ref-test"),
-                        ),
-                    ),
-                ),
-            ),
-        ),
-        span=_test_span("produce-one-of"),
-        form_path=("workflow-lisp", "workflow-ref-test"),
-    )
-
-    providers, prompts = collect_workflow_extern_names(expr)
-
-    assert providers == {"providers.execute"}
-    assert prompts == {"prompts.implementation.execute"}
-
-
-
-
-
-
-
-
 def test_workflow_ref_specialization_through_owner_seam_compiles_and_validates(tmp_path: Path) -> None:
     result = compile_stage3_module(
         VALID_FIXTURES / "workflow_refs_forwarding.orc",
@@ -147,12 +84,6 @@ def test_workflow_ref_specialization_through_owner_seam_compiles_and_validates(t
     )
 
 
-
-
-
-
-
-
 def test_stage3_materializes_combined_workflow_and_proc_ref_specialization(
     tmp_path: Path,
 ) -> None:
@@ -162,7 +93,7 @@ def test_stage3_materializes_combined_workflow_and_proc_ref_specialization(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defpath WorkReport :kind relpath :under \"artifacts/work\" :must-exist true)",
                 "  (defrecord WorkflowInput (report WorkReport))",
                 "  (defrecord WorkflowOutput (report WorkReport))",
@@ -173,13 +104,11 @@ def test_stage3_materializes_combined_workflow_and_proc_ref_specialization(
                 "      :returns WorkflowOutput))",
                 "  (defproc identity-helper",
                 "    ((input WorkflowInput)) -> WorkflowOutput",
-                "    :effects () :lowering inline",
                 "    (record WorkflowOutput :report input.report))",
                 "  (defproc invoke-runner",
                 "    ((runner WorkflowRef[WorkflowInput -> WorkflowOutput])",
                 "     (hook ProcRef[WorkflowInput -> WorkflowOutput])",
                 "     (input WorkflowInput)) -> WorkflowOutput",
-                "    :effects ((calls-workflow runner)) :lowering inline",
                 "    (call runner :input input))",
                 "  (defworkflow entry",
                 "    ((input WorkflowInput)) -> WorkflowOutput",
@@ -220,7 +149,7 @@ def test_linked_stage3_materializes_imported_workflow_ref_procedure_specializati
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/types)",
                 "  (export WorkReport WorkflowInput WorkflowOutput)",
                 "  (defpath WorkReport :kind relpath :under \"artifacts/work\" :must-exist true)",
@@ -235,14 +164,13 @@ def test_linked_stage3_materializes_imported_workflow_ref_procedure_specializati
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/procedures)",
                 "  (import demo/types :only (WorkflowInput WorkflowOutput))",
                 "  (export invoke-runner)",
                 "  (defproc invoke-runner",
                 "    ((runner WorkflowRef[WorkflowInput -> WorkflowOutput])",
                 "     (input WorkflowInput)) -> WorkflowOutput",
-                "    :effects ((calls-workflow runner)) :lowering inline",
                 "    (call runner :input input)))",
             ]
         ),
@@ -254,7 +182,7 @@ def test_linked_stage3_materializes_imported_workflow_ref_procedure_specializati
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/entry)",
                 "  (import demo/types :only (WorkflowInput WorkflowOutput))",
                 "  (import demo/procedures :only (invoke-runner))",
@@ -289,8 +217,6 @@ def test_linked_stage3_materializes_imported_workflow_ref_procedure_specializati
     assert specialized.resolved_lowering_mode.value == "inline"
 
 
-
-
 def _write_workflow_ref_key_collision(tmp_path: Path) -> Path:
     path = tmp_path / "workflow_ref_key_collision.orc"
     path.write_text(
@@ -298,7 +224,7 @@ def _write_workflow_ref_key_collision(tmp_path: Path) -> Path:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord WorkflowInput (label String))",
                 "  (defrecord WorkflowOutput (label String))",
                 "  (defworkflow echo-helper",
@@ -310,7 +236,6 @@ def _write_workflow_ref_key_collision(tmp_path: Path) -> Path:
                 "  (defproc invoke-runner",
                 "    ((runner WorkflowRef[WorkflowInput -> WorkflowOutput])",
                 "     (input WorkflowInput)) -> WorkflowOutput",
-                "    :effects ((calls-workflow runner)) :lowering inline",
                 "    (call runner :input input))",
                 "  (defworkflow run-dash",
                 "    ((input WorkflowInput)) -> WorkflowOutput",
@@ -405,8 +330,6 @@ def test_stage3_fails_closed_if_collision_disambiguator_reuses_a_key(
     assert excinfo.value.diagnostics[0].code == "procedure_specialization_key_collision"
 
 
-
-
 def test_linked_stage3_disambiguates_colliding_canonical_workflow_ref_targets(
     tmp_path: Path,
 ) -> None:
@@ -421,7 +344,7 @@ def test_linked_stage3_disambiguates_colliding_canonical_workflow_ref_targets(
                 [
                     "(workflow-lisp",
                     '  (:language "0.1")',
-                    '  (:target-dsl "2.35")',
+                    '  (:target-dsl "2.40")',
                     f"  (defmodule {module_name})",
                     "  (import demo/types :only (WorkflowInput WorkflowOutput))",
                     f"  (export {workflow_name})",
@@ -438,7 +361,7 @@ def test_linked_stage3_disambiguates_colliding_canonical_workflow_ref_targets(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/types)",
                 "  (export WorkflowInput WorkflowOutput)",
                 "  (defrecord WorkflowInput (label String))",
@@ -452,14 +375,13 @@ def test_linked_stage3_disambiguates_colliding_canonical_workflow_ref_targets(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/procedures)",
                 "  (import demo/types :only (WorkflowInput WorkflowOutput))",
                 "  (export invoke-runner)",
                 "  (defproc invoke-runner",
                 "    ((runner WorkflowRef[WorkflowInput -> WorkflowOutput])",
                 "     (input WorkflowInput)) -> WorkflowOutput",
-                "    :effects ((calls-workflow runner)) :lowering inline",
                 "    (call runner :input input)))",
             ]
         ),
@@ -471,7 +393,7 @@ def test_linked_stage3_disambiguates_colliding_canonical_workflow_ref_targets(
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule demo/entry)",
                 "  (import demo/types :only (WorkflowInput WorkflowOutput))",
                 "  (import demo/procedures :only (invoke-runner))",
@@ -511,10 +433,6 @@ def test_linked_stage3_disambiguates_colliding_canonical_workflow_ref_targets(
     } == {"demo/a::echo-helper", "demo_a::echo_helper"}
 
 
-
-
-
-
 def test_workflow_ref_imported_module_resolution_compiles_and_validates(tmp_path: Path) -> None:
     result = compile_stage3_entrypoint(
         MODULE_FIXTURES / "workflow_refs" / "imported_entry.orc",
@@ -537,7 +455,7 @@ def test_workflow_ref_top_level_param_is_allowed_but_nested_return_transport_is_
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defrecord WorkflowInput",
                 "    (report String))",
                 "  (defrecord WorkflowOutput",

@@ -26,8 +26,6 @@ AuthoredSymbolKind = Literal[
     "record",
     "union",
     "schema",
-    "resource",
-    "transition",
 ]
 
 
@@ -54,8 +52,6 @@ _DIRECT_HEAD_KINDS: dict[str, AuthoredSymbolKind] = {
     "defrecord": "record",
     "defunion": "union",
     "defschema": "schema",
-    "defresource": "resource",
-    "deftransition": "transition",
 }
 
 
@@ -147,8 +143,6 @@ def _compiled_candidates(
             if isinstance(definition, UnionDef)
         ),
         "schema": tuple(compiled_result.module.schemas),
-        "resource": tuple(compiled_result.module.resources),
-        "transition": tuple(compiled_result.module.transitions),
     }
 
 

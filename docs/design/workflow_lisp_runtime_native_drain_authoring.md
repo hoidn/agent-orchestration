@@ -1,5 +1,11 @@
 # Workflow Lisp Runtime-Native Drain Authoring
 
+Status: Historical. `backlog-drain`, `resource-transition`, `materialize-view`, `defresource` and
+`deftransition`, with `std/drain` and `std/resource`, were removed on 2026-11-12 (local git tag
+`archive/pre-one-target-2026-11-12`); each head refuses with `form_retired`. The body below is preserved as written and
+selects no work. The maintained drain is the [verified-iteration drain](verified_iteration_drain.md);
+availability is in the [capability matrix](../capability_status_matrix.md).
+
 Execution boundary: this is a target/regression checklist, not a copy-safe
 drain recipe. The Design Delta family, generated flat resource/view effects and
 certified migration apparatus described historically are retired as executable
@@ -8,7 +14,7 @@ selected evaluated consumer must prove its supported composition and public
 lifecycle independently; [executor retirement](workflow_lisp_executor_retirement.md)
 and the [capability matrix](../capability_status_matrix.md) govern availability.
 
-Status: reference target / regression checklist
+Original status: reference target / regression checklist
 Kind: architecture decision / authoring and migration target
 Created: 2026-06-15
 Scope: Workflow Lisp authoring ergonomics for parent drain workflows; typed

@@ -116,7 +116,15 @@ def test_positive_imported_stdlib_macro_payload_helper_route_compiles_on_wcc_sch
     [
         ("bad_field", None),
         ("signature_mismatch", None),
-        ("effect_position_invalid", None),
+        (
+            "effect_position_invalid",
+            {
+                "run_checks": ExternalToolBinding(
+                    name="run_checks",
+                    stable_command=("python", "scripts/run_checks.py"),
+                )
+            },
+        ),
         ("variant_unproved", None),
         (
             "hidden_command_effect",

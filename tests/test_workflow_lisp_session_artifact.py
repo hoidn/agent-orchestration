@@ -118,8 +118,6 @@ def _typecheck_session(
     )
 
 
-
-
 def _write_prompt(workspace: Path) -> None:
     prompt_dir = workspace / "prompts"
     prompt_dir.mkdir(parents=True, exist_ok=True)
@@ -174,17 +172,11 @@ def _compile_source(
     )
 
 
-
-
 # --- Step 6.1: syntax and typecheck REDs -------------------------------------
 
 
 def test_syntax_supported_versions_include_current_source() -> None:
     assert "2.35" in _syntax_module().SUPPORTED_TARGET_DSL_VERSIONS
-
-
-
-
 
 
 def test_elaborate_admits_session_artifact_for_current_source_as_bare_symbol_declaration() -> None:
@@ -305,22 +297,12 @@ def test_traversal_does_not_visit_session_artifact_spec() -> None:
 # --- Step 6.2: lowering and workflow-level REDs ------------------------------
 
 
-
-
-
-
-
-
-
-
-
-
 def test_stage3_procedure_placement_rejected(tmp_path: Path) -> None:
     source = (
-        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\") "
+        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.40\") "
         "(defmodule procedure) "
         "(defproc worker () -> String "
-        ":effects ((uses-provider providers.session)) "
+        " "
         "(provider-result providers.session :prompt prompts.session "
         ":inputs () :session-artifact omp_session :returns String)) "
         "(defworkflow run () -> String \"ok\"))"
@@ -379,7 +361,7 @@ def test_stage3_loop_placement_rejected(tmp_path: Path) -> None:
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule loop)",
             "  (export gate)",
             "  (defworkflow gate () -> Bool",
@@ -413,7 +395,7 @@ def test_stage3_imported_workflow_placement_rejected(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule lib)",
                 "  (export helper)",
                 "  (defworkflow helper () -> String",
@@ -432,7 +414,7 @@ def test_stage3_imported_workflow_placement_rejected(tmp_path: Path) -> None:
             [
                 "(workflow-lisp",
                 '  (:language "0.1")',
-                '  (:target-dsl "2.35")',
+                '  (:target-dsl "2.40")',
                 "  (defmodule main)",
                 "  (import lib :only (helper))",
                 "  (export run)",
@@ -457,15 +439,11 @@ def test_stage3_imported_workflow_placement_rejected(tmp_path: Path) -> None:
     )
 
 
-
-
-
-
 def test_stage3_function_placement_rejected_by_purity_enforcement(
     tmp_path: Path,
 ) -> None:
     source = (
-        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\") "
+        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.40\") "
         "(defmodule fn_placement) "
         "(defun helper () -> String "
         "(provider-result providers.session :prompt prompts.session "
@@ -479,7 +457,7 @@ def test_stage3_function_placement_rejected_by_purity_enforcement(
 
 def test_stage3_if_branch_placement_rejected(tmp_path: Path) -> None:
     source = (
-        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.35\") "
+        "(workflow-lisp (:language \"0.1\") (:target-dsl \"2.40\") "
         "(defmodule if_placement) "
         "(defworkflow run () -> String "
         "(if true "
@@ -496,55 +474,6 @@ def test_stage3_if_branch_placement_rejected(tmp_path: Path) -> None:
     )
 
 
-def test_stage3_resume_boundary_placement_rejected(tmp_path: Path) -> None:
-    source = "\n".join(
-        [
-            "(workflow-lisp",
-            '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
-            "  (defmodule resume_placement)",
-            "  (defpath WorkReport",
-            "    :kind relpath",
-            '    :under "artifacts/work"',
-            "    :must-exist true)",
-            "  (defpath ResumePoint",
-            "    :kind relpath",
-            '    :under "state"',
-            "    :must-exist true)",
-            "  (defrecord RunCtx",
-            "    (run-id RunId)",
-            "    (state-root Path.state-root)",
-            "    (artifact-root Path.artifact-root))",
-            "  (defrecord PhaseCtx",
-            "    (run RunCtx)",
-            "    (phase-name Symbol)",
-            "    (state-root Path.state-root)",
-            "    (artifact-root Path.artifact-root))",
-            "  (defrecord ReviewSurfaceResult",
-            "    (report WorkReport))",
-            "  (defworkflow run",
-            "    ((phase-ctx PhaseCtx) (resume_from ResumePoint))",
-            "    -> ReviewSurfaceResult",
-            "    (with-phase phase-ctx checks",
-            "      (resume-or-start checks",
-            "        :ctx phase-ctx",
-            "        :resume-from resume_from",
-            "        :returns ReviewSurfaceResult",
-            "        :start (provider-result providers.session",
-            "          :prompt prompts.session",
-            "          :inputs ()",
-            "          :session-artifact omp_session",
-            "          :returns ReviewSurfaceResult)))))",
-        ]
-    )
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        _compile_source(tmp_path, source, name="resume_placement.orc")
-    assert (
-        excinfo.value.diagnostics[0].code
-        == "session_artifact_placement_invalid"
-    )
-
-
 def test_stage3_live_provider_boundary_placement_rejected(
     tmp_path: Path,
 ) -> None:
@@ -552,7 +481,7 @@ def test_stage3_live_provider_boundary_placement_rejected(
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule live_placement)",
             "  (defworkflow orchestrate () -> String",
             "    (with-live-providers",
@@ -591,10 +520,6 @@ def test_stage3_live_provider_boundary_placement_rejected(
     )
 
 
-
-
-
-
 def test_stage3_two_exports_never_get_implicit_selection(
     tmp_path: Path,
 ) -> None:
@@ -602,7 +527,7 @@ def test_stage3_two_exports_never_get_implicit_selection(
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule two_exports)",
             "  (export bridge session_run)",
             "  (defrecord WorkflowInput (value String))",
@@ -628,7 +553,7 @@ def test_stage3_two_exports_never_get_implicit_selection(
         [
             "(workflow-lisp",
             '  (:language "0.1")',
-            '  (:target-dsl "2.35")',
+            '  (:target-dsl "2.40")',
             "  (defmodule entry_selection_reject)",
             "  (export run)",
             "  (defworkflow helper () -> String",

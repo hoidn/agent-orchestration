@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from ..diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from ..expression_traversal import free_expr_names
-from ..expressions import IfExpr, ResourceTransitionExpr
+from ..expressions import IfExpr
 from ..syntax import MAX_STATIC_LIVE_PROVIDER_PEERS
 from ..type_env import TypeRef
 from .model import (
@@ -106,22 +106,10 @@ def _effect_boundary_step_kind(
         return "provider_supervision"
     if isinstance(value, WccCall):
         return "call"
-    if (
-        value.perform_kind == "resource_transition"
-        and isinstance(value.operation_payload, ResourceTransitionExpr)
-        and value.operation_payload.spec.mode != "declared_transition"
-    ):
-        return "command"
     return {
         "command_result": "command",
         "provider_result": "provider",
         "workflow_call": "call",
-        "materialize_view": "materialize_view",
-        "resource_transition": "resource_transition",
-        "resume_or_start": "resume_or_start",
-        "run_provider_phase": "provider",
-        "produce_one_of": "provider",
-        "finalize_selected_item": "finalize_selected_item",
     }.get(value.perform_kind, value.perform_kind)
 
 

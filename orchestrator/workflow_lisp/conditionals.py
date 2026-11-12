@@ -23,7 +23,6 @@ from .expressions import (
     EnumMemberExpr,
     ExprNode,
     FieldAccessExpr,
-    FinalizeSelectedItemExpr,
     FunctionCallExpr,
     GeneratedRelpathSeedExpr,
     IfExpr,
@@ -38,21 +37,16 @@ from .expressions import (
     LoopStateUpdateExpr,
     MatchArm,
     MatchExpr,
-    MaterializeViewExpr,
     NameExpr,
     PathJoinUnderExpr,
     PhaseTargetExpr,
     ProcRefLiteralExpr,
     ProcedureCallExpr,
-    ProduceOneOfExpr,
     ProviderBundlePathExpr,
     ProviderResultExpr,
     PureOpExpr,
     RecordExpr,
     RecordUpdateExpr,
-    ResourceTransitionExpr,
-    ResumeOrStartExpr,
-    RunProviderPhaseExpr,
     RunRefExpr,
     UnionVariantExpr,
     UnionVariantTagExpr,
@@ -239,21 +233,14 @@ _EFFECT_EXPRS: tuple[type, ...] = (
     ProviderResultExpr,
     CommandResultExpr,
     RunRefExpr,
-    RunProviderPhaseExpr,
-    ProduceOneOfExpr,
-    ResourceTransitionExpr,
-    MaterializeViewExpr,
-    FinalizeSelectedItemExpr,
     CallExpr,
     ProcedureCallExpr,
 )
 
 # Scope/lifecycle owners are handled by dedicated rebuilders below, never by
-# the generic effect traversal: their body/arm/start bindings must stay inside
+# the generic effect traversal: their body/arm bindings must stay inside
 # the owner that supplies their names/lifecycle rather than hoist to the
-# enclosing condition prefix. `ResumeOrStartExpr` cannot be exact-``Bool`` (it
-# is a record/union), but its start-branch children may still contain
-# condition-owned Bool projections and are rebuilt scope-preservingly.
+# enclosing condition prefix.
 
 # Composite value/call expressions traversed for nested `and`/`or`. Loop-control
 # terminals (`continue`/`done`) are normalized in place: their state/result
@@ -297,7 +284,6 @@ _LEAF_EXPRS: tuple[type, ...] = (
 # subtree reaches any of these must not be folded without bindings (the fold
 # would emit a raw effect condition that WCC's value consumer cannot route).
 _EFFECT_NODE_TYPES: tuple[type, ...] = _EFFECT_EXPRS + (
-    ResumeOrStartExpr,
     WithLiveProvidersExpr,
     WithLiveProviderPeersExpr,
     LoopRecurExpr,
@@ -313,7 +299,6 @@ _LOOP_SPINE_EXPRS: tuple[type, ...] = (
     LetStarExpr,
     MatchExpr,
     LoopRecurExpr,
-    ResumeOrStartExpr,
     WithLiveProvidersExpr,
     WithLiveProviderPeersExpr,
 )
@@ -390,8 +375,6 @@ def _normalize_operand(
         return _normalize_with_live_providers(expr, path=path, closed_program=closed_program)
     if isinstance(expr, WithLiveProviderPeersExpr):
         return _normalize_with_live_provider_peers(expr, path=path, closed_program=closed_program)
-    if isinstance(expr, ResumeOrStartExpr):
-        return _normalize_resume_or_start(expr, path=path, closed_program=closed_program)
     if isinstance(expr, WithPhaseExpr):
         return _normalize_with_phase(expr, path=path, closed_program=closed_program)
     if isinstance(expr, LetProcExpr):
@@ -939,39 +922,6 @@ def _normalize_with_live_provider_peers(
     closed_program: bool = False,
 ) -> tuple[tuple[tuple[str, ExprNode], ...], ExprNode]:
     return _normalize_live_provider_owner(expr, path=path, closed_program=closed_program)
-
-
-def _normalize_resume_or_start(
-    expr: ResumeOrStartExpr,
-    *,
-    path: tuple[int, ...],
-    closed_program: bool = False,
-) -> tuple[tuple[tuple[str, ExprNode], ...], ExprNode]:
-    # `ctx_expr` and `resume_from_expr` are always evaluated in the enclosing
-    # scope; the `start_expr` branch runs only on a fresh start, so its
-    # generated bindings stay wrapped inside the start branch.
-    hoisted: list[tuple[str, ExprNode]] = []
-    ctx_prefix, ctx_terminal = _normalize_operand(expr.ctx_expr, path=path + (0,), closed_program=closed_program)
-    hoisted.extend(ctx_prefix)
-    resume_prefix, resume_terminal = _normalize_operand(
-        expr.resume_from_expr,
-        path=path + (1,),
-        closed_program=closed_program,
-    )
-    hoisted.extend(resume_prefix)
-    start_prefix, start_terminal = _normalize_composite(
-        expr.start_expr,
-        path=path + (2,),
-        closed_program=closed_program,
-    )
-    rebuilt = dataclasses.replace(
-        expr,
-        ctx_expr=ctx_terminal,
-        resume_from_expr=resume_terminal,
-        start_expr=_wrap_bindings(start_prefix, start_terminal, expr.start_expr),
-    )
-    binding_name = _condition_binding_name(expr, role="effect", path=path)
-    return (*hoisted, (binding_name, rebuilt)), _name_expr(binding_name, expr)
 
 
 def _normalize_effect_operand(

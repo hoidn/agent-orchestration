@@ -56,7 +56,7 @@ from orchestrator.workflow.view_renderer import (
 from orchestrator.workflow.type_descriptor import _named_type_basename
 from .targets import SUPPORTED_TARGET_DSL_VERSIONS, target_dsl_uses_evaluated_execution, target_dsl_supports_parallel_map
 
-from .targets import EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION
+from .targets import PATH_MODE_RUN_REF_TARGET_DSL_VERSION
 from . import check_agents
 from .node_walk import _ast_nodes, _effect_value_children
 from .names import (
@@ -4653,7 +4653,7 @@ class _Checker:
                     self.fail("run_ref_config", "confined run-ref config must select the program target", node)
                 commit = self._value(node["commit"], env, owner=owner, loops=loops, scope=scope, allow_effect=False, provider_origins=provider_origins, command_roots=command_roots, command_index=command_index)
                 self._require_type(commit, {"kind": "primitive", "name": "String"}, "type_mismatch", node["commit"])
-            elif config.target_dsl_version != EVALUATED_EXECUTION_MIN_TARGET_DSL_VERSION or config.program.__class__.__name__ != "PathProgram":
+            elif config.target_dsl_version != PATH_MODE_RUN_REF_TARGET_DSL_VERSION or config.program.__class__.__name__ != "PathProgram":
                 self.fail("run_ref_config", "checked run-ref config must select target 2.35 path mode", node)
             self.run_ref_configs[id(node)] = config
             inputs = node.get("inputs")

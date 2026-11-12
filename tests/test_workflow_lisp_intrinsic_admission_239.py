@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
@@ -10,7 +9,6 @@ from orchestrator.workflow.evaluated.machine import evaluate_closed_program
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import (
-    FinalizeSelectedItemExpr,
     GeneratedRelpathSeedExpr,
     WithPhaseExpr,
     elaborate_expression,
@@ -31,13 +29,6 @@ PHASE_SCOPE_FIXTURE = (
     / "workflow_lisp"
     / "valid"
     / "phase_scope_stdlib_targets.orc"
-)
-DRAIN_FIXTURE = (
-    Path(__file__).parent
-    / "fixtures"
-    / "workflow_lisp"
-    / "valid"
-    / "drain_stdlib_backlog_drain_parent_terminal_reprojection.orc"
 )
 
 
@@ -138,12 +129,6 @@ def test_target_239_refuses_direct_private_expansion_heads(expression: str) -> N
             '(__generated-relpath-seed__ MissingType "artifacts/out.md" "seed")',
             GeneratedRelpathSeedExpr,
         ),
-        (
-            "(finalize-selected-item :ctx ctx :selected selected "
-            ":queue-transition transition :roadmap roadmap :plan plan "
-            ":implementation implementation)",
-            FinalizeSelectedItemExpr,
-        ),
     ),
 )
 @pytest.mark.parametrize("target", ("2.38",))
@@ -183,7 +168,6 @@ def test_completion_hides_private_and_fallback_heads_only_for_target_239(
         "__with-phase__",
         "__generated-relpath-seed__",
         "with-phase",
-        "finalize-selected-item",
     }
 
     if target == "2.39":
@@ -192,18 +176,9 @@ def test_completion_hides_private_and_fallback_heads_only_for_target_239(
         assert hidden <= {completion.label for completion in completions}
 
 
-@pytest.mark.parametrize(
-    "expression",
-    (
-        '(with-phase ctx implementation "body")',
-        "(finalize-selected-item :ctx ctx :selected selected "
-        ":queue-transition transition :roadmap roadmap :plan plan "
-        ":implementation implementation)",
-    ),
-)
-def test_target_239_refuses_bare_compatibility_heads(expression: str) -> None:
+def test_target_239_refuses_bare_compatibility_heads() -> None:
     with pytest.raises(LispFrontendCompileError) as caught:
-        _elaborate(expression, "2.39")
+        _elaborate('(with-phase ctx implementation "body")', "2.39")
 
     diagnostic = caught.value.diagnostics[0]
     assert diagnostic.code == "stdlib_import_route_required"
@@ -214,7 +189,7 @@ def test_target_239_accepts_packaged_phase_template_nested_under_user_macro(
     tmp_path: Path,
 ) -> None:
     source = PHASE_SCOPE_FIXTURE.read_text(encoding="utf-8").replace(
-        '(:target-dsl "2.35")', '(:target-dsl "2.39")'
+        '(:target-dsl "2.40")', '(:target-dsl "2.40")'
     )
     source = source.replace(
         "  (export PhaseScopeSurface phase-scope-demo)",
@@ -296,7 +271,7 @@ def test_target_239_refuses_user_macro_private_head_synthesis_with_origin_span(
 ) -> None:
     source = f'''(workflow-lisp
       (:language "0.1")
-      (:target-dsl "2.39")
+      (:target-dsl "2.40")
       (defmodule user_macro)
       (export run)
       (defmacro {macro_name} ({params}) {macro_body})
@@ -316,7 +291,7 @@ def test_target_239_refuses_caller_spliced_private_head_inside_real_stdlib_macro
 ) -> None:
     source = '''(workflow-lisp
       (:language "0.1")
-      (:target-dsl "2.39")
+      (:target-dsl "2.40")
       (defmodule caller_splice)
       (import std/phase :only (with-phase))
       (export run)
@@ -340,7 +315,7 @@ def test_target_239_refuses_caller_spliced_private_head_inside_real_stdlib_macro
 def test_target_239_rejects_fake_std_phase_private_form_origin(tmp_path: Path) -> None:
     source = '''(workflow-lisp
       (:language "0.1")
-      (:target-dsl "2.39")
+      (:target-dsl "2.40")
       (defmodule std/phase)
       (export run)
       (defmacro with-phase (ctx phase body) (__with-phase__ ctx phase body))
@@ -353,36 +328,12 @@ def test_target_239_rejects_fake_std_phase_private_form_origin(tmp_path: Path) -
     assert diagnostic.expansion_stack[-1].definition_span.start.path == str(path)
 
 
-def test_target_239_preserves_packaged_drain_seed_expansion(
-    tmp_path: Path,
-) -> None:
-    from tests.test_workflow_lisp_drain_stdlib import _command_boundaries
-
-    source = DRAIN_FIXTURE.read_text(encoding="utf-8").replace(
-        '(:target-dsl "2.35")', '(:target-dsl "2.39")'
-    )
-    source = re.sub(r"\s*:lowering inline", "", source)
-    module = re.search(r"\(defmodule\s+([^\s)]+)\)", source)
-    assert module is not None
-    path = _write_module(tmp_path, module.group(1), source)
-
-    result = _compile(
-        path,
-        tmp_path,
-        command_boundaries=_command_boundaries(
-            gap_output_type_name="GapResult"
-        ).bindings_by_name,
-    )
-
-    assert result.compiled_results_by_name[module.group(1)].typed_workflows
-
-
 def test_target_239_refuses_fake_std_module_shadowing_packaged_phase(
     tmp_path: Path,
 ) -> None:
     fake_phase = '''(workflow-lisp
       (:language "0.1")
-      (:target-dsl "2.39")
+      (:target-dsl "2.40")
       (defmodule std/phase)
       (export with-phase)
       (defmacro with-phase (ctx phase body) (__with-phase__ ctx phase body)))'''
@@ -392,7 +343,7 @@ def test_target_239_refuses_fake_std_module_shadowing_packaged_phase(
         "entry",
         '''(workflow-lisp
           (:language "0.1")
-          (:target-dsl "2.39")
+          (:target-dsl "2.40")
           (defmodule entry)
           (import std/phase :only (with-phase))
           (export run)

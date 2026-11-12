@@ -591,21 +591,13 @@ def validate_semantic_command_adapter_usage(
     binding,
 ) -> None:
     effects = set(binding.effects)
-    transition_binding = getattr(binding, "transition_binding", None)
-    allow_migration_backend_call = (
-        transition_binding is not None
-        and getattr(transition_binding, "contract_role", None) == "migration_backend"
-    )
     if (
-        (
-            "resource_transition" in effects
-            or "ledger_update" in effects
-            or binding.behavior_class == "resource_transition"
-        )
-        and not allow_migration_backend_call
+        "resource_transition" in effects
+        or "ledger_update" in effects
+        or binding.behavior_class == "resource_transition"
     ):
         raise_error(
-            "resource movement must use `resource-transition` or a certified resource_transition adapter",
+            "resource movement through a command adapter is refused; the `resource-transition` form was removed",
             code="resource_move_without_transition",
             span=expr.span,
             form_path=expr.form_path,
@@ -613,7 +605,7 @@ def validate_semantic_command_adapter_usage(
         )
     if "resume_state_reuse" in effects or binding.behavior_class == "resume_state_reuse":
         raise_error(
-            "reusable-state gating must use `resume-or-start` instead of a raw `command-result` adapter call",
+            "reusable-state gating through a raw `command-result` adapter call is refused; the `resume-or-start` form was removed",
             code="recovery_gate_without_resume_or_start",
             span=expr.span,
             form_path=expr.form_path,

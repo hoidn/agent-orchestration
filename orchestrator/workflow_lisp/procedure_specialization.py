@@ -27,22 +27,16 @@ from .expressions import (
     FieldAccessExpr,
     ExprNode,
     EnumMemberExpr,
-    FinalizeSelectedItemExpr,
     IfExpr,
     LetStarExpr,
     LiteralExpr,
     ListExpr,
-    MaterializeViewExpr,
     MatchExpr,
     NameExpr,
     ProcedureCallExpr,
-    ProduceOneOfExpr,
     ProviderResultExpr,
     RequestInputExpr,
     RecordExpr,
-    ResourceTransitionExpr,
-    ResumeOrStartExpr,
-    RunProviderPhaseExpr,
     UnionVariantExpr,
     WithPhaseExpr,
     WorkflowRefLiteralExpr,
@@ -296,10 +290,6 @@ def _private_workflow_result_type_for_expr(
         (
             ProviderResultExpr,
             CommandResultExpr,
-            RunProviderPhaseExpr,
-            ProduceOneOfExpr,
-            ResumeOrStartExpr,
-            MaterializeViewExpr,
         ),
     ):
         if isinstance(expr, ProviderResultExpr) and expr.capture_context is not None:
@@ -325,31 +315,6 @@ def _private_workflow_result_type_for_expr(
     if isinstance(expr, RequestInputExpr):
         return type_env.resolve_type(
             f"std/host::HostReply[{expr.answer_type_name}]" if expr.answer_type_name else "HumanReply",
-            span=expr.span,
-            form_path=expr.form_path,
-        )
-    if isinstance(expr, ResourceTransitionExpr):
-        if getattr(expr.spec, "mode", None) == "declared_transition":
-            transition_def = type_env.resolve_transition_declaration(
-                expr.spec.transition_ref_name or "",
-                span=expr.span,
-                form_path=expr.form_path,
-                expansion_stack=expr.expansion_stack,
-            )
-            return type_env.resolve_type(
-                transition_def.result_type_name,
-                span=expr.span,
-                form_path=expr.form_path,
-                expansion_stack=expr.expansion_stack,
-            )
-        return type_env.resolve_type(
-            "ResourceTransitionResult",
-            span=expr.span,
-            form_path=expr.form_path,
-        )
-    if isinstance(expr, FinalizeSelectedItemExpr):
-        return type_env.resolve_type(
-            "SelectedItemResult",
             span=expr.span,
             form_path=expr.form_path,
         )
@@ -567,11 +532,6 @@ def _private_workflow_binding_local_value(
             ProviderResultExpr,
             RequestInputExpr,
             AgentExpr,
-            RunProviderPhaseExpr,
-            ProduceOneOfExpr,
-            ResumeOrStartExpr,
-            ResourceTransitionExpr,
-            FinalizeSelectedItemExpr,
         ),
     ):
         return None
@@ -643,11 +603,6 @@ def _private_workflow_body_exports_step_backed_outputs(
             RequestInputExpr,
             CallExpr,
             AgentExpr,
-            RunProviderPhaseExpr,
-            ProduceOneOfExpr,
-            ResumeOrStartExpr,
-            ResourceTransitionExpr,
-            FinalizeSelectedItemExpr,
         ),
     ):
         return True

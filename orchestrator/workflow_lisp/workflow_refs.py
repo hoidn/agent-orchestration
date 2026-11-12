@@ -21,10 +21,8 @@ from .expressions import (
     MatchExpr,
     NameExpr,
     ProcedureCallExpr,
-    ProduceOneOfExpr,
     ProviderResultExpr,
     RecordExpr,
-    RunProviderPhaseExpr,
     UnionVariantExpr,
     WorkflowRefLiteralExpr,
 )
@@ -307,16 +305,6 @@ def collect_workflow_extern_names(expr: Any) -> tuple[set[str], set[str]]:
                 providers.add(node.provider.name)
             if isinstance(node.prompt, NameExpr):
                 prompts.add(node.prompt.name)
-        elif isinstance(node, RunProviderPhaseExpr):
-            if isinstance(node.provider, NameExpr):
-                providers.add(node.provider.name)
-            if isinstance(node.prompt, NameExpr):
-                prompts.add(node.prompt.name)
-        elif isinstance(node, ProduceOneOfExpr):
-            if isinstance(node.producer.provider_expr, NameExpr):
-                providers.add(node.producer.provider_expr.name)
-            if isinstance(node.producer.prompt_expr, NameExpr):
-                prompts.add(node.producer.prompt_expr.name)
         for child in iter_child_exprs(node):
             walk(child)
 

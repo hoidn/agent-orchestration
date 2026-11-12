@@ -116,13 +116,12 @@ def branch_control_summary(expr: Any, *, result_type: Any, facts: ControlFacts, 
 
 
 _CONTROL_EMITTERS = (
-    ex.IfExpr, ex.MatchExpr, ex.LoopRecurExpr, ex.ProduceOneOfExpr,
-    ex.ResumeOrStartExpr, ex.FinalizeSelectedItemExpr,
+    ex.IfExpr, ex.MatchExpr, ex.LoopRecurExpr,
 )
 
 _LEAF_EMITTERS = (
     ex.CommandResultExpr, ex.ProviderResultExpr, ex.RequestInputExpr, ex.CallExpr, ex.AgentExpr,
-    ex.RunProviderPhaseExpr, ex.ResourceTransitionExpr, ex.RecordExpr, ex.UnionVariantExpr,
+    ex.RecordExpr, ex.UnionVariantExpr,
     ex.NameExpr, ex.FieldAccessExpr, ex.LiteralExpr, ex.PhaseTargetExpr, ex.PureOpExpr,
     ex.RecordUpdateExpr, ex.LoopStateSeedExpr, ex.LoopStateUpdateExpr, ex.ProviderBundlePathExpr,
     ex.EnumMemberExpr, ex.ListExpr, ex.ListMapExpr, ex.CompilerListNonemptyHeadExpr,

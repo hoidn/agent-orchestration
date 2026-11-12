@@ -14,7 +14,6 @@ from orchestrator.workflow_lisp.diagnostics import (
     LispFrontendDiagnostic,
     render_diagnostic,
     render_diagnostics,
-    with_diagnostic_metadata,
 )
 from orchestrator.workflow_lisp.reader import read_sexpr_file
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
@@ -34,15 +33,6 @@ INVALID_PURE_EXPR_COMPUTED_IF_VARIANT_REF_FIXTURE = (
     FIXTURES / "invalid" / "pure_expr_computed_if_variant_ref_unproved.orc"
 )
 INVALID_ENUM_MEMBER_UNKNOWN_FIXTURE = FIXTURES / "invalid" / "enum_member_unknown.orc"
-INVALID_MATERIALIZE_VIEW_UNKNOWN_RENDERER_FIXTURE = (
-    FIXTURES / "invalid" / "materialize_view_unknown_renderer.orc"
-)
-INVALID_MATERIALIZE_VIEW_INVALID_VALUE_TYPE_FIXTURE = (
-    FIXTURES / "invalid" / "materialize_view_invalid_value_type.orc"
-)
-INVALID_MATERIALIZE_VIEW_TARGET_CONTRACT_INVALID_FIXTURE = (
-    FIXTURES / "invalid" / "materialize_view_target_contract_invalid.orc"
-)
 INVALID_ENTRY_PUBLICATION_NOT_ENTRYPOINT_FIXTURE = (
     FIXTURES / "invalid" / "entry_publication_not_entrypoint.orc"
 )
@@ -68,20 +58,6 @@ PURE_EXPR_HELPER_DIAGNOSTIC_FIXTURES = frozenset(
         INVALID_PURE_EXPR_OPTIONAL_ACCESS_FIXTURE,
         INVALID_PURE_EXPR_COMPUTED_IF_VARIANT_REF_FIXTURE,
     }
-)
-TRANSITION_DIAGNOSTIC_FIXTURES = (
-    (
-        FIXTURES / "invalid" / "resource_transition_unknown_transition.orc",
-        "transition_unknown",
-    ),
-    (
-        FIXTURES / "invalid" / "resource_transition_resource_kind_mismatch.orc",
-        "transition_resource_kind_mismatch",
-    ),
-    (
-        FIXTURES / "invalid" / "resource_transition_undeclared_update_target.orc",
-        "transition_update_target_unknown",
-    ),
 )
 
 
@@ -1047,8 +1023,6 @@ def test_stage3_validation_pipeline_reports_authority_as_blocking_pass(tmp_path:
     assert results[-1].diagnostics[0].validation_pass == "authority"
 
 
-
-
 def test_stage1_validation_pipeline_routes_module_compile_through_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1164,29 +1138,6 @@ def test_compile_stage3_entrypoint_routes_through_validation_pipeline(tmp_path: 
     ]
 
 
-@pytest.mark.parametrize(("path", "expected_code"), TRANSITION_DIAGNOSTIC_FIXTURES)
-def test_declared_resource_transition_diagnostics_classify_as_typecheck_validation(
-    path: Path,
-    expected_code: str,
-) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(path, validate_shared=False)
-
-    diagnostic = with_diagnostic_metadata(excinfo.value.diagnostics[0])
-    assert diagnostic.code == expected_code
-    assert diagnostic.phase == "typecheck"
-    assert diagnostic.validation_pass == "type"
-    assert diagnostic.authority_layer == "frontend"
-
-
-
-
-
-
-
-
-
-
 def test_serialize_diagnostic_preserves_typecheck_phase_for_missing_imported_workflow_bundle() -> None:
     diagnostics_module = importlib.import_module("orchestrator.workflow_lisp.diagnostics")
     serialize_diagnostic = getattr(diagnostics_module, "serialize_diagnostic")
@@ -1206,8 +1157,6 @@ def test_serialize_diagnostic_preserves_typecheck_phase_for_missing_imported_wor
 
     assert payload["code"] == "workflow_call_unknown"
     assert payload["phase"] == "typecheck"
-
-
 
 
 def test_serialize_diagnostic_classifies_missing_command_boundary_as_authority() -> None:
@@ -1709,8 +1658,6 @@ def test_compile_stage3_renders_nested_macro_notes_for_downstream_name_unknown(
     assert outer_call_index < outer_def_index < inner_call_index < inner_def_index
 
 
-
-
 def test_compile_stage3_renders_macro_expansion_notes_for_downstream_provider_parse_errors(tmp_path: Path) -> None:
     path = tmp_path / "macro_provider_result_invalid_inputs.orc"
     path.write_text(
@@ -1998,42 +1945,6 @@ def test_if_condition_not_bool_points_at_authored_operand(tmp_path: Path) -> Non
     assert line[diagnostic.span.start.column - 1 :].startswith(
         "(provider-result providers.review"
     )
-
-
-@pytest.mark.parametrize(
-    ("fixture_path", "expected_code"),
-    [
-        (INVALID_MATERIALIZE_VIEW_UNKNOWN_RENDERER_FIXTURE, "materialize_view_renderer_unknown"),
-        (INVALID_MATERIALIZE_VIEW_INVALID_VALUE_TYPE_FIXTURE, "materialize_view_value_type_invalid"),
-        (INVALID_MATERIALIZE_VIEW_TARGET_CONTRACT_INVALID_FIXTURE, "materialize_view_target_contract_invalid"),
-    ],
-)
-def test_compile_stage3_reports_materialize_view_typecheck_diagnostics(
-    tmp_path: Path,
-    fixture_path: Path,
-    expected_code: str,
-) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_entrypoint(
-            fixture_path,
-            source_roots=(fixture_path.parent,),
-            provider_externs={},
-            prompt_externs={},
-            command_boundaries={},
-            validate_shared=False,
-            workspace_root=tmp_path,
-        )
-
-    diagnostic = with_diagnostic_metadata(excinfo.value.diagnostics[0])
-
-    assert diagnostic.code == expected_code
-    assert diagnostic.phase == "typecheck"
-    assert diagnostic.validation_pass == "type"
-    assert fixture_path.name == Path(diagnostic.span.start.path).name
-
-
-
-
 
 
 @pytest.mark.parametrize(
