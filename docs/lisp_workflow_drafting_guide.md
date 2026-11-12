@@ -69,8 +69,8 @@ Ordinary `run` accepts a path whose suffix
 compares case-insensitively as `.orc` and rejects every other source with
 `.orc required` before creating state. Python authoring uses `py build/check/run`
 to generate and validate ordinary `.orc` first. The production YAML parser and PyYAML
-runtime dependency are removed. Persisted legacy runs retain state-only
-report/dashboard compatibility without source parsing. Old workflow profiles
+runtime dependency are removed. `report` and the dashboard refuse persisted
+legacy runs with `workflow_execution_profile_retired`. Old workflow profiles
 refuse `resume`, force-restart and invalidation with
 `workflow_execution_profile_retired` before changing retained run contents.
 Native `prompt resume` remains separate. The

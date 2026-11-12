@@ -862,8 +862,7 @@ creates or asks a replacement question.
   prompt, compiled fragment, document rows, shown groups, and injection.
   Content sealing and report-time loading both fail closed on a
   malformed, open, tampered, or mismatched record.
-- Attempt identity records, role digests, comparisons, and `prompt_context`
-  reports are non-authoritative. Compatible completed-result reuse uses the
+- Attempt identity records and role digests are non-authoritative. Compatible completed-result reuse uses the
   existing source, root, call-frame, bound-input, checkpoint,
   result-contract, and completed-boundary guards without reading Q3 evidence.
   A pending or failed boundary allocates a fresh attempt and evidence record.
@@ -1031,8 +1030,7 @@ defines the closed proof and attempt-receipt fields.
   `provider_phased_protocol_frame.v1`,
   `workflow_prompt_fragment_snapshot.functional.v3`,
   `provider_phased_candidate_digest_manifest.v1`,
-  `provider_phased_delivery_diagnostic.v1`, and
-  `workflow_prompt_context_report.v2`. They are validated evidence or report
+  and `provider_phased_delivery_diagnostic.v1`. They are validated evidence
   schemas, not persisted provider-configuration/checkpoint carriers and not
   workflow-state authority. Missing, malformed, downgraded, or mixed-version
   evidence fails its owning validation boundary closed.
@@ -1041,12 +1039,10 @@ defines the closed proof and attempt-receipt fields.
   delivery until its durable receipt proves delivery. Functional-v3 evidence
   is content-free and validates this distinction; it never stores prompt,
   candidate, result, submit, command, or environment bytes.
-- `workflow_prompt_context_report.v2` projects validated v1 attempts through
-  nullable `legacy_final_prompt_sha256` and validated v2 attempts through
-  `canonical_composed` plus ordered `actual_deliveries`. Comparison is
-  version-strict and may report `actual_delivery_drift`; it never substitutes
-  canonical composition for a delivered prompt. Reports remain
-  non-authoritative.
+- Historical: `workflow_prompt_context_report.v2`, the report's projection of
+  v1 and v2 attempts and their comparison, is no longer produced; `report`
+  reads evaluated runs only. Its contract and producer are kept at the git tag
+  `archive/retired-run-readers-2026-11-11`.
 - Each phased attempt owns one append-only
   `provider_prompt_phase_ledger.v1` JSONL sidecar. Its header is sequence zero,
   subsequent events are contiguous, and terminal rows close the grammar.
