@@ -11,8 +11,11 @@ Documentation routing:
 Repo expectations:
 - Read `docs/index.md` before deciding what docs or specs govern the task.
 - Use the `tmux` skill when launching long-running commands.
-- After narrow selectors, run broad, slow, or full pytest suites with
-  `pytest -q -n 16 --dist=worksteal`; keep long runs in tmux.
+- After narrow selectors, run the broad check as a random tenth of the suite by
+  default: `pytest -q -n 16 --dist=worksteal --sample 10` (about two minutes; the
+  summary prints the seed, and `--sample-seed N` reruns the same tests). Run the
+  whole suite, the same command without `--sample` (about eight minutes), before
+  merging to `main` and at roadmap phase gates; keep long runs in tmux.
 - When executing plans, use Subagent-Driven execution without asking for confirmation
 - When launching workflows for EasySpin, `/home/ollie/Documents/PtychoPINN`, or its paper repo `/home/ollie/Documents/ptychopinnpaper2`, run the workflow process in the `ptycho311` environment, including tmux-launched workflows.
 - For tmux-launched EasySpin, PtychoPINN, or paper workflows, prefer sourcing conda, activating `ptycho311`, and then invoking `python -m orchestrator` directly so tmux shows live output; if you use `conda run`, include `--no-capture-output`.
